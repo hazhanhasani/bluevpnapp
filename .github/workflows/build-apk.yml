@@ -187,12 +187,13 @@ jobs:
           for apk in dist/*.apk; do
             echo "Sending $(basename "$apk") to Telegram..."
 
+            CAPTION="$(printf '✅ BlueVPN %s\n📦 %s\n🔧 ساخت APK با موفقیت کامل شد.' \
+              "$VERSION" "$(basename "$apk")")"
+
             curl --fail --show-error --silent \
               --request POST \
               "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
               --form "chat_id=${TELEGRAM_CHAT_ID}" \
               --form "document=@${apk}" \
-              --form-string "caption=✅ BlueVPN ${VERSION}
-📦 $(basename "$apk")
-🔧 ساخت APK با موفقیت کامل شد."
+              --form-string "caption=${CAPTION}"
           done

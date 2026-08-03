@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
-  "version": "0.4.7",
-  "channel": "real-tunnel-verification",
-  "description": "Only reports connected after an HTTP request succeeds through the local Xray proxy, forces VPN/local-proxy mode, and resets connection duration for every newly verified session."
+  "version": "0.4.8",
+  "channel": "build-fix-bot-v2.4",
+  "description": "BlueVPN 0.4.8 with Telegram deployment bot v2.4. Secret checks are removed from deploy/build and all jobs run in the background."
 }

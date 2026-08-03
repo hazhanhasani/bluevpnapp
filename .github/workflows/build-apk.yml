@@ -156,14 +156,35 @@ jobs:
         working-directory: upstream/V2rayNG
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           chmod +x gradlew
 
           ./gradlew :app:assemblePlaystoreRelease \
             "-PABI_FILTERS=arm64-v8a;armeabi-v7a" \
             --stacktrace \
-            --no-daemon
+            --no-daemon \
+            2>&1 | tee "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Show Android compiler errors
+        if: failure()
+        shell: bash
+        run: |
+          echo "========== Android build errors =========="
+          if [ -f android-build.log ]; then
+            grep -E -i               "e: |error:|unresolved reference|cannot access|compilation error|failed"               android-build.log               | tail -n 120               || tail -n 160 android-build.log
+          else
+            echo "android-build.log was not created."
+          fi
+
+      - name: Upload failed Android build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlueVPN-android-build-log
+          path: android-build.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Decode permanent signing key
         shell: bash

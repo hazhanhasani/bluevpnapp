@@ -1,4 +1,4 @@
-name: Build BlueVPN APK
+name: Build Signed BlueVPN APK
 
 on:
   push:
@@ -14,9 +14,31 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
 
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
     steps:
       - name: Checkout BlueVPN project
         uses: actions/checkout@v4
+
+      - name: Check permanent signing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not configured in GitHub Actions secrets."
+              exit 1
+            fi
+          done
 
       - name: Read branding configuration
         id: config
@@ -44,6 +66,7 @@ jobs:
       - name: Install Android NDK
         shell: bash
         run: |
+          set -euo pipefail
           echo "y" | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
             --channel=0 \
             --install "ndk;29.0.14206865"
@@ -55,12 +78,11 @@ jobs:
 
           path = Path("upstream/V2rayNG/app/build.gradle.kts")
           text = path.read_text(encoding="utf-8")
+          marker = "android {"
 
           if 'ndkVersion = "29.0.14206865"' not in text:
-              marker = 'android {'
               if marker not in text:
                   raise SystemExit("android block not found")
-
               text = text.replace(
                   marker,
                   marker + '\n    ndkVersion = "29.0.14206865"',
@@ -73,6 +95,7 @@ jobs:
         working-directory: upstream
         shell: bash
         run: |
+          set -euo pipefail
           bash compile-hevtun.sh
           cp -r libs V2rayNG/app/
 
@@ -83,8 +106,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Submodules can be checked out without their tag references.
-          # Fetch every release tag explicitly before calling git describe.
           git fetch origin \
             --force \
             --prune \
@@ -92,11 +113,9 @@ jobs:
             "+refs/tags/*:refs/tags/*"
 
           CURRENT_TAG="$(git tag --points-at HEAD | sort -V | tail -n 1)"
-
           if [ -z "$CURRENT_TAG" ]; then
             CURRENT_TAG="$(git describe --tags --abbrev=0)"
           fi
-
           if [ -z "$CURRENT_TAG" ]; then
             echo "Could not determine AndroidLibXrayLite release tag."
             exit 1
@@ -122,7 +141,7 @@ jobs:
       - name: Install branding tools
         run: pip install pillow
 
-      - name: Apply BlueVPN branding
+      - name: Apply BlueVPN custom UI and features
         run: python scripts/prepare_android.py
 
       - name: Setup Java 21
@@ -133,61 +152,116 @@ jobs:
           cache: gradle
           cache-dependency-path: upstream/V2rayNG/**/*.gradle*
 
-      - name: Build BlueVPN debug APK
+      - name: Build unsigned release APKs
         working-directory: upstream/V2rayNG
         shell: bash
         run: |
+          set -euo pipefail
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           chmod +x gradlew
 
-          ./gradlew :app:assemblePlaystoreDebug \
+          ./gradlew :app:assemblePlaystoreRelease \
             "-PABI_FILTERS=arm64-v8a;armeabi-v7a" \
             --stacktrace \
             --no-daemon
 
-      - name: Collect APK files
+      - name: Decode permanent signing key
         shell: bash
         run: |
-          mkdir -p dist
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bluevpn-signing"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" \
+            | base64 --decode \
+            > "$RUNNER_TEMP/bluevpn-signing/BlueVPN-release.jks"
 
-          find upstream/V2rayNG/app/build/outputs/apk \
-            -type f \
-            -name "*.apk" \
-            -print \
-            -exec cp "{}" dist/ \;
+          keytool -list \
+            -keystore "$RUNNER_TEMP/bluevpn-signing/BlueVPN-release.jks" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" \
+            >/dev/null
 
-          echo "Generated files:"
-          ls -lah dist
+      - name: Align and sign APKs permanently
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          if ! compgen -G "dist/*.apk" > /dev/null; then
-            echo "No APK file was generated."
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/37.0.0"
+          KEYSTORE="$RUNNER_TEMP/bluevpn-signing/BlueVPN-release.jks"
+          mkdir -p dist "$RUNNER_TEMP/bluevpn-aligned"
+
+          mapfile -t APKS < <(
+            find upstream/V2rayNG/app/build/outputs/apk \
+              -type f \
+              -name "*.apk" \
+              | sort
+          )
+
+          if [ "${#APKS[@]}" -eq 0 ]; then
+            echo "No release APK was generated."
             exit 1
           fi
 
-      - name: Upload BlueVPN APK artifact
+          for apk in "${APKS[@]}"; do
+            filename="$(basename "$apk")"
+            clean_name="${filename%-unsigned.apk}.apk"
+            clean_name="${clean_name/BlueVPN_/BlueVPN_}"
+            aligned="$RUNNER_TEMP/bluevpn-aligned/${clean_name%.apk}-aligned.apk"
+            signed="dist/$clean_name"
+
+            "$BUILD_TOOLS/zipalign" -p -f 4 "$apk" "$aligned"
+
+            "$BUILD_TOOLS/apksigner" sign \
+              --ks "$KEYSTORE" \
+              --ks-key-alias "$ANDROID_KEY_ALIAS" \
+              --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+              --key-pass env:ANDROID_KEY_PASSWORD \
+              --out "$signed" \
+              "$aligned"
+
+            "$BUILD_TOOLS/apksigner" verify \
+              --verbose \
+              --print-certs \
+              "$signed"
+
+            echo "Signed: $signed"
+          done
+
+          echo "Generated signed APKs:"
+          ls -lah dist
+
+      - name: Create SHA256 checksums
+        shell: bash
+        run: |
+          cd dist
+          sha256sum *.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload signed BlueVPN APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BlueVPN-${{ steps.config.outputs.version }}
-          path: dist/*.apk
+          name: BlueVPN-${{ steps.config.outputs.version }}-signed
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 30
 
-      - name: Send APK files to Telegram
+      - name: Send signed APK files to Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           VERSION: ${{ steps.config.outputs.version }}
         shell: bash
         run: |
-          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+          set -euo pipefail
+
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
             echo "Telegram secrets are not configured; skipping Telegram delivery."
             exit 0
           fi
 
           for apk in dist/*.apk; do
-            echo "Sending $(basename "$apk") to Telegram..."
-
-            CAPTION="$(printf '✅ BlueVPN %s\n📦 %s\n🔧 ساخت APK با موفقیت کامل شد.' \
+            CAPTION="$(printf '✅ BlueVPN %s\n📦 %s\n🔐 امضای دائمی فعال است؛ بروزرسانی‌های بعدی بدون حذف برنامه نصب می‌شوند.' \
               "$VERSION" "$(basename "$apk")")"
 
             curl --fail --show-error --silent \

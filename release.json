@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
-  "version": "0.1.0",
-  "channel": "initial",
-  "description": "BlueVPN control panel and Android build bootstrap"
+  "version": "0.4.1",
+  "channel": "stable-auto-fix",
+  "description": "BlueVPN 0.4.1 with Railway watch patterns so Android builds do not restart the permanent Telegram deployment bot."
 }

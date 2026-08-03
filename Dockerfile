@@ -9,7 +9,9 @@ RUN apt-get update \
        git \
        ca-certificates \
        curl \
-       openjdk-17-jre-headless \
+       openjdk-21-jre-headless \
+    && java -version \
+    && keytool -help >/dev/null \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

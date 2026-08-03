@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
-  "version": "0.4.1",
-  "channel": "stable-auto-fix",
-  "description": "BlueVPN 0.4.1 with Railway watch patterns so Android builds do not restart the permanent Telegram deployment bot."
+  "version": "0.4.4",
+  "channel": "compact-smart-failover",
+  "description": "Compact no-scroll home dashboard and location-level automatic failover across every configuration in the selected location."
 }

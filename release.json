@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
-  "version": "0.4.5",
-  "channel": "strict-location-fast-check",
-  "description": "Strict location detection from configuration names, isolated custom groups, no cross-location fallback, and fast parallel connection checks."
+  "version": "0.4.7",
+  "channel": "real-tunnel-verification",
+  "description": "Only reports connected after an HTTP request succeeds through the local Xray proxy, forces VPN/local-proxy mode, and resets connection duration for every newly verified session."
 }

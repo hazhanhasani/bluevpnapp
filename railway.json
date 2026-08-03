@@ -14,6 +14,7 @@
     "healthcheckPath": "/health",
     "healthcheckTimeout": 120,
     "restartPolicyType": "ON_FAILURE",
-    "restartPolicyMaxRetries": 10
+    "restartPolicyMaxRetries": 10,
+    "startCommand": "/bin/sh -c \"export PYTHONPATH=/app; exec python /opt/bluevpn_bot/run.py\""
   }
 }

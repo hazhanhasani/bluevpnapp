@@ -88,12 +88,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "support_url": os.getenv("SUPPORT_URL", ""),
     "renew_url": os.getenv("RENEW_URL", ""),
     "default_subscription_url": os.getenv("DEFAULT_SUBSCRIPTION_URL", ""),
-    "latest_version": "0.4.2",
+    "latest_version": "0.4.6",
     "minimum_version": "0.4.0",
     "force_update": False,
     "apk_url": os.getenv("APK_URL", ""),
     "announcement_enabled": True,
-    "announcement_id": "welcome-042",
+    "announcement_id": "welcome-046",
     "announcement_title": "به BlueVPN خوش آمدید",
     "announcement_message": (
         "برای افزودن اشتراک، لینک اختصاصی پاسارگارد خود را وارد کنید."
@@ -264,7 +264,7 @@ def require_admin(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
-app = FastAPI(title="BlueVPN Control Panel", version="0.4.2")
+app = FastAPI(title="BlueVPN Control Panel", version="0.4.6")
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("SESSION_SECRET") or secrets.token_urlsafe(48),

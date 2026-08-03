@@ -27,33 +27,72 @@ def patch_build_gradle() -> None:
         text = text.replace(marker, marker + field, 1)
     path.write_text(text, encoding="utf-8")
 
-def patch_strings() -> None:
-    path = APP / "src/main/res/values/strings.xml"
-    text = path.read_text(encoding="utf-8")
-    text = re.sub(
-        r'(<string name="app_name"[^>]*>).*?(</string>)',
-        rf'\1{escape(CONFIG["app_name"])}\2',
-        text,
-        count=1,
+
+def _upsert_android_string(xml_text: str, name: str, value: str) -> str:
+    """Replace a string resource if present; otherwise append it once."""
+    escaped_value = escape(value)
+    pattern = re.compile(
+        rf'(<string\s+name="{re.escape(name)}"[^>]*>).*?(</string>)',
+        flags=re.DOTALL,
     )
-    path.write_text(text, encoding="utf-8")
+
+    if pattern.search(xml_text):
+        return pattern.sub(
+            lambda match: f"{match.group(1)}{escaped_value}{match.group(2)}",
+            xml_text,
+            count=1,
+        )
+
+    closing_tag = "</resources>"
+    if closing_tag not in xml_text:
+        raise RuntimeError("Invalid Android strings XML: </resources> not found")
+
+    addition = f'    <string name="{name}">{escaped_value}</string>\n'
+    return xml_text.replace(closing_tag, addition + closing_tag, 1)
+
+
+def patch_strings() -> None:
+    # Change the default app name.
+    default_path = APP / "src/main/res/values/strings.xml"
+    default_text = default_path.read_text(encoding="utf-8")
+    default_text = _upsert_android_string(
+        default_text,
+        "app_name",
+        CONFIG["app_name"],
+    )
+    default_path.write_text(default_text, encoding="utf-8")
+
+    # v2rayNG already contains Persian resources. Edit the existing file
+    # instead of defining the same resource names in a second XML file.
     fa_dir = APP / "src/main/res/values-fa"
     fa_dir.mkdir(parents=True, exist_ok=True)
-    (fa_dir / "bluevpn_strings.xml").write_text(
-        '''<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_widget_name">اتصال سریع</string>
-    <string name="app_tile_name">BlueVPN</string>
-    <string name="connection_connected">متصل است؛ برای بررسی اتصال لمس کنید</string>
-    <string name="connection_not_connected">اتصال برقرار نیست</string>
-    <string name="title_sub_setting">مدیریت اشتراک</string>
-    <string name="title_sub_update">به‌روزرسانی اشتراک</string>
-    <string name="import_subscription_success">اشتراک با موفقیت افزوده شد</string>
-    <string name="import_subscription_failure">افزودن اشتراک ناموفق بود</string>
-</resources>
-''',
-        encoding="utf-8",
-    )
+    fa_path = fa_dir / "strings.xml"
+
+    if fa_path.exists():
+        fa_text = fa_path.read_text(encoding="utf-8")
+    else:
+        fa_text = '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
+
+    translations = {
+        "app_widget_name": "اتصال سریع",
+        "app_tile_name": "BlueVPN",
+        "connection_connected": "متصل است؛ برای بررسی اتصال لمس کنید",
+        "connection_not_connected": "اتصال برقرار نیست",
+        "title_sub_setting": "مدیریت اشتراک",
+        "title_sub_update": "به‌روزرسانی اشتراک",
+        "import_subscription_success": "اشتراک با موفقیت افزوده شد",
+        "import_subscription_failure": "افزودن اشتراک ناموفق بود",
+    }
+
+    for name, value in translations.items():
+        fa_text = _upsert_android_string(fa_text, name, value)
+
+    fa_path.write_text(fa_text, encoding="utf-8")
+
+    # Remove the obsolete file created by the first BlueVPN script.
+    duplicate_file = fa_dir / "bluevpn_strings.xml"
+    if duplicate_file.exists():
+        duplicate_file.unlink()
 
 def patch_manifest() -> None:
     path = APP / "src/main/AndroidManifest.xml"

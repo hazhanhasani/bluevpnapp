@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
-  "version": "0.4.4",
-  "channel": "compact-smart-failover",
-  "description": "Compact no-scroll home dashboard and location-level automatic failover across every configuration in the selected location."
+  "version": "0.4.5",
+  "channel": "strict-location-fast-check",
+  "description": "Strict location detection from configuration names, isolated custom groups, no cross-location fallback, and fast parallel connection checks."
 }

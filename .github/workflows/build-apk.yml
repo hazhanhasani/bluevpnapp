@@ -32,7 +32,7 @@ jobs:
           ref: ${{ steps.config.outputs.upstream_ref }}
           path: upstream
           submodules: recursive
-          fetch-depth: 1
+          fetch-depth: 0
 
       - name: Setup Android SDK 37
         uses: android-actions/setup-android@v4
@@ -60,6 +60,7 @@ jobs:
               marker = 'android {'
               if marker not in text:
                   raise SystemExit("android block not found")
+
               text = text.replace(
                   marker,
                   marker + '\n    ndkVersion = "29.0.14206865"',
@@ -75,14 +76,35 @@ jobs:
           bash compile-hevtun.sh
           cp -r libs V2rayNG/app/
 
-      - name: Find AndroidLibXrayLite release
+      - name: Fetch AndroidLibXrayLite release tag
         id: xray
         working-directory: upstream/AndroidLibXrayLite
         shell: bash
         run: |
-          CURRENT_TAG="$(git describe --tags --abbrev=0)"
-          echo "tag=$CURRENT_TAG" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+
+          # Submodules can be checked out without their tag references.
+          # Fetch every release tag explicitly before calling git describe.
+          git fetch origin \
+            --force \
+            --prune \
+            --tags \
+            "+refs/tags/*:refs/tags/*"
+
+          CURRENT_TAG="$(git tag --points-at HEAD | sort -V | tail -n 1)"
+
+          if [ -z "$CURRENT_TAG" ]; then
+            CURRENT_TAG="$(git describe --tags --abbrev=0)"
+          fi
+
+          if [ -z "$CURRENT_TAG" ]; then
+            echo "Could not determine AndroidLibXrayLite release tag."
+            exit 1
+          fi
+
+          echo "AndroidLibXrayLite commit: $(git rev-parse --short HEAD)"
           echo "AndroidLibXrayLite tag: $CURRENT_TAG"
+          echo "tag=$CURRENT_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Download libv2ray
         uses: robinraju/release-downloader@v1.13
@@ -117,6 +139,7 @@ jobs:
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           chmod +x gradlew
+
           ./gradlew :app:assemblePlaystoreDebug \
             "-PABI_FILTERS=arm64-v8a;armeabi-v7a" \
             --stacktrace \
@@ -169,7 +192,7 @@ jobs:
               "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
               --form "chat_id=${TELEGRAM_CHAT_ID}" \
               --form "document=@${apk}" \
-              --form "caption=✅ BlueVPN ${VERSION}
-          📦 $(basename "$apk")
-          🔧 GitHub Actions build completed successfully."
+              --form-string "caption=✅ BlueVPN ${VERSION}
+📦 $(basename "$apk")
+🔧 ساخت APK با موفقیت کامل شد."
           done

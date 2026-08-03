@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>مدیریت BlueVPN</title><link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><img src="/static/logo.png" alt="BlueVPN">
+    <div><b>BlueVPN</b><span>مرکز مدیریت اپلیکیشن</span></div>
+  </div>
+  <form method="post" action="/admin/logout"><button class="secondary">خروج</button></form>
+</header>
+<main class="container">
+  {% if saved %}<div class="alert success">تنظیمات با موفقیت ذخیره شد.</div>{% endif %}
+  <section class="grid stats">
+    <article><span>نسخه فعلی</span><strong>{{ settings.latest_version }}</strong></article>
+    <article><span>حالت تعمیرات</span><strong>{{ "فعال" if settings.maintenance else "غیرفعال" }}</strong></article>
+    <article><span>آپدیت اجباری</span><strong>{{ "فعال" if settings.force_update else "غیرفعال" }}</strong></article>
+  </section>
+
+  <form method="post" action="/admin/settings">
+    <section class="card">
+      <h2>تنظیمات برنامه</h2>
+      <div class="form-grid">
+        <div><label>نام برنامه</label><input name="app_name" value="{{ settings.app_name }}" required></div>
+        <div><label>نسخه جدید</label><input name="latest_version" value="{{ settings.latest_version }}" required></div>
+        <div><label>حداقل نسخه مجاز</label><input name="minimum_version" value="{{ settings.minimum_version }}" required></div>
+        <div><label>لینک APK</label><input name="apk_url" value="{{ settings.apk_url }}" placeholder="https://.../BlueVPN.apk"></div>
+        <div><label>لینک پشتیبانی</label><input name="support_url" value="{{ settings.support_url }}" placeholder="https://t.me/..."></div>
+        <div><label>لینک تمدید</label><input name="renew_url" value="{{ settings.renew_url }}" placeholder="https://..."></div>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" name="maintenance" {% if settings.maintenance %}checked{% endif %}> حالت تعمیرات</label>
+        <label><input type="checkbox" name="force_update" {% if settings.force_update %}checked{% endif %}> آپدیت اجباری</label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>اشتراک پیش‌فرض اختیاری</h2>
+      <p class="hint">برای مشتریان، لینک اختصاصی هر فرد را با Deep Link وارد کنید. این فیلد فقط برای تست یا اشتراک عمومی است.</p>
+      <label>Subscription URL</label>
+      <input name="default_subscription_url" value="{{ settings.default_subscription_url }}" placeholder="https://panel.example.com/sub/TOKEN">
+    </section>
+
+    <section class="card">
+      <h2>اطلاعیه داخل برنامه</h2>
+      <div class="form-grid">
+        <div><label>شناسه اطلاعیه</label><input name="announcement_id" value="{{ settings.announcement_id }}"></div>
+        <div><label>عنوان</label><input name="announcement_title" value="{{ settings.announcement_title }}"></div>
+      </div>
+      <label>متن اطلاعیه</label>
+      <textarea name="announcement_message" rows="4">{{ settings.announcement_message }}</textarea>
+      <div class="checks">
+        <label><input type="checkbox" name="announcement_enabled" {% if settings.announcement_enabled %}checked{% endif %}> نمایش اطلاعیه</label>
+      </div>
+    </section>
+    <button type="submit" class="save">ذخیره همه تنظیمات</button>
+  </form>
+
+  <section class="card">
+    <h2>ساخت لینک افزودن اشتراک</h2>
+    <p class="hint">Subscription اختصاصی مشتری را وارد کنید.</p>
+    <div class="inline"><input id="subUrl" placeholder="https://panel.example.com/sub/USER_TOKEN">
+      <button type="button" onclick="makeLink()">ساخت لینک</button></div>
+    <textarea id="deepLink" rows="2" readonly placeholder="bluevpn://install-sub?..."></textarea>
+  </section>
+
+  <section class="card">
+    <h2>آدرس‌های سرویس</h2>
+    <code>/api/v1/mobile/config</code>
+    <code>/api/v1/deeplink?url=SUBSCRIPTION_URL</code>
+    <code>/open-sub?url=SUBSCRIPTION_URL</code>
+  </section>
+</main>
+<script>
+async function makeLink(){
+  const url=document.getElementById('subUrl').value.trim();
+  if(!url)return;
+  const r=await fetch('/api/v1/deeplink?url='+encodeURIComponent(url));
+  const d=await r.json();
+  document.getElementById('deepLink').value=d.deep_link||d.detail||'';
+}
+</script>
+</body></html>

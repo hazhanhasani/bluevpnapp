@@ -1,0 +1,83 @@
+name: Build BlueVPN APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout BlueVPN project
+        uses: actions/checkout@v4
+
+      - name: Read branding config
+        id: config
+        shell: bash
+        run: |
+          echo "upstream_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["upstream_ref"])')" >> "$GITHUB_OUTPUT"
+          echo "version=$(python -c 'import json; print(json.load(open("branding/app.json"))["version_name"])')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout official v2rayNG source
+        uses: actions/checkout@v4
+        with:
+          repository: 2dust/v2rayNG
+          ref: ${{ steps.config.outputs.upstream_ref }}
+          path: upstream
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install branding tools
+        run: pip install pillow
+
+      - name: Apply BlueVPN branding
+        run: python scripts/prepare_android.py
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+          cache-dependency-path: upstream/V2rayNG/**/*.gradle*
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-37" "build-tools;37.0.0"
+
+      - name: Build installable test APK
+        working-directory: upstream/V2rayNG
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assemblePlaystoreDebug "-PABI_FILTERS=arm64-v8a;armeabi-v7a" --stacktrace
+
+      - name: Collect APK files
+        shell: bash
+        run: |
+          mkdir -p dist
+          find upstream/V2rayNG/app/build/outputs/apk -type f -name "*.apk" -print -exec cp {} dist/ \;
+          ls -lah dist
+
+      - name: Upload BlueVPN APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlueVPN-${{ steps.config.outputs.version }}
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 30

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ورود مدیر BlueVPN</title><link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="centered">
+  <main class="login-card">
+    <img src="/static/logo.png" class="logo" alt="BlueVPN">
+    <h1>پنل مدیریت BlueVPN</h1>
+    <p class="muted">برای مدیریت برنامه وارد شوید.</p>
+    {% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
+    <form method="post" action="/admin/login">
+      <label>نام کاربری</label><input name="username" autocomplete="username" required>
+      <label>رمز عبور</label><input name="password" type="password" autocomplete="current-password" required>
+      <button type="submit">ورود به پنل</button>
+    </form>
+  </main>
+</body></html>

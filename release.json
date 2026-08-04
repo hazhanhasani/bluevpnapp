@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
-  "version": "0.4.8",
-  "channel": "build-fix-bot-v2.4",
-  "description": "BlueVPN 0.4.8 with Telegram deployment bot v2.4. Secret checks are removed from deploy/build and all jobs run in the background."
+  "version": "0.4.9",
+  "channel": "live-location-switch",
+  "description": "Automatically switches an active VPN connection to a newly selected location without requiring the user to disconnect and reconnect."
 }

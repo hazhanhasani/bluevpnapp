@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.0",
-  "channel": "platform-build-error-telegram",
-  "description": "BlueVPN Platform 1.0.0 with automatic Telegram delivery of the compiler-error summary and complete Android build log on failure."
+  "version": "1.0.1",
+  "channel": "kotlin-material-button-fix",
+  "description": "Fix GitHub Actions build #20 by replacing the unresolved MaterialButton textAllCaps Kotlin property with isAllCaps. Automatic Telegram build-error reporting remains enabled."
 }

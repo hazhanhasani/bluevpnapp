@@ -1,13 +1,17 @@
-BlueVPN Build Error Reporter v1
+BlueVPN Build Fix 1.0.1
+
+اصلاح خطای Build شماره 20:
+
+BlueVpnSubscriptionsActivity.kt
+Unresolved reference: textAllCaps
+
+اصلاح انجام‌شده:
+textAllCaps=false
+به:
+isAllCaps=false
+
+Version: 1.0.1
+VersionCode: 21
 
 این ZIP را مستقیم برای ربات Deploy ارسال کنید.
-
-پس از نصب، اگر GitHub Actions شکست بخورد، ربات تلگرام خودکار دریافت می‌کند:
-- خلاصه خطای کامپایل
-- شماره Build و Commit
-- لینک Run
-- فایل کامل android-build.log
-- فایل کوچک خلاصه خطا
-
-برای تست، پس از نصب دکمه «ساخت دوباره» را بزنید.
-Secretهای TELEGRAM_BOT_TOKEN و TELEGRAM_CHAT_ID باید از قبل در GitHub موجود باشند.
+پس از نصب، Build جدید به‌صورت خودکار شروع می‌شود.

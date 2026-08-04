@@ -234,7 +234,7 @@ def _connect_with_retry(url: str) -> Engine:
         int(
             os.getenv(
                 "DB_CONNECT_RETRIES",
-                "45" if _railway_detected() else "3",
+                "3",
             )
         ),
     )

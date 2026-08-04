@@ -1,13 +1,19 @@
-BlueVPN Healthcheck Bot Fix 1.0.4
+BlueVPN Bootstrap Startup Fix 1.0.5
 
 این ZIP را مستقیم برای ربات Deploy ارسال کنید.
 
-اصلاح:
-- وب‌سرور و /health قبل از ربات تلگرام اجرا می‌شوند.
-- تداخل Polling نسخه قدیمی و جدید دیگر Healthcheck را خراب نمی‌کند.
-- ربات در Task جداگانه هر ۱۵ ثانیه تلاش مجدد می‌کند.
-- خطای تلگرام باعث خاموش‌شدن وب، API یا دیتابیس نمی‌شود.
-- اتصال PostgreSQL و Database Autopilot نسخه قبل حفظ شده است.
+اصلاحات:
+- Railway مسیر /live را بررسی می‌کند و پورت فوراً باز می‌شود.
+- ربات، Backend، PostgreSQL و Migration دیگر قبل از بازشدن PORT اجرا نمی‌شوند.
+- PostgreSQL و ساخت جداول در پس‌زمینه با تلاش مجدد انجام می‌شود.
+- تا آماده‌شدن PostgreSQL، پنل خالی یا SQLite موقت نمایش داده نمی‌شود.
+- /startup-status علت واقعی راه‌اندازی را نشان می‌دهد.
+- خطای پاک‌سازی‌شده راه‌اندازی برای مدیر تلگرام ارسال می‌شود.
+- /health بعد از آماده‌شدن Backend سلامت واقعی دیتابیس را نشان می‌دهد.
+
+متغیر درست:
+DATABASE_URL=${{Postgres.DATABASE_PRIVATE_URL}}
+DB_REQUIRE_POSTGRES=true
+ALLOW_SQLITE_FALLBACK=false
 
 APK جدید لازم نیست.
-پس از Deploy خروجی /health باید version=1.0.4 و database.mode=postgres باشد.

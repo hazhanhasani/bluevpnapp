@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.4",
-  "channel": "healthcheck-telegram-decoupling",
-  "description": "Start FastAPI/Uvicorn before Telegram polling so Railway healthchecks can pass during zero-downtime deployments. Telegram startup and polling now run independently with automatic retries while the old replica drains."
+  "version": "1.0.5",
+  "channel": "bootstrap-startup-diagnostics",
+  "description": "Start a lightweight ASGI listener before importing the Telegram bot, database, migrations, or FastAPI backend. Railway now checks /live, while backend startup retries safely in the background and reports sanitized startup errors to Telegram and /startup-status."
 }

@@ -1,14 +1,14 @@
 {
   "name": "BlueVPN",
-  "version": "2.1.0",
-  "channel": "premium-ui-smart-connect",
-  "description": "BlueVPN 2.1 premium redesign with mode-aware Smart Connect, gaming and streaming profiles, favorite locations, connection health scores, connection history, welcome experience, modern home/account/server/settings UI, and smoother navigation.",
+  "version": "2.1.1",
+  "channel": "premium-dialog-install-loop-fix",
+  "description": "Premium custom in-app dialogs, stale update state cleanup after installation, semantic-version-first comparison, and one-time Android installer launch.",
   "build_id": "20260804171929",
   "built_at": "2026-08-04T17:19:29.470253+00:00",
-  "android_version": "2.1.<latest_release_patch_plus_one>",
+  "android_version": "2.1.<latest_release_patch_plus_one_with_floor_1>",
   "android_version_code": "21000 + release_patch",
   "deploy_bot_version": "2.5-push-trigger",
   "build_trigger": "git-empty-commit-push",
   "update_source": "github_releases",
-  "version_strategy": "First release is 2.1.0; then increment latest v2.1.N to v2.1.(N+1)."
+  "version_strategy": "This fix starts at 2.1.1. If latest release is v2.1.N, publish v2.1.(N+1)."
 }

@@ -100,6 +100,10 @@ class Plan(Base):
     device_limit: Mapped[int] = mapped_column(Integer, default=1)
     group_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
     panel_id: Mapped[int] = mapped_column(

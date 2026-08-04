@@ -120,6 +120,10 @@
 
 <section id="plans" class="card">
   <h2>پلن‌های فروش چندپنلی</h2>
+  <p class="hint">
+    حذف پلن، آن را از فروش و انتخاب‌های پنل مخفی می‌کند؛ سفارش‌ها و سوابق
+    قبلی برای جلوگیری از خرابی اطلاعات باقی می‌مانند.
+  </p>
   <form method="post" action="/admin/plans">
     <div class="form-grid">
       <div><label>عنوان</label><input name="title" required></div>
@@ -164,9 +168,14 @@
           <span>{{ 'تقسیم حجم' if x.marzban_quota_mode=='split' else 'حجم کامل دوگانه' }}</span>
         {% endif %}
       </div>
-      <form method="post" action="/admin/plans/{{ x.id }}/toggle">
-        <button class="secondary">{{ 'غیرفعال‌کردن' if x.active else 'فعال‌کردن' }}</button>
-      </form>
+      <div class="actions">
+        <form method="post" action="/admin/plans/{{ x.id }}/toggle">
+          <button class="secondary">{{ 'غیرفعال‌کردن' if x.active else 'فعال‌کردن' }}</button>
+        </form>
+        <form method="post" action="/admin/plans/{{ x.id }}/delete" onsubmit="return confirm('این پلن از فروش و پنل حذف شود؟ سوابق قبلی حفظ می‌شوند.');">
+          <button class="danger" type="submit">حذف پلن</button>
+        </form>
+      </div>
     </article>
   {% else %}
     <p>پلنی تعریف نشده است.</p>

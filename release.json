@@ -1,10 +1,10 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.11",
-  "channel": "dual-panel-transparent-subscription-and-config-compatibility",
-  "description": "Provision and synchronize each customer on PasarGuard and an optional regular-admin Marzban panel, expose one neutral BlueVPN subscription that merges and deduplicates both upstream sources, hide panel names, auto-discover Marzban protocols/inbounds, and avoid false Android disconnects caused by blocked public probe domains.",
-  "build_id": "20260804104721",
-  "built_at": "2026-08-04T10:47:21.588788+00:00",
-  "android_version": "1.0.11",
-  "android_version_code": 25
+  "version": "1.0.12",
+  "channel": "kotlin-delay-import-and-safe-plan-delete",
+  "description": "Fix unresolved kotlinx.coroutines.delay and add safe plan deletion while preserving historical orders and customer relationships.",
+  "build_id": "20260804110832",
+  "built_at": "2026-08-04T11:08:32.401567+00:00",
+  "android_version": "1.0.12",
+  "android_version_code": 26
 }

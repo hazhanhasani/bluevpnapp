@@ -16,8 +16,8 @@ from .integrations import IntegrationError,combined_subscription,create_invoice,
 from .models import AppSetting,Customer,CustomerDevice,CustomerSession,MarzbanPanel,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'latest_version':'1.0.11','latest_version_code':25,'minimum_version':'0.4.9','force_update':False,'apk_url':os.getenv('APK_URL',''),'update_title':'نسخه جدید BlueVPN','update_message':'نسخه جدید آماده دانلود است.','announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Platform',version='1.0.11'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'latest_version':'1.0.12','latest_version_code':26,'minimum_version':'0.4.9','force_update':False,'apk_url':os.getenv('APK_URL',''),'update_title':'نسخه جدید BlueVPN','update_message':'نسخه جدید آماده دانلود است.','announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
+app=FastAPI(title='BlueVPN Platform',version='1.0.12'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -170,7 +170,7 @@ def health():
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
-        'version':'1.0.11',
+        'version':'1.0.12',
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }
@@ -212,7 +212,7 @@ def logout(authorization:str|None=Header(None),x_device_id:str|None=Header(None)
     return {'success':True}
 @app.get('/api/v1/plans')
 def plans(db:Session=Depends(get_db)):
-    rows=db.scalars(select(Plan).where(Plan.active.is_(True)).order_by(Plan.sort_order,Plan.price_toman)).all();return {'success':True,'plans':[{'id':x.id,'title':x.title,'description':x.description,'price_toman':x.price_toman,'duration_days':x.duration_days,'data_limit_gb':x.data_limit_gb,'device_limit':x.device_limit} for x in rows]}
+    rows=db.scalars(select(Plan).where(Plan.active.is_(True),Plan.deleted.is_(False)).order_by(Plan.sort_order,Plan.price_toman)).all();return {'success':True,'plans':[{'id':x.id,'title':x.title,'description':x.description,'price_toman':x.price_toman,'duration_days':x.duration_days,'data_limit_gb':x.data_limit_gb,'device_limit':x.device_limit} for x in rows]}
 @app.get('/api/v1/account')
 async def account(c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
     c=db.get(Customer,c.id);await sync_customer(db,c,settings(db)['public_base_url']);return {'success':True,'account':account_json(c)}
@@ -222,7 +222,7 @@ async def account_sync(c:Customer=Depends(current_customer),db:Session=Depends(g
 @app.post('/api/v1/orders')
 async def create_order(request:Request,c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
     b=await request.json();plan=db.get(Plan,int(b.get('plan_id',0)))
-    if not plan or not plan.active:raise HTTPException(404,detail={'code':'PLAN_NOT_FOUND','message':'پلن پیدا نشد'})
+    if not plan or not plan.active or plan.deleted:raise HTTPException(404,detail={'code':'PLAN_NOT_FOUND','message':'پلن پیدا نشد'})
     c=db.get(Customer,c.id);order=Order(order_code=f'BV-{c.id}-{uuid.uuid4().hex[:13].upper()}',customer_id=c.id,plan_id=plan.id,amount_toman=plan.price_toman,status='creating_invoice');db.add(order);db.commit();order=db.scalar(select(Order).options(selectinload(Order.customer),selectinload(Order.plan)).where(Order.id==order.id));pay=db.get(PaymentSetting,1);base=settings(db)['public_base_url'].rstrip('/')
     try:invoice=await create_invoice(pay,order,base+'/webhooks/bluepay')
     except IntegrationError as exc:order.status='invoice_failed';order.activation_error=str(exc);db.commit();raise HTTPException(502,detail={'code':'INVOICE_CREATE_FAILED','message':str(exc)})
@@ -302,7 +302,7 @@ def admin_logout(request:Request):request.session.clear();return RedirectRespons
 @app.get('/admin',response_class=HTMLResponse)
 def admin(request:Request,db:Session=Depends(get_db)):
     if not request.session.get('admin'):return RedirectResponse('/admin/login',302)
-    s=settings(db);pay=db.get(PaymentSetting,1);panels=db.scalars(select(PasarGuardPanel).order_by(PasarGuardPanel.id.desc())).all();marzban_panels=db.scalars(select(MarzbanPanel).order_by(MarzbanPanel.id.desc())).all();plans=db.scalars(select(Plan).options(selectinload(Plan.panel),selectinload(Plan.marzban_panel)).order_by(Plan.sort_order,Plan.id.desc())).all();customers=db.scalars(select(Customer).order_by(Customer.id.desc()).limit(100)).all();orders=db.scalars(select(Order).options(selectinload(Order.customer),selectinload(Order.plan)).order_by(Order.created_at.desc()).limit(100)).all();stats={'customers':db.scalar(select(func.count(Customer.id))) or 0,'active':db.scalar(select(func.count(Customer.id)).where(Customer.subscription_status=='active')) or 0,'paid':db.scalar(select(func.count(Order.id)).where(Order.status.in_(['paid','activated','paid_needs_sync','partial_needs_sync']),~Order.order_code.like('MANUAL-%'))) or 0,'manual':db.scalar(select(func.count(Order.id)).where(Order.order_code.like('MANUAL-%'))) or 0,'panels':len(panels)+len(marzban_panels)}
+    s=settings(db);pay=db.get(PaymentSetting,1);panels=db.scalars(select(PasarGuardPanel).order_by(PasarGuardPanel.id.desc())).all();marzban_panels=db.scalars(select(MarzbanPanel).order_by(MarzbanPanel.id.desc())).all();plans=db.scalars(select(Plan).options(selectinload(Plan.panel),selectinload(Plan.marzban_panel)).where(Plan.deleted.is_(False)).order_by(Plan.sort_order,Plan.id.desc())).all();customers=db.scalars(select(Customer).order_by(Customer.id.desc()).limit(100)).all();orders=db.scalars(select(Order).options(selectinload(Order.customer),selectinload(Order.plan)).order_by(Order.created_at.desc()).limit(100)).all();stats={'customers':db.scalar(select(func.count(Customer.id))) or 0,'active':db.scalar(select(func.count(Customer.id)).where(Customer.subscription_status=='active')) or 0,'paid':db.scalar(select(func.count(Order.id)).where(Order.status.in_(['paid','activated','paid_needs_sync','partial_needs_sync']),~Order.order_code.like('MANUAL-%'))) or 0,'manual':db.scalar(select(func.count(Order.id)).where(Order.order_code.like('MANUAL-%'))) or 0,'panels':len(panels)+len(marzban_panels)}
     return templates.TemplateResponse(request=request,name='admin.html',context={'settings':s,'payment':pay,'payment_api_mask':mask(decrypt(pay.api_key_enc)),'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),'panels':panels,'panel_masks':{x.id:mask(decrypt(x.api_key_enc) or decrypt(x.username_enc)) for x in panels},'marzban_panels':marzban_panels,'marzban_masks':{x.id:mask(decrypt(x.username_enc)) for x in marzban_panels},'plans':plans,'customers':customers,'orders':orders,'stats':stats,'database_mode':DATABASE_MODE,'database_info':database_status(),'database_counts':database_table_counts(),'saved':request.query_params.get('saved')=='1','manual_message':request.query_params.get('manual',''),'error':request.query_params.get('error','')})
 @app.post('/admin/database/initialize')
 def admin_database_initialize(
@@ -434,11 +434,23 @@ def marzban_panel_toggle(
 
 @app.post('/admin/plans')
 def add_plan(request:Request,title:str=Form(...),description:str=Form(''),price_toman:int=Form(...),duration_days:int=Form(...),data_limit_gb:int=Form(...),device_limit:int=Form(...),panel_id:int=Form(...),marzban_panel_id:int=Form(0),marzban_quota_mode:str=Form('split'),group_ids:str=Form(''),sort_order:int=Form(0),db:Session=Depends(get_db)):
-    admin_required(request);groups=[int(x.strip()) for x in group_ids.split(',') if x.strip().isdigit()];secondary=marzban_panel_id if marzban_panel_id>0 else None;quota_mode=marzban_quota_mode if marzban_quota_mode in {'split','full'} else 'split';db.add(Plan(title=title,description=description,price_toman=max(1000,price_toman),duration_days=max(0,duration_days),data_limit_gb=max(0,data_limit_gb),device_limit=1 if device_limit<=1 else 2,panel_id=panel_id,marzban_panel_id=secondary,marzban_quota_mode=quota_mode,group_ids_json=json.dumps(groups),sort_order=sort_order));db.commit();return RedirectResponse('/admin?saved=1#plans',303)
+    admin_required(request);groups=[int(x.strip()) for x in group_ids.split(',') if x.strip().isdigit()];secondary=marzban_panel_id if marzban_panel_id>0 else None;quota_mode=marzban_quota_mode if marzban_quota_mode in {'split','full'} else 'split';db.add(Plan(title=title,description=description,price_toman=max(1000,price_toman),duration_days=max(0,duration_days),data_limit_gb=max(0,data_limit_gb),device_limit=1 if device_limit<=1 else 2,panel_id=panel_id,marzban_panel_id=secondary,marzban_quota_mode=quota_mode,group_ids_json=json.dumps(groups),deleted=False,sort_order=sort_order));db.commit();return RedirectResponse('/admin?saved=1#plans',303)
 @app.post('/admin/plans/{plan_id}/toggle')
 def plan_toggle(request:Request,plan_id:int,db:Session=Depends(get_db)):
     admin_required(request);x=db.get(Plan,plan_id)
-    if x:x.active=not x.active;db.commit()
+    if x and not x.deleted:x.active=not x.active;db.commit()
+    return RedirectResponse('/admin?saved=1#plans',303)
+
+@app.post('/admin/plans/{plan_id}/delete')
+def plan_delete(request:Request,plan_id:int,db:Session=Depends(get_db)):
+    admin_required(request)
+    plan=db.get(Plan,plan_id)
+    if not plan:
+        return RedirectResponse('/admin?error=پلن+پیدا+نشد#plans',303)
+    plan.active=False
+    plan.deleted=True
+    plan.deleted_at=utcnow()
+    db.commit()
     return RedirectResponse('/admin?saved=1#plans',303)
 @app.post('/admin/manual-activation')
 async def manual_activation_by_email(
@@ -458,7 +470,7 @@ async def manual_activation_by_email(
                 error='کاربری با این ایمیل ثبت نشده است',
             )
         plan=db.get(Plan,plan_id)
-        if not plan:
+        if not plan or plan.deleted:
             return admin_redirect('manual',error='پلن انتخاب‌شده پیدا نشد')
         order=await create_manual_activation(db,customer,plan,note)
         return admin_redirect(
@@ -488,7 +500,7 @@ async def manual_activation_for_customer(
         plan=db.get(Plan,plan_id)
         if not customer:
             return admin_redirect('customers',error='کاربر پیدا نشد')
-        if not plan:
+        if not plan or plan.deleted:
             return admin_redirect('customers',error='پلن پیدا نشد')
         order=await create_manual_activation(db,customer,plan,note)
         return admin_redirect(

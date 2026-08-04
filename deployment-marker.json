@@ -1,16 +1,13 @@
 {
-  "version": "1.0.11",
-  "android_version": "1.0.11",
-  "android_version_code": 25,
-  "build_id": "20260804104721",
-  "created_at": "2026-08-04T10:47:21.588788+00:00",
+  "version": "1.0.12",
+  "android_version": "1.0.12",
+  "android_version_code": 26,
+  "build_id": "20260804110832",
+  "created_at": "2026-08-04T11:08:32.401567+00:00",
   "features": [
-    "pasarguard-plus-marzban-provisioning",
-    "regular-marzban-admin-support",
-    "one-hidden-combined-subscription",
-    "subscription-config-deduplication",
-    "neutral-bluevpn-server-labels",
-    "multi-endpoint-connection-probe",
-    "xray-started-compatibility-fallback"
+    "fix-unresolved-delay",
+    "safe-plan-delete",
+    "hide-deleted-plans",
+    "preserve-order-history"
   ]
 }

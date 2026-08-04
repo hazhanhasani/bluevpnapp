@@ -328,10 +328,16 @@
       <div class="wide"><label>متن اطلاعیه</label><textarea name="announcement_message">{{ settings.announcement_message }}</textarea></div>
     </div>
     <div class="checks">
-      <label><input type="checkbox" name="maintenance" {% if settings.maintenance %}checked{% endif %}> تعمیرات</label>
-      <label><input type="checkbox" name="force_update" {% if settings.force_update %}checked{% endif %}> آپدیت اجباری</label>
-      <label><input type="checkbox" name="announcement_enabled" {% if settings.announcement_enabled %}checked{% endif %}> اطلاعیه</label>
+      <label title="اتصال و استفاده از برنامه برای همه کاربران مسدود می‌شود."><input type="checkbox" name="maintenance" {% if settings.maintenance %}checked{% endif %}> تعمیرات واقعی</label>
+      <label title="کاربر تا نصب نسخه جدید اجازه اتصال ندارد."><input type="checkbox" name="force_update" {% if settings.force_update %}checked{% endif %}> آپدیت اجباری واقعی</label>
+      <label title="APK مناسب گوشی خودکار دانلود و صفحه نصب باز می‌شود."><input type="checkbox" name="auto_update" {% if settings.get('auto_update',True) %}checked{% endif %}> دانلود خودکار آپدیت</label>
+      <label title="اطلاعیه برای هر شناسه فقط یک بار نمایش داده می‌شود."><input type="checkbox" name="announcement_enabled" {% if settings.announcement_enabled %}checked{% endif %}> اطلاعیه واقعی</label>
     </div>
+    <p class="hint">
+      تعمیرات، آپدیت اجباری، دانلود خودکار و اطلاعیه در اجرای بعدی برنامه
+      مستقیماً از همین تنظیمات اعمال می‌شوند. برای نمایش دوباره اطلاعیه،
+      شناسه اطلاعیه را تغییر بده.
+    </p>
     <button class="save">ذخیره تنظیمات عمومی</button>
   </form>
 </section>

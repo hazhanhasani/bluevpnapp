@@ -17,8 +17,8 @@ from .github_release import github_repository,latest_github_release
 from .models import AppSetting,Customer,CustomerDevice,CustomerSession,MarzbanPanel,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Platform',version='1.0.20'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
+app=FastAPI(title='BlueVPN Platform',version='1.0.21'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -171,7 +171,7 @@ def health():
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
-        'version':'1.0.20',
+        'version':'1.0.21',
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }
@@ -189,6 +189,7 @@ async def mobile_config(db:Session=Depends(get_db)):
             'support_url':s['support_url'],
             'minimum_version':s['minimum_version'],
             'force_update':bool(s['force_update']),
+            'auto_update':bool(s.get('auto_update',True)),
             'account_required':True,
             'latest_version':release.get('version','0.0.0'),
             'latest_version_code':int(release.get('version_code') or 0),
@@ -377,7 +378,7 @@ def admin_database_initialize(
         )
 
 @app.post('/admin/app-settings')
-def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),minimum_version:str=Form(...),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),announcement_enabled:str|None=Form(None),db:Session=Depends(get_db)):
+def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),minimum_version:str=Form(...),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),auto_update:str|None=Form(None),announcement_enabled:str|None=Form(None),db:Session=Depends(get_db)):
     admin_required(request)
     s=settings(db)
     s.update({
@@ -390,6 +391,7 @@ def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form
         'announcement_message':announcement_message,
         'maintenance':maintenance=='on',
         'force_update':force_update=='on',
+        'auto_update':auto_update=='on',
         'announcement_enabled':announcement_enabled=='on',
     })
     save_settings(db,s)

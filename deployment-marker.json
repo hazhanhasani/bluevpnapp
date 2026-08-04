@@ -1,18 +1,14 @@
 {
-  "version": "1.0.19",
-  "project_version": "1.0.19",
+  "version": "1.0.20",
+  "project_version": "1.0.20",
   "android_version": "1.0.<github_run_number>",
-  "android_version_code": "10000 + github_run_number",
-  "build_id": "20260804141957",
-  "created_at": "2026-08-04T14:19:57.914792+00:00",
+  "android_version_code": "10000 + github.run_number",
+  "build_id": "20260804144403",
+  "created_at": "2026-08-04T14:44:03.275744+00:00",
   "features": [
-    "automatic-github-release-publishing",
-    "automatic-version-from-github-run-number",
-    "automatic-version-code",
-    "automatic-release-notes",
-    "automatic-abi-apk-selection",
-    "no-manual-apk-url",
-    "no-manual-latest-version",
-    "github-release-cache-and-fallback"
+    "fix-github-actions-duplicate-env",
+    "validate-yaml-with-duplicate-key-detection",
+    "retain-automatic-github-release-publishing",
+    "retain-automatic-versioning"
   ]
 }

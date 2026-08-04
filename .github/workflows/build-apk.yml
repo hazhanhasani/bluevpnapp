@@ -293,6 +293,7 @@ jobs:
         env:
           VERSION: ${{ steps.config.outputs.version }}
           VERSION_CODE: ${{ steps.config.outputs.version_code }}
+          BUILD_PUBLISHED_AT: ${{ github.event.head_commit.timestamp }}
         shell: bash
         run: |
           set -euo pipefail
@@ -367,8 +368,6 @@ jobs:
               encoding="utf-8",
           )
           PY
-        env:
-          BUILD_PUBLISHED_AT: ${{ github.event.head_commit.timestamp }}
 
       - name: Upload signed BlueVPN APK artifact
         uses: actions/upload-artifact@v4

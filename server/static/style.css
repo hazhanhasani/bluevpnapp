@@ -13,3 +13,6 @@
 .db-ok{color:#5ce5b4}.db-bad{color:#ff8494}
 .db-details{background:#071a38;border:1px solid #24518c;border-radius:13px;padding:11px;margin:14px 0}
 .db-details summary{cursor:pointer;color:#82bcff}.db-details pre{direction:ltr;text-align:left;white-space:pre-wrap;color:#bfd7fb;font-size:11px;overflow:auto}
+
+#marzban code{direction:ltr}
+.plan .chips span{max-width:100%;overflow-wrap:anywhere}

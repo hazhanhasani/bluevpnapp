@@ -1,8 +1,16 @@
 {
-  "version": "1.0.9",
-  "android_version": "1.0.9",
-  "android_version_code": 23,
-  "build_id": "20260804101620",
-  "created_at": "2026-08-04T10:16:20.676679+00:00",
-  "purpose": "force-new-apk-build-and-fix-delivery-identification"
+  "version": "1.0.11",
+  "android_version": "1.0.11",
+  "android_version_code": 25,
+  "build_id": "20260804104721",
+  "created_at": "2026-08-04T10:47:21.588788+00:00",
+  "features": [
+    "pasarguard-plus-marzban-provisioning",
+    "regular-marzban-admin-support",
+    "one-hidden-combined-subscription",
+    "subscription-config-deduplication",
+    "neutral-bluevpn-server-labels",
+    "multi-endpoint-connection-probe",
+    "xray-started-compatibility-fallback"
+  ]
 }

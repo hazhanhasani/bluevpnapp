@@ -1,10 +1,10 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.9",
-  "channel": "apk-version-and-delivery-fix",
-  "description": "Align the visible Android version with the current project, fix duplicate .apk.apk filenames, and send a clear Telegram announcement containing version, GitHub build number and commit before delivering the two signed APK architectures.",
-  "build_id": "20260804101620",
-  "built_at": "2026-08-04T10:16:20.676679+00:00",
-  "android_version": "1.0.9",
-  "android_version_code": 23
+  "version": "1.0.11",
+  "channel": "dual-panel-transparent-subscription-and-config-compatibility",
+  "description": "Provision and synchronize each customer on PasarGuard and an optional regular-admin Marzban panel, expose one neutral BlueVPN subscription that merges and deduplicates both upstream sources, hide panel names, auto-discover Marzban protocols/inbounds, and avoid false Android disconnects caused by blocked public probe domains.",
+  "build_id": "20260804104721",
+  "built_at": "2026-08-04T10:47:21.588788+00:00",
+  "android_version": "1.0.11",
+  "android_version_code": 25
 }

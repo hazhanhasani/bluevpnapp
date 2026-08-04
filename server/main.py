@@ -1,23 +1,23 @@
 from __future__ import annotations
 import json,os,re,secrets,uuid
 from urllib.parse import quote_plus
-from datetime import datetime,timezone
+from datetime import datetime,timedelta,timezone
 from pathlib import Path
 from typing import Any
 from fastapi import Depends,FastAPI,Form,Header,HTTPException,Request
-from fastapi.responses import HTMLResponse,JSONResponse,RedirectResponse
+from fastapi.responses import HTMLResponse,JSONResponse,RedirectResponse,Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func,select
 from sqlalchemy.orm import Session,selectinload
 from starlette.middleware.sessions import SessionMiddleware
 from .database import DATABASE_ERROR,DATABASE_MODE,SessionLocal,database_status,database_table_counts,initialize_database,get_db
-from .integrations import IntegrationError,create_invoice,get_invoice,provision,sync_customer,test_panel,verify_webhook
-from .models import AppSetting,Customer,CustomerDevice,CustomerSession,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery
+from .integrations import IntegrationError,combined_subscription,create_invoice,get_invoice,provision,sync_customer,test_marzban_panel,test_panel,verify_webhook
+from .models import AppSetting,Customer,CustomerDevice,CustomerSession,MarzbanPanel,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'latest_version':'1.0.9','latest_version_code':23,'minimum_version':'0.4.9','force_update':False,'apk_url':os.getenv('APK_URL',''),'update_title':'نسخه جدید BlueVPN','update_message':'نسخه جدید آماده دانلود است.','announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Platform',version='1.0.7'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'latest_version':'1.0.11','latest_version_code':25,'minimum_version':'0.4.9','force_update':False,'apk_url':os.getenv('APK_URL',''),'update_title':'نسخه جدید BlueVPN','update_message':'نسخه جدید آماده دانلود است.','announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
+app=FastAPI(title='BlueVPN Platform',version='1.0.11'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -55,19 +55,27 @@ def current_customer(authorization:str|None=Header(None),x_device_id:str|None=He
     session=db.scalar(select(CustomerSession).options(selectinload(CustomerSession.customer)).where(CustomerSession.token_hash==token_hash(raw)))
     if not session or session.revoked_at or aware(session.expires_at)<=utcnow() or not session.customer.active:raise HTTPException(401,detail={'code':'INVALID_SESSION','message':'نشست معتبر نیست'})
     if x_device_id and session.device_id!=x_device_id:raise HTTPException(401,detail={'code':'DEVICE_MISMATCH','message':'شناسه دستگاه معتبر نیست'})
-    session.last_seen_at=utcnow();db.commit();return session.customer
-def issue_session(db:Session,c:Customer,device_id:str,device_name:str)->str:
+    device=db.scalar(select(CustomerDevice).where(CustomerDevice.customer_id==session.customer_id,CustomerDevice.device_id==session.device_id))
+    if not device or not device.active:raise HTTPException(401,detail={'code':'DEVICE_DISABLED','message':'این دستگاه غیرفعال شده است'})
+    now=utcnow();session.last_seen_at=now;session.expires_at=session_expiry();device.last_seen_at=now;db.commit();return session.customer
+def issue_session(db:Session,c:Customer,device_id:str,device_name:str,rotate_refresh:bool=True)->tuple[str,str]:
     device_id=device_id.strip()[:180]
     if not device_id:raise HTTPException(422,detail={'code':'DEVICE_ID_REQUIRED','message':'شناسه دستگاه لازم است'})
     device=db.scalar(select(CustomerDevice).where(CustomerDevice.customer_id==c.id,CustomerDevice.device_id==device_id));count=db.scalar(select(func.count(CustomerDevice.id)).where(CustomerDevice.customer_id==c.id,CustomerDevice.active.is_(True))) or 0
     if not device and count>=max(1,c.device_limit):raise HTTPException(409,detail={'code':'DEVICE_LIMIT_REACHED','message':f'حداکثر {c.device_limit} دستگاه برای این حساب مجاز است'})
-    if not device:db.add(CustomerDevice(customer_id=c.id,device_id=device_id,device_name=device_name[:180],active=True))
-    else:device.active=True;device.device_name=device_name[:180] or device.device_name;device.last_seen_at=utcnow()
-    raw,h=new_token();db.add(CustomerSession(customer_id=c.id,token_hash=h,device_id=device_id,expires_at=session_expiry()));db.commit();return raw
+    if not device:
+        device=CustomerDevice(customer_id=c.id,device_id=device_id,device_name=device_name[:180],active=True);db.add(device);db.flush()
+    else:
+        device.active=True;device.device_name=device_name[:180] or device.device_name;device.last_seen_at=utcnow()
+    raw,h=new_token();db.add(CustomerSession(customer_id=c.id,token_hash=h,device_id=device_id,expires_at=session_expiry()))
+    refresh_raw=''
+    if rotate_refresh or not device.refresh_token_hash:
+        refresh_raw,refresh_hash=new_token();device.refresh_token_hash=refresh_hash;device.refresh_expires_at=utcnow()+timedelta(days=3650)
+    db.commit();return raw,refresh_raw
 async def activate(db:Session,order:Order):
     if order.status=='activated':return
     order.status='paid';order.paid_at=order.paid_at or utcnow();db.commit()
-    try:await provision(db,order.customer,order.plan,order)
+    try:await provision(db,order.customer,order.plan,order,settings(db)['public_base_url'])
     except Exception as exc:order.status='paid_needs_sync';order.activation_error=str(exc)[:2000];db.commit()
 
 def admin_redirect(anchor:str,message:str='',error:str='')->RedirectResponse:
@@ -151,7 +159,7 @@ async def create_manual_activation(
     if order.status!='activated':
         raise IntegrationError(
             order.activation_error or
-            'فعال‌سازی دستی در پاسارگارد کامل نشد'
+            'فعال‌سازی دستی روی همه پنل‌های پلن کامل نشد'
         )
 
     enforce_customer_device_limit(db,customer)
@@ -162,7 +170,7 @@ def health():
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
-        'version':'1.0.7',
+        'version':'1.0.11',
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }
@@ -176,26 +184,41 @@ async def register(request:Request,db:Session=Depends(get_db)):
     b=await request.json();email=email_ok(str(b.get('email','')));password=str(b.get('password',''))
     if len(password)<8:raise HTTPException(422,detail={'code':'WEAK_PASSWORD','message':'رمز عبور حداقل ۸ نویسه باشد'})
     if db.scalar(select(Customer).where(Customer.email==email)):raise HTTPException(409,detail={'code':'EMAIL_EXISTS','message':'این ایمیل قبلاً ثبت شده است'})
-    c=Customer(email=email,password_hash=password_hash(password),device_limit=1);db.add(c);db.flush();token=issue_session(db,c,str(b.get('device_id','')),str(b.get('device_name','')));return {'success':True,'token':token,'account':account_json(c)}
+    c=Customer(email=email,password_hash=password_hash(password),device_limit=1);db.add(c);db.flush();token,refresh_token=issue_session(db,c,str(b.get('device_id','')),str(b.get('device_name','')));return {'success':True,'token':token,'refresh_token':refresh_token,'account':account_json(c)}
 @app.post('/api/v1/auth/login')
 async def login(request:Request,db:Session=Depends(get_db)):
     b=await request.json();email=email_ok(str(b.get('email','')));c=db.scalar(select(Customer).where(Customer.email==email))
     if not c or not password_ok(str(b.get('password','')),c.password_hash):raise HTTPException(401,detail={'code':'INVALID_CREDENTIALS','message':'ایمیل یا رمز نادرست است'})
-    token=issue_session(db,c,str(b.get('device_id','')),str(b.get('device_name','')));return {'success':True,'token':token,'account':account_json(c)}
+    token,refresh_token=issue_session(db,c,str(b.get('device_id','')),str(b.get('device_name','')));return {'success':True,'token':token,'refresh_token':refresh_token,'account':account_json(c)}
+@app.post('/api/v1/auth/refresh')
+async def refresh_login(request:Request,db:Session=Depends(get_db)):
+    b=await request.json();email=email_ok(str(b.get('email','')));device_id=str(b.get('device_id','')).strip()[:180];refresh_token=str(b.get('refresh_token',''))
+    if not device_id or not refresh_token:raise HTTPException(401,detail={'code':'REFRESH_REQUIRED','message':'اطلاعات تمدید ورود کامل نیست'})
+    c=db.scalar(select(Customer).where(Customer.email==email))
+    if not c or not c.active:raise HTTPException(401,detail={'code':'ACCOUNT_DISABLED','message':'حساب در دسترس نیست'})
+    device=db.scalar(select(CustomerDevice).where(CustomerDevice.customer_id==c.id,CustomerDevice.device_id==device_id))
+    if not device or not device.active:raise HTTPException(401,detail={'code':'DEVICE_DISABLED','message':'این دستگاه غیرفعال شده است'})
+    if not device.refresh_token_hash or device.refresh_token_hash!=token_hash(refresh_token) or not device.refresh_expires_at or aware(device.refresh_expires_at)<=utcnow():raise HTTPException(401,detail={'code':'INVALID_REFRESH','message':'مجوز تمدید ورود معتبر نیست'})
+    token,new_refresh_token=issue_session(db,c,device_id,str(b.get('device_name','')),rotate_refresh=True)
+    return {'success':True,'token':token,'refresh_token':new_refresh_token,'account':account_json(c)}
 @app.post('/api/v1/auth/logout')
-def logout(authorization:str|None=Header(None),db:Session=Depends(get_db)):
+def logout(authorization:str|None=Header(None),x_device_id:str|None=Header(None),db:Session=Depends(get_db)):
     raw=bearer(authorization);s=db.scalar(select(CustomerSession).where(CustomerSession.token_hash==token_hash(raw))) if raw else None
-    if s:s.revoked_at=utcnow();db.commit()
+    if s:
+        s.revoked_at=utcnow()
+        device=db.scalar(select(CustomerDevice).where(CustomerDevice.customer_id==s.customer_id,CustomerDevice.device_id==(x_device_id or s.device_id)))
+        if device:device.refresh_token_hash='';device.refresh_expires_at=None
+        db.commit()
     return {'success':True}
 @app.get('/api/v1/plans')
 def plans(db:Session=Depends(get_db)):
     rows=db.scalars(select(Plan).where(Plan.active.is_(True)).order_by(Plan.sort_order,Plan.price_toman)).all();return {'success':True,'plans':[{'id':x.id,'title':x.title,'description':x.description,'price_toman':x.price_toman,'duration_days':x.duration_days,'data_limit_gb':x.data_limit_gb,'device_limit':x.device_limit} for x in rows]}
 @app.get('/api/v1/account')
 async def account(c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
-    c=db.get(Customer,c.id);await sync_customer(db,c);return {'success':True,'account':account_json(c)}
+    c=db.get(Customer,c.id);await sync_customer(db,c,settings(db)['public_base_url']);return {'success':True,'account':account_json(c)}
 @app.post('/api/v1/account/sync')
 async def account_sync(c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
-    c=db.get(Customer,c.id);await sync_customer(db,c);return {'success':True,'account':account_json(c)}
+    c=db.get(Customer,c.id);await sync_customer(db,c,settings(db)['public_base_url']);return {'success':True,'account':account_json(c)}
 @app.post('/api/v1/orders')
 async def create_order(request:Request,c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
     b=await request.json();plan=db.get(Plan,int(b.get('plan_id',0)))
@@ -224,6 +247,49 @@ async def bluepay_webhook(request:Request,x_gateway_signature:str|None=Header(No
     if order:order.gateway_json=json.dumps(payload,ensure_ascii=False);order.status=str(payload.get('status',order.status));order.paid_at=utcnow() if order.status=='paid' else order.paid_at;db.commit();await activate(db,order) if order.status=='paid' else None
     else:db.commit()
     return {'success':True}
+
+@app.get('/sub/{token}')
+async def public_subscription(
+    token:str,
+    db:Session=Depends(get_db),
+):
+    customer=db.scalar(
+        select(Customer).where(
+            Customer.subscription_token==token
+        )
+    )
+    if not customer or not customer.active:
+        raise HTTPException(404,'Subscription not found')
+
+    expiry=aware(customer.subscription_expire)
+    if expiry and expiry<=utcnow():
+        raise HTTPException(410,'Subscription expired')
+
+    try:
+        body,headers,errors=await combined_subscription(
+            db,
+            customer,
+        )
+    except IntegrationError as exc:
+        return Response(
+            content=str(exc),
+            media_type='text/plain',
+            status_code=503,
+            headers={'Cache-Control':'no-store'},
+        )
+
+    if errors:
+        customer.last_sync_error=(
+            'برخی مسیرهای پشتیبان در حال همگام‌سازی هستند'
+        )
+        db.commit()
+
+    return Response(
+        content=body,
+        media_type='text/plain',
+        headers=headers,
+    )
+
 # Admin
 @app.get('/admin/login',response_class=HTMLResponse)
 def admin_login_page(request:Request):return templates.TemplateResponse(request=request,name='login.html',context={'error':''}) if not request.session.get('admin') else RedirectResponse('/admin',302)
@@ -236,8 +302,8 @@ def admin_logout(request:Request):request.session.clear();return RedirectRespons
 @app.get('/admin',response_class=HTMLResponse)
 def admin(request:Request,db:Session=Depends(get_db)):
     if not request.session.get('admin'):return RedirectResponse('/admin/login',302)
-    s=settings(db);pay=db.get(PaymentSetting,1);panels=db.scalars(select(PasarGuardPanel).order_by(PasarGuardPanel.id.desc())).all();plans=db.scalars(select(Plan).options(selectinload(Plan.panel)).order_by(Plan.sort_order,Plan.id.desc())).all();customers=db.scalars(select(Customer).order_by(Customer.id.desc()).limit(100)).all();orders=db.scalars(select(Order).options(selectinload(Order.customer),selectinload(Order.plan)).order_by(Order.created_at.desc()).limit(100)).all();stats={'customers':db.scalar(select(func.count(Customer.id))) or 0,'active':db.scalar(select(func.count(Customer.id)).where(Customer.subscription_status=='active')) or 0,'paid':db.scalar(select(func.count(Order.id)).where(Order.status.in_(['paid','activated','paid_needs_sync']),~Order.order_code.like('MANUAL-%'))) or 0,'manual':db.scalar(select(func.count(Order.id)).where(Order.order_code.like('MANUAL-%'))) or 0,'panels':len(panels)}
-    return templates.TemplateResponse(request=request,name='admin.html',context={'settings':s,'payment':pay,'payment_api_mask':mask(decrypt(pay.api_key_enc)),'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),'panels':panels,'panel_masks':{x.id:mask(decrypt(x.api_key_enc) or decrypt(x.username_enc)) for x in panels},'plans':plans,'customers':customers,'orders':orders,'stats':stats,'database_mode':DATABASE_MODE,'database_info':database_status(),'database_counts':database_table_counts(),'saved':request.query_params.get('saved')=='1','manual_message':request.query_params.get('manual',''),'error':request.query_params.get('error','')})
+    s=settings(db);pay=db.get(PaymentSetting,1);panels=db.scalars(select(PasarGuardPanel).order_by(PasarGuardPanel.id.desc())).all();marzban_panels=db.scalars(select(MarzbanPanel).order_by(MarzbanPanel.id.desc())).all();plans=db.scalars(select(Plan).options(selectinload(Plan.panel),selectinload(Plan.marzban_panel)).order_by(Plan.sort_order,Plan.id.desc())).all();customers=db.scalars(select(Customer).order_by(Customer.id.desc()).limit(100)).all();orders=db.scalars(select(Order).options(selectinload(Order.customer),selectinload(Order.plan)).order_by(Order.created_at.desc()).limit(100)).all();stats={'customers':db.scalar(select(func.count(Customer.id))) or 0,'active':db.scalar(select(func.count(Customer.id)).where(Customer.subscription_status=='active')) or 0,'paid':db.scalar(select(func.count(Order.id)).where(Order.status.in_(['paid','activated','paid_needs_sync','partial_needs_sync']),~Order.order_code.like('MANUAL-%'))) or 0,'manual':db.scalar(select(func.count(Order.id)).where(Order.order_code.like('MANUAL-%'))) or 0,'panels':len(panels)+len(marzban_panels)}
+    return templates.TemplateResponse(request=request,name='admin.html',context={'settings':s,'payment':pay,'payment_api_mask':mask(decrypt(pay.api_key_enc)),'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),'panels':panels,'panel_masks':{x.id:mask(decrypt(x.api_key_enc) or decrypt(x.username_enc)) for x in panels},'marzban_panels':marzban_panels,'marzban_masks':{x.id:mask(decrypt(x.username_enc)) for x in marzban_panels},'plans':plans,'customers':customers,'orders':orders,'stats':stats,'database_mode':DATABASE_MODE,'database_info':database_status(),'database_counts':database_table_counts(),'saved':request.query_params.get('saved')=='1','manual_message':request.query_params.get('manual',''),'error':request.query_params.get('error','')})
 @app.post('/admin/database/initialize')
 def admin_database_initialize(
     request:Request,
@@ -264,11 +330,11 @@ def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form
 def payment_settings(request:Request,base_url:str=Form(...),api_key:str=Form(''),callback_secret:str=Form(''),fee_mode:str=Form('default'),ttl_minutes:int=Form(30),active:str|None=Form(None),db:Session=Depends(get_db)):
     admin_required(request);p=db.get(PaymentSetting,1) or PaymentSetting(id=1);p.base_url=base_url.rstrip('/');p.api_key_enc=encrypt(api_key.strip()) if api_key.strip() else p.api_key_enc;p.callback_secret_enc=encrypt(callback_secret.strip()) if callback_secret.strip() else p.callback_secret_enc;p.fee_mode=fee_mode;p.ttl_minutes=max(5,min(1440,ttl_minutes));p.active=active=='on';db.add(p);db.commit();return RedirectResponse('/admin?saved=1#bluepay',303)
 @app.post('/admin/panels')
-def add_panel(request:Request,name:str=Form(...),base_url:str=Form(...),auth_mode:str=Form('api_key'),api_key:str=Form(''),username:str=Form(''),password:str=Form(''),proxy_settings_json:str=Form('{"vless":{}}'),db:Session=Depends(get_db)):
+def add_panel(request:Request,name:str=Form(...),base_url:str=Form(...),auth_mode:str=Form('api_key'),api_key:str=Form(''),username:str=Form(''),password:str=Form(''),proxy_settings_json:str=Form('{"vless":{}}'),verify_tls:str|None=Form(None),db:Session=Depends(get_db)):
     admin_required(request)
     try:json.loads(proxy_settings_json)
     except Exception:return RedirectResponse('/admin?error=Proxy+Settings+JSON+نامعتبر+است#panels',303)
-    db.add(PasarGuardPanel(name=name.strip(),base_url=base_url.rstrip('/'),auth_mode=auth_mode,api_key_enc=encrypt(api_key.strip()),username_enc=encrypt(username.strip()),password_enc=encrypt(password),proxy_settings_json=proxy_settings_json));db.commit();return RedirectResponse('/admin?saved=1#panels',303)
+    db.add(PasarGuardPanel(name=name.strip(),base_url=base_url.rstrip('/'),auth_mode=auth_mode,api_key_enc=encrypt(api_key.strip()),username_enc=encrypt(username.strip()),password_enc=encrypt(password),proxy_settings_json=proxy_settings_json,verify_tls=verify_tls=='on'));db.commit();return RedirectResponse('/admin?saved=1#panels',303)
 @app.post('/admin/panels/{panel_id}/test')
 async def panel_test(request:Request,panel_id:int,db:Session=Depends(get_db)):
     admin_required(request);p=db.get(PasarGuardPanel,panel_id)
@@ -279,9 +345,96 @@ def panel_toggle(request:Request,panel_id:int,db:Session=Depends(get_db)):
     admin_required(request);p=db.get(PasarGuardPanel,panel_id)
     if p:p.active=not p.active;db.commit()
     return RedirectResponse('/admin?saved=1#panels',303)
+
+@app.post('/admin/marzban-panels')
+def add_marzban_panel(
+    request:Request,
+    name:str=Form(...),
+    base_url:str=Form(...),
+    username:str=Form(...),
+    password:str=Form(...),
+    proxies_json:str=Form('{}'),
+    inbounds_json:str=Form('{}'),
+    verify_tls:str|None=Form(None),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    try:
+        proxies=json.loads(proxies_json or '{}')
+        inbounds=json.loads(inbounds_json or '{}')
+        if not isinstance(proxies,dict) or not isinstance(inbounds,dict):
+            raise ValueError()
+    except Exception:
+        return RedirectResponse(
+            '/admin?error=JSON+تنظیمات+Marzban+نامعتبر+است#marzban',
+            303,
+        )
+
+    panel=MarzbanPanel(
+        name=name.strip(),
+        base_url=base_url.rstrip('/'),
+        username_enc=encrypt(username.strip()),
+        password_enc=encrypt(password),
+        proxies_json=json.dumps(proxies,ensure_ascii=False),
+        inbounds_json=json.dumps(inbounds,ensure_ascii=False),
+        verify_tls=verify_tls=='on',
+    )
+    db.add(panel)
+    db.commit()
+    return RedirectResponse('/admin?saved=1#marzban',303)
+
+@app.post('/admin/marzban-panels/{panel_id}/test')
+async def marzban_panel_test(
+    request:Request,
+    panel_id:int,
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    panel=db.get(MarzbanPanel,panel_id)
+    if not panel:
+        raise HTTPException(404)
+
+    ok,message,proxies,inbounds=await test_marzban_panel(panel)
+    panel.last_test_ok=ok
+    panel.last_test_message=message
+    panel.last_test_at=utcnow()
+
+    if ok and proxies and inbounds:
+        panel.proxies_json=json.dumps(
+            proxies,
+            ensure_ascii=False,
+        )
+        panel.inbounds_json=json.dumps(
+            inbounds,
+            ensure_ascii=False,
+        )
+
+    db.commit()
+    return RedirectResponse(
+        '/admin?'+(
+            'saved=1'
+            if ok
+            else 'error='+quote_plus(message[:250])
+        )+'#marzban',
+        303,
+    )
+
+@app.post('/admin/marzban-panels/{panel_id}/toggle')
+def marzban_panel_toggle(
+    request:Request,
+    panel_id:int,
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    panel=db.get(MarzbanPanel,panel_id)
+    if panel:
+        panel.active=not panel.active
+        db.commit()
+    return RedirectResponse('/admin?saved=1#marzban',303)
+
 @app.post('/admin/plans')
-def add_plan(request:Request,title:str=Form(...),description:str=Form(''),price_toman:int=Form(...),duration_days:int=Form(...),data_limit_gb:int=Form(...),device_limit:int=Form(...),panel_id:int=Form(...),group_ids:str=Form(''),sort_order:int=Form(0),db:Session=Depends(get_db)):
-    admin_required(request);groups=[int(x.strip()) for x in group_ids.split(',') if x.strip().isdigit()];db.add(Plan(title=title,description=description,price_toman=max(1000,price_toman),duration_days=max(0,duration_days),data_limit_gb=max(0,data_limit_gb),device_limit=1 if device_limit<=1 else 2,panel_id=panel_id,group_ids_json=json.dumps(groups),sort_order=sort_order));db.commit();return RedirectResponse('/admin?saved=1#plans',303)
+def add_plan(request:Request,title:str=Form(...),description:str=Form(''),price_toman:int=Form(...),duration_days:int=Form(...),data_limit_gb:int=Form(...),device_limit:int=Form(...),panel_id:int=Form(...),marzban_panel_id:int=Form(0),marzban_quota_mode:str=Form('split'),group_ids:str=Form(''),sort_order:int=Form(0),db:Session=Depends(get_db)):
+    admin_required(request);groups=[int(x.strip()) for x in group_ids.split(',') if x.strip().isdigit()];secondary=marzban_panel_id if marzban_panel_id>0 else None;quota_mode=marzban_quota_mode if marzban_quota_mode in {'split','full'} else 'split';db.add(Plan(title=title,description=description,price_toman=max(1000,price_toman),duration_days=max(0,duration_days),data_limit_gb=max(0,data_limit_gb),device_limit=1 if device_limit<=1 else 2,panel_id=panel_id,marzban_panel_id=secondary,marzban_quota_mode=quota_mode,group_ids_json=json.dumps(groups),sort_order=sort_order));db.commit();return RedirectResponse('/admin?saved=1#plans',303)
 @app.post('/admin/plans/{plan_id}/toggle')
 def plan_toggle(request:Request,plan_id:int,db:Session=Depends(get_db)):
     admin_required(request);x=db.get(Plan,plan_id)
@@ -359,7 +512,7 @@ async def customer_sync(request:Request,customer_id:int,db:Session=Depends(get_d
 @app.post('/admin/customers/{customer_id}/reset-devices')
 def reset_devices(request:Request,customer_id:int,db:Session=Depends(get_db)):
     admin_required(request)
-    for d in db.scalars(select(CustomerDevice).where(CustomerDevice.customer_id==customer_id)):d.active=False
+    for d in db.scalars(select(CustomerDevice).where(CustomerDevice.customer_id==customer_id)):d.active=False;d.refresh_token_hash='';d.refresh_expires_at=None
     for s in db.scalars(select(CustomerSession).where(CustomerSession.customer_id==customer_id,CustomerSession.revoked_at.is_(None))):s.revoked_at=utcnow()
     db.commit();return RedirectResponse('/admin?saved=1#customers',303)
 @app.post('/admin/orders/{order_id}/activate')

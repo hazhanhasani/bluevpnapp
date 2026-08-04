@@ -1,13 +1,8 @@
 {
-  "version": "1.0.8",
-  "android_version": "1.0.2",
-  "android_version_code": 22,
-  "build_id": "20260804100440",
-  "created_at": "2026-08-04T10:04:40.928208+00:00",
-  "features": [
-    "auto-subscription-sync-60-seconds",
-    "current-backend-account-stats",
-    "global-auto-server-selection",
-    "all-server-real-ping"
-  ]
+  "version": "1.0.9",
+  "android_version": "1.0.9",
+  "android_version_code": 23,
+  "build_id": "20260804101620",
+  "created_at": "2026-08-04T10:16:20.676679+00:00",
+  "purpose": "force-new-apk-build-and-fix-delivery-identification"
 }

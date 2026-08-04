@@ -225,9 +225,15 @@ jobs:
 
           for apk in "${APKS[@]}"; do
             filename="$(basename "$apk")"
-            clean_name="${filename%-unsigned.apk}.apk"
-            clean_name="${clean_name/BlueVPN_/BlueVPN_}"
-            aligned="$RUNNER_TEMP/bluevpn-aligned/${clean_name%.apk}-aligned.apk"
+
+            # Normalize exactly one APK extension. Some Gradle outputs are
+            # already named *.apk while older outputs end in -unsigned.apk.
+            base_name="${filename%.apk}"
+            base_name="${base_name%-unsigned}"
+            base_name="${base_name%-release}"
+            clean_name="${base_name}.apk"
+
+            aligned="$RUNNER_TEMP/bluevpn-aligned/${base_name}-aligned.apk"
             signed="dist/$clean_name"
 
             "$BUILD_TOOLS/zipalign" -p -f 4 "$apk" "$aligned"
@@ -282,9 +288,16 @@ jobs:
             exit 0
           fi
 
+          curl --fail --show-error --silent \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=🚀 Build جدید BlueVPN آماده شد%0Aنسخه: ${VERSION}%0ABuild: #${GITHUB_RUN_NUMBER}%0ACommit: ${GITHUB_SHA:0:8}%0Aدو فایل مخصوص arm64-v8a و armeabi-v7a در ادامه ارسال می‌شوند."
+
           for apk in dist/*.apk; do
-            CAPTION="$(printf '✅ BlueVPN %s\n📦 %s\n🔐 امضای دائمی فعال است؛ بروزرسانی‌های بعدی بدون حذف برنامه نصب می‌شوند.' \
-              "$VERSION" "$(basename "$apk")")"
+            ARCH="$(basename "$apk" .apk | sed -E 's/^BlueVPN_[^_]+_//')"
+            CAPTION="$(printf '✅ APK جدید BlueVPN %s\n🏗 Build #%s\n📦 %s\n📱 معماری: %s\n🔐 امضای دائمی فعال است؛ بدون حذف نسخه قبلی نصب می‌شود.' \
+              "$VERSION" "$GITHUB_RUN_NUMBER" "$(basename "$apk")" "$ARCH")"
 
             curl --fail --show-error --silent \
               --request POST \

@@ -1,10 +1,10 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.8",
-  "channel": "android-auto-sync-global-server-selection",
-  "description": "Automatic managed subscription and server-list refresh every 60 seconds, current backend subscription display, and automatic server selection/testing across all locations.",
-  "build_id": "20260804100440",
-  "built_at": "2026-08-04T10:04:40.928208+00:00",
-  "android_version": "1.0.2",
-  "android_version_code": 22
+  "version": "1.0.9",
+  "channel": "apk-version-and-delivery-fix",
+  "description": "Align the visible Android version with the current project, fix duplicate .apk.apk filenames, and send a clear Telegram announcement containing version, GitHub build number and commit before delivering the two signed APK architectures.",
+  "build_id": "20260804101620",
+  "built_at": "2026-08-04T10:16:20.676679+00:00",
+  "android_version": "1.0.9",
+  "android_version_code": 23
 }

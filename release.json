@@ -1,12 +1,12 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.16",
-  "channel": "real-marzban-subscription-first",
-  "description": "Always fetch the real Marzban subscription URL first using an exact v2rayNG-compatible User-Agent, then merge API links only as a fallback/supplement. Report separate Marzban subscription and API configuration counts.",
-  "build_id": "20260804131753",
-  "built_at": "2026-08-04T13:17:53.128406+00:00",
-  "android_version": "1.0.16",
-  "android_version_code": 30,
+  "version": "1.0.17",
+  "channel": "professional-auth-and-smart-startup-optimization",
+  "description": "Redesign login and registration with a professional graphical interface; show a percentage-based synchronization dialog at app entry; test all routes using the current user's network; temporarily exclude failed routes for the current session and retest them at the next entry; select the fastest healthy route; and never display provider/default server names instead of country names and flags.",
+  "build_id": "20260804133922",
+  "built_at": "2026-08-04T13:39:22.347996+00:00",
+  "android_version": "1.0.17",
+  "android_version_code": 31,
   "deploy_bot_version": "2.5-push-trigger",
   "build_trigger": "git-empty-commit-push"
 }

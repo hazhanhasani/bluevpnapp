@@ -1,14 +1,17 @@
 {
-  "version": "1.0.16",
-  "android_version": "1.0.16",
-  "android_version_code": 30,
-  "build_id": "20260804131753",
-  "created_at": "2026-08-04T13:17:53.128406+00:00",
+  "version": "1.0.17",
+  "android_version": "1.0.17",
+  "android_version_code": 31,
+  "build_id": "20260804133922",
+  "created_at": "2026-08-04T13:39:22.347996+00:00",
   "features": [
-    "real-marzban-subscription-first",
-    "exact-v2rayng-user-agent",
-    "html-subscription-page-detection",
-    "merge-sub-and-api-links",
-    "separate-sub-api-diagnostics"
+    "professional-graphical-auth-ui",
+    "startup-sync-progress-percentage",
+    "test-all-servers-on-current-user-network",
+    "session-only-inactive-server-exclusion",
+    "retest-inactive-servers-on-next-entry",
+    "fastest-healthy-server-preselection",
+    "strict-country-and-flag-display",
+    "no-default-provider-server-names"
   ]
 }

@@ -1,8 +1,10 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.7",
-  "channel": "force-deploy-database-environment",
-  "description": "Force a new GitHub/Railway deployment while preserving PostgreSQL environment autodiscovery, automatic schema creation, migration, startup diagnostics, and SQLite fallback protection.",
-  "build_id": "20260804092417",
-  "built_at": "2026-08-04T09:24:17.279682+00:00"
+  "version": "1.0.8",
+  "channel": "android-auto-sync-global-server-selection",
+  "description": "Automatic managed subscription and server-list refresh every 60 seconds, current backend subscription display, and automatic server selection/testing across all locations.",
+  "build_id": "20260804100440",
+  "built_at": "2026-08-04T10:04:40.928208+00:00",
+  "android_version": "1.0.2",
+  "android_version_code": 22
 }

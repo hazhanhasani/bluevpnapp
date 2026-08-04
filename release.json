@@ -1,13 +1,14 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.24",
-  "channel": "instant-update-detection",
-  "description": "Detect newly published GitHub Releases within seconds instead of minutes or an hour; compare both semantic version and version code; check again whenever the app returns to the foreground; show a visible automatic-download dialog; and add a manual update-check button in settings.",
-  "build_id": "20260804162033",
-  "built_at": "2026-08-04T16:20:33.947773+00:00",
-  "android_version": "automatic-from-github-run",
-  "android_version_code": "10000 + github.run_number",
+  "version": "2.0.0",
+  "channel": "dynamic-2.0-release-series",
+  "description": "Synchronize project metadata to version 2.0.0 and generate Android releases dynamically from 2.0.1 upward. Each successful GitHub Release increments the patch number instead of using a fixed version or the raw workflow run number.",
+  "build_id": "20260804163403",
+  "built_at": "2026-08-04T16:34:03.497143+00:00",
+  "android_version": "2.0.<latest_release_patch_plus_one>",
+  "android_version_code": "20000 + release_patch",
   "deploy_bot_version": "2.5-push-trigger",
   "build_trigger": "git-empty-commit-push",
-  "update_source": "github_releases"
+  "update_source": "github_releases",
+  "version_strategy": "Read latest GitHub Release. If it is v2.0.N, publish v2.0.(N+1); otherwise start at v2.0.1."
 }

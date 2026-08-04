@@ -6,6 +6,11 @@ on:
       - main
   workflow_dispatch:
 
+
+concurrency:
+  group: bluevpn-release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -40,14 +45,27 @@ jobs:
             fi
           done
 
-      - name: Generate automatic version from GitHub
+      - name: Generate next BlueVPN 2.0 version
         id: config
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
 
-          AUTO_VERSION="1.0.${GITHUB_RUN_NUMBER}"
-          AUTO_VERSION_CODE="$((10000 + GITHUB_RUN_NUMBER))"
+          LATEST_TAG="$(
+            gh api               "repos/${GITHUB_REPOSITORY}/releases/latest"               --jq '.tag_name'               2>/dev/null || true
+          )"
+
+          NEXT_PATCH=1
+
+          if [[ "${LATEST_TAG}" =~ ^v?2\.0\.([0-9]+)$ ]]; then
+            NEXT_PATCH="$((BASH_REMATCH[1] + 1))"
+          fi
+
+          AUTO_VERSION="2.0.${NEXT_PATCH}"
+          AUTO_VERSION_CODE="$((20000 + NEXT_PATCH))"
+
           export AUTO_VERSION AUTO_VERSION_CODE
 
           python - <<'PY'
@@ -56,9 +74,20 @@ jobs:
           from pathlib import Path
 
           path = Path("branding/app.json")
-          data = json.loads(path.read_text(encoding="utf-8"))
-          data["version_name"] = os.environ["AUTO_VERSION"]
-          data["version_code"] = int(os.environ["AUTO_VERSION_CODE"])
+          data = json.loads(
+              path.read_text(encoding="utf-8")
+          )
+
+          data["version_name"] = os.environ[
+              "AUTO_VERSION"
+          ]
+          data["version_code"] = int(
+              os.environ["AUTO_VERSION_CODE"]
+          )
+          data["version_source"] = (
+              "latest_github_release_increment"
+          )
+
           path.write_text(
               json.dumps(
                   data,
@@ -72,12 +101,12 @@ jobs:
           echo "upstream_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["upstream_ref"])')" >> "$GITHUB_OUTPUT"
           echo "version=${AUTO_VERSION}" >> "$GITHUB_OUTPUT"
           echo "version_code=${AUTO_VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "previous_tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
+          echo "next_patch=${NEXT_PATCH}" >> "$GITHUB_OUTPUT"
 
-          echo "Automatic Android version: ${AUTO_VERSION}"
-          echo "Automatic Version Code: ${AUTO_VERSION_CODE}"
-        env:
-          AUTO_VERSION: 1.0.${{ github.run_number }}
-          AUTO_VERSION_CODE: 10000
+          echo "Latest GitHub Release: ${LATEST_TAG:-none}"
+          echo "Next Android version: ${AUTO_VERSION}"
+          echo "Next Version Code: ${AUTO_VERSION_CODE}"
 
       - name: Checkout official v2rayNG source
         uses: actions/checkout@v4

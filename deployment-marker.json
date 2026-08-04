@@ -1,17 +1,25 @@
 {
-  "version": "1.0.24",
-  "project_version": "1.0.24",
-  "android_version": "1.0.<github_run_number>",
-  "android_version_code": "10000 + github_run_number",
-  "build_id": "20260804162033",
-  "created_at": "2026-08-04T16:20:33.947773+00:00",
+  "version": "2.0.0",
+  "project_version": "2.0.0",
+  "next_android_version": "2.0.1",
+  "future_android_versions": [
+    "2.0.2",
+    "2.0.3",
+    "2.0.4"
+  ],
+  "android_version_code_series": [
+    20001,
+    20002,
+    20003
+  ],
+  "build_id": "20260804163403",
+  "created_at": "2026-08-04T16:34:03.497143+00:00",
   "features": [
-    "github-release-cache-15-seconds",
-    "app-update-check-every-30-seconds",
-    "foreground-return-update-check",
-    "semantic-and-version-code-comparison",
-    "visible-auto-download-dialog",
-    "manual-update-check-button",
-    "correct-cold-launch-sync-settings-text"
+    "start-release-series-at-2.0.1",
+    "increment-from-latest-github-release",
+    "never-fixed-version",
+    "monotonic-version-code-20001-upward",
+    "serialize-release-builds",
+    "project-metadata-synchronized-to-2.0.0"
   ]
 }

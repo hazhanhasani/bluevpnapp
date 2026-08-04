@@ -47,7 +47,7 @@ def _headers(authenticated: bool = True) -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "BlueVPN-Update-Service/1.0.24",
+        "User-Agent": "BlueVPN-Update-Service/2.0.0",
     }
 
     token = os.getenv("GITHUB_TOKEN", "").strip()
@@ -94,9 +94,11 @@ def _fallback_version_code(version: str) -> int:
     ]
     if len(parts) >= 3:
         major, minor, patch = parts[:3]
-        # Automatic workflow versions use 1.0.<GitHub run number>.
+        # BlueVPN version families use predictable monotonic codes.
         if major == 1 and minor == 0:
             return 10_000 + patch
+        if major == 2 and minor == 0:
+            return 20_000 + patch
         return (
             major * 1_000_000
             + minor * 10_000

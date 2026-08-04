@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -40,12 +40,44 @@ jobs:
             fi
           done
 
-      - name: Read branding configuration
+      - name: Generate automatic version from GitHub
         id: config
         shell: bash
         run: |
+          set -euo pipefail
+
+          AUTO_VERSION="1.0.${GITHUB_RUN_NUMBER}"
+          AUTO_VERSION_CODE="$((10000 + GITHUB_RUN_NUMBER))"
+          export AUTO_VERSION AUTO_VERSION_CODE
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          path = Path("branding/app.json")
+          data = json.loads(path.read_text(encoding="utf-8"))
+          data["version_name"] = os.environ["AUTO_VERSION"]
+          data["version_code"] = int(os.environ["AUTO_VERSION_CODE"])
+          path.write_text(
+              json.dumps(
+                  data,
+                  ensure_ascii=False,
+                  indent=2,
+              ) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
           echo "upstream_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["upstream_ref"])')" >> "$GITHUB_OUTPUT"
-          echo "version=$(python -c 'import json; print(json.load(open("branding/app.json"))["version_name"])')" >> "$GITHUB_OUTPUT"
+          echo "version=${AUTO_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${AUTO_VERSION_CODE}" >> "$GITHUB_OUTPUT"
+
+          echo "Automatic Android version: ${AUTO_VERSION}"
+          echo "Automatic Version Code: ${AUTO_VERSION_CODE}"
+        env:
+          AUTO_VERSION: 1.0.${{ github.run_number }}
+          AUTO_VERSION_CODE: 10000
 
       - name: Checkout official v2rayNG source
         uses: actions/checkout@v4
@@ -257,12 +289,86 @@ jobs:
           echo "Generated signed APKs:"
           ls -lah dist
 
-      - name: Create SHA256 checksums
+      - name: Create GitHub Release metadata and checksums
+        env:
+          VERSION: ${{ steps.config.outputs.version }}
+          VERSION_CODE: ${{ steps.config.outputs.version_code }}
         shell: bash
         run: |
+          set -euo pipefail
+
           cd dist
           sha256sum *.apk > SHA256SUMS.txt
           cat SHA256SUMS.txt
+          cd ..
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          release = json.loads(
+              Path("release.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+
+          version = os.environ["VERSION"]
+          version_code = int(os.environ["VERSION_CODE"])
+          build_number = int(os.environ["GITHUB_RUN_NUMBER"])
+          commit = os.environ["GITHUB_SHA"]
+
+          apks = sorted(
+              path.name
+              for path in Path("dist").glob("*.apk")
+          )
+
+          description = str(
+              release.get("description")
+              or "نسخه جدید BlueVPN آماده است."
+          )
+
+          manifest = {
+              "app_name": "BlueVPN",
+              "version": version,
+              "version_code": version_code,
+              "build_number": build_number,
+              "commit": commit,
+              "published_at": os.environ.get(
+                  "BUILD_PUBLISHED_AT",
+                  "",
+              ),
+              "update_title": f"BlueVPN {version}",
+              "update_message": description,
+              "apk_assets": apks,
+              "source": "github_actions",
+          }
+
+          Path("dist/release-manifest.json").write_text(
+              json.dumps(
+                  manifest,
+                  ensure_ascii=False,
+                  indent=2,
+              ) + "\n",
+              encoding="utf-8",
+          )
+
+          notes = (
+              f"# BlueVPN {version}\n\n"
+              f"{description}\n\n"
+              f"- Build: #{build_number}\n"
+              f"- Version Code: {version_code}\n"
+              f"- Commit: `{commit[:8]}`\n"
+              f"- Signed APKs: {len(apks)}\n"
+          )
+
+          Path("dist/RELEASE_NOTES.md").write_text(
+              notes,
+              encoding="utf-8",
+          )
+          PY
+        env:
+          BUILD_PUBLISHED_AT: ${{ github.event.head_commit.timestamp }}
 
       - name: Upload signed BlueVPN APK artifact
         uses: actions/upload-artifact@v4
@@ -271,8 +377,28 @@ jobs:
           path: |
             dist/*.apk
             dist/SHA256SUMS.txt
+            dist/release-manifest.json
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish signed APKs to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.config.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="v${VERSION}"
+
+          if gh release view "$TAG"             --repo "$GITHUB_REPOSITORY"             >/dev/null 2>&1
+          then
+            gh release delete "$TAG"               --repo "$GITHUB_REPOSITORY"               --yes               --cleanup-tag
+          fi
+
+          gh release create "$TAG"             dist/*.apk             dist/SHA256SUMS.txt             dist/release-manifest.json             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "BlueVPN ${VERSION}"             --notes-file dist/RELEASE_NOTES.md
+
+          echo "GitHub Release published: ${TAG}"
 
       - name: Send signed APK files to Telegram
         env:

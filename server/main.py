@@ -13,11 +13,12 @@ from sqlalchemy.orm import Session,selectinload
 from starlette.middleware.sessions import SessionMiddleware
 from .database import DATABASE_ERROR,DATABASE_MODE,SessionLocal,database_status,database_table_counts,initialize_database,get_db
 from .integrations import IntegrationError,combined_subscription,create_invoice,get_invoice,provision,sync_customer,test_marzban_panel,test_panel,verify_webhook
+from .github_release import github_repository,latest_github_release
 from .models import AppSetting,Customer,CustomerDevice,CustomerSession,MarzbanPanel,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'latest_version':'1.0.18','latest_version_code':32,'minimum_version':'0.4.9','force_update':False,'apk_url':os.getenv('APK_URL',''),'update_title':'نسخه جدید BlueVPN','update_message':'نسخه جدید آماده دانلود است.','announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Platform',version='1.0.18'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
+app=FastAPI(title='BlueVPN Platform',version='1.0.19'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -170,15 +171,51 @@ def health():
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
-        'version':'1.0.18',
+        'version':'1.0.19',
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }
 @app.get('/')
 def root():return RedirectResponse('/admin',302)
 @app.get('/api/v1/mobile/config')
-def mobile_config(db:Session=Depends(get_db)):
-    s=settings(db);return JSONResponse({'app_name':s['app_name'],'maintenance':bool(s['maintenance']),'support_url':s['support_url'],'latest_version':s['latest_version'],'latest_version_code':int(s['latest_version_code']),'minimum_version':s['minimum_version'],'force_update':bool(s['force_update']),'apk_url':s['apk_url'],'update_title':s['update_title'],'update_message':s['update_message'],'account_required':True,'announcement':{'enabled':bool(s['announcement_enabled']),'id':s['announcement_id'],'title':s['announcement_title'],'message':s['announcement_message']},'updated_at':s['updated_at']},headers={'Cache-Control':'no-store'})
+async def mobile_config(db:Session=Depends(get_db)):
+    s=settings(db)
+    release,github_error=await latest_github_release()
+    release=release or {}
+    return JSONResponse(
+        {
+            'app_name':s['app_name'],
+            'maintenance':bool(s['maintenance']),
+            'support_url':s['support_url'],
+            'minimum_version':s['minimum_version'],
+            'force_update':bool(s['force_update']),
+            'account_required':True,
+            'latest_version':release.get('version','0.0.0'),
+            'latest_version_code':int(release.get('version_code') or 0),
+            'apk_url':release.get('apk_url',''),
+            'apk_assets':release.get('apk_assets',{}),
+            'update_title':release.get('title','نسخه جدید BlueVPN'),
+            'update_message':release.get('message',''),
+            'release_url':release.get('release_url',''),
+            'release_published_at':release.get('published_at',''),
+            'release_build_number':int(release.get('build_number') or 0),
+            'release_commit':release.get('commit',''),
+            'update_source':'github_release',
+            'github_repository':github_repository(),
+            'github_error':github_error,
+            'announcement':{
+                'enabled':bool(s['announcement_enabled']),
+                'id':s['announcement_id'],
+                'title':s['announcement_title'],
+                'message':s['announcement_message'],
+            },
+            'updated_at':s['updated_at'],
+        },
+        headers={
+            'Cache-Control':'no-store',
+            'X-BlueVPN-Update-Source':'github-release',
+        },
+    )
 @app.post('/api/v1/auth/register')
 async def register(request:Request,db:Session=Depends(get_db)):
     b=await request.json();email=email_ok(str(b.get('email','')));password=str(b.get('password',''))
@@ -319,7 +356,7 @@ def admin_logout(request:Request):request.session.clear();return RedirectRespons
 def admin(request:Request,db:Session=Depends(get_db)):
     if not request.session.get('admin'):return RedirectResponse('/admin/login',302)
     s=settings(db);pay=db.get(PaymentSetting,1);panels=db.scalars(select(PasarGuardPanel).order_by(PasarGuardPanel.id.desc())).all();marzban_panels=db.scalars(select(MarzbanPanel).order_by(MarzbanPanel.id.desc())).all();plans=db.scalars(select(Plan).options(selectinload(Plan.panel),selectinload(Plan.marzban_panel)).where(Plan.deleted.is_(False)).order_by(Plan.sort_order,Plan.id.desc())).all();customers=db.scalars(select(Customer).order_by(Customer.id.desc()).limit(100)).all();orders=db.scalars(select(Order).options(selectinload(Order.customer),selectinload(Order.plan)).order_by(Order.created_at.desc()).limit(100)).all();stats={'customers':db.scalar(select(func.count(Customer.id))) or 0,'active':db.scalar(select(func.count(Customer.id)).where(Customer.subscription_status=='active')) or 0,'paid':db.scalar(select(func.count(Order.id)).where(Order.status.in_(['paid','activated','paid_needs_sync','partial_needs_sync']),~Order.order_code.like('MANUAL-%'))) or 0,'manual':db.scalar(select(func.count(Order.id)).where(Order.order_code.like('MANUAL-%'))) or 0,'panels':len(panels)+len(marzban_panels)}
-    return templates.TemplateResponse(request=request,name='admin.html',context={'settings':s,'payment':pay,'payment_api_mask':mask(decrypt(pay.api_key_enc)),'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),'panels':panels,'panel_masks':{x.id:mask(decrypt(x.api_key_enc) or decrypt(x.username_enc)) for x in panels},'marzban_panels':marzban_panels,'marzban_masks':{x.id:mask(decrypt(x.username_enc)) for x in marzban_panels},'plans':plans,'customers':customers,'orders':orders,'stats':stats,'database_mode':DATABASE_MODE,'database_info':database_status(),'database_counts':database_table_counts(),'saved':request.query_params.get('saved')=='1','manual_message':request.query_params.get('manual',''),'error':request.query_params.get('error','')})
+    return templates.TemplateResponse(request=request,name='admin.html',context={'settings':s,'payment':pay,'payment_api_mask':mask(decrypt(pay.api_key_enc)),'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),'panels':panels,'panel_masks':{x.id:mask(decrypt(x.api_key_enc) or decrypt(x.username_enc)) for x in panels},'marzban_panels':marzban_panels,'marzban_masks':{x.id:mask(decrypt(x.username_enc)) for x in marzban_panels},'plans':plans,'customers':customers,'orders':orders,'stats':stats,'database_mode':DATABASE_MODE,'database_info':database_status(),'database_counts':database_table_counts(),'saved':request.query_params.get('saved')=='1','manual_message':request.query_params.get('manual',''),'error':request.query_params.get('error',''),'github_repository':github_repository()})
 @app.post('/admin/database/initialize')
 def admin_database_initialize(
     request:Request,
@@ -340,8 +377,23 @@ def admin_database_initialize(
         )
 
 @app.post('/admin/app-settings')
-def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),latest_version:str=Form(...),latest_version_code:int=Form(...),minimum_version:str=Form(...),apk_url:str=Form(''),update_title:str=Form(''),update_message:str=Form(''),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),announcement_enabled:str|None=Form(None),db:Session=Depends(get_db)):
-    admin_required(request);s=settings(db);s.update({'app_name':app_name,'public_base_url':public_base_url.rstrip('/'),'support_url':support_url,'latest_version':latest_version,'latest_version_code':latest_version_code,'minimum_version':minimum_version,'apk_url':apk_url,'update_title':update_title,'update_message':update_message,'announcement_id':announcement_id,'announcement_title':announcement_title,'announcement_message':announcement_message,'maintenance':maintenance=='on','force_update':force_update=='on','announcement_enabled':announcement_enabled=='on'});save_settings(db,s);return RedirectResponse('/admin?saved=1#app',303)
+def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),minimum_version:str=Form(...),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),announcement_enabled:str|None=Form(None),db:Session=Depends(get_db)):
+    admin_required(request)
+    s=settings(db)
+    s.update({
+        'app_name':app_name,
+        'public_base_url':public_base_url.rstrip('/'),
+        'support_url':support_url,
+        'minimum_version':minimum_version,
+        'announcement_id':announcement_id,
+        'announcement_title':announcement_title,
+        'announcement_message':announcement_message,
+        'maintenance':maintenance=='on',
+        'force_update':force_update=='on',
+        'announcement_enabled':announcement_enabled=='on',
+    })
+    save_settings(db,s)
+    return RedirectResponse('/admin?saved=1#app',303)
 @app.post('/admin/payment-settings')
 def payment_settings(request:Request,base_url:str=Form(...),api_key:str=Form(''),callback_secret:str=Form(''),fee_mode:str=Form('default'),ttl_minutes:int=Form(30),active:str|None=Form(None),db:Session=Depends(get_db)):
     admin_required(request);p=db.get(PaymentSetting,1) or PaymentSetting(id=1);p.base_url=base_url.rstrip('/');p.api_key_enc=encrypt(api_key.strip()) if api_key.strip() else p.api_key_enc;p.callback_secret_enc=encrypt(callback_secret.strip()) if callback_secret.strip() else p.callback_secret_enc;p.fee_mode=fee_mode;p.ttl_minutes=max(5,min(1440,ttl_minutes));p.active=active=='on';db.add(p);db.commit();return RedirectResponse('/admin?saved=1#bluepay',303)

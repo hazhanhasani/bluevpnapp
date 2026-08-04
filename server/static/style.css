@@ -22,3 +22,14 @@
 @media(max-width:760px){.mini-routing{grid-template-columns:1fr}.mini-routing label{grid-column:auto}}
 
 .source-error{display:block;color:#ff9b9b;max-width:280px;white-space:normal;margin-top:5px}
+
+.github-release-box{
+  margin:12px 0 18px;
+  padding:16px;
+  border:1px solid #2b67aa;
+  border-radius:16px;
+  background:linear-gradient(135deg,#102f61,#0a2147);
+}
+.github-release-box b{display:block;color:#e9f3ff;margin-bottom:7px}
+.github-release-box p{color:#9fb8dc;line-height:1.9;margin:0 0 9px}
+.github-release-box code{display:block;direction:ltr;text-align:left;color:#6fb0ff;overflow-wrap:anywhere}

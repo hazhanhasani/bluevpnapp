@@ -1,12 +1,13 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.18",
-  "channel": "compile-fix-modern-ux",
-  "description": "Fix EditText isSingleLine compilation; improve keyboard flow, authentication hierarchy, startup feedback, genuine-return resync, and timeout.",
-  "build_id": "20260804140022",
-  "built_at": "2026-08-04T14:00:22.503713+00:00",
-  "android_version": "1.0.18",
-  "android_version_code": 32,
+  "version": "1.0.19",
+  "channel": "github-release-autopilot",
+  "description": "Publish every successful signed APK build as a GitHub Release; generate Android version and Version Code automatically from the GitHub run number; and let the mobile updater obtain version, release notes and ABI-specific APK links from the latest GitHub Release without manual admin configuration.",
+  "build_id": "20260804141957",
+  "built_at": "2026-08-04T14:19:57.914792+00:00",
+  "android_version": "automatic-from-github-run",
+  "android_version_code": "10000 + github.run_number",
   "deploy_bot_version": "2.5-push-trigger",
-  "build_trigger": "git-empty-commit-push"
+  "build_trigger": "git-empty-commit-push",
+  "update_source": "github_releases"
 }

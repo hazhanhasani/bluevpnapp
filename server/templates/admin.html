@@ -306,5 +306,33 @@
   </div>
 </section>
 <section id="orders" class="card"><h2>پرداخت و فعال‌سازی</h2><div class="table-wrap"><table><thead><tr><th>سفارش</th><th>کاربر</th><th>پلن</th><th>مبلغ</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{% for o in orders %}<tr><td class="ltr">{{ o.order_code }}{% if o.order_code.startswith("MANUAL-") %}<span class="badge manual">دستی</span>{% endif %}</td><td class="ltr">{{ o.customer.email }}</td><td>{{ o.plan.title }}</td><td>{% if o.order_code.startswith('MANUAL-') %}بدون درگاه{% else %}{{ '{:,}'.format(o.amount_toman) }}{% endif %}</td><td><span class="badge {{ 'ok' if o.status=='activated' else 'warn' }}">{{ o.status }}</span>{% if o.activation_error %}<small>{{ o.activation_error[:160] }}</small>{% endif %}</td><td>{% if o.status in ['paid','paid_needs_sync','partial_needs_sync'] %}<form method="post" action="/admin/orders/{{ o.id }}/activate"><button>تلاش فعال‌سازی</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="6">پرداختی وجود ندارد.</td></tr>{% endfor %}</tbody></table></div></section>
-<section id="app" class="card"><h2>اپلیکیشن و آپدیت خودکار</h2><form method="post" action="/admin/app-settings"><div class="form-grid"><div><label>نام برنامه</label><input name="app_name" value="{{ settings.app_name }}"></div><div><label>Public Base URL</label><input name="public_base_url" value="{{ settings.public_base_url }}"></div><div><label>نسخه جدید</label><input name="latest_version" value="{{ settings.latest_version }}"></div><div><label>Version Code</label><input name="latest_version_code" type="number" value="{{ settings.latest_version_code }}"></div><div><label>حداقل نسخه</label><input name="minimum_version" value="{{ settings.minimum_version }}"></div><div><label>لینک مستقیم APK</label><input name="apk_url" value="{{ settings.apk_url }}"></div><div><label>عنوان آپدیت</label><input name="update_title" value="{{ settings.update_title }}"></div><div><label>پشتیبانی</label><input name="support_url" value="{{ settings.support_url }}"></div><div class="wide"><label>توضیحات آپدیت</label><textarea name="update_message">{{ settings.update_message }}</textarea></div><div><label>شناسه اطلاعیه</label><input name="announcement_id" value="{{ settings.announcement_id }}"></div><div><label>عنوان اطلاعیه</label><input name="announcement_title" value="{{ settings.announcement_title }}"></div><div class="wide"><label>متن اطلاعیه</label><textarea name="announcement_message">{{ settings.announcement_message }}</textarea></div></div><div class="checks"><label><input type="checkbox" name="maintenance" {% if settings.maintenance %}checked{% endif %}> تعمیرات</label><label><input type="checkbox" name="force_update" {% if settings.force_update %}checked{% endif %}> آپدیت اجباری</label><label><input type="checkbox" name="announcement_enabled" {% if settings.announcement_enabled %}checked{% endif %}> اطلاعیه</label></div><button class="save">ذخیره</button></form></section>
+<section id="app" class="card">
+  <h2>اپلیکیشن و آپدیت خودکار GitHub</h2>
+  <div class="github-release-box">
+    <b>منبع آپدیت: GitHub Releases</b>
+    <p>
+      شماره نسخه، Version Code، عنوان، توضیحات و لینک APK دیگر در این پنل
+      تعریف نمی‌شوند. هر Build موفق خودش Release می‌سازد و برنامه آخرین
+      نسخه را خودکار از GitHub دریافت می‌کند.
+    </p>
+    <code>github.com/{{ github_repository }}/releases/latest</code>
+  </div>
+  <form method="post" action="/admin/app-settings">
+    <div class="form-grid">
+      <div><label>نام برنامه</label><input name="app_name" value="{{ settings.app_name }}"></div>
+      <div><label>Public Base URL</label><input name="public_base_url" value="{{ settings.public_base_url }}"></div>
+      <div><label>حداقل نسخه مجاز</label><input name="minimum_version" value="{{ settings.minimum_version }}"></div>
+      <div><label>پشتیبانی</label><input name="support_url" value="{{ settings.support_url }}"></div>
+      <div><label>شناسه اطلاعیه</label><input name="announcement_id" value="{{ settings.announcement_id }}"></div>
+      <div><label>عنوان اطلاعیه</label><input name="announcement_title" value="{{ settings.announcement_title }}"></div>
+      <div class="wide"><label>متن اطلاعیه</label><textarea name="announcement_message">{{ settings.announcement_message }}</textarea></div>
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" name="maintenance" {% if settings.maintenance %}checked{% endif %}> تعمیرات</label>
+      <label><input type="checkbox" name="force_update" {% if settings.force_update %}checked{% endif %}> آپدیت اجباری</label>
+      <label><input type="checkbox" name="announcement_enabled" {% if settings.announcement_enabled %}checked{% endif %}> اطلاعیه</label>
+    </div>
+    <button class="save">ذخیره تنظیمات عمومی</button>
+  </form>
+</section>
 </main></body></html>

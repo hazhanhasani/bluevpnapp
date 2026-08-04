@@ -1,15 +1,18 @@
 {
-  "version": "1.0.18",
-  "android_version": "1.0.18",
-  "android_version_code": 32,
-  "build_id": "20260804140022",
-  "created_at": "2026-08-04T14:00:22.503713+00:00",
+  "version": "1.0.19",
+  "project_version": "1.0.19",
+  "android_version": "1.0.<github_run_number>",
+  "android_version_code": "10000 + github_run_number",
+  "build_id": "20260804141957",
+  "created_at": "2026-08-04T14:19:57.914792+00:00",
   "features": [
-    "fix-isSingleLine",
-    "keyboard-next-done",
-    "modern-auth-polish",
-    "three-stage-sync-feedback",
-    "genuine-return-resync",
-    "18-second-timeout"
+    "automatic-github-release-publishing",
+    "automatic-version-from-github-run-number",
+    "automatic-version-code",
+    "automatic-release-notes",
+    "automatic-abi-apk-selection",
+    "no-manual-apk-url",
+    "no-manual-latest-version",
+    "github-release-cache-and-fallback"
   ]
 }

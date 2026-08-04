@@ -1,12 +1,12 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.15",
-  "channel": "force-marzban-source-and-diagnostics",
-  "description": "Repair or create the Marzban user before every subscription response, automatically attach the sole active Marzban panel to legacy plans, include direct Marzban API links, and expose separate PasarGuard/Marzban configuration counts to the admin.",
-  "build_id": "20260804115227",
-  "built_at": "2026-08-04T11:52:27.174937+00:00",
-  "android_version": "1.0.15",
-  "android_version_code": 29,
+  "version": "1.0.16",
+  "channel": "real-marzban-subscription-first",
+  "description": "Always fetch the real Marzban subscription URL first using an exact v2rayNG-compatible User-Agent, then merge API links only as a fallback/supplement. Report separate Marzban subscription and API configuration counts.",
+  "build_id": "20260804131753",
+  "built_at": "2026-08-04T13:17:53.128406+00:00",
+  "android_version": "1.0.16",
+  "android_version_code": 30,
   "deploy_bot_version": "2.5-push-trigger",
   "build_trigger": "git-empty-commit-push"
 }

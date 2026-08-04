@@ -1260,28 +1260,134 @@ async def fetch_subscription_source(
     url: str,
     *,
     verify_tls: bool,
+    source_kind: str = "generic",
 ) -> list[str]:
     if not url.startswith(("http://", "https://")):
         return []
 
+    # Marzban can serve a custom HTML subscription page to browsers.
+    # Ask exactly like v2rayNG so the endpoint returns the Base64 v2ray
+    # subscription rather than HTML.
+    user_agents = (
+        "v2rayNG/1.10.2",
+        "v2rayNG",
+        "BlueVPN/1.0.16 (v2rayNG compatible)",
+    )
+
+    attempts: list[str] = []
+
     async with httpx.AsyncClient(
-        timeout=25,
+        timeout=30,
         verify=verify_tls,
         follow_redirects=True,
     ) as client:
-        response = await client.get(
-            url,
-            headers={
-                "Accept": "text/plain,*/*",
-                "User-Agent": "v2rayNG/2.2.6 BlueVPN/1.0.11",
-            },
+        for user_agent in user_agents:
+            try:
+                response = await client.get(
+                    url,
+                    headers={
+                        "Accept": (
+                            "text/plain,"
+                            "application/octet-stream,"
+                            "*/*"
+                        ),
+                        "User-Agent": user_agent,
+                        "Cache-Control": "no-cache",
+                        "Pragma": "no-cache",
+                    },
+                )
+            except Exception as exc:
+                attempts.append(
+                    f"{user_agent}: {type(exc).__name__}: {exc}"
+                )
+                continue
+
+            content_type = response.headers.get(
+                "content-type",
+                "",
+            ).lower()
+
+            if response.status_code >= 400:
+                attempts.append(
+                    f"{user_agent}: HTTP {response.status_code}"
+                )
+                continue
+
+            text = response.text.strip()
+            lines = subscription_lines(text)
+
+            if lines:
+                return lines
+
+            if (
+                "text/html" in content_type
+                or text.lower().startswith("<!doctype html")
+                or text.lower().startswith("<html")
+            ):
+                attempts.append(
+                    f"{user_agent}: صفحه HTML برگشت، نه ساب v2ray"
+                )
+            elif not text:
+                attempts.append(
+                    f"{user_agent}: پاسخ خالی"
+                )
+            else:
+                attempts.append(
+                    f"{user_agent}: پاسخ دریافت شد ولی "
+                    "هیچ لینک vless/vmess/trojan/ss داخل آن نبود"
+                )
+
+    label = (
+        "Marzban subscription"
+        if source_kind == "marzban"
+        else "subscription"
+    )
+    raise IntegrationError(
+        f"دریافت {label} ناموفق بود: "
+        + " | ".join(attempts[-3:])
+    )
+
+
+def marzban_subscription_url(
+    panel: MarzbanPanel,
+    user_data: dict | None,
+    saved_url: str,
+) -> str:
+    values: list[str] = []
+
+    if isinstance(user_data, dict):
+        values.extend(
+            [
+                str(user_data.get("subscription_url") or ""),
+                str(user_data.get("sub_url") or ""),
+            ]
         )
 
-    if response.status_code >= 400:
-        raise IntegrationError(
-            f"دریافت منبع اشتراک ناموفق: HTTP {response.status_code}"
+        subscription = user_data.get("subscription")
+        if isinstance(subscription, dict):
+            values.extend(
+                [
+                    str(subscription.get("url") or ""),
+                    str(
+                        subscription.get(
+                            "subscription_url"
+                        )
+                        or ""
+                    ),
+                ]
+            )
+
+    values.append(str(saved_url or ""))
+
+    for value in values:
+        absolute = absolute_subscription_url(
+            panel.base_url,
+            value,
         )
-    return subscription_lines(response.text)
+        if absolute:
+            return absolute
+
+    return ""
 
 
 async def combined_subscription(
@@ -1296,7 +1402,8 @@ async def combined_subscription(
 
     raw_counts = {
         "pasarguard": 0,
-        "marzban": 0,
+        "marzban_sub": 0,
+        "marzban_api": 0,
     }
     added_counts = {
         "pasarguard": 0,
@@ -1340,41 +1447,58 @@ async def combined_subscription(
                     customer.marzban_username,
                 )
 
-                direct_links = extract_marzban_links(user_data)
-                remote_sub = absolute_subscription_url(
-                    panel.base_url,
-                    (
-                        user_data.get("subscription_url", "")
-                        if isinstance(user_data, dict)
-                        else ""
-                    )
-                    or customer.marzban_subscription_url,
+                remote_sub = marzban_subscription_url(
+                    panel,
+                    user_data,
+                    customer.marzban_subscription_url,
                 )
 
+                sub_lines: list[str] = []
+                api_lines = extract_marzban_links(user_data)
+
+                # Important: the real Marzban subscription is now always
+                # fetched first. API links no longer suppress the sub.
                 if remote_sub:
                     customer.marzban_subscription_url = remote_sub
                     db.add(customer)
                     db.commit()
 
-                if direct_links:
-                    lines = direct_links
-                elif remote_sub:
-                    lines = await fetch_subscription_source(
-                        remote_sub,
-                        verify_tls=panel.verify_tls,
-                    )
+                    try:
+                        sub_lines = await fetch_subscription_source(
+                            remote_sub,
+                            verify_tls=panel.verify_tls,
+                            source_kind="marzban",
+                        )
+                    except Exception as exc:
+                        errors.append(
+                            f"{source_name} sub: {exc}"
+                        )
                 else:
-                    lines = []
                     errors.append(
-                        f"{source_name}: API کاربر موجود است اما "
-                        "هیچ links یا subscription_url برنگرداند"
+                        f"{source_name}: subscription_url "
+                        "از API مرزبان دریافت نشد"
                     )
 
-                if lines:
+                raw_counts["marzban_sub"] = len(sub_lines)
+                raw_counts["marzban_api"] = len(api_lines)
+
+                # Put sub links first. API links are only a supplement and
+                # deduplication below prevents repeated configs.
+                marzban_lines = sub_lines + api_lines
+
+                if marzban_lines:
                     source_items.append(
-                        (lines, source_name, "marzban")
+                        (
+                            marzban_lines,
+                            source_name,
+                            "marzban",
+                        )
                     )
-                    raw_counts["marzban"] = len(lines)
+                else:
+                    errors.append(
+                        f"{source_name}: نه ساب مرزبان و نه API "
+                        "هیچ کانفیگی برنگرداند"
+                    )
 
             except Exception as exc:
                 errors.append(f"{source_name}: {exc}")
@@ -1416,7 +1540,9 @@ async def combined_subscription(
 
     expiry = aware(customer.subscription_expire)
     headers = {
-        "Cache-Control": "no-store",
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
         "profile-title": "base64:"
         + base64.b64encode("BlueVPN".encode()).decode(),
         "profile-update-interval": "1",
@@ -1429,8 +1555,11 @@ async def combined_subscription(
         "X-BlueVPN-Pasarguard-Raw-Count": str(
             raw_counts["pasarguard"]
         ),
-        "X-BlueVPN-Marzban-Raw-Count": str(
-            raw_counts["marzban"]
+        "X-BlueVPN-Marzban-Sub-Raw-Count": str(
+            raw_counts["marzban_sub"]
+        ),
+        "X-BlueVPN-Marzban-Api-Raw-Count": str(
+            raw_counts["marzban_api"]
         ),
         "X-BlueVPN-Pasarguard-Count": str(
             added_counts["pasarguard"]

@@ -1,10 +1,12 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.13",
-  "channel": "marzban-direct-links-and-existing-user-repair",
-  "description": "Read Marzban configs directly from the user API links field, normalize relative subscription URLs, remove dependency on XRAY_SUBSCRIPTION_URL_PREFIX, allow attaching Marzban to existing plans, and automatically create/sync existing customers on the secondary panel.",
-  "build_id": "20260804112614",
-  "built_at": "2026-08-04T11:26:14.133769+00:00",
-  "android_version": "1.0.13",
-  "android_version_code": 27
+  "version": "1.0.15",
+  "channel": "force-marzban-source-and-diagnostics",
+  "description": "Repair or create the Marzban user before every subscription response, automatically attach the sole active Marzban panel to legacy plans, include direct Marzban API links, and expose separate PasarGuard/Marzban configuration counts to the admin.",
+  "build_id": "20260804115227",
+  "built_at": "2026-08-04T11:52:27.174937+00:00",
+  "android_version": "1.0.15",
+  "android_version_code": 29,
+  "deploy_bot_version": "2.5-push-trigger",
+  "build_trigger": "git-empty-commit-push"
 }

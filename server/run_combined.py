@@ -20,7 +20,7 @@ import uvicorn
 APP_DIR = Path("/app")
 BOT_DIR = Path("/opt/bluevpn_bot")
 ERROR_LOG = Path("/tmp/bluevpn-startup-error.log")
-VERSION = "1.0.7"
+VERSION = "1.0.14"
 
 for directory in (APP_DIR, BOT_DIR):
     value = str(directory)
@@ -205,6 +205,9 @@ def status_payload() -> dict[str, Any]:
             "status": STATE.bot_status,
             "error": STATE.bot_error[-1500:],
             "error_at": STATE.bot_error_at,
+            "runtime": "server.deploy_bot_runtime",
+            "version": "2.5-push-trigger",
+            "build_trigger": "git-empty-commit-push",
         },
         "database_environment": database_environment_diagnostics(),
     }
@@ -428,7 +431,7 @@ async def run_bot_forever() -> None:
             # GitHub variables can no longer break Railway healthchecks.
             module = await asyncio.to_thread(
                 importlib.import_module,
-                "deploy_bot",
+                "server.deploy_bot_runtime",
             )
             telegram = module.build_application()
 
@@ -474,7 +477,7 @@ async def run_bot_forever() -> None:
 
             # A partially imported module with failed require_env() must not be
             # reused on the next retry.
-            sys.modules.pop("deploy_bot", None)
+            sys.modules.pop("server.deploy_bot_runtime", None)
 
             try:
                 await asyncio.wait_for(

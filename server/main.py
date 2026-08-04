@@ -16,8 +16,8 @@ from .integrations import IntegrationError,combined_subscription,create_invoice,
 from .models import AppSetting,Customer,CustomerDevice,CustomerSession,MarzbanPanel,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'latest_version':'1.0.13','latest_version_code':27,'minimum_version':'0.4.9','force_update':False,'apk_url':os.getenv('APK_URL',''),'update_title':'نسخه جدید BlueVPN','update_message':'نسخه جدید آماده دانلود است.','announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Platform',version='1.0.13'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'latest_version':'1.0.15','latest_version_code':29,'minimum_version':'0.4.9','force_update':False,'apk_url':os.getenv('APK_URL',''),'update_title':'نسخه جدید BlueVPN','update_message':'نسخه جدید آماده دانلود است.','announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
+app=FastAPI(title='BlueVPN Platform',version='1.0.15'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -170,7 +170,7 @@ def health():
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
-        'version':'1.0.13',
+        'version':'1.0.15',
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }
@@ -261,6 +261,17 @@ async def public_subscription(
     if not customer or not customer.active:
         raise HTTPException(404,'Subscription not found')
 
+    repair_error=''
+    try:
+        await sync_customer(
+            db,
+            customer,
+            settings(db)['public_base_url'],
+        )
+        customer=db.get(Customer,customer.id)
+    except Exception as exc:
+        repair_error=str(exc)
+
     expiry=aware(customer.subscription_expire)
     if expiry and expiry<=utcnow():
         raise HTTPException(410,'Subscription expired')
@@ -278,11 +289,16 @@ async def public_subscription(
             headers={'Cache-Control':'no-store'},
         )
 
+    if repair_error:
+        errors.append('Repair: '+repair_error)
+
     if errors:
         customer.last_sync_error=(
-            'برخی مسیرهای پشتیبان در حال همگام‌سازی هستند'
-        )
-        db.commit()
+            ' | '.join(errors)
+        )[:2000]
+    else:
+        customer.last_sync_error=''
+    db.commit()
 
     return Response(
         content=body,
@@ -620,6 +636,65 @@ async def manual_activation_for_customer(
             'customers',
             error=f'فعال‌سازی دستی ناموفق بود: {str(exc)[:450]}',
         )
+
+@app.post('/admin/customers/{customer_id}/source-check')
+async def customer_source_check(
+    request:Request,
+    customer_id:int,
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    customer=db.get(Customer,customer_id)
+    if not customer:
+        return admin_redirect(
+            'customers',
+            error='کاربر پیدا نشد',
+        )
+
+    try:
+        await sync_customer(
+            db,
+            customer,
+            settings(db)['public_base_url'],
+        )
+        customer=db.get(Customer,customer.id)
+        _,headers,errors=await combined_subscription(
+            db,
+            customer,
+        )
+
+        pg=headers.get(
+            'X-BlueVPN-Pasarguard-Count',
+            '0',
+        )
+        mz=headers.get(
+            'X-BlueVPN-Marzban-Count',
+            '0',
+        )
+        total=headers.get(
+            'X-BlueVPN-Config-Count',
+            '0',
+        )
+
+        message=(
+            f'منابع اشتراک — PasarGuard: {pg}، '
+            f'Marzban: {mz}، مجموع: {total}'
+        )
+
+        if errors:
+            message+=' | '+' | '.join(errors)
+
+        return admin_redirect(
+            'customers',
+            manual=message[:1500],
+        )
+
+    except Exception as exc:
+        return admin_redirect(
+            'customers',
+            error=str(exc)[:1000],
+        )
+
 
 @app.post('/admin/customers/{customer_id}/sync')
 async def customer_sync(request:Request,customer_id:int,db:Session=Depends(get_db)):

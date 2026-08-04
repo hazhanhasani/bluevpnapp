@@ -1,14 +1,16 @@
 {
-  "version": "1.0.13",
-  "android_version": "1.0.13",
-  "android_version_code": 27,
-  "build_id": "20260804112614",
-  "created_at": "2026-08-04T11:26:14.133769+00:00",
+  "version": "1.0.15",
+  "android_version": "1.0.15",
+  "android_version_code": 29,
+  "deploy_bot_version": "2.5-push-trigger",
+  "build_trigger": "git-empty-commit-push",
+  "build_id": "20260804115227",
+  "created_at": "2026-08-04T11:52:27.174937+00:00",
   "features": [
-    "marzban-direct-api-links",
-    "relative-subscription-url-normalization",
-    "attach-marzban-to-existing-plan",
-    "bulk-repair-existing-customers",
-    "automatic-one-minute-secondary-provisioning"
+    "force-marzban-repair-before-subscription",
+    "auto-attach-single-active-marzban",
+    "separate-source-config-counts",
+    "admin-source-diagnostics",
+    "push-build-trigger-without-workflow-dispatch"
   ]
 }

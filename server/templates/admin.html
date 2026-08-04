@@ -245,6 +245,11 @@
 
 <section id="customers" class="card">
   <h2>کاربران و دستگاه‌ها</h2>
+  <p class="hint">
+    «بررسی تعداد منابع» کاربر Marzban را در صورت نبودن می‌سازد و تعداد
+    کانفیگ‌های PasarGuard و Marzban داخل لینک نهایی را جداگانه گزارش می‌کند.
+    اگر فقط یک Marzban فعال باشد، به‌صورت خودکار به پلن قدیمی متصل می‌شود.
+  </p>
   <div class="table-wrap">
     <table>
       <thead>
@@ -256,13 +261,21 @@
           <td class="ltr">{{ c.email }}</td>
           <td><span class="badge {{ 'ok' if c.subscription_status=='active' else 'warn' }}">{{ c.subscription_status }}</span></td>
           <td class="ltr">{{ c.pg_username or '—' }}</td>
-          <td class="ltr">{{ c.marzban_username or '—' }}</td>
+          <td class="ltr">
+            {{ c.marzban_username or '—' }}
+            {% if c.marzban_last_error %}
+              <small class="source-error">{{ c.marzban_last_error }}</small>
+            {% endif %}
+          </td>
           <td>{{ c.device_limit }}</td>
           <td>{{ c.subscription_expire or 'نامحدود/ندارد' }}</td>
           <td>
             <div class="actions">
+              <form method="post" action="/admin/customers/{{ c.id }}/source-check">
+                <button>بررسی تعداد منابع</button>
+              </form>
               <form method="post" action="/admin/customers/{{ c.id }}/sync">
-                <button>همگام‌سازی</button>
+                <button class="secondary">همگام‌سازی</button>
               </form>
               <form method="post" action="/admin/customers/{{ c.id }}/reset-devices">
                 <button class="danger">خروج دستگاه‌ها</button>

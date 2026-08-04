@@ -12,6 +12,7 @@ from typing import Any
 from urllib.parse import quote, unquote, urljoin
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import (
@@ -895,7 +896,7 @@ async def sync_customer(
 
     # Existing customers were previously skipped when Marzban was attached
     # to an old plan later. Repair them during normal one-minute account sync.
-    if plan and plan.marzban_panel_id:
+    if plan:
         mz_data, mz_error = (
             await ensure_marzban_for_existing_customer(
                 db,
@@ -1168,18 +1169,49 @@ def extract_marzban_links(user_data: dict | None) -> list[str]:
     return result
 
 
+def resolve_marzban_panel(
+    db: Session,
+    plan: Plan,
+) -> tuple[MarzbanPanel | None, str]:
+    if plan.marzban_panel_id:
+        panel = db.get(MarzbanPanel, plan.marzban_panel_id)
+        if panel and panel.active:
+            return panel, ""
+        return None, "پنل دوم Marzban پلن فعال نیست"
+
+    active_panels = db.scalars(
+        select(MarzbanPanel)
+        .where(MarzbanPanel.active.is_(True))
+        .order_by(MarzbanPanel.id)
+        .limit(2)
+    ).all()
+
+    if len(active_panels) == 1:
+        panel = active_panels[0]
+        plan.marzban_panel_id = panel.id
+        db.add(plan)
+        db.commit()
+        return panel, ""
+
+    if len(active_panels) == 0:
+        return None, "هیچ پنل Marzban فعالی ثبت نشده است"
+
+    return (
+        None,
+        "بیش از یک پنل Marzban فعال است؛ "
+        "پنل دوم این پلن را در مدیریت انتخاب کنید",
+    )
+
+
 async def ensure_marzban_for_existing_customer(
     db: Session,
     customer: Customer,
     plan: Plan,
     pg_data: dict | None,
 ) -> tuple[dict | None, str]:
-    if not plan.marzban_panel_id:
-        return None, ""
-
-    panel = db.get(MarzbanPanel, plan.marzban_panel_id)
-    if not panel or not panel.active:
-        return None, "پنل دوم Marzban پلن فعال نیست"
+    panel, panel_error = resolve_marzban_panel(db, plan)
+    if not panel:
+        return None, panel_error
 
     username = marzban_username(customer)
     customer.marzban_panel_id = panel.id
@@ -1208,7 +1240,8 @@ async def ensure_marzban_for_existing_customer(
             target_expire=target_expire,
             data_limit=marzban_limit,
             note=(
-                f"BlueVPN automatic repair; {customer.email}"
+                f"BlueVPN automatic subscription repair; "
+                f"{customer.email}"
             ),
             remote=None,
         )
@@ -1255,9 +1288,20 @@ async def combined_subscription(
     db: Session,
     customer: Customer,
 ) -> tuple[str, dict[str, str], list[str]]:
-    source_items: list[tuple[list[str], str]] = []
+    source_items: list[
+        tuple[list[str], str, str]
+    ] = []
     errors: list[str] = []
     hidden_names: list[str] = []
+
+    raw_counts = {
+        "pasarguard": 0,
+        "marzban": 0,
+    }
+    added_counts = {
+        "pasarguard": 0,
+        "marzban": 0,
+    }
 
     if customer.pasarguard_subscription_url:
         panel = (
@@ -1273,7 +1317,10 @@ async def combined_subscription(
                 customer.pasarguard_subscription_url,
                 verify_tls=panel.verify_tls if panel else True,
             )
-            source_items.append((lines, source_name))
+            source_items.append(
+                (lines, source_name, "pasarguard")
+            )
+            raw_counts["pasarguard"] = len(lines)
         except Exception as exc:
             errors.append(f"{source_name}: {exc}")
 
@@ -1282,6 +1329,7 @@ async def combined_subscription(
             MarzbanPanel,
             customer.marzban_panel_id,
         )
+
         if panel:
             source_name = panel.name
             hidden_names.append(source_name)
@@ -1292,10 +1340,7 @@ async def combined_subscription(
                     customer.marzban_username,
                 )
 
-                # Direct API links work even when
-                # XRAY_SUBSCRIPTION_URL_PREFIX is missing.
                 direct_links = extract_marzban_links(user_data)
-
                 remote_sub = absolute_subscription_url(
                     panel.base_url,
                     (
@@ -1312,35 +1357,38 @@ async def combined_subscription(
                     db.commit()
 
                 if direct_links:
-                    source_items.append(
-                        (direct_links, source_name)
-                    )
+                    lines = direct_links
                 elif remote_sub:
-                    fetched = await fetch_subscription_source(
+                    lines = await fetch_subscription_source(
                         remote_sub,
                         verify_tls=panel.verify_tls,
                     )
-                    source_items.append(
-                        (fetched, source_name)
-                    )
                 else:
+                    lines = []
                     errors.append(
-                        f"{source_name}: API هیچ لینک قابل استفاده‌ای "
-                        "برای کاربر برنگرداند"
+                        f"{source_name}: API کاربر موجود است اما "
+                        "هیچ links یا subscription_url برنگرداند"
                     )
+
+                if lines:
+                    source_items.append(
+                        (lines, source_name, "marzban")
+                    )
+                    raw_counts["marzban"] = len(lines)
 
             except Exception as exc:
                 errors.append(f"{source_name}: {exc}")
         else:
             errors.append("Marzban: پنل حذف شده است")
+    else:
+        errors.append(
+            "Marzban: کاربر هنوز به پنل دوم متصل نشده است"
+        )
 
     merged: list[str] = []
     seen: set[str] = set()
-    counts: dict[str, int] = {}
 
-    for lines, source_name in source_items:
-        added = 0
-
+    for lines, source_name, source_key in source_items:
         for line in lines:
             key = dedupe_key(line)
             if key in seen:
@@ -1354,9 +1402,7 @@ async def combined_subscription(
                     hidden_names,
                 )
             )
-            added += 1
-
-        counts[source_name] = added
+            added_counts[source_key] += 1
 
     if not merged:
         raise IntegrationError(
@@ -1380,7 +1426,18 @@ async def combined_subscription(
             f"expire={int(expiry.timestamp()) if expiry else 0}"
         ),
         "X-BlueVPN-Config-Count": str(len(merged)),
-        "X-BlueVPN-Source-Count": str(len(source_items)),
+        "X-BlueVPN-Pasarguard-Raw-Count": str(
+            raw_counts["pasarguard"]
+        ),
+        "X-BlueVPN-Marzban-Raw-Count": str(
+            raw_counts["marzban"]
+        ),
+        "X-BlueVPN-Pasarguard-Count": str(
+            added_counts["pasarguard"]
+        ),
+        "X-BlueVPN-Marzban-Count": str(
+            added_counts["marzban"]
+        ),
     }
 
     return body, headers, errors

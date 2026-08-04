@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
   "version": "1.0.0",
-  "channel": "account-commerce-platform",
-  "description": "BlueVPN account, PasarGuard provisioning, BluePay payments, device limits, automatic subscription sync and updates."
+  "channel": "platform-build-error-telegram",
+  "description": "BlueVPN Platform 1.0.0 with automatic Telegram delivery of the compiler-error summary and complete Android build log on failure."
 }

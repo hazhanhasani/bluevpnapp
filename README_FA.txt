@@ -1,21 +1,13 @@
-BlueVPN Platform Update 1.0.0
+BlueVPN Build Error Reporter v1
 
-شامل:
-- حساب ایمیلی و ورود اجباری
-- اتصال Backend به PasarGuard
-- تعریف پلن حجم، مدت و ۱ یا ۲ دستگاه
-- فاکتور و Callback بلوپی
-- فعال‌سازی و تمدید خودکار
-- بروزرسانی خودکار Subscription
-- تشخیص نسخه جدید APK
+این ZIP را مستقیم برای ربات Deploy ارسال کنید.
 
-تنظیمات ضروری Railway:
-SESSION_SECRET
-DATA_ENCRYPTION_KEY
-DATABASE_URL
-PUBLIC_BASE_URL
+پس از نصب، اگر GitHub Actions شکست بخورد، ربات تلگرام خودکار دریافت می‌کند:
+- خلاصه خطای کامپایل
+- شماره Build و Commit
+- لینک Run
+- فایل کامل android-build.log
+- فایل کوچک خلاصه خطا
 
-پس از Deploy وارد /admin/login شوید، PasarGuard و BluePay را تنظیم و سپس پلن‌ها را تعریف کنید.
-
-Version: 1.0.0
-VersionCode: 20
+برای تست، پس از نصب دکمه «ساخت دوباره» را بزنید.
+Secretهای TELEGRAM_BOT_TOKEN و TELEGRAM_CHAT_ID باید از قبل در GitHub موجود باشند.

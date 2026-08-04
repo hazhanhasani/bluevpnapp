@@ -170,6 +170,7 @@ jobs:
         if: failure()
         shell: bash
         run: |
+          set +e
           echo "========== Android build errors =========="
           if [ -f android-build.log ]; then
             grep -E -i               "e: |error:|unresolved reference|cannot access|compilation error|failed"               android-build.log               | tail -n 120               || tail -n 160 android-build.log
@@ -292,3 +293,161 @@ jobs:
               --form "document=@${apk}" \
               --form-string "caption=${CAPTION}"
           done
+      - name: Send build failure and full log to Telegram
+        if: ${{ failure() }}
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          VERSION: ${{ steps.config.outputs.version }}
+        shell: bash
+        run: |
+          set +e
+
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          SHORT_SHA="${GITHUB_SHA:0:8}"
+
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          log_path = Path("android-build.log")
+          report_path = Path("telegram-build-error.txt")
+
+          header = [
+              "❌ Build اپلیکیشن BlueVPN ناموفق بود",
+              "",
+              f"نسخه: {os.getenv('VERSION') or 'نامشخص'}",
+              f"Build: #{os.getenv('GITHUB_RUN_NUMBER', 'نامشخص')}",
+              f"Commit: {os.getenv('GITHUB_SHA', '')[:8]}",
+              f"Branch: {os.getenv('GITHUB_REF_NAME', 'نامشخص')}",
+              f"Actor: {os.getenv('GITHUB_ACTOR', 'نامشخص')}",
+              f"Run: {os.getenv('GITHUB_SERVER_URL', '')}/"
+              f"{os.getenv('GITHUB_REPOSITORY', '')}/actions/runs/"
+              f"{os.getenv('GITHUB_RUN_ID', '')}",
+              "",
+              "خلاصه خطا:",
+          ]
+
+          if log_path.exists():
+              raw = log_path.read_text(
+                  encoding="utf-8",
+                  errors="replace",
+              )
+              lines = [
+                  line.replace("\x00", "").rstrip()
+                  for line in raw.splitlines()
+              ]
+
+              pattern = re.compile(
+                  r"(^|\s)(e:|error:|fatal:)|"
+                  r"unresolved reference|cannot access|"
+                  r"compilation error|execution failed for task|"
+                  r"what went wrong|build failed",
+                  re.IGNORECASE,
+              )
+              matches = [line for line in lines if pattern.search(line)]
+
+              # Remove repeated adjacent Gradle stack lines and keep the
+              # most useful compiler messages near the end.
+              compact = []
+              seen = set()
+              for line in matches:
+                  normalized = line.strip()
+                  if not normalized or normalized in seen:
+                      continue
+                  seen.add(normalized)
+                  compact.append(normalized)
+
+              selected = compact[-55:]
+              if not selected:
+                  selected = [
+                      line for line in lines[-120:] if line.strip()
+                  ]
+          else:
+              selected = [
+                  "فایل android-build.log ساخته نشده است.",
+                  "احتمالاً خطا پیش از شروع مرحله Gradle رخ داده است.",
+              ]
+
+          report = "\n".join(header + selected)
+          report_path.write_text(report + "\n", encoding="utf-8")
+
+          # Telegram text messages are limited. Keep the readable summary
+          # short; the complete log is sent as a document afterward.
+          message = report
+          if len(message) > 3700:
+              message = (
+                  "\n".join(header)
+                  + "\n"
+                  + "\n".join(selected[-28:])
+              )
+          if len(message) > 3900:
+              message = message[:3850] + "\n… ادامه در فایل کامل لاگ"
+
+          Path("telegram-build-message.txt").write_text(
+              message,
+              encoding="utf-8",
+          )
+          PY
+
+          echo "========== Telegram failure report =========="
+          cat telegram-build-error.txt
+          cat telegram-build-error.txt >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "Telegram secrets are not configured; failure report was not sent."
+            exit 0
+          fi
+
+          MESSAGE="$(cat telegram-build-message.txt)"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --connect-timeout 15 \
+            --max-time 90 \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${MESSAGE}" \
+            --data-urlencode "disable_web_page_preview=true"
+
+          if [ -f android-build.log ]; then
+            LOG_FILE="android-build.log"
+            LOG_CAPTION="📎 لاگ کامل خطای BlueVPN | Build #${GITHUB_RUN_NUMBER} | ${SHORT_SHA}"
+          else
+            LOG_FILE="telegram-build-error.txt"
+            LOG_CAPTION="📎 گزارش خطای BlueVPN | Build #${GITHUB_RUN_NUMBER} | ${SHORT_SHA}"
+          fi
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --connect-timeout 15 \
+            --max-time 120 \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+            --form "chat_id=${TELEGRAM_CHAT_ID}" \
+            --form "document=@${LOG_FILE}" \
+            --form-string "caption=${LOG_CAPTION}"
+
+          # Also send the compact report as a separate file so it is easy
+          # to forward back for diagnosis.
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --connect-timeout 15 \
+            --max-time 90 \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+            --form "chat_id=${TELEGRAM_CHAT_ID}" \
+            --form "document=@telegram-build-error.txt" \
+            --form-string "caption=🧾 خلاصه قابل ارسال خطای Build"

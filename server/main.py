@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json,os,re,secrets,uuid
+from urllib.parse import quote_plus
 from datetime import datetime,timezone
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,7 @@ from .models import AppSetting,Customer,CustomerDevice,CustomerSession,Order,Pas
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
 DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'latest_version':'1.0.0','latest_version_code':20,'minimum_version':'0.4.9','force_update':False,'apk_url':os.getenv('APK_URL',''),'update_title':'نسخه جدید BlueVPN','update_message':'نسخه جدید آماده دانلود است.','announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Platform',version='1.0.0'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+app=FastAPI(title='BlueVPN Platform',version='1.0.2'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     create_schema(); db=SessionLocal()
@@ -68,8 +69,95 @@ async def activate(db:Session,order:Order):
     order.status='paid';order.paid_at=order.paid_at or utcnow();db.commit()
     try:await provision(db,order.customer,order.plan,order)
     except Exception as exc:order.status='paid_needs_sync';order.activation_error=str(exc)[:2000];db.commit()
+
+def admin_redirect(anchor:str,message:str='',error:str='')->RedirectResponse:
+    query=[]
+    if message:
+        query.append('manual='+quote_plus(message))
+    if error:
+        query.append('error='+quote_plus(error))
+    suffix=('?'+('&'.join(query))) if query else ''
+    return RedirectResponse('/admin'+suffix+'#'+anchor,303)
+
+def enforce_customer_device_limit(db:Session,customer:Customer)->None:
+    allowed=max(1,min(2,int(customer.device_limit or 1)))
+    devices=list(db.scalars(
+        select(CustomerDevice)
+        .where(
+            CustomerDevice.customer_id==customer.id,
+            CustomerDevice.active.is_(True),
+        )
+        .order_by(CustomerDevice.last_seen_at.desc(),CustomerDevice.id.desc())
+    ).all())
+    for extra in devices[allowed:]:
+        extra.active=False
+        for session in db.scalars(
+            select(CustomerSession).where(
+                CustomerSession.customer_id==customer.id,
+                CustomerSession.device_id==extra.device_id,
+                CustomerSession.revoked_at.is_(None),
+            )
+        ).all():
+            session.revoked_at=utcnow()
+    db.commit()
+
+async def create_manual_activation(
+    db:Session,
+    customer:Customer,
+    plan:Plan,
+    note:str='',
+)->Order:
+    if not customer.active:
+        raise IntegrationError('حساب کاربر غیرفعال است')
+    panel=db.get(PasarGuardPanel,plan.panel_id)
+    if not panel or not panel.active:
+        raise IntegrationError('پنل پاسارگارد این پلن غیرفعال یا حذف شده است')
+
+    order=Order(
+        order_code=(
+            f"MANUAL-{customer.id}-"
+            f"{utcnow().strftime('%Y%m%d%H%M%S')}-"
+            f"{uuid.uuid4().hex[:6].upper()}"
+        ),
+        customer_id=customer.id,
+        plan_id=plan.id,
+        amount_toman=0,
+        payment_id='',
+        payment_url='',
+        status='manual_pending',
+        gateway_json=json.dumps(
+            {
+                'source':'admin_manual_activation',
+                'customer_email':customer.email,
+                'plan_id':plan.id,
+                'plan_title':plan.title,
+                'note':note.strip()[:500],
+                'created_at':utcnow().isoformat(),
+            },
+            ensure_ascii=False,
+        ),
+        paid_at=utcnow(),
+    )
+    order.customer=customer
+    order.plan=plan
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+
+    await activate(db,order)
+    db.refresh(order)
+    db.refresh(customer)
+
+    if order.status!='activated':
+        raise IntegrationError(
+            order.activation_error or
+            'فعال‌سازی دستی در پاسارگارد کامل نشد'
+        )
+
+    enforce_customer_device_limit(db,customer)
+    return order
 @app.get('/health')
-def health():return {'status':'ok','service':'bluevpn-platform','version':'1.0.0','database_mode':DATABASE_MODE,'database_error':DATABASE_ERROR[:300]}
+def health():return {'status':'ok','service':'bluevpn-platform','version':'1.0.2','database_mode':DATABASE_MODE,'database_error':DATABASE_ERROR[:300]}
 @app.get('/')
 def root():return RedirectResponse('/admin',302)
 @app.get('/api/v1/mobile/config')
@@ -140,8 +228,8 @@ def admin_logout(request:Request):request.session.clear();return RedirectRespons
 @app.get('/admin',response_class=HTMLResponse)
 def admin(request:Request,db:Session=Depends(get_db)):
     if not request.session.get('admin'):return RedirectResponse('/admin/login',302)
-    s=settings(db);pay=db.get(PaymentSetting,1);panels=db.scalars(select(PasarGuardPanel).order_by(PasarGuardPanel.id.desc())).all();plans=db.scalars(select(Plan).options(selectinload(Plan.panel)).order_by(Plan.sort_order,Plan.id.desc())).all();customers=db.scalars(select(Customer).order_by(Customer.id.desc()).limit(100)).all();orders=db.scalars(select(Order).options(selectinload(Order.customer),selectinload(Order.plan)).order_by(Order.created_at.desc()).limit(100)).all();stats={'customers':db.scalar(select(func.count(Customer.id))) or 0,'active':db.scalar(select(func.count(Customer.id)).where(Customer.subscription_status=='active')) or 0,'paid':db.scalar(select(func.count(Order.id)).where(Order.status.in_(['paid','activated','paid_needs_sync']))) or 0,'panels':len(panels)}
-    return templates.TemplateResponse(request=request,name='admin.html',context={'settings':s,'payment':pay,'payment_api_mask':mask(decrypt(pay.api_key_enc)),'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),'panels':panels,'panel_masks':{x.id:mask(decrypt(x.api_key_enc) or decrypt(x.username_enc)) for x in panels},'plans':plans,'customers':customers,'orders':orders,'stats':stats,'database_mode':DATABASE_MODE,'saved':request.query_params.get('saved')=='1','error':request.query_params.get('error','')})
+    s=settings(db);pay=db.get(PaymentSetting,1);panels=db.scalars(select(PasarGuardPanel).order_by(PasarGuardPanel.id.desc())).all();plans=db.scalars(select(Plan).options(selectinload(Plan.panel)).order_by(Plan.sort_order,Plan.id.desc())).all();customers=db.scalars(select(Customer).order_by(Customer.id.desc()).limit(100)).all();orders=db.scalars(select(Order).options(selectinload(Order.customer),selectinload(Order.plan)).order_by(Order.created_at.desc()).limit(100)).all();stats={'customers':db.scalar(select(func.count(Customer.id))) or 0,'active':db.scalar(select(func.count(Customer.id)).where(Customer.subscription_status=='active')) or 0,'paid':db.scalar(select(func.count(Order.id)).where(Order.status.in_(['paid','activated','paid_needs_sync']),~Order.order_code.like('MANUAL-%'))) or 0,'manual':db.scalar(select(func.count(Order.id)).where(Order.order_code.like('MANUAL-%'))) or 0,'panels':len(panels)}
+    return templates.TemplateResponse(request=request,name='admin.html',context={'settings':s,'payment':pay,'payment_api_mask':mask(decrypt(pay.api_key_enc)),'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),'panels':panels,'panel_masks':{x.id:mask(decrypt(x.api_key_enc) or decrypt(x.username_enc)) for x in panels},'plans':plans,'customers':customers,'orders':orders,'stats':stats,'database_mode':DATABASE_MODE,'saved':request.query_params.get('saved')=='1','manual_message':request.query_params.get('manual',''),'error':request.query_params.get('error','')})
 @app.post('/admin/app-settings')
 def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),latest_version:str=Form(...),latest_version_code:int=Form(...),minimum_version:str=Form(...),apk_url:str=Form(''),update_title:str=Form(''),update_message:str=Form(''),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),announcement_enabled:str|None=Form(None),db:Session=Depends(get_db)):
     admin_required(request);s=settings(db);s.update({'app_name':app_name,'public_base_url':public_base_url.rstrip('/'),'support_url':support_url,'latest_version':latest_version,'latest_version_code':latest_version_code,'minimum_version':minimum_version,'apk_url':apk_url,'update_title':update_title,'update_message':update_message,'announcement_id':announcement_id,'announcement_title':announcement_title,'announcement_message':announcement_message,'maintenance':maintenance=='on','force_update':force_update=='on','announcement_enabled':announcement_enabled=='on'});save_settings(db,s);return RedirectResponse('/admin?saved=1#app',303)
@@ -172,6 +260,70 @@ def plan_toggle(request:Request,plan_id:int,db:Session=Depends(get_db)):
     admin_required(request);x=db.get(Plan,plan_id)
     if x:x.active=not x.active;db.commit()
     return RedirectResponse('/admin?saved=1#plans',303)
+@app.post('/admin/manual-activation')
+async def manual_activation_by_email(
+    request:Request,
+    email:str=Form(...),
+    plan_id:int=Form(...),
+    note:str=Form(''),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    try:
+        normalized=email_ok(email)
+        customer=db.scalar(select(Customer).where(Customer.email==normalized))
+        if not customer:
+            return admin_redirect(
+                'manual',
+                error='کاربری با این ایمیل ثبت نشده است',
+            )
+        plan=db.get(Plan,plan_id)
+        if not plan:
+            return admin_redirect('manual',error='پلن انتخاب‌شده پیدا نشد')
+        order=await create_manual_activation(db,customer,plan,note)
+        return admin_redirect(
+            'manual',
+            message=(
+                f'اشتراک {customer.email} با پلن «{plan.title}» '
+                f'فعال یا تمدید شد؛ کد {order.order_code}'
+            ),
+        )
+    except Exception as exc:
+        return admin_redirect(
+            'manual',
+            error=f'فعال‌سازی دستی ناموفق بود: {str(exc)[:450]}',
+        )
+
+@app.post('/admin/customers/{customer_id}/manual-activate')
+async def manual_activation_for_customer(
+    request:Request,
+    customer_id:int,
+    plan_id:int=Form(...),
+    note:str=Form(''),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    try:
+        customer=db.get(Customer,customer_id)
+        plan=db.get(Plan,plan_id)
+        if not customer:
+            return admin_redirect('customers',error='کاربر پیدا نشد')
+        if not plan:
+            return admin_redirect('customers',error='پلن پیدا نشد')
+        order=await create_manual_activation(db,customer,plan,note)
+        return admin_redirect(
+            'customers',
+            message=(
+                f'اشتراک {customer.email} با پلن «{plan.title}» '
+                f'فعال یا تمدید شد'
+            ),
+        )
+    except Exception as exc:
+        return admin_redirect(
+            'customers',
+            error=f'فعال‌سازی دستی ناموفق بود: {str(exc)[:450]}',
+        )
+
 @app.post('/admin/customers/{customer_id}/sync')
 async def customer_sync(request:Request,customer_id:int,db:Session=Depends(get_db)):
     admin_required(request);c=db.get(Customer,customer_id)

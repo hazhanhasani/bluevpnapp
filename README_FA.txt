@@ -1,17 +1,13 @@
-BlueVPN Build Fix 1.0.1
+BlueVPN Admin Manual Activation 1.0.2
 
-اصلاح خطای Build شماره 20:
+قابلیت جدید:
+- فعال‌سازی یا تمدید دستی اشتراک بدون BluePay
+- انتخاب کاربر با ایمیل و انتخاب پلن
+- دکمه سریع در جدول هر کاربر
+- ثبت سابقه با کد MANUAL
+- اعمال حجم، مدت، گروه و محدودیت ۱ یا ۲ دستگاه
+- خروج خودکار دستگاه اضافه در صورت کاهش محدودیت
+- همگام‌سازی خودکار با اپ کاربر
 
-BlueVpnSubscriptionsActivity.kt
-Unresolved reference: textAllCaps
-
-اصلاح انجام‌شده:
-textAllCaps=false
-به:
-isAllCaps=false
-
-Version: 1.0.1
-VersionCode: 21
-
-این ZIP را مستقیم برای ربات Deploy ارسال کنید.
-پس از نصب، Build جدید به‌صورت خودکار شروع می‌شود.
+این بروزرسانی Backend است و APK جدید لازم ندارد.
+ZIP را مستقیم برای ربات Deploy ارسال کنید.

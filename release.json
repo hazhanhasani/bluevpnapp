@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.1",
-  "channel": "kotlin-material-button-fix",
-  "description": "Fix GitHub Actions build #20 by replacing the unresolved MaterialButton textAllCaps Kotlin property with isAllCaps. Automatic Telegram build-error reporting remains enabled."
+  "version": "1.0.2",
+  "channel": "admin-manual-subscription-activation",
+  "description": "Add manual subscription activation and renewal from the BlueVPN admin panel without a BluePay invoice. Manual operations are audited as orders and provisioned through the selected PasarGuard plan."
 }

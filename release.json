@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
-  "version": "0.4.9",
-  "channel": "live-location-switch",
-  "description": "Automatically switches an active VPN connection to a newly selected location without requiring the user to disconnect and reconnect."
+  "version": "1.0.0",
+  "channel": "account-commerce-platform",
+  "description": "BlueVPN account, PasarGuard provisioning, BluePay payments, device limits, automatic subscription sync and updates."
 }

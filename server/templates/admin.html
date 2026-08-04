@@ -1,85 +1,15 @@
-<!doctype html>
-<html lang="fa" dir="rtl">
-<head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>مدیریت BlueVPN</title><link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-<header class="topbar">
-  <div class="brand"><img src="/static/logo.png" alt="BlueVPN">
-    <div><b>BlueVPN</b><span>مرکز مدیریت اپلیکیشن</span></div>
-  </div>
-  <form method="post" action="/admin/logout"><button class="secondary">خروج</button></form>
-</header>
-<main class="container">
-  {% if saved %}<div class="alert success">تنظیمات با موفقیت ذخیره شد.</div>{% endif %}
-  <section class="grid stats">
-    <article><span>نسخه فعلی</span><strong>{{ settings.latest_version }}</strong></article>
-    <article><span>حالت تعمیرات</span><strong>{{ "فعال" if settings.maintenance else "غیرفعال" }}</strong></article>
-    <article><span>آپدیت اجباری</span><strong>{{ "فعال" if settings.force_update else "غیرفعال" }}</strong></article>
-  </section>
-
-  <form method="post" action="/admin/settings">
-    <section class="card">
-      <h2>تنظیمات برنامه</h2>
-      <div class="form-grid">
-        <div><label>نام برنامه</label><input name="app_name" value="{{ settings.app_name }}" required></div>
-        <div><label>نسخه جدید</label><input name="latest_version" value="{{ settings.latest_version }}" required></div>
-        <div><label>حداقل نسخه مجاز</label><input name="minimum_version" value="{{ settings.minimum_version }}" required></div>
-        <div><label>لینک APK</label><input name="apk_url" value="{{ settings.apk_url }}" placeholder="https://.../BlueVPN.apk"></div>
-        <div><label>لینک پشتیبانی</label><input name="support_url" value="{{ settings.support_url }}" placeholder="https://t.me/..."></div>
-        <div><label>لینک تمدید</label><input name="renew_url" value="{{ settings.renew_url }}" placeholder="https://..."></div>
-      </div>
-      <div class="checks">
-        <label><input type="checkbox" name="maintenance" {% if settings.maintenance %}checked{% endif %}> حالت تعمیرات</label>
-        <label><input type="checkbox" name="force_update" {% if settings.force_update %}checked{% endif %}> آپدیت اجباری</label>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>اشتراک پیش‌فرض اختیاری</h2>
-      <p class="hint">برای مشتریان، لینک اختصاصی هر فرد را با Deep Link وارد کنید. این فیلد فقط برای تست یا اشتراک عمومی است.</p>
-      <label>Subscription URL</label>
-      <input name="default_subscription_url" value="{{ settings.default_subscription_url }}" placeholder="https://panel.example.com/sub/TOKEN">
-    </section>
-
-    <section class="card">
-      <h2>اطلاعیه داخل برنامه</h2>
-      <div class="form-grid">
-        <div><label>شناسه اطلاعیه</label><input name="announcement_id" value="{{ settings.announcement_id }}"></div>
-        <div><label>عنوان</label><input name="announcement_title" value="{{ settings.announcement_title }}"></div>
-      </div>
-      <label>متن اطلاعیه</label>
-      <textarea name="announcement_message" rows="4">{{ settings.announcement_message }}</textarea>
-      <div class="checks">
-        <label><input type="checkbox" name="announcement_enabled" {% if settings.announcement_enabled %}checked{% endif %}> نمایش اطلاعیه</label>
-      </div>
-    </section>
-    <button type="submit" class="save">ذخیره همه تنظیمات</button>
-  </form>
-
-  <section class="card">
-    <h2>ساخت لینک افزودن اشتراک</h2>
-    <p class="hint">Subscription اختصاصی مشتری را وارد کنید.</p>
-    <div class="inline"><input id="subUrl" placeholder="https://panel.example.com/sub/USER_TOKEN">
-      <button type="button" onclick="makeLink()">ساخت لینک</button></div>
-    <textarea id="deepLink" rows="2" readonly placeholder="bluevpn://install-sub?..."></textarea>
-  </section>
-
-  <section class="card">
-    <h2>آدرس‌های سرویس</h2>
-    <code>/api/v1/mobile/config</code>
-    <code>/api/v1/deeplink?url=SUBSCRIPTION_URL</code>
-    <code>/open-sub?url=SUBSCRIPTION_URL</code>
-  </section>
-</main>
-<script>
-async function makeLink(){
-  const url=document.getElementById('subUrl').value.trim();
-  if(!url)return;
-  const r=await fetch('/api/v1/deeplink?url='+encodeURIComponent(url));
-  const d=await r.json();
-  document.getElementById('deepLink').value=d.deep_link||d.detail||'';
-}
-</script>
-</body></html>
+<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BlueVPN Platform</title><link rel="stylesheet" href="/static/style.css"></head><body>
+<header class="topbar"><div class="brand"><img src="/static/logo.png"><div><b>BlueVPN Platform</b><span>مدیریت حساب، فروش و اشتراک</span></div></div><form method="post" action="/admin/logout"><button class="secondary">خروج</button></form></header>
+<nav class="tabs"><a href="#overview">نمای کلی</a><a href="#panels">پاسارگارد</a><a href="#plans">پلن‌ها</a><a href="#bluepay">بلوپی</a><a href="#customers">کاربران</a><a href="#orders">پرداخت‌ها</a><a href="#app">اپ و آپدیت</a></nav>
+<main class="container">{% if saved %}<div class="alert success">تغییرات ذخیره شد.</div>{% endif %}{% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
+<section id="overview" class="grid stats"><article><span>کاربران</span><strong>{{ stats.customers }}</strong></article><article><span>اشتراک فعال</span><strong>{{ stats.active }}</strong></article><article><span>پرداخت موفق</span><strong>{{ stats.paid }}</strong></article><article><span>پنل پاسارگارد</span><strong>{{ stats.panels }}</strong></article><article><span>دیتابیس</span><strong>{{ database_mode }}</strong></article></section>
+<section id="panels" class="card"><h2>پنل‌های PasarGuard</h2><p class="hint">اتصال با API Key یا نام کاربری/رمز مدیر. اطلاعات محرمانه فقط رمزگذاری‌شده در Backend ذخیره می‌شوند.</p>
+<form method="post" action="/admin/panels"><div class="form-grid"><div><label>نام پنل</label><input name="name" placeholder="پنل اصلی" required></div><div><label>Base URL</label><input name="base_url" placeholder="https://panel.example.com" required></div><div><label>روش ورود</label><select name="auth_mode"><option value="api_key">API Key</option><option value="bearer">نام کاربری و رمز</option></select></div><div><label>API Key</label><input name="api_key" type="password" placeholder="pg_key_..."></div><div><label>نام کاربری مدیر</label><input name="username"></div><div><label>رمز مدیر</label><input name="password" type="password"></div><div class="wide"><label>Proxy Settings JSON</label><textarea name="proxy_settings_json" rows="3">{"vless":{}}</textarea></div></div><button class="save">افزودن پنل</button></form>
+<div class="table-wrap"><table><thead><tr><th>نام</th><th>آدرس</th><th>ورود</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{% for p in panels %}<tr><td>{{ p.name }}</td><td class="ltr">{{ p.base_url }}</td><td>{{ p.auth_mode }} · {{ panel_masks[p.id] }}</td><td>{% if p.last_test_ok %}<span class="badge ok">متصل</span>{% else %}<span class="badge warn">{{ p.last_test_message or 'تست نشده' }}</span>{% endif %}</td><td class="actions"><form method="post" action="/admin/panels/{{ p.id }}/test"><button>تست</button></form><form method="post" action="/admin/panels/{{ p.id }}/toggle"><button class="secondary">{{ 'غیرفعال' if p.active else 'فعال' }}</button></form></td></tr>{% else %}<tr><td colspan="5">هنوز پنلی ثبت نشده است.</td></tr>{% endfor %}</tbody></table></div></section>
+<section id="plans" class="card"><h2>پلن‌های فروش</h2><form method="post" action="/admin/plans"><div class="form-grid"><div><label>عنوان</label><input name="title" required></div><div><label>قیمت تومان</label><input name="price_toman" type="number" min="1000" required></div><div><label>مدت روز؛ صفر نامحدود</label><input name="duration_days" type="number" min="0" required></div><div><label>حجم GB؛ صفر نامحدود</label><input name="data_limit_gb" type="number" min="0" required></div><div><label>محدودیت دستگاه</label><select name="device_limit"><option value="1">۱ دستگاه</option><option value="2">۲ دستگاه</option></select></div><div><label>پنل</label><select name="panel_id" required>{% for p in panels %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select></div><div><label>Group IDها</label><input name="group_ids" placeholder="1,3,7"></div><div><label>ترتیب</label><input name="sort_order" type="number" value="0"></div><div class="wide"><label>توضیح</label><textarea name="description" rows="2"></textarea></div></div><button class="save">ساخت پلن</button></form>
+<div class="plan-grid">{% for x in plans %}<article class="plan"><div class="plan-head"><b>{{ x.title }}</b><span>{{ '{:,}'.format(x.price_toman) }} تومان</span></div><p>{{ x.description }}</p><div class="chips"><span>{{ x.duration_days or '∞' }} روز</span><span>{{ x.data_limit_gb or '∞' }} GB</span><span>{{ x.device_limit }} دستگاه</span><span>{{ x.panel.name }}</span></div><form method="post" action="/admin/plans/{{ x.id }}/toggle"><button class="secondary">{{ 'غیرفعال‌کردن' if x.active else 'فعال‌کردن' }}</button></form></article>{% else %}<p>پلنی تعریف نشده است.</p>{% endfor %}</div></section>
+<section id="bluepay" class="card"><h2>درگاه BluePay</h2><p class="hint">Callback فروشگاه: <code>{{ settings.public_base_url }}/webhooks/bluepay</code></p><form method="post" action="/admin/payment-settings"><div class="form-grid"><div><label>Base URL</label><input name="base_url" value="{{ payment.base_url }}" required></div><div><label>API Key جدید</label><input name="api_key" type="password" placeholder="{{ payment_api_mask }}"></div><div><label>Callback Secret جدید</label><input name="callback_secret" type="password" placeholder="{{ payment_callback_mask }}"></div><div><label>Fee Mode</label><select name="fee_mode">{% for m in ['default','merchant','customer','split'] %}<option value="{{ m }}" {% if payment.fee_mode==m %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></div><div><label>مهلت فاکتور</label><input name="ttl_minutes" type="number" value="{{ payment.ttl_minutes }}"></div></div><label class="check"><input type="checkbox" name="active" {% if payment.active %}checked{% endif %}> درگاه فعال</label><button class="save">ذخیره BluePay</button></form></section>
+<section id="customers" class="card"><h2>کاربران و دستگاه‌ها</h2><div class="table-wrap"><table><thead><tr><th>ایمیل</th><th>اشتراک</th><th>کاربر پاسارگارد</th><th>دستگاه</th><th>انقضا</th><th>عملیات</th></tr></thead><tbody>{% for c in customers %}<tr><td class="ltr">{{ c.email }}</td><td><span class="badge {{ 'ok' if c.subscription_status=='active' else 'warn' }}">{{ c.subscription_status }}</span></td><td class="ltr">{{ c.pg_username or '—' }}</td><td>{{ c.device_limit }}</td><td>{{ c.subscription_expire or 'نامحدود/ندارد' }}</td><td class="actions"><form method="post" action="/admin/customers/{{ c.id }}/sync"><button>همگام‌سازی</button></form><form method="post" action="/admin/customers/{{ c.id }}/reset-devices"><button class="danger">خروج دستگاه‌ها</button></form></td></tr>{% else %}<tr><td colspan="6">کاربری ثبت نشده است.</td></tr>{% endfor %}</tbody></table></div></section>
+<section id="orders" class="card"><h2>پرداخت و فعال‌سازی</h2><div class="table-wrap"><table><thead><tr><th>سفارش</th><th>کاربر</th><th>پلن</th><th>مبلغ</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{% for o in orders %}<tr><td class="ltr">{{ o.order_code }}</td><td class="ltr">{{ o.customer.email }}</td><td>{{ o.plan.title }}</td><td>{{ '{:,}'.format(o.amount_toman) }}</td><td><span class="badge {{ 'ok' if o.status=='activated' else 'warn' }}">{{ o.status }}</span>{% if o.activation_error %}<small>{{ o.activation_error[:160] }}</small>{% endif %}</td><td>{% if o.status in ['paid','paid_needs_sync'] %}<form method="post" action="/admin/orders/{{ o.id }}/activate"><button>تلاش فعال‌سازی</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="6">پرداختی وجود ندارد.</td></tr>{% endfor %}</tbody></table></div></section>
+<section id="app" class="card"><h2>اپلیکیشن و آپدیت خودکار</h2><form method="post" action="/admin/app-settings"><div class="form-grid"><div><label>نام برنامه</label><input name="app_name" value="{{ settings.app_name }}"></div><div><label>Public Base URL</label><input name="public_base_url" value="{{ settings.public_base_url }}"></div><div><label>نسخه جدید</label><input name="latest_version" value="{{ settings.latest_version }}"></div><div><label>Version Code</label><input name="latest_version_code" type="number" value="{{ settings.latest_version_code }}"></div><div><label>حداقل نسخه</label><input name="minimum_version" value="{{ settings.minimum_version }}"></div><div><label>لینک مستقیم APK</label><input name="apk_url" value="{{ settings.apk_url }}"></div><div><label>عنوان آپدیت</label><input name="update_title" value="{{ settings.update_title }}"></div><div><label>پشتیبانی</label><input name="support_url" value="{{ settings.support_url }}"></div><div class="wide"><label>توضیحات آپدیت</label><textarea name="update_message">{{ settings.update_message }}</textarea></div><div><label>شناسه اطلاعیه</label><input name="announcement_id" value="{{ settings.announcement_id }}"></div><div><label>عنوان اطلاعیه</label><input name="announcement_title" value="{{ settings.announcement_title }}"></div><div class="wide"><label>متن اطلاعیه</label><textarea name="announcement_message">{{ settings.announcement_message }}</textarea></div></div><div class="checks"><label><input type="checkbox" name="maintenance" {% if settings.maintenance %}checked{% endif %}> تعمیرات</label><label><input type="checkbox" name="force_update" {% if settings.force_update %}checked{% endif %}> آپدیت اجباری</label><label><input type="checkbox" name="announcement_enabled" {% if settings.announcement_enabled %}checked{% endif %}> اطلاعیه</label></div><button class="save">ذخیره</button></form></section>
+</main></body></html>

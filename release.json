@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.3",
-  "channel": "database-autopilot",
-  "description": "Persistent PostgreSQL enforcement on Railway, automatic database and table creation, automatic schema migration, legacy column reconciliation, optional SQLite-to-PostgreSQL import, and fail-fast deployment behavior."
+  "version": "1.0.4",
+  "channel": "healthcheck-telegram-decoupling",
+  "description": "Start FastAPI/Uvicorn before Telegram polling so Railway healthchecks can pass during zero-downtime deployments. Telegram startup and polling now run independently with automatic retries while the old replica drains."
 }

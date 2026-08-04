@@ -1,13 +1,14 @@
 {
-  "version": "1.0.12",
-  "android_version": "1.0.12",
-  "android_version_code": 26,
-  "build_id": "20260804110832",
-  "created_at": "2026-08-04T11:08:32.401567+00:00",
+  "version": "1.0.13",
+  "android_version": "1.0.13",
+  "android_version_code": 27,
+  "build_id": "20260804112614",
+  "created_at": "2026-08-04T11:26:14.133769+00:00",
   "features": [
-    "fix-unresolved-delay",
-    "safe-plan-delete",
-    "hide-deleted-plans",
-    "preserve-order-history"
+    "marzban-direct-api-links",
+    "relative-subscription-url-normalization",
+    "attach-marzban-to-existing-plan",
+    "bulk-repair-existing-customers",
+    "automatic-one-minute-secondary-provisioning"
   ]
 }

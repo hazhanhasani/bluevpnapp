@@ -9,7 +9,7 @@ import secrets
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import quote, unquote
+from urllib.parse import quote, unquote, urljoin
 
 import httpx
 from sqlalchemy.orm import Session
@@ -728,7 +728,11 @@ async def provision_marzban(
             f"HTTP {response.status_code} {response.text[:800]}"
         )
 
-    return response.json()
+    # POST/PUT responses are not consistent between Marzban versions.
+    # Read the user again so calculated `links` and `subscription_url`
+    # are always available.
+    refreshed = await get_marzban_user(panel, username)
+    return refreshed or response.json()
 
 
 async def provision(
@@ -867,7 +871,6 @@ async def sync_customer(
 ) -> Customer:
     plan = db.get(Plan, customer.plan_id) if customer.plan_id else None
 
-    # Preserve the old direct link the first time the new version sees it.
     ensure_subscription_identity(customer, public_base_url)
 
     pg_data = None
@@ -890,7 +893,18 @@ async def sync_customer(
         else:
             pg_error = "پنل PasarGuard حذف شده است"
 
-    if customer.marzban_panel_id and customer.marzban_username:
+    # Existing customers were previously skipped when Marzban was attached
+    # to an old plan later. Repair them during normal one-minute account sync.
+    if plan and plan.marzban_panel_id:
+        mz_data, mz_error = (
+            await ensure_marzban_for_existing_customer(
+                db,
+                customer,
+                plan,
+                pg_data,
+            )
+        )
+    elif customer.marzban_panel_id and customer.marzban_username:
         panel = db.get(MarzbanPanel, customer.marzban_panel_id)
         if panel:
             try:
@@ -1084,6 +1098,131 @@ def dedupe_key(line: str) -> str:
     return line.split("#", 1)[0]
 
 
+def absolute_subscription_url(
+    panel_base_url: str,
+    value: str,
+) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith(("http://", "https://")):
+        return raw
+    return urljoin(panel_base_url.rstrip("/") + "/", raw)
+
+
+def extract_marzban_links(user_data: dict | None) -> list[str]:
+    if not isinstance(user_data, dict):
+        return []
+
+    candidates = [
+        user_data.get("links"),
+        user_data.get("configs"),
+        user_data.get("share_links"),
+    ]
+
+    subscription = user_data.get("subscription")
+    if isinstance(subscription, dict):
+        candidates.extend(
+            [
+                subscription.get("links"),
+                subscription.get("configs"),
+            ]
+        )
+
+    result: list[str] = []
+    allowed = (
+        "vless://",
+        "vmess://",
+        "trojan://",
+        "ss://",
+        "socks://",
+        "wireguard://",
+        "hysteria2://",
+        "hy2://",
+        "tuic://",
+    )
+
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            values = subscription_lines(candidate)
+        elif isinstance(candidate, list):
+            values = []
+            for item in candidate:
+                if isinstance(item, str):
+                    values.extend(subscription_lines(item))
+                elif isinstance(item, dict):
+                    value = (
+                        item.get("link")
+                        or item.get("url")
+                        or item.get("config")
+                        or ""
+                    )
+                    values.extend(subscription_lines(str(value)))
+        else:
+            continue
+
+        for value in values:
+            if value.lower().startswith(allowed):
+                result.append(value)
+
+    return result
+
+
+async def ensure_marzban_for_existing_customer(
+    db: Session,
+    customer: Customer,
+    plan: Plan,
+    pg_data: dict | None,
+) -> tuple[dict | None, str]:
+    if not plan.marzban_panel_id:
+        return None, ""
+
+    panel = db.get(MarzbanPanel, plan.marzban_panel_id)
+    if not panel or not panel.active:
+        return None, "پنل دوم Marzban پلن فعال نیست"
+
+    username = marzban_username(customer)
+    customer.marzban_panel_id = panel.id
+    customer.marzban_username = username
+
+    try:
+        remote = await get_marzban_user(panel, username)
+        if remote:
+            return remote, ""
+
+        target_expire = (
+            aware(customer.subscription_expire)
+            or parse_remote_date(
+                pg_data.get("expire") if pg_data else None
+            )
+        )
+
+        _, marzban_limit = quota_limits(
+            plan,
+            secondary_enabled=True,
+        )
+
+        created = await provision_marzban(
+            panel,
+            username,
+            target_expire=target_expire,
+            data_limit=marzban_limit,
+            note=(
+                f"BlueVPN automatic repair; {customer.email}"
+            ),
+            remote=None,
+        )
+
+        customer.marzban_panel_id = panel.id
+        customer.marzban_username = username
+        db.add(customer)
+        db.commit()
+        return created, ""
+
+    except Exception as exc:
+        return None, str(exc)
+
+
 async def fetch_subscription_source(
     url: str,
     *,
@@ -1116,7 +1255,9 @@ async def combined_subscription(
     db: Session,
     customer: Customer,
 ) -> tuple[str, dict[str, str], list[str]]:
-    sources: list[tuple[str, bool, str]] = []
+    source_items: list[tuple[list[str], str]] = []
+    errors: list[str] = []
+    hidden_names: list[str] = []
 
     if customer.pasarguard_subscription_url:
         panel = (
@@ -1124,47 +1265,87 @@ async def combined_subscription(
             if customer.panel_id
             else None
         )
-        sources.append(
-            (
-                customer.pasarguard_subscription_url,
-                panel.verify_tls if panel else True,
-                panel.name if panel else "PasarGuard",
-            )
-        )
+        source_name = panel.name if panel else "PasarGuard"
+        hidden_names.append(source_name)
 
-    if customer.marzban_subscription_url:
-        panel = (
-            db.get(MarzbanPanel, customer.marzban_panel_id)
-            if customer.marzban_panel_id
-            else None
-        )
-        sources.append(
-            (
-                customer.marzban_subscription_url,
-                panel.verify_tls if panel else True,
-                panel.name if panel else "Marzban",
+        try:
+            lines = await fetch_subscription_source(
+                customer.pasarguard_subscription_url,
+                verify_tls=panel.verify_tls if panel else True,
             )
+            source_items.append((lines, source_name))
+        except Exception as exc:
+            errors.append(f"{source_name}: {exc}")
+
+    if customer.marzban_panel_id and customer.marzban_username:
+        panel = db.get(
+            MarzbanPanel,
+            customer.marzban_panel_id,
         )
+        if panel:
+            source_name = panel.name
+            hidden_names.append(source_name)
+
+            try:
+                user_data = await get_marzban_user(
+                    panel,
+                    customer.marzban_username,
+                )
+
+                # Direct API links work even when
+                # XRAY_SUBSCRIPTION_URL_PREFIX is missing.
+                direct_links = extract_marzban_links(user_data)
+
+                remote_sub = absolute_subscription_url(
+                    panel.base_url,
+                    (
+                        user_data.get("subscription_url", "")
+                        if isinstance(user_data, dict)
+                        else ""
+                    )
+                    or customer.marzban_subscription_url,
+                )
+
+                if remote_sub:
+                    customer.marzban_subscription_url = remote_sub
+                    db.add(customer)
+                    db.commit()
+
+                if direct_links:
+                    source_items.append(
+                        (direct_links, source_name)
+                    )
+                elif remote_sub:
+                    fetched = await fetch_subscription_source(
+                        remote_sub,
+                        verify_tls=panel.verify_tls,
+                    )
+                    source_items.append(
+                        (fetched, source_name)
+                    )
+                else:
+                    errors.append(
+                        f"{source_name}: API هیچ لینک قابل استفاده‌ای "
+                        "برای کاربر برنگرداند"
+                    )
+
+            except Exception as exc:
+                errors.append(f"{source_name}: {exc}")
+        else:
+            errors.append("Marzban: پنل حذف شده است")
 
     merged: list[str] = []
     seen: set[str] = set()
-    errors: list[str] = []
-    hidden_names = [name for _, _, name in sources]
+    counts: dict[str, int] = {}
 
-    for url, verify_tls, source_name in sources:
-        try:
-            lines = await fetch_subscription_source(
-                url,
-                verify_tls=verify_tls,
-            )
-        except Exception as exc:
-            errors.append(f"{source_name}: {exc}")
-            continue
+    for lines, source_name in source_items:
+        added = 0
 
         for line in lines:
             key = dedupe_key(line)
             if key in seen:
                 continue
+
             seen.add(key)
             merged.append(
                 neutralize_line(
@@ -1173,10 +1354,14 @@ async def combined_subscription(
                     hidden_names,
                 )
             )
+            added += 1
+
+        counts[source_name] = added
 
     if not merged:
         raise IntegrationError(
-            "هیچ کانفیگ قابل استفاده‌ای از پنل‌ها دریافت نشد"
+            "هیچ کانفیگ قابل استفاده‌ای از پنل‌ها دریافت نشد؛ "
+            + (" | ".join(errors) if errors else "")
         )
 
     body = base64.b64encode(
@@ -1194,7 +1379,10 @@ async def combined_subscription(
             f"total={customer.data_limit_bytes}; "
             f"expire={int(expiry.timestamp()) if expiry else 0}"
         ),
+        "X-BlueVPN-Config-Count": str(len(merged)),
+        "X-BlueVPN-Source-Count": str(len(source_items)),
     }
+
     return body, headers, errors
 
 

@@ -16,3 +16,7 @@
 
 #marzban code{direction:ltr}
 .plan .chips span{max-width:100%;overflow-wrap:anywhere}
+
+.mini-routing{display:grid;grid-template-columns:1.4fr 1fr auto;gap:8px;align-items:end;margin:12px 0;padding:10px;background:#081d3e;border:1px solid #24518c;border-radius:12px}
+.mini-routing label{grid-column:1/-1;color:#9fb7d9;font-size:12px}
+@media(max-width:760px){.mini-routing{grid-template-columns:1fr}.mini-routing label{grid-column:auto}}

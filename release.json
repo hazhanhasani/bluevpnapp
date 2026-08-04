@@ -1,10 +1,10 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.12",
-  "channel": "kotlin-delay-import-and-safe-plan-delete",
-  "description": "Fix unresolved kotlinx.coroutines.delay and add safe plan deletion while preserving historical orders and customer relationships.",
-  "build_id": "20260804110832",
-  "built_at": "2026-08-04T11:08:32.401567+00:00",
-  "android_version": "1.0.12",
-  "android_version_code": 26
+  "version": "1.0.13",
+  "channel": "marzban-direct-links-and-existing-user-repair",
+  "description": "Read Marzban configs directly from the user API links field, normalize relative subscription URLs, remove dependency on XRAY_SUBSCRIPTION_URL_PREFIX, allow attaching Marzban to existing plans, and automatically create/sync existing customers on the secondary panel.",
+  "build_id": "20260804112614",
+  "built_at": "2026-08-04T11:26:14.133769+00:00",
+  "android_version": "1.0.13",
+  "android_version_code": 27
 }

@@ -121,8 +121,9 @@
 <section id="plans" class="card">
   <h2>پلن‌های فروش چندپنلی</h2>
   <p class="hint">
-    حذف پلن، آن را از فروش و انتخاب‌های پنل مخفی می‌کند؛ سفارش‌ها و سوابق
-    قبلی برای جلوگیری از خرابی اطلاعات باقی می‌مانند.
+    برای پلن‌های قدیمی هم می‌توانی پنل دوم Marzban را همین‌جا انتخاب کنی.
+    بعد از ذخیره، دکمه «انتقال کاربران فعلی» کاربرهای قبلی را بدون خرید مجدد
+    روی Marzban می‌سازد. حذف پلن فقط آن را از فروش مخفی می‌کند و سوابق باقی می‌مانند.
   </p>
   <form method="post" action="/admin/plans">
     <div class="form-grid">
@@ -168,7 +169,27 @@
           <span>{{ 'تقسیم حجم' if x.marzban_quota_mode=='split' else 'حجم کامل دوگانه' }}</span>
         {% endif %}
       </div>
+      <form method="post" action="/admin/plans/{{ x.id }}/panel-routing" class="mini-routing">
+        <label>پنل دوم برای همین پلن</label>
+        <select name="marzban_panel_id">
+          <option value="0">بدون Marzban</option>
+          {% for p in marzban_panels %}
+          <option value="{{ p.id }}" {% if x.marzban_panel_id==p.id %}selected{% endif %}>{{ p.name }}</option>
+          {% endfor %}
+        </select>
+        <select name="marzban_quota_mode">
+          <option value="split" {% if x.marzban_quota_mode=='split' %}selected{% endif %}>تقسیم حجم</option>
+          <option value="full" {% if x.marzban_quota_mode=='full' %}selected{% endif %}>حجم کامل روی هر دو</option>
+        </select>
+        <button type="submit">ذخیره پنل دوم</button>
+      </form>
+
       <div class="actions">
+        {% if x.marzban_panel_id %}
+        <form method="post" action="/admin/plans/{{ x.id }}/repair-customers" onsubmit="return confirm('کاربران فعلی این پلن روی Marzban ساخته و همگام شوند؟');">
+          <button type="submit">انتقال کاربران فعلی به Marzban</button>
+        </form>
+        {% endif %}
         <form method="post" action="/admin/plans/{{ x.id }}/toggle">
           <button class="secondary">{{ 'غیرفعال‌کردن' if x.active else 'فعال‌کردن' }}</button>
         </form>

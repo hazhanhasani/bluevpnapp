@@ -16,8 +16,8 @@ from .integrations import IntegrationError,combined_subscription,create_invoice,
 from .models import AppSetting,Customer,CustomerDevice,CustomerSession,MarzbanPanel,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'latest_version':'1.0.12','latest_version_code':26,'minimum_version':'0.4.9','force_update':False,'apk_url':os.getenv('APK_URL',''),'update_title':'نسخه جدید BlueVPN','update_message':'نسخه جدید آماده دانلود است.','announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Platform',version='1.0.12'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'latest_version':'1.0.13','latest_version_code':27,'minimum_version':'0.4.9','force_update':False,'apk_url':os.getenv('APK_URL',''),'update_title':'نسخه جدید BlueVPN','update_message':'نسخه جدید آماده دانلود است.','announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
+app=FastAPI(title='BlueVPN Platform',version='1.0.13'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -170,7 +170,7 @@ def health():
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
-        'version':'1.0.12',
+        'version':'1.0.13',
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }
@@ -435,6 +435,111 @@ def marzban_panel_toggle(
 @app.post('/admin/plans')
 def add_plan(request:Request,title:str=Form(...),description:str=Form(''),price_toman:int=Form(...),duration_days:int=Form(...),data_limit_gb:int=Form(...),device_limit:int=Form(...),panel_id:int=Form(...),marzban_panel_id:int=Form(0),marzban_quota_mode:str=Form('split'),group_ids:str=Form(''),sort_order:int=Form(0),db:Session=Depends(get_db)):
     admin_required(request);groups=[int(x.strip()) for x in group_ids.split(',') if x.strip().isdigit()];secondary=marzban_panel_id if marzban_panel_id>0 else None;quota_mode=marzban_quota_mode if marzban_quota_mode in {'split','full'} else 'split';db.add(Plan(title=title,description=description,price_toman=max(1000,price_toman),duration_days=max(0,duration_days),data_limit_gb=max(0,data_limit_gb),device_limit=1 if device_limit<=1 else 2,panel_id=panel_id,marzban_panel_id=secondary,marzban_quota_mode=quota_mode,group_ids_json=json.dumps(groups),deleted=False,sort_order=sort_order));db.commit();return RedirectResponse('/admin?saved=1#plans',303)
+@app.post('/admin/plans/{plan_id}/panel-routing')
+def plan_panel_routing(
+    request:Request,
+    plan_id:int,
+    marzban_panel_id:int=Form(0),
+    marzban_quota_mode:str=Form('split'),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    plan=db.get(Plan,plan_id)
+    if not plan or plan.deleted:
+        return RedirectResponse(
+            '/admin?error=پلن+پیدا+نشد#plans',
+            303,
+        )
+
+    secondary=(
+        marzban_panel_id
+        if marzban_panel_id>0
+        else None
+    )
+
+    if secondary and not db.get(MarzbanPanel,secondary):
+        return RedirectResponse(
+            '/admin?error=پنل+Marzban+پیدا+نشد#plans',
+            303,
+        )
+
+    plan.marzban_panel_id=secondary
+    plan.marzban_quota_mode=(
+        marzban_quota_mode
+        if marzban_quota_mode in {'split','full'}
+        else 'split'
+    )
+    db.commit()
+    return RedirectResponse('/admin?saved=1#plans',303)
+
+
+@app.post('/admin/plans/{plan_id}/repair-customers')
+async def repair_plan_customers(
+    request:Request,
+    plan_id:int,
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    plan=db.get(Plan,plan_id)
+
+    if not plan or plan.deleted:
+        return RedirectResponse(
+            '/admin?error=پلن+پیدا+نشد#plans',
+            303,
+        )
+
+    if not plan.marzban_panel_id:
+        return RedirectResponse(
+            '/admin?error=ابتدا+پنل+دوم+Marzban+را+برای+پلن+انتخاب+کنید#plans',
+            303,
+        )
+
+    customers=db.scalars(
+        select(Customer).where(
+            Customer.plan_id==plan.id,
+            Customer.active.is_(True),
+        )
+    ).all()
+
+    repaired=0
+    failed=0
+    for customer in customers:
+        try:
+            await sync_customer(
+                db,
+                customer,
+                settings(db)['public_base_url'],
+            )
+            if (
+                customer.marzban_panel_id
+                and customer.marzban_username
+            ):
+                repaired+=1
+            else:
+                failed+=1
+        except Exception:
+            failed+=1
+
+    if failed:
+        return RedirectResponse(
+            '/admin?error='
+            +quote_plus(
+                f'{repaired} کاربر همگام شد؛ {failed} کاربر خطا داشت'
+            )
+            +'#plans',
+            303,
+        )
+
+    return RedirectResponse(
+        '/admin?manual='
+        +quote_plus(
+            f'{repaired} کاربر فعلی روی Marzban همگام شدند'
+        )
+        +'#plans',
+        303,
+    )
+
+
 @app.post('/admin/plans/{plan_id}/toggle')
 def plan_toggle(request:Request,plan_id:int,db:Session=Depends(get_db)):
     admin_required(request);x=db.get(Plan,plan_id)
@@ -519,7 +624,7 @@ async def manual_activation_for_customer(
 @app.post('/admin/customers/{customer_id}/sync')
 async def customer_sync(request:Request,customer_id:int,db:Session=Depends(get_db)):
     admin_required(request);c=db.get(Customer,customer_id)
-    if c:await sync_customer(db,c)
+    if c:await sync_customer(db,c,settings(db)['public_base_url'])
     return RedirectResponse('/admin?saved=1#customers',303)
 @app.post('/admin/customers/{customer_id}/reset-devices')
 def reset_devices(request:Request,customer_id:int,db:Session=Depends(get_db)):
@@ -530,5 +635,5 @@ def reset_devices(request:Request,customer_id:int,db:Session=Depends(get_db)):
 @app.post('/admin/orders/{order_id}/activate')
 async def retry_activate(request:Request,order_id:str,db:Session=Depends(get_db)):
     admin_required(request);o=db.scalar(select(Order).options(selectinload(Order.customer),selectinload(Order.plan)).where(Order.id==order_id))
-    if o and o.status in {'paid','paid_needs_sync','activated'}:await activate(db,o)
+    if o and o.status in {'paid','paid_needs_sync','partial_needs_sync','activated'}:await activate(db,o)
     return RedirectResponse('/admin?saved=1#orders',303)

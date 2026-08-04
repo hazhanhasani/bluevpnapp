@@ -18,7 +18,7 @@ from .models import AppSetting,Customer,CustomerDevice,CustomerSession,MarzbanPa
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
 DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Platform',version='1.0.22'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+app=FastAPI(title='BlueVPN Platform',version='1.0.23'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -68,11 +68,27 @@ def issue_session(db:Session,c:Customer,device_id:str,device_name:str,rotate_ref
         device=CustomerDevice(customer_id=c.id,device_id=device_id,device_name=device_name[:180],active=True);db.add(device);db.flush()
     else:
         device.active=True;device.device_name=device_name[:180] or device.device_name;device.last_seen_at=utcnow()
-    raw,h=new_token();db.add(CustomerSession(customer_id=c.id,token_hash=h,device_id=device_id,expires_at=session_expiry()))
+
+    now=utcnow()
+    if device.previous_refresh_expires_at and aware(device.previous_refresh_expires_at)<=now:
+        device.previous_refresh_token_hash=''
+        device.previous_refresh_expires_at=None
+
+    raw,h=new_token()
+    db.add(CustomerSession(customer_id=c.id,token_hash=h,device_id=device_id,expires_at=session_expiry()))
+
     refresh_raw=''
     if rotate_refresh or not device.refresh_token_hash:
-        refresh_raw,refresh_hash=new_token();device.refresh_token_hash=refresh_hash;device.refresh_expires_at=utcnow()+timedelta(days=3650)
-    db.commit();return raw,refresh_raw
+        if device.refresh_token_hash:
+            device.previous_refresh_token_hash=device.refresh_token_hash
+            device.previous_refresh_expires_at=now+timedelta(minutes=10)
+
+        refresh_raw,refresh_hash=new_token()
+        device.refresh_token_hash=refresh_hash
+        device.refresh_expires_at=now+timedelta(days=3650)
+
+    db.commit()
+    return raw,refresh_raw
 async def activate(db:Session,order:Order):
     if order.status=='activated':return
     order.status='paid';order.paid_at=order.paid_at or utcnow();db.commit()
@@ -171,7 +187,7 @@ def health():
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
-        'version':'1.0.22',
+        'version':'1.0.23',
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }
@@ -236,21 +252,84 @@ async def refresh_login(request:Request,db:Session=Depends(get_db)):
     if not c or not c.active:raise HTTPException(401,detail={'code':'ACCOUNT_DISABLED','message':'حساب در دسترس نیست'})
     device=db.scalar(select(CustomerDevice).where(CustomerDevice.customer_id==c.id,CustomerDevice.device_id==device_id))
     if not device or not device.active:raise HTTPException(401,detail={'code':'DEVICE_DISABLED','message':'این دستگاه غیرفعال شده است'})
-    if not device.refresh_token_hash or device.refresh_token_hash!=token_hash(refresh_token) or not device.refresh_expires_at or aware(device.refresh_expires_at)<=utcnow():raise HTTPException(401,detail={'code':'INVALID_REFRESH','message':'مجوز تمدید ورود معتبر نیست'})
-    token,new_refresh_token=issue_session(db,c,device_id,str(b.get('device_name','')),rotate_refresh=True)
-    return {'success':True,'token':token,'refresh_token':new_refresh_token,'account':account_json(c)}
+
+    now=utcnow()
+    submitted_hash=token_hash(refresh_token)
+
+    current_valid=(
+        bool(device.refresh_token_hash)
+        and device.refresh_token_hash==submitted_hash
+        and bool(device.refresh_expires_at)
+        and aware(device.refresh_expires_at)>now
+    )
+
+    previous_valid=(
+        bool(device.previous_refresh_token_hash)
+        and device.previous_refresh_token_hash==submitted_hash
+        and bool(device.previous_refresh_expires_at)
+        and aware(device.previous_refresh_expires_at)>now
+    )
+
+    if not current_valid and not previous_valid:
+        raise HTTPException(401,detail={'code':'INVALID_REFRESH','message':'مجوز تمدید ورود معتبر نیست'})
+
+    token,new_refresh_token=issue_session(
+        db,
+        c,
+        device_id,
+        str(b.get('device_name','')),
+        rotate_refresh=True,
+    )
+    return {
+        'success':True,
+        'token':token,
+        'refresh_token':new_refresh_token,
+        'account':account_json(c),
+    }
 @app.post('/api/v1/auth/logout')
 def logout(authorization:str|None=Header(None),x_device_id:str|None=Header(None),db:Session=Depends(get_db)):
     raw=bearer(authorization);s=db.scalar(select(CustomerSession).where(CustomerSession.token_hash==token_hash(raw))) if raw else None
     if s:
         s.revoked_at=utcnow()
         device=db.scalar(select(CustomerDevice).where(CustomerDevice.customer_id==s.customer_id,CustomerDevice.device_id==(x_device_id or s.device_id)))
-        if device:device.refresh_token_hash='';device.refresh_expires_at=None
+        if device:
+            device.refresh_token_hash=''
+            device.refresh_expires_at=None
+            device.previous_refresh_token_hash=''
+            device.previous_refresh_expires_at=None
         db.commit()
     return {'success':True}
 @app.get('/api/v1/plans')
-def plans(db:Session=Depends(get_db)):
-    rows=db.scalars(select(Plan).where(Plan.active.is_(True),Plan.deleted.is_(False)).order_by(Plan.sort_order,Plan.price_toman)).all();return {'success':True,'plans':[{'id':x.id,'title':x.title,'description':x.description,'price_toman':x.price_toman,'duration_days':x.duration_days,'data_limit_gb':x.data_limit_gb,'device_limit':x.device_limit} for x in rows]}
+def plans(
+    c:Customer=Depends(current_customer),
+    db:Session=Depends(get_db),
+):
+    rows=db.scalars(
+        select(Plan)
+        .where(
+            Plan.active.is_(True),
+            Plan.deleted.is_(False),
+        )
+        .order_by(
+            Plan.sort_order,
+            Plan.price_toman,
+        )
+    ).all()
+    return {
+        'success':True,
+        'plans':[
+            {
+                'id':x.id,
+                'title':x.title,
+                'description':x.description,
+                'price_toman':x.price_toman,
+                'duration_days':x.duration_days,
+                'data_limit_gb':x.data_limit_gb,
+                'device_limit':x.device_limit,
+            }
+            for x in rows
+        ],
+    }
 @app.get('/api/v1/account')
 async def account(c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
     c=db.get(Customer,c.id);await sync_customer(db,c,settings(db)['public_base_url']);return {'success':True,'account':account_json(c)}
@@ -768,7 +847,12 @@ async def customer_sync(request:Request,customer_id:int,db:Session=Depends(get_d
 @app.post('/admin/customers/{customer_id}/reset-devices')
 def reset_devices(request:Request,customer_id:int,db:Session=Depends(get_db)):
     admin_required(request)
-    for d in db.scalars(select(CustomerDevice).where(CustomerDevice.customer_id==customer_id)):d.active=False;d.refresh_token_hash='';d.refresh_expires_at=None
+    for d in db.scalars(select(CustomerDevice).where(CustomerDevice.customer_id==customer_id)):
+        d.active=False
+        d.refresh_token_hash=''
+        d.refresh_expires_at=None
+        d.previous_refresh_token_hash=''
+        d.previous_refresh_expires_at=None
     for s in db.scalars(select(CustomerSession).where(CustomerSession.customer_id==customer_id,CustomerSession.revoked_at.is_(None))):s.revoked_at=utcnow()
     db.commit();return RedirectResponse('/admin?saved=1#customers',303)
 @app.post('/admin/orders/{order_id}/activate')

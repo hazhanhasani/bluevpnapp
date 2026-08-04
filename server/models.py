@@ -258,6 +258,13 @@ class CustomerDevice(Base):
     refresh_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
+    previous_refresh_token_hash: Mapped[str] = mapped_column(
+        String(64),
+        default="",
+    )
+    previous_refresh_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,

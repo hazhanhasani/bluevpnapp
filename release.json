@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.5",
-  "channel": "bootstrap-startup-diagnostics",
-  "description": "Start a lightweight ASGI listener before importing the Telegram bot, database, migrations, or FastAPI backend. Railway now checks /live, while backend startup retries safely in the background and reports sanitized startup errors to Telegram and /startup-status."
+  "version": "1.0.6",
+  "channel": "database-environment-autodiscovery",
+  "description": "Automatically discover PostgreSQL URLs regardless of the Railway destination variable name, support additional component naming schemes, and expose safe environment-variable diagnostics without revealing credentials."
 }

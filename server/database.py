@@ -79,7 +79,7 @@ def _normalize_url(value: str | None) -> str | None:
     if not value:
         return None
 
-    value = value.strip()
+    value = value.strip().strip('"').strip("'")
     if (
         not value
         or "${{" in value
@@ -88,52 +88,281 @@ def _normalize_url(value: str | None) -> str | None:
     ):
         return None
 
-    if value.startswith("postgres://"):
-        return "postgresql+psycopg://" + value.removeprefix("postgres://")
-    if value.startswith("postgresql://"):
-        return "postgresql+psycopg://" + value.removeprefix("postgresql://")
-    if value.startswith(("postgresql+psycopg://", "sqlite://")):
+    lowered = value.lower()
+
+    if lowered.startswith("postgres://"):
+        return "postgresql+psycopg://" + value[len("postgres://"):]
+    if lowered.startswith("postgresql://"):
+        return "postgresql+psycopg://" + value[len("postgresql://"):]
+    if lowered.startswith("postgresql+psycopg://"):
+        return value
+    if lowered.startswith("sqlite://"):
         return value
     return None
 
 
-def _url_from_pg_variables() -> str | None:
-    host = (
-        os.getenv("PGHOST")
-        or os.getenv("POSTGRES_HOST")
-        or os.getenv("POSTGRES_PRIVATE_HOST")
-        or ""
-    ).strip()
-    port = (
-        os.getenv("PGPORT")
-        or os.getenv("POSTGRES_PORT")
-        or "5432"
-    ).strip()
-    user = (
-        os.getenv("PGUSER")
-        or os.getenv("POSTGRES_USER")
-        or ""
-    ).strip()
-    password = (
-        os.getenv("PGPASSWORD")
-        or os.getenv("POSTGRES_PASSWORD")
-        or ""
+def _database_environment_diagnostics() -> dict[str, Any]:
+    relevant_names: list[str] = []
+    url_candidate_names: list[str] = []
+    unresolved_reference_names: list[str] = []
+    component_names: list[str] = []
+
+    keywords = (
+        "DATABASE",
+        "POSTGRES",
+        "POSTGRESQL",
+        "PGHOST",
+        "PGPORT",
+        "PGUSER",
+        "PGPASSWORD",
+        "PGDATABASE",
+        "DB_",
     )
-    database = (
-        os.getenv("PGDATABASE")
-        or os.getenv("POSTGRES_DB")
-        or os.getenv("POSTGRES_DATABASE")
-        or ""
-    ).strip()
+
+    for name, raw_value in sorted(os.environ.items()):
+        upper = name.upper()
+        value = str(raw_value or "").strip()
+
+        if any(keyword in upper for keyword in keywords):
+            relevant_names.append(name)
+
+        if "${{" in value or "}}" in value:
+            if any(keyword in upper for keyword in keywords):
+                unresolved_reference_names.append(name)
+
+        lowered = value.lower()
+        if lowered.startswith(
+            (
+                "postgres://",
+                "postgresql://",
+                "postgresql+psycopg://",
+            )
+        ):
+            url_candidate_names.append(name)
+
+        if upper.endswith(
+            (
+                "_HOST",
+                "_PORT",
+                "_USER",
+                "_USERNAME",
+                "_PASSWORD",
+                "_DATABASE",
+                "_DB",
+            )
+        ):
+            component_names.append(name)
+
+    return {
+        "relevant_names": sorted(set(relevant_names)),
+        "url_candidate_names": sorted(set(url_candidate_names)),
+        "unresolved_reference_names": sorted(
+            set(unresolved_reference_names)
+        ),
+        "component_names": sorted(set(component_names)),
+    }
+
+
+def _first_env(*names: str) -> tuple[str, str]:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value, name
+    return "", ""
+
+
+def _url_from_pg_variables() -> tuple[str | None, str]:
+    host, host_name = _first_env(
+        "PGHOST",
+        "POSTGRES_HOST",
+        "POSTGRES_PRIVATE_HOST",
+        "POSTGRESHOST",
+        "POSTGRESQL_HOST",
+        "DATABASE_HOST",
+        "DB_HOST",
+    )
+    port, port_name = _first_env(
+        "PGPORT",
+        "POSTGRES_PORT",
+        "POSTGRESPORT",
+        "POSTGRESQL_PORT",
+        "DATABASE_PORT",
+        "DB_PORT",
+    )
+    user, user_name = _first_env(
+        "PGUSER",
+        "POSTGRES_USER",
+        "POSTGRES_USERNAME",
+        "POSTGRESUSER",
+        "POSTGRESQL_USER",
+        "DATABASE_USER",
+        "DATABASE_USERNAME",
+        "DB_USER",
+    )
+    password, password_name = _first_env(
+        "PGPASSWORD",
+        "POSTGRES_PASSWORD",
+        "POSTGRESPASSWORD",
+        "POSTGRESQL_PASSWORD",
+        "DATABASE_PASSWORD",
+        "DB_PASSWORD",
+    )
+    database, database_name = _first_env(
+        "PGDATABASE",
+        "POSTGRES_DB",
+        "POSTGRES_DATABASE",
+        "POSTGRESDATABASE",
+        "POSTGRESQL_DATABASE",
+        "DATABASE_NAME",
+        "DB_NAME",
+    )
+
+    if not port:
+        port = "5432"
 
     if not host or not user or not database:
-        return None
+        return None, ""
+
+    source_names = "/".join(
+        item
+        for item in (
+            host_name,
+            port_name,
+            user_name,
+            password_name,
+            database_name,
+        )
+        if item
+    )
 
     return (
         "postgresql+psycopg://"
         f"{quote_plus(user)}:{quote_plus(password)}"
-        f"@{host}:{port}/{quote_plus(database)}"
+        f"@{host}:{port}/{quote_plus(database)}",
+        source_names or "PostgreSQL components",
     )
+
+
+def _scan_all_environment_urls() -> tuple[str | None, str]:
+    """
+    Railway lets the user choose the destination variable name when linking a
+    database. Accept any environment variable whose value is a PostgreSQL URL,
+    so a harmless custom name cannot make BlueVPN miss the connection.
+    """
+    ignored_names = {
+        "DATABASE_PUBLIC_URL",
+    }
+
+    candidates: list[tuple[int, str, str]] = []
+
+    for name, raw_value in os.environ.items():
+        if name in ignored_names:
+            continue
+
+        normalized = _normalize_url(raw_value)
+        if not normalized or not normalized.startswith("postgresql"):
+            continue
+
+        upper = name.upper()
+        priority = 100
+
+        if upper == "DATABASE_URL":
+            priority = 0
+        elif upper == "DATABASE_PRIVATE_URL":
+            priority = 1
+        elif "PRIVATE" in upper:
+            priority = 5
+        elif "DATABASE" in upper:
+            priority = 10
+        elif "POSTGRES" in upper or "POSTGRESQL" in upper:
+            priority = 20
+        elif upper.startswith("PG"):
+            priority = 30
+
+        candidates.append((priority, name, normalized))
+
+    if not candidates:
+        return None, ""
+
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    _, name, normalized = candidates[0]
+    return normalized, f"auto-discovered:{name}"
+
+
+def _scan_prefixed_components() -> tuple[str | None, str]:
+    """
+    Also understand custom component groups such as:
+      MYDB_HOST, MYDB_PORT, MYDB_USER, MYDB_PASSWORD, MYDB_DATABASE
+    """
+    groups: dict[str, dict[str, tuple[str, str]]] = {}
+
+    suffixes = {
+        "_HOST": "host",
+        "_PORT": "port",
+        "_USER": "user",
+        "_USERNAME": "user",
+        "_PASSWORD": "password",
+        "_DATABASE": "database",
+        "_DB": "database",
+    }
+
+    for name, raw_value in os.environ.items():
+        value = str(raw_value or "").strip()
+        if not value:
+            continue
+
+        upper = name.upper()
+        for suffix, field in suffixes.items():
+            if not upper.endswith(suffix):
+                continue
+
+            prefix = upper[: -len(suffix)]
+            if not prefix:
+                continue
+
+            groups.setdefault(prefix, {})[field] = (value, name)
+            break
+
+    ranked: list[tuple[int, str, str]] = []
+
+    for prefix, fields in groups.items():
+        if not all(key in fields for key in ("host", "user", "database")):
+            continue
+
+        host = fields["host"][0]
+        user = fields["user"][0]
+        password = fields.get("password", ("", ""))[0]
+        port = fields.get("port", ("5432", ""))[0] or "5432"
+        database = fields["database"][0]
+
+        # Avoid accidentally treating unrelated service variables as a DB
+        # unless the prefix or host clearly looks database-related.
+        identity = f"{prefix} {host}".upper()
+        if not any(
+            token in identity
+            for token in (
+                "POSTGRES",
+                "DATABASE",
+                "PG",
+                "RAILWAY.INTERNAL",
+            )
+        ):
+            continue
+
+        url = (
+            "postgresql+psycopg://"
+            f"{quote_plus(user)}:{quote_plus(password)}"
+            f"@{host}:{port}/{quote_plus(database)}"
+        )
+        priority = 0 if "POSTGRES" in prefix else 10
+        ranked.append((priority, prefix, url))
+
+    if not ranked:
+        return None, ""
+
+    ranked.sort(key=lambda item: (item[0], item[1]))
+    _, prefix, url = ranked[0]
+    return url, f"auto-components:{prefix}"
 
 
 def _resolve_database_url() -> tuple[str | None, str]:
@@ -142,21 +371,30 @@ def _resolve_database_url() -> tuple[str | None, str]:
         "DATABASE_PRIVATE_URL",
         "POSTGRES_URL",
         "POSTGRES_PRIVATE_URL",
-        "DATABASE_PUBLIC_URL",
+        "POSTGRESQL_URL",
+        "POSTGRESQL_PRIVATE_URL",
+        "DATABASE_INTERNAL_URL",
         "PGURL",
     )
 
     for name in candidates:
         normalized = _normalize_url(os.getenv(name))
-        if normalized:
+        if normalized and normalized.startswith("postgresql"):
             return normalized, name
 
-    built = _url_from_pg_variables()
+    discovered_url, discovered_source = _scan_all_environment_urls()
+    if discovered_url:
+        return discovered_url, discovered_source
+
+    built, built_source = _url_from_pg_variables()
     if built:
-        return built, "PGHOST/PGUSER/PGDATABASE"
+        return built, built_source
+
+    prefixed, prefixed_source = _scan_prefixed_components()
+    if prefixed:
+        return prefixed, prefixed_source
 
     return None, ""
-
 
 def _make_engine(url: str) -> Engine:
     kwargs: dict[str, Any] = {
@@ -298,12 +536,29 @@ try:
         )
         DATABASE_PERSISTENT = DATABASE_MODE == "postgres"
     elif REQUIRE_POSTGRES:
+        diagnostics = _database_environment_diagnostics()
+        relevant = ", ".join(
+            diagnostics["relevant_names"][:30]
+        ) or "هیچ‌کدام"
+        urls = ", ".join(
+            diagnostics["url_candidate_names"][:20]
+        ) or "هیچ‌کدام"
+        unresolved = ", ".join(
+            diagnostics["unresolved_reference_names"][:20]
+        ) or "هیچ‌کدام"
+
         raise DatabaseSetupError(
-            "Railway شناسایی شد اما PostgreSQL تنظیم نشده است. "
-            "متغیر DATABASE_URL یا DATABASE_PRIVATE_URL یا متغیرهای "
-            "PGHOST/PGUSER/PGPASSWORD/PGDATABASE باید از سرویس Postgres "
-            "در دسترس باشند. برای جلوگیری از حذف اطلاعات، SQLite موقت "
-            "در محیط Railway دیگر فعال نمی‌شود."
+            "Railway شناسایی شد اما هیچ آدرس PostgreSQL قابل استفاده‌ای "
+            "داخل محیط سرویس BlueVPN دریافت نشد. "
+            "متغیرهای مرتبط دیده‌شده: "
+            f"{relevant}. "
+            "متغیرهای دارای URL واقعی PostgreSQL: "
+            f"{urls}. "
+            "ارجاع‌های Railway که هنوز به مقدار واقعی تبدیل نشده‌اند: "
+            f"{unresolved}. "
+            "در سرویس bluevpnapp یک متغیر با نام DATABASE_URL و مقدار "
+            "${{Postgres.DATABASE_PRIVATE_URL}} بسازید و تغییرات را Deploy "
+            "کنید. SQLite موقت عمداً غیرفعال است تا اطلاعات حذف نشوند."
         )
     else:
         ENGINE = _connect_with_retry(SQLITE_URL)
@@ -790,6 +1045,9 @@ def database_status() -> dict[str, Any]:
         "require_postgres": REQUIRE_POSTGRES,
         "sqlite_fallback_allowed": ALLOW_SQLITE_FALLBACK,
         "migration": dict(MIGRATION_REPORT),
+        "environment_diagnostics": (
+            _database_environment_diagnostics()
+        ),
         "error": DATABASE_ERROR[:1000],
     }
 

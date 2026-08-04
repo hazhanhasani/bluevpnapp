@@ -20,7 +20,7 @@ import uvicorn
 APP_DIR = Path("/app")
 BOT_DIR = Path("/opt/bluevpn_bot")
 ERROR_LOG = Path("/tmp/bluevpn-startup-error.log")
-VERSION = "1.0.5"
+VERSION = "1.0.6"
 
 for directory in (APP_DIR, BOT_DIR):
     value = str(directory)
@@ -135,6 +135,52 @@ async def send_response(
     )
 
 
+def database_environment_diagnostics() -> dict[str, Any]:
+    relevant = []
+    url_candidates = []
+    unresolved = []
+
+    keywords = (
+        "DATABASE",
+        "POSTGRES",
+        "POSTGRESQL",
+        "PGHOST",
+        "PGPORT",
+        "PGUSER",
+        "PGPASSWORD",
+        "PGDATABASE",
+        "DB_",
+    )
+
+    for name, raw_value in sorted(os.environ.items()):
+        upper = name.upper()
+        value = str(raw_value or "").strip()
+
+        if any(keyword in upper for keyword in keywords):
+            relevant.append(name)
+
+        if (
+            any(keyword in upper for keyword in keywords)
+            and ("${{" in value or "}}" in value)
+        ):
+            unresolved.append(name)
+
+        if value.lower().startswith(
+            (
+                "postgres://",
+                "postgresql://",
+                "postgresql+psycopg://",
+            )
+        ):
+            url_candidates.append(name)
+
+    return {
+        "relevant_names": sorted(set(relevant)),
+        "url_candidate_names": sorted(set(url_candidates)),
+        "unresolved_reference_names": sorted(set(unresolved)),
+    }
+
+
 def status_payload() -> dict[str, Any]:
     return {
         "status": (
@@ -160,6 +206,7 @@ def status_payload() -> dict[str, Any]:
             "error": STATE.bot_error[-1500:],
             "error_at": STATE.bot_error_at,
         },
+        "database_environment": database_environment_diagnostics(),
     }
 
 
@@ -219,7 +266,11 @@ async def send_startup_alert(title: str, error: str) -> None:
         f"نسخه Backend: {VERSION}\n"
         f"زمان: {utc_iso()}"
         f"{run_url}\n\n"
-        f"{safe_error[-3000:]}\n\n"
+        f"{safe_error[-2500:]}\n\n"
+        "متغیرهای دیتابیس دیده‌شده:\n"
+        f"{', '.join(database_environment_diagnostics()['relevant_names']) or 'هیچ‌کدام'}\n"
+        "متغیرهای دارای URL واقعی PostgreSQL:\n"
+        f"{', '.join(database_environment_diagnostics()['url_candidate_names']) or 'هیچ‌کدام'}\n\n"
         "وضعیت زنده:\n"
         "/startup-status"
     )

@@ -1,20 +1,16 @@
 {
-  "version": "1.0.21",
-  "project_version": "1.0.21",
+  "version": "1.0.22",
+  "project_version": "1.0.22",
   "android_version": "1.0.<github_run_number>",
   "android_version_code": "10000 + github.run_number",
-  "build_id": "20260804151015",
-  "created_at": "2026-08-04T15:10:15.582956+00:00",
+  "build_id": "20260804153005",
+  "created_at": "2026-08-04T15:30:05.429726+00:00",
   "features": [
-    "working-maintenance-mode",
-    "working-forced-update",
-    "working-one-time-announcements",
-    "automatic-abi-apk-download",
-    "automatic-installer-launch",
-    "instant-race-safe-disconnect",
-    "cancel-during-connection-test",
-    "remove-one-minute-sync",
-    "cold-launch-only-synchronization",
-    "fast-section-navigation"
+    "fix-manifest-permission-root-placement",
+    "xml-parse-manifest-before-gradle",
+    "workflow-manifest-validation",
+    "disable-global-minute-sync-thread",
+    "disable-subscription-page-minute-sync",
+    "retain-cold-launch-sync-only"
   ]
 }

@@ -184,6 +184,48 @@ jobs:
           cache: gradle
           cache-dependency-path: upstream/V2rayNG/**/*.gradle*
 
+      - name: Validate generated Android manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          path = Path(
+              "upstream/V2rayNG/app/src/main/AndroidManifest.xml"
+          )
+          text = path.read_text(encoding="utf-8")
+          ET.parse(path)
+
+          permission = (
+              "android.permission.REQUEST_INSTALL_PACKAGES"
+          )
+
+          if text.count(permission) != 1:
+              raise SystemExit(
+                  "REQUEST_INSTALL_PACKAGES must exist exactly once"
+              )
+
+          xml_declaration = text.find("<?xml")
+          manifest_opening = text.find("<manifest")
+          permission_position = text.find(
+              "android.permission.REQUEST_INSTALL_PACKAGES"
+          )
+
+          if not (
+              xml_declaration >= 0
+              and manifest_opening > xml_declaration
+              and permission_position > manifest_opening
+          ):
+              raise SystemExit(
+                  "Install permission is outside the manifest root"
+              )
+
+          print("AndroidManifest.xml validation passed")
+          PY
+
       - name: Build unsigned release APKs
         working-directory: upstream/V2rayNG
         shell: bash

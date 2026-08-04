@@ -18,7 +18,7 @@ from .models import AppSetting,Customer,CustomerDevice,CustomerSession,MarzbanPa
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
 DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Platform',version='1.0.21'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+app=FastAPI(title='BlueVPN Platform',version='1.0.22'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -171,7 +171,7 @@ def health():
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
-        'version':'1.0.21',
+        'version':'1.0.22',
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }

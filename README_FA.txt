@@ -1,18 +1,18 @@
-BlueVPN Database Environment Autodiscovery 1.0.6
+BlueVPN Force Deploy 1.0.7
 
-این ZIP را مستقیم برای ربات Deploy ارسال کنید.
+این فایل را مستقیم برای ربات Deploy ارسال کنید.
 
-خطای 1.0.5 نشان داد متغیر اتصال Postgres به Container نرسیده بود.
+این بسته حتماً تغییر جدید دارد:
+- نسخه 1.0.7
+- Build ID: 20260804092417
+- فایل جدید deployment-marker.json
+- زمان ساخت جدید داخل release.json
 
-نسخه جدید:
-- هر متغیری با مقدار واقعی PostgreSQL را با هر نامی پیدا می‌کند.
-- نام‌های بیشتر Railway و PostgreSQL را پشتیبانی می‌کند.
-- متغیرهای Component سفارشی را نیز تشخیص می‌دهد.
-- نام متغیرهای دیده‌شده را بدون نمایش رمز در /startup-status گزارش می‌دهد.
-- خطای دقیق را برای ربات تلگرام می‌فرستد.
-- ساخت خودکار جداول، Migration و ممنوعیت SQLite موقت حفظ شده است.
+بنابراین ربات و GitHub نباید پیام «تغییری نداشت» نمایش دهند.
 
-تنظیم پیشنهادی در سرویس bluevpnapp:
-DATABASE_URL=${{Postgres.DATABASE_PRIVATE_URL}}
+بعد از Deploy:
+- /startup-status باید version=1.0.7 باشد.
+- /health باید version=1.0.7 باشد.
+- قابلیت تشخیص خودکار PostgreSQL نسخه قبلی حفظ شده است.
 
 APK جدید لازم نیست.

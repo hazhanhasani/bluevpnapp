@@ -1,6 +1,8 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.6",
-  "channel": "database-environment-autodiscovery",
-  "description": "Automatically discover PostgreSQL URLs regardless of the Railway destination variable name, support additional component naming schemes, and expose safe environment-variable diagnostics without revealing credentials."
+  "version": "1.0.7",
+  "channel": "force-deploy-database-environment",
+  "description": "Force a new GitHub/Railway deployment while preserving PostgreSQL environment autodiscovery, automatic schema creation, migration, startup diagnostics, and SQLite fallback protection.",
+  "build_id": "20260804092417",
+  "built_at": "2026-08-04T09:24:17.279682+00:00"
 }

@@ -1,14 +1,14 @@
 {
   "name": "BlueVPN",
-  "version": "2.0.0",
-  "channel": "dynamic-2.0-release-series",
-  "description": "Synchronize project metadata to version 2.0.0 and generate Android releases dynamically from 2.0.1 upward. Each successful GitHub Release increments the patch number instead of using a fixed version or the raw workflow run number.",
-  "build_id": "20260804163403",
-  "built_at": "2026-08-04T16:34:03.497143+00:00",
-  "android_version": "2.0.<latest_release_patch_plus_one>",
-  "android_version_code": "20000 + release_patch",
+  "version": "2.1.0",
+  "channel": "premium-ui-smart-connect",
+  "description": "BlueVPN 2.1 premium redesign with mode-aware Smart Connect, gaming and streaming profiles, favorite locations, connection health scores, connection history, welcome experience, modern home/account/server/settings UI, and smoother navigation.",
+  "build_id": "20260804171929",
+  "built_at": "2026-08-04T17:19:29.470253+00:00",
+  "android_version": "2.1.<latest_release_patch_plus_one>",
+  "android_version_code": "21000 + release_patch",
   "deploy_bot_version": "2.5-push-trigger",
   "build_trigger": "git-empty-commit-push",
   "update_source": "github_releases",
-  "version_strategy": "Read latest GitHub Release. If it is v2.0.N, publish v2.0.(N+1); otherwise start at v2.0.1."
+  "version_strategy": "First release is 2.1.0; then increment latest v2.1.N to v2.1.(N+1)."
 }

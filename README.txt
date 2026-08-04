@@ -1,3 +1,6 @@
+BlueVPN 2.1.0 Premium Smart Connect
+Build ID: 20260804171929
+
 BlueVPN v0.4.0 Update
 
 Replace these files in the GitHub repository:

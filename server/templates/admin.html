@@ -1,8 +1,53 @@
 <!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BlueVPN Platform</title><link rel="stylesheet" href="/static/style.css"></head><body>
 <header class="topbar"><div class="brand"><img src="/static/logo.png"><div><b>BlueVPN Platform</b><span>مدیریت حساب، فروش و اشتراک</span></div></div><form method="post" action="/admin/logout"><button class="secondary">خروج</button></form></header>
-<nav class="tabs"><a href="#overview">نمای کلی</a><a href="#panels">پاسارگارد</a><a href="#plans">پلن‌ها</a><a href="#bluepay">بلوپی</a><a href="#manual">فعال‌سازی دستی</a><a href="#customers">کاربران</a><a href="#orders">پرداخت‌ها</a><a href="#app">اپ و آپدیت</a></nav>
-<main class="container">{% if saved %}<div class="alert success">تغییرات ذخیره شد.</div>{% endif %}{% if manual_message %}<div class="alert success">{{ manual_message }}</div>{% endif %}{% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
+<nav class="tabs"><a href="#overview">نمای کلی</a><a href="#database">دیتابیس</a><a href="#panels">پاسارگارد</a><a href="#plans">پلن‌ها</a><a href="#bluepay">بلوپی</a><a href="#manual">فعال‌سازی دستی</a><a href="#customers">کاربران</a><a href="#orders">پرداخت‌ها</a><a href="#app">اپ و آپدیت</a></nav>
+<main class="container">{% if not database_info.persistent %}<div class="alert danger">هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</div>{% endif %}{% if saved %}<div class="alert success">تغییرات ذخیره شد.</div>{% endif %}{% if manual_message %}<div class="alert success">{{ manual_message }}</div>{% endif %}{% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
 <section id="overview" class="grid stats"><article><span>کاربران</span><strong>{{ stats.customers }}</strong></article><article><span>اشتراک فعال</span><strong>{{ stats.active }}</strong></article><article><span>پرداخت موفق</span><strong>{{ stats.paid }}</strong></article><article><span>فعال‌سازی دستی</span><strong>{{ stats.manual }}</strong></article><article><span>پنل پاسارگارد</span><strong>{{ stats.panels }}</strong></article><article><span>دیتابیس</span><strong>{{ database_mode }}</strong></article></section>
+<section id="database" class="card">
+  <h2>دیتابیس خودکار و دائمی</h2>
+  <p class="hint">
+    در هر Deploy اتصال PostgreSQL بررسی می‌شود، جداول و ستون‌های ناقص ساخته
+    می‌شوند و Migration نسخه‌های قبلی اجرا می‌شود. در Railway دیگر اجازه
+    استفاده بی‌صدا از SQLite موقت داده نمی‌شود.
+  </p>
+  <div class="database-grid">
+    <article>
+      <span>وضعیت</span>
+      <strong class="{{ 'db-ok' if database_info.ready else 'db-bad' }}">
+        {{ 'آماده' if database_info.ready else 'خطا' }}
+      </strong>
+    </article>
+    <article><span>نوع</span><strong>{{ database_info.mode }}</strong></article>
+    <article>
+      <span>ماندگاری</span>
+      <strong>{{ 'دائمی' if database_info.persistent else 'موقت' }}</strong>
+    </article>
+    <article><span>نسخه ساختار</span><strong>{{ database_info.schema_version }}</strong></article>
+    <article><span>منبع اتصال</span><strong>{{ database_info.url_source }}</strong></article>
+    <article><span>مقصد</span><strong class="ltr">{{ database_info.target }}</strong></article>
+  </div>
+
+  {% if database_info.error %}
+  <div class="alert danger">{{ database_info.error }}</div>
+  {% endif %}
+
+  <div class="chips">
+    <span>کاربر: {{ database_counts.get('customers',0) }}</span>
+    <span>پلن: {{ database_counts.get('plans',0) }}</span>
+    <span>پنل: {{ database_counts.get('pasarguard_panels',0) }}</span>
+    <span>سفارش: {{ database_counts.get('orders',0) }}</span>
+    <span>دستگاه: {{ database_counts.get('customer_devices',0) }}</span>
+  </div>
+
+  <details class="db-details">
+    <summary>گزارش Migration خودکار</summary>
+    <pre>{{ database_info.migration | tojson(indent=2) }}</pre>
+  </details>
+
+  <form method="post" action="/admin/database/initialize">
+    <button class="save" type="submit">بررسی و ساخت دوباره جداول</button>
+  </form>
+</section>
 <section id="panels" class="card"><h2>پنل‌های PasarGuard</h2><p class="hint">اتصال با API Key یا نام کاربری/رمز مدیر. اطلاعات محرمانه فقط رمزگذاری‌شده در Backend ذخیره می‌شوند.</p>
 <form method="post" action="/admin/panels"><div class="form-grid"><div><label>نام پنل</label><input name="name" placeholder="پنل اصلی" required></div><div><label>Base URL</label><input name="base_url" placeholder="https://panel.example.com" required></div><div><label>روش ورود</label><select name="auth_mode"><option value="api_key">API Key</option><option value="bearer">نام کاربری و رمز</option></select></div><div><label>API Key</label><input name="api_key" type="password" placeholder="pg_key_..."></div><div><label>نام کاربری مدیر</label><input name="username"></div><div><label>رمز مدیر</label><input name="password" type="password"></div><div class="wide"><label>Proxy Settings JSON</label><textarea name="proxy_settings_json" rows="3">{"vless":{}}</textarea></div></div><button class="save">افزودن پنل</button></form>
 <div class="table-wrap"><table><thead><tr><th>نام</th><th>آدرس</th><th>ورود</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{% for p in panels %}<tr><td>{{ p.name }}</td><td class="ltr">{{ p.base_url }}</td><td>{{ p.auth_mode }} · {{ panel_masks[p.id] }}</td><td>{% if p.last_test_ok %}<span class="badge ok">متصل</span>{% else %}<span class="badge warn">{{ p.last_test_message or 'تست نشده' }}</span>{% endif %}</td><td class="actions"><form method="post" action="/admin/panels/{{ p.id }}/test"><button>تست</button></form><form method="post" action="/admin/panels/{{ p.id }}/toggle"><button class="secondary">{{ 'غیرفعال' if p.active else 'فعال' }}</button></form></td></tr>{% else %}<tr><td colspan="5">هنوز پنلی ثبت نشده است.</td></tr>{% endfor %}</tbody></table></div></section>

@@ -1,6 +1,6 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.2",
-  "channel": "admin-manual-subscription-activation",
-  "description": "Add manual subscription activation and renewal from the BlueVPN admin panel without a BluePay invoice. Manual operations are audited as orders and provisioned through the selected PasarGuard plan."
+  "version": "1.0.3",
+  "channel": "database-autopilot",
+  "description": "Persistent PostgreSQL enforcement on Railway, automatic database and table creation, automatic schema migration, legacy column reconciliation, optional SQLite-to-PostgreSQL import, and fail-fast deployment behavior."
 }

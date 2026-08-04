@@ -11,8 +11,8 @@ import httpx
 
 
 DEFAULT_REPOSITORY = "hazhanhasani/bluevpnapp"
-CACHE_TTL_SECONDS = 300
-ERROR_CACHE_TTL_SECONDS = 45
+CACHE_TTL_SECONDS = 15
+ERROR_CACHE_TTL_SECONDS = 10
 
 _cache: dict[str, Any] = {
     "repository": "",
@@ -47,7 +47,7 @@ def _headers(authenticated: bool = True) -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "BlueVPN-Update-Service/1.0.19",
+        "User-Agent": "BlueVPN-Update-Service/1.0.24",
     }
 
     token = os.getenv("GITHUB_TOKEN", "").strip()

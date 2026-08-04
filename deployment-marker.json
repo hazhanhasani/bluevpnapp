@@ -1,17 +1,17 @@
 {
-  "version": "1.0.23",
-  "project_version": "1.0.23",
+  "version": "1.0.24",
+  "project_version": "1.0.24",
   "android_version": "1.0.<github_run_number>",
-  "android_version_code": "10000 + github.run_number",
-  "database_schema_version": "6",
-  "build_id": "20260804154722",
-  "created_at": "2026-08-04T15:47:22.141823+00:00",
+  "android_version_code": "10000 + github_run_number",
+  "build_id": "20260804162033",
+  "created_at": "2026-08-04T16:20:33.947773+00:00",
   "features": [
-    "single-flight-android-refresh",
-    "no-logout-on-network-or-timeout",
-    "previous-refresh-token-grace-window",
-    "automatic-refresh-column-migration",
-    "authenticated-plans-api",
-    "plans-hidden-before-login"
+    "github-release-cache-15-seconds",
+    "app-update-check-every-30-seconds",
+    "foreground-return-update-check",
+    "semantic-and-version-code-comparison",
+    "visible-auto-download-dialog",
+    "manual-update-check-button",
+    "correct-cold-launch-sync-settings-text"
   ]
 }

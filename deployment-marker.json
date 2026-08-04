@@ -1,17 +1,15 @@
 {
-  "version": "1.0.17",
-  "android_version": "1.0.17",
-  "android_version_code": 31,
-  "build_id": "20260804133922",
-  "created_at": "2026-08-04T13:39:22.347996+00:00",
+  "version": "1.0.18",
+  "android_version": "1.0.18",
+  "android_version_code": 32,
+  "build_id": "20260804140022",
+  "created_at": "2026-08-04T14:00:22.503713+00:00",
   "features": [
-    "professional-graphical-auth-ui",
-    "startup-sync-progress-percentage",
-    "test-all-servers-on-current-user-network",
-    "session-only-inactive-server-exclusion",
-    "retest-inactive-servers-on-next-entry",
-    "fastest-healthy-server-preselection",
-    "strict-country-and-flag-display",
-    "no-default-provider-server-names"
+    "fix-isSingleLine",
+    "keyboard-next-done",
+    "modern-auth-polish",
+    "three-stage-sync-feedback",
+    "genuine-return-resync",
+    "18-second-timeout"
   ]
 }

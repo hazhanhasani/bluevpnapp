@@ -1,12 +1,12 @@
 {
   "name": "BlueVPN",
-  "version": "1.0.17",
-  "channel": "professional-auth-and-smart-startup-optimization",
-  "description": "Redesign login and registration with a professional graphical interface; show a percentage-based synchronization dialog at app entry; test all routes using the current user's network; temporarily exclude failed routes for the current session and retest them at the next entry; select the fastest healthy route; and never display provider/default server names instead of country names and flags.",
-  "build_id": "20260804133922",
-  "built_at": "2026-08-04T13:39:22.347996+00:00",
-  "android_version": "1.0.17",
-  "android_version_code": 31,
+  "version": "1.0.18",
+  "channel": "compile-fix-modern-ux",
+  "description": "Fix EditText isSingleLine compilation; improve keyboard flow, authentication hierarchy, startup feedback, genuine-return resync, and timeout.",
+  "build_id": "20260804140022",
+  "built_at": "2026-08-04T14:00:22.503713+00:00",
+  "android_version": "1.0.18",
+  "android_version_code": 32,
   "deploy_bot_version": "2.5-push-trigger",
   "build_trigger": "git-empty-commit-push"
 }

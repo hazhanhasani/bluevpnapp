@@ -1,0 +1,16 @@
+گزارش اعتبارسنجی BlueVPN 3.0.13
+
+- نسخه فعال Backend و Android: 3.0.13 / 30013
+- Compile تمام فایل‌های Python: موفق
+- Parse فایل‌های JSON، YAML، XML و قالب‌های Jinja2: موفق
+- تست‌های خودکار: 10/10 موفق
+- Decode و تطبیق BlueVpnUpdateManager تعبیه‌شده با سورس اصلی: موفق
+- بررسی ساختار APK قبل از نصب: AndroidManifest.xml و classes.dex
+- بررسی Content-Type، Content-Length و اندازه رسمی GitHub Release: فعال
+- بررسی SHA-256 رسمی هر معماری: فعال
+- بررسی packageName و versionName با PackageManager: فعال
+- حذف خودکار فایل خراب یا ناقص قبل از بازشدن Package Installer: فعال
+- انتقال URI با ClipData و FLAG_GRANT_READ_URI_PERMISSION: فعال
+- grantUriPermission صریح برای نصب‌کننده‌های Android و MIUI: فعال
+- ACTION_INSTALL_PACKAGE و fallback به ACTION_VIEW: فعال
+- Build نهایی APK و تست روی MIUI: در GitHub Actions و دستگاه واقعی انجام می‌شود

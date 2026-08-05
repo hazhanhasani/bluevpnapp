@@ -470,6 +470,7 @@ async def mobile_config(
             'latest_version_code':int(release.get('version_code') or 0),
             'apk_url':release.get('apk_url',''),
             'apk_assets':release.get('apk_assets',{}),
+            'apk_asset_meta':release.get('apk_asset_meta',{}),
             'update_title':release.get('title','نسخه جدید BlueVPN'),
             'update_message':release.get('message',''),
             'release_url':release.get('release_url',''),

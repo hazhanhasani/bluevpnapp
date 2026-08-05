@@ -1,11 +1,11 @@
 {
-  "version": "3.0.12",
-  "channel": "admin-security-dashboard",
-  "build_id": "20260806-admin-security-dashboard-v3012",
-  "built_at": "2026-08-06T00:00:00Z",
-  "android_version": "3.0.12",
-  "android_version_code": 30012,
-  "description": "BlueVPN 3.0.12: Dark Glass admin dashboard, live operator success charts, IP-based authentication rate limiting and secure ZIP database backups.",
+  "version": "3.0.13",
+  "channel": "updater-package-parser-fix",
+  "build_id": "20260806-updater-integrity-installer-v3013",
+  "built_at": "2026-08-06T01:00:00Z",
+  "android_version": "3.0.13",
+  "android_version_code": 30013,
+  "description": "BlueVPN 3.0.13: validates APK integrity before installation, verifies GitHub Release SHA-256 and size, and grants the Android/MIUI package installer explicit read access.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -89,8 +89,17 @@
     "postgres-pg-dump-backup",
     "sqlite-consistent-backup",
     "backup-sha256-manifest",
-    "backup-download-no-store"
+    "backup-download-no-store",
+    "github-release-asset-sha256-metadata",
+    "apk-content-type-validation",
+    "apk-content-length-validation",
+    "apk-zip-structure-validation",
+    "apk-package-name-validation",
+    "apk-version-validation",
+    "miui-explicit-installer-uri-grant",
+    "installer-clipdata-uri-permission",
+    "action-install-package-fallback"
   ],
-  "version_code": 30012,
-  "notes": "پنل مدیریت با داشبورد شیشه‌ای و نمودار زنده اپراتورها بازطراحی شد؛ ورود و ثبت‌نام Rate Limit شدند و مدیر می‌تواند بکاپ امن ZIP از PostgreSQL یا SQLite دریافت کند."
+  "version_code": 30013,
+  "notes": "خطای تجزیه بسته در بروزرسانی داخلی رفع شد؛ فایل APK قبل از نصب از نظر ساختار، اندازه، SHA-256، نام بسته و نسخه بررسی می‌شود و دسترسی FileProvider به نصب‌کننده‌های Android/MIUI به‌صورت صریح اعطا می‌شود."
 }

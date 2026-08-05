@@ -13,7 +13,7 @@
 [hidden]{display:none!important}.tabs a.active{border-color:rgba(91,158,255,.52);background:linear-gradient(135deg,rgba(53,126,255,.26),rgba(111,82,255,.20));color:#fff}.flash-alert{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;transition:.25s}.alert-close{padding:0;width:28px;height:28px;border-radius:9px;background:rgba(255,255,255,.10);box-shadow:none;font-size:19px;line-height:1}.alert-close:hover{transform:none;background:rgba(255,255,255,.18)}#blueai-live-status{color:#6de2ea}.admin-live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#42dfad;box-shadow:0 0 14px #42dfad}
 @media(max-width:680px){.topbar{position:sticky;top:0}.tabs{position:sticky;top:76px}.container{padding-top:12px}.stats{grid-template-columns:1fr 1fr}.stats article,.ai-kpis article{min-height:96px;padding:14px}.ai-kpis{grid-template-columns:1fr 1fr}.section-heading h2{font-size:21px}.tabs a{padding:9px 12px}.card{margin:0 0 14px}.table-wrap{max-height:68vh}}
 
-/* v3.0.12 — Dark Glass Admin Dashboard */
+/* v3.0.13 — Dark Glass Admin Dashboard */
 :root{
   --bg:#030712;
   --bg-deep:#02050c;

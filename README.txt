@@ -1,4 +1,4 @@
-BlueVPN 3.0.12 — Admin Security Dashboard
+BlueVPN 3.0.13 — In-App Updater Integrity Fix
 Build ID: 20260806-admin-security-dashboard-v3012
 
 فایل ZIP را از طریق ربات Deploy نصب کنید تا ابتدا در GitHub Commit و سپس APK ساخته شود.

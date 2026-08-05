@@ -131,8 +131,14 @@ def _asset_architecture(name: str) -> str:
 
 def _release_assets(
     payload: dict[str, Any],
-) -> tuple[dict[str, str], str, str]:
+) -> tuple[
+    dict[str, str],
+    dict[str, dict[str, Any]],
+    str,
+    str,
+]:
     assets: dict[str, str] = {}
+    asset_meta: dict[str, dict[str, Any]] = {}
     manifest_url = ""
     checksums_url = ""
 
@@ -156,10 +162,28 @@ def _release_assets(
             continue
 
         arch = _asset_architecture(name)
-        if arch not in assets:
-            assets[arch] = url
+        if arch in assets:
+            continue
 
-    return assets, manifest_url, checksums_url
+        digest = str(item.get("digest") or "").strip().lower()
+        sha256 = digest.removeprefix("sha256:")
+        if not re.fullmatch(r"[0-9a-f]{64}", sha256):
+            sha256 = ""
+
+        size = int(item.get("size") or 0)
+        assets[arch] = url
+        asset_meta[arch] = {
+            "url": url,
+            "name": name,
+            "size": max(0, size),
+            "sha256": sha256,
+            "content_type": str(
+                item.get("content_type")
+                or "application/vnd.android.package-archive"
+            ),
+        }
+
+    return assets, asset_meta, manifest_url, checksums_url
 
 
 def parse_release_payload(
@@ -186,7 +210,7 @@ def parse_release_payload(
         or _fallback_version_code(version)
     )
 
-    assets, manifest_url, checksums_url = (
+    assets, asset_meta, manifest_url, checksums_url = (
         _release_assets(payload)
     )
 
@@ -220,6 +244,7 @@ def parse_release_payload(
         "message": body,
         "apk_url": preferred_url,
         "apk_assets": assets,
+        "apk_asset_meta": asset_meta,
         "release_url": str(
             payload.get("html_url") or ""
         ),
@@ -295,7 +320,7 @@ async def _fetch_latest_release() -> dict[str, Any]:
                 "پاسخ Release گیت‌هاب نامعتبر است"
             )
 
-        _, manifest_url, _ = _release_assets(payload)
+        _, _, manifest_url, _ = _release_assets(payload)
         manifest = await _download_manifest(
             client,
             manifest_url,

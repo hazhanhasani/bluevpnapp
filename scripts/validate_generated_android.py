@@ -72,6 +72,24 @@ def main() -> None:
             "private fun friendlyDownloadError" in updater,
         "no raw error dialog":
             "message = friendlyDownloadError(error)" in updater,
+        "APK zip validation":
+            'zip.getEntry("AndroidManifest.xml")' in updater,
+        "APK package validation":
+            "getPackageArchiveInfo" in updater,
+        "SHA-256 validation":
+            'MessageDigest.getInstance("SHA-256")' in updater,
+        "expected asset size validation":
+            "KEY_UPDATE_SIZE" in updater and "expectedSize" in updater,
+        "MIUI explicit URI grant":
+            "context.grantUriPermission(" in updater,
+        "ClipData URI propagation":
+            "ClipData.newRawUri(" in updater,
+        "install package action":
+            "Intent.ACTION_INSTALL_PACKAGE" in updater,
+        "installer fallback":
+            "context.startActivity(fallback)" in updater,
+        "data and MIME preserved together":
+            "setDataAndType(" in updater,
     }
     updater_failed = [label for label, ok in updater_checks.items() if not ok]
     if updater_failed:

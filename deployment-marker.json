@@ -1,17 +1,17 @@
 {
-  "release": "3.0.12-auto",
-  "version_name": "3.0.12",
-  "version_code": 30012,
+  "release": "3.0.13-updater-package-parser-fix",
+  "version_name": "3.0.13",
+  "version_code": 30013,
   "changes": [
-    "Dark Glass admin dashboard with Vazirmatn typography and inline SVG icons",
-    "Live BlueAI operator success-rate donut charts without external chart libraries",
-    "IP-based rate limiting for API register, API login and admin login",
-    "Secure admin session cookie settings and session rotation after login",
-    "CSRF-protected database backup download endpoint",
-    "PostgreSQL pg_dump and consistent SQLite backup packed into ZIP",
-    "Backup manifest includes table counts and SHA-256 without database credentials"
+    "Validate downloaded APK ZIP structure before opening Android installer",
+    "Verify GitHub Release SHA-256 digest and expected file size",
+    "Reject HTML/JSON/error responses masquerading as APK files",
+    "Verify package name and version with Android PackageManager",
+    "Grant FileProvider URI read permission explicitly to Android and MIUI installers",
+    "Use ACTION_INSTALL_PACKAGE with ACTION_VIEW fallback and ClipData permission propagation",
+    "Delete corrupted downloads and force a clean retry instead of opening the package parser"
   ],
   "generated_at_unix": 1785974400,
-  "purpose": "admin-security-backup-dashboard",
-  "updated_at": "2026-08-06T00:00:00Z"
+  "purpose": "updater-apk-integrity-installer-grants",
+  "updated_at": "2026-08-06T01:00:00Z"
 }

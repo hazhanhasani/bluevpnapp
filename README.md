@@ -1,4 +1,9 @@
-# BlueVPN 3.0.12 — Admin Security Dashboard
+# BlueVPN 3.0.13 — In-App Updater Integrity Fix
+
+## رفع خطای «مشکلی در تجزیه این بسته وجود داشت»
+
+نسخه 3.0.13 فایل APK را پیش از بازکردن نصب‌کننده از نظر ساختار ZIP، وجود AndroidManifest.xml، اندازه، SHA-256 رسمی GitHub Release، نام بسته و نسخه بررسی می‌کند. همچنین URI فایل به‌صورت صریح به نصب‌کننده‌های Android و MIUI داده می‌شود و ACTION_INSTALL_PACKAGE با fallback به ACTION_VIEW استفاده می‌شود. فایل خراب یا ناقص حذف می‌شود و دیگر به Package Installer تحویل داده نمی‌شود.
+
 
 نسخه اندروید و پنل مدیریت BlueVPN با هسته هوشمند مسیر.
 
@@ -106,4 +111,4 @@
 - Endpoint امن و CSRF-protected برای دانلود ZIP پشتیبان دیتابیس
 - پشتیبانی از `pg_dump` برای PostgreSQL و Backup سازگار برای SQLite
 - قرار دادن Manifest، شمارش جدول‌ها و SHA-256 داخل فایل پشتیبان بدون افشای رمز دیتابیس
-- نسخه Backend و Android: `3.0.12` / `30012`
+- نسخه Backend و Android: `3.0.13` / `30013`

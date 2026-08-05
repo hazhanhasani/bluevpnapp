@@ -1,11 +1,11 @@
 {
-  "version": "3.0.8",
-  "channel": "startup-resilience",
-  "build_id": "20260806-telegram-timeout-recovery-v308",
-  "built_at": "2026-08-05T22:05:00Z",
-  "android_version": "3.0.8",
-  "android_version_code": 30008,
-  "description": "BlueVPN 3.0.8: resilient Telegram startup on Railway with explicit HTTPX timeouts, exponential retry, leak-safe cleanup and accurate PostgreSQL diagnostics.",
+  "version": "3.0.9",
+  "channel": "github-source-persistence",
+  "build_id": "20260806-github-source-persistence-v309",
+  "built_at": "2026-08-05T21:43:55Z",
+  "android_version": "3.0.9",
+  "android_version_code": 30009,
+  "description": "BlueVPN 3.0.9: verified GitHub source persistence before APK build, including uploaded project files, Dockerfile, version metadata and generated Android source snapshots.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -58,8 +58,16 @@
     "transient-alert-suppression",
     "postgres-component-diagnostics",
     "reproducible-telegram-dependency-pin",
-    "manual-lifecycle-post-init"
+    "manual-lifecycle-post-init",
+    "verified-github-source-push",
+    "remote-branch-sha-verification",
+    "fail-closed-apk-build",
+    "dockerfile-source-updates",
+    "generated-android-source-snapshot",
+    "github-release-source-commit",
+    "push-race-retry",
+    "repository-commit-link-in-telegram"
   ],
-  "version_code": 30008,
-  "notes": "خطای telegram.error.TimedOut در get_me با Timeoutهای صریح، Retry پلکانی، Bootstrap Retry، بستن Client نیمه‌راه‌اندازی‌شده و حذف هشدار گمراه‌کننده دیتابیس از خطاهای تلگرام اصلاح شد."
+  "version_code": 30009,
+  "notes": "ربات Deploy اکنون فایل‌های ZIP را واقعاً Commit و Push می‌کند، SHA شاخه GitHub را تأیید می‌کند و Build/ارسال APK در صورت شکست ثبت سورس متوقف می‌شود. Workflow نیز metadata و snapshot سورس تولیدشده اندروید را بدون continue-on-error داخل GitHub نگه می‌دارد."
 }

@@ -40,8 +40,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bluevpn-one-click-bot")
 
-DEPLOY_BOT_VERSION = "2.8-resilient-telegram-startup"
-BUILD_TRIGGER_MODE = "git-empty-commit-push"
+DEPLOY_BOT_VERSION = "2.9-verified-github-source-persistence"
+BUILD_TRIGGER_MODE = "verified-source-commit-push"
 
 
 def _env_int(name: str, default: int, minimum: int = 1) -> int:
@@ -128,7 +128,6 @@ if "/" not in GITHUB_REPOSITORY or GITHUB_REPOSITORY.startswith("http"):
 OWNER, REPO = GITHUB_REPOSITORY.split("/", 1)
 
 PROTECTED_NAMES = {
-    "Dockerfile",
     ".env",
     "BlueVPN-release.jks",
 }
@@ -486,6 +485,108 @@ def apply_deletions(source: Path, repo: Path) -> int:
     return count
 
 
+def _commit_url(commit_sha: str) -> str:
+    return (
+        f"https://github.com/{GITHUB_REPOSITORY}/commit/{commit_sha}"
+    )
+
+
+def _remote_branch_sha(repo: Path) -> str:
+    result = subprocess.run(
+        [
+            "git",
+            "ls-remote",
+            "origin",
+            f"refs/heads/{GIT_BRANCH}",
+        ],
+        cwd=repo,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "خواندن SHA شاخه از GitHub ناموفق بود:\n"
+            + redact((result.stderr or result.stdout)[-2000:])
+        )
+    line = result.stdout.strip().splitlines()
+    return line[0].split()[0] if line else ""
+
+
+def _push_and_verify(
+    repo: Path,
+    git,
+    *,
+    attempts: int = 3,
+) -> tuple[str, str]:
+    """Push HEAD and prove that GitHub's branch points at the same commit."""
+    last_error = ""
+    for attempt in range(1, attempts + 1):
+        expected = git("rev-parse", "HEAD").stdout.strip()
+        pushed = git(
+            "push",
+            "--porcelain",
+            "origin",
+            f"HEAD:{GIT_BRANCH}",
+            check=False,
+        )
+        if pushed.returncode != 0:
+            last_error = redact((pushed.stderr or pushed.stdout)[-3000:])
+            combined = (pushed.stderr or "") + "\n" + (pushed.stdout or "")
+            race = any(
+                marker in combined.lower()
+                for marker in (
+                    "non-fast-forward",
+                    "fetch first",
+                    "failed to push some refs",
+                    "stale info",
+                )
+            )
+            if not race or attempt >= attempts:
+                raise RuntimeError(
+                    "Push فایل‌ها به GitHub ناموفق بود. هیچ APKی ارسال نمی‌شود "
+                    "تا سورس واقعاً ثبت شود.\n"
+                    + last_error
+                )
+
+            git("fetch", "--prune", "origin", GIT_BRANCH)
+            rebased = git(
+                "rebase",
+                f"origin/{GIT_BRANCH}",
+                check=False,
+            )
+            if rebased.returncode != 0:
+                git("rebase", "--abort", check=False)
+                raise RuntimeError(
+                    "هم‌زمان یک تغییر دیگر روی GitHub ثبت شد و Rebase خودکار "
+                    "به تعارض خورد. ZIP را دوباره ارسال کن.\n"
+                    + redact((rebased.stderr or rebased.stdout)[-2500:])
+                )
+            continue
+
+        # GitHub's ref is authoritative. A successful local push is not enough.
+        remote_sha = ""
+        for _ in range(8):
+            remote_sha = _remote_branch_sha(repo)
+            if remote_sha == expected:
+                return expected, remote_sha
+            time.sleep(1.5)
+
+        last_error = (
+            f"SHA محلی {expected} است ولی GitHub شاخه {GIT_BRANCH} را "
+            f"روی {remote_sha or 'نامشخص'} نشان می‌دهد."
+        )
+        if attempt < attempts:
+            git("fetch", "--prune", "origin", GIT_BRANCH)
+            continue
+
+    raise RuntimeError(
+        "تأیید ثبت فایل‌ها روی GitHub ناموفق بود. APK ساخته یا ارسال نشد.\n"
+        + last_error
+    )
+
+
 def deploy_zip(zip_path: Path) -> dict[str, Any]:
     token = quote(GITHUB_TOKEN, safe="")
     remote = f"https://x-access-token:{token}@github.com/{GITHUB_REPOSITORY}.git"
@@ -501,7 +602,7 @@ def deploy_zip(zip_path: Path) -> dict[str, Any]:
                 "git",
                 "clone",
                 "--depth",
-                "1",
+                "50",
                 "--branch",
                 GIT_BRANCH,
                 remote,
@@ -558,34 +659,58 @@ def deploy_zip(zip_path: Path) -> dict[str, Any]:
         diff = git("diff", "--cached", "--quiet", check=False)
         if diff.returncode == 0:
             commit = git("rev-parse", "HEAD").stdout.strip()
+            remote_commit = _remote_branch_sha(repo)
+            if remote_commit != commit:
+                raise RuntimeError(
+                    "مخزن محلی با GitHub همگام نیست؛ برای جلوگیری از Build روی "
+                    "سورس اشتباه، عملیات متوقف شد."
+                )
             return {
                 "changed": False,
                 "commit": commit,
+                "remote_commit": remote_commit,
+                "verified": True,
+                "commit_url": _commit_url(commit),
+                "repository": GITHUB_REPOSITORY,
+                "branch": GIT_BRANCH,
+                "changed_files": [],
                 "copied": copied,
                 "deleted": deleted,
                 "skipped": skipped,
             }
 
-        git("commit", "-m", "Deploy BlueVPN automatically from Telegram")
-        commit = git("rev-parse", "HEAD").stdout.strip()
-        git("push", "origin", GIT_BRANCH)
+        changed_files = [
+            line.strip()
+            for line in git(
+                "diff",
+                "--cached",
+                "--name-only",
+            ).stdout.splitlines()
+            if line.strip()
+        ]
+        git(
+            "commit",
+            "-m",
+            "deploy: persist BlueVPN project files from Telegram",
+        )
+        commit, remote_commit = _push_and_verify(repo, git)
         return {
             "changed": True,
             "commit": commit,
+            "remote_commit": remote_commit,
+            "verified": commit == remote_commit,
+            "commit_url": _commit_url(commit),
+            "repository": GITHUB_REPOSITORY,
+            "branch": GIT_BRANCH,
+            "changed_files": changed_files,
             "copied": copied,
             "deleted": deleted,
             "skipped": skipped,
         }
 
 
-def trigger_build_by_empty_commit() -> str:
-    """
-    Trigger the workflow through the existing `push` event.
-
-    This deliberately avoids the workflow_dispatch API, which requires
-    Actions: write on a fine-grained GitHub token. The repository token only
-    needs permission to push to the selected repository.
-    """
+def trigger_build_by_empty_commit() -> dict[str, str]:
+    """Create, push and remotely verify a build-trigger commit."""
     token = quote(GITHUB_TOKEN, safe="")
     remote = f"https://x-access-token:{token}@github.com/{GITHUB_REPOSITORY}.git"
 
@@ -597,7 +722,7 @@ def trigger_build_by_empty_commit() -> str:
                 "git",
                 "clone",
                 "--depth",
-                "1",
+                "50",
                 "--branch",
                 GIT_BRANCH,
                 remote,
@@ -611,7 +736,7 @@ def trigger_build_by_empty_commit() -> str:
         if clone.returncode != 0:
             raise RuntimeError(redact((clone.stderr or clone.stdout)[-3000:]))
 
-        def git(*args: str) -> subprocess.CompletedProcess[str]:
+        def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
             result = subprocess.run(
                 ["git", *args],
                 cwd=repo,
@@ -620,7 +745,7 @@ def trigger_build_by_empty_commit() -> str:
                 text=True,
                 timeout=420,
             )
-            if result.returncode != 0:
+            if check and result.returncode != 0:
                 raise RuntimeError(
                     redact((result.stderr or result.stdout)[-3000:])
                 )
@@ -632,11 +757,19 @@ def trigger_build_by_empty_commit() -> str:
             "commit",
             "--allow-empty",
             "-m",
-            "Trigger BlueVPN APK build from Telegram",
+            "build: trigger BlueVPN APK from persisted GitHub source",
         )
-        commit = git("rev-parse", "HEAD").stdout.strip()
-        git("push", "origin", GIT_BRANCH)
-        return commit
+        commit, remote_commit = _push_and_verify(repo, git)
+        return {
+            "commit": commit,
+            "remote_commit": remote_commit,
+            "commit_url": _commit_url(commit),
+        }
+
+
+async def dispatch_build() -> dict[str, str]:
+    """Start a build only after GitHub confirms the trigger commit."""
+    return await asyncio.to_thread(trigger_build_by_empty_commit)
 
 
 async def workflow_runs() -> list[dict[str, Any]]:
@@ -651,16 +784,6 @@ async def workflow_runs() -> list[dict[str, Any]]:
             f"{response.text[-600:]}"
         )
     return response.json().get("workflow_runs", [])
-
-
-async def dispatch_build() -> str:
-    """
-    Start a build without requiring GitHub Actions write permission.
-
-    The workflow already listens to pushes on the main branch, so an empty
-    commit is enough to start a fresh build.
-    """
-    return await asyncio.to_thread(trigger_build_by_empty_commit)
 
 
 async def wait_for_commit_run(
@@ -811,10 +934,15 @@ async def start(
         return
 
     await update.effective_message.reply_text(
-        "✅ <b>ربات خودکار BlueVPN آماده است</b>\n"f"نسخه ربات: {DEPLOY_BOT_VERSION}\n"f"روش Build: {BUILD_TRIGGER_MODE}\n\n"
+        "✅ <b>ربات خودکار BlueVPN آماده است</b>\n"
+        f"نسخه ربات: {DEPLOY_BOT_VERSION}\n"
+        f"روش Build: {BUILD_TRIGGER_MODE}\n"
+        f"مخزن مقصد: {GITHUB_REPOSITORY}\n"
+        f"شاخه مقصد: {GIT_BRANCH}\n\n"
         "ZIP پروژه یا آپدیت را بفرست.\n"
-        "بررسی Secretها از مسیر نصب حذف شده تا ربات هیچ‌وقت آنجا گیر نکند.\n\n"
-        "ربات خودش فایل‌ها را نصب می‌کند، Build را دنبال می‌کند و APK را می‌فرستد.",
+        "ربات ابتدا فایل‌ها را Commit و Push می‌کند، SHA واقعی شاخه "
+        "GitHub را تأیید می‌کند و فقط بعد از آن Build و ارسال APK را "
+        "ادامه می‌دهد.",
         parse_mode=ParseMode.HTML,
         reply_markup=keyboard(),
     )
@@ -843,21 +971,30 @@ async def process_zip_job(
         commit = str(deployed["commit"])
 
         if not deployed["changed"]:
-            ACTIVE_JOB_STATUS[job_key] = "ایجاد Commit برای شروع Build"
+            ACTIVE_JOB_STATUS[job_key] = "ایجاد Commit تأییدشده برای شروع Build"
             await progress.edit_text(
-                "ℹ️ فایل‌ها تغییری نداشتند؛ یک Commit خالی روی main می‌سازم تا Build شروع شود..."
+                "ℹ️ فایل‌ها تغییری نداشتند؛ یک Commit تأییدشده روی شاخه "
+                f"{GIT_BRANCH} می‌سازم تا Build شروع شود..."
             )
-            commit_for_run = await dispatch_build()
+            trigger = await dispatch_build()
+            commit_for_run = trigger["commit"]
+            commit_url = trigger["commit_url"]
         else:
             commit_for_run = commit
+            commit_url = str(deployed["commit_url"])
 
+        changed_count = len(deployed.get("changed_files") or [])
         ACTIVE_JOB_STATUS[job_key] = (
-            f"منتظر Build مربوط به {commit_for_run[:8]}"
+            f"GitHub تأیید شد؛ منتظر Build {commit_for_run[:8]}"
         )
         await progress.edit_text(
-            "✅ فایل‌ها نصب شدند.\n"
-            f"Commit: {commit_for_run[:8]}\n\n"
-            "🛠 Build در پس‌زمینه در حال اجراست.\n"
+            "✅ فایل‌ها واقعاً روی GitHub ثبت و SHA شاخه تأیید شد.\n"
+            f"مخزن: {GITHUB_REPOSITORY}\n"
+            f"شاخه: {GIT_BRANCH}\n"
+            f"فایل‌های تغییرکرده: {changed_count}\n"
+            f"Commit: {commit_for_run[:8]}\n"
+            f"{commit_url}\n\n"
+            "🛠 Build فقط از همین Commit اجرا می‌شود.\n"
             "ربات قفل نیست؛ دکمه «📊 وضعیت» را می‌توانی بزنید."
         )
 
@@ -990,13 +1127,17 @@ async def process_rebuild_job(
         previous_runs = await workflow_runs()
         previous_ids = {int(run["id"]) for run in previous_runs}
 
-        ACTIVE_JOB_STATUS[job_key] = "شروع Build با Commit خودکار"
-        commit_sha = await dispatch_build()
+        ACTIVE_JOB_STATUS[job_key] = "شروع Build با Commit تأییدشده"
+        trigger = await dispatch_build()
+        commit_sha = trigger["commit"]
 
         await progress.edit_text(
-            "🛠 Build با Commit و Push روی شاخه اصلی شروع شد.\n"
-            f"Commit: {commit_sha[:8]}\n\n"
-            "بررسی Secretها انجام نشد و ربات همچنان پاسخ‌گو است."
+            "🛠 Build با Commit تأییدشده روی GitHub شروع شد.\n"
+            f"مخزن: {GITHUB_REPOSITORY}\n"
+            f"شاخه: {GIT_BRANCH}\n"
+            f"Commit: {commit_sha[:8]}\n"
+            f"{trigger['commit_url']}\n\n"
+            "GitHub SHA شاخه را تأیید کرده و ربات همچنان پاسخ‌گو است."
         )
 
         ACTIVE_JOB_STATUS[job_key] = (

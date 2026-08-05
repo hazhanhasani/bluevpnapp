@@ -28,6 +28,8 @@ jobs:
     steps:
       - name: Checkout BlueVPN project
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check permanent signing secrets
         shell: bash
@@ -155,8 +157,10 @@ jobs:
           echo "upstream_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["upstream_ref"])')" >> "$GITHUB_OUTPUT"
 
       - name: Persist resolved version in repository
-        continue-on-error: true
+        id: persist_metadata
         shell: bash
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -167,13 +171,39 @@ jobs:
             deployment-marker.json \
             validation-report.json
 
-          if git diff --cached --quiet; then
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: persist BlueVPN ${{ steps.config.outputs.version }} metadata [skip ci]"
+          else
             echo "Version metadata is already synchronized."
-            exit 0
           fi
 
-          git commit -m "chore: BlueVPN ${{ steps.config.outputs.version }} [skip ci]"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          LOCAL_SHA="$(git rev-parse HEAD)"
+          REMOTE_BEFORE="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+
+          if [ -n "$REMOTE_BEFORE" ] && ! git merge-base --is-ancestor "$REMOTE_BEFORE" "$LOCAL_SHA"; then
+            echo "::error::The GitHub branch advanced while version metadata was being prepared. Re-run the build from the latest source commit."
+            exit 1
+          fi
+
+          git push --porcelain origin "HEAD:${TARGET_BRANCH}"
+
+          REMOTE_AFTER=""
+          for attempt in 1 2 3 4 5 6 7 8; do
+            REMOTE_AFTER="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+            if [ "$REMOTE_AFTER" = "$LOCAL_SHA" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$REMOTE_AFTER" != "$LOCAL_SHA" ]; then
+            echo "::error::Version metadata was not verifiably persisted to GitHub. Local=$LOCAL_SHA Remote=$REMOTE_AFTER"
+            exit 1
+          fi
+
+          echo "source_sha=$LOCAL_SHA" >> "$GITHUB_OUTPUT"
+          echo "repository_commit_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${LOCAL_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Verified GitHub metadata commit: $LOCAL_SHA"
 
       - name: Checkout official v2rayNG source
         uses: actions/checkout@v4
@@ -271,6 +301,118 @@ jobs:
 
       - name: Apply BlueVPN custom UI and features
         run: python scripts/prepare_android.py
+
+      - name: Persist generated Android source snapshot in GitHub
+        id: persist_generated
+        shell: bash
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
+          VERSION: ${{ steps.config.outputs.version }}
+          VERSION_CODE: ${{ steps.config.outputs.version_code }}
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          app = Path("upstream/V2rayNG/app")
+          snapshot = Path("android-source/generated")
+          if snapshot.exists():
+              shutil.rmtree(snapshot)
+
+          selected = [
+              "src/main/java/com/v2ray/ang/ui/BlueVpnHomeActivity.kt",
+              "src/main/java/com/v2ray/ang/ui/BlueVpnAiActivity.kt",
+              "src/main/java/com/v2ray/ang/ui/BlueVpnServersActivity.kt",
+              "src/main/java/com/v2ray/ang/ui/BlueVpnSubscriptionsActivity.kt",
+              "src/main/java/com/v2ray/ang/ui/BlueVpnSettingsActivity.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAccountManager.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateManager.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLocationUtil.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnExperience.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAi.kt",
+              "src/main/res/drawable/bluevpn_screen_background.xml",
+              "src/main/res/drawable/bluevpn_logo_background.xml",
+              "src/main/res/drawable/bluevpn_connect_ring.xml",
+              "src/main/res/drawable/bluevpn_status_dot.xml",
+              "src/main/res/drawable/bluevpn_icon_chip.xml",
+              "src/main/res/values/bluevpn_home_theme.xml",
+              "src/main/res/values/bluevpn_ids.xml",
+              "src/main/res/anim/bluevpn_fade_in.xml",
+              "src/main/res/anim/bluevpn_fade_out.xml",
+              "src/main/res/xml/bluevpn_update_paths.xml",
+              "src/main/AndroidManifest.xml",
+              "src/main/java/com/v2ray/ang/AngApplication.kt",
+              "build.gradle.kts",
+          ]
+
+          hashes = {}
+          for relative in selected:
+              source = app / relative
+              if not source.exists():
+                  raise SystemExit(f"Generated Android file missing: {source}")
+              destination = snapshot / relative
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(source, destination)
+              hashes[relative] = hashlib.sha256(source.read_bytes()).hexdigest()
+
+          manifest = {
+              "app": "BlueVPN",
+              "version": os.environ["VERSION"],
+              "version_code": int(os.environ["VERSION_CODE"]),
+              "workflow_source_commit": os.environ["GITHUB_SHA"],
+              "upstream_ref": json.loads(
+                  Path("branding/app.json").read_text(encoding="utf-8")
+              )["upstream_ref"],
+              "files": hashes,
+          }
+          snapshot.mkdir(parents=True, exist_ok=True)
+          (snapshot / "snapshot-manifest.json").write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(f"Prepared {len(hashes)} generated Android source files")
+          PY
+
+          git add android-source/generated
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: persist generated Android source for ${VERSION} [skip ci]"
+          else
+            echo "Generated Android source snapshot is already synchronized."
+          fi
+
+          LOCAL_SHA="$(git rev-parse HEAD)"
+          REMOTE_BEFORE="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+          PARENT_SHA="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+
+          if [ -n "$REMOTE_BEFORE" ] && [ "$REMOTE_BEFORE" != "$LOCAL_SHA" ] && [ "$REMOTE_BEFORE" != "$PARENT_SHA" ]; then
+            echo "::error::The branch changed during Android source generation. Build stopped to avoid publishing an APK whose exact source is not in GitHub."
+            exit 1
+          fi
+
+          git push --porcelain origin "HEAD:${TARGET_BRANCH}"
+
+          REMOTE_AFTER=""
+          for attempt in 1 2 3 4 5 6 7 8; do
+            REMOTE_AFTER="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+            if [ "$REMOTE_AFTER" = "$LOCAL_SHA" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$REMOTE_AFTER" != "$LOCAL_SHA" ]; then
+            echo "::error::Generated Android source was not verifiably persisted to GitHub. Local=$LOCAL_SHA Remote=$REMOTE_AFTER"
+            exit 1
+          fi
+
+          echo "source_sha=$LOCAL_SHA" >> "$GITHUB_OUTPUT"
+          echo "repository_commit_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${LOCAL_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Verified generated-source commit: $LOCAL_SHA"
 
       - name: Setup Java 21
         uses: actions/setup-java@v4
@@ -432,6 +574,7 @@ jobs:
           VERSION: ${{ steps.config.outputs.version }}
           VERSION_CODE: ${{ steps.config.outputs.version_code }}
           BUILD_PUBLISHED_AT: ${{ github.event.head_commit.timestamp }}
+          SOURCE_COMMIT: ${{ steps.persist_generated.outputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -455,7 +598,7 @@ jobs:
           version = os.environ["VERSION"]
           version_code = int(os.environ["VERSION_CODE"])
           build_number = int(os.environ["GITHUB_RUN_NUMBER"])
-          commit = os.environ["GITHUB_SHA"]
+          commit = os.environ.get("SOURCE_COMMIT") or os.environ["GITHUB_SHA"]
 
           apks = sorted(
               path.name
@@ -522,20 +665,33 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.config.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.persist_generated.outputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
 
           TAG="v${VERSION}"
 
-          if gh release view "$TAG"             --repo "$GITHUB_REPOSITORY"             >/dev/null 2>&1
+          if gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            >/dev/null 2>&1
           then
-            gh release delete "$TAG"               --repo "$GITHUB_REPOSITORY"               --yes               --cleanup-tag
+            gh release delete "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --yes \
+              --cleanup-tag
           fi
 
-          gh release create "$TAG"             dist/*.apk             dist/SHA256SUMS.txt             dist/release-manifest.json             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "BlueVPN ${VERSION}"             --notes-file dist/RELEASE_NOTES.md
+          gh release create "$TAG" \
+            dist/*.apk \
+            dist/SHA256SUMS.txt \
+            dist/release-manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_COMMIT" \
+            --title "BlueVPN ${VERSION}" \
+            --notes-file dist/RELEASE_NOTES.md
 
-          echo "GitHub Release published: ${TAG}"
+          echo "GitHub Release published from persisted source: ${TAG} @ ${SOURCE_COMMIT}"
 
       - name: Send signed APK files to Telegram
         env:
@@ -551,11 +707,14 @@ jobs:
             exit 0
           fi
 
+          SOURCE_COMMIT="${{ steps.persist_generated.outputs.source_sha }}"
+          SOURCE_URL="${{ steps.persist_generated.outputs.repository_commit_url }}"
+
           curl --fail --show-error --silent \
             --request POST \
             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=🚀 Build جدید BlueVPN آماده شد%0Aنسخه: ${VERSION}%0ABuild: #${GITHUB_RUN_NUMBER}%0ACommit: ${GITHUB_SHA:0:8}%0Aدو فایل مخصوص arm64-v8a و armeabi-v7a در ادامه ارسال می‌شوند."
+            --data-urlencode "text=🚀 Build جدید BlueVPN آماده شد%0Aنسخه: ${VERSION}%0ABuild: #${GITHUB_RUN_NUMBER}%0ACommit سورس: ${SOURCE_COMMIT:0:8}%0Aفایل‌های پروژه و سورس تولیدشده روی GitHub تأیید شدند.%0A${SOURCE_URL}%0Aدو فایل مخصوص arm64-v8a و armeabi-v7a در ادامه ارسال می‌شوند."
 
           for apk in dist/*.apk; do
             ARCH="$(basename "$apk" .apk | sed -E 's/^BlueVPN_[^_]+_//')"

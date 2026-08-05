@@ -1,0 +1,15 @@
+گزارش اعتبارسنجی BlueVPN 3.0.9
+
+- نسخه فعال Backend و Android: 3.0.9
+- versionCode اندروید: 30009
+- Syntax فایل‌های Python: بررسی شد
+- Syntax فایل GitHub Actions YAML: بررسی شد
+- continue-on-error مرحله ثبت نسخه: حذف شد
+- تأیید SHA شاخه بعد از Push: فعال
+- توقف Build در صورت ثبت‌نشدن سورس: فعال
+- به‌روزرسانی Dockerfile از ZIP: فعال
+- Snapshot سورس تولیدشده اندروید: فعال
+- هدف GitHub Release: Commit تأییدشده سورس
+- کامپایل نهایی APK: در GitHub Actions انجام می‌شود
+- تست Push تأییدشده روی Bare Git محلی: موفق
+- تست Workflow ثبت Metadata و ۲۳ فایل Snapshot روی Bare Git محلی: موفق

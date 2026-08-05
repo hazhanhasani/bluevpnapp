@@ -1,4 +1,4 @@
-# BlueVPN 3.0.8 — Telegram Startup Recovery
+# BlueVPN 3.0.9 — Verified GitHub Source Persistence
 
 نسخه اندروید و پنل مدیریت BlueVPN با هسته هوشمند مسیر.
 
@@ -67,3 +67,14 @@
 - هشدار Telegram فقط پس از چند خطای موقت متوالی
 - نمایش صحیح وضعیت PostgreSQL در `/startup-status`
 - نسخه اندروید و Backend: `3.0.8` / `30008`
+
+## BlueVPN 3.0.9
+
+- تمام فایل‌های ZIP به‌جز Secretها و Keystore واقعاً داخل مخزن GitHub Commit می‌شوند؛ `Dockerfile` دیگر حذف نمی‌شود.
+- ربات بعد از Push، SHA شاخه مقصد را مستقیماً از GitHub می‌خواند و با Commit محلی تطبیق می‌دهد.
+- اگر Push، Branch Protection، مجوز Token یا تأیید SHA شکست بخورد، Build و ارسال APK متوقف می‌شود.
+- مرحله ثبت نسخه در GitHub Actions دیگر `continue-on-error` ندارد.
+- فایل‌های Kotlin/XML تولیدشده در `android-source/generated/` Snapshot و Commit می‌شوند.
+- GitHub Release روی Commit تأییدشده سورس ساخته می‌شود و لینک Commit در پیام تلگرام نمایش داده می‌شود.
+- نسخه اندروید و Backend: `3.0.9` / `30009`
+

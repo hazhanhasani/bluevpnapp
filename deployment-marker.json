@@ -1,19 +1,17 @@
 {
-  "release": "3.0.8-auto",
-  "version_name": "3.0.8",
-  "version_code": 30008,
+  "release": "3.0.9-github-source-persistence",
+  "version_name": "3.0.9",
+  "version_code": 30009,
   "changes": [
-    "Raised Telegram Bot API connect/read/write/pool timeouts from PTB defaults",
-    "Added separate request pools for normal API calls and getUpdates long polling",
-    "Added bounded exponential startup retry with jitter",
-    "Added bootstrap retries to start_polling",
-    "Always closes partially initialized Telegram HTTP clients",
-    "Suppresses noisy alerts for the first transient network failures",
-    "Stops attaching misleading PostgreSQL URL diagnostics to Telegram-only errors",
-    "Reports PostgreSQL component readiness and live database mode in startup-status",
-    "Pinned python-telegram-bot 22.8 for reproducible Railway builds",
-    "Explicitly executes bot_post_init in the custom Telegram lifecycle"
+    "Deploy bot commits and pushes every non-secret ZIP file, including Dockerfile",
+    "Remote GitHub branch SHA must match the local commit before build continues",
+    "Push races retry with fetch/rebase and conflicts stop safely",
+    "APK build and delivery fail closed when source persistence fails",
+    "GitHub Actions no longer ignores metadata push failures",
+    "Generated Android Kotlin/XML source snapshot is committed to android-source/generated",
+    "GitHub Release targets the verified generated-source commit",
+    "Telegram messages show repository, branch, commit and direct commit URL"
   ],
-  "generated_at_unix": 1785965461,
-  "purpose": "railway-telegram-timeout-recovery"
+  "generated_at_unix": 1785966235,
+  "purpose": "verified-github-source-persistence"
 }

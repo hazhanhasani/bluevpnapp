@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.8",
-  "version_code": 30008,
-  "schema_version": 8,
-  "release": "3.0.8",
+  "project_version": "3.0.9",
+  "version_code": 30009,
+  "schema_version": 9,
+  "release": "3.0.9",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.8/30008)",
+  "version_consistency": "passed (release/branding/backend 3.0.9/30009)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -68,5 +68,13 @@
   "postgres_component_diagnostics": "passed",
   "postgres_url_message_separated_from_telegram_errors": "passed",
   "python_telegram_bot_pin": "22.8",
-  "final_railway_network_smoke": "pending deployment"
+  "final_railway_network_smoke": "pending deployment",
+  "deploy_bot_verified_push": "passed (local SHA == remote branch SHA)",
+  "deploy_bot_fail_closed": "passed",
+  "dockerfile_upload": "enabled",
+  "workflow_metadata_push_continue_on_error": "removed",
+  "generated_android_source_snapshot": "enabled (23 files + manifest)",
+  "github_release_target": "verified persisted source commit",
+  "github_source_persistence_smoke": "passed (local bare Git remote; local SHA == remote SHA)",
+  "workflow_source_persistence_smoke": "passed (metadata commit + 23 generated files + manifest pushed to local bare remote)"
 }

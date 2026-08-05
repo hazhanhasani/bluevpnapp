@@ -27,9 +27,10 @@ from .github_release import github_repository,latest_github_release
 from .models import AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery,AiConnectionEvent,AiRouteAggregate,AiFeedback
 from .blueai import admin_overview as blueai_admin_overview, customer_dashboard as blueai_customer_dashboard, recommendations as blueai_recommendations, submit_event as blueai_submit_event, submit_feedback as blueai_submit_feedback
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
+from .version import VERSION, VERSION_CODE
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
 DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Ultimate AI Platform',version='3.0.1'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+app=FastAPI(title='BlueVPN Ultimate AI Platform',version=VERSION); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -231,7 +232,7 @@ def health():
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
-        'version':'3.0.0',
+        'version':VERSION,
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }

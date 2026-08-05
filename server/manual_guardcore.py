@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from .models import Customer, GuardCorePanel, Order, Plan
 from .security import utcnow
+from .version import VERSION
 
 
 MANUAL_PENDING_STATES = {
@@ -390,7 +391,7 @@ async def validate_subscription_url(url: str) -> dict[str, Any]:
         raise ValueError("لینک ساب باید با http یا https شروع شود")
 
     headers = {
-        "User-Agent": "v2rayNG/1.10 BlueVPN/3.0.0",
+        "User-Agent": f"v2rayNG/1.10 BlueVPN/{VERSION}",
         "Accept": "text/plain, application/octet-stream, */*",
     }
     async with httpx.AsyncClient(

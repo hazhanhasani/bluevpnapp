@@ -25,6 +25,7 @@ from .models import (
     Plan,
 )
 from .security import decrypt, utcnow
+from .version import VERSION
 from .guardcore import (
     get_subscription as get_guardcore_subscription,
     provision_subscription as provision_guardcore_subscription,
@@ -88,7 +89,7 @@ async def panel_headers(panel: PasarGuardPanel) -> dict[str, str]:
     common = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "BlueVPN-Backend/3.0.0",
+        "User-Agent": f"BlueVPN-Backend/{VERSION}",
     }
 
     if panel.auth_mode == "api_key":
@@ -262,7 +263,7 @@ async def _marzban_token(
             },
             headers={
                 "Accept": "application/json",
-                "User-Agent": "BlueVPN-Backend/3.0.0",
+                "User-Agent": f"BlueVPN-Backend/{VERSION}",
             },
         )
 
@@ -304,7 +305,7 @@ async def marzban_request(
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/json",
                     "Content-Type": "application/json",
-                    "User-Agent": "BlueVPN-Backend/3.0.0",
+                    "User-Agent": f"BlueVPN-Backend/{VERSION}",
                 },
                 json=json_body,
                 params=params,

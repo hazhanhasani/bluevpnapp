@@ -1,7 +1,7 @@
 {
-  "release": "3.0.2-in-app-updater",
-  "version_name": "3.0.2",
-  "version_code": 30002,
+  "release": "3.0.5-fast-connect",
+  "version_name": "3.0.5",
+  "version_code": 30005,
   "fixes": [
     "Native in-app APK download progress",
     "Download through physical network while VPN remains connected",
@@ -9,5 +9,6 @@
     "Secure FileProvider APK sharing",
     "Resume install after unknown-app permission"
   ],
-  "generated_at_unix": 1785950651
+  "generated_at_unix": 1785950651,
+  "purpose": "speed-and-central-version"
 }

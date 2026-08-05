@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.1",
-  "version_code": 30002,
+  "project_version": "3.0.5",
+  "version_code": 30005,
   "schema_version": 8,
-  "release": "3.0.2",
+  "release": "3.0.5",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -39,5 +39,7 @@
   "manifest_provider_injection_test": "passed",
   "system_downloads_redirect_removed": "passed",
   "native_stream_downloader": "included",
-  "live_download_progress": "included"
+  "live_download_progress": "included",
+  "speed_patch": true,
+  "version_consistency": "centralized"
 }

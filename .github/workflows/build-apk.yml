@@ -45,7 +45,7 @@ jobs:
             fi
           done
 
-      - name: Generate next BlueVPN 3.0 version
+      - name: Resolve next BlueVPN version
         id: config
         env:
           GH_TOKEN: ${{ github.token }}
@@ -54,63 +54,126 @@ jobs:
           set -euo pipefail
 
           LATEST_TAG="$(
-            gh api               "repos/${GITHUB_REPOSITORY}/releases/latest"               --jq '.tag_name'               2>/dev/null || true
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/releases/latest" \
+              --jq '.tag_name' \
+              2>/dev/null || true
           )"
 
-          NEXT_PATCH=2
-
-          if [[ "${LATEST_TAG}" =~ ^v?3\.0\.([0-9]+)$ ]]; then
-            NEXT_PATCH="$((BASH_REMATCH[1] + 1))"
-          fi
-
-          if (( NEXT_PATCH < 1 )); then
-            NEXT_PATCH=2
-          fi
-
-          AUTO_VERSION="3.0.${NEXT_PATCH}"
-          AUTO_VERSION_CODE="$((30000 + NEXT_PATCH))"
-
-          export AUTO_VERSION AUTO_VERSION_CODE
-
+          export LATEST_TAG
           python - <<'PY'
           import json
           import os
+          import re
           from pathlib import Path
 
-          path = Path("branding/app.json")
-          data = json.loads(
-              path.read_text(encoding="utf-8")
-          )
+          app_path = Path("branding/app.json")
+          release_path = Path("release.json")
+          app = json.loads(app_path.read_text(encoding="utf-8"))
+          release = json.loads(release_path.read_text(encoding="utf-8"))
 
-          data["version_name"] = os.environ[
-              "AUTO_VERSION"
-          ]
-          data["version_code"] = int(
-              os.environ["AUTO_VERSION_CODE"]
-          )
-          data["version_source"] = (
-              "latest_github_release_increment_3_0"
-          )
+          def patch(value: object) -> int:
+              match = re.fullmatch(
+                  r"v?3\.0\.(\d+)",
+                  str(value or "").strip(),
+              )
+              return int(match.group(1)) if match else -1
 
-          path.write_text(
-              json.dumps(
-                  data,
-                  ensure_ascii=False,
-                  indent=2,
-              ) + "\n",
+          project_patch = max(
+              patch(app.get("version_name")),
+              patch(release.get("version")),
+          )
+          published_patch = patch(os.environ.get("LATEST_TAG"))
+
+          # A newly uploaded source package already declares its intended
+          # version. Build it once as-is. Later pushes increment from the
+          # latest published GitHub Release.
+          if project_patch > published_patch:
+              next_patch = project_patch
+          else:
+              next_patch = max(project_patch, published_patch, 0) + 1
+
+          version = f"3.0.{next_patch}"
+          version_code = 30000 + next_patch
+
+          app["version_name"] = version
+          app["version_code"] = version_code
+          app["version_source"] = (
+              "project_release_or_latest_github_release_increment"
+          )
+          app_path.write_text(
+              json.dumps(app, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8",
           )
+
+          release["version"] = version
+          release["version_code"] = version_code
+          release["android_version"] = version
+          release["android_version_code"] = version_code
+          release_path.write_text(
+              json.dumps(release, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          for metadata_path in (
+              Path("deployment-marker.json"),
+              Path("validation-report.json"),
+          ):
+              if not metadata_path.exists():
+                  continue
+              metadata = json.loads(
+                  metadata_path.read_text(encoding="utf-8")
+              )
+              if metadata_path.name == "deployment-marker.json":
+                  metadata["release"] = f"{version}-auto"
+                  metadata["version_name"] = version
+              else:
+                  metadata["project_version"] = version
+                  metadata["release"] = version
+              metadata["version_code"] = version_code
+              metadata_path.write_text(
+                  json.dumps(
+                      metadata,
+                      ensure_ascii=False,
+                      indent=2,
+                  ) + "\n",
+                  encoding="utf-8",
+              )
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as stream:
+              stream.write(f"version={version}\n")
+              stream.write(f"version_code={version_code}\n")
+              stream.write(f"previous_tag={os.environ.get('LATEST_TAG', '')}\n")
+              stream.write(f"next_patch={next_patch}\n")
+
+          print(f"Project version: 3.0.{project_patch}")
+          print(f"Latest GitHub Release: {os.environ.get('LATEST_TAG') or 'none'}")
+          print(f"Android build version: {version} ({version_code})")
           PY
 
           echo "upstream_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["upstream_ref"])')" >> "$GITHUB_OUTPUT"
-          echo "version=${AUTO_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "version_code=${AUTO_VERSION_CODE}" >> "$GITHUB_OUTPUT"
-          echo "previous_tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
-          echo "next_patch=${NEXT_PATCH}" >> "$GITHUB_OUTPUT"
 
-          echo "Latest GitHub Release: ${LATEST_TAG:-none}"
-          echo "Next Android version: ${AUTO_VERSION}"
-          echo "Next Version Code: ${AUTO_VERSION_CODE}"
+      - name: Persist resolved version in repository
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            branding/app.json \
+            release.json \
+            deployment-marker.json \
+            validation-report.json
+
+          if git diff --cached --quiet; then
+            echo "Version metadata is already synchronized."
+            exit 0
+          fi
+
+          git commit -m "chore: BlueVPN ${{ steps.config.outputs.version }} [skip ci]"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       - name: Checkout official v2rayNG source
         uses: actions/checkout@v4

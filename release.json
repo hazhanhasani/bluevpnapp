@@ -1,11 +1,11 @@
 {
-  "version": "3.0.2",
-  "channel": "in-app-updater",
-  "build_id": "20260805172329",
-  "built_at": "2026-08-05T17:23:29Z",
-  "android_version": "3.0.<latest_release_patch_plus_one>",
-  "android_version_code": "30000 + release_patch",
-  "description": "BlueVPN 3.0.2: native in-app APK downloader with live progress, physical-network download under VPN, and automatic installer launch.",
+  "version": "3.0.5",
+  "channel": "fast-connect",
+  "build_id": "20260805-speed-v305",
+  "built_at": "2026-08-05T19:30:00Z",
+  "android_version": "3.0.5",
+  "android_version_code": 30005,
+  "description": "BlueVPN 3.0.5: faster cold start and navigation, cached server snapshots, first-success tunnel verification, and one centralized version across Android and backend.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -32,8 +32,17 @@
     "live-download-progress",
     "physical-network-download-under-vpn",
     "automatic-installer-launch",
-    "fileprovider-secure-install"
+    "fileprovider-secure-install",
+    "fast-cold-start",
+    "deferred-noncritical-startup",
+    "server-snapshot-cache",
+    "precomputed-server-ranking",
+    "first-success-tunnel-probe",
+    "faster-failover",
+    "single-update-check",
+    "single-screen-render",
+    "central-project-version"
   ],
-  "version_code": 30002,
-  "notes": "دانلود بروزرسانی داخل خود برنامه، بدون قطع VPN یا مراجعه به Downloads؛ نصب پس از پایان به‌صورت خودکار باز می‌شود."
+  "version_code": 30005,
+  "notes": "اجرای اولیه و بازشدن صفحات سبک‌تر شده، انتخاب سرور از کش کوتاه‌مدت انجام می‌شود، تأیید اتصال با اولین پاسخ موفق پایان می‌یابد و نسخه در کل پروژه یکپارچه است."
 }

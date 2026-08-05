@@ -20,12 +20,16 @@ import uvicorn
 APP_DIR = Path("/app")
 BOT_DIR = Path("/opt/bluevpn_bot")
 ERROR_LOG = Path("/tmp/bluevpn-startup-error.log")
-VERSION = "3.0.0"
 
 for directory in (APP_DIR, BOT_DIR):
     value = str(directory)
     if value not in sys.path:
         sys.path.insert(0, value)
+
+try:
+    from server.version import VERSION
+except Exception:
+    VERSION = os.getenv("BLUEVPN_VERSION", "3.0.5")
 
 logging.basicConfig(
     level=logging.INFO,

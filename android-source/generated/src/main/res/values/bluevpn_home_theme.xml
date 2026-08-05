@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="BlueVpnHomeTheme" parent="AppThemeDayNight.NoActionBar">
+        <item name="android:windowBackground">@drawable/bluevpn_screen_background</item>
+        <item name="android:statusBarColor">#040B1C</item>
+        <item name="android:navigationBarColor">#040B1C</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowActivityTransitions">true</item>
+        <item name="colorPrimary">#247CFF</item>
+        <item name="colorAccent">#57A1FF</item>
+    </style>
+</resources>

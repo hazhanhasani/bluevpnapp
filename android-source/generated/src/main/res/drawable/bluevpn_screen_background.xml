@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape>
+            <gradient
+                android:angle="135"
+                android:startColor="#030817"
+                android:centerColor="#07142C"
+                android:endColor="#100B2B" />
+        </shape>
+    </item>
+    <item android:left="-150dp" android:top="-190dp" android:right="120dp" android:bottom="390dp">
+        <shape android:shape="oval">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="250dp"
+                android:startColor="#5A2C78FF"
+                android:centerColor="#24306DDA"
+                android:endColor="#002552A5" />
+        </shape>
+    </item>
+    <item android:left="175dp" android:top="35dp" android:right="-130dp" android:bottom="250dp">
+        <shape android:shape="oval">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="215dp"
+                android:startColor="#4E784DFF"
+                android:centerColor="#243922A9"
+                android:endColor="#001B124F" />
+        </shape>
+    </item>
+    <item android:left="-80dp" android:top="430dp" android:right="150dp" android:bottom="-150dp">
+        <shape android:shape="oval">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="240dp"
+                android:startColor="#3540C7CF"
+                android:centerColor="#192C7792"
+                android:endColor="#0010273D" />
+        </shape>
+    </item>
+    <item android:left="130dp" android:top="610dp" android:right="-120dp" android:bottom="-260dp">
+        <shape android:shape="oval">
+            <gradient
+                android:type="radial"
+                android:gradientRadius="230dp"
+                android:startColor="#333F2B86"
+                android:centerColor="#171E164F"
+                android:endColor="#000B0826" />
+        </shape>
+    </item>
+</layer-list>

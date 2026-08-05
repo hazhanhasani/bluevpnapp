@@ -20,5 +20,7 @@
     "pasarguard-auto",
     "marzban-auto",
     "guardcore-manual"
-  ]
+  ],
+  "version_code": 30000,
+  "notes": "رفع خطای کامپایل Kotlin در BlueVPN 3.0.0: حذف تعریف تکراری failedGuid و اصلاح فراخوانی کارت BlueAI."
 }

@@ -21,5 +21,11 @@
   "admin_dashboard_template": "passed",
   "first_release_version": "3.0.0",
   "first_release_version_code": 30000,
-  "zip_integrity": "pending"
+  "zip_integrity": "pending",
+  "release": "3.0.0-build-fix",
+  "kotlin_home_conflicting_declaration": "fixed",
+  "kotlin_settings_action_card_arity": "fixed",
+  "embedded_kotlin_decode_test": "passed",
+  "prepare_android_python_syntax": "passed",
+  "final_android_compile": "GitHub Actions required"
 }

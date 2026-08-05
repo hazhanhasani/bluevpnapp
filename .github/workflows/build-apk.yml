@@ -63,6 +63,10 @@ jobs:
             NEXT_PATCH="$((BASH_REMATCH[1] + 1))"
           fi
 
+          if (( NEXT_PATCH < 2 )); then
+            NEXT_PATCH=2
+          fi
+
           AUTO_VERSION="2.2.${NEXT_PATCH}"
           AUTO_VERSION_CODE="$((22000 + NEXT_PATCH))"
 

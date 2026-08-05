@@ -16,7 +16,9 @@ from .integrations import IntegrationError,combined_subscription,create_invoice,
 from .guardcore import service_ids_from_json,test_guardcore_panel
 from .manual_guardcore import (
     attach_manual_subscription,
+    ensure_manual_request_for_order,
     is_manual_guardcore,
+    manual_request,
     notify_manual_request,
     pending_manual_requests,
     set_manual_decision,
@@ -26,7 +28,7 @@ from .models import AppSetting,Customer,CustomerDevice,CustomerSession,GuardCore
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
 DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Platform',version='2.2.1'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+app=FastAPI(title='BlueVPN Platform',version='2.2.2'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -100,6 +102,7 @@ def issue_session(db:Session,c:Customer,device_id:str,device_name:str,rotate_ref
 async def activate(db:Session,order:Order):
     if order.status=='activated':
         try:
+            ensure_manual_request_for_order(db,order)
             await notify_manual_request(db,order)
         except Exception:
             pass
@@ -113,9 +116,11 @@ async def activate(db:Session,order:Order):
             order,
             settings(db)['public_base_url'],
         )
-        # GuardCore manual is optional and must never break automatic
-        # PasarGuard/Marzban activation. Telegram notification is best-effort.
+        # Manual GuardCore is optional. Even when the selected plan has no
+        # GuardCore field, an active manual panel becomes the fallback and
+        # the admin receives a Yes/No request after automatic activation.
         try:
+            ensure_manual_request_for_order(db,order)
             await notify_manual_request(db,order)
         except Exception as notify_exc:
             metadata={}
@@ -225,7 +230,7 @@ def health():
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
-        'version':'2.2.1',
+        'version':'2.2.2',
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }
@@ -976,11 +981,17 @@ async def manual_activation_by_email(
         if not plan or plan.deleted:
             return admin_redirect('manual',error='پلن انتخاب‌شده پیدا نشد')
         order=await create_manual_activation(db,customer,plan,note)
+        request_data=manual_request(order)
+        guard_note=(
+            '؛ درخواست GuardCore برای ربات ارسال/صف شد'
+            if request_data else
+            '؛ پنل دستی GuardCore فعالی پیدا نشد'
+        )
         return admin_redirect(
             'manual',
             message=(
                 f'اشتراک {customer.email} با پلن «{plan.title}» '
-                f'فعال یا تمدید شد؛ کد {order.order_code}'
+                f'فعال یا تمدید شد؛ کد {order.order_code}{guard_note}'
             ),
         )
     except Exception as exc:
@@ -1006,11 +1017,17 @@ async def manual_activation_for_customer(
         if not plan or plan.deleted:
             return admin_redirect('customers',error='پلن پیدا نشد')
         order=await create_manual_activation(db,customer,plan,note)
+        request_data=manual_request(order)
+        guard_note=(
+            '؛ درخواست GuardCore برای ربات ارسال/صف شد'
+            if request_data else
+            '؛ پنل دستی GuardCore فعالی پیدا نشد'
+        )
         return admin_redirect(
             'customers',
             message=(
                 f'اشتراک {customer.email} با پلن «{plan.title}» '
-                f'فعال یا تمدید شد'
+                f'فعال یا تمدید شد{guard_note}'
             ),
         )
     except Exception as exc:

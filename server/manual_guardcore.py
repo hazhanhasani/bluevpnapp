@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import html
 import json
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
 
@@ -75,6 +76,121 @@ def manual_snapshot(customer: Customer) -> dict[str, Any] | None:
         "data_limit": int(customer.guardcore_data_limit_bytes or 0),
         "used_traffic": int(customer.guardcore_used_traffic_bytes or 0),
     }
+
+
+def _generated_username(customer: Customer) -> str:
+    if customer.guardcore_username:
+        return customer.guardcore_username
+    digest = hashlib.sha1(
+        ("guardcore:" + customer.email).encode("utf-8")
+    ).hexdigest()[:9]
+    return f"bv_{customer.id}_{digest}"[:32]
+
+
+def resolve_manual_panel(
+    db: Session,
+    plan: Plan,
+) -> GuardCorePanel | None:
+    # An explicitly selected automatic GuardCore must stay automatic.
+    if plan.guardcore_panel_id:
+        panel = db.get(GuardCorePanel, plan.guardcore_panel_id)
+        if panel and panel.active and is_manual_guardcore(panel):
+            return panel
+        return None
+
+    # When no GuardCore is selected on the plan, the first active manual
+    # panel acts as the optional fallback and the admin receives Yes/No.
+    return db.scalar(
+        select(GuardCorePanel)
+        .where(
+            GuardCorePanel.active.is_(True),
+            GuardCorePanel.auth_mode == "manual",
+        )
+        .order_by(GuardCorePanel.id.asc())
+    )
+
+
+def ensure_manual_request_for_order(
+    db: Session,
+    order: Order,
+) -> dict[str, Any]:
+    existing = manual_request(order)
+    if existing:
+        return existing
+
+    customer = order.customer or db.get(Customer, order.customer_id)
+    plan = order.plan or db.get(Plan, order.plan_id)
+    if not customer or not plan:
+        return {}
+
+    panel = resolve_manual_panel(db, plan)
+    if not panel:
+        return {}
+
+    target_expire = parse_target_expire(order)
+    if target_expire is None:
+        target_expire = aware(customer.subscription_expire)
+
+    data_limit_bytes = (
+        0
+        if int(plan.data_limit_gb or 0) == 0
+        else int(plan.data_limit_gb) * 1024 * 1024 * 1024
+    )
+    username = _generated_username(customer)
+
+    customer.guardcore_panel_id = panel.id
+    customer.guardcore_username = username
+    customer.guardcore_expire = target_expire
+    customer.guardcore_data_limit_bytes = data_limit_bytes
+    customer.guardcore_used_traffic_bytes = int(
+        customer.guardcore_used_traffic_bytes or 0
+    )
+    customer.guardcore_last_error = ""
+    if customer.guardcore_subscription_url:
+        customer.guardcore_status = "active"
+    else:
+        customer.guardcore_status = "manual_pending"
+    db.add(customer)
+    db.commit()
+
+    return prepare_manual_request(
+        db,
+        order,
+        customer,
+        plan,
+        panel,
+        username=username,
+        target_expire=target_expire,
+        data_limit_bytes=data_limit_bytes,
+    )
+
+
+def backfill_recent_manual_requests(
+    db: Session,
+    *,
+    hours: int = 72,
+    limit: int = 100,
+) -> list[Order]:
+    cutoff = utcnow() - timedelta(hours=max(1, min(hours, 720)))
+    orders = db.scalars(
+        select(Order)
+        .options(selectinload(Order.customer), selectinload(Order.plan))
+        .where(
+            Order.status == "activated",
+            Order.created_at >= cutoff,
+        )
+        .order_by(Order.created_at.desc())
+        .limit(max(1, min(limit, 500)))
+    ).all()
+
+    created: list[Order] = []
+    for order in orders:
+        if manual_request(order):
+            continue
+        request = ensure_manual_request_for_order(db, order)
+        if request:
+            created.append(order)
+    return created
 
 
 def prepare_manual_request(
@@ -174,15 +290,28 @@ async def notify_manual_request(db: Session, order: Order) -> bool:
         return False
 
     token = os.getenv("BOT_TOKEN", "").strip()
+    raw_admin_ids = os.getenv("ADMIN_IDS", "").strip()
+    if not raw_admin_ids:
+        raw_admin_ids = os.getenv("TELEGRAM_CHAT_ID", "").strip()
     chat_ids = [
         item.strip()
-        for item in os.getenv("ADMIN_IDS", "").split(",")
+        for item in raw_admin_ids.split(",")
         if item.strip()
     ]
     if not token or not chat_ids:
+        metadata = _metadata(order)
+        current = metadata.get("guardcore_manual") or {}
+        current["notify_error"] = (
+            "BOT_TOKEN تنظیم نشده است"
+            if not token
+            else "ADMIN_IDS/TELEGRAM_CHAT_ID تنظیم نشده است"
+        )
+        metadata["guardcore_manual"] = current
+        _save_metadata(db, order, metadata)
         return False
 
     sent = False
+    failures: list[str] = []
     async with httpx.AsyncClient(timeout=20.0) as client:
         for chat_id in chat_ids:
             response = await client.post(
@@ -200,13 +329,21 @@ async def notify_manual_request(db: Session, order: Order) -> bool:
             )
             if response.status_code < 400:
                 sent = True
+            else:
+                failures.append(
+                    f"{chat_id}: HTTP {response.status_code} "
+                    f"{response.text[:240]}"
+                )
 
+    metadata = _metadata(order)
+    current = metadata.get("guardcore_manual") or {}
     if sent:
-        metadata = _metadata(order)
-        current = metadata.get("guardcore_manual") or {}
         current["notified_at"] = utcnow().isoformat()
-        metadata["guardcore_manual"] = current
-        _save_metadata(db, order, metadata)
+        current.pop("notify_error", None)
+    elif failures:
+        current["notify_error"] = " | ".join(failures)[:700]
+    metadata["guardcore_manual"] = current
+    _save_metadata(db, order, metadata)
     return sent
 
 
@@ -253,7 +390,7 @@ async def validate_subscription_url(url: str) -> dict[str, Any]:
         raise ValueError("لینک ساب باید با http یا https شروع شود")
 
     headers = {
-        "User-Agent": "v2rayNG/1.10 BlueVPN/2.2.1",
+        "User-Agent": "v2rayNG/1.10 BlueVPN/2.2.2",
         "Accept": "text/plain, application/octet-stream, */*",
     }
     async with httpx.AsyncClient(

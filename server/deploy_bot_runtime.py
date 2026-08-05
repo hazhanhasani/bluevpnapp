@@ -39,7 +39,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bluevpn-one-click-bot")
 
-DEPLOY_BOT_VERSION = "2.6-manual-guardcore"
+DEPLOY_BOT_VERSION = "2.7-manual-guardcore-recovery"
 BUILD_TRIGGER_MODE = "git-empty-commit-push"
 
 
@@ -1147,6 +1147,59 @@ def _manual_db():
     return SessionLocal()
 
 
+async def _retry_guardcore_notifications_once() -> int:
+    from .manual_guardcore import (
+        backfill_recent_manual_requests,
+        notify_manual_request,
+        pending_manual_requests,
+    )
+    db=_manual_db()
+    sent=0
+    try:
+        backfill_recent_manual_requests(db,hours=72,limit=100)
+        rows=pending_manual_requests(db,100)
+        for item in rows:
+            request=item['request']
+            if (
+                request.get('state')=='awaiting_decision'
+                and not request.get('notified_at')
+            ):
+                try:
+                    if await notify_manual_request(db,item['order']):
+                        sent+=1
+                except Exception as exc:
+                    logger.warning(
+                        'GuardCore notification retry failed for %s: %s',
+                        item['order'].id,
+                        redact(str(exc)),
+                    )
+    finally:
+        db.close()
+    return sent
+
+
+async def _guardcore_notification_loop(application: Application) -> None:
+    while True:
+        try:
+            await _retry_guardcore_notifications_once()
+        except Exception as exc:
+            logger.warning(
+                'GuardCore retry loop error: %s',
+                redact(str(exc)),
+            )
+        await asyncio.sleep(60)
+
+
+async def bot_post_init(application: Application) -> None:
+    # Recover activations created while the bot was restarting and also
+    # repair recent activated orders that missed the old plan-only trigger.
+    await _retry_guardcore_notifications_once()
+    application.create_task(
+        _guardcore_notification_loop(application),
+        name='guardcore-notification-retry',
+    )
+
+
 async def guardcore_queue(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -1345,6 +1398,7 @@ def build_application() -> Application:
         Application.builder()
         .token(BOT_TOKEN)
         .concurrent_updates(8)
+        .post_init(bot_post_init)
         .build()
     )
     app.add_handler(CommandHandler("start", start))

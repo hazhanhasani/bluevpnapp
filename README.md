@@ -68,10 +68,10 @@ Railway فقط در صورت تغییر فایل‌های سرور یا Dockerfi
 وسط فرایند ساخت APK قطع نمی‌کنند.
 
 
-## BlueVPN 2.2.1
+## BlueVPN 2.2.2
 
 GuardCore Provider و موتور Multi Provider برای PasarGuard، Marzban و GuardCore اضافه شده است. خروجی محصول فعلاً فقط Android است.
 
 
-## GuardCore دستی 2.2.1
+## GuardCore دستی 2.2.2
 PasarGuard و Marzban خودکار هستند؛ GuardCore با تأیید ادمین در تلگرام و Paste لینک Subscription به اشتراک تجمیعی اضافه می‌شود.

@@ -1,8 +1,8 @@
 {
   "app_name": "BlueVPN",
   "application_id": "ir.blluepanel.bluevpn",
-  "version_name": "2.2.1",
-  "version_code": 22001,
+  "version_name": "2.2.2",
+  "version_code": 22002,
   "deep_link_scheme": "bluevpn",
   "api_base_url": "https://bluevpnapp-production.up.railway.app",
   "website_url": "https://bluevpnapp-production.up.railway.app",

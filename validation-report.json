@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.6",
-  "version_code": 30006,
+  "project_version": "3.0.7",
+  "version_code": 30007,
   "schema_version": 8,
-  "release": "3.0.6",
+  "release": "3.0.7",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -43,5 +43,14 @@
   "speed_patch": true,
   "version_consistency": "centralized",
   "kotlin_executor_completion_submit_fix": "passed",
-  "generated_source_regression_guard": "passed"
+  "generated_source_regression_guard": "passed",
+  "programmatic_home_screen": "passed",
+  "xml_layout_inflation_removed": "passed",
+  "resource_ids_xml": "passed (29 IDs)",
+  "neon_orb_states": "passed (idle/connecting/connected/error)",
+  "orb_pulse_lifecycle": "passed (onStop/onDestroy cleanup)",
+  "floating_glass_stats": "passed",
+  "conditional_frost_blur": "Android 12+ only",
+  "mesh_gradient_xml": "passed",
+  "generated_home_source_bytes": 101293
 }

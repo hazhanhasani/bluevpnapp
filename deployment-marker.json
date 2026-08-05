@@ -1,13 +1,15 @@
 {
-  "release": "3.0.6-auto",
-  "version_name": "3.0.6",
-  "version_code": 30006,
-  "fixes": [
-    "Removed invalid explicit type argument from ExecutorCompletionService.submit",
-    "Added generated Kotlin source regression guard",
-    "Preserved fast first-success tunnel verification",
-    "Synchronized project version to 3.0.6"
+  "release": "3.0.7-ui-overhaul",
+  "version_name": "3.0.7",
+  "version_code": 30007,
+  "changes": [
+    "Replaced XML inflation with a fully programmatic BlueVpnHomeActivity screen",
+    "Added neon Orb states for idle, connecting, connected and error",
+    "Added low-cost pulse animation that stops outside active states",
+    "Added floating glass download/upload and real-ping cards",
+    "Added multi-layer navy/violet/cyan mesh background",
+    "Preserved all existing resource IDs and connection logic"
   ],
-  "generated_at_unix": 1785964409,
-  "purpose": "kotlin-build-fix-and-version-sync"
+  "generated_at_unix": 1785964906,
+  "purpose": "programmatic-orb-ui-overhaul"
 }

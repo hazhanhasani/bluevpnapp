@@ -1,11 +1,11 @@
 {
-  "version": "3.0.6",
-  "channel": "build-fix",
-  "build_id": "20260806-kotlin-submit-fix-v306",
-  "built_at": "2026-08-05T21:13:29Z",
-  "android_version": "3.0.6",
-  "android_version_code": 30006,
-  "description": "BlueVPN 3.0.6: fixes the Kotlin ExecutorCompletionService build error in fast tunnel verification while keeping the 3.0.5 startup and connection speed improvements.",
+  "version": "3.0.7",
+  "channel": "ui-overhaul",
+  "build_id": "20260806-programmatic-orb-ui-v307",
+  "built_at": "2026-08-05T21:45:00Z",
+  "android_version": "3.0.7",
+  "android_version_code": 30007,
+  "description": "BlueVPN 3.0.7: fully programmatic home screen with a neon connection Orb, lightweight pulse animation, floating glass statistics and a multi-layer mesh gradient background.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -43,8 +43,14 @@
     "single-screen-render",
     "central-project-version",
     "kotlin-completion-service-compile-fix",
-    "generated-source-regression-guard"
+    "generated-source-regression-guard",
+    "programmatic-home-screen",
+    "neon-connection-orb",
+    "lightweight-orb-pulse",
+    "floating-glass-stats",
+    "multi-layer-mesh-gradient",
+    "rtl-responsive-orb-layout"
   ],
-  "version_code": 30006,
-  "notes": "خطای کامپایل completion.submit<Long?> برطرف شد؛ فراخوانی Callable اکنون با استنتاج نوع کاتلین ساخته می‌شود و اسکریپت پیش از Build از بازگشت این خطا جلوگیری می‌کند."
+  "version_code": 30007,
+  "notes": "صفحه اصلی بدون Inflate کردن XML ساخته می‌شود؛ Orb اتصال، حالت‌های رنگی اتصال/قطع/خطا، انیمیشن پالس سبک، کارت‌های شیشه‌ای دانلود و پینگ و پس‌زمینه Mesh Gradient اضافه شد."
 }

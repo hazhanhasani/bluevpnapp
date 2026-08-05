@@ -1,0 +1,18 @@
+گزارش اعتبارسنجی BlueVPN 3.0.7
+
+- نسخه فعال پروژه: 3.0.7
+- versionCode اندروید: 30007
+- صفحه اصلی: کاملاً Programmatic با createScreen()
+- Inflate فایل activity_bluevpn_home.xml: حذف شد
+- شناسه‌های رابط: 29 شناسه در bluevpn_ids.xml
+- Orb اتصال: حالت‌های آماده، اتصال، متصل و خطا
+- انیمیشن Pulse: سبک، متوقف‌شونده در onStop/onDestroy
+- کارت‌های Glass: دانلود، آپلود و پینگ واقعی
+- Blur: فقط روی لایه Frost کارت‌های آمار و فقط Android 12+
+- Mesh Gradient: XML چندلایه معتبر
+- خطای completion.submit<Long?>: همچنان برطرف‌شده
+- Syntax اسکریپت Python: موفق
+- Decode تمام منابع Base64: موفق
+- Parse تمام XML و JSONها: موفق
+- تست Inject فایل‌های Android: موفق
+- کامپایل نهایی APK: توسط GitHub Actions انجام می‌شود

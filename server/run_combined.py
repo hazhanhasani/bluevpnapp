@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+import random
 import signal
 import sys
 import traceback
@@ -29,7 +30,7 @@ for directory in (APP_DIR, BOT_DIR):
 try:
     from server.version import VERSION
 except Exception:
-    VERSION = os.getenv("BLUEVPN_VERSION", "3.0.7")
+    VERSION = os.getenv("BLUEVPN_VERSION", "3.0.8")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -92,6 +93,9 @@ class RuntimeState:
         self.bot_status = "waiting"
         self.bot_error = ""
         self.bot_error_at = ""
+        self.bot_attempt = 0
+        self.bot_consecutive_failures = 0
+        self.bot_next_retry_seconds = 0
 
         self.loader_task: asyncio.Task | None = None
         self.bot_task: asyncio.Task | None = None
@@ -178,11 +182,87 @@ def database_environment_diagnostics() -> dict[str, Any]:
         ):
             url_candidates.append(name)
 
+    required_pg = {
+        "PGHOST",
+        "PGUSER",
+        "PGDATABASE",
+    }
+    available = {name for name in os.environ if os.getenv(name, "").strip()}
+
     return {
         "relevant_names": sorted(set(relevant)),
         "url_candidate_names": sorted(set(url_candidates)),
         "unresolved_reference_names": sorted(set(unresolved)),
+        "postgres_components_ready": required_pg.issubset(available),
+        "postgres_component_names": sorted(
+            name
+            for name in (
+                "PGHOST",
+                "PGPORT",
+                "PGUSER",
+                "PGPASSWORD",
+                "PGDATABASE",
+            )
+            if name in available
+        ),
     }
+
+
+def database_runtime_status() -> dict[str, Any]:
+    module = sys.modules.get("server.database")
+    if module is None:
+        return {
+            "ready": False,
+            "mode": "not-loaded",
+            "persistent": False,
+            "source": "",
+            "error": "",
+        }
+
+    return {
+        "ready": bool(getattr(module, "DATABASE_READY", False)),
+        "mode": str(getattr(module, "DATABASE_MODE", "unknown")),
+        "persistent": bool(
+            getattr(module, "DATABASE_PERSISTENT", False)
+        ),
+        "source": str(
+            getattr(module, "DATABASE_URL_SOURCE", "")
+        ),
+        "error": redact(
+            str(getattr(module, "DATABASE_ERROR", ""))
+        )[-1200:],
+    }
+
+
+def is_transient_telegram_error(exc: BaseException) -> bool:
+    current: BaseException | None = exc
+    transient_names = {
+        "TimedOut",
+        "NetworkError",
+        "ConnectTimeout",
+        "ReadTimeout",
+        "WriteTimeout",
+        "PoolTimeout",
+        "ConnectError",
+        "ReadError",
+        "RemoteProtocolError",
+    }
+
+    while current is not None:
+        if current.__class__.__name__ in transient_names:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def telegram_retry_delay(failures: int) -> int:
+    base = max(5, int(os.getenv("TELEGRAM_START_RETRY_SECONDS", "10")))
+    maximum = max(
+        base,
+        int(os.getenv("TELEGRAM_START_RETRY_MAX_SECONDS", "120")),
+    )
+    exponential = min(maximum, base * (2 ** max(0, failures - 1)))
+    return min(maximum, exponential + random.randint(0, min(4, base)))
 
 
 def status_payload() -> dict[str, Any]:
@@ -207,12 +287,16 @@ def status_payload() -> dict[str, Any]:
         },
         "telegram": {
             "status": STATE.bot_status,
+            "attempt": STATE.bot_attempt,
+            "consecutive_failures": STATE.bot_consecutive_failures,
+            "next_retry_seconds": STATE.bot_next_retry_seconds,
             "error": STATE.bot_error[-1500:],
             "error_at": STATE.bot_error_at,
             "runtime": "server.deploy_bot_runtime",
-            "version": "2.7-manual-guardcore-recovery",
+            "version": "2.8-resilient-telegram-startup",
             "build_trigger": "git-empty-commit-push",
         },
+        "database": database_runtime_status(),
         "database_environment": database_environment_diagnostics(),
     }
 
@@ -267,17 +351,30 @@ async def send_startup_alert(title: str, error: str) -> None:
             f"\nDeployment: {deployment or '—'}"
         )
 
+    diagnostics_text = ""
+    if "PostgreSQL" in title or "Database" in title or "Backend" in title:
+        diagnostics = database_environment_diagnostics()
+        component_state = (
+            "کامل"
+            if diagnostics["postgres_components_ready"]
+            else "ناقص"
+        )
+        diagnostics_text = (
+            "\n\nمتغیرهای دیتابیس دیده‌شده:\n"
+            f"{', '.join(diagnostics['relevant_names']) or 'هیچ‌کدام'}\n"
+            "متغیرهای دارای URL واقعی PostgreSQL:\n"
+            f"{', '.join(diagnostics['url_candidate_names']) or 'هیچ‌کدام'}\n"
+            f"وضعیت اجزای PGHOST/PGUSER/PGDATABASE: {component_state}"
+        )
+
     summary = (
         f"❌ خطای راه‌اندازی BlueVPN\n\n"
         f"بخش: {title}\n"
         f"نسخه Backend: {VERSION}\n"
         f"زمان: {utc_iso()}"
         f"{run_url}\n\n"
-        f"{safe_error[-2500:]}\n\n"
-        "متغیرهای دیتابیس دیده‌شده:\n"
-        f"{', '.join(database_environment_diagnostics()['relevant_names']) or 'هیچ‌کدام'}\n"
-        "متغیرهای دارای URL واقعی PostgreSQL:\n"
-        f"{', '.join(database_environment_diagnostics()['url_candidate_names']) or 'هیچ‌کدام'}\n\n"
+        f"{safe_error[-2500:]}"
+        f"{diagnostics_text}\n\n"
         "وضعیت زنده:\n"
         "/startup-status"
     )
@@ -419,16 +516,24 @@ async def safe_bot_call(obj: Any, method_name: str) -> None:
 
 
 async def run_bot_forever() -> None:
-    retry_seconds = max(
-        5,
-        int(os.getenv("TELEGRAM_START_RETRY_SECONDS", "15")),
+    alert_after = max(
+        1,
+        int(os.getenv("TELEGRAM_ALERT_AFTER_FAILURES", "3")),
+    )
+    poll_timeout = max(
+        10,
+        int(os.getenv("TELEGRAM_POLL_TIMEOUT", "20")),
+    )
+    bootstrap_retries = max(
+        0,
+        int(os.getenv("TELEGRAM_BOOTSTRAP_RETRIES", "5")),
     )
 
     while not STATE.stop.is_set():
         telegram = None
-        initialized = False
         started = False
         polling = False
+        STATE.bot_attempt += 1
 
         try:
             # Import happens only after Uvicorn is listening. Missing bot or
@@ -441,16 +546,26 @@ async def run_bot_forever() -> None:
 
             STATE.bot_status = "starting"
             STATE.bot_error = ""
+            STATE.bot_next_retry_seconds = 0
 
             await telegram.initialize()
-            initialized = True
             await telegram.start()
             started = True
+
+            # ApplicationBuilder.post_init() is not called automatically
+            # because BlueVPN uses a custom lifecycle instead of run_polling().
+            # Run the project callback explicitly after Application.start() so
+            # background tasks created there are tracked during shutdown.
+            post_init = getattr(module, "bot_post_init", None)
+            if post_init is not None:
+                await post_init(telegram)
 
             if telegram.updater is None:
                 raise RuntimeError("Telegram updater is unavailable")
 
             await telegram.updater.start_polling(
+                timeout=poll_timeout,
+                bootstrap_retries=bootstrap_retries,
                 drop_pending_updates=False,
             )
             polling = True
@@ -458,6 +573,8 @@ async def run_bot_forever() -> None:
             STATE.bot_status = "running"
             STATE.bot_error = ""
             STATE.bot_error_at = ""
+            STATE.bot_consecutive_failures = 0
+            STATE.bot_next_retry_seconds = 0
             logger.info("BlueVPN Telegram deployment bot is running")
 
             await STATE.stop.wait()
@@ -465,19 +582,38 @@ async def run_bot_forever() -> None:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            transient = is_transient_telegram_error(exc)
+            STATE.bot_consecutive_failures += 1
+            delay = telegram_retry_delay(
+                STATE.bot_consecutive_failures
+            )
+            STATE.bot_next_retry_seconds = delay
             safe = save_error("telegram-bot", exc)
-            STATE.bot_status = "error"
+            STATE.bot_status = (
+                "retrying" if transient else "error"
+            )
             STATE.bot_error = safe
             STATE.bot_error_at = utc_iso()
 
             logger.exception(
-                "Telegram bot failed; web/API remain online and retry in %s seconds",
-                retry_seconds,
+                "Telegram bot startup failed (transient=%s, attempt=%s); "
+                "web/API remain online and retry in %s seconds",
+                transient,
+                STATE.bot_attempt,
+                delay,
             )
-            await send_startup_alert(
-                "Telegram deployment bot",
-                safe,
-            )
+
+            # A single Telegram route stall is not a deployment failure.
+            # Alert only after repeated transient failures, but report
+            # configuration/programming errors immediately.
+            if (
+                not transient
+                or STATE.bot_consecutive_failures >= alert_after
+            ):
+                await send_startup_alert(
+                    "Telegram deployment bot",
+                    safe,
+                )
 
             # A partially imported module with failed require_env() must not be
             # reused on the next retry.
@@ -486,7 +622,7 @@ async def run_bot_forever() -> None:
             try:
                 await asyncio.wait_for(
                     STATE.stop.wait(),
-                    timeout=retry_seconds,
+                    timeout=delay,
                 )
             except asyncio.TimeoutError:
                 pass
@@ -496,8 +632,9 @@ async def run_bot_forever() -> None:
                     await safe_bot_call(telegram.updater, "stop")
                 if started:
                     await safe_bot_call(telegram, "stop")
-                if initialized:
-                    await safe_bot_call(telegram, "shutdown")
+                # initialize() can fail after opening HTTPX clients. Always
+                # attempt shutdown so failed get_me() calls do not leak pools.
+                await safe_bot_call(telegram, "shutdown")
 
 
 class BootstrapApplication:

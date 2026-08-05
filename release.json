@@ -1,11 +1,11 @@
 {
-  "version": "3.0.7",
-  "channel": "ui-overhaul",
-  "build_id": "20260806-programmatic-orb-ui-v307",
-  "built_at": "2026-08-05T21:45:00Z",
-  "android_version": "3.0.7",
-  "android_version_code": 30007,
-  "description": "BlueVPN 3.0.7: fully programmatic home screen with a neon connection Orb, lightweight pulse animation, floating glass statistics and a multi-layer mesh gradient background.",
+  "version": "3.0.8",
+  "channel": "startup-resilience",
+  "build_id": "20260806-telegram-timeout-recovery-v308",
+  "built_at": "2026-08-05T22:05:00Z",
+  "android_version": "3.0.8",
+  "android_version_code": 30008,
+  "description": "BlueVPN 3.0.8: resilient Telegram startup on Railway with explicit HTTPX timeouts, exponential retry, leak-safe cleanup and accurate PostgreSQL diagnostics.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -49,8 +49,17 @@
     "lightweight-orb-pulse",
     "floating-glass-stats",
     "multi-layer-mesh-gradient",
-    "rtl-responsive-orb-layout"
+    "rtl-responsive-orb-layout",
+    "telegram-httpx-explicit-timeouts",
+    "telegram-http11-stable-transport",
+    "telegram-exponential-startup-retry",
+    "telegram-bootstrap-retries",
+    "telegram-partial-init-cleanup",
+    "transient-alert-suppression",
+    "postgres-component-diagnostics",
+    "reproducible-telegram-dependency-pin",
+    "manual-lifecycle-post-init"
   ],
-  "version_code": 30007,
-  "notes": "صفحه اصلی بدون Inflate کردن XML ساخته می‌شود؛ Orb اتصال، حالت‌های رنگی اتصال/قطع/خطا، انیمیشن پالس سبک، کارت‌های شیشه‌ای دانلود و پینگ و پس‌زمینه Mesh Gradient اضافه شد."
+  "version_code": 30008,
+  "notes": "خطای telegram.error.TimedOut در get_me با Timeoutهای صریح، Retry پلکانی، Bootstrap Retry، بستن Client نیمه‌راه‌اندازی‌شده و حذف هشدار گمراه‌کننده دیتابیس از خطاهای تلگرام اصلاح شد."
 }

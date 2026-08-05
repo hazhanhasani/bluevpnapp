@@ -24,6 +24,7 @@ import httpx
 from nacl import encoding, public
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
+from telegram.request import HTTPXRequest
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -39,8 +40,53 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bluevpn-one-click-bot")
 
-DEPLOY_BOT_VERSION = "2.7-manual-guardcore-recovery"
+DEPLOY_BOT_VERSION = "2.8-resilient-telegram-startup"
 BUILD_TRIGGER_MODE = "git-empty-commit-push"
+
+
+def _env_int(name: str, default: int, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return max(minimum, default)
+
+
+def _env_float(name: str, default: float, minimum: float = 0.1) -> float:
+    try:
+        return max(minimum, float(os.getenv(name, str(default))))
+    except (TypeError, ValueError):
+        return max(minimum, default)
+
+
+def _telegram_request(*, updates: bool = False) -> HTTPXRequest:
+    """Build a deterministic HTTP/1.1 transport for Railway.
+
+    PTB defaults to a 5-second connect/read timeout. That is too aggressive
+    during occasional Railway or Telegram route stalls and can make get_me()
+    fail while the web/API service is otherwise healthy.
+    """
+    prefix = "TELEGRAM_GET_UPDATES" if updates else "TELEGRAM"
+    default_pool = 4 if updates else 16
+    default_read = 65.0 if updates else 35.0
+
+    return HTTPXRequest(
+        connection_pool_size=_env_int(
+            f"{prefix}_CONNECTION_POOL_SIZE",
+            default_pool,
+        ),
+        connect_timeout=_env_float("TELEGRAM_CONNECT_TIMEOUT", 35.0),
+        read_timeout=_env_float(
+            f"{prefix}_READ_TIMEOUT",
+            default_read,
+        ),
+        write_timeout=_env_float("TELEGRAM_WRITE_TIMEOUT", 35.0),
+        pool_timeout=_env_float("TELEGRAM_POOL_TIMEOUT", 35.0),
+        media_write_timeout=_env_float(
+            "TELEGRAM_MEDIA_WRITE_TIMEOUT",
+            180.0,
+        ),
+        http_version="1.1",
+    )
 
 
 def require_env(name: str) -> str:
@@ -1397,7 +1443,9 @@ def build_application() -> Application:
     app = (
         Application.builder()
         .token(BOT_TOKEN)
-        .concurrent_updates(8)
+        .request(_telegram_request(updates=False))
+        .get_updates_request(_telegram_request(updates=True))
+        .concurrent_updates(_env_int("TELEGRAM_CONCURRENT_UPDATES", 8))
         .post_init(bot_post_init)
         .build()
     )

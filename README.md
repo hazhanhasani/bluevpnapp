@@ -1,4 +1,4 @@
-# BlueVPN 3.0.7 Programmatic Orb UI
+# BlueVPN 3.0.8 — Telegram Startup Recovery
 
 نسخه اندروید و پنل مدیریت BlueVPN با هسته هوشمند مسیر.
 
@@ -56,3 +56,14 @@
 - Mesh Gradient چندلایه
 - حفظ بهینه‌سازی سرعت و رفع Build نسخه 3.0.6
 - اولین Build این بسته 3.0.7 است و نسخه‌های بعدی از آخرین GitHub Release افزایش می‌یابند
+
+
+## BlueVPN 3.0.8
+
+- رفع `telegram.error.TimedOut` هنگام `get_me()` در Railway
+- Timeout اختصاصی ۳۵ ثانیه برای اتصال Telegram و ۶۵ ثانیه برای Long Polling
+- Retry پلکانی ۱۰ تا ۱۲۰ ثانیه و `bootstrap_retries=5`
+- بستن ایمن HTTP Client حتی وقتی `initialize()` نیمه‌کاره شکست بخورد
+- هشدار Telegram فقط پس از چند خطای موقت متوالی
+- نمایش صحیح وضعیت PostgreSQL در `/startup-status`
+- نسخه اندروید و Backend: `3.0.8` / `30008`

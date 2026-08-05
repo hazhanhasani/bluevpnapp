@@ -5,10 +5,8 @@ import asyncio
 import base64
 import io
 import json
-import html
 import logging
 import os
-import re
 import secrets
 import shutil
 import stat
@@ -22,11 +20,10 @@ from urllib.parse import quote
 
 import httpx
 from nacl import encoding, public
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
+from telegram import ReplyKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
-    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -39,7 +36,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bluevpn-one-click-bot")
 
-DEPLOY_BOT_VERSION = "2.7-manual-guardcore-recovery"
+DEPLOY_BOT_VERSION = "2.5-push-trigger"
 BUILD_TRIGGER_MODE = "git-empty-commit-push"
 
 
@@ -97,9 +94,8 @@ def keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         [
             ["📦 نصب و ساخت خودکار"],
-            ["🟡 صف GuardCore", "📊 وضعیت"],
-            ["🛠 ساخت دوباره", "⬇️ دریافت آخرین APK"],
-            ["🔐 بررسی امضا"],
+            ["🛠 ساخت دوباره", "📊 وضعیت"],
+            ["⬇️ دریافت آخرین APK", "🔐 بررسی امضا"],
         ],
         resize_keyboard=True,
     )
@@ -1141,225 +1137,6 @@ async def signing_status(
         )
 
 
-def _manual_db():
-    from .database import SessionLocal, initialize_database
-    initialize_database()
-    return SessionLocal()
-
-
-async def _retry_guardcore_notifications_once() -> int:
-    from .manual_guardcore import (
-        backfill_recent_manual_requests,
-        notify_manual_request,
-        pending_manual_requests,
-    )
-    db=_manual_db()
-    sent=0
-    try:
-        backfill_recent_manual_requests(db,hours=72,limit=100)
-        rows=pending_manual_requests(db,100)
-        for item in rows:
-            request=item['request']
-            if (
-                request.get('state')=='awaiting_decision'
-                and not request.get('notified_at')
-            ):
-                try:
-                    if await notify_manual_request(db,item['order']):
-                        sent+=1
-                except Exception as exc:
-                    logger.warning(
-                        'GuardCore notification retry failed for %s: %s',
-                        item['order'].id,
-                        redact(str(exc)),
-                    )
-    finally:
-        db.close()
-    return sent
-
-
-async def _guardcore_notification_loop(application: Application) -> None:
-    while True:
-        try:
-            await _retry_guardcore_notifications_once()
-        except Exception as exc:
-            logger.warning(
-                'GuardCore retry loop error: %s',
-                redact(str(exc)),
-            )
-        await asyncio.sleep(60)
-
-
-async def bot_post_init(application: Application) -> None:
-    # Recover activations created while the bot was restarting and also
-    # repair recent activated orders that missed the old plan-only trigger.
-    await _retry_guardcore_notifications_once()
-    application.create_task(
-        _guardcore_notification_loop(application),
-        name='guardcore-notification-retry',
-    )
-
-
-async def guardcore_queue(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-) -> None:
-    if not is_admin(update.effective_user.id if update.effective_user else None):
-        await deny(update)
-        return
-    from .manual_guardcore import pending_manual_requests
-    db=_manual_db()
-    try:
-        rows=pending_manual_requests(db,20)
-        if not rows:
-            await update.effective_message.reply_text(
-                "✅ درخواست منتظر GuardCore وجود ندارد.",
-                reply_markup=keyboard(),
-            )
-            return
-        lines=[f"🟡 <b>صف GuardCore — {len(rows)} درخواست</b>"]
-        buttons=[]
-        for item in rows[:10]:
-            order=item['order']; req=item['request']
-            lines.append(
-                "\n"
-                f"• <code>{html.escape(str(req.get('username') or ''))}</code> — "
-                f"{html.escape(str(req.get('plan_title') or ''))} — "
-                f"{('منتظر تصمیم' if req.get('state')=='awaiting_decision' else 'منتظر لینک')}"
-            )
-            buttons.append([
-                InlineKeyboardButton(
-                    f"✅ {str(req.get('username') or '')[:22]}",
-                    callback_data=f"gc:y:{order.id}",
-                ),
-                InlineKeyboardButton(
-                    "⏭ رد",
-                    callback_data=f"gc:n:{order.id}",
-                ),
-            ])
-        await update.effective_message.reply_text(
-            "".join(lines),
-            parse_mode=ParseMode.HTML,
-            reply_markup=InlineKeyboardMarkup(buttons),
-        )
-    finally:
-        db.close()
-
-
-async def guardcore_callback(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-) -> None:
-    query=update.callback_query
-    if not query:
-        return
-    if not is_admin(update.effective_user.id if update.effective_user else None):
-        await query.answer("دسترسی ندارید",show_alert=True)
-        return
-    data=query.data or ''
-    match=re.fullmatch(r"gc:([yn]):([0-9a-fA-F-]{36})",data)
-    if not match:
-        await query.answer("درخواست نامعتبر است",show_alert=True)
-        return
-    use_guardcore=match.group(1)=='y'
-    order_id=match.group(2)
-    from .manual_guardcore import set_manual_decision
-    db=_manual_db()
-    try:
-        order,request=set_manual_decision(
-            db,
-            order_id,
-            use_guardcore=use_guardcore,
-            admin_id=update.effective_user.id,
-        )
-        await query.answer("ثبت شد")
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-        if not use_guardcore:
-            context.user_data.pop('manual_guardcore_order_id',None)
-            await query.message.reply_text(
-                "⏭ GuardCore برای این سفارش رد شد. PasarGuard و Marzban طبق روال خودکار فعال مانده‌اند.",
-                reply_markup=keyboard(),
-            )
-            return
-        context.user_data['manual_guardcore_order_id']=order_id
-        duration=(
-            'نامحدود'
-            if int(request.get('duration_days') or 0)==0
-            else f"{int(request.get('duration_days') or 0)} روز"
-        )
-        volume=(
-            'نامحدود'
-            if int(request.get('data_limit_gb') or 0)==0
-            else f"{int(request.get('data_limit_gb') or 0)} گیگ"
-        )
-        panel_url=str(request.get('panel_url') or '')
-        panel_button=(
-            InlineKeyboardMarkup([[InlineKeyboardButton('🌐 باز کردن پنل',url=panel_url)]])
-            if panel_url.startswith(('http://','https://')) else None
-        )
-        await query.message.reply_text(
-            "🛠 <b>کاربر را در پنل بساز</b>\n\n"
-            f"نام کاربری: <code>{html.escape(str(request.get('username') or ''))}</code>\n"
-            f"زمان: <b>{duration}</b>\n"
-            f"حجم: <b>{volume}</b>\n"
-            f"پلن: {html.escape(str(request.get('plan_title') or ''))}\n\n"
-            "بعد از ساخت، فقط لینک Subscription را در پیام بعدی بفرست.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=panel_button,
-        )
-    except Exception as exc:
-        await query.answer("خطا",show_alert=True)
-        await query.message.reply_text(f"❌ {str(exc)[:700]}")
-    finally:
-        db.close()
-
-
-async def _capture_guardcore_link(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    text: str,
-) -> bool:
-    order_id=context.user_data.get('manual_guardcore_order_id')
-    if not order_id or not text.startswith(('http://','https://')):
-        return False
-    from .manual_guardcore import attach_manual_subscription
-    progress=await update.effective_message.reply_text(
-        "🔎 در حال بررسی و ثبت لینک Subscription..."
-    )
-    db=_manual_db()
-    try:
-        result=await attach_manual_subscription(
-            db,
-            order_id,
-            text,
-            admin_id=update.effective_user.id,
-        )
-        context.user_data.pop('manual_guardcore_order_id',None)
-        count=int(result.get('config_count') or 0)
-        await progress.edit_text(
-            "✅ <b>ساب GuardCore ثبت شد</b>\n\n"
-            f"کاربر: <code>{html.escape(result['customer_email'])}</code>\n"
-            f"نام پنل: <code>{html.escape(result['username'])}</code>\n"
-            f"کانفیگ شناسایی‌شده: <b>{count if count else 'پاسخ معتبر'}</b>\n\n"
-            "لینک به اشتراک تجمیعی کاربر اضافه شد و در اجرای بعدی/همگام‌سازی اپ دریافت می‌شود.",
-            parse_mode=ParseMode.HTML,
-            reply_markup=keyboard(),
-        )
-    except Exception as exc:
-        await progress.edit_text(
-            "❌ ثبت لینک ناموفق بود:\n"
-            f"{str(exc)[:1000]}\n\n"
-            "لینک صحیح را دوباره بفرست یا از پنل وب در بخش «صف GuardCore» ثبت کن.",
-            reply_markup=keyboard(),
-        )
-    finally:
-        db.close()
-    return True
-
-
 async def text_router(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -1369,15 +1146,11 @@ async def text_router(
         return
 
     text = (update.effective_message.text or "").strip()
-    if await _capture_guardcore_link(update,context,text):
-        return
     if text == "📦 نصب و ساخت خودکار":
         await update.effective_message.reply_text(
             "ZIP پروژه یا آپدیت را همین‌جا بفرست.",
             reply_markup=keyboard(),
         )
-    elif text == "🟡 صف GuardCore":
-        await guardcore_queue(update,context)
     elif text == "🛠 ساخت دوباره":
         await rebuild(update, context)
     elif text == "📊 وضعیت":
@@ -1398,7 +1171,6 @@ def build_application() -> Application:
         Application.builder()
         .token(BOT_TOKEN)
         .concurrent_updates(8)
-        .post_init(bot_post_init)
         .build()
     )
     app.add_handler(CommandHandler("start", start))
@@ -1406,10 +1178,6 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("status", status))
     app.add_handler(CommandHandler("latest", latest))
     app.add_handler(CommandHandler("signing", signing_status))
-    app.add_handler(CommandHandler("guardcore", guardcore_queue))
-    app.add_handler(
-        CallbackQueryHandler(guardcore_callback,pattern=r"^gc:[yn]:")
-    )
     app.add_handler(
         MessageHandler(filters.Document.FileExtension("zip"), receive_zip)
     )

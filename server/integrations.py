@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 
 from .models import (
     Customer,
-    GuardCorePanel,
     MarzbanPanel,
     Order,
     PasarGuardPanel,
@@ -25,16 +24,6 @@ from .models import (
     Plan,
 )
 from .security import decrypt, utcnow
-from .guardcore import (
-    get_subscription as get_guardcore_subscription,
-    provision_subscription as provision_guardcore_subscription,
-    service_ids_from_json as guardcore_service_ids_from_json,
-)
-from .manual_guardcore import (
-    is_manual_guardcore,
-    manual_snapshot,
-    prepare_manual_request,
-)
 
 
 class IntegrationError(RuntimeError):
@@ -88,7 +77,7 @@ async def panel_headers(panel: PasarGuardPanel) -> dict[str, str]:
     common = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "BlueVPN-Backend/3.0.0",
+        "User-Agent": "BlueVPN-Backend/1.0.11",
     }
 
     if panel.auth_mode == "api_key":
@@ -178,21 +167,6 @@ def marzban_username(customer: Customer) -> str:
     return f"bv_{customer.id}_{digest}"[:32]
 
 
-def guardcore_username(customer: Customer) -> str:
-    if customer.guardcore_username:
-        return customer.guardcore_username
-    digest = hashlib.sha1(
-        ("guardcore:" + customer.email).encode()
-    ).hexdigest()[:9]
-    return f"bv_{customer.id}_{digest}"[:32]
-
-
-def plan_guardcore_services(plan: Plan) -> list[int]:
-    return guardcore_service_ids_from_json(
-        plan.guardcore_service_ids_json
-    )
-
-
 def plan_groups(plan: Plan) -> list[int]:
     try:
         return [
@@ -262,7 +236,7 @@ async def _marzban_token(
             },
             headers={
                 "Accept": "application/json",
-                "User-Agent": "BlueVPN-Backend/3.0.0",
+                "User-Agent": "BlueVPN-Backend/1.0.11",
             },
         )
 
@@ -304,7 +278,7 @@ async def marzban_request(
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/json",
                     "Content-Type": "application/json",
-                    "User-Agent": "BlueVPN-Backend/3.0.0",
+                    "User-Agent": "BlueVPN-Backend/1.0.11",
                 },
                 json=json_body,
                 params=params,
@@ -503,30 +477,25 @@ def activation_target(
     return target
 
 
-def provider_quota_limits(
+def quota_limits(
     plan: Plan,
-    providers: list[str],
-) -> dict[str, int]:
+    secondary_enabled: bool,
+) -> tuple[int, int]:
     total = (
         0
         if plan.data_limit_gb == 0
         else int(plan.data_limit_gb) * 1024 * 1024 * 1024
     )
-    if not providers:
-        return {}
-    mode = (
-        plan.multi_provider_quota_mode
-        if plan.multi_provider_quota_mode in {"split", "full"}
-        else plan.marzban_quota_mode
-    )
-    if total == 0 or mode == "full":
-        return {provider: total for provider in providers}
 
-    base, remainder = divmod(total, len(providers))
-    return {
-        provider: base + (1 if index < remainder else 0)
-        for index, provider in enumerate(providers)
-    }
+    if not secondary_enabled:
+        return total, 0
+
+    if plan.marzban_quota_mode == "split" and total > 0:
+        primary = (total + 1) // 2
+        secondary = total - primary
+        return primary, secondary
+
+    return total, total
 
 
 def ensure_subscription_identity(
@@ -560,10 +529,8 @@ def aggregate_customer(
     public_base_url: str,
     pg_data: dict | None = None,
     mz_data: dict | None = None,
-    gc_data: dict | None = None,
     pg_error: str = "",
     mz_error: str = "",
-    gc_error: str = "",
 ) -> Customer:
     statuses: list[str] = []
     expires: list[datetime] = []
@@ -579,15 +546,19 @@ def aggregate_customer(
         )
         pg_status = str(pg_data.get("status") or "inactive")
         statuses.append(pg_status)
+
         pg_expire = parse_remote_date(pg_data.get("expire"))
         if pg_expire:
             expires.append(pg_expire)
+
         limits.append(int(pg_data.get("data_limit") or 0))
-        usages.append(int(
-            pg_data.get("used_traffic")
-            or pg_data.get("used_traffic_bytes")
-            or 0
-        ))
+        usages.append(
+            int(
+                pg_data.get("used_traffic")
+                or pg_data.get("used_traffic_bytes")
+                or 0
+            )
+        )
 
     if mz_data:
         customer.marzban_user_id = mz_data.get("id")
@@ -608,34 +579,12 @@ def aggregate_customer(
         customer.marzban_used_traffic_bytes = int(
             mz_data.get("used_traffic") or 0
         )
+
         statuses.append(customer.marzban_status)
         if customer.marzban_expire:
             expires.append(customer.marzban_expire)
         limits.append(customer.marzban_data_limit_bytes)
         usages.append(customer.marzban_used_traffic_bytes)
-
-    if gc_data:
-        customer.guardcore_subscription_id = gc_data.get("id")
-        customer.guardcore_subscription_url = str(
-            gc_data.get("subscription_url")
-            or customer.guardcore_subscription_url
-            or ""
-        )
-        customer.guardcore_status = str(
-            gc_data.get("status") or "inactive"
-        )
-        customer.guardcore_expire = aware(gc_data.get("expire"))
-        customer.guardcore_data_limit_bytes = int(
-            gc_data.get("data_limit") or 0
-        )
-        customer.guardcore_used_traffic_bytes = int(
-            gc_data.get("used_traffic") or 0
-        )
-        statuses.append(customer.guardcore_status)
-        if customer.guardcore_expire:
-            expires.append(customer.guardcore_expire)
-        limits.append(customer.guardcore_data_limit_bytes)
-        usages.append(customer.guardcore_used_traffic_bytes)
 
     customer.subscription_status = (
         "active"
@@ -644,20 +593,30 @@ def aggregate_customer(
         if statuses
         else "inactive"
     )
-    customer.subscription_expire = max(expires) if expires else None
+
+    customer.subscription_expire = (
+        max(expires) if expires else None
+    )
+
+    # The aggregate limit is exact for split mode. In full mode it represents
+    # the real combined capacity available across both independent panels.
     customer.data_limit_bytes = sum(limits)
     customer.used_traffic_bytes = sum(usages)
 
     if plan:
         customer.plan_id = plan.id
-        customer.device_limit = 1 if plan.device_limit <= 1 else 2
+        customer.device_limit = (
+            1 if plan.device_limit <= 1 else 2
+        )
 
     customer.marzban_last_error = mz_error[:1000]
-    customer.guardcore_last_error = gc_error[:1000]
-    errors = [item for item in (pg_error, mz_error, gc_error) if item]
+    errors = [item for item in (pg_error, mz_error) if item]
     customer.last_sync_error = (
-        "" if not errors else "برخی مسیرهای پشتیبان در حال همگام‌سازی هستند"
+        ""
+        if not errors
+        else "برخی مسیرهای پشتیبان در حال همگام‌سازی هستند"
     )
+
     ensure_subscription_identity(customer, public_base_url)
     customer.last_sync_at = utcnow()
     return customer
@@ -777,57 +736,6 @@ async def provision_marzban(
     return refreshed or response.json()
 
 
-async def ensure_guardcore_for_existing_customer(
-    db: Session,
-    customer: Customer,
-    plan: Plan,
-) -> tuple[dict | None, str]:
-    if not plan.guardcore_panel_id:
-        return None, ""
-    panel = db.get(GuardCorePanel, plan.guardcore_panel_id)
-    if not panel or not panel.active:
-        return None, "پنل GuardCore پلن فعال نیست"
-    username = guardcore_username(customer)
-    if is_manual_guardcore(panel):
-        customer.guardcore_panel_id = panel.id
-        customer.guardcore_username = username
-        if customer.guardcore_subscription_url:
-            customer.guardcore_status = "active"
-        elif customer.guardcore_status != "skipped":
-            customer.guardcore_status = "manual_pending"
-        db.add(customer)
-        db.commit()
-        return manual_snapshot(customer), ""
-
-    try:
-        remote = await get_guardcore_subscription(panel, username)
-        providers = ["pasarguard"]
-        if plan.marzban_panel_id:
-            providers.append("marzban")
-        providers.append("guardcore")
-        limits = provider_quota_limits(plan, providers)
-        if remote is None:
-            target = customer.subscription_expire
-            if target is None and plan.duration_days > 0:
-                target = utcnow() + timedelta(days=plan.duration_days)
-            remote = await provision_guardcore_subscription(
-                panel,
-                username,
-                target_expire=target,
-                data_limit=limits.get("guardcore", 0),
-                service_ids=plan_guardcore_services(plan),
-                note=f"BlueVPN subscription repair; {customer.email}",
-                remote=None,
-            )
-        customer.guardcore_panel_id = panel.id
-        customer.guardcore_username = username
-        db.add(customer)
-        db.commit()
-        return remote, ""
-    except Exception as exc:
-        return None, str(exc)
-
-
 async def provision(
     db: Session,
     customer: Customer,
@@ -837,65 +745,62 @@ async def provision(
 ) -> Customer:
     primary = db.get(PasarGuardPanel, plan.panel_id)
     if not primary or not primary.active:
-        raise IntegrationError("پنل اصلی PasarGuard این پلن فعال نیست")
+        raise IntegrationError(
+            "پنل اصلی PasarGuard این پلن فعال نیست"
+        )
 
     secondary = (
         db.get(MarzbanPanel, plan.marzban_panel_id)
-        if plan.marzban_panel_id else None
-    )
-    guard = (
-        db.get(GuardCorePanel, plan.guardcore_panel_id)
-        if plan.guardcore_panel_id else None
+        if plan.marzban_panel_id
+        else None
     )
     if secondary and not secondary.active:
-        raise IntegrationError("پنل دوم Marzban این پلن غیرفعال است")
-    if guard and not guard.active:
-        raise IntegrationError("پنل GuardCore این پلن غیرفعال است")
+        raise IntegrationError(
+            "پنل دوم Marzban این پلن غیرفعال است"
+        )
 
     pg_name = pg_username(customer)
     mz_name = marzban_username(customer)
-    gc_name = guardcore_username(customer)
 
     pg_remote = await get_pg_user(primary, pg_name)
     mz_remote = (
-        await get_marzban_user(secondary, mz_name) if secondary else None
+        await get_marzban_user(secondary, mz_name)
+        if secondary
+        else None
     )
-    gc_remote = None
-    if guard:
-        if is_manual_guardcore(guard):
-            gc_remote = manual_snapshot(customer)
-        else:
-            gc_remote = await get_guardcore_subscription(guard, gc_name)
 
     target_expire = activation_target(
         db,
         order,
         plan,
         [
-            parse_remote_date(pg_remote.get("expire") if pg_remote else None),
-            parse_remote_date(mz_remote.get("expire") if mz_remote else None),
-            gc_remote.get("expire") if gc_remote else None,
+            parse_remote_date(
+                pg_remote.get("expire") if pg_remote else None
+            ),
+            parse_remote_date(
+                mz_remote.get("expire") if mz_remote else None
+            ),
             customer.subscription_expire,
         ],
     )
 
-    providers = ["pasarguard"]
-    if secondary:
-        providers.append("marzban")
-    if guard:
-        providers.append("guardcore")
-    limits = provider_quota_limits(plan, providers)
+    pg_limit, mz_limit = quota_limits(
+        plan,
+        secondary_enabled=secondary is not None,
+    )
 
     note = f"BlueVPN {customer.email}; {order.order_code}"
-    pg_data = mz_data = gc_data = None
-    pg_error = mz_error = gc_error = ""
+    pg_data = None
+    mz_data = None
+    pg_error = ""
+    mz_error = ""
 
     try:
         pg_data = await provision_pasarguard(
             primary,
             pg_name,
             target_expire=target_expire,
-            data_limit=limits.get("pasarguard", 0),
+            data_limit=pg_limit,
             device_limit=plan.device_limit,
             groups=plan_groups(plan),
             note=note,
@@ -912,7 +817,7 @@ async def provision(
                 secondary,
                 mz_name,
                 target_expire=target_expire,
-                data_limit=limits.get("marzban", 0),
+                data_limit=mz_limit,
                 note=note,
                 remote=mz_remote,
             )
@@ -927,69 +832,26 @@ async def provision(
         customer.marzban_status = "inactive"
         customer.marzban_last_error = ""
 
-    if guard:
-        if is_manual_guardcore(guard):
-            customer.guardcore_panel_id = guard.id
-            customer.guardcore_username = gc_name
-            customer.guardcore_expire = target_expire
-            customer.guardcore_data_limit_bytes = limits.get("guardcore", 0)
-            customer.guardcore_used_traffic_bytes = 0
-            customer.guardcore_last_error = ""
-            if customer.guardcore_subscription_url:
-                customer.guardcore_status = "active"
-                gc_data = manual_snapshot(customer)
-            else:
-                customer.guardcore_status = "manual_pending"
-            db.add(customer)
-            db.commit()
-            prepare_manual_request(
-                db,
-                order,
-                customer,
-                plan,
-                guard,
-                username=gc_name,
-                target_expire=target_expire,
-                data_limit_bytes=limits.get("guardcore", 0),
-            )
-        else:
-            try:
-                gc_data = await provision_guardcore_subscription(
-                    guard,
-                    gc_name,
-                    target_expire=target_expire,
-                    data_limit=limits.get("guardcore", 0),
-                    service_ids=plan_guardcore_services(plan),
-                    note=note,
-                    remote=gc_remote,
-                )
-                customer.guardcore_panel_id = guard.id
-                customer.guardcore_username = gc_name
-            except Exception as exc:
-                gc_error = str(exc)
-    else:
-        customer.guardcore_panel_id = None
-        customer.guardcore_username = ""
-        customer.guardcore_subscription_url = ""
-        customer.guardcore_status = "inactive"
-        customer.guardcore_last_error = ""
-
     aggregate_customer(
         customer,
         plan,
         public_base_url=public_base_url,
         pg_data=pg_data or pg_remote,
         mz_data=mz_data or mz_remote,
-        gc_data=gc_data or gc_remote,
         pg_error=pg_error,
         mz_error=mz_error,
-        gc_error=gc_error,
     )
+
     customer.subscription_expire = target_expire
     db.add(customer)
     db.commit()
 
-    required_errors = [item for item in (pg_error, mz_error, gc_error) if item]
+    required_errors = []
+    if pg_error:
+        required_errors.append(pg_error)
+    if secondary and mz_error:
+        required_errors.append(mz_error)
+
     if required_errors:
         order.status = "partial_needs_sync"
         order.activation_error = " | ".join(required_errors)[:2000]
@@ -1009,16 +871,22 @@ async def sync_customer(
     public_base_url: str = "",
 ) -> Customer:
     plan = db.get(Plan, customer.plan_id) if customer.plan_id else None
+
     ensure_subscription_identity(customer, public_base_url)
 
-    pg_data = mz_data = gc_data = None
-    pg_error = mz_error = gc_error = ""
+    pg_data = None
+    mz_data = None
+    pg_error = ""
+    mz_error = ""
 
     if customer.panel_id and customer.pg_username:
         panel = db.get(PasarGuardPanel, customer.panel_id)
         if panel:
             try:
-                pg_data = await get_pg_user(panel, customer.pg_username)
+                pg_data = await get_pg_user(
+                    panel,
+                    customer.pg_username,
+                )
                 if not pg_data:
                     pg_error = "کاربر در PasarGuard پیدا نشد"
             except Exception as exc:
@@ -1026,43 +894,31 @@ async def sync_customer(
         else:
             pg_error = "پنل PasarGuard حذف شده است"
 
+    # Existing customers were previously skipped when Marzban was attached
+    # to an old plan later. Repair them during normal one-minute account sync.
     if plan:
-        mz_data, mz_error = await ensure_marzban_for_existing_customer(
-            db, customer, plan, pg_data
+        mz_data, mz_error = (
+            await ensure_marzban_for_existing_customer(
+                db,
+                customer,
+                plan,
+                pg_data,
+            )
         )
-        gc_data, gc_error = await ensure_guardcore_for_existing_customer(
-            db, customer, plan
-        )
-    else:
-        if customer.marzban_panel_id and customer.marzban_username:
-            panel = db.get(MarzbanPanel, customer.marzban_panel_id)
-            if panel:
-                try:
-                    mz_data = await get_marzban_user(
-                        panel, customer.marzban_username
-                    )
-                    if not mz_data:
-                        mz_error = "کاربر در Marzban پیدا نشد"
-                except Exception as exc:
-                    mz_error = str(exc)
-            else:
-                mz_error = "پنل Marzban حذف شده است"
-        if customer.guardcore_panel_id and customer.guardcore_username:
-            panel = db.get(GuardCorePanel, customer.guardcore_panel_id)
-            if panel:
-                if is_manual_guardcore(panel):
-                    gc_data = manual_snapshot(customer)
-                else:
-                    try:
-                        gc_data = await get_guardcore_subscription(
-                            panel, customer.guardcore_username
-                        )
-                        if not gc_data:
-                            gc_error = "کاربر در GuardCore پیدا نشد"
-                    except Exception as exc:
-                        gc_error = str(exc)
-            else:
-                gc_error = "پنل GuardCore حذف شده است"
+    elif customer.marzban_panel_id and customer.marzban_username:
+        panel = db.get(MarzbanPanel, customer.marzban_panel_id)
+        if panel:
+            try:
+                mz_data = await get_marzban_user(
+                    panel,
+                    customer.marzban_username,
+                )
+                if not mz_data:
+                    mz_error = "کاربر در Marzban پیدا نشد"
+            except Exception as exc:
+                mz_error = str(exc)
+        else:
+            mz_error = "پنل Marzban حذف شده است"
 
     aggregate_customer(
         customer,
@@ -1070,11 +926,10 @@ async def sync_customer(
         public_base_url=public_base_url,
         pg_data=pg_data,
         mz_data=mz_data,
-        gc_data=gc_data,
         pg_error=pg_error,
         mz_error=mz_error,
-        gc_error=gc_error,
     )
+
     db.add(customer)
     db.commit()
     return customer
@@ -1374,13 +1229,10 @@ async def ensure_marzban_for_existing_customer(
             )
         )
 
-        providers = ["pasarguard", "marzban"]
-        if plan.guardcore_panel_id:
-            providers.append("guardcore")
-        marzban_limit = provider_quota_limits(
+        _, marzban_limit = quota_limits(
             plan,
-            providers,
-        ).get("marzban", 0)
+            secondary_enabled=True,
+        )
 
         created = await provision_marzban(
             panel,
@@ -1408,134 +1260,28 @@ async def fetch_subscription_source(
     url: str,
     *,
     verify_tls: bool,
-    source_kind: str = "generic",
 ) -> list[str]:
     if not url.startswith(("http://", "https://")):
         return []
 
-    # Marzban can serve a custom HTML subscription page to browsers.
-    # Ask exactly like v2rayNG so the endpoint returns the Base64 v2ray
-    # subscription rather than HTML.
-    user_agents = (
-        "v2rayNG/1.10.2",
-        "v2rayNG",
-        "BlueVPN/1.0.16 (v2rayNG compatible)",
-    )
-
-    attempts: list[str] = []
-
     async with httpx.AsyncClient(
-        timeout=30,
+        timeout=25,
         verify=verify_tls,
         follow_redirects=True,
     ) as client:
-        for user_agent in user_agents:
-            try:
-                response = await client.get(
-                    url,
-                    headers={
-                        "Accept": (
-                            "text/plain,"
-                            "application/octet-stream,"
-                            "*/*"
-                        ),
-                        "User-Agent": user_agent,
-                        "Cache-Control": "no-cache",
-                        "Pragma": "no-cache",
-                    },
-                )
-            except Exception as exc:
-                attempts.append(
-                    f"{user_agent}: {type(exc).__name__}: {exc}"
-                )
-                continue
-
-            content_type = response.headers.get(
-                "content-type",
-                "",
-            ).lower()
-
-            if response.status_code >= 400:
-                attempts.append(
-                    f"{user_agent}: HTTP {response.status_code}"
-                )
-                continue
-
-            text = response.text.strip()
-            lines = subscription_lines(text)
-
-            if lines:
-                return lines
-
-            if (
-                "text/html" in content_type
-                or text.lower().startswith("<!doctype html")
-                or text.lower().startswith("<html")
-            ):
-                attempts.append(
-                    f"{user_agent}: صفحه HTML برگشت، نه ساب v2ray"
-                )
-            elif not text:
-                attempts.append(
-                    f"{user_agent}: پاسخ خالی"
-                )
-            else:
-                attempts.append(
-                    f"{user_agent}: پاسخ دریافت شد ولی "
-                    "هیچ لینک vless/vmess/trojan/ss داخل آن نبود"
-                )
-
-    label = (
-        "Marzban subscription"
-        if source_kind == "marzban"
-        else "subscription"
-    )
-    raise IntegrationError(
-        f"دریافت {label} ناموفق بود: "
-        + " | ".join(attempts[-3:])
-    )
-
-
-def marzban_subscription_url(
-    panel: MarzbanPanel,
-    user_data: dict | None,
-    saved_url: str,
-) -> str:
-    values: list[str] = []
-
-    if isinstance(user_data, dict):
-        values.extend(
-            [
-                str(user_data.get("subscription_url") or ""),
-                str(user_data.get("sub_url") or ""),
-            ]
+        response = await client.get(
+            url,
+            headers={
+                "Accept": "text/plain,*/*",
+                "User-Agent": "v2rayNG/2.2.6 BlueVPN/1.0.11",
+            },
         )
 
-        subscription = user_data.get("subscription")
-        if isinstance(subscription, dict):
-            values.extend(
-                [
-                    str(subscription.get("url") or ""),
-                    str(
-                        subscription.get(
-                            "subscription_url"
-                        )
-                        or ""
-                    ),
-                ]
-            )
-
-    values.append(str(saved_url or ""))
-
-    for value in values:
-        absolute = absolute_subscription_url(
-            panel.base_url,
-            value,
+    if response.status_code >= 400:
+        raise IntegrationError(
+            f"دریافت منبع اشتراک ناموفق: HTTP {response.status_code}"
         )
-        if absolute:
-            return absolute
-
-    return ""
+    return subscription_lines(response.text)
 
 
 async def combined_subscription(
@@ -1550,14 +1296,11 @@ async def combined_subscription(
 
     raw_counts = {
         "pasarguard": 0,
-        "marzban_sub": 0,
-        "marzban_api": 0,
-        "guardcore": 0,
+        "marzban": 0,
     }
     added_counts = {
         "pasarguard": 0,
         "marzban": 0,
-        "guardcore": 0,
     }
 
     if customer.pasarguard_subscription_url:
@@ -1597,101 +1340,50 @@ async def combined_subscription(
                     customer.marzban_username,
                 )
 
-                remote_sub = marzban_subscription_url(
-                    panel,
-                    user_data,
-                    customer.marzban_subscription_url,
+                direct_links = extract_marzban_links(user_data)
+                remote_sub = absolute_subscription_url(
+                    panel.base_url,
+                    (
+                        user_data.get("subscription_url", "")
+                        if isinstance(user_data, dict)
+                        else ""
+                    )
+                    or customer.marzban_subscription_url,
                 )
 
-                sub_lines: list[str] = []
-                api_lines = extract_marzban_links(user_data)
-
-                # Important: the real Marzban subscription is now always
-                # fetched first. API links no longer suppress the sub.
                 if remote_sub:
                     customer.marzban_subscription_url = remote_sub
                     db.add(customer)
                     db.commit()
 
-                    try:
-                        sub_lines = await fetch_subscription_source(
-                            remote_sub,
-                            verify_tls=panel.verify_tls,
-                            source_kind="marzban",
-                        )
-                    except Exception as exc:
-                        errors.append(
-                            f"{source_name} sub: {exc}"
-                        )
+                if direct_links:
+                    lines = direct_links
+                elif remote_sub:
+                    lines = await fetch_subscription_source(
+                        remote_sub,
+                        verify_tls=panel.verify_tls,
+                    )
                 else:
+                    lines = []
                     errors.append(
-                        f"{source_name}: subscription_url "
-                        "از API مرزبان دریافت نشد"
+                        f"{source_name}: API کاربر موجود است اما "
+                        "هیچ links یا subscription_url برنگرداند"
                     )
 
-                raw_counts["marzban_sub"] = len(sub_lines)
-                raw_counts["marzban_api"] = len(api_lines)
-
-                # Put sub links first. API links are only a supplement and
-                # deduplication below prevents repeated configs.
-                marzban_lines = sub_lines + api_lines
-
-                if marzban_lines:
+                if lines:
                     source_items.append(
-                        (
-                            marzban_lines,
-                            source_name,
-                            "marzban",
-                        )
+                        (lines, source_name, "marzban")
                     )
-                else:
-                    errors.append(
-                        f"{source_name}: نه ساب مرزبان و نه API "
-                        "هیچ کانفیگی برنگرداند"
-                    )
+                    raw_counts["marzban"] = len(lines)
 
             except Exception as exc:
                 errors.append(f"{source_name}: {exc}")
         else:
             errors.append("Marzban: پنل حذف شده است")
-
-    if customer.guardcore_panel_id:
-        panel = db.get(GuardCorePanel, customer.guardcore_panel_id)
-        if panel:
-            source_name = panel.name
-            hidden_names.append(source_name)
-            try:
-                if is_manual_guardcore(panel):
-                    remote_url = customer.guardcore_subscription_url or ""
-                else:
-                    remote = await get_guardcore_subscription(
-                        panel,
-                        customer.guardcore_username,
-                    )
-                    remote_url = str(
-                        (remote or {}).get("subscription_url")
-                        or customer.guardcore_subscription_url
-                        or ""
-                    )
-                if remote_url:
-                    customer.guardcore_subscription_url = remote_url
-                    db.add(customer)
-                    db.commit()
-                    lines = await fetch_subscription_source(
-                        remote_url,
-                        verify_tls=panel.verify_tls,
-                        source_kind="guardcore",
-                    )
-                    raw_counts["guardcore"] = len(lines)
-                    source_items.append((lines, source_name, "guardcore"))
-                elif not is_manual_guardcore(panel):
-                    errors.append(
-                        f"{source_name}: لینک اشتراک GuardCore دریافت نشد"
-                    )
-            except Exception as exc:
-                errors.append(f"{source_name}: {exc}")
-        else:
-            errors.append("GuardCore: پنل حذف شده است")
+    else:
+        errors.append(
+            "Marzban: کاربر هنوز به پنل دوم متصل نشده است"
+        )
 
     merged: list[str] = []
     seen: set[str] = set()
@@ -1724,9 +1416,7 @@ async def combined_subscription(
 
     expiry = aware(customer.subscription_expire)
     headers = {
-        "Cache-Control": "no-store, no-cache, must-revalidate",
-        "Pragma": "no-cache",
-        "Expires": "0",
+        "Cache-Control": "no-store",
         "profile-title": "base64:"
         + base64.b64encode("BlueVPN".encode()).decode(),
         "profile-update-interval": "1",
@@ -1739,23 +1429,14 @@ async def combined_subscription(
         "X-BlueVPN-Pasarguard-Raw-Count": str(
             raw_counts["pasarguard"]
         ),
-        "X-BlueVPN-Marzban-Sub-Raw-Count": str(
-            raw_counts["marzban_sub"]
-        ),
-        "X-BlueVPN-Marzban-Api-Raw-Count": str(
-            raw_counts["marzban_api"]
+        "X-BlueVPN-Marzban-Raw-Count": str(
+            raw_counts["marzban"]
         ),
         "X-BlueVPN-Pasarguard-Count": str(
             added_counts["pasarguard"]
         ),
         "X-BlueVPN-Marzban-Count": str(
             added_counts["marzban"]
-        ),
-        "X-BlueVPN-GuardCore-Raw-Count": str(
-            raw_counts["guardcore"]
-        ),
-        "X-BlueVPN-GuardCore-Count": str(
-            added_counts["guardcore"]
         ),
     }
 

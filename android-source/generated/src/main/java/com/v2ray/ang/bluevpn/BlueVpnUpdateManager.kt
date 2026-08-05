@@ -1173,23 +1173,7 @@ private fun startAutomaticDownload(
             connection = openDownloadConnection(
                 activity.applicationContext,
                 apkUrl,
-            ).apply {
-                connectTimeout = 15_000
-                readTimeout = 35_000
-                instanceFollowRedirects = true
-                setRequestProperty(
-                    "Accept",
-                    "application/vnd.android.package-archive,*/*",
-                )
-                setRequestProperty(
-                    "Cache-Control",
-                    "no-cache",
-                )
-                setRequestProperty(
-                    "User-Agent",
-                    "BlueVPN/${BuildConfig.VERSION_NAME}",
-                )
-            }
+            )
 
             val responseCode = connection!!.responseCode
             if (responseCode !in 200..299) {
@@ -1302,10 +1286,8 @@ private fun startAutomaticDownload(
                         activity = activity,
                         eyebrow = "دانلود ناموفق",
                         title = "دریافت نسخه $version کامل نشد",
-                        message = (
-                            error.message
-                                ?: "ارتباط با سرور بروزرسانی قطع شد"
-                            ) + "\n\nاتصال VPN لازم نیست قطع شود؛ دوباره تلاش کنید.",
+                        message = friendlyDownloadError(error) +
+                            "\n\nBlueVPN ابتدا مسیر مستقیم دستگاه و سپس مسیر عادی را امتحان می‌کند؛ اتصال VPN لازم نیست قطع شود.",
                         accentColor = Color.parseColor("#FF6E83"),
                         primaryText = "تلاش دوباره",
                         secondaryText = "بعداً",
@@ -1412,6 +1394,27 @@ private fun formatBytes(value: Long): String {
     )
 }
 
+private fun configureDownloadConnection(
+    connection: HttpURLConnection,
+): HttpURLConnection = connection.apply {
+    connectTimeout = 15_000
+    readTimeout = 35_000
+    instanceFollowRedirects = true
+    useCaches = false
+    setRequestProperty(
+        "Accept",
+        "application/vnd.android.package-archive,*/*",
+    )
+    setRequestProperty(
+        "Cache-Control",
+        "no-cache",
+    )
+    setRequestProperty(
+        "User-Agent",
+        "BlueVPN/${BuildConfig.VERSION_NAME}",
+    )
+}
+
 private fun openDownloadConnection(
     context: Context,
     url: String,
@@ -1473,10 +1476,104 @@ private fun openDownloadConnection(
 
     val target = URL(url)
 
-    return (
-        physicalNetwork?.openConnection(target)
-            ?: target.openConnection()
-        ) as HttpURLConnection
+    if (physicalNetwork != null) {
+        val directConnection = runCatching {
+            configureDownloadConnection(
+                physicalNetwork.openConnection(
+                    target
+                ) as HttpURLConnection
+            )
+        }.getOrNull()
+
+        if (directConnection != null) {
+            try {
+                // Force socket creation here. Some Android/OEM builds reject
+                // binding the updater socket to the underlying network with
+                // EPERM while the app VPN is active.
+                directConnection.connect()
+                directConnection.responseCode
+                return directConnection
+            } catch (error: Throwable) {
+                directConnection.disconnect()
+                if (!shouldFallbackToDefaultNetwork(error)) {
+                    throw error
+                }
+            }
+        }
+    }
+
+    // Reliable fallback: use the app's current default route. When BlueVPN is
+    // connected this normally goes through the tunnel, so the VPN does not
+    // need to be disconnected just to install an update.
+    return configureDownloadConnection(
+        target.openConnection() as HttpURLConnection
+    ).also { fallback ->
+        fallback.connect()
+        fallback.responseCode
+    }
+}
+
+private fun shouldFallbackToDefaultNetwork(
+    error: Throwable,
+): Boolean {
+    var current: Throwable? = error
+    while (current != null) {
+        if (
+            current is java.io.IOException ||
+            current is SecurityException ||
+            current is android.system.ErrnoException
+        ) {
+            return true
+        }
+
+        val message = current.message.orEmpty().lowercase()
+        if (
+            "binding socket to network" in message ||
+            "eperm" in message ||
+            "operation not permitted" in message
+        ) {
+            return true
+        }
+
+        current = current.cause
+    }
+    return false
+}
+
+private fun friendlyDownloadError(
+    error: Throwable,
+): String {
+    var current: Throwable? = error
+    val messages = mutableListOf<String>()
+
+    while (current != null) {
+        current.message
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let(messages::add)
+        current = current.cause
+    }
+
+    val combined = messages.joinToString(" | ")
+    val normalized = combined.lowercase()
+
+    return when {
+        "binding socket to network" in normalized ||
+            "eperm" in normalized ||
+            "operation not permitted" in normalized ->
+            "اندروید اجازه استفاده از مسیر مستقیم شبکه را نداد و مسیر جایگزین نیز برقرار نشد."
+
+        "timed out" in normalized ||
+            "timeout" in normalized ->
+            "ارتباط با سرور بروزرسانی بیش از حد طول کشید."
+
+        "unable to resolve host" in normalized ||
+            "unknownhost" in normalized ->
+            "نام سرور بروزرسانی از طریق اینترنت فعلی پیدا نشد."
+
+        combined.isNotBlank() -> combined
+        else -> "ارتباط با سرور بروزرسانی قطع شد."
+    }
 }
 
 private fun resumeCompletedDownload(

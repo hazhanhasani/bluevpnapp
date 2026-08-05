@@ -1,4 +1,4 @@
-# BlueVPN 3.0.11 — Reliable In-App Updater
+# BlueVPN 3.0.12 — Admin Security Dashboard
 
 نسخه اندروید و پنل مدیریت BlueVPN با هسته هوشمند مسیر.
 
@@ -96,3 +96,14 @@
 - حذف نمایش خطای خام سیستمی و جایگزینی با پیام فارسی قابل فهم
 - جلوگیری از شکست کامل دانلود صرفاً به‌دلیل محدودیت bindSocket در بعضی رام‌های Android و MIUI
 - نسخه Backend و Android: `3.0.11` / `30011`
+
+## BlueVPN 3.0.12
+
+- بازطراحی پنل مدیریت با Dark Glass، فونت Vazirmatn و آیکون‌های SVG داخلی
+- نمودارهای دایره‌ای زنده برای نرخ موفقیت هر اپراتور بدون کتابخانه خارجی
+- Rate Limit مبتنی بر IP برای ثبت‌نام، ورود کاربران و ورود مدیر
+- چرخش Session مدیر پس از ورود و Cookie امن با SameSite=Strict
+- Endpoint امن و CSRF-protected برای دانلود ZIP پشتیبان دیتابیس
+- پشتیبانی از `pg_dump` برای PostgreSQL و Backup سازگار برای SQLite
+- قرار دادن Manifest، شمارش جدول‌ها و SHA-256 داخل فایل پشتیبان بدون افشای رمز دیتابیس
+- نسخه Backend و Android: `3.0.12` / `30012`

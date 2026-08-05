@@ -1,8 +1,23 @@
-<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BlueVPN Platform</title><link rel="stylesheet" href="/static/style.css"></head><body>
-<header class="topbar"><div class="brand"><img src="/static/logo.png"><div><b>BlueVPN Platform</b><span>مدیریت حساب، فروش و اشتراک</span></div></div><form method="post" action="/admin/logout"><button class="secondary">خروج</button></form></header>
+<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07101f"><title>BlueVPN Platform</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/style.css"></head><body>
+<header class="topbar"><div class="brand"><div class="brand-logo-wrap"><img src="/static/logo.png"><span class="brand-live-dot" aria-label="online"></span></div><div><b>BlueVPN Platform</b><span>مرکز مدیریت سرویس و هوش شبکه</span></div></div><div class="topbar-actions"><span class="secure-session"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4.5 5v6c0 5.1 3.2 9.7 7.5 11 4.3-1.3 7.5-5.9 7.5-11V5L12 2Zm0 3.1 4.5 1.8V11c0 3.6-2 7-4.5 8.1C9.5 18 7.5 14.6 7.5 11V6.9L12 5.1Zm-1 3.4v3H8.8v2.2H11v2.2h2v-2.2h2.2v-2.2H13v-3h-2Z"/></svg>نشست امن</span><form method="post" action="/admin/logout"><button class="secondary icon-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H4v16h6v-2H6V6h4V4Zm4.6 3.4-1.4 1.4 2.2 2.2H9v2h6.4l-2.2 2.2 1.4 1.4L19.2 12l-4.6-4.6Z"/></svg>خروج</button></form></div></header>
 <nav class="tabs"><a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">GuardCore</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف GuardCore</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#app" data-tab="app">اپ و آپدیت</a></nav>
 <main class="container">{% if not database_info.persistent %}<div class="alert danger flash-alert" data-sticky="1"><span>هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if saved %}<div class="alert success flash-alert"><span>تغییرات ذخیره شد.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if manual_message %}<div class="alert success flash-alert"><span>{{ manual_message }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if error %}<div class="alert danger flash-alert"><span>{{ error }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}
-<section id="overview" class="grid stats"><article><span>کاربران</span><strong data-live="stats.customers">{{ stats.customers }}</strong></article><article><span>اشتراک فعال</span><strong data-live="stats.active">{{ stats.active }}</strong></article><article><span>پرداخت موفق</span><strong data-live="stats.paid">{{ stats.paid }}</strong></article><article><span>فعال‌سازی دستی</span><strong data-live="stats.manual">{{ stats.manual }}</strong></article><article><span>کل Providerها</span><strong data-live="stats.panels">{{ stats.panels }}</strong></article><article><span>GuardCore</span><strong data-live="stats.guardcore">{{ stats.guardcore }}</strong></article><article><span>در انتظار ساب دستی</span><strong data-live="stats.guardcore_pending">{{ stats.guardcore_pending }}</strong></article><article><span>دیتابیس</span><strong>{{ database_mode }}</strong></article></section>
+<section id="overview" class="dashboard-overview">
+  <div class="overview-hero card">
+    <div><span class="eyebrow">BLUEVPN CONTROL CENTER</span><h1>نمای کلی سامانه</h1><p>وضعیت کاربران، پرداخت‌ها، Providerها و BlueAI به‌صورت زنده در یک داشبورد شیشه‌ای.</p></div>
+    <div class="hero-health"><span class="health-ring"><i></i></span><div><strong>سامانه فعال</strong><small>آخرین همگام‌سازی زنده</small></div></div>
+  </div>
+  <div class="grid stats">
+    <article class="stat-card"><span class="stat-icon blue"><svg viewBox="0 0 24 24"><path d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm-8 9a8 8 0 0 1 16 0H4Z"/></svg></span><div><span>کاربران</span><strong data-live="stats.customers">{{ stats.customers }}</strong><small>حساب ثبت‌شده</small></div></article>
+    <article class="stat-card"><span class="stat-icon green"><svg viewBox="0 0 24 24"><path d="m9.4 16.2-4-4 1.7-1.7 2.3 2.3 7.5-7.5 1.7 1.7-9.2 9.2Z"/><path d="M12 22a10 10 0 1 1 10-10 10 10 0 0 1-10 10Zm0-18a8 8 0 1 0 8 8 8 8 0 0 0-8-8Z"/></svg></span><div><span>اشتراک فعال</span><strong data-live="stats.active">{{ stats.active }}</strong><small>کاربر متصل</small></div></article>
+    <article class="stat-card"><span class="stat-icon violet"><svg viewBox="0 0 24 24"><path d="M3 5h18v14H3V5Zm2 2v2h14V7H5Zm0 5v5h14v-5H5Zm2 2h5v1.8H7V14Z"/></svg></span><div><span>پرداخت موفق</span><strong data-live="stats.paid">{{ stats.paid }}</strong><small>سفارش تأییدشده</small></div></article>
+    <article class="stat-card"><span class="stat-icon amber"><svg viewBox="0 0 24 24"><path d="M11 3h2v8h8v2h-8v8h-2v-8H3v-2h8V3Z"/></svg></span><div><span>فعال‌سازی دستی</span><strong data-live="stats.manual">{{ stats.manual }}</strong><small>عملیات مدیر</small></div></article>
+    <article class="stat-card"><span class="stat-icon cyan"><svg viewBox="0 0 24 24"><path d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z"/></svg></span><div><span>کل Providerها</span><strong data-live="stats.panels">{{ stats.panels }}</strong><small>منبع سرویس</small></div></article>
+    <article class="stat-card"><span class="stat-icon indigo"><svg viewBox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5Zm0 2.3 5.7 3.2L12 10.7 6.3 7.5 12 4.3ZM5 9.2l6 3.4v6.8L5 16V9.2Zm8 10.2v-6.8l6-3.4V16l-6 3.4Z"/></svg></span><div><span>GuardCore</span><strong data-live="stats.guardcore">{{ stats.guardcore }}</strong><small>پنل تعریف‌شده</small></div></article>
+    <article class="stat-card"><span class="stat-icon rose"><svg viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-7 7v3.6L3.3 16v1H9a3 3 0 0 0 6 0h5.7v-1L19 12.6V9a7 7 0 0 0-7-7Zm0 18a1 1 0 0 1-1-1h2a1 1 0 0 1-1 1Zm-5.5-5 1-2V9a4.5 4.5 0 0 1 9 0v4l1 2h-11Z"/></svg></span><div><span>در انتظار ساب دستی</span><strong data-live="stats.guardcore_pending">{{ stats.guardcore_pending }}</strong><small>نیازمند بررسی</small></div></article>
+    <article class="stat-card"><span class="stat-icon slate"><svg viewBox="0 0 24 24"><path d="M12 3C7 3 3 4.8 3 7v10c0 2.2 4 4 9 4s9-1.8 9-4V7c0-2.2-4-4-9-4Zm0 2c4 0 7 .9 7 2s-3 2-7 2-7-.9-7-2 3-2 7-2Zm0 14c-4 0-7-.9-7-2v-2.2c1.6 1 4.1 1.7 7 1.7s5.4-.7 7-1.7V17c0 1.1-3 2-7 2Zm0-4.5c-4 0-7-.9-7-2v-2.2c1.6 1 4.1 1.7 7 1.7s5.4-.7 7-1.7v2.2c0 1.1-3 2-7 2Z"/></svg></span><div><span>دیتابیس</span><strong>{{ database_mode }}</strong><small>{{ 'دائمی' if database_info.persistent else 'موقت' }}</small></div></article>
+  </div>
+</section>
 
 <section id="blueai" class="card ai-command-center">
   <div class="section-heading">
@@ -34,9 +49,15 @@
     </div>
     <div class="insight-panel">
       <div class="panel-title"><h3>DNA اپراتورها</h3><span>داده فنی ناشناس</span></div>
-      <div class="operator-list" id="blueai-live-operators">
+      <div class="operator-chart-grid" id="blueai-live-operators">
         {% for item in blueai.operators %}
-        <article><div><strong>{{ item.name }}</strong><span>{{ item.events }} اتصال</span></div><b>{{ (item.duration/3600)|round(1) }}h</b></article>
+        <article class="operator-chart-card">
+          <div class="operator-donut" data-rate="{{ item.success_rate or 0 }}">
+            <svg viewBox="0 0 42 42" aria-hidden="true"><circle class="donut-track" cx="21" cy="21" r="16"></circle><circle class="donut-progress" cx="21" cy="21" r="16"></circle></svg>
+            <span>{{ item.success_rate or 0 }}٪</span>
+          </div>
+          <div class="operator-chart-info"><strong>{{ item.name }}</strong><span>{{ item.successes or 0 }} موفق از {{ item.events }} تست</span><small>{{ (item.duration/3600)|round(1) }} ساعت اتصال • <b>0</b> آنلاین</small></div>
+        </article>
         {% else %}<div class="empty-state">هنوز داده اپراتور ثبت نشده است.</div>{% endfor %}
       </div>
     </div>
@@ -91,9 +112,16 @@
     <pre>{{ database_info.migration | tojson(indent=2) }}</pre>
   </details>
 
-  <form method="post" action="/admin/database/initialize">
-    <button class="save" type="submit">بررسی و ساخت دوباره جداول</button>
-  </form>
+  <div class="database-actions">
+    <form method="post" action="/admin/database/initialize">
+      <button class="save" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5a7 7 0 1 1-6.2 3.8L3 11.6V5h6.6L7.3 7.3A5 5 0 1 0 12 7V5Z"/></svg>بررسی و ساخت دوباره جداول</button>
+    </form>
+    <form method="post" action="/admin/database/backup" class="backup-form" data-confirm="ساخت بکاپ ممکن است چند ثانیه طول بکشد. ادامه می‌دهید؟">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <button class="backup-button" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.2l3.4-3.4 1.4 1.4-5.8 5.8-5.8-5.8 1.4-1.4 3.4 3.4V3h2ZM4 19h16v2H4v-2Z"/></svg>دانلود ZIP پشتیبان امن</button>
+      <small>شامل Dump دیتابیس، Manifest و SHA-256؛ بدون درج رمز اتصال.</small>
+    </form>
+  </div>
 </section>
 <section id="panels" class="card"><h2>پنل‌های PasarGuard</h2><p class="hint">اتصال با API Key یا نام کاربری/رمز مدیر. اطلاعات محرمانه فقط رمزگذاری‌شده در Backend ذخیره می‌شوند.</p>
 <form method="post" action="/admin/panels"><div class="form-grid"><div><label>نام پنل</label><input name="name" placeholder="پنل اصلی" required></div><div><label>Base URL</label><input name="base_url" placeholder="https://panel.example.com" required></div><div><label>روش ورود</label><select name="auth_mode"><option value="api_key">API Key</option><option value="bearer">نام کاربری و رمز</option></select></div><div><label>API Key</label><input name="api_key" type="password" placeholder="pg_key_..."></div><div><label>نام کاربری مدیر</label><input name="username"></div><div><label>رمز مدیر</label><input name="password" type="password"></div><div class="wide"><label>Proxy Settings JSON</label><textarea name="proxy_settings_json" rows="3">{"vless":{}}</textarea></div></div><label class="check"><input type="checkbox" name="verify_tls" checked> اعتبارسنجی گواهی TLS</label><button class="save">افزودن پنل</button></form>
@@ -510,6 +538,35 @@
       root.append(article);
     });
   }
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  function donut(rate) {
+    const value = Math.max(0, Math.min(100, Number(rate || 0)));
+    const wrap = create('div', 'operator-donut');
+    wrap.dataset.rate = String(value);
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 42 42');
+    svg.setAttribute('aria-hidden', 'true');
+    const track = document.createElementNS(SVG_NS, 'circle');
+    track.setAttribute('class', 'donut-track'); track.setAttribute('cx', '21'); track.setAttribute('cy', '21'); track.setAttribute('r', '16');
+    const progress = document.createElementNS(SVG_NS, 'circle');
+    progress.setAttribute('class', 'donut-progress'); progress.setAttribute('cx', '21'); progress.setAttribute('cy', '21'); progress.setAttribute('r', '16');
+    const circumference = 2 * Math.PI * 16;
+    progress.style.strokeDasharray = String(circumference);
+    progress.style.strokeDashoffset = String(circumference * (1 - value / 100));
+    svg.append(track, progress);
+    wrap.append(svg, create('span', '', `${value.toFixed(value % 1 ? 1 : 0)}٪`));
+    return wrap;
+  }
+  function initializeDonuts() {
+    document.querySelectorAll('.operator-donut').forEach(wrap => {
+      const progress = wrap.querySelector('.donut-progress');
+      if (!progress) return;
+      const value = Math.max(0, Math.min(100, Number(wrap.dataset.rate || 0)));
+      const circumference = 2 * Math.PI * 16;
+      progress.style.strokeDasharray = String(circumference);
+      requestAnimationFrame(() => { progress.style.strokeDashoffset = String(circumference * (1 - value / 100)); });
+    });
+  }
   function renderOperators(rows, liveRows) {
     const root = document.getElementById('blueai-live-operators');
     if (!root) return;
@@ -521,13 +578,16 @@
     }
     const names = new Set([...rows.map(item => item.name), ...liveMap.keys()]);
     [...names].slice(0, 10).forEach(name => {
-      const item = rows.find(row => row.name === name) || {events: 0, duration: 0};
-      const article = create('article');
-      const info = create('div');
+      const item = rows.find(row => row.name === name) || {events: 0, successes: 0, success_rate: 0, duration: 0};
+      const article = create('article', 'operator-chart-card');
+      article.append(donut(item.success_rate || 0));
+      const info = create('div', 'operator-chart-info');
       info.append(create('strong', '', name || 'ناشناخته'));
-      info.append(create('span', '', `${item.events || 0} رویداد • ${liveMap.get(name) || 0} آنلاین`));
+      info.append(create('span', '', `${item.successes || 0} موفق از ${item.events || 0} تست`));
+      const footer = create('small', '', `${(Number(item.duration || 0) / 3600).toFixed(1)} ساعت اتصال • `);
+      footer.append(create('b', '', liveMap.get(name) || 0), document.createTextNode(' آنلاین'));
+      info.append(footer);
       article.append(info);
-      article.append(create('b', '', `${(Number(item.duration || 0) / 3600).toFixed(1)}h`));
       root.append(article);
     });
   }
@@ -553,6 +613,12 @@
       liveBusy = false;
     }
   }
+  initializeDonuts();
+  document.querySelectorAll('form[data-confirm]').forEach(form => {
+    form.addEventListener('submit', event => {
+      if (!window.confirm(form.dataset.confirm || 'ادامه می‌دهید؟')) event.preventDefault();
+    });
+  });
   refreshLive();
   setInterval(refreshLive, 8000);
 })();

@@ -11,6 +11,7 @@ RUN apt-get update \
        ca-certificates \
        curl \
        openjdk-21-jre-headless \
+       postgresql-client \
     && java -version \
     && keytool -help >/dev/null \
     && rm -rf /var/lib/apt/lists/*

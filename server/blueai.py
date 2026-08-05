@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import case, desc, func, select
 from sqlalchemy.orm import Session
 
 from .models import AiConnectionEvent, AiFeedback, AiRouteAggregate, Customer
@@ -594,6 +594,12 @@ def admin_overview(db: Session) -> dict[str, Any]:
             AiConnectionEvent.operator,
             func.count(AiConnectionEvent.id),
             func.sum(AiConnectionEvent.duration_seconds),
+            func.sum(
+                case(
+                    (AiConnectionEvent.success.is_(True), 1),
+                    else_=0,
+                )
+            ),
         )
         .where(learning_filter)
         .group_by(AiConnectionEvent.operator)
@@ -649,6 +655,11 @@ def admin_overview(db: Session) -> dict[str, Any]:
                 "name": row[0],
                 "events": int(row[1] or 0),
                 "duration": int(row[2] or 0),
+                "successes": int(row[3] or 0),
+                "success_rate": round(
+                    int(row[3] or 0) * 100 / max(1, int(row[1] or 0)),
+                    1,
+                ),
             }
             for row in operator_rows
         ],

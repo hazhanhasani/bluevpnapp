@@ -1,11 +1,11 @@
 {
-  "version": "3.0.11",
-  "channel": "updater-network-fallback",
-  "build_id": "20260806-updater-network-fallback-v3011",
-  "built_at": "2026-08-05T21:55:00Z",
-  "android_version": "3.0.11",
-  "android_version_code": 30011,
-  "description": "BlueVPN 3.0.11: reliable in-app updater with physical-network permission, EPERM detection and automatic fallback to the current default route.",
+  "version": "3.0.12",
+  "channel": "admin-security-dashboard",
+  "build_id": "20260806-admin-security-dashboard-v3012",
+  "built_at": "2026-08-06T00:00:00Z",
+  "android_version": "3.0.12",
+  "android_version_code": 30012,
+  "description": "BlueVPN 3.0.12: Dark Glass admin dashboard, live operator success charts, IP-based authentication rate limiting and secure ZIP database backups.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -77,8 +77,20 @@
     "updater-eperm-auto-fallback",
     "default-route-download-retry",
     "friendly-updater-network-errors",
-    "connected-socket-bind-regression-guard"
+    "connected-socket-bind-regression-guard",
+    "dark-glass-admin-dashboard",
+    "vazirmatn-admin-typography",
+    "inline-svg-admin-icons",
+    "live-operator-success-donuts",
+    "ip-auth-rate-limiting",
+    "admin-login-rate-limiting",
+    "strict-admin-session-cookie",
+    "csrf-protected-database-backup",
+    "postgres-pg-dump-backup",
+    "sqlite-consistent-backup",
+    "backup-sha256-manifest",
+    "backup-download-no-store"
   ],
-  "version_code": 30011,
-  "notes": "خطای EPERM هنگام اتصال دانلودر به شبکه فیزیکی رفع شد؛ دانلودر ابتدا اینترنت مستقیم دستگاه و در صورت رد شدن bindSocket، مسیر عادی یا تونل فعال را خودکار امتحان می‌کند و دیگر خطای خام سیستمی به کاربر نمایش نمی‌دهد."
+  "version_code": 30012,
+  "notes": "پنل مدیریت با داشبورد شیشه‌ای و نمودار زنده اپراتورها بازطراحی شد؛ ورود و ثبت‌نام Rate Limit شدند و مدیر می‌تواند بکاپ امن ZIP از PostgreSQL یا SQLite دریافت کند."
 }

@@ -1,18 +1,17 @@
 {
-  "release": "3.0.11-auto",
-  "version_name": "3.0.11",
-  "version_code": 30011,
+  "release": "3.0.12-admin-security-dashboard",
+  "version_name": "3.0.12",
+  "version_code": 30012,
   "changes": [
-    "Deploy bot commits and pushes every non-secret ZIP file, including Dockerfile",
-    "Remote GitHub branch SHA must match the local commit before build continues",
-    "Push races retry with fetch/rebase and conflicts stop safely",
-    "APK build and delivery fail closed when source persistence fails",
-    "GitHub Actions no longer ignores metadata push failures",
-    "Generated Android Kotlin/XML source snapshot is committed to android-source/generated",
-    "GitHub Release targets the verified generated-source commit",
-    "Telegram messages show repository, branch, commit and direct commit URL"
+    "Dark Glass admin dashboard with Vazirmatn typography and inline SVG icons",
+    "Live BlueAI operator success-rate donut charts without external chart libraries",
+    "IP-based rate limiting for API register, API login and admin login",
+    "Secure admin session cookie settings and session rotation after login",
+    "CSRF-protected database backup download endpoint",
+    "PostgreSQL pg_dump and consistent SQLite backup packed into ZIP",
+    "Backup manifest includes table counts and SHA-256 without database credentials"
   ],
-  "generated_at_unix": 1785966235,
-  "purpose": "verified-github-source-persistence",
-  "updated_at": "2026-08-05T21:55:00Z"
+  "generated_at_unix": 1785974400,
+  "purpose": "admin-security-backup-dashboard",
+  "updated_at": "2026-08-06T00:00:00Z"
 }

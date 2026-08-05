@@ -1,17 +1,19 @@
 from __future__ import annotations
-import json,os,re,secrets,uuid
+import hashlib,ipaddress,json,logging,os,re,secrets,shutil,sqlite3,subprocess,tempfile,threading,time,uuid,zipfile
+from collections import deque
 from urllib.parse import quote_plus
 from datetime import datetime,timedelta,timezone
 from pathlib import Path
 from typing import Any
 from fastapi import Depends,FastAPI,Form,Header,HTTPException,Request
-from fastapi.responses import HTMLResponse,JSONResponse,RedirectResponse,Response
+from fastapi.responses import FileResponse,HTMLResponse,JSONResponse,RedirectResponse,Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func,select
 from sqlalchemy.orm import Session,selectinload
+from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
-from .database import DATABASE_ERROR,DATABASE_MODE,SessionLocal,database_status,database_table_counts,initialize_database,get_db
+from .database import DATABASE_ERROR,DATABASE_MODE,ENGINE,SQLITE_PATH,SessionLocal,database_status,database_table_counts,initialize_database,get_db
 from .integrations import IntegrationError,combined_subscription,create_invoice,get_invoice,provision,sync_customer,test_marzban_panel,test_panel,verify_webhook
 from .guardcore import service_ids_from_json,test_guardcore_panel
 from .manual_guardcore import (
@@ -28,9 +30,216 @@ from .models import AppSetting,Customer,CustomerDevice,CustomerSession,GuardCore
 from .blueai import admin_overview as blueai_admin_overview, customer_dashboard as blueai_customer_dashboard, recommendations as blueai_recommendations, submit_event as blueai_submit_event, submit_feedback as blueai_submit_feedback
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 from .version import VERSION, VERSION_CODE
-BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
+BASE=Path(__file__).resolve().parent
+logger=logging.getLogger('bluevpn.main')
+templates=Jinja2Templates(directory=BASE/'templates')
 DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Ultimate AI Platform',version=VERSION); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+
+
+def env_bool(name:str,default:bool=False)->bool:
+    value=os.getenv(name)
+    if value is None:return default
+    return value.strip().lower() in {'1','true','yes','on'}
+
+
+class SlidingWindowRateLimiter:
+    """Small in-process limiter for authentication endpoints.
+
+    It intentionally stores no password, email or raw header. Keys are a scope
+    plus a validated client IP. Railway normally runs one web process; for a
+    multi-replica deployment use Redis or a database-backed limiter instead.
+    """
+    def __init__(self,max_buckets:int=20000):
+        self.max_buckets=max(1000,max_buckets)
+        self._buckets:dict[str,deque[float]]={}
+        self._last_seen:dict[str,float]={}
+        self._lock=threading.Lock()
+        self._hits=0
+
+    def hit(self,key:str,limit:int,window_seconds:int)->int:
+        now=time.monotonic();limit=max(1,int(limit));window=max(1,int(window_seconds))
+        with self._lock:
+            self._hits+=1
+            bucket=self._buckets.setdefault(key,deque())
+            cutoff=now-window
+            while bucket and bucket[0]<=cutoff:bucket.popleft()
+            if len(bucket)>=limit:
+                return max(1,int(window-(now-bucket[0]))+1)
+            bucket.append(now)
+            self._last_seen[key]=now
+            if self._hits%500==0 or len(self._buckets)>self.max_buckets:
+                stale_before=now-86400
+                for old_key,last_seen in list(self._last_seen.items()):
+                    if last_seen<stale_before:
+                        self._last_seen.pop(old_key,None)
+                        self._buckets.pop(old_key,None)
+                if len(self._buckets)>self.max_buckets:
+                    overflow=len(self._buckets)-self.max_buckets
+                    oldest=sorted(self._last_seen,key=self._last_seen.get)[:overflow]
+                    for old_key in oldest:
+                        self._last_seen.pop(old_key,None)
+                        self._buckets.pop(old_key,None)
+            return 0
+
+    def reset(self,key:str)->None:
+        with self._lock:
+            self._buckets.pop(key,None)
+            self._last_seen.pop(key,None)
+
+
+AUTH_LIMITER=SlidingWindowRateLimiter()
+BACKUP_LOCK=threading.Lock()
+
+
+def _validated_ip(raw:str)->str:
+    value=(raw or '').strip()
+    if not value:return ''
+    if value.startswith('[') and ']' in value:value=value[1:value.index(']')]
+    elif value.count(':')==1 and '.' in value:value=value.rsplit(':',1)[0]
+    try:return str(ipaddress.ip_address(value))
+    except ValueError:return ''
+
+
+def client_ip(request:Request)->str:
+    trust_proxy=env_bool('TRUST_PROXY_HEADERS',bool(os.getenv('RAILWAY_PROJECT_ID')))
+    candidates=[]
+    if trust_proxy:
+        candidates.extend([
+            request.headers.get('cf-connecting-ip',''),
+            (request.headers.get('x-forwarded-for','').split(',')[0] if request.headers.get('x-forwarded-for') else ''),
+            request.headers.get('x-real-ip',''),
+        ])
+    if request.client:candidates.append(request.client.host)
+    for candidate in candidates:
+        valid=_validated_ip(candidate)
+        if valid:return valid
+    return 'unknown'
+
+
+def rate_limit_retry(request:Request,scope:str,limit:int,window_seconds:int)->int:
+    return AUTH_LIMITER.hit(f'{scope}:{client_ip(request)}',limit,window_seconds)
+
+
+def rate_limit_exception(retry_after:int)->HTTPException:
+    return HTTPException(
+        429,
+        detail={'code':'RATE_LIMITED','message':'تعداد تلاش‌ها بیش از حد مجاز است؛ کمی بعد دوباره تلاش کنید.'},
+        headers={'Retry-After':str(max(1,retry_after))},
+    )
+
+
+def csrf_token(request:Request)->str:
+    token=str(request.session.get('csrf_token',''))
+    if len(token)<32:
+        token=secrets.token_urlsafe(32)
+        request.session['csrf_token']=token
+    return token
+
+
+def require_admin_csrf(request:Request,submitted:str)->None:
+    admin_required(request)
+    expected=str(request.session.get('csrf_token',''))
+    if not expected or not secrets.compare_digest(expected,str(submitted or '')):
+        raise HTTPException(403,'CSRF token is invalid')
+
+
+def _sha256_file(path:Path)->str:
+    digest=hashlib.sha256()
+    with path.open('rb') as handle:
+        for chunk in iter(lambda:handle.read(1024*1024),b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _backup_manifest()->dict[str,Any]:
+    status=database_status()
+    return {
+        'product':'BlueVPN',
+        'backend_version':VERSION,
+        'version_code':VERSION_CODE,
+        'created_at':utcnow().isoformat(),
+        'database_mode':DATABASE_MODE,
+        'schema_version':status.get('schema_version',''),
+        'table_counts':database_table_counts(),
+        'restore_note':'فایل dump را فقط در محیط امن و روی دیتابیس مقصد بازیابی کنید.',
+    }
+
+
+def create_database_backup()->tuple[Path,str,Path]:
+    if not BACKUP_LOCK.acquire(blocking=False):
+        raise HTTPException(409,'یک عملیات پشتیبان‌گیری دیگر در حال اجرا است')
+    temp_dir=Path(tempfile.mkdtemp(prefix='bluevpn-db-backup-'))
+    try:
+        stamp=utcnow().strftime('%Y%m%d-%H%M%S')
+        manifest=_backup_manifest()
+        if DATABASE_MODE=='postgres':
+            pg_dump=shutil.which('pg_dump')
+            if not pg_dump:
+                raise RuntimeError('pg_dump در کانتینر نصب نیست')
+            url=ENGINE.url
+            dump_path=temp_dir/f'bluevpn-postgres-{stamp}.dump'
+            command=[
+                pg_dump,
+                '--format=custom','--compress=6','--no-owner','--no-acl',
+                '--file',str(dump_path),
+                '--host',str(url.host or ''),
+                '--port',str(url.port or 5432),
+                '--username',str(url.username or ''),
+                '--dbname',str(url.database or ''),
+            ]
+            env=os.environ.copy()
+            if url.password is not None:env['PGPASSWORD']=str(url.password)
+            result=subprocess.run(command,env=env,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,timeout=300,check=False)
+            if result.returncode!=0:
+                raise RuntimeError('pg_dump ناموفق بود: '+(result.stderr or result.stdout)[-1200:])
+            payload_path=dump_path
+            manifest['format']='postgresql-custom-dump'
+        else:
+            source=Path(str(ENGINE.url.database or SQLITE_PATH))
+            if not source.exists():raise RuntimeError('فایل SQLite پیدا نشد')
+            dump_path=temp_dir/f'bluevpn-sqlite-{stamp}.db'
+            src=sqlite3.connect(f'file:{source}?mode=ro',uri=True,timeout=30)
+            dst=sqlite3.connect(dump_path)
+            try:src.backup(dst,pages=1000,sleep=0.01)
+            finally:dst.close();src.close()
+            payload_path=dump_path
+            manifest['format']='sqlite-database'
+        checksum=_sha256_file(payload_path)
+        manifest['payload_file']=payload_path.name
+        manifest['payload_sha256']=checksum
+        manifest_path=temp_dir/'manifest.json'
+        manifest_path.write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
+        restore_path=temp_dir/'RESTORE_FA.txt'
+        restore_path.write_text(
+            "پشتیبان BlueVPN\n\n"
+            "PostgreSQL: از pg_restore روی یک دیتابیس خالی استفاده کنید.\n"
+            "SQLite: سرویس را متوقف و فایل دیتابیس را با نسخه پشتیبان جایگزین کنید.\n"
+            "قبل از بازیابی، حتماً از دیتابیس مقصد نیز بکاپ بگیرید.\n",
+            encoding='utf-8',
+        )
+        zip_path=temp_dir/f'bluevpn-database-backup-{stamp}.zip'
+        with zipfile.ZipFile(zip_path,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6) as archive:
+            archive.write(payload_path,payload_path.name)
+            archive.write(manifest_path,manifest_path.name)
+            archive.write(restore_path,restore_path.name)
+        return zip_path,zip_path.name,temp_dir
+    except Exception:
+        shutil.rmtree(temp_dir,ignore_errors=True)
+        raise
+    finally:
+        BACKUP_LOCK.release()
+
+
+session_https_only=env_bool('SESSION_HTTPS_ONLY',bool(os.getenv('RAILWAY_PROJECT_ID')))
+app=FastAPI(title='BlueVPN Ultimate AI Platform',version=VERSION)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),
+    same_site='strict',
+    https_only=session_https_only,
+    max_age=max(900,int(os.getenv('ADMIN_SESSION_MAX_AGE','43200'))),
+)
+app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -294,14 +503,38 @@ async def mobile_config(
     )
 @app.post('/api/v1/auth/register')
 async def register(request:Request,db:Session=Depends(get_db)):
+    retry=rate_limit_retry(
+        request,'api-register',
+        int(os.getenv('AUTH_REGISTER_RATE_LIMIT','20')),
+        int(os.getenv('AUTH_REGISTER_WINDOW_SECONDS','3600')),
+    )
+    if retry:raise rate_limit_exception(retry)
     b=await request.json();email=email_ok(str(b.get('email','')));password=str(b.get('password',''))
     if len(password)<8:raise HTTPException(422,detail={'code':'WEAK_PASSWORD','message':'رمز عبور حداقل ۸ نویسه باشد'})
     if db.scalar(select(Customer).where(Customer.email==email)):raise HTTPException(409,detail={'code':'EMAIL_EXISTS','message':'این ایمیل قبلاً ثبت شده است'})
     c=Customer(email=email,password_hash=password_hash(password),device_limit=1);db.add(c);db.flush();token,refresh_token=issue_session(db,c,str(b.get('device_id','')),str(b.get('device_name','')));return {'success':True,'token':token,'refresh_token':refresh_token,'account':account_json(c)}
 @app.post('/api/v1/auth/login')
 async def login(request:Request,db:Session=Depends(get_db)):
-    b=await request.json();email=email_ok(str(b.get('email','')));c=db.scalar(select(Customer).where(Customer.email==email))
+    ip=client_ip(request)
+    b=await request.json();email=email_ok(str(b.get('email','')))
+    account_key=hashlib.sha256(email.encode()).hexdigest()[:20]
+    window=int(os.getenv('AUTH_LOGIN_WINDOW_SECONDS','600'))
+    global_retry=AUTH_LIMITER.hit(
+        f'api-login-ip:{ip}',
+        int(os.getenv('AUTH_LOGIN_IP_RATE_LIMIT','120')),
+        window,
+    )
+    target_key=f'api-login:{ip}:{account_key}'
+    target_retry=AUTH_LIMITER.hit(
+        target_key,
+        int(os.getenv('AUTH_LOGIN_RATE_LIMIT','12')),
+        window,
+    )
+    retry=max(global_retry,target_retry)
+    if retry:raise rate_limit_exception(retry)
+    c=db.scalar(select(Customer).where(Customer.email==email))
     if not c or not password_ok(str(b.get('password','')),c.password_hash):raise HTTPException(401,detail={'code':'INVALID_CREDENTIALS','message':'ایمیل یا رمز نادرست است'})
+    AUTH_LIMITER.reset(target_key)
     token,refresh_token=issue_session(db,c,str(b.get('device_id','')),str(b.get('device_name','')));return {'success':True,'token':token,'refresh_token':refresh_token,'account':account_json(c)}
 @app.post('/api/v1/auth/refresh')
 async def refresh_login(request:Request,db:Session=Depends(get_db)):
@@ -516,8 +749,26 @@ async def public_subscription(
 def admin_login_page(request:Request):return templates.TemplateResponse(request=request,name='login.html',context={'error':''}) if not request.session.get('admin') else RedirectResponse('/admin',302)
 @app.post('/admin/login',response_class=HTMLResponse)
 def admin_login(request:Request,username:str=Form(...),password:str=Form(...)):
-    if not (secrets.compare_digest(username,os.getenv('ADMIN_USERNAME','admin')) and secrets.compare_digest(password,os.getenv('ADMIN_PASSWORD','CHANGE_THIS_PASSWORD'))):return templates.TemplateResponse(request=request,name='login.html',context={'error':'نام کاربری یا رمز نادرست است'},status_code=401)
-    request.session['admin']=True;return RedirectResponse('/admin',303)
+    ip=client_ip(request)
+    retry=AUTH_LIMITER.hit(
+        f'admin-login:{ip}',
+        int(os.getenv('ADMIN_LOGIN_RATE_LIMIT','8')),
+        int(os.getenv('ADMIN_LOGIN_WINDOW_SECONDS','900')),
+    )
+    if retry:
+        return templates.TemplateResponse(
+            request=request,name='login.html',
+            context={'error':f'تلاش‌های ورود بیش از حد مجاز است؛ {retry} ثانیه دیگر دوباره امتحان کنید.'},
+            status_code=429,headers={'Retry-After':str(retry)},
+        )
+    valid=(
+        secrets.compare_digest(username,os.getenv('ADMIN_USERNAME','admin'))
+        and secrets.compare_digest(password,os.getenv('ADMIN_PASSWORD','CHANGE_THIS_PASSWORD'))
+    )
+    if not valid:return templates.TemplateResponse(request=request,name='login.html',context={'error':'نام کاربری یا رمز نادرست است'},status_code=401)
+    AUTH_LIMITER.reset(f'admin-login:{ip}')
+    request.session.clear();request.session['admin']=True;request.session['admin_login_at']=utcnow().isoformat();csrf_token(request)
+    return RedirectResponse('/admin',303)
 @app.post('/admin/logout')
 def admin_logout(request:Request):request.session.clear();return RedirectResponse('/admin/login',303)
 @app.get('/admin',response_class=HTMLResponse)
@@ -584,6 +835,7 @@ def admin(request:Request,db:Session=Depends(get_db)):
             'manual_message':request.query_params.get('manual',''),
             'error':request.query_params.get('error',''),
             'github_repository':github_repository(),
+            'csrf_token':csrf_token(request),
         },
     )
 
@@ -628,6 +880,36 @@ def admin_database_initialize(
             )+'#database',
             303,
         )
+
+
+@app.post('/admin/database/backup')
+def admin_database_backup(
+    request:Request,
+    csrf:str=Form(...),
+):
+    require_admin_csrf(request,csrf)
+    try:
+        zip_path,download_name,temp_dir=create_database_backup()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception('Database backup failed for admin IP %s',client_ip(request))
+        return RedirectResponse(
+            '/admin?error='+quote_plus('ساخت نسخه پشتیبان ناموفق بود: '+str(exc)[:500])+'#database',
+            303,
+        )
+    logger.info('Database backup created for admin IP %s (%s)',client_ip(request),DATABASE_MODE)
+    return FileResponse(
+        path=zip_path,
+        filename=download_name,
+        media_type='application/zip',
+        headers={
+            'Cache-Control':'no-store, private',
+            'Pragma':'no-cache',
+            'X-Content-Type-Options':'nosniff',
+        },
+        background=BackgroundTask(shutil.rmtree,temp_dir,ignore_errors=True),
+    )
 
 @app.post('/admin/app-settings')
 def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),minimum_version:str=Form(...),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),auto_update:str|None=Form(None),announcement_enabled:str|None=Form(None),blueai_enabled:str|None=Form(None),blueai_collective:str|None=Form(None),blueai_auto_heal:str|None=Form(None),blueai_min_samples:int=Form(3),blueai_privacy_message:str=Form(''),db:Session=Depends(get_db)):

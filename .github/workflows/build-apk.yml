@@ -45,7 +45,7 @@ jobs:
             fi
           done
 
-      - name: Generate next BlueVPN 2.1 version
+      - name: Generate next BlueVPN 2.2 version
         id: config
         env:
           GH_TOKEN: ${{ github.token }}
@@ -57,14 +57,14 @@ jobs:
             gh api               "repos/${GITHUB_REPOSITORY}/releases/latest"               --jq '.tag_name'               2>/dev/null || true
           )"
 
-          NEXT_PATCH=1
+          NEXT_PATCH=0
 
-          if [[ "${LATEST_TAG}" =~ ^v?2\.1\.([0-9]+)$ ]]; then
+          if [[ "${LATEST_TAG}" =~ ^v?2\.2\.([0-9]+)$ ]]; then
             NEXT_PATCH="$((BASH_REMATCH[1] + 1))"
           fi
 
-          AUTO_VERSION="2.1.${NEXT_PATCH}"
-          AUTO_VERSION_CODE="$((21000 + NEXT_PATCH))"
+          AUTO_VERSION="2.2.${NEXT_PATCH}"
+          AUTO_VERSION_CODE="$((22000 + NEXT_PATCH))"
 
           export AUTO_VERSION AUTO_VERSION_CODE
 
@@ -85,7 +85,7 @@ jobs:
               os.environ["AUTO_VERSION_CODE"]
           )
           data["version_source"] = (
-              "latest_github_release_increment_2_1"
+              "latest_github_release_increment_2_2"
           )
 
           path.write_text(

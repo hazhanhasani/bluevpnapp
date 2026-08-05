@@ -1,14 +1,14 @@
 {
   "name": "BlueVPN",
-  "version": "2.1.1",
-  "channel": "premium-dialog-install-loop-fix",
-  "description": "Premium custom in-app dialogs, stale update state cleanup after installation, semantic-version-first comparison, and one-time Android installer launch.",
+  "version": "2.2.0",
+  "channel": "android-guardcore-multi-provider",
+  "description": "GuardCore Provider برای پنل BlueVPN، ساخت و همگام‌سازی اشتراک روی PasarGuard، Marzban و GuardCore، تجمیع لینک‌ها، تخصیص حجم چندProvider و داشبورد مدیریت اتصال‌ها. تمرکز خروجی فقط Android است.",
   "build_id": "20260804171929",
   "built_at": "2026-08-04T17:19:29.470253+00:00",
-  "android_version": "2.1.<latest_release_patch_plus_one_with_floor_1>",
-  "android_version_code": "21000 + release_patch",
+  "android_version": "2.2.<latest_release_patch_plus_one_or_zero>",
+  "android_version_code": "22000 + release_patch",
   "deploy_bot_version": "2.5-push-trigger",
   "build_trigger": "git-empty-commit-push",
   "update_source": "github_releases",
-  "version_strategy": "This fix starts at 2.1.1. If latest release is v2.1.N, publish v2.1.(N+1)."
+  "version_strategy": "If latest release is v2.2.N publish v2.2.(N+1); if no 2.2 release exists publish v2.2.0."
 }

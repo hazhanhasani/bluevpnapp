@@ -33,3 +33,7 @@
 .github-release-box b{display:block;color:#e9f3ff;margin-bottom:7px}
 .github-release-box p{color:#9fb8dc;line-height:1.9;margin:0 0 9px}
 .github-release-box code{display:block;direction:ltr;text-align:left;color:#6fb0ff;overflow-wrap:anywhere}
+
+.provider-card{position:relative;overflow:hidden}.provider-card:before{content:"";position:absolute;width:220px;height:220px;border-radius:50%;filter:blur(70px);opacity:.17;left:-80px;top:-100px;pointer-events:none}.guardcore-card:before{background:#7c4dff}.provider-title{display:flex;align-items:center;justify-content:space-between;gap:14px}.provider-title>div{display:flex;align-items:center;gap:12px}.provider-title h2{margin:0}.provider-title p{margin:4px 0}.provider-icon{display:grid;place-items:center;width:48px;height:48px;border-radius:16px;background:linear-gradient(135deg,#7c4dff,#1676ff);box-shadow:0 10px 30px #6546e755;font-size:22px;font-weight:bold}.provider-success{color:#79e8bd}.multi-routing{grid-template-columns:repeat(4,minmax(130px,1fr)) auto}.badge.warn{background:#5d4721;color:#ffd78b}@media(max-width:900px){.multi-routing{grid-template-columns:1fr 1fr}}@media(max-width:650px){.provider-title{align-items:flex-start}.multi-routing{grid-template-columns:1fr}}
+
+.service-details{margin-top:7px}.service-details summary{cursor:pointer;color:#93bdff;font-size:11px}.service-details pre{direction:ltr;text-align:left;max-width:360px;white-space:pre-wrap;overflow:auto;background:#071a38;padding:8px;border-radius:9px;color:#bad3f7;font-size:10px}

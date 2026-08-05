@@ -89,6 +89,40 @@ class MarzbanPanel(Base):
     )
 
 
+class GuardCorePanel(Base):
+    __tablename__ = "guardcore_panels"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    base_url: Mapped[str] = mapped_column(String(500))
+    auth_mode: Mapped[str] = mapped_column(
+        String(20),
+        default="api_key",
+    )
+    api_key_enc: Mapped[str] = mapped_column(Text, default="")
+    username_enc: Mapped[str] = mapped_column(Text, default="")
+    password_enc: Mapped[str] = mapped_column(Text, default="")
+    usage_unit: Mapped[str] = mapped_column(
+        String(20),
+        default="bytes",
+    )
+    expire_mode: Mapped[str] = mapped_column(
+        String(20),
+        default="days",
+    )
+    services_json: Mapped[str] = mapped_column(Text, default="[]")
+    verify_tls: Mapped[bool] = mapped_column(Boolean, default=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_test_ok: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_test_message: Mapped[str] = mapped_column(Text, default="")
+    last_test_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+
+
 class Plan(Base):
     __tablename__ = "plans"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -116,6 +150,19 @@ class Plan(Base):
     )
     marzban_panel: Mapped[MarzbanPanel | None] = relationship()
     marzban_quota_mode: Mapped[str] = mapped_column(
+        String(20),
+        default="split",
+    )
+
+    guardcore_panel_id: Mapped[int | None] = mapped_column(
+        ForeignKey("guardcore_panels.id")
+    )
+    guardcore_panel: Mapped[GuardCorePanel | None] = relationship()
+    guardcore_service_ids_json: Mapped[str] = mapped_column(
+        Text,
+        default="[]",
+    )
+    multi_provider_quota_mode: Mapped[str] = mapped_column(
         String(20),
         default="split",
     )
@@ -176,6 +223,35 @@ class Customer(Base):
         default=0,
     )
     marzban_last_error: Mapped[str] = mapped_column(Text, default="")
+
+    guardcore_panel_id: Mapped[int | None] = mapped_column(
+        ForeignKey("guardcore_panels.id")
+    )
+    guardcore_username: Mapped[str] = mapped_column(
+        String(64),
+        default="",
+    )
+    guardcore_subscription_id: Mapped[int | None] = mapped_column(Integer)
+    guardcore_subscription_url: Mapped[str] = mapped_column(
+        Text,
+        default="",
+    )
+    guardcore_status: Mapped[str] = mapped_column(
+        String(40),
+        default="inactive",
+    )
+    guardcore_expire: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    guardcore_data_limit_bytes: Mapped[int] = mapped_column(
+        BigInteger,
+        default=0,
+    )
+    guardcore_used_traffic_bytes: Mapped[int] = mapped_column(
+        BigInteger,
+        default=0,
+    )
+    guardcore_last_error: Mapped[str] = mapped_column(Text, default="")
 
     subscription_token: Mapped[str] = mapped_column(
         String(100),

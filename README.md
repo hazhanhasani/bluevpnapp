@@ -66,3 +66,8 @@ Variables ضروری Railway در فایل `.env.example` فهرست شده‌ا
 Railway فقط در صورت تغییر فایل‌های سرور یا Dockerfile دوباره Deploy می‌شود.
 بنابراین Commitهای مربوط به Android و GitHub Actions دیگر ربات تلگرام را
 وسط فرایند ساخت APK قطع نمی‌کنند.
+
+
+## BlueVPN 2.2.0
+
+GuardCore Provider و موتور Multi Provider برای PasarGuard، Marzban و GuardCore اضافه شده است. خروجی محصول فعلاً فقط Android است.

@@ -13,12 +13,13 @@ from sqlalchemy.orm import Session,selectinload
 from starlette.middleware.sessions import SessionMiddleware
 from .database import DATABASE_ERROR,DATABASE_MODE,SessionLocal,database_status,database_table_counts,initialize_database,get_db
 from .integrations import IntegrationError,combined_subscription,create_invoice,get_invoice,provision,sync_customer,test_marzban_panel,test_panel,verify_webhook
+from .guardcore import service_ids_from_json,test_guardcore_panel
 from .github_release import github_repository,latest_github_release
-from .models import AppSetting,Customer,CustomerDevice,CustomerSession,MarzbanPanel,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery
+from .models import AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
 DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Platform',version='2.1.1'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+app=FastAPI(title='BlueVPN Platform',version='2.2.0'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -93,7 +94,11 @@ async def activate(db:Session,order:Order):
     if order.status=='activated':return
     order.status='paid';order.paid_at=order.paid_at or utcnow();db.commit()
     try:await provision(db,order.customer,order.plan,order,settings(db)['public_base_url'])
-    except Exception as exc:order.status='paid_needs_sync';order.activation_error=str(exc)[:2000];db.commit()
+    except Exception as exc:
+        if order.status!='partial_needs_sync':
+            order.status='paid_needs_sync'
+        order.activation_error=str(exc)[:2000]
+        db.commit()
 
 def admin_redirect(anchor:str,message:str='',error:str='')->RedirectResponse:
     query=[]
@@ -187,7 +192,7 @@ def health():
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
-        'version':'2.1.1',
+        'version':'2.2.0',
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }
@@ -441,9 +446,65 @@ def admin_login(request:Request,username:str=Form(...),password:str=Form(...)):
 def admin_logout(request:Request):request.session.clear();return RedirectResponse('/admin/login',303)
 @app.get('/admin',response_class=HTMLResponse)
 def admin(request:Request,db:Session=Depends(get_db)):
-    if not request.session.get('admin'):return RedirectResponse('/admin/login',302)
-    s=settings(db);pay=db.get(PaymentSetting,1);panels=db.scalars(select(PasarGuardPanel).order_by(PasarGuardPanel.id.desc())).all();marzban_panels=db.scalars(select(MarzbanPanel).order_by(MarzbanPanel.id.desc())).all();plans=db.scalars(select(Plan).options(selectinload(Plan.panel),selectinload(Plan.marzban_panel)).where(Plan.deleted.is_(False)).order_by(Plan.sort_order,Plan.id.desc())).all();customers=db.scalars(select(Customer).order_by(Customer.id.desc()).limit(100)).all();orders=db.scalars(select(Order).options(selectinload(Order.customer),selectinload(Order.plan)).order_by(Order.created_at.desc()).limit(100)).all();stats={'customers':db.scalar(select(func.count(Customer.id))) or 0,'active':db.scalar(select(func.count(Customer.id)).where(Customer.subscription_status=='active')) or 0,'paid':db.scalar(select(func.count(Order.id)).where(Order.status.in_(['paid','activated','paid_needs_sync','partial_needs_sync']),~Order.order_code.like('MANUAL-%'))) or 0,'manual':db.scalar(select(func.count(Order.id)).where(Order.order_code.like('MANUAL-%'))) or 0,'panels':len(panels)+len(marzban_panels)}
-    return templates.TemplateResponse(request=request,name='admin.html',context={'settings':s,'payment':pay,'payment_api_mask':mask(decrypt(pay.api_key_enc)),'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),'panels':panels,'panel_masks':{x.id:mask(decrypt(x.api_key_enc) or decrypt(x.username_enc)) for x in panels},'marzban_panels':marzban_panels,'marzban_masks':{x.id:mask(decrypt(x.username_enc)) for x in marzban_panels},'plans':plans,'customers':customers,'orders':orders,'stats':stats,'database_mode':DATABASE_MODE,'database_info':database_status(),'database_counts':database_table_counts(),'saved':request.query_params.get('saved')=='1','manual_message':request.query_params.get('manual',''),'error':request.query_params.get('error',''),'github_repository':github_repository()})
+    if not request.session.get('admin'):
+        return RedirectResponse('/admin/login',302)
+    s=settings(db)
+    pay=db.get(PaymentSetting,1)
+    panels=db.scalars(select(PasarGuardPanel).order_by(PasarGuardPanel.id.desc())).all()
+    marzban_panels=db.scalars(select(MarzbanPanel).order_by(MarzbanPanel.id.desc())).all()
+    guardcore_panels=db.scalars(select(GuardCorePanel).order_by(GuardCorePanel.id.desc())).all()
+    plans=db.scalars(
+        select(Plan)
+        .options(
+            selectinload(Plan.panel),
+            selectinload(Plan.marzban_panel),
+            selectinload(Plan.guardcore_panel),
+        )
+        .where(Plan.deleted.is_(False))
+        .order_by(Plan.sort_order,Plan.id.desc())
+    ).all()
+    customers=db.scalars(select(Customer).order_by(Customer.id.desc()).limit(100)).all()
+    orders=db.scalars(
+        select(Order)
+        .options(selectinload(Order.customer),selectinload(Order.plan))
+        .order_by(Order.created_at.desc())
+        .limit(100)
+    ).all()
+    stats={
+        'customers':db.scalar(select(func.count(Customer.id))) or 0,
+        'active':db.scalar(select(func.count(Customer.id)).where(Customer.subscription_status=='active')) or 0,
+        'paid':db.scalar(select(func.count(Order.id)).where(Order.status.in_(['paid','activated','paid_needs_sync','partial_needs_sync']),~Order.order_code.like('MANUAL-%'))) or 0,
+        'manual':db.scalar(select(func.count(Order.id)).where(Order.order_code.like('MANUAL-%'))) or 0,
+        'panels':len(panels)+len(marzban_panels)+len(guardcore_panels),
+        'guardcore':len(guardcore_panels),
+    }
+    return templates.TemplateResponse(
+        request=request,
+        name='admin.html',
+        context={
+            'settings':s,
+            'payment':pay,
+            'payment_api_mask':mask(decrypt(pay.api_key_enc)),
+            'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),
+            'panels':panels,
+            'panel_masks':{x.id:mask(decrypt(x.api_key_enc) or decrypt(x.username_enc)) for x in panels},
+            'marzban_panels':marzban_panels,
+            'marzban_masks':{x.id:mask(decrypt(x.username_enc)) for x in marzban_panels},
+            'guardcore_panels':guardcore_panels,
+            'guardcore_masks':{x.id:mask(decrypt(x.api_key_enc) or decrypt(x.username_enc)) for x in guardcore_panels},
+            'plans':plans,
+            'customers':customers,
+            'orders':orders,
+            'stats':stats,
+            'database_mode':DATABASE_MODE,
+            'database_info':database_status(),
+            'database_counts':database_table_counts(),
+            'saved':request.query_params.get('saved')=='1',
+            'manual_message':request.query_params.get('manual',''),
+            'error':request.query_params.get('error',''),
+            'github_repository':github_repository(),
+        },
+    )
 @app.post('/admin/database/initialize')
 def admin_database_initialize(
     request:Request,
@@ -588,43 +649,156 @@ def marzban_panel_toggle(
         db.commit()
     return RedirectResponse('/admin?saved=1#marzban',303)
 
+@app.post('/admin/guardcore-panels')
+def add_guardcore_panel(
+    request:Request,
+    name:str=Form(...),
+    base_url:str=Form(...),
+    auth_mode:str=Form('api_key'),
+    api_key:str=Form(''),
+    username:str=Form(''),
+    password:str=Form(''),
+    usage_unit:str=Form('bytes'),
+    expire_mode:str=Form('days'),
+    verify_tls:str|None=Form(None),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    if auth_mode not in {'api_key','password'}:
+        auth_mode='api_key'
+    if usage_unit not in {'bytes','gb'}:
+        usage_unit='bytes'
+    if expire_mode not in {'days','seconds','timestamp'}:
+        expire_mode='days'
+    panel=GuardCorePanel(
+        name=name.strip(),
+        base_url=base_url.rstrip('/'),
+        auth_mode=auth_mode,
+        api_key_enc=encrypt(api_key.strip()),
+        username_enc=encrypt(username.strip()),
+        password_enc=encrypt(password),
+        usage_unit=usage_unit,
+        expire_mode=expire_mode,
+        verify_tls=verify_tls=='on',
+    )
+    db.add(panel)
+    db.commit()
+    return RedirectResponse('/admin?saved=1#guardcore',303)
+
+
+@app.post('/admin/guardcore-panels/{panel_id}/test')
+async def guardcore_panel_test(
+    request:Request,
+    panel_id:int,
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    panel=db.get(GuardCorePanel,panel_id)
+    if not panel:
+        raise HTTPException(404)
+    ok,message,services=await test_guardcore_panel(panel)
+    panel.last_test_ok=ok
+    panel.last_test_message=message
+    panel.last_test_at=utcnow()
+    if ok:
+        panel.services_json=json.dumps(services,ensure_ascii=False)
+    db.commit()
+    return RedirectResponse(
+        '/admin?'+('saved=1' if ok else 'error='+quote_plus(message[:300]))+'#guardcore',
+        303,
+    )
+
+
+@app.post('/admin/guardcore-panels/{panel_id}/toggle')
+def guardcore_panel_toggle(
+    request:Request,
+    panel_id:int,
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    panel=db.get(GuardCorePanel,panel_id)
+    if panel:
+        panel.active=not panel.active
+        db.commit()
+    return RedirectResponse('/admin?saved=1#guardcore',303)
+
+
 @app.post('/admin/plans')
-def add_plan(request:Request,title:str=Form(...),description:str=Form(''),price_toman:int=Form(...),duration_days:int=Form(...),data_limit_gb:int=Form(...),device_limit:int=Form(...),panel_id:int=Form(...),marzban_panel_id:int=Form(0),marzban_quota_mode:str=Form('split'),group_ids:str=Form(''),sort_order:int=Form(0),db:Session=Depends(get_db)):
-    admin_required(request);groups=[int(x.strip()) for x in group_ids.split(',') if x.strip().isdigit()];secondary=marzban_panel_id if marzban_panel_id>0 else None;quota_mode=marzban_quota_mode if marzban_quota_mode in {'split','full'} else 'split';db.add(Plan(title=title,description=description,price_toman=max(1000,price_toman),duration_days=max(0,duration_days),data_limit_gb=max(0,data_limit_gb),device_limit=1 if device_limit<=1 else 2,panel_id=panel_id,marzban_panel_id=secondary,marzban_quota_mode=quota_mode,group_ids_json=json.dumps(groups),deleted=False,sort_order=sort_order));db.commit();return RedirectResponse('/admin?saved=1#plans',303)
+def add_plan(
+    request:Request,
+    title:str=Form(...),
+    description:str=Form(''),
+    price_toman:int=Form(...),
+    duration_days:int=Form(...),
+    data_limit_gb:int=Form(...),
+    device_limit:int=Form(...),
+    panel_id:int=Form(...),
+    marzban_panel_id:int=Form(0),
+    guardcore_panel_id:int=Form(0),
+    guardcore_service_ids:str=Form(''),
+    multi_provider_quota_mode:str=Form('split'),
+    group_ids:str=Form(''),
+    sort_order:int=Form(0),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    groups=[int(x.strip()) for x in group_ids.split(',') if x.strip().isdigit()]
+    services=[int(x.strip()) for x in guardcore_service_ids.split(',') if x.strip().isdigit()]
+    secondary=marzban_panel_id if marzban_panel_id>0 else None
+    guard=guardcore_panel_id if guardcore_panel_id>0 else None
+    mode=multi_provider_quota_mode if multi_provider_quota_mode in {'split','full'} else 'split'
+    if guard and not services:
+        return RedirectResponse('/admin?error=برای+GuardCore+حداقل+یک+Service+ID+لازم+است#plans',303)
+    db.add(Plan(
+        title=title,
+        description=description,
+        price_toman=max(1000,price_toman),
+        duration_days=max(0,duration_days),
+        data_limit_gb=max(0,data_limit_gb),
+        device_limit=1 if device_limit<=1 else 2,
+        panel_id=panel_id,
+        marzban_panel_id=secondary,
+        marzban_quota_mode=mode,
+        guardcore_panel_id=guard,
+        guardcore_service_ids_json=json.dumps(services),
+        multi_provider_quota_mode=mode,
+        group_ids_json=json.dumps(groups),
+        deleted=False,
+        sort_order=sort_order,
+    ))
+    db.commit()
+    return RedirectResponse('/admin?saved=1#plans',303)
+
+
 @app.post('/admin/plans/{plan_id}/panel-routing')
 def plan_panel_routing(
     request:Request,
     plan_id:int,
     marzban_panel_id:int=Form(0),
-    marzban_quota_mode:str=Form('split'),
+    guardcore_panel_id:int=Form(0),
+    guardcore_service_ids:str=Form(''),
+    multi_provider_quota_mode:str=Form('split'),
     db:Session=Depends(get_db),
 ):
     admin_required(request)
     plan=db.get(Plan,plan_id)
     if not plan or plan.deleted:
-        return RedirectResponse(
-            '/admin?error=پلن+پیدا+نشد#plans',
-            303,
-        )
-
-    secondary=(
-        marzban_panel_id
-        if marzban_panel_id>0
-        else None
-    )
-
+        return RedirectResponse('/admin?error=پلن+پیدا+نشد#plans',303)
+    secondary=marzban_panel_id if marzban_panel_id>0 else None
+    guard=guardcore_panel_id if guardcore_panel_id>0 else None
+    services=[int(x.strip()) for x in guardcore_service_ids.split(',') if x.strip().isdigit()]
     if secondary and not db.get(MarzbanPanel,secondary):
-        return RedirectResponse(
-            '/admin?error=پنل+Marzban+پیدا+نشد#plans',
-            303,
-        )
-
+        return RedirectResponse('/admin?error=پنل+Marzban+پیدا+نشد#plans',303)
+    if guard and not db.get(GuardCorePanel,guard):
+        return RedirectResponse('/admin?error=پنل+GuardCore+پیدا+نشد#plans',303)
+    if guard and not services:
+        return RedirectResponse('/admin?error=برای+GuardCore+حداقل+یک+Service+ID+لازم+است#plans',303)
+    mode=multi_provider_quota_mode if multi_provider_quota_mode in {'split','full'} else 'split'
     plan.marzban_panel_id=secondary
-    plan.marzban_quota_mode=(
-        marzban_quota_mode
-        if marzban_quota_mode in {'split','full'}
-        else 'split'
-    )
+    plan.marzban_quota_mode=mode
+    plan.guardcore_panel_id=guard
+    plan.guardcore_service_ids_json=json.dumps(services)
+    plan.multi_provider_quota_mode=mode
     db.commit()
     return RedirectResponse('/admin?saved=1#plans',303)
 
@@ -644,9 +818,9 @@ async def repair_plan_customers(
             303,
         )
 
-    if not plan.marzban_panel_id:
+    if not plan.marzban_panel_id and not plan.guardcore_panel_id:
         return RedirectResponse(
-            '/admin?error=ابتدا+پنل+دوم+Marzban+را+برای+پلن+انتخاب+کنید#plans',
+            '/admin?error=ابتدا+Marzban+یا+GuardCore+را+برای+پلن+انتخاب+کنید#plans',
             303,
         )
 
@@ -666,10 +840,15 @@ async def repair_plan_customers(
                 customer,
                 settings(db)['public_base_url'],
             )
-            if (
-                customer.marzban_panel_id
-                and customer.marzban_username
-            ):
+            marzban_ok=(
+                not plan.marzban_panel_id
+                or bool(customer.marzban_panel_id and customer.marzban_username)
+            )
+            guardcore_ok=(
+                not plan.guardcore_panel_id
+                or bool(customer.guardcore_panel_id and customer.guardcore_username)
+            )
+            if marzban_ok and guardcore_ok:
                 repaired+=1
             else:
                 failed+=1
@@ -689,7 +868,7 @@ async def repair_plan_customers(
     return RedirectResponse(
         '/admin?manual='
         +quote_plus(
-            f'{repaired} کاربر فعلی روی Marzban همگام شدند'
+            f'{repaired} کاربر فعلی روی Providerهای جدید همگام شدند'
         )
         +'#plans',
         303,
@@ -819,6 +998,10 @@ async def customer_source_check(
             'X-BlueVPN-Marzban-Api-Raw-Count',
             '0',
         )
+        gc=headers.get(
+            'X-BlueVPN-GuardCore-Count',
+            '0',
+        )
         total=headers.get(
             'X-BlueVPN-Config-Count',
             '0',
@@ -828,7 +1011,8 @@ async def customer_source_check(
             f'منابع اشتراک — PasarGuard: {pg}، '
             f'ساب واقعی Marzban: {mz_sub}، '
             f'API Marzban: {mz_api}، '
-            f'Marzban نهایی: {mz}، مجموع: {total}'
+            f'Marzban نهایی: {mz}، '
+            f'GuardCore: {gc}، مجموع: {total}'
         )
 
         if errors:
@@ -836,7 +1020,7 @@ async def customer_source_check(
 
         return admin_redirect(
             'customers',
-            manual=message[:1500],
+            message=message[:1500],
         )
 
     except Exception as exc:

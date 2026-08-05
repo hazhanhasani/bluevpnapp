@@ -47,7 +47,7 @@ def _headers(authenticated: bool = True) -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "BlueVPN-Update-Service/2.1.1",
+        "User-Agent": "BlueVPN-Update-Service/2.2.0",
     }
 
     token = os.getenv("GITHUB_TOKEN", "").strip()
@@ -101,6 +101,8 @@ def _fallback_version_code(version: str) -> int:
             return 20_000 + patch
         if major == 2 and minor == 1:
             return 21_000 + patch
+        if major == 2 and minor == 2:
+            return 22_000 + patch
         return (
             major * 1_000_000
             + minor * 10_000

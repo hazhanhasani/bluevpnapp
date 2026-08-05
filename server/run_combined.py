@@ -20,7 +20,7 @@ import uvicorn
 APP_DIR = Path("/app")
 BOT_DIR = Path("/opt/bluevpn_bot")
 ERROR_LOG = Path("/tmp/bluevpn-startup-error.log")
-VERSION = "2.1.1"
+VERSION = "2.2.0"
 
 for directory in (APP_DIR, BOT_DIR):
     value = str(directory)

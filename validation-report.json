@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.9",
-  "version_code": 30009,
+  "project_version": "3.0.11",
+  "version_code": 30011,
   "schema_version": 9,
-  "release": "3.0.9",
+  "release": "3.0.11",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.9/30009)",
+  "version_consistency": "passed (release/branding/backend 3.0.11/30011)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -76,5 +76,23 @@
   "generated_android_source_snapshot": "enabled (23 files + manifest)",
   "github_release_target": "verified persisted source commit",
   "github_source_persistence_smoke": "passed (local bare Git remote; local SHA == remote SHA)",
-  "workflow_source_persistence_smoke": "passed (metadata commit + 23 generated files + manifest pushed to local bare remote)"
+  "workflow_source_persistence_smoke": "passed (metadata commit + 23 generated files + manifest pushed to local bare remote)",
+  "blueai_logic_upgrade": {
+    "time_decay_half_life_hours": 2.0,
+    "recent_window_hours": 48,
+    "recent_event_limit": 600,
+    "operator_block_failure_rate": 0.72,
+    "operator_block_min_total_samples": 10,
+    "operator_block_min_effective_recent_samples": 5.0,
+    "database_migration_required": false
+  },
+  "validation_status": "passed",
+  "python_compile": "passed",
+  "json_yaml": "passed",
+  "generated_android": "passed (21 embedded sources, 29 ids)",
+  "blueai_tests": "passed (5 tests)",
+  "updater_physical_network_permission": "included",
+  "updater_eperm_fallback": "included",
+  "updater_default_route_retry": "included",
+  "updater_friendly_error_mapping": "included"
 }

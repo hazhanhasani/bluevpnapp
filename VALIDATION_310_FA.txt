@@ -1,0 +1,13 @@
+گزارش اعتبارسنجی BlueVPN 3.0.10
+
+- نسخه فعال Backend و Android: 3.0.10 / 30010
+- Python syntax و compileall: موفق
+- JSON/YAML validation: موفق
+- Generated Android validation: موفق (21 منبع، 29 شناسه)
+- تست‌های BlueAI: 5 تست موفق
+- تست یکپارچه SQLite submit_event/recommendations: موفق
+- Time Decay: نیمه‌عمر 2 ساعت، پنجره 48 ساعت، حداکثر 600 رویداد
+- Jitter Penalty: غیرخطی، حداکثر 44 امتیاز
+- Operator scoped block: فعال، بدون مسدودسازی اپراتورهای دیگر
+- Confidence ranking: Wilson lower bound + effective sample count
+- Database migration: لازم نیست

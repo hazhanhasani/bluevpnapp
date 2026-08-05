@@ -1,11 +1,11 @@
 {
-  "version": "3.0.9",
-  "channel": "github-source-persistence",
-  "build_id": "20260806-github-source-persistence-v309",
-  "built_at": "2026-08-05T21:43:55Z",
-  "android_version": "3.0.9",
-  "android_version_code": 30009,
-  "description": "BlueVPN 3.0.9: verified GitHub source persistence before APK build, including uploaded project files, Dockerfile, version metadata and generated Android source snapshots.",
+  "version": "3.0.11",
+  "channel": "updater-network-fallback",
+  "build_id": "20260806-updater-network-fallback-v3011",
+  "built_at": "2026-08-05T21:55:00Z",
+  "android_version": "3.0.11",
+  "android_version_code": 30011,
+  "description": "BlueVPN 3.0.11: reliable in-app updater with physical-network permission, EPERM detection and automatic fallback to the current default route.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -66,8 +66,19 @@
     "generated-android-source-snapshot",
     "github-release-source-commit",
     "push-race-retry",
-    "repository-commit-link-in-telegram"
+    "repository-commit-link-in-telegram",
+    "blueai-exponential-time-decay",
+    "blueai-severe-jitter-penalty",
+    "blueai-operator-scoped-circuit-breaker",
+    "blueai-wilson-confidence-ranking",
+    "blueai-bounded-recent-event-window",
+    "blueai-aggregate-row-locking",
+    "change-network-state-permission",
+    "updater-eperm-auto-fallback",
+    "default-route-download-retry",
+    "friendly-updater-network-errors",
+    "connected-socket-bind-regression-guard"
   ],
-  "version_code": 30009,
-  "notes": "ربات Deploy اکنون فایل‌های ZIP را واقعاً Commit و Push می‌کند، SHA شاخه GitHub را تأیید می‌کند و Build/ارسال APK در صورت شکست ثبت سورس متوقف می‌شود. Workflow نیز metadata و snapshot سورس تولیدشده اندروید را بدون continue-on-error داخل GitHub نگه می‌دارد."
+  "version_code": 30011,
+  "notes": "خطای EPERM هنگام اتصال دانلودر به شبکه فیزیکی رفع شد؛ دانلودر ابتدا اینترنت مستقیم دستگاه و در صورت رد شدن bindSocket، مسیر عادی یا تونل فعال را خودکار امتحان می‌کند و دیگر خطای خام سیستمی به کاربر نمایش نمی‌دهد."
 }

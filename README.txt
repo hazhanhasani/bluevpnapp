@@ -1,22 +1,18 @@
-BlueVPN 2.2.3 Premium Smart Connect
-Build ID: 20260804171929
+BlueVPN 3.0.11 — Reliable In-App Updater
+Build ID: 20260806-updater-network-fallback-v3011
 
-BlueVPN v0.4.0 Update
+فایل ZIP را از طریق ربات Deploy نصب کنید تا ابتدا در GitHub Commit و سپس APK ساخته شود.
 
-Replace these files in the GitHub repository:
+اصلاحات این نسخه:
+- رفع خطای Binding socket to network ... EPERM
+- مجوز CHANGE_NETWORK_STATE برای مسیر فیزیکی شبکه
+- fallback خودکار از اینترنت مستقیم به مسیر عادی/تونل فعال
+- پیام خطای فارسی به‌جای خطای خام اندروید
+- حفظ BlueAI Time Decay نسخه 3.0.10
+
+فایل‌های اصلی تغییرکرده:
 - scripts/prepare_android.py
+- scripts/validate_generated_android.py
+- android-source/BlueVpnUpdateManager.kt
+- release.json
 - branding/app.json
-- .github/workflows/build-apk.yml
-
-Before the build, configure the four permanent signing secrets from
-bluevpn-signing-kit-v1.zip in GitHub Actions Secrets.
-
-Features:
-- Permanent APK signing for future in-place updates
-- Connected server ping
-- Connection duration
-- Live download/upload speed
-- Remaining subscription volume and time from subscription-userinfo
-- Smart client-side load balancing by lowest ping
-- Configs hidden and grouped by location
-- Loopback/metadata configs filtered out

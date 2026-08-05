@@ -56,21 +56,230 @@ def hour_bucket(value: Any = None) -> int:
     return utcnow().hour
 
 
-def route_score(aggregate: AiRouteAggregate) -> int:
-    samples = max(1, int(aggregate.sample_count or 0))
-    successes = int(aggregate.success_count or 0)
-    success_rate = successes / samples
-    avg_duration = float(aggregate.total_duration_seconds or 0) / max(1, successes)
-    avg_ping = float(aggregate.total_ping_ms or 0) / max(1, int(aggregate.ping_samples or 0))
-    avg_jitter = float(aggregate.total_jitter_ms or 0) / max(1, int(aggregate.jitter_samples or 0))
-    avg_loss = float(aggregate.total_packet_loss_x100 or 0) / samples / 100.0
+def _as_utc(value: datetime | None) -> datetime:
+    if value is None:
+        return utcnow()
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
-    success_component = success_rate * 46.0
-    duration_component = min(1.0, avg_duration / 900.0) * 20.0
-    ping_component = 20.0 if avg_ping <= 0 else max(0.0, 20.0 * (1.0 - min(avg_ping, 450.0) / 450.0))
-    quality_component = max(0.0, 9.0 - min(avg_jitter / 20.0, 5.0) - min(avg_loss / 8.0, 4.0))
-    confidence_component = min(5.0, math.log2(samples + 1.0))
-    return int(round(max(0.0, min(100.0, success_component + duration_component + ping_component + quality_component + confidence_component))))
+
+def _recent_route_stats(
+    events: list[AiConnectionEvent],
+    *,
+    now: datetime | None = None,
+    half_life_hours: float = 2.0,
+) -> dict[str, float]:
+    """Build exponentially-decayed route metrics from raw events.
+
+    A two-hour half-life means an event from one hour ago keeps ~70% of its
+    weight, while an event from 24 hours ago keeps less than 0.03%. This lets
+    current outages recover quickly without deleting useful long-term history.
+    """
+    current = _as_utc(now)
+    half_life = max(0.25, float(half_life_hours))
+
+    weighted_samples = 0.0
+    weighted_successes = 0.0
+    weighted_failures = 0.0
+    weighted_ping = 0.0
+    weighted_ping_samples = 0.0
+    weighted_jitter = 0.0
+    weighted_jitter_samples = 0.0
+    weighted_loss = 0.0
+    weighted_duration = 0.0
+    weighted_duration_samples = 0.0
+
+    for event in events:
+        created_at = _as_utc(getattr(event, "created_at", None))
+        age_hours = max(0.0, (current - created_at).total_seconds() / 3600.0)
+        weight = math.pow(0.5, age_hours / half_life)
+        if weight < 0.000001:
+            continue
+
+        weighted_samples += weight
+        if bool(getattr(event, "success", False)):
+            weighted_successes += weight
+        else:
+            weighted_failures += weight
+
+        ping_ms = max(0.0, float(getattr(event, "ping_ms", 0) or 0))
+        if ping_ms > 0:
+            weighted_ping += ping_ms * weight
+            weighted_ping_samples += weight
+
+        jitter_ms = max(0.0, float(getattr(event, "jitter_ms", 0) or 0))
+        if jitter_ms > 0:
+            weighted_jitter += jitter_ms * weight
+            weighted_jitter_samples += weight
+
+        loss_x100 = max(0.0, float(getattr(event, "packet_loss_x100", 0) or 0))
+        weighted_loss += (loss_x100 / 100.0) * weight
+
+        duration = max(0.0, float(getattr(event, "duration_seconds", 0) or 0))
+        if duration > 0 and bool(getattr(event, "success", False)):
+            weighted_duration += duration * weight
+            weighted_duration_samples += weight
+
+    return {
+        "weighted_samples": weighted_samples,
+        "weighted_successes": weighted_successes,
+        "weighted_failures": weighted_failures,
+        "success_rate": weighted_successes / max(0.000001, weighted_samples),
+        "failure_rate": weighted_failures / max(0.000001, weighted_samples),
+        "average_ping_ms": weighted_ping / max(0.000001, weighted_ping_samples),
+        "average_jitter_ms": weighted_jitter / max(0.000001, weighted_jitter_samples),
+        "average_packet_loss": weighted_loss / max(0.000001, weighted_samples),
+        "average_duration_seconds": weighted_duration / max(0.000001, weighted_duration_samples),
+    }
+
+
+def _wilson_lower_bound(successes: float, samples: float, z: float = 1.645) -> float:
+    """Conservative success estimate; 1.645 is a one-sided 95% bound."""
+    if samples <= 0:
+        return 0.0
+    proportion = max(0.0, min(1.0, successes / samples))
+    denominator = 1.0 + (z * z / samples)
+    centre = proportion + (z * z / (2.0 * samples))
+    margin = z * math.sqrt(
+        max(0.0, (proportion * (1.0 - proportion) / samples) + (z * z / (4.0 * samples * samples)))
+    )
+    return max(0.0, min(1.0, (centre - margin) / denominator))
+
+
+def _route_score_details(
+    aggregate: AiRouteAggregate,
+    recent_stats: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    raw_samples = max(0, int(aggregate.sample_count or 0))
+    raw_successes = max(0, int(aggregate.success_count or 0))
+    raw_failures = max(0, int(aggregate.failure_count or 0))
+    raw_success_rate = raw_successes / max(1, raw_samples)
+
+    if recent_stats is None:
+        # Compatibility fallback for callers that only have the aggregate.
+        age_hours = max(
+            0.0,
+            (utcnow() - _as_utc(getattr(aggregate, "updated_at", None))).total_seconds() / 3600.0,
+        )
+        freshness = math.pow(0.5, age_hours / 12.0)
+        recent_stats = {
+            "weighted_samples": max(0.25, raw_samples * freshness),
+            "weighted_successes": raw_successes * freshness,
+            "weighted_failures": raw_failures * freshness,
+            "success_rate": raw_success_rate,
+            "failure_rate": 1.0 - raw_success_rate,
+            "average_ping_ms": float(aggregate.total_ping_ms or 0) / max(1, int(aggregate.ping_samples or 0)),
+            "average_jitter_ms": float(aggregate.total_jitter_ms or 0) / max(1, int(aggregate.jitter_samples or 0)),
+            "average_packet_loss": float(aggregate.total_packet_loss_x100 or 0) / max(1, raw_samples) / 100.0,
+            "average_duration_seconds": float(aggregate.total_duration_seconds or 0) / max(1, raw_successes),
+        }
+
+    weighted_samples = max(0.0, float(recent_stats.get("weighted_samples", 0.0)))
+    weighted_successes = max(0.0, float(recent_stats.get("weighted_successes", 0.0)))
+    recent_success_rate = max(0.0, min(1.0, float(recent_stats.get("success_rate", raw_success_rate))))
+    recent_failure_rate = max(0.0, min(1.0, float(recent_stats.get("failure_rate", 1.0 - recent_success_rate))))
+    avg_ping = max(0.0, float(recent_stats.get("average_ping_ms", 0.0)))
+    avg_jitter = max(0.0, float(recent_stats.get("average_jitter_ms", 0.0)))
+    avg_loss = max(0.0, float(recent_stats.get("average_packet_loss", 0.0)))
+    avg_duration = max(0.0, float(recent_stats.get("average_duration_seconds", 0.0)))
+
+    # Confidence combines long-term volume with the amount of fresh evidence.
+    raw_confidence = 1.0 - math.exp(-raw_samples / 24.0)
+    recent_confidence = 1.0 - math.exp(-weighted_samples / 5.0)
+    confidence = max(0.0, min(1.0, raw_confidence * 0.65 + recent_confidence * 0.35))
+
+    # Recent results dominate, but low-volume bursts cannot completely erase a
+    # well-tested long-term history. Wilson lower bound makes 100/100 more
+    # trustworthy than 2/2.
+    recent_lower_bound = _wilson_lower_bound(weighted_successes, max(0.01, weighted_samples))
+    long_lower_bound = _wilson_lower_bound(float(raw_successes), float(max(1, raw_samples)))
+    recency_mix = min(0.88, 0.48 + recent_confidence * 0.40)
+    conservative_success = recent_lower_bound * recency_mix + long_lower_bound * (1.0 - recency_mix)
+    observed_success = recent_success_rate * 0.78 + raw_success_rate * 0.22
+    reliability = conservative_success * 0.68 + observed_success * 0.32
+
+    success_component = reliability * 66.0
+
+    if avg_ping <= 0:
+        ping_component = 7.0
+    elif avg_ping <= 70:
+        ping_component = 16.0
+    elif avg_ping <= 180:
+        ping_component = 16.0 - ((avg_ping - 70.0) / 110.0) * 7.0
+    elif avg_ping <= 450:
+        ping_component = 9.0 - ((avg_ping - 180.0) / 270.0) * 9.0
+    else:
+        ping_component = 0.0
+
+    # Non-linear jitter penalty: small jitter is tolerated, unstable routes are
+    # punished aggressively.
+    if avg_jitter <= 12.0:
+        jitter_penalty = 0.0
+    elif avg_jitter <= 30.0:
+        jitter_penalty = ((avg_jitter - 12.0) / 18.0) * 7.0
+    elif avg_jitter <= 65.0:
+        jitter_penalty = 7.0 + ((avg_jitter - 30.0) / 35.0) * 18.0
+    else:
+        jitter_penalty = min(44.0, 25.0 + ((avg_jitter - 65.0) / 85.0) * 19.0)
+
+    loss_penalty = min(24.0, max(0.0, avg_loss) * 2.4)
+    duration_component = min(5.0, math.log1p(avg_duration) / math.log(1801.0) * 5.0) if avg_duration > 0 else 0.0
+    confidence_component = confidence * 9.0
+
+    operator = canonical_operator(getattr(aggregate, "operator", "unknown"))
+    operator_is_specific = operator not in {"unknown", "ناشناخته", "Wi-Fi", ""}
+    enough_recent_evidence = weighted_samples >= 5.0
+    enough_total_evidence = raw_samples >= 10
+    blocked_for_operator = bool(
+        operator_is_specific
+        and enough_recent_evidence
+        and enough_total_evidence
+        and recent_failure_rate >= 0.72
+    )
+
+    score = (
+        success_component
+        + ping_component
+        + duration_component
+        + confidence_component
+        - jitter_penalty
+        - loss_penalty
+    )
+
+    # A route blocked for one operator receives zero only in that operator's
+    # aggregate. Other operator aggregates for the same config remain intact.
+    if blocked_for_operator:
+        score = 0.0
+
+    return {
+        "score": int(round(max(0.0, min(100.0, score)))),
+        "confidence": round(confidence, 4),
+        "recent_success_rate": round(recent_success_rate, 4),
+        "recent_failure_rate": round(recent_failure_rate, 4),
+        "recent_effective_samples": round(weighted_samples, 3),
+        "average_ping_ms": round(avg_ping, 2),
+        "average_jitter_ms": round(avg_jitter, 2),
+        "average_packet_loss": round(avg_loss, 3),
+        "jitter_penalty": round(jitter_penalty, 2),
+        "loss_penalty": round(loss_penalty, 2),
+        "blocked_for_operator": blocked_for_operator,
+        "blocked_operator": operator if blocked_for_operator else "",
+        "block_reason": "operator_recent_failure_rate" if blocked_for_operator else "",
+    }
+
+
+def route_score(
+    aggregate: AiRouteAggregate,
+    recent_stats: dict[str, float] | None = None,
+) -> int:
+    """Return a 0..100 operator-aware route score.
+
+    ``recent_stats`` is normally generated by ``submit_event`` from raw events
+    with exponential time decay. Keeping it optional preserves compatibility
+    with existing callers and tests that only pass an aggregate.
+    """
+    return int(_route_score_details(aggregate, recent_stats)["score"])
 
 
 def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> dict[str, Any]:
@@ -110,6 +319,7 @@ def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> di
         hour_bucket=bucket,
     )
     db.add(event)
+    db.flush()
 
     if event_type == "heartbeat":
         db.commit()
@@ -121,13 +331,15 @@ def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> di
         }
 
     aggregate = db.scalar(
-        select(AiRouteAggregate).where(
+        select(AiRouteAggregate)
+        .where(
             AiRouteAggregate.config_key == config_key,
             AiRouteAggregate.operator == operator,
             AiRouteAggregate.network_type == network_type,
             AiRouteAggregate.mode == mode,
             AiRouteAggregate.hour_bucket == bucket,
         )
+        .with_for_update()
     )
     if not aggregate:
         aggregate = AiRouteAggregate(
@@ -158,12 +370,42 @@ def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> di
     aggregate.success_rate = aggregate.success_count / max(1, aggregate.sample_count)
     aggregate.average_ping_ms = aggregate.total_ping_ms / max(1, aggregate.ping_samples)
     aggregate.average_duration_seconds = aggregate.total_duration_seconds / max(1, aggregate.success_count)
-    aggregate.score = route_score(aggregate)
+
+    # Only recent events for the same route/operator context are loaded. The
+    # bounded 48-hour/600-event window keeps submission latency predictable.
+    recent_events = db.scalars(
+        select(AiConnectionEvent)
+        .where(
+            AiConnectionEvent.event_type != "heartbeat",
+            AiConnectionEvent.config_key == config_key,
+            AiConnectionEvent.operator == operator,
+            AiConnectionEvent.network_type == network_type,
+            AiConnectionEvent.mode == mode,
+            AiConnectionEvent.created_at >= utcnow() - timedelta(hours=48),
+        )
+        .order_by(AiConnectionEvent.created_at.desc())
+        .limit(600)
+    ).all()
+    recent_stats = _recent_route_stats(list(recent_events), half_life_hours=2.0)
+    details = _route_score_details(aggregate, recent_stats)
+
+    aggregate.score = int(details["score"])
     aggregate.updated_at = utcnow()
     db.commit()
 
-    return {"accepted": True, "route_score": aggregate.score, "samples": aggregate.sample_count}
-
+    return {
+        "accepted": True,
+        "route_score": aggregate.score,
+        "samples": int(aggregate.sample_count or 0),
+        "confidence": details["confidence"],
+        "recent_effective_samples": details["recent_effective_samples"],
+        "recent_success_rate": round(float(details["recent_success_rate"]) * 100.0, 1),
+        "average_jitter_ms": details["average_jitter_ms"],
+        "jitter_penalty": details["jitter_penalty"],
+        "blocked_for_operator": bool(details["blocked_for_operator"]),
+        "blocked_operator": details["blocked_operator"],
+        "block_reason": details["block_reason"],
+    }
 
 def recommendations(
     db: Session,
@@ -187,8 +429,26 @@ def recommendations(
         .limit(1000)
     ).all()
 
+    # The newest exact-operator row controls the circuit breaker. Older blocked
+    # hour buckets must not keep a route closed after a newer successful event
+    # has recovered it. Fallback rows from other operators still cannot bypass
+    # an active block for the requested operator.
+    block_cutoff = utcnow() - timedelta(hours=6)
+    latest_operator_rows: dict[str, AiRouteAggregate] = {}
+    for row in rows:
+        if row.operator == operator:
+            latest_operator_rows.setdefault(row.config_key, row)
+    blocked_config_keys = {
+        config_key
+        for config_key, row in latest_operator_rows.items()
+        if int(row.score or 0) <= 0 and _as_utc(row.updated_at) >= block_cutoff
+    }
+
     combined: dict[str, dict[str, Any]] = {}
     for row in rows:
+        if row.config_key in blocked_config_keys:
+            continue
+
         context_weight = 0
         if row.operator == operator:
             context_weight += 14

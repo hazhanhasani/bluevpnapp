@@ -1,7 +1,7 @@
 {
-  "release": "3.0.9-auto",
-  "version_name": "3.0.9",
-  "version_code": 30009,
+  "release": "3.0.11-updater-network-fallback",
+  "version_name": "3.0.11",
+  "version_code": 30011,
   "changes": [
     "Deploy bot commits and pushes every non-secret ZIP file, including Dockerfile",
     "Remote GitHub branch SHA must match the local commit before build continues",
@@ -13,5 +13,6 @@
     "Telegram messages show repository, branch, commit and direct commit URL"
   ],
   "generated_at_unix": 1785966235,
-  "purpose": "verified-github-source-persistence"
+  "purpose": "verified-github-source-persistence",
+  "updated_at": "2026-08-05T21:55:00Z"
 }

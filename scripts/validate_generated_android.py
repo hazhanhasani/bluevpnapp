@@ -30,6 +30,7 @@ def main() -> None:
     values = assignments()
     required = {
         "BLUEVPN_HOME_ACTIVITY_B64",
+        "BLUEVPN_UPDATE_MANAGER_B64",
         "BLUEVPN_IDS_B64",
         "BLUEVPN_SCREEN_BACKGROUND_B64",
     }
@@ -56,6 +57,27 @@ def main() -> None:
     failed = [label for label, ok in checks.items() if not ok]
     if failed:
         raise SystemExit("failed checks: " + ", ".join(failed))
+
+    updater = values["BLUEVPN_UPDATE_MANAGER_B64"]
+    updater_checks = {
+        "physical network permission injector":
+            "android.permission.CHANGE_NETWORK_STATE" in PREPARE.read_text(encoding="utf-8"),
+        "EPERM fallback detection":
+            '"eperm" in message' in updater,
+        "binding failure fallback detection":
+            '"binding socket to network" in message' in updater,
+        "default route retry":
+            "target.openConnection() as HttpURLConnection" in updater,
+        "friendly updater errors":
+            "private fun friendlyDownloadError" in updater,
+        "no raw error dialog":
+            "message = friendlyDownloadError(error)" in updater,
+    }
+    updater_failed = [label for label, ok in updater_checks.items() if not ok]
+    if updater_failed:
+        raise SystemExit(
+            "failed updater checks: " + ", ".join(updater_failed)
+        )
 
     required_ids = set(re.findall(r"R\.id\.(bluevpn_[A-Za-z0-9_]+)", home))
     expected_ids = {

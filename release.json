@@ -1,11 +1,11 @@
 {
-  "version": "3.0.5",
-  "channel": "fast-connect",
-  "build_id": "20260805-speed-v305",
-  "built_at": "2026-08-05T19:30:00Z",
-  "android_version": "3.0.5",
-  "android_version_code": 30005,
-  "description": "BlueVPN 3.0.5: faster cold start and navigation, cached server snapshots, first-success tunnel verification, and one centralized version across Android and backend.",
+  "version": "3.0.6",
+  "channel": "build-fix",
+  "build_id": "20260806-kotlin-submit-fix-v306",
+  "built_at": "2026-08-05T21:13:29Z",
+  "android_version": "3.0.6",
+  "android_version_code": 30006,
+  "description": "BlueVPN 3.0.6: fixes the Kotlin ExecutorCompletionService build error in fast tunnel verification while keeping the 3.0.5 startup and connection speed improvements.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -41,8 +41,10 @@
     "faster-failover",
     "single-update-check",
     "single-screen-render",
-    "central-project-version"
+    "central-project-version",
+    "kotlin-completion-service-compile-fix",
+    "generated-source-regression-guard"
   ],
-  "version_code": 30005,
-  "notes": "اجرای اولیه و بازشدن صفحات سبک‌تر شده، انتخاب سرور از کش کوتاه‌مدت انجام می‌شود، تأیید اتصال با اولین پاسخ موفق پایان می‌یابد و نسخه در کل پروژه یکپارچه است."
+  "version_code": 30006,
+  "notes": "خطای کامپایل completion.submit<Long?> برطرف شد؛ فراخوانی Callable اکنون با استنتاج نوع کاتلین ساخته می‌شود و اسکریپت پیش از Build از بازگشت این خطا جلوگیری می‌کند."
 }

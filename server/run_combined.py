@@ -29,7 +29,7 @@ for directory in (APP_DIR, BOT_DIR):
 try:
     from server.version import VERSION
 except Exception:
-    VERSION = os.getenv("BLUEVPN_VERSION", "3.0.5")
+    VERSION = os.getenv("BLUEVPN_VERSION", "3.0.6")
 
 logging.basicConfig(
     level=logging.INFO,

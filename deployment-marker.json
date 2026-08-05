@@ -1,14 +1,13 @@
 {
-  "release": "3.0.5-auto",
-  "version_name": "3.0.5",
-  "version_code": 30005,
+  "release": "3.0.6-build-fix",
+  "version_name": "3.0.6",
+  "version_code": 30006,
   "fixes": [
-    "Native in-app APK download progress",
-    "Download through physical network while VPN remains connected",
-    "Automatic installer launch without opening Downloads",
-    "Secure FileProvider APK sharing",
-    "Resume install after unknown-app permission"
+    "Removed invalid explicit type argument from ExecutorCompletionService.submit",
+    "Added generated Kotlin source regression guard",
+    "Preserved fast first-success tunnel verification",
+    "Synchronized project version to 3.0.6"
   ],
-  "generated_at_unix": 1785950651,
-  "purpose": "speed-and-central-version"
+  "generated_at_unix": 1785964409,
+  "purpose": "kotlin-build-fix-and-version-sync"
 }

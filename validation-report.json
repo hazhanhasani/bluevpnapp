@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.5",
-  "version_code": 30005,
+  "project_version": "3.0.6",
+  "version_code": 30006,
   "schema_version": 8,
-  "release": "3.0.5",
+  "release": "3.0.6",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,5 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "centralized"
+  "version_consistency": "centralized",
+  "kotlin_executor_completion_submit_fix": "passed",
+  "generated_source_regression_guard": "passed"
 }

@@ -1,0 +1,9 @@
+گزارش اعتبارسنجی BlueVPN 3.0.6
+
+- نسخه فعال پروژه: 3.0.6
+- versionCode اندروید: 30006
+- خطای ExecutorCompletionService.submit<Long?>: برطرف شد
+- استنتاج نوع Callable<Long?>: با kotlinc بررسی شد
+- کنترل جلوگیری از بازگشت خطا: اضافه شد
+- نسخه‌های Android، Backend و Release: همگام شدند
+- کامپایل نهایی APK: توسط GitHub Actions انجام می‌شود

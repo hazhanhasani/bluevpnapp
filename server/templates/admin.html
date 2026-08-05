@@ -1,25 +1,26 @@
 <!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BlueVPN Platform</title><link rel="stylesheet" href="/static/style.css"></head><body>
 <header class="topbar"><div class="brand"><img src="/static/logo.png"><div><b>BlueVPN Platform</b><span>مدیریت حساب، فروش و اشتراک</span></div></div><form method="post" action="/admin/logout"><button class="secondary">خروج</button></form></header>
-<nav class="tabs"><a href="#overview">نمای کلی</a><a href="#overview">نمای کلی</a><a href="#blueai">BlueAI</a><a href="#database">دیتابیس</a><a href="#panels">پاسارگارد</a><a href="#marzban">مرزبان</a><a href="#guardcore">GuardCore</a><a href="#guardcore-manual">صف GuardCore</a><a href="#plans">پلن‌ها</a><a href="#bluepay">بلوپی</a><a href="#manual">فعال‌سازی دستی</a><a href="#customers">کاربران</a><a href="#orders">پرداخت‌ها</a><a href="#app">اپ و آپدیت</a></nav>
-<main class="container">{% if not database_info.persistent %}<div class="alert danger">هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</div>{% endif %}{% if saved %}<div class="alert success">تغییرات ذخیره شد.</div>{% endif %}{% if manual_message %}<div class="alert success">{{ manual_message }}</div>{% endif %}{% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
-<section id="overview" class="grid stats"><article><span>کاربران</span><strong>{{ stats.customers }}</strong></article><article><span>اشتراک فعال</span><strong>{{ stats.active }}</strong></article><article><span>پرداخت موفق</span><strong>{{ stats.paid }}</strong></article><article><span>فعال‌سازی دستی</span><strong>{{ stats.manual }}</strong></article><article><span>کل Providerها</span><strong>{{ stats.panels }}</strong></article><article><span>GuardCore</span><strong>{{ stats.guardcore }}</strong></article><article><span>در انتظار ساب دستی</span><strong>{{ stats.guardcore_pending }}</strong></article><article><span>دیتابیس</span><strong>{{ database_mode }}</strong></article></section>
+<nav class="tabs"><a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">GuardCore</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف GuardCore</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#app" data-tab="app">اپ و آپدیت</a></nav>
+<main class="container">{% if not database_info.persistent %}<div class="alert danger flash-alert" data-sticky="1"><span>هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if saved %}<div class="alert success flash-alert"><span>تغییرات ذخیره شد.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if manual_message %}<div class="alert success flash-alert"><span>{{ manual_message }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if error %}<div class="alert danger flash-alert"><span>{{ error }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}
+<section id="overview" class="grid stats"><article><span>کاربران</span><strong data-live="stats.customers">{{ stats.customers }}</strong></article><article><span>اشتراک فعال</span><strong data-live="stats.active">{{ stats.active }}</strong></article><article><span>پرداخت موفق</span><strong data-live="stats.paid">{{ stats.paid }}</strong></article><article><span>فعال‌سازی دستی</span><strong data-live="stats.manual">{{ stats.manual }}</strong></article><article><span>کل Providerها</span><strong data-live="stats.panels">{{ stats.panels }}</strong></article><article><span>GuardCore</span><strong data-live="stats.guardcore">{{ stats.guardcore }}</strong></article><article><span>در انتظار ساب دستی</span><strong data-live="stats.guardcore_pending">{{ stats.guardcore_pending }}</strong></article><article><span>دیتابیس</span><strong>{{ database_mode }}</strong></article></section>
 
 <section id="blueai" class="card ai-command-center">
   <div class="section-heading">
     <div><span class="eyebrow">INTELLIGENCE LAYER</span><h2>مرکز فرمان BlueAI</h2><p>رتبه‌بندی مسیرها بر اساس اپراتور، نوع شبکه، ساعت، پایداری، مدت اتصال و موفقیت واقعی کاربران.</p></div>
-    <div class="ai-orb"><span>{{ blueai.average_score|round|int }}</span><small>AI SCORE</small></div>
+    <div class="ai-orb"><span data-live="blueai.average_score">{{ blueai.average_score|round|int }}</span><small>AI SCORE</small></div>
   </div>
   <div class="grid ai-kpis">
-    <article><span>رویدادهای یادگیری</span><strong>{{ blueai.total_events }}</strong><small>{{ blueai.events_24h }} مورد در ۲۴ ساعت</small></article>
-    <article><span>نرخ موفقیت</span><strong>{{ blueai.success_rate }}٪</strong><small>تمام اپراتورها</small></article>
-    <article><span>مسیرهای شناخته‌شده</span><strong>{{ blueai.learned_routes }}</strong><small>کانتکست‌های هوشمند</small></article>
-    <article><span>بازخورد کاربران</span><strong>{{ blueai.feedback_average }}/5</strong><small>{{ blueai.feedback_count }} گزارش</small></article>
+    <article><span>رویدادهای یادگیری</span><strong data-live="blueai.total_events">{{ blueai.total_events }}</strong><small><b data-live="blueai.events_24h">{{ blueai.events_24h }}</b> مورد در ۲۴ ساعت</small></article>
+    <article><span>نرخ موفقیت</span><strong><span data-live="blueai.success_rate">{{ blueai.success_rate }}</span>٪</strong><small>تمام اپراتورها</small></article>
+    <article><span>مسیرهای شناخته‌شده</span><strong data-live="blueai.learned_routes">{{ blueai.learned_routes }}</strong><small>کانتکست‌های هوشمند</small></article>
+    <article><span>بازخورد کاربران</span><strong><span data-live="blueai.feedback_average">{{ blueai.feedback_average }}</span>/5</strong><small><b data-live="blueai.feedback_count">{{ blueai.feedback_count }}</b> گزارش</small></article>
+    <article><span>اتصال زنده</span><strong data-live="blueai.live_sessions">{{ blueai.live_sessions or 0 }}</strong><small id="blueai-live-status">درحال دریافت داده</small></article>
   </div>
   <div class="ai-grid-two">
     <div class="insight-panel">
       <div class="panel-title"><h3>بهترین مسیرهای فعلی</h3><span>به‌روزرسانی زنده</span></div>
       {% if blueai.top_routes %}
-      <div class="route-rank-list">
+      <div class="route-rank-list" id="blueai-live-routes">
         {% for route in blueai.top_routes %}
         <article>
           <div class="route-rank">{{ loop.index }}</div>
@@ -33,7 +34,7 @@
     </div>
     <div class="insight-panel">
       <div class="panel-title"><h3>DNA اپراتورها</h3><span>داده فنی ناشناس</span></div>
-      <div class="operator-list">
+      <div class="operator-list" id="blueai-live-operators">
         {% for item in blueai.operators %}
         <article><div><strong>{{ item.name }}</strong><span>{{ item.events }} اتصال</span></div><b>{{ (item.duration/3600)|round(1) }}h</b></article>
         {% else %}<div class="empty-state">هنوز داده اپراتور ثبت نشده است.</div>{% endfor %}
@@ -437,4 +438,123 @@
 </div>
 </form>
 </section>
-</main></body></html>
+</main>
+<script>
+(() => {
+  const sections = [...document.querySelectorAll('main.container > section[id]')];
+  const links = [...document.querySelectorAll('.tabs a[data-tab]')];
+
+  function activateTab(id, updateHash = true) {
+    const target = document.getElementById(id) || document.getElementById('overview');
+    sections.forEach(section => { section.hidden = section !== target; });
+    links.forEach(link => link.classList.toggle('active', link.dataset.tab === target.id));
+    if (updateHash && location.hash !== `#${target.id}`) {
+      history.replaceState(null, '', `${location.pathname}#${target.id}`);
+    }
+    window.scrollTo({top: 0, behavior: 'instant'});
+  }
+
+  links.forEach(link => link.addEventListener('click', event => {
+    event.preventDefault();
+    activateTab(link.dataset.tab || 'overview');
+  }));
+  window.addEventListener('hashchange', () => activateTab(location.hash.slice(1) || 'overview', false));
+  activateTab(location.hash.slice(1) || 'overview', false);
+
+  document.querySelectorAll('.alert-close').forEach(button => {
+    button.addEventListener('click', () => button.closest('.flash-alert')?.remove());
+  });
+  document.querySelectorAll('.flash-alert:not([data-sticky="1"])').forEach(alert => {
+    setTimeout(() => alert.remove(), alert.classList.contains('danger') ? 12000 : 6500);
+  });
+  if (location.search) {
+    history.replaceState(null, '', `${location.pathname}${location.hash || '#overview'}`);
+  }
+
+  function readPath(root, path) {
+    return path.split('.').reduce((value, key) => value && value[key], root);
+  }
+  function updateScalarValues(data) {
+    document.querySelectorAll('[data-live]').forEach(element => {
+      const value = readPath(data, element.dataset.live || '');
+      if (value !== undefined && value !== null) element.textContent = value;
+    });
+  }
+  function create(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text !== undefined) el.textContent = String(text);
+    return el;
+  }
+  function renderRoutes(rows) {
+    const root = document.getElementById('blueai-live-routes');
+    if (!root) return;
+    root.replaceChildren();
+    if (!rows.length) {
+      root.append(create('div', 'empty-state', 'هنوز داده کافی برای رتبه‌بندی وجود ندارد.'));
+      return;
+    }
+    rows.slice(0, 12).forEach((row, index) => {
+      const article = create('article');
+      article.append(create('div', 'route-rank', index + 1));
+      const info = create('div', 'route-info');
+      info.append(create('strong', '', row.location_title || 'نامشخص'));
+      info.append(create('span', '', `${row.operator || 'ناشناخته'} • ${row.network_type || 'unknown'} • ${row.mode || 'balanced'}`));
+      article.append(info);
+      const meter = create('div', 'route-meter');
+      const fill = create('i');
+      fill.style.width = `${Math.max(0, Math.min(100, Number(row.score || 0)))}%`;
+      meter.append(fill);
+      article.append(meter);
+      article.append(create('b', '', row.score || 0));
+      root.append(article);
+    });
+  }
+  function renderOperators(rows, liveRows) {
+    const root = document.getElementById('blueai-live-operators');
+    if (!root) return;
+    root.replaceChildren();
+    const liveMap = new Map((liveRows || []).map(item => [item.name, item.count]));
+    if (!rows.length && !liveMap.size) {
+      root.append(create('div', 'empty-state', 'هنوز داده اپراتور ثبت نشده است.'));
+      return;
+    }
+    const names = new Set([...rows.map(item => item.name), ...liveMap.keys()]);
+    [...names].slice(0, 10).forEach(name => {
+      const item = rows.find(row => row.name === name) || {events: 0, duration: 0};
+      const article = create('article');
+      const info = create('div');
+      info.append(create('strong', '', name || 'ناشناخته'));
+      info.append(create('span', '', `${item.events || 0} رویداد • ${liveMap.get(name) || 0} آنلاین`));
+      article.append(info);
+      article.append(create('b', '', `${(Number(item.duration || 0) / 3600).toFixed(1)}h`));
+      root.append(article);
+    });
+  }
+
+  let liveBusy = false;
+  async function refreshLive() {
+    const active = location.hash.slice(1) || 'overview';
+    if (!['overview', 'blueai'].includes(active) || liveBusy || document.hidden) return;
+    liveBusy = true;
+    try {
+      const response = await fetch('/admin/api/live', {headers: {'Accept': 'application/json'}, cache: 'no-store'});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      updateScalarValues(data);
+      renderRoutes(data.blueai?.top_routes || []);
+      renderOperators(data.blueai?.operators || [], data.blueai?.live_operators || []);
+      const status = document.getElementById('blueai-live-status');
+      if (status) status.textContent = `زنده • ${new Date().toLocaleTimeString('fa-IR')}`;
+    } catch (error) {
+      const status = document.getElementById('blueai-live-status');
+      if (status) status.textContent = 'اتصال زنده موقتاً قطع است';
+    } finally {
+      liveBusy = false;
+    }
+  }
+  refreshLive();
+  setInterval(refreshLive, 8000);
+})();
+</script>
+</body></html>

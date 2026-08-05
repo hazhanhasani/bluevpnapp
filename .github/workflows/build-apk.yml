@@ -57,14 +57,14 @@ jobs:
             gh api               "repos/${GITHUB_REPOSITORY}/releases/latest"               --jq '.tag_name'               2>/dev/null || true
           )"
 
-          NEXT_PATCH=0
+          NEXT_PATCH=1
 
           if [[ "${LATEST_TAG}" =~ ^v?3\.0\.([0-9]+)$ ]]; then
             NEXT_PATCH="$((BASH_REMATCH[1] + 1))"
           fi
 
-          if (( NEXT_PATCH < 0 )); then
-            NEXT_PATCH=0
+          if (( NEXT_PATCH < 1 )); then
+            NEXT_PATCH=1
           fi
 
           AUTO_VERSION="3.0.${NEXT_PATCH}"
@@ -89,7 +89,7 @@ jobs:
               os.environ["AUTO_VERSION_CODE"]
           )
           data["version_source"] = (
-              "latest_github_release_increment_2_2"
+              "latest_github_release_increment_3_0"
           )
 
           path.write_text(

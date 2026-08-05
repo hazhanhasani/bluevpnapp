@@ -21,6 +21,28 @@ def clean(value: Any, limit: int = 120, fallback: str = "unknown") -> str:
     return (text[:limit] or fallback)
 
 
+
+def canonical_operator(value: Any) -> str:
+    raw = clean(value, 100).lower().replace("‌", "")
+    if any(x in raw for x in ("irancell", "mtn", "ایرانسل")):
+        return "ایرانسل"
+    if any(x in raw for x in ("hamrah", "mci", "همراه اول", "همراه‌اول")):
+        return "همراه اول"
+    if any(x in raw for x in ("rightel", "rightel", "رایتل")):
+        return "رایتل"
+    if any(x in raw for x in ("shatel", "شاتل")):
+        return "شاتل موبایل"
+    if any(x in raw for x in ("samantel", "saman tel", "سامانتل")):
+        return "سامانتل"
+    if any(x in raw for x in ("aptel", "آپتل")):
+        return "آپتل"
+    if any(x in raw for x in ("taliya", "تالیا")):
+        return "تالیا"
+    if raw in {"wi-fi", "wifi"}:
+        return "Wi-Fi"
+    return raw or "ناشناخته"
+
+
 def clamp_int(value: Any, minimum: int, maximum: int, default: int = 0) -> int:
     try:
         return max(minimum, min(maximum, int(float(value))))
@@ -56,7 +78,7 @@ def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> di
     if len(config_key) < 8:
         raise ValueError("config_key نامعتبر است")
 
-    operator = clean(payload.get("operator"), 100).lower()
+    operator = canonical_operator(payload.get("operator"))
     network_type = clean(payload.get("network_type"), 30).lower()
     mode = clean(payload.get("mode"), 30, "balanced").lower()
     event_type = clean(payload.get("event_type"), 30, "session").lower()
@@ -88,6 +110,15 @@ def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> di
         hour_bucket=bucket,
     )
     db.add(event)
+
+    if event_type == "heartbeat":
+        db.commit()
+        return {
+            "accepted": True,
+            "live": True,
+            "operator": operator,
+            "network_type": network_type,
+        }
 
     aggregate = db.scalar(
         select(AiRouteAggregate).where(
@@ -143,7 +174,7 @@ def recommendations(
     bucket: int | None = None,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
-    operator = clean(operator, 100).lower()
+    operator = canonical_operator(operator)
     network_type = clean(network_type, 30).lower()
     mode = clean(mode, 30, "balanced").lower()
     bucket = hour_bucket(bucket)
@@ -238,21 +269,101 @@ def submit_feedback(db: Session, customer: Customer, payload: dict[str, Any]) ->
 
 
 def admin_overview(db: Session) -> dict[str, Any]:
-    total = db.scalar(select(func.count(AiConnectionEvent.id))) or 0
-    successes = db.scalar(select(func.count(AiConnectionEvent.id)).where(AiConnectionEvent.success.is_(True))) or 0
+    learning_filter = AiConnectionEvent.event_type != "heartbeat"
+    total = db.scalar(
+        select(func.count(AiConnectionEvent.id)).where(learning_filter)
+    ) or 0
+    successes = db.scalar(
+        select(func.count(AiConnectionEvent.id)).where(
+            learning_filter,
+            AiConnectionEvent.success.is_(True),
+        )
+    ) or 0
     routes = db.scalar(select(func.count(AiRouteAggregate.id))) or 0
     avg_score = db.scalar(select(func.avg(AiRouteAggregate.score))) or 0
-    active_24h = db.scalar(select(func.count(AiConnectionEvent.id)).where(AiConnectionEvent.created_at >= utcnow() - timedelta(hours=24))) or 0
-    top = db.scalars(select(AiRouteAggregate).order_by(desc(AiRouteAggregate.score), desc(AiRouteAggregate.sample_count)).limit(12)).all()
-    failures = db.scalars(select(AiConnectionEvent).where(AiConnectionEvent.success.is_(False)).order_by(AiConnectionEvent.created_at.desc()).limit(12)).all()
+    active_24h = db.scalar(
+        select(func.count(AiConnectionEvent.id)).where(
+            learning_filter,
+            AiConnectionEvent.created_at >= utcnow() - timedelta(hours=24),
+        )
+    ) or 0
+
+    top_rows = db.scalars(
+        select(AiRouteAggregate)
+        .order_by(
+            desc(AiRouteAggregate.score),
+            desc(AiRouteAggregate.sample_count),
+        )
+        .limit(12)
+    ).all()
+    top = [
+        {
+            "location_title": row.location_title,
+            "location_key": row.location_key,
+            "operator": row.operator,
+            "network_type": row.network_type,
+            "mode": row.mode,
+            "score": int(row.score or 0),
+            "samples": int(row.sample_count or 0),
+        }
+        for row in top_rows
+    ]
+
+    failure_rows = db.scalars(
+        select(AiConnectionEvent)
+        .where(
+            learning_filter,
+            AiConnectionEvent.success.is_(False),
+        )
+        .order_by(AiConnectionEvent.created_at.desc())
+        .limit(12)
+    ).all()
+    failures = [
+        {
+            "location_title": row.location_title,
+            "operator": row.operator,
+            "network_type": row.network_type,
+            "failure_reason": row.failure_reason,
+            "created_at": row.created_at.isoformat() if row.created_at else "",
+        }
+        for row in failure_rows
+    ]
+
     operator_rows = db.execute(
-        select(AiConnectionEvent.operator, func.count(AiConnectionEvent.id), func.sum(AiConnectionEvent.duration_seconds))
+        select(
+            AiConnectionEvent.operator,
+            func.count(AiConnectionEvent.id),
+            func.sum(AiConnectionEvent.duration_seconds),
+        )
+        .where(learning_filter)
         .group_by(AiConnectionEvent.operator)
         .order_by(desc(func.count(AiConnectionEvent.id)))
         .limit(10)
     ).all()
+
+    recent_heartbeats = db.scalars(
+        select(AiConnectionEvent)
+        .where(
+            AiConnectionEvent.event_type == "heartbeat",
+            AiConnectionEvent.created_at >= utcnow() - timedelta(seconds=95),
+        )
+        .order_by(AiConnectionEvent.created_at.desc())
+        .limit(1000)
+    ).all()
+    live_by_device: dict[tuple[int, str], AiConnectionEvent] = {}
+    for event in recent_heartbeats:
+        key = (int(event.customer_id or 0), event.device_id or "")
+        live_by_device.setdefault(key, event)
+    live_events = list(live_by_device.values())
+    live_operators: dict[str, int] = {}
+    for event in live_events:
+        live_operators[event.operator] = live_operators.get(event.operator, 0) + 1
+
     feedback_count = db.scalar(select(func.count(AiFeedback.id))) or 0
     feedback_avg = db.scalar(select(func.avg(AiFeedback.rating))) or 0
+    newest = db.scalar(
+        select(func.max(AiConnectionEvent.created_at))
+    )
     return {
         "total_events": int(total),
         "success_rate": round(int(successes) * 100 / max(1, int(total)), 1),
@@ -261,10 +372,24 @@ def admin_overview(db: Session) -> dict[str, Any]:
         "events_24h": int(active_24h),
         "feedback_count": int(feedback_count),
         "feedback_average": round(float(feedback_avg), 1),
+        "live_sessions": len(live_events),
+        "live_operators": [
+            {"name": name, "count": count}
+            for name, count in sorted(
+                live_operators.items(),
+                key=lambda item: (-item[1], item[0]),
+            )
+        ],
+        "last_event_at": newest.isoformat() if newest else "",
+        "updated_at": utcnow().isoformat(),
         "top_routes": top,
         "recent_failures": failures,
         "operators": [
-            {"name": row[0], "events": int(row[1] or 0), "duration": int(row[2] or 0)}
+            {
+                "name": row[0],
+                "events": int(row[1] or 0),
+                "duration": int(row[2] or 0),
+            }
             for row in operator_rows
         ],
     }

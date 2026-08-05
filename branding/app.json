@@ -1,8 +1,8 @@
 {
   "app_name": "BlueVPN",
   "application_id": "ir.blluepanel.bluevpn",
-  "version_name": "3.0.0",
-  "version_code": 30000,
+  "version_name": "3.0.1",
+  "version_code": 30001,
   "deep_link_scheme": "bluevpn",
   "api_base_url": "https://bluevpnapp-production.up.railway.app",
   "website_url": "https://bluevpnapp-production.up.railway.app",
@@ -13,5 +13,5 @@
     "arm64-v8a",
     "armeabi-v7a"
   ],
-  "version_source": "latest_github_release_increment_3_0"
+  "version_source": "latest_github_release_increment_3_0_min_1"
 }

@@ -1,11 +1,11 @@
 {
-  "version": "3.0.0",
-  "channel": "ultimate-ai",
+  "version": "3.0.1",
+  "channel": "live-operator-ui-fix",
   "build_id": "20260805135429",
   "built_at": "2026-08-05T13:54:29.071428+00:00",
   "android_version": "3.0.<latest_release_patch_plus_one>",
   "android_version_code": "30000 + release_patch",
-  "description": "BlueVPN 3 Ultimate AI: premium Android UI, operator-aware personal and collective route learning, AI scores, auto-heal, feedback, analytics and premium admin intelligence dashboard.",
+  "description": "BlueVPN 3.0.1: active-data SIM operator detection, live BlueAI heartbeat, non-blocking startup sync, simplified Android home and real admin tab pages.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -19,8 +19,16 @@
     "privacy-controls",
     "pasarguard-auto",
     "marzban-auto",
-    "guardcore-manual"
+    "guardcore-manual",
+    "active-data-sim-detection",
+    "physical-network-detection-under-vpn",
+    "blueai-live-heartbeat",
+    "non-blocking-startup-sync",
+    "simplified-home-ui",
+    "real-admin-tabs",
+    "dismissible-admin-flash",
+    "admin-live-polling"
   ],
-  "version_code": 30000,
-  "notes": "رفع خطای کامپایل Kotlin در BlueVPN 3.0.0: حذف تعریف تکراری failedGuid و اصلاح فراخوانی کارت BlueAI."
+  "version_code": 30001,
+  "notes": "رفع تشخیص اشتباه سیم‌کارت دوگانه، پیام‌های ماندگار پنل، داده غیرزنده، قفل همگام‌سازی و شلوغی رابط کاربری."
 }

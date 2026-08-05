@@ -29,7 +29,7 @@ from .blueai import admin_overview as blueai_admin_overview, customer_dashboard 
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
 DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Ultimate AI Platform',version='3.0.0'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+app=FastAPI(title='BlueVPN Ultimate AI Platform',version='3.0.1'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -585,6 +585,30 @@ def admin(request:Request,db:Session=Depends(get_db)):
             'github_repository':github_repository(),
         },
     )
+
+@app.get('/admin/api/live')
+def admin_live(request: Request, db: Session = Depends(get_db)):
+    admin_required(request)
+    panels = db.scalar(select(func.count(PasarGuardPanel.id))) or 0
+    marzban = db.scalar(select(func.count(MarzbanPanel.id))) or 0
+    guardcore = db.scalar(select(func.count(GuardCorePanel.id))) or 0
+    guardcore_pending = len(pending_manual_requests(db, 100))
+    stats = {
+        'customers': int(db.scalar(select(func.count(Customer.id))) or 0),
+        'active': int(db.scalar(select(func.count(Customer.id)).where(Customer.subscription_status == 'active')) or 0),
+        'paid': int(db.scalar(select(func.count(Order.id)).where(Order.status.in_(['paid','activated','paid_needs_sync','partial_needs_sync']), ~Order.order_code.like('MANUAL-%'))) or 0),
+        'manual': int(db.scalar(select(func.count(Order.id)).where(Order.order_code.like('MANUAL-%'))) or 0),
+        'panels': int(panels + marzban + guardcore),
+        'guardcore': int(guardcore),
+        'guardcore_pending': int(guardcore_pending),
+    }
+    return {
+        'success': True,
+        'stats': stats,
+        'blueai': blueai_admin_overview(db),
+        'database': database_status(),
+    }
+
 @app.post('/admin/database/initialize')
 def admin_database_initialize(
     request:Request,

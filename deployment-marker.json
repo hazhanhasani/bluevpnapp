@@ -1,15 +1,13 @@
 {
-  "release": "3.0.2-performance-fix",
+  "release": "3.0.2-in-app-updater",
   "version_name": "3.0.2",
   "version_code": 30002,
   "fixes": [
-    "Prioritize active data SIM MCC/MNC over stale carrier label",
-    "Remove repeated full server decoding from Android main thread",
-    "Cache BlueAI recommendation and personal JSON maps",
-    "Warm server catalog asynchronously after first frame",
-    "Select smart route on Dispatchers.IO",
-    "Reduce Xray verification endpoints and timeouts",
-    "Render server page from cache"
+    "Native in-app APK download progress",
+    "Download through physical network while VPN remains connected",
+    "Automatic installer launch without opening Downloads",
+    "Secure FileProvider APK sharing",
+    "Resume install after unknown-app permission"
   ],
-  "generated_at_unix": 1785948220
+  "generated_at_unix": 1785950651
 }

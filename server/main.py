@@ -1,5 +1,5 @@
 from __future__ import annotations
-import hashlib,ipaddress,json,logging,os,re,secrets,shutil,sqlite3,subprocess,tempfile,threading,time,uuid,zipfile
+import asyncio,hashlib,ipaddress,json,logging,os,re,secrets,shutil,sqlite3,subprocess,tempfile,threading,time,uuid,zipfile
 from collections import deque
 from urllib.parse import quote_plus
 from datetime import datetime,timedelta,timezone
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session,selectinload
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 from .database import DATABASE_ERROR,DATABASE_MODE,ENGINE,SQLITE_PATH,SessionLocal,database_status,database_table_counts,initialize_database,get_db
-from .integrations import IntegrationError,combined_subscription,create_invoice,get_invoice,provision,sync_customer,test_marzban_panel,test_panel,verify_webhook
+from .integrations import IntegrationError,combined_subscription,create_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,parse_remote_date,provision,recent_bluepay_errors,sync_customer,test_marzban_panel,test_panel,verify_webhook
 from .guardcore import service_ids_from_json,test_guardcore_panel
 from .manual_guardcore import (
     attach_manual_subscription,
@@ -33,7 +33,7 @@ from .version import VERSION, VERSION_CODE
 BASE=Path(__file__).resolve().parent
 logger=logging.getLogger('bluevpn.main')
 templates=Jinja2Templates(directory=BASE/'templates')
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','updated_at':utcnow().isoformat()}
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','updated_at':iso_z(utcnow())}
 
 
 def env_bool(name:str,default:bool=False)->bool:
@@ -157,7 +157,7 @@ def _backup_manifest()->dict[str,Any]:
         'product':'BlueVPN',
         'backend_version':VERSION,
         'version_code':VERSION_CODE,
-        'created_at':utcnow().isoformat(),
+        'created_at':iso_z(utcnow()),
         'database_mode':DATABASE_MODE,
         'schema_version':status.get('schema_version',''),
         'table_counts':database_table_counts(),
@@ -255,7 +255,7 @@ def settings(db:Session)->dict:
     except Exception:data={}
     return {**DEFAULT,**data}
 def save_settings(db:Session,data:dict):
-    data['updated_at']=utcnow().isoformat();row=db.get(AppSetting,1) or AppSetting(id=1,payload='{}');row.payload=json.dumps(data,ensure_ascii=False);row.updated_at=utcnow();db.add(row);db.commit()
+    data['updated_at']=iso_z(utcnow());row=db.get(AppSetting,1) or AppSetting(id=1,payload='{}');row.payload=json.dumps(data,ensure_ascii=False);row.updated_at=utcnow();db.add(row);db.commit()
 def admin_required(request:Request):
     if not request.session.get('admin'):raise HTTPException(401,'Unauthorized')
 def email_ok(raw:str)->str:
@@ -268,9 +268,79 @@ def aware(d:datetime|None):
 def bearer(value:str|None)->str:
     if not value:return ''
     s,_,t=value.partition(' ');return t.strip() if s.lower()=='bearer' else ''
+UNLIMITED_ANDROID_EXPIRY = '9999-12-31T23:59:59Z'
+EXPIRY_CLOCK_SKEW_SECONDS = 120
+PAID_GATEWAY_STATUSES = {'paid','success','successful','confirmed','completed'}
+PENDING_GATEWAY_STATUSES = {'','pending','created','creating','creating_invoice','processing','waiting','unpaid'}
+FAILED_GATEWAY_STATUSES = {'failed','canceled','cancelled','expired','rejected','refunded','amount_mismatch'}
+
+def normalize_gateway_status(value:Any)->str:
+    status=str(value or '').strip().lower().replace('-','_').replace(' ','_')
+    if status in PAID_GATEWAY_STATUSES:return 'paid'
+    if status in {'cancelled','canceled'}:return 'canceled'
+    if status in {'successfully_paid','payment_success'}:return 'paid'
+    return status or 'pending'
+
 def account_json(c:Customer)->dict:
-    expiry=aware(c.subscription_expire); active=c.subscription_status=='active' and bool(c.subscription_url) and (not expiry or expiry>utcnow()) and (not c.data_limit_bytes or c.used_traffic_bytes<c.data_limit_bytes)
-    return {'id':c.id,'email':c.email,'active':c.active,'plan_id':c.plan_id,'subscription':{'active':active,'status':c.subscription_status,'url':c.subscription_url,'expire':expiry.isoformat() if expiry else None,'data_limit_bytes':c.data_limit_bytes,'used_traffic_bytes':c.used_traffic_bytes,'remaining_bytes':max(0,c.data_limit_bytes-c.used_traffic_bytes) if c.data_limit_bytes else 0,'device_limit':c.device_limit,'last_sync_at':aware(c.last_sync_at).isoformat() if c.last_sync_at else None,'sync_error':c.last_sync_error}}
+    now=aware(utcnow()) or datetime.now(timezone.utc)
+    expiry=aware(c.subscription_expire)
+    unlimited=(
+        expiry is None
+        and c.subscription_status=='active'
+        and bool(c.subscription_url)
+    )
+    within_expiry=(
+        unlimited
+        or (expiry is not None and expiry>now-timedelta(seconds=EXPIRY_CLOCK_SKEW_SECONDS))
+    )
+    within_traffic=(
+        not c.data_limit_bytes
+        or c.used_traffic_bytes<c.data_limit_bytes
+    )
+    active=(
+        c.subscription_status=='active'
+        and bool(c.subscription_url)
+        and within_expiry
+        and within_traffic
+    )
+    expire_value=(
+        UNLIMITED_ANDROID_EXPIRY
+        if unlimited
+        else iso_z(expiry)
+    )
+    expire_mode=(
+        'unlimited'
+        if unlimited
+        else 'fixed'
+        if expiry is not None
+        else 'none'
+    )
+    return {
+        'id':c.id,
+        'email':c.email,
+        'active':c.active,
+        'plan_id':c.plan_id,
+        'server_time':iso_z(now),
+        'subscription':{
+            'active':active,
+            'status':c.subscription_status,
+            'url':c.subscription_url,
+            'expire':expire_value,
+            'expires_at':expire_value,
+            'expire_mode':expire_mode,
+            'unlimited':unlimited,
+            'clock_skew_tolerance_seconds':EXPIRY_CLOCK_SKEW_SECONDS,
+            'data_limit_bytes':c.data_limit_bytes,
+            'used_traffic_bytes':c.used_traffic_bytes,
+            'remaining_bytes':(
+                max(0,c.data_limit_bytes-c.used_traffic_bytes)
+                if c.data_limit_bytes else 0
+            ),
+            'device_limit':c.device_limit,
+            'last_sync_at':iso_z(aware(c.last_sync_at)),
+            'sync_error':c.last_sync_error,
+        },
+    }
 def current_customer(authorization:str|None=Header(None),x_device_id:str|None=Header(None),db:Session=Depends(get_db))->Customer:
     raw=bearer(authorization)
     if not raw:raise HTTPException(401,detail={'code':'AUTH_REQUIRED','message':'ورود لازم است'})
@@ -311,6 +381,15 @@ def issue_session(db:Session,c:Customer,device_id:str,device_name:str,rotate_ref
     db.commit()
     return raw,refresh_raw
 async def activate(db:Session,order:Order):
+    locked=db.scalar(
+        select(Order)
+        .options(selectinload(Order.customer),selectinload(Order.plan))
+        .where(Order.id==order.id)
+        .with_for_update()
+    )
+    if not locked:
+        raise IntegrationError('سفارش پیدا نشد')
+    order=locked
     if order.status=='activated':
         try:
             ensure_manual_request_for_order(db,order)
@@ -318,7 +397,21 @@ async def activate(db:Session,order:Order):
         except Exception:
             pass
         return
-    order.status='paid';order.paid_at=order.paid_at or utcnow();db.commit()
+
+    metadata={}
+    try:metadata=json.loads(order.gateway_json or '{}')
+    except Exception:metadata={}
+    started_at=parse_remote_date(metadata.get('_bluevpn_activation_started_at'))
+    now=aware(utcnow()) or datetime.now(timezone.utc)
+    if order.status=='activating' and started_at and started_at>now-timedelta(minutes=2):
+        return
+
+    order.status='activating'
+    order.paid_at=order.paid_at or now
+    metadata['_bluevpn_activation_started_at']=iso_z(now)
+    order.gateway_json=json.dumps(metadata,ensure_ascii=False)
+    db.commit()
+
     try:
         await provision(
             db,
@@ -327,9 +420,6 @@ async def activate(db:Session,order:Order):
             order,
             settings(db)['public_base_url'],
         )
-        # Manual GuardCore is optional. Even when the selected plan has no
-        # GuardCore field, an active manual panel becomes the fallback and
-        # the admin receives a Yes/No request after automatic activation.
         try:
             ensure_manual_request_for_order(db,order)
             await notify_manual_request(db,order)
@@ -348,6 +438,65 @@ async def activate(db:Session,order:Order):
             order.status='paid_needs_sync'
         order.activation_error=str(exc)[:2000]
         db.commit()
+
+def order_response(order:Order,customer:Customer)->dict:
+    return {
+        'id':order.id,
+        'payment_id':order.payment_id,
+        'status':order.status,
+        'payment_url':order.payment_url,
+        'amount_toman':order.amount_toman,
+        'activation_error':order.activation_error,
+        'paid_at':iso_z(aware(order.paid_at)),
+        'activated_at':iso_z(aware(order.activated_at)),
+        'account':account_json(customer),
+    }
+
+async def refresh_order_from_bluepay(db:Session,order:Order)->dict|None:
+    if not order.payment_id:
+        return None
+    payment=db.get(PaymentSetting,1)
+    if not payment:
+        raise IntegrationError('تنظیمات درگاه BluePay پیدا نشد')
+    remote=await get_invoice(payment,order.payment_id)
+    merge_order_metadata(db,order,'bluepay_last_status',remote)
+    remote_amount,currency=normalize_gateway_amount_toman(remote,order.amount_toman)
+    if remote_amount is not None and remote_amount!=int(order.amount_toman):
+        order.status='amount_mismatch'
+        order.activation_error=(
+            f'مبلغ BluePay با سفارش برابر نیست: '
+            f'{remote_amount} تومان ({currency}) / '
+            f'{order.amount_toman} تومان'
+        )
+        log_bluepay_error(
+            'amount_mismatch',
+            order_code=order.order_code,
+            payment_id=order.payment_id,
+            error=order.activation_error,
+            response_body=remote,
+        )
+        db.commit()
+        return remote
+
+    status=normalize_gateway_status(remote.get('status'))
+    order.status=status
+    if status=='paid':
+        order.paid_at=order.paid_at or utcnow()
+    db.commit()
+    if status=='paid':
+        await activate(db,order)
+    return remote
+
+def find_bluepay_order(db:Session,payload:dict)->Order|None:
+    payment_id=str(payload.get('payment_id') or payload.get('id') or '')
+    order_code=str(payload.get('order_id') or payload.get('order_code') or '')
+    query=select(Order).options(selectinload(Order.customer),selectinload(Order.plan))
+    if payment_id:
+        found=db.scalar(query.where(Order.payment_id==payment_id))
+        if found:return found
+    if order_code:
+        return db.scalar(query.where(Order.order_code==order_code))
+    return None
 
 def admin_redirect(anchor:str,message:str='',error:str='')->RedirectResponse:
     query=[]
@@ -411,7 +560,7 @@ async def create_manual_activation(
                 'plan_id':plan.id,
                 'plan_title':plan.title,
                 'note':note.strip()[:500],
-                'created_at':utcnow().isoformat(),
+                'created_at':iso_z(utcnow()),
             },
             ensure_ascii=False,
         ),
@@ -641,7 +790,7 @@ async def ai_event(request:Request,c:Customer=Depends(current_customer),db:Sessi
 async def ai_recommendations(operator:str='unknown',network_type:str='unknown',mode:str='balanced',hour:int|None=None,c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
     s=settings(db)
     rows=blueai_recommendations(db,operator=operator,network_type=network_type,mode=mode,bucket=hour,limit=30) if bool(s.get('blueai_enabled',True)) else []
-    return {'success':True,'enabled':bool(s.get('blueai_enabled',True)),'collective':bool(s.get('blueai_collective',True)),'recommendations':rows,'generated_at':utcnow().isoformat()}
+    return {'success':True,'enabled':bool(s.get('blueai_enabled',True)),'collective':bool(s.get('blueai_collective',True)),'recommendations':rows,'generated_at':iso_z(utcnow())}
 
 @app.get('/api/v1/ai/dashboard')
 async def ai_dashboard(c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
@@ -660,32 +809,219 @@ async def account_sync(c:Customer=Depends(current_customer),db:Session=Depends(g
     c=db.get(Customer,c.id);await sync_customer(db,c,settings(db)['public_base_url']);return {'success':True,'account':account_json(c)}
 @app.post('/api/v1/orders')
 async def create_order(request:Request,c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
-    b=await request.json();plan=db.get(Plan,int(b.get('plan_id',0)))
-    if not plan or not plan.active or plan.deleted:raise HTTPException(404,detail={'code':'PLAN_NOT_FOUND','message':'پلن پیدا نشد'})
-    c=db.get(Customer,c.id);order=Order(order_code=f'BV-{c.id}-{uuid.uuid4().hex[:13].upper()}',customer_id=c.id,plan_id=plan.id,amount_toman=plan.price_toman,status='creating_invoice');db.add(order);db.commit();order=db.scalar(select(Order).options(selectinload(Order.customer),selectinload(Order.plan)).where(Order.id==order.id));pay=db.get(PaymentSetting,1);base=settings(db)['public_base_url'].rstrip('/')
-    try:invoice=await create_invoice(pay,order,base+'/webhooks/bluepay')
-    except IntegrationError as exc:order.status='invoice_failed';order.activation_error=str(exc);db.commit();raise HTTPException(502,detail={'code':'INVOICE_CREATE_FAILED','message':str(exc)})
-    order.payment_id=str(invoice.get('payment_id',''));order.payment_url=str(invoice.get('payment_url',''));order.status=str(invoice.get('status','pending'));order.gateway_json=json.dumps(invoice,ensure_ascii=False);db.commit();return {'success':True,'order':{'id':order.id,'payment_id':order.payment_id,'status':order.status,'payment_url':order.payment_url,'amount_toman':order.amount_toman}}
+    b=await request.json()
+    plan=db.get(Plan,int(b.get('plan_id',0)))
+    if not plan or not plan.active or plan.deleted:
+        raise HTTPException(404,detail={'code':'PLAN_NOT_FOUND','message':'پلن پیدا نشد'})
+    c=db.get(Customer,c.id)
+    order=Order(
+        order_code=f'BV-{c.id}-{uuid.uuid4().hex[:13].upper()}',
+        customer_id=c.id,
+        plan_id=plan.id,
+        amount_toman=int(plan.price_toman),
+        status='creating_invoice',
+    )
+    db.add(order)
+    db.commit()
+    order=db.scalar(
+        select(Order)
+        .options(selectinload(Order.customer),selectinload(Order.plan))
+        .where(Order.id==order.id)
+    )
+    pay=db.get(PaymentSetting,1)
+    if not pay:
+        order.status='invoice_failed'
+        order.activation_error='تنظیمات BluePay پیدا نشد'
+        db.commit()
+        raise HTTPException(503,detail={'code':'PAYMENT_NOT_CONFIGURED','message':order.activation_error})
+    base=settings(db)['public_base_url'].rstrip('/')
+    try:
+        invoice=await create_invoice(pay,order,base+'/webhooks/bluepay')
+    except IntegrationError as exc:
+        order.status='invoice_failed'
+        order.activation_error=str(exc)
+        db.commit()
+        raise HTTPException(502,detail={'code':'INVOICE_CREATE_FAILED','message':str(exc)})
+
+    invoice_amount,currency=normalize_gateway_amount_toman(invoice,order.amount_toman)
+    if invoice_amount is not None and invoice_amount!=order.amount_toman:
+        order.status='amount_mismatch'
+        order.activation_error=(
+            f'مبلغ فاکتور BluePay {invoice_amount} تومان ({currency}) است، '
+            f'اما مبلغ سفارش {order.amount_toman} تومان است'
+        )
+        log_bluepay_error(
+            'create_invoice_amount_mismatch',
+            order_code=order.order_code,
+            payment_id=str(invoice.get('payment_id','')),
+            error=order.activation_error,
+            response_body=invoice,
+        )
+        merge_order_metadata(db,order,'bluepay_create',invoice)
+        db.commit()
+        raise HTTPException(502,detail={'code':'INVOICE_AMOUNT_MISMATCH','message':order.activation_error})
+
+    order.payment_id=str(invoice.get('payment_id') or invoice.get('id') or '')
+    order.payment_url=str(invoice.get('payment_url') or invoice.get('url') or '')
+    order.status=normalize_gateway_status(invoice.get('status'))
+    order.activation_error=''
+    merge_order_metadata(db,order,'bluepay_create',invoice)
+    db.commit()
+    return {
+        'success':True,
+        'order':order_response(order,c),
+        'check_after_success_url':f'/api/v1/orders/{order.id}/check-after-success',
+        'poll_interval_seconds':5,
+        'poll_timeout_seconds':30,
+    }
+
 @app.get('/api/v1/orders/{order_id}')
 async def order_status(order_id:str,c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
-    order=db.scalar(select(Order).options(selectinload(Order.customer),selectinload(Order.plan)).where(Order.id==order_id,Order.customer_id==c.id))
+    order=db.scalar(
+        select(Order)
+        .options(selectinload(Order.customer),selectinload(Order.plan))
+        .where(Order.id==order_id,Order.customer_id==c.id)
+    )
     if not order:raise HTTPException(404,'Order not found')
-    if order.payment_id and order.status in {'pending','created','creating_invoice'}:
+    if order.payment_id and order.status in PENDING_GATEWAY_STATUSES:
         try:
-            remote=await get_invoice(db.get(PaymentSetting,1),order.payment_id);order.gateway_json=json.dumps(remote,ensure_ascii=False);order.status=str(remote.get('status',order.status));db.commit()
-            if order.status=='paid':await activate(db,order)
-        except Exception as exc:order.activation_error=str(exc)[:1000];db.commit()
-    c=db.get(Customer,c.id);return {'success':True,'order':{'id':order.id,'payment_id':order.payment_id,'status':order.status,'payment_url':order.payment_url,'activation_error':order.activation_error,'account':account_json(c)}}
+            await refresh_order_from_bluepay(db,order)
+        except Exception as exc:
+            order.activation_error=str(exc)[:1000]
+            db.commit()
+    elif order.status in {'paid','paid_needs_sync','partial_needs_sync'}:
+        await activate(db,order)
+    c=db.get(Customer,c.id)
+    db.refresh(order)
+    return {'success':True,'order':order_response(order,c)}
+
+@app.get('/api/v1/orders/{order_id}/check-after-success')
+async def check_order_after_success(
+    order_id:str,
+    timeout_seconds:int=30,
+    interval_seconds:int=5,
+    c:Customer=Depends(current_customer),
+    db:Session=Depends(get_db),
+):
+    timeout_seconds=max(0,min(30,int(timeout_seconds)))
+    interval_seconds=max(1,min(5,int(interval_seconds)))
+    started=time.monotonic()
+    attempts=0
+    last_error=''
+    while True:
+        order=db.scalar(
+            select(Order)
+            .options(selectinload(Order.customer),selectinload(Order.plan))
+            .where(Order.id==order_id,Order.customer_id==c.id)
+        )
+        if not order:raise HTTPException(404,'Order not found')
+        attempts+=1
+        try:
+            if order.status in PENDING_GATEWAY_STATUSES and order.payment_id:
+                await refresh_order_from_bluepay(db,order)
+            elif order.status in {'paid','paid_needs_sync','partial_needs_sync'}:
+                await activate(db,order)
+        except Exception as exc:
+            last_error=str(exc)[:1000]
+            order.activation_error=last_error
+            db.commit()
+
+        db.refresh(order)
+        if order.status in {'activated','amount_mismatch'} or order.status in FAILED_GATEWAY_STATUSES:
+            break
+        elapsed=time.monotonic()-started
+        if elapsed>=timeout_seconds:
+            break
+        await asyncio.sleep(min(interval_seconds,max(0.0,timeout_seconds-elapsed)))
+
+    c=db.get(Customer,c.id)
+    elapsed_seconds=round(time.monotonic()-started,2)
+    return {
+        'success':True,
+        'confirmed':order.status=='activated',
+        'pending':order.status in PENDING_GATEWAY_STATUSES or order.status in {'paid','activating','paid_needs_sync','partial_needs_sync'},
+        'attempts':attempts,
+        'elapsed_seconds':elapsed_seconds,
+        'retry_after_seconds':0 if order.status=='activated' else interval_seconds,
+        'last_error':last_error,
+        'server_time':iso_z(utcnow()),
+        'order':order_response(order,c),
+    }
+
 @app.post('/webhooks/bluepay')
 async def bluepay_webhook(request:Request,x_gateway_signature:str|None=Header(None),x_gateway_delivery:str|None=Header(None),x_gateway_event:str|None=Header(None),db:Session=Depends(get_db)):
-    pay=db.get(PaymentSetting,1);secret=decrypt(pay.callback_secret_enc) if pay else '';raw=await request.body();valid,payload=verify_webhook(raw,x_gateway_signature or '',secret)
-    if not secret or not valid:return JSONResponse({'success':False},status_code=401)
-    delivery=x_gateway_delivery or f"payment:{payload.get('payment_id','')}"
-    if db.scalar(select(WebhookDelivery).where(WebhookDelivery.delivery_id==delivery)):return {'success':True,'duplicate':True}
-    db.add(WebhookDelivery(delivery_id=delivery,payment_id=str(payload.get('payment_id','')),event=x_gateway_event or str(payload.get('event',''))));order=db.scalar(select(Order).options(selectinload(Order.customer),selectinload(Order.plan)).where(Order.payment_id==str(payload.get('payment_id',''))))
-    if order:order.gateway_json=json.dumps(payload,ensure_ascii=False);order.status=str(payload.get('status',order.status));order.paid_at=utcnow() if order.status=='paid' else order.paid_at;db.commit();await activate(db,order) if order.status=='paid' else None
-    else:db.commit()
-    return {'success':True}
+    pay=db.get(PaymentSetting,1)
+    secret=decrypt(pay.callback_secret_enc) if pay else ''
+    raw=await request.body()
+    valid,payload=verify_webhook(raw,x_gateway_signature or '',secret)
+    if not secret or not valid:
+        log_bluepay_error(
+            'webhook_signature',
+            status_code=401,
+            error='امضای Webhook نامعتبر است',
+        )
+        return JSONResponse({'success':False},status_code=401)
+
+    order=find_bluepay_order(db,payload)
+    payment_id=str(payload.get('payment_id') or payload.get('id') or (order.payment_id if order else ''))
+    delivery=x_gateway_delivery or f"payment:{payment_id}:{payload.get('status','')}"
+    duplicate=db.scalar(select(WebhookDelivery).where(WebhookDelivery.delivery_id==delivery))
+    if duplicate:
+        if order and order.status in {'paid','paid_needs_sync','partial_needs_sync','activating'}:
+            await activate(db,order)
+        return {'success':True,'duplicate':True}
+
+    db.add(WebhookDelivery(
+        delivery_id=delivery,
+        payment_id=payment_id,
+        event=x_gateway_event or str(payload.get('event','')),
+    ))
+    if not order:
+        log_bluepay_error(
+            'webhook_order_not_found',
+            payment_id=payment_id,
+            error='سفارش متناظر با Webhook پیدا نشد',
+            response_body=payload,
+        )
+        db.commit()
+        return {'success':True,'order_found':False}
+
+    merge_order_metadata(db,order,'bluepay_webhook',payload)
+    remote_amount,currency=normalize_gateway_amount_toman(payload,order.amount_toman)
+    if remote_amount is not None and remote_amount!=order.amount_toman:
+        order.status='amount_mismatch'
+        order.activation_error=(
+            f'مبلغ Webhook برابر نیست: {remote_amount} تومان ({currency}) / '
+            f'{order.amount_toman} تومان'
+        )
+        log_bluepay_error(
+            'webhook_amount_mismatch',
+            order_code=order.order_code,
+            payment_id=payment_id,
+            error=order.activation_error,
+            response_body=payload,
+        )
+        db.commit()
+        return {'success':False,'code':'AMOUNT_MISMATCH'}
+
+    order.status=normalize_gateway_status(payload.get('status'))
+    if order.status=='paid':
+        order.paid_at=order.paid_at or utcnow()
+    db.commit()
+    if order.status=='paid':
+        await activate(db,order)
+    return {'success':True,'status':order.status}
+
+@app.get('/admin/api/bluepay/errors')
+def admin_bluepay_errors(request:Request,limit:int=100):
+    admin_required(request)
+    items=recent_bluepay_errors(limit)
+    return {
+        'success':True,
+        'count':len(items),
+        'auth_error':any(bool(item.get('auth_error')) for item in items),
+        'items':items,
+    }
 
 @app.get('/sub/{token}')
 async def public_subscription(
@@ -712,7 +1048,7 @@ async def public_subscription(
         repair_error=str(exc)
 
     expiry=aware(customer.subscription_expire)
-    if expiry and expiry<=utcnow():
+    if expiry and expiry<=utcnow()-timedelta(seconds=EXPIRY_CLOCK_SKEW_SECONDS):
         raise HTTPException(410,'Subscription expired')
 
     try:
@@ -768,7 +1104,7 @@ def admin_login(request:Request,username:str=Form(...),password:str=Form(...)):
     )
     if not valid:return templates.TemplateResponse(request=request,name='login.html',context={'error':'نام کاربری یا رمز نادرست است'},status_code=401)
     AUTH_LIMITER.reset(f'admin-login:{ip}')
-    request.session.clear();request.session['admin']=True;request.session['admin_login_at']=utcnow().isoformat();csrf_token(request)
+    request.session.clear();request.session['admin']=True;request.session['admin_login_at']=iso_z(utcnow());csrf_token(request)
     return RedirectResponse('/admin',303)
 @app.post('/admin/logout')
 def admin_logout(request:Request):request.session.clear();return RedirectResponse('/admin/login',303)

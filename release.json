@@ -1,11 +1,11 @@
 {
-  "version": "3.0.13",
-  "channel": "updater-package-parser-fix",
-  "build_id": "20260806-updater-integrity-installer-v3013",
-  "built_at": "2026-08-06T01:00:00Z",
-  "android_version": "3.0.13",
-  "android_version_code": 30013,
-  "description": "BlueVPN 3.0.13: validates APK integrity before installation, verifies GitHub Release SHA-256 and size, and grants the Android/MIUI package installer explicit read access.",
+  "version": "3.0.15",
+  "channel": "bluepay-expiry-sync-fix",
+  "build_id": "20260806-bluepay-expiry-sync-v3015",
+  "built_at": "2026-08-06T02:30:00Z",
+  "android_version": "3.0.15",
+  "android_version_code": 30015,
+  "description": "BlueVPN 3.0.15 استانداردسازی UTC با پسوند Z، پشتیبانی صریح از پلن نامحدود، تمدید دقیق از انتهای اعتبار قبلی، بررسی ۳۰ ثانیه‌ای پس از پرداخت، کنترل مبلغ ریال/تومان، لاگ اختصاصی BluePay و رفع Race در GitHub Actions را اضافه می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -98,8 +98,24 @@
     "apk-version-validation",
     "miui-explicit-installer-uri-grant",
     "installer-clipdata-uri-permission",
-    "action-install-package-fallback"
+    "action-install-package-fallback",
+    "utc-z-expiry-serialization",
+    "android-compatible-unlimited-expiry",
+    "renew-from-current-expiry",
+    "two-minute-clock-skew-tolerance",
+    "bluepay-check-after-success",
+    "bluepay-rial-toman-normalization",
+    "bluepay-amount-mismatch-protection",
+    "bluepay-http-error-jsonl-log",
+    "bluepay-expired-api-key-diagnostics",
+    "late-confirmation-one-day-credit",
+    "idempotent-activation-claim",
+    "webhook-duplicate-recovery",
+    "workflow-latest-branch-sync",
+    "workflow-push-rebase-retry",
+    "workflow-cancel-stale-builds",
+    "github-actions-node24-upgrade"
   ],
-  "version_code": 30013,
-  "notes": "خطای تجزیه بسته در بروزرسانی داخلی رفع شد؛ فایل APK قبل از نصب از نظر ساختار، اندازه، SHA-256، نام بسته و نسخه بررسی می‌شود و دسترسی FileProvider به نصب‌کننده‌های Android/MIUI به‌صورت صریح اعطا می‌شود."
+  "version_code": 30015,
+  "notes": "تاریخ انقضا و همگام‌سازی پرداخت BluePay اصلاح شد؛ پلن نامحدود دیگر پایان‌یافته نمایش داده نمی‌شود و Buildهای هم‌زمان قبل از Gradle با خطای branch advanced متوقف نمی‌شوند."
 }

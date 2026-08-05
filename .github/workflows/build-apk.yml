@@ -9,7 +9,7 @@ on:
 
 concurrency:
   group: bluevpn-release-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -27,9 +27,18 @@ jobs:
 
     steps:
       - name: Checkout BlueVPN project
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Synchronize checkout with latest branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "${GITHUB_REF_NAME}" --prune
+          git checkout -B "${GITHUB_REF_NAME}" "origin/${GITHUB_REF_NAME}"
+          echo "BUILD_STAGE=source-synchronized" >> "$GITHUB_ENV"
+          echo "Building latest branch commit: $(git rev-parse HEAD)"
 
       - name: Check permanent signing secrets
         shell: bash
@@ -163,6 +172,7 @@ jobs:
           TARGET_BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          echo "BUILD_STAGE=persist-version-metadata" >> "$GITHUB_ENV"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
@@ -177,16 +187,25 @@ jobs:
             echo "Version metadata is already synchronized."
           fi
 
-          LOCAL_SHA="$(git rev-parse HEAD)"
-          REMOTE_BEFORE="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+          PUSHED=0
+          for attempt in 1 2 3 4 5; do
+            if git push --porcelain origin "HEAD:${TARGET_BRANCH}"; then
+              PUSHED=1
+              break
+            fi
 
-          if [ -n "$REMOTE_BEFORE" ] && ! git merge-base --is-ancestor "$REMOTE_BEFORE" "$LOCAL_SHA"; then
-            echo "::error::The GitHub branch advanced while version metadata was being prepared. Re-run the build from the latest source commit."
+            echo "Push raced with another commit; rebasing attempt ${attempt}/5"
+            git fetch origin "${TARGET_BRANCH}" --prune
+            git rebase "origin/${TARGET_BRANCH}"
+            sleep $((attempt * 2))
+          done
+
+          if [ "$PUSHED" != "1" ]; then
+            echo "::error::Version metadata could not be persisted after five synchronized retries."
             exit 1
           fi
 
-          git push --porcelain origin "HEAD:${TARGET_BRANCH}"
-
+          LOCAL_SHA="$(git rev-parse HEAD)"
           REMOTE_AFTER=""
           for attempt in 1 2 3 4 5 6 7 8; do
             REMOTE_AFTER="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
@@ -206,7 +225,7 @@ jobs:
           echo "Verified GitHub metadata commit: $LOCAL_SHA"
 
       - name: Checkout official v2rayNG source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: 2dust/v2rayNG
           ref: ${{ steps.config.outputs.upstream_ref }}
@@ -292,7 +311,7 @@ jobs:
           out-file-path: upstream/V2rayNG/app/libs/
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
@@ -385,17 +404,25 @@ jobs:
             echo "Generated Android source snapshot is already synchronized."
           fi
 
-          LOCAL_SHA="$(git rev-parse HEAD)"
-          REMOTE_BEFORE="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
-          PARENT_SHA="$(git rev-parse HEAD~1 2>/dev/null || git rev-parse HEAD)"
+          echo "BUILD_STAGE=persist-generated-android-source" >> "$GITHUB_ENV"
+          PUSHED=0
+          for attempt in 1 2 3 4 5; do
+            if git push --porcelain origin "HEAD:${TARGET_BRANCH}"; then
+              PUSHED=1
+              break
+            fi
+            echo "Generated-source push raced with another commit; rebasing attempt ${attempt}/5"
+            git fetch origin "${TARGET_BRANCH}" --prune
+            git rebase "origin/${TARGET_BRANCH}"
+            sleep $((attempt * 2))
+          done
 
-          if [ -n "$REMOTE_BEFORE" ] && [ "$REMOTE_BEFORE" != "$LOCAL_SHA" ] && [ "$REMOTE_BEFORE" != "$PARENT_SHA" ]; then
-            echo "::error::The branch changed during Android source generation. Build stopped to avoid publishing an APK whose exact source is not in GitHub."
+          if [ "$PUSHED" != "1" ]; then
+            echo "::error::Generated Android source could not be persisted after five synchronized retries."
             exit 1
           fi
 
-          git push --porcelain origin "HEAD:${TARGET_BRANCH}"
-
+          LOCAL_SHA="$(git rev-parse HEAD)"
           REMOTE_AFTER=""
           for attempt in 1 2 3 4 5 6 7 8; do
             REMOTE_AFTER="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
@@ -415,7 +442,7 @@ jobs:
           echo "Verified generated-source commit: $LOCAL_SHA"
 
       - name: Setup Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -466,6 +493,8 @@ jobs:
 
       - name: Build unsigned release APKs
         working-directory: upstream/V2rayNG
+        env:
+          BUILD_STAGE: gradle-compile
         shell: bash
         run: |
           set -o pipefail
@@ -492,7 +521,7 @@ jobs:
 
       - name: Upload failed Android build log
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: BlueVPN-android-build-log
           path: android-build.log
@@ -651,7 +680,7 @@ jobs:
           PY
 
       - name: Upload signed BlueVPN APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: BlueVPN-${{ steps.config.outputs.version }}-signed
           path: |
@@ -758,6 +787,7 @@ jobs:
               f"Commit: {os.getenv('GITHUB_SHA', '')[:8]}",
               f"Branch: {os.getenv('GITHUB_REF_NAME', 'نامشخص')}",
               f"Actor: {os.getenv('GITHUB_ACTOR', 'نامشخص')}",
+              f"Stage: {os.getenv('BUILD_STAGE', 'pre-gradle')}",
               f"Run: {os.getenv('GITHUB_SERVER_URL', '')}/"
               f"{os.getenv('GITHUB_REPOSITORY', '')}/actions/runs/"
               f"{os.getenv('GITHUB_RUN_ID', '')}",

@@ -4,10 +4,13 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import re
 import secrets
+import threading
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote, unquote, urljoin
 
@@ -49,6 +52,25 @@ SUPPORTED_MARZBAN_PROTOCOLS = (
     "trojan",
     "shadowsocks",
 )
+UNLIMITED_EXPIRY_SENTINELS = {
+    "",
+    "0",
+    "none",
+    "null",
+    "never",
+    "unlimited",
+    "infinite",
+}
+EXPIRY_CLOCK_SKEW = timedelta(minutes=2)
+LATE_PAYMENT_BONUS_AFTER = timedelta(hours=1)
+LATE_PAYMENT_BONUS = timedelta(days=1)
+_BLUEPAY_LOG_LOCK = threading.Lock()
+_BLUEPAY_LOG_PATH = Path(
+    os.getenv(
+        "BLUEPAY_ERROR_LOG_PATH",
+        "/app/data/bluepay-http-errors.jsonl",
+    )
+)
 
 
 def aware(value: datetime | None) -> datetime | None:
@@ -59,11 +81,37 @@ def aware(value: datetime | None) -> datetime | None:
     return value.astimezone(timezone.utc)
 
 
+def iso_z(value: datetime | None) -> str | None:
+    """Serialize a datetime in an Android-safe UTC ISO-8601 form."""
+    normalized = aware(value)
+    if normalized is None:
+        return None
+    return (
+        normalized
+        .replace(microsecond=0)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
+
+
 def parse_remote_date(value: Any) -> datetime | None:
-    if not value or value == 0:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return aware(value)
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized.lower() in UNLIMITED_EXPIRY_SENTINELS:
+            return None
+        value = normalized
+    if value == 0:
         return None
     if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        timestamp = float(value)
+        # Some providers return epoch milliseconds instead of seconds.
+        if timestamp > 10_000_000_000:
+            timestamp /= 1000.0
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc)
     try:
         parsed = datetime.fromisoformat(
             str(value).replace("Z", "+00:00")
@@ -474,30 +522,76 @@ def activation_target(
     plan: Plan,
     existing_dates: list[datetime | None],
 ) -> datetime | None:
+    """Return one idempotent UTC expiry target for all providers.
+
+    A still-valid subscription is extended from its current end, not from the
+    payment time. A small clock-skew allowance prevents a provider that is a
+    minute behind UTC from shortening the renewal. Unlimited plans are stored
+    explicitly as ``unlimited`` in order metadata while the database keeps
+    ``None``.
+    """
     metadata = order_metadata(order)
-    saved = parse_remote_date(
-        metadata.get("_bluevpn_target_expire")
-    )
+    stored_value = metadata.get("_bluevpn_target_expire")
+    has_stored_target = "_bluevpn_target_expire" in metadata
 
-    if "_bluevpn_target_expire" in metadata:
-        return saved
+    if has_stored_target:
+        target = parse_remote_date(stored_value)
+        unlimited = str(stored_value).strip().lower() in (
+            UNLIMITED_EXPIRY_SENTINELS - {""}
+        )
+        if unlimited:
+            return None
+    else:
+        now = aware(utcnow()) or datetime.now(timezone.utc)
+        normalized_dates = [
+            aware(item)
+            for item in existing_dates
+            if item is not None
+        ]
+        valid_dates = [
+            item
+            for item in normalized_dates
+            if item is not None and item > now - EXPIRY_CLOCK_SKEW
+        ]
+        previous_expiry = max(valid_dates) if valid_dates else None
+        start = max(previous_expiry, now) if previous_expiry else now
+        target = (
+            None
+            if int(plan.duration_days or 0) <= 0
+            else start + timedelta(days=int(plan.duration_days))
+        )
+        if target is not None:
+            target = target.replace(microsecond=0)
 
-    now = utcnow()
-    valid_dates = [
-        aware(item)
-        for item in existing_dates
-        if item and aware(item) > now
-    ]
-    start = max(valid_dates) if valid_dates else now
-    target = (
-        None
-        if plan.duration_days == 0
-        else start + timedelta(days=plan.duration_days)
-    )
+        metadata["_bluevpn_target_base"] = iso_z(start)
+        metadata["_bluevpn_previous_expire"] = iso_z(previous_expiry)
+        metadata["_bluevpn_target_expire"] = (
+            "unlimited" if target is None else iso_z(target)
+        )
+        metadata["_bluevpn_expire_mode"] = (
+            "unlimited" if target is None else "fixed"
+        )
+        metadata["_bluevpn_target_calculated_at"] = iso_z(now)
 
-    metadata["_bluevpn_target_expire"] = (
-        0 if target is None else target.isoformat()
-    )
+    created_at = aware(order.created_at)
+    paid_at = aware(order.paid_at)
+    bonus_already_applied = int(
+        metadata.get("_bluevpn_late_confirmation_bonus_days") or 0
+    ) > 0
+    if (
+        target is not None
+        and not bonus_already_applied
+        and created_at is not None
+        and paid_at is not None
+        and paid_at - created_at >= LATE_PAYMENT_BONUS_AFTER
+    ):
+        target += LATE_PAYMENT_BONUS
+        metadata["_bluevpn_target_expire"] = iso_z(target)
+        metadata["_bluevpn_late_confirmation_bonus_days"] = 1
+        metadata["_bluevpn_late_confirmation_delay_seconds"] = int(
+            (paid_at - created_at).total_seconds()
+        )
+
     metadata["_bluevpn_plan_data_limit_gb"] = plan.data_limit_gb
     metadata["_bluevpn_plan_device_limit"] = plan.device_limit
     save_order_metadata(db, order, metadata)
@@ -680,7 +774,7 @@ async def provision_pasarguard(
         "expire": (
             0
             if target_expire is None
-            else target_expire.isoformat()
+            else iso_z(target_expire)
         ),
         "data_limit": data_limit,
         "data_limit_reset_strategy": "no_reset",
@@ -1763,6 +1857,151 @@ async def combined_subscription(
     return body, headers, errors
 
 
+def _redact_gateway_payload(value: Any) -> Any:
+    sensitive = {
+        "api_key",
+        "apikey",
+        "authorization",
+        "secret",
+        "token",
+        "password",
+    }
+    if isinstance(value, dict):
+        return {
+            str(key): (
+                "***"
+                if str(key).lower() in sensitive
+                else _redact_gateway_payload(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_gateway_payload(item) for item in value[:50]]
+    if isinstance(value, str):
+        return value[:1500]
+    return value
+
+
+def log_bluepay_error(
+    operation: str,
+    *,
+    order_code: str = "",
+    payment_id: str = "",
+    status_code: int | None = None,
+    error: str = "",
+    response_body: Any = None,
+) -> None:
+    entry = {
+        "timestamp": iso_z(datetime.now(timezone.utc)),
+        "gateway": "bluepay",
+        "operation": operation[:80],
+        "order_code": order_code[:100],
+        "payment_id": payment_id[:180],
+        "status_code": status_code,
+        "auth_error": status_code in {401, 403},
+        "error": str(error)[:1500],
+        "response": _redact_gateway_payload(response_body),
+    }
+    try:
+        _BLUEPAY_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        encoded = json.dumps(entry, ensure_ascii=False, separators=(",", ":"))
+        with _BLUEPAY_LOG_LOCK:
+            with _BLUEPAY_LOG_PATH.open("a", encoding="utf-8") as stream:
+                stream.write(encoded + "\n")
+    except Exception:
+        # Gateway failures must never crash the checkout flow merely because
+        # the diagnostic volume is temporarily unavailable.
+        return
+
+
+def recent_bluepay_errors(limit: int = 100) -> list[dict]:
+    limit = max(1, min(500, int(limit)))
+    try:
+        if not _BLUEPAY_LOG_PATH.exists():
+            return []
+        with _BLUEPAY_LOG_LOCK:
+            lines = _BLUEPAY_LOG_PATH.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines()
+        result: list[dict] = []
+        for line in lines[-limit:]:
+            try:
+                item = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(item, dict):
+                result.append(item)
+        return list(reversed(result))
+    except Exception:
+        return []
+
+
+def normalize_gateway_amount_toman(
+    payload: Any,
+    expected_toman: int | None = None,
+) -> tuple[int | None, str]:
+    """Read BluePay amounts in either toman or rial without floating math."""
+    if not isinstance(payload, dict):
+        return None, "unknown"
+
+    def integer(value: Any) -> int | None:
+        try:
+            if isinstance(value, bool):
+                return None
+            return int(str(value).replace(",", "").strip())
+        except Exception:
+            return None
+
+    direct = integer(payload.get("amount_toman"))
+    if direct is not None:
+        return max(0, direct), "toman"
+
+    rial = integer(payload.get("amount_rial"))
+    if rial is not None:
+        return max(0, rial // 10), "rial"
+
+    amount = integer(payload.get("amount"))
+    if amount is None:
+        return None, "unknown"
+
+    raw_currency = (
+        payload.get("currency")
+        or payload.get("amount_currency")
+        or payload.get("unit")
+        or ""
+    )
+    currency = str(raw_currency).strip().lower()
+    if currency in {"irr", "rial", "ریال", "rials"}:
+        return max(0, amount // 10), "rial"
+    if currency in {"irt", "toman", "tomans", "تومان"}:
+        return max(0, amount), "toman"
+
+    # Some BluePay-compatible gateways return only a generic `amount`. When
+    # the expected order total is known, detect the unit without guessing.
+    if expected_toman is not None:
+        expected = max(0, int(expected_toman))
+        if amount == expected * 10:
+            return expected, "rial_inferred"
+        if amount == expected:
+            return expected, "toman_inferred"
+    return max(0, amount), "toman_assumed"
+
+
+def merge_order_metadata(
+    db: Session,
+    order: Order,
+    key: str,
+    payload: Any,
+) -> dict:
+    metadata = order_metadata(order)
+    metadata[key] = _redact_gateway_payload(payload)
+    metadata["_bluevpn_gateway_updated_at"] = iso_z(
+        datetime.now(timezone.utc)
+    )
+    save_order_metadata(db, order, metadata)
+    return metadata
+
+
 def payment_secret(
     setting: PaymentSetting,
 ) -> tuple[str, str, str]:
@@ -1785,7 +2024,7 @@ async def create_invoice(
         )
 
     payload = {
-        "amount_toman": order.amount_toman,
+        "amount_toman": int(order.amount_toman),
         "order_id": order.order_code,
         "description": (
             f"خرید {order.plan.title} برای {order.customer.email}"
@@ -1798,24 +2037,60 @@ async def create_invoice(
         "callback_url": callback_url,
     }
 
-    async with httpx.AsyncClient(timeout=25) as client:
-        response = await client.post(
-            base + "/api/v1/invoices",
-            headers={
-                "X-API-Key": key,
-                "Idempotency-Key": f"{order.order_code}-create",
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            },
-            json=payload,
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=15.0),
+            follow_redirects=False,
+        ) as client:
+            response = await client.post(
+                base + "/api/v1/invoices",
+                headers={
+                    "X-API-Key": key,
+                    "Idempotency-Key": f"{order.order_code}-create",
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "User-Agent": f"BlueVPN-Backend/{VERSION}",
+                },
+                json=payload,
+            )
+    except httpx.HTTPError as exc:
+        log_bluepay_error(
+            "create_invoice",
+            order_code=order.order_code,
+            error=f"{type(exc).__name__}: {exc}",
         )
+        raise IntegrationError(
+            "ارتباط با BluePay برقرار نشد؛ چند لحظه بعد دوباره تلاش کنید"
+        ) from exc
+
+    try:
+        body = response.json()
+    except Exception:
+        body = {"raw": response.text[:1500]}
 
     if response.status_code >= 400:
+        log_bluepay_error(
+            "create_invoice",
+            order_code=order.order_code,
+            status_code=response.status_code,
+            response_body=body,
+        )
+        if response.status_code in {401, 403}:
+            raise IntegrationError(
+                "کلید API درگاه BluePay نامعتبر یا منقضی شده است"
+            )
         raise IntegrationError(
             "ساخت فاکتور BluePay ناموفق: "
-            f"HTTP {response.status_code} {response.text[:800]}"
+            f"HTTP {response.status_code}"
         )
-    return response.json()
+
+    if not isinstance(body, dict):
+        raise IntegrationError("پاسخ BluePay برای ساخت فاکتور معتبر نیست")
+    amount_toman, source_currency = normalize_gateway_amount_toman(body, order.amount_toman)
+    if amount_toman is not None:
+        body["normalized_amount_toman"] = amount_toman
+        body["source_currency"] = source_currency
+    return body
 
 
 async def get_invoice(
@@ -1826,20 +2101,56 @@ async def get_invoice(
     if not key:
         raise IntegrationError("کلید BluePay تنظیم نشده است")
 
-    async with httpx.AsyncClient(timeout=20) as client:
-        response = await client.get(
-            base + f"/api/v1/invoices/{payment_id}",
-            headers={
-                "X-API-Key": key,
-                "Accept": "application/json",
-            },
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(25.0, connect=12.0),
+            follow_redirects=False,
+        ) as client:
+            response = await client.get(
+                base + f"/api/v1/invoices/{quote(payment_id, safe='')}",
+                headers={
+                    "X-API-Key": key,
+                    "Accept": "application/json",
+                    "User-Agent": f"BlueVPN-Backend/{VERSION}",
+                },
+            )
+    except httpx.HTTPError as exc:
+        log_bluepay_error(
+            "get_invoice",
+            payment_id=payment_id,
+            error=f"{type(exc).__name__}: {exc}",
         )
+        raise IntegrationError(
+            "استعلام BluePay موقتاً در دسترس نیست"
+        ) from exc
+
+    try:
+        body = response.json()
+    except Exception:
+        body = {"raw": response.text[:1500]}
 
     if response.status_code >= 400:
+        log_bluepay_error(
+            "get_invoice",
+            payment_id=payment_id,
+            status_code=response.status_code,
+            response_body=body,
+        )
+        if response.status_code in {401, 403}:
+            raise IntegrationError(
+                "کلید API درگاه BluePay نامعتبر یا منقضی شده است"
+            )
         raise IntegrationError(
             f"استعلام BluePay ناموفق: HTTP {response.status_code}"
         )
-    return response.json()
+
+    if not isinstance(body, dict):
+        raise IntegrationError("پاسخ استعلام BluePay معتبر نیست")
+    amount_toman, source_currency = normalize_gateway_amount_toman(body)
+    if amount_toman is not None:
+        body["normalized_amount_toman"] = amount_toman
+        body["source_currency"] = source_currency
+    return body
 
 
 def verify_webhook(

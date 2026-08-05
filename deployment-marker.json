@@ -1,17 +1,20 @@
 {
-  "release": "3.0.13-auto",
-  "version_name": "3.0.13",
-  "version_code": 30013,
+  "release": "3.0.15-bluepay-expiry-sync-fix",
+  "version_name": "3.0.15",
+  "version_code": 30015,
   "changes": [
-    "Validate downloaded APK ZIP structure before opening Android installer",
-    "Verify GitHub Release SHA-256 digest and expected file size",
-    "Reject HTML/JSON/error responses masquerading as APK files",
-    "Verify package name and version with Android PackageManager",
-    "Grant FileProvider URI read permission explicitly to Android and MIUI installers",
-    "Use ACTION_INSTALL_PACKAGE with ACTION_VIEW fallback and ClipData permission propagation",
-    "Delete corrupted downloads and force a clean retry instead of opening the package parser"
+    "Serialize all account expiry timestamps as UTC ISO-8601 with Z suffix",
+    "Represent active unlimited subscriptions with explicit unlimited metadata and Android-safe far-future expiry",
+    "Extend renewals from the current valid expiry and tolerate two minutes of provider clock skew",
+    "Long-poll BluePay for up to 30 seconds after returning from payment",
+    "Normalize gateway rial/toman values and block mismatched amounts",
+    "Persist redacted BluePay HTTP failures in a dedicated JSONL log",
+    "Grant one compensatory day when confirmation arrives more than one hour late",
+    "Serialize activation claims to avoid webhook/poll double provisioning",
+    "Synchronize GitHub Actions with latest branch and retry push after rebase",
+    "Cancel stale queued builds and upgrade official actions to Node 24 generations"
   ],
   "generated_at_unix": 1785974400,
-  "purpose": "updater-apk-integrity-installer-grants",
-  "updated_at": "2026-08-06T01:00:00Z"
+  "purpose": "bluepay-expiry-sync-and-workflow-race-fix",
+  "updated_at": "2026-08-06T02:30:00Z"
 }

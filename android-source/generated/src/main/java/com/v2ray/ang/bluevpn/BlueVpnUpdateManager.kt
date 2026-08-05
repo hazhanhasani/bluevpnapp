@@ -2,8 +2,10 @@ package com.v2ray.ang.bluevpn
 
 import android.app.Activity
 import android.app.Dialog
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
@@ -34,8 +36,16 @@ import java.io.FileOutputStream
 import java.io.InterruptedIOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
+import java.util.zip.ZipFile
 
 object BlueVpnUpdateManager {
+    private data class ApkAsset(
+        val url: String,
+        val sha256: String = "",
+        val sizeBytes: Long = 0L,
+    )
+
     private const val PREFS = "bluevpn_update"
     private const val KEY_LAST_CHECK = "last"
     private const val KEY_MAINTENANCE = "remote_maintenance"
@@ -43,6 +53,8 @@ object BlueVpnUpdateManager {
     private const val KEY_SUPPORT_URL = "remote_support_url"
     private const val KEY_UPDATE_URL = "remote_update_url"
     private const val KEY_UPDATE_VERSION = "remote_update_version"
+    private const val KEY_UPDATE_SHA256 = "remote_update_sha256"
+    private const val KEY_UPDATE_SIZE = "remote_update_size"
     private const val KEY_AUTO_UPDATE = "remote_auto_update"
     private const val KEY_DOWNLOAD_ID = "download_id"
     private const val KEY_DOWNLOAD_VERSION = "download_version"
@@ -298,7 +310,8 @@ object BlueVpnUpdateManager {
             "latest_version",
             "",
         )
-        val apkUrl = selectApkUrl(config)
+        val apkAsset = selectApkAsset(config)
+        val apkUrl = apkAsset.url
         val autoUpdate = config.optBoolean(
             "auto_update",
             true,
@@ -363,6 +376,8 @@ object BlueVpnUpdateManager {
             .putString(KEY_SUPPORT_URL, supportUrl)
             .putString(KEY_UPDATE_URL, apkUrl)
             .putString(KEY_UPDATE_VERSION, latestVersion)
+            .putString(KEY_UPDATE_SHA256, apkAsset.sha256)
+            .putLong(KEY_UPDATE_SIZE, apkAsset.sizeBytes)
             .apply()
 
         when {
@@ -1081,6 +1096,14 @@ private fun startAutomaticDownload(
         PREFS,
         Context.MODE_PRIVATE,
     )
+    val expectedSha256 = preferences.getString(
+        KEY_UPDATE_SHA256,
+        "",
+    ).orEmpty().lowercase()
+    val expectedSize = preferences.getLong(
+        KEY_UPDATE_SIZE,
+        0L,
+    )
 
     val existing = preferences.getString(
         KEY_DOWNLOADED_FILE,
@@ -1180,6 +1203,19 @@ private fun startAutomaticDownload(
                 error("HTTP $responseCode")
             }
 
+            val contentType = connection!!.contentType
+                .orEmpty()
+                .substringBefore(';')
+                .trim()
+                .lowercase()
+            if (
+                contentType.startsWith("text/") ||
+                contentType.contains("json") ||
+                contentType.contains("html")
+            ) {
+                error("APK_INVALID: پاسخ سرور فایل APK نبود ($contentType)")
+            }
+
             val total = connection!!.contentLengthLong
             var downloaded = 0L
             var lastUiUpdate = 0L
@@ -1223,6 +1259,12 @@ private fun startAutomaticDownload(
             if (downloaded <= 0L) {
                 error("فایل دانلودشده خالی است")
             }
+            if (total > 0L && downloaded != total) {
+                error("APK_INVALID: دانلود ناقص بود ($downloaded از $total بایت)")
+            }
+            if (expectedSize > 0L && downloaded != expectedSize) {
+                error("APK_INVALID: اندازه فایل با نسخه منتشرشده مطابقت ندارد")
+            }
 
             if (!temporary.renameTo(target)) {
                 temporary.copyTo(
@@ -1234,6 +1276,17 @@ private fun startAutomaticDownload(
 
             if (!target.isFile || target.length() <= 0L) {
                 error("ذخیره فایل بروزرسانی ناموفق بود")
+            }
+
+            validateDownloadedApk(
+                activity.applicationContext,
+                target,
+                version,
+                expectedSha256,
+                expectedSize,
+            )?.let { validationError ->
+                target.delete()
+                error("APK_INVALID: $validationError")
             }
 
             preferences.edit()
@@ -1558,6 +1611,9 @@ private fun friendlyDownloadError(
     val normalized = combined.lowercase()
 
     return when {
+        "apk_invalid:" in normalized ->
+            combined.substringAfter("APK_INVALID:", combined).trim()
+
         "binding socket to network" in normalized ||
             "eperm" in normalized ||
             "operation not permitted" in normalized ->
@@ -1718,6 +1774,28 @@ private fun installDownloadedFile(
         return
     }
 
+    val validationError = validateDownloadedApk(
+        context,
+        file,
+        targetVersion,
+        preferences.getString(KEY_UPDATE_SHA256, "").orEmpty(),
+        preferences.getLong(KEY_UPDATE_SIZE, 0L),
+    )
+    if (validationError != null) {
+        file.delete()
+        preferences.edit()
+            .remove(KEY_DOWNLOADED_FILE)
+            .remove(KEY_PENDING_INSTALL_URI)
+            .remove(KEY_INSTALL_PROMPTED_VERSION)
+            .apply()
+        Toast.makeText(
+            context,
+            "فایل بروزرسانی سالم نبود و حذف شد؛ دوباره دانلود کنید: $validationError",
+            Toast.LENGTH_LONG,
+        ).show()
+        return
+    }
+
     if (
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
         !context.packageManager.canRequestPackageInstalls()
@@ -1778,17 +1856,135 @@ private fun launchInstaller(
     context: Context,
     uri: Uri,
 ) {
-    context.startActivity(
-        Intent(Intent.ACTION_VIEW)
-            .setDataAndType(
+    val flags =
+        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+            Intent.FLAG_ACTIVITY_NEW_TASK
+
+    fun installerIntent(action: String): Intent =
+        Intent(action).apply {
+            setDataAndType(
                 uri,
                 "application/vnd.android.package-archive",
             )
-            .addFlags(
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    Intent.FLAG_ACTIVITY_NEW_TASK
+            clipData = ClipData.newRawUri(
+                "BlueVPN update",
+                uri,
             )
+            addFlags(flags)
+        }
+
+    val primary = installerIntent(
+        Intent.ACTION_INSTALL_PACKAGE
     )
+    val fallback = installerIntent(Intent.ACTION_VIEW)
+    val packageManager = context.packageManager
+
+    val handlers = (
+        packageManager.queryIntentActivities(
+            primary,
+            PackageManager.MATCH_DEFAULT_ONLY,
+        ) + packageManager.queryIntentActivities(
+            fallback,
+            PackageManager.MATCH_DEFAULT_ONLY,
+        )
+        ).mapNotNull { it.activityInfo?.packageName }
+        .toSet()
+
+    handlers.forEach { installerPackage ->
+        runCatching {
+            context.grantUriPermission(
+                installerPackage,
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            )
+        }
+    }
+
+    runCatching {
+        context.startActivity(primary)
+    }.recoverCatching {
+        context.startActivity(fallback)
+    }.getOrElse { error ->
+        Toast.makeText(
+            context,
+            "نصب‌کننده اندروید باز نشد: ${error.message ?: "خطای ناشناخته"}",
+            Toast.LENGTH_LONG,
+        ).show()
+    }
+}
+
+private fun validateDownloadedApk(
+    context: Context,
+    file: File,
+    expectedVersion: String,
+    expectedSha256: String,
+    expectedSize: Long,
+): String? {
+    if (!file.isFile || file.length() < 1024L) {
+        return "فایل ناقص یا خالی است"
+    }
+    if (expectedSize > 0L && file.length() != expectedSize) {
+        return "اندازه فایل با نسخه منتشرشده مطابقت ندارد"
+    }
+
+    val hasManifest = runCatching {
+        ZipFile(file).use { zip ->
+            zip.getEntry("AndroidManifest.xml") != null &&
+                zip.getEntry("classes.dex") != null
+        }
+    }.getOrDefault(false)
+    if (!hasManifest) {
+        return "فایل دریافت‌شده یک APK معتبر نیست"
+    }
+
+    val normalizedExpectedHash = expectedSha256
+        .substringAfter("sha256:", expectedSha256)
+        .trim()
+        .lowercase()
+    if (normalizedExpectedHash.matches(Regex("[0-9a-f]{64}"))) {
+        val actualHash = MessageDigest.getInstance("SHA-256").let { digest ->
+            file.inputStream().buffered(128 * 1024).use { input ->
+                val buffer = ByteArray(128 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            digest.digest().joinToString("") { byte ->
+                "%02x".format(byte)
+            }
+        }
+        if (actualHash != normalizedExpectedHash) {
+            return "اثر انگشت فایل با GitHub Release یکسان نیست"
+        }
+    }
+
+    val packageInfo = if (Build.VERSION.SDK_INT >= 33) {
+        context.packageManager.getPackageArchiveInfo(
+            file.absolutePath,
+            PackageManager.PackageInfoFlags.of(0L),
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        context.packageManager.getPackageArchiveInfo(
+            file.absolutePath,
+            0,
+        )
+    } ?: return "اندروید نتوانست اطلاعات بسته را بخواند"
+
+    if (packageInfo.packageName != context.packageName) {
+        return "نام بسته با BlueVPN نصب‌شده مطابقت ندارد"
+    }
+    val archiveVersion = packageInfo.versionName.orEmpty()
+    if (
+        expectedVersion.isNotBlank() &&
+        archiveVersion.isNotBlank() &&
+        compareVersions(archiveVersion, expectedVersion) != 0
+    ) {
+        return "نسخه داخل فایل ($archiveVersion) با نسخه اعلام‌شده ($expectedVersion) متفاوت است"
+    }
+    return null
 }
 
 private fun clearDownloadState(
@@ -1842,6 +2038,8 @@ private fun clearObsoleteUpdateState(
         .putBoolean(KEY_FORCE_BLOCK, false)
         .remove(KEY_UPDATE_URL)
         .remove(KEY_UPDATE_VERSION)
+        .remove(KEY_UPDATE_SHA256)
+        .remove(KEY_UPDATE_SIZE)
         .remove(KEY_AUTO_DIALOG_VERSION)
         .remove(KEY_OPTIONAL_SNOOZE_VERSION)
         .remove(KEY_OPTIONAL_SNOOZE_UNTIL)
@@ -1890,6 +2088,8 @@ private fun reconcileInstalledVersion(
         .putBoolean(KEY_FORCE_BLOCK, false)
         .remove(KEY_UPDATE_URL)
         .remove(KEY_UPDATE_VERSION)
+        .remove(KEY_UPDATE_SHA256)
+        .remove(KEY_UPDATE_SIZE)
         .remove(KEY_AUTO_DIALOG_VERSION)
         .remove(KEY_OPTIONAL_SNOOZE_VERSION)
         .remove(KEY_OPTIONAL_SNOOZE_UNTIL)
@@ -1897,52 +2097,46 @@ private fun reconcileInstalledVersion(
 }
 
 
-    private fun selectApkUrl(
+    private fun selectApkAsset(
         config: JSONObject,
-    ): String {
-        val assets = config.optJSONObject(
-            "apk_assets"
-        )
+    ): ApkAsset {
+        val assets = config.optJSONObject("apk_assets")
+        val metadata = config.optJSONObject("apk_asset_meta")
 
-        if (assets != null) {
-            Build.SUPPORTED_ABIS.forEach { abi ->
-                val exact = assets.optString(abi)
-                if (exact.startsWith("http")) {
-                    return exact
-                }
+        fun assetFor(key: String): ApkAsset? {
+            val url = assets?.optString(key).orEmpty()
+            if (!url.startsWith("http")) return null
+            val meta = metadata?.optJSONObject(key)
+            return ApkAsset(
+                url = url,
+                sha256 = meta?.optString("sha256").orEmpty(),
+                sizeBytes = meta?.optLong("size", 0L) ?: 0L,
+            )
+        }
 
-                val normalized = when {
-                    abi.contains("arm64", true) ->
-                        assets.optString("arm64-v8a")
-
-                    abi.contains("armeabi", true) ||
-                        abi.contains("v7a", true) ->
-                        assets.optString(
-                            "armeabi-v7a"
-                        )
-
-                    else -> ""
-                }
-
-                if (normalized.startsWith("http")) {
-                    return normalized
-                }
+        Build.SUPPORTED_ABIS.forEach { abi ->
+            assetFor(abi)?.let { return it }
+            val normalized = when {
+                abi.contains("arm64", true) -> "arm64-v8a"
+                abi.contains("armeabi", true) ||
+                    abi.contains("v7a", true) -> "armeabi-v7a"
+                else -> ""
             }
-
-            listOf(
-                "universal",
-                "arm64-v8a",
-                "armeabi-v7a",
-                "other",
-            ).forEach { key ->
-                val value = assets.optString(key)
-                if (value.startsWith("http")) {
-                    return value
-                }
+            if (normalized.isNotBlank()) {
+                assetFor(normalized)?.let { return it }
             }
         }
 
-        return config.optString("apk_url")
+        listOf(
+            "universal",
+            "arm64-v8a",
+            "armeabi-v7a",
+            "other",
+        ).forEach { key ->
+            assetFor(key)?.let { return it }
+        }
+
+        return ApkAsset(config.optString("apk_url"))
     }
 
     private fun compareVersions(

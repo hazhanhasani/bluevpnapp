@@ -1,8 +1,8 @@
 {
   "app": "BlueVPN",
-  "version": "3.0.12",
-  "version_code": 30012,
-  "workflow_source_commit": "b44e92f78f71ba461e87458d7c22ec68ab2869ea",
+  "version": "3.0.13",
+  "version_code": 30013,
+  "workflow_source_commit": "43b13dd76e4ae02f6b4eeb6002513d0a2913361d",
   "upstream_ref": "2.2.6",
   "files": {
     "src/main/java/com/v2ray/ang/ui/BlueVpnHomeActivity.kt": "95d313056f007b994f9b6de302e3267677e539ac2fe31803af4921c9dfccbba9",
@@ -11,7 +11,7 @@
     "src/main/java/com/v2ray/ang/ui/BlueVpnSubscriptionsActivity.kt": "1dcca21f5080345b67f4f2f5a101b116457e89aa577a9c9f6560ddb9f13cb7ff",
     "src/main/java/com/v2ray/ang/ui/BlueVpnSettingsActivity.kt": "5b52b79ef60d6054209f8577cf7d4ea42b0005700f830928862f029dda8c6377",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAccountManager.kt": "33546df0fcd678bd6d0e59c37aa5a8cfeeebabb8a786f9adfa20eace74fb60fa",
-    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateManager.kt": "a23593b381a3a0481c9c4295bce2551c5b1f83c07a32909292c0c2204171c63e",
+    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateManager.kt": "1e93e78d9ac0ac8beee1df33ecfc51fac1f64c3313f9096d98cbd70dffbbc915",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLocationUtil.kt": "0bc8c8f77ffdfd783e1ed8f8b9ea194376a974b6d5f9568afd22bc847970c415",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnExperience.kt": "5fbfdfa547e178f51d836308a3c6630d42383def25a627d92ecf08f14c89011e",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAi.kt": "c08310a8a73adae42e7919dd63b60422580307eca4e301182aee3a0e0f2ac590",
@@ -27,6 +27,6 @@
     "src/main/res/xml/bluevpn_update_paths.xml": "fd8e1c44efe522971fd3a97bd770da887ca9eabe498c97edb633e6940bd0fd98",
     "src/main/AndroidManifest.xml": "54558004b1176c30aaa42cbede23044f9e7d6def695d1dd8e594c5aeaf03535e",
     "src/main/java/com/v2ray/ang/AngApplication.kt": "cac7ce1054f235f7561fc75fad15bec65654529175482bb63ecf53456a38f459",
-    "build.gradle.kts": "96b04edd7dd01053302a9484bb0399711bb7c37332027f9a80a6643ccf93df8c"
+    "build.gradle.kts": "16e2e9d0c157086a6b3a02134957432b21b2cbb19847c554be6e556fb60502ea"
   }
 }

@@ -208,7 +208,7 @@ async def headers(panel: GuardCorePanel, force: bool = False) -> dict[str, str]:
     result = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "BlueVPN-GuardCore/2.2.2",
+        "User-Agent": "BlueVPN-GuardCore/3.0.0",
     }
     if panel.auth_mode == "api_key":
         api_key = decrypt(panel.api_key_enc)

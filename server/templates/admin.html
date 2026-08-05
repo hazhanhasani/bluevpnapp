@@ -1,8 +1,54 @@
 <!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BlueVPN Platform</title><link rel="stylesheet" href="/static/style.css"></head><body>
 <header class="topbar"><div class="brand"><img src="/static/logo.png"><div><b>BlueVPN Platform</b><span>مدیریت حساب، فروش و اشتراک</span></div></div><form method="post" action="/admin/logout"><button class="secondary">خروج</button></form></header>
-<nav class="tabs"><a href="#overview">نمای کلی</a><a href="#database">دیتابیس</a><a href="#panels">پاسارگارد</a><a href="#marzban">مرزبان</a><a href="#guardcore">GuardCore</a><a href="#guardcore-manual">صف GuardCore</a><a href="#plans">پلن‌ها</a><a href="#bluepay">بلوپی</a><a href="#manual">فعال‌سازی دستی</a><a href="#customers">کاربران</a><a href="#orders">پرداخت‌ها</a><a href="#app">اپ و آپدیت</a></nav>
+<nav class="tabs"><a href="#overview">نمای کلی</a><a href="#overview">نمای کلی</a><a href="#blueai">BlueAI</a><a href="#database">دیتابیس</a><a href="#panels">پاسارگارد</a><a href="#marzban">مرزبان</a><a href="#guardcore">GuardCore</a><a href="#guardcore-manual">صف GuardCore</a><a href="#plans">پلن‌ها</a><a href="#bluepay">بلوپی</a><a href="#manual">فعال‌سازی دستی</a><a href="#customers">کاربران</a><a href="#orders">پرداخت‌ها</a><a href="#app">اپ و آپدیت</a></nav>
 <main class="container">{% if not database_info.persistent %}<div class="alert danger">هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</div>{% endif %}{% if saved %}<div class="alert success">تغییرات ذخیره شد.</div>{% endif %}{% if manual_message %}<div class="alert success">{{ manual_message }}</div>{% endif %}{% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
 <section id="overview" class="grid stats"><article><span>کاربران</span><strong>{{ stats.customers }}</strong></article><article><span>اشتراک فعال</span><strong>{{ stats.active }}</strong></article><article><span>پرداخت موفق</span><strong>{{ stats.paid }}</strong></article><article><span>فعال‌سازی دستی</span><strong>{{ stats.manual }}</strong></article><article><span>کل Providerها</span><strong>{{ stats.panels }}</strong></article><article><span>GuardCore</span><strong>{{ stats.guardcore }}</strong></article><article><span>در انتظار ساب دستی</span><strong>{{ stats.guardcore_pending }}</strong></article><article><span>دیتابیس</span><strong>{{ database_mode }}</strong></article></section>
+
+<section id="blueai" class="card ai-command-center">
+  <div class="section-heading">
+    <div><span class="eyebrow">INTELLIGENCE LAYER</span><h2>مرکز فرمان BlueAI</h2><p>رتبه‌بندی مسیرها بر اساس اپراتور، نوع شبکه، ساعت، پایداری، مدت اتصال و موفقیت واقعی کاربران.</p></div>
+    <div class="ai-orb"><span>{{ blueai.average_score|round|int }}</span><small>AI SCORE</small></div>
+  </div>
+  <div class="grid ai-kpis">
+    <article><span>رویدادهای یادگیری</span><strong>{{ blueai.total_events }}</strong><small>{{ blueai.events_24h }} مورد در ۲۴ ساعت</small></article>
+    <article><span>نرخ موفقیت</span><strong>{{ blueai.success_rate }}٪</strong><small>تمام اپراتورها</small></article>
+    <article><span>مسیرهای شناخته‌شده</span><strong>{{ blueai.learned_routes }}</strong><small>کانتکست‌های هوشمند</small></article>
+    <article><span>بازخورد کاربران</span><strong>{{ blueai.feedback_average }}/5</strong><small>{{ blueai.feedback_count }} گزارش</small></article>
+  </div>
+  <div class="ai-grid-two">
+    <div class="insight-panel">
+      <div class="panel-title"><h3>بهترین مسیرهای فعلی</h3><span>به‌روزرسانی زنده</span></div>
+      {% if blueai.top_routes %}
+      <div class="route-rank-list">
+        {% for route in blueai.top_routes %}
+        <article>
+          <div class="route-rank">{{ loop.index }}</div>
+          <div class="route-info"><strong>{{ route.location_title }}</strong><span>{{ route.operator }} • {{ route.network_type }} • {{ route.mode }}</span></div>
+          <div class="route-meter"><i style="width:{{ route.score }}%"></i></div>
+          <b>{{ route.score }}</b>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}<div class="empty-state">بعد از اولین اتصال‌های نسخه ۳، رتبه‌بندی اینجا ساخته می‌شود.</div>{% endif %}
+    </div>
+    <div class="insight-panel">
+      <div class="panel-title"><h3>DNA اپراتورها</h3><span>داده فنی ناشناس</span></div>
+      <div class="operator-list">
+        {% for item in blueai.operators %}
+        <article><div><strong>{{ item.name }}</strong><span>{{ item.events }} اتصال</span></div><b>{{ (item.duration/3600)|round(1) }}h</b></article>
+        {% else %}<div class="empty-state">هنوز داده اپراتور ثبت نشده است.</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="insight-panel failures-panel">
+    <div class="panel-title"><h3>آخرین اختلال‌های تشخیص‌داده‌شده</h3><span>برای Auto-Heal</span></div>
+    <div class="failure-stream">
+      {% for item in blueai.recent_failures %}
+      <article><span class="status-pulse bad"></span><div><strong>{{ item.location_title }}</strong><small>{{ item.operator }} • {{ item.network_type }} • {{ item.failure_reason or 'عدم پاسخ مسیر' }}</small></div><time>{{ item.created_at }}</time></article>
+      {% else %}<div class="empty-state">اختلال ثبت‌شده‌ای وجود ندارد.</div>{% endfor %}
+    </div>
+  </div>
+</section>
 <section id="database" class="card">
   <h2>دیتابیس خودکار و دائمی</h2>
   <p class="hint">
@@ -376,6 +422,19 @@
       شناسه اطلاعیه را تغییر بده.
     </p>
     <button class="save">ذخیره تنظیمات عمومی</button>
-  </form>
+  
+<div class="ai-settings-panel">
+  <div><strong>🧠 BlueAI Engine</strong><span>یادگیری شخصی، رتبه‌بندی جمعی و ترمیم هوشمند اتصال</span></div>
+  <div class="checks">
+    <label class="check"><input type="checkbox" name="blueai_enabled" {% if settings.blueai_enabled %}checked{% endif %}> موتور هوشمند فعال</label>
+    <label class="check"><input type="checkbox" name="blueai_collective" {% if settings.blueai_collective %}checked{% endif %}> یادگیری جمعی ناشناس</label>
+    <label class="check"><input type="checkbox" name="blueai_auto_heal" {% if settings.blueai_auto_heal %}checked{% endif %}> ترمیم خودکار مسیر</label>
+  </div>
+  <div class="form-grid">
+    <label>حداقل نمونه برای اعتماد<input type="number" name="blueai_min_samples" min="1" max="100" value="{{ settings.blueai_min_samples or 3 }}"></label>
+    <label class="wide">پیام حریم خصوصی<input name="blueai_privacy_message" value="{{ settings.blueai_privacy_message }}"></label>
+  </div>
+</div>
+</form>
 </section>
 </main></body></html>

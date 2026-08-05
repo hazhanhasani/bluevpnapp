@@ -88,7 +88,7 @@ async def panel_headers(panel: PasarGuardPanel) -> dict[str, str]:
     common = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "BlueVPN-Backend/1.0.11",
+        "User-Agent": "BlueVPN-Backend/3.0.0",
     }
 
     if panel.auth_mode == "api_key":
@@ -262,7 +262,7 @@ async def _marzban_token(
             },
             headers={
                 "Accept": "application/json",
-                "User-Agent": "BlueVPN-Backend/1.0.11",
+                "User-Agent": "BlueVPN-Backend/3.0.0",
             },
         )
 
@@ -304,7 +304,7 @@ async def marzban_request(
                     "Authorization": f"Bearer {token}",
                     "Accept": "application/json",
                     "Content-Type": "application/json",
-                    "User-Agent": "BlueVPN-Backend/1.0.11",
+                    "User-Agent": "BlueVPN-Backend/3.0.0",
                 },
                 json=json_body,
                 params=params,

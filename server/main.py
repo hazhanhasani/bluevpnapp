@@ -24,11 +24,12 @@ from .manual_guardcore import (
     set_manual_decision,
 )
 from .github_release import github_repository,latest_github_release
-from .models import AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery
+from .models import AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery,AiConnectionEvent,AiRouteAggregate,AiFeedback
+from .blueai import admin_overview as blueai_admin_overview, customer_dashboard as blueai_customer_dashboard, recommendations as blueai_recommendations, submit_event as blueai_submit_event, submit_feedback as blueai_submit_feedback
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Platform',version='2.2.2'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','updated_at':utcnow().isoformat()}
+app=FastAPI(title='BlueVPN Ultimate AI Platform',version='3.0.0'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -230,7 +231,7 @@ def health():
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
-        'version':'2.2.2',
+        'version':'3.0.0',
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }
@@ -270,6 +271,13 @@ async def mobile_config(
             'github_error':github_error,
             'release_cache_seconds':15,
             'release_refresh_forced':bool(refresh),
+            'blueai':{
+                'enabled':bool(s.get('blueai_enabled',True)),
+                'collective':bool(s.get('blueai_collective',True)),
+                'auto_heal':bool(s.get('blueai_auto_heal',True)),
+                'min_samples':int(s.get('blueai_min_samples',3) or 3),
+                'privacy_message':str(s.get('blueai_privacy_message','')),
+            },
             'announcement':{
                 'enabled':bool(s['announcement_enabled']),
                 'id':s['announcement_id'],
@@ -380,6 +388,35 @@ def plans(
             for x in rows
         ],
     }
+@app.post('/api/v1/ai/events')
+async def ai_event(request:Request,c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
+    s=settings(db)
+    if not bool(s.get('blueai_enabled',True)):
+        return {'success':True,'accepted':False,'reason':'disabled'}
+    payload=await request.json()
+    if payload.get('consent') is not True:
+        return {'success':True,'accepted':False,'reason':'consent_required'}
+    try:
+        result=blueai_submit_event(db,c,payload)
+    except ValueError as exc:
+        raise HTTPException(422,detail={'code':'AI_EVENT_INVALID','message':str(exc)})
+    return {'success':True,**result}
+
+@app.get('/api/v1/ai/recommendations')
+async def ai_recommendations(operator:str='unknown',network_type:str='unknown',mode:str='balanced',hour:int|None=None,c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
+    s=settings(db)
+    rows=blueai_recommendations(db,operator=operator,network_type=network_type,mode=mode,bucket=hour,limit=30) if bool(s.get('blueai_enabled',True)) else []
+    return {'success':True,'enabled':bool(s.get('blueai_enabled',True)),'collective':bool(s.get('blueai_collective',True)),'recommendations':rows,'generated_at':utcnow().isoformat()}
+
+@app.get('/api/v1/ai/dashboard')
+async def ai_dashboard(c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
+    return {'success':True,'dashboard':blueai_customer_dashboard(db,c)}
+
+@app.post('/api/v1/feedback')
+async def ai_feedback(request:Request,c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
+    payload=await request.json()
+    return {'success':True,**blueai_submit_feedback(db,c,payload)}
+
 @app.get('/api/v1/account')
 async def account(c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
     c=db.get(Customer,c.id);await sync_customer(db,c,settings(db)['public_base_url']);return {'success':True,'account':account_json(c)}
@@ -509,6 +546,7 @@ def admin(request:Request,db:Session=Depends(get_db)):
         .limit(100)
     ).all()
     guardcore_manual_queue=pending_manual_requests(db,100)
+    blueai=blueai_admin_overview(db)
     stats={
         'customers':db.scalar(select(func.count(Customer.id))) or 0,
         'active':db.scalar(select(func.count(Customer.id)).where(Customer.subscription_status=='active')) or 0,
@@ -536,6 +574,7 @@ def admin(request:Request,db:Session=Depends(get_db)):
             'customers':customers,
             'orders':orders,
             'guardcore_manual_queue':guardcore_manual_queue,
+            'blueai':blueai,
             'stats':stats,
             'database_mode':DATABASE_MODE,
             'database_info':database_status(),
@@ -566,7 +605,7 @@ def admin_database_initialize(
         )
 
 @app.post('/admin/app-settings')
-def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),minimum_version:str=Form(...),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),auto_update:str|None=Form(None),announcement_enabled:str|None=Form(None),db:Session=Depends(get_db)):
+def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),minimum_version:str=Form(...),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),auto_update:str|None=Form(None),announcement_enabled:str|None=Form(None),blueai_enabled:str|None=Form(None),blueai_collective:str|None=Form(None),blueai_auto_heal:str|None=Form(None),blueai_min_samples:int=Form(3),blueai_privacy_message:str=Form(''),db:Session=Depends(get_db)):
     admin_required(request)
     s=settings(db)
     s.update({
@@ -581,6 +620,11 @@ def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form
         'force_update':force_update=='on',
         'auto_update':auto_update=='on',
         'announcement_enabled':announcement_enabled=='on',
+        'blueai_enabled':blueai_enabled=='on',
+        'blueai_collective':blueai_collective=='on',
+        'blueai_auto_heal':blueai_auto_heal=='on',
+        'blueai_min_samples':max(1,min(100,int(blueai_min_samples or 3))),
+        'blueai_privacy_message':blueai_privacy_message.strip()[:500],
     })
     save_settings(db,s)
     return RedirectResponse('/admin?saved=1#app',303)

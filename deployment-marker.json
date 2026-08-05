@@ -1,29 +1,29 @@
 {
-  "version": "2.2.2",
-  "project_version": "2.2.2",
-  "first_android_release": "2.2.1",
+  "version": "3.0.0",
+  "project_version": "3.0.0",
+  "first_android_release": "3.0.0",
+  "android_version_code": 30000,
   "next_releases": [
-    "2.2.1",
-    "2.2.2"
+    "3.0.0",
+    "3.0.1",
+    "3.0.2"
   ],
-  "android_version_code": 22001,
-  "fixes": [
-    "retain-2.1.1-premium-update-dialogs",
-    "retain-installer-loop-fix",
-    "sync-all-active-project-version-markers"
-  ],
+  "schema_version": 8,
+  "build_id": "20260805135429",
+  "created_at": "2026-08-05T13:54:29.071428+00:00",
   "features": [
+    "premium-ui-v3",
+    "blueai-personal-memory",
+    "blueai-collective-ranking",
+    "operator-network-context",
+    "time-aware-ranking",
+    "auto-heal",
+    "ai-dashboard-android",
+    "ai-command-center-admin",
+    "feedback-center",
+    "privacy-controls",
     "pasarguard-auto",
     "marzban-auto",
-    "guardcore-manual-telegram-decision",
-    "guardcore-subscription-link-capture",
-    "guardcore-admin-fallback-queue",
-    "combined-subscription-merge",
-    "manual-guardcore-default-fallback",
-    "manual-activation-prompt-fix",
-    "telegram-notification-retry-loop",
-    "recent-order-backfill"
-  ],
-  "build_id": "20260805121953",
-  "created_at": "2026-08-05T12:19:53.451605+00:00"
+    "guardcore-manual"
+  ]
 }

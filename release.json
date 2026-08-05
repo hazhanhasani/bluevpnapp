@@ -1,14 +1,24 @@
 {
-  "name": "BlueVPN",
-  "version": "2.2.2",
-  "channel": "manual-guardcore-trigger-recovery",
-  "description": "Fix manual GuardCore prompts for every purchase and admin activation, including plans without an explicit GuardCore selection; retry Telegram delivery and recover recent missed activations.",
-  "build_id": "20260805121953",
-  "built_at": "2026-08-05T12:19:53.451605+00:00",
-  "android_version": "2.2.<latest_release_patch_plus_one>",
-  "android_version_code": "22000 + release_patch",
-  "deploy_bot_version": "2.6-manual-guardcore",
-  "build_trigger": "git-empty-commit-push",
-  "update_source": "github_releases",
-  "version_strategy": "If latest release is v2.2.N publish v2.2.(N+1); if no 2.2 release exists start at v2.2.1."
+  "version": "3.0.0",
+  "channel": "ultimate-ai",
+  "build_id": "20260805135429",
+  "built_at": "2026-08-05T13:54:29.071428+00:00",
+  "android_version": "3.0.<latest_release_patch_plus_one>",
+  "android_version_code": "30000 + release_patch",
+  "description": "BlueVPN 3 Ultimate AI: premium Android UI, operator-aware personal and collective route learning, AI scores, auto-heal, feedback, analytics and premium admin intelligence dashboard.",
+  "features": [
+    "premium-ui-v3",
+    "blueai-personal-memory",
+    "blueai-collective-ranking",
+    "operator-network-context",
+    "time-aware-ranking",
+    "auto-heal",
+    "ai-dashboard-android",
+    "ai-command-center-admin",
+    "feedback-center",
+    "privacy-controls",
+    "pasarguard-auto",
+    "marzban-auto",
+    "guardcore-manual"
+  ]
 }

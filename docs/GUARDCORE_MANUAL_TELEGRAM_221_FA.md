@@ -1,4 +1,4 @@
-# BlueVPN 2.2.1 — GuardCore دستی از طریق ربات
+# BlueVPN 2.2.2 — GuardCore دستی از طریق ربات
 
 ## رفتار نهایی
 

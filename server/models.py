@@ -13,6 +13,8 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    Float,
+    Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -424,3 +426,82 @@ class WebhookDelivery(Base):
         DateTime(timezone=True),
         default=utcnow,
     )
+
+
+class AiConnectionEvent(Base):
+    __tablename__ = "ai_connection_events"
+    __table_args__ = (
+        Index("ix_ai_event_context", "operator", "network_type", "created_at"),
+        Index("ix_ai_event_route", "config_key", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
+    device_id: Mapped[str] = mapped_column(String(80), default="", index=True)
+    config_key: Mapped[str] = mapped_column(String(80), default="", index=True)
+    location_key: Mapped[str] = mapped_column(String(24), default="unknown", index=True)
+    location_title: Mapped[str] = mapped_column(String(100), default="نامشخص")
+    operator: Mapped[str] = mapped_column(String(100), default="unknown", index=True)
+    network_type: Mapped[str] = mapped_column(String(30), default="unknown", index=True)
+    mode: Mapped[str] = mapped_column(String(30), default="balanced", index=True)
+    event_type: Mapped[str] = mapped_column(String(30), default="session")
+    success: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    ping_ms: Mapped[int] = mapped_column(Integer, default=0)
+    jitter_ms: Mapped[int] = mapped_column(Integer, default=0)
+    packet_loss_x100: Mapped[int] = mapped_column(Integer, default=0)
+    duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    health_score: Mapped[int] = mapped_column(Integer, default=0)
+    download_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    upload_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    failure_reason: Mapped[str] = mapped_column(Text, default="")
+    app_version: Mapped[str] = mapped_column(String(40), default="")
+    android_version: Mapped[str] = mapped_column(String(40), default="")
+    device_model: Mapped[str] = mapped_column(String(160), default="")
+    hour_bucket: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class AiRouteAggregate(Base):
+    __tablename__ = "ai_route_aggregates"
+    __table_args__ = (
+        UniqueConstraint(
+            "config_key", "operator", "network_type", "mode", "hour_bucket",
+            name="uq_ai_route_context",
+        ),
+        Index("ix_ai_route_rank", "operator", "network_type", "mode", "score"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    config_key: Mapped[str] = mapped_column(String(80), index=True)
+    location_key: Mapped[str] = mapped_column(String(24), default="unknown", index=True)
+    location_title: Mapped[str] = mapped_column(String(100), default="نامشخص")
+    operator: Mapped[str] = mapped_column(String(100), default="unknown", index=True)
+    network_type: Mapped[str] = mapped_column(String(30), default="unknown", index=True)
+    mode: Mapped[str] = mapped_column(String(30), default="balanced", index=True)
+    hour_bucket: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    sample_count: Mapped[int] = mapped_column(Integer, default=0)
+    success_count: Mapped[int] = mapped_column(Integer, default=0)
+    failure_count: Mapped[int] = mapped_column(Integer, default=0)
+    total_duration_seconds: Mapped[int] = mapped_column(BigInteger, default=0)
+    total_ping_ms: Mapped[int] = mapped_column(BigInteger, default=0)
+    ping_samples: Mapped[int] = mapped_column(Integer, default=0)
+    total_jitter_ms: Mapped[int] = mapped_column(BigInteger, default=0)
+    jitter_samples: Mapped[int] = mapped_column(Integer, default=0)
+    total_packet_loss_x100: Mapped[int] = mapped_column(BigInteger, default=0)
+    score: Mapped[int] = mapped_column(Integer, default=50, index=True)
+    success_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    average_ping_ms: Mapped[float] = mapped_column(Float, default=0.0)
+    average_duration_seconds: Mapped[float] = mapped_column(Float, default=0.0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, index=True)
+
+
+class AiFeedback(Base):
+    __tablename__ = "ai_feedback"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True)
+    rating: Mapped[int] = mapped_column(Integer, default=5)
+    category: Mapped[str] = mapped_column(String(50), default="general")
+    message: Mapped[str] = mapped_column(Text, default="")
+    diagnostics_json: Mapped[str] = mapped_column(Text, default="{}")
+    app_version: Mapped[str] = mapped_column(String(40), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

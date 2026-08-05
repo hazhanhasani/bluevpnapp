@@ -1,25 +1,25 @@
 {
-  "version": "2.2.0",
-  "project_version": "2.2.0",
-  "first_android_release": "2.2.0",
+  "version": "2.2.1",
+  "project_version": "2.2.1",
+  "first_android_release": "2.2.1",
   "next_releases": [
     "2.2.1",
     "2.2.2"
   ],
-  "android_version_code": 22000,
+  "android_version_code": 22001,
   "fixes": [
     "retain-2.1.1-premium-update-dialogs",
     "retain-installer-loop-fix",
     "sync-all-active-project-version-markers"
   ],
   "features": [
-    "guardcore-provider",
-    "guardcore-api-key-or-password-auth",
-    "guardcore-service-discovery",
-    "multi-provider-provisioning",
-    "multi-provider-subscription-merge",
-    "multi-provider-quota-allocation",
-    "automatic-schema-v7-migration",
-    "android-only-release-focus"
-  ]
+    "pasarguard-auto",
+    "marzban-auto",
+    "guardcore-manual-telegram-decision",
+    "guardcore-subscription-link-capture",
+    "guardcore-admin-fallback-queue",
+    "combined-subscription-merge"
+  ],
+  "build_id": "20260805114858",
+  "created_at": "2026-08-05T11:48:58.822264+00:00"
 }

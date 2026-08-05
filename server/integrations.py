@@ -30,6 +30,11 @@ from .guardcore import (
     provision_subscription as provision_guardcore_subscription,
     service_ids_from_json as guardcore_service_ids_from_json,
 )
+from .manual_guardcore import (
+    is_manual_guardcore,
+    manual_snapshot,
+    prepare_manual_request,
+)
 
 
 class IntegrationError(RuntimeError):
@@ -783,6 +788,17 @@ async def ensure_guardcore_for_existing_customer(
     if not panel or not panel.active:
         return None, "پنل GuardCore پلن فعال نیست"
     username = guardcore_username(customer)
+    if is_manual_guardcore(panel):
+        customer.guardcore_panel_id = panel.id
+        customer.guardcore_username = username
+        if customer.guardcore_subscription_url:
+            customer.guardcore_status = "active"
+        elif customer.guardcore_status != "skipped":
+            customer.guardcore_status = "manual_pending"
+        db.add(customer)
+        db.commit()
+        return manual_snapshot(customer), ""
+
     try:
         remote = await get_guardcore_subscription(panel, username)
         providers = ["pasarguard"]
@@ -844,9 +860,12 @@ async def provision(
     mz_remote = (
         await get_marzban_user(secondary, mz_name) if secondary else None
     )
-    gc_remote = (
-        await get_guardcore_subscription(guard, gc_name) if guard else None
-    )
+    gc_remote = None
+    if guard:
+        if is_manual_guardcore(guard):
+            gc_remote = manual_snapshot(customer)
+        else:
+            gc_remote = await get_guardcore_subscription(guard, gc_name)
 
     target_expire = activation_target(
         db,
@@ -909,20 +928,45 @@ async def provision(
         customer.marzban_last_error = ""
 
     if guard:
-        try:
-            gc_data = await provision_guardcore_subscription(
-                guard,
-                gc_name,
-                target_expire=target_expire,
-                data_limit=limits.get("guardcore", 0),
-                service_ids=plan_guardcore_services(plan),
-                note=note,
-                remote=gc_remote,
-            )
+        if is_manual_guardcore(guard):
             customer.guardcore_panel_id = guard.id
             customer.guardcore_username = gc_name
-        except Exception as exc:
-            gc_error = str(exc)
+            customer.guardcore_expire = target_expire
+            customer.guardcore_data_limit_bytes = limits.get("guardcore", 0)
+            customer.guardcore_used_traffic_bytes = 0
+            customer.guardcore_last_error = ""
+            if customer.guardcore_subscription_url:
+                customer.guardcore_status = "active"
+                gc_data = manual_snapshot(customer)
+            else:
+                customer.guardcore_status = "manual_pending"
+            db.add(customer)
+            db.commit()
+            prepare_manual_request(
+                db,
+                order,
+                customer,
+                plan,
+                guard,
+                username=gc_name,
+                target_expire=target_expire,
+                data_limit_bytes=limits.get("guardcore", 0),
+            )
+        else:
+            try:
+                gc_data = await provision_guardcore_subscription(
+                    guard,
+                    gc_name,
+                    target_expire=target_expire,
+                    data_limit=limits.get("guardcore", 0),
+                    service_ids=plan_guardcore_services(plan),
+                    note=note,
+                    remote=gc_remote,
+                )
+                customer.guardcore_panel_id = guard.id
+                customer.guardcore_username = gc_name
+            except Exception as exc:
+                gc_error = str(exc)
     else:
         customer.guardcore_panel_id = None
         customer.guardcore_username = ""
@@ -1006,14 +1050,17 @@ async def sync_customer(
         if customer.guardcore_panel_id and customer.guardcore_username:
             panel = db.get(GuardCorePanel, customer.guardcore_panel_id)
             if panel:
-                try:
-                    gc_data = await get_guardcore_subscription(
-                        panel, customer.guardcore_username
-                    )
-                    if not gc_data:
-                        gc_error = "کاربر در GuardCore پیدا نشد"
-                except Exception as exc:
-                    gc_error = str(exc)
+                if is_manual_guardcore(panel):
+                    gc_data = manual_snapshot(customer)
+                else:
+                    try:
+                        gc_data = await get_guardcore_subscription(
+                            panel, customer.guardcore_username
+                        )
+                        if not gc_data:
+                            gc_error = "کاربر در GuardCore پیدا نشد"
+                    except Exception as exc:
+                        gc_error = str(exc)
             else:
                 gc_error = "پنل GuardCore حذف شده است"
 
@@ -1608,21 +1655,24 @@ async def combined_subscription(
         else:
             errors.append("Marzban: پنل حذف شده است")
 
-    if customer.guardcore_panel_id and customer.guardcore_username:
+    if customer.guardcore_panel_id:
         panel = db.get(GuardCorePanel, customer.guardcore_panel_id)
         if panel:
             source_name = panel.name
             hidden_names.append(source_name)
             try:
-                remote = await get_guardcore_subscription(
-                    panel,
-                    customer.guardcore_username,
-                )
-                remote_url = str(
-                    (remote or {}).get("subscription_url")
-                    or customer.guardcore_subscription_url
-                    or ""
-                )
+                if is_manual_guardcore(panel):
+                    remote_url = customer.guardcore_subscription_url or ""
+                else:
+                    remote = await get_guardcore_subscription(
+                        panel,
+                        customer.guardcore_username,
+                    )
+                    remote_url = str(
+                        (remote or {}).get("subscription_url")
+                        or customer.guardcore_subscription_url
+                        or ""
+                    )
                 if remote_url:
                     customer.guardcore_subscription_url = remote_url
                     db.add(customer)
@@ -1634,7 +1684,7 @@ async def combined_subscription(
                     )
                     raw_counts["guardcore"] = len(lines)
                     source_items.append((lines, source_name, "guardcore"))
-                else:
+                elif not is_manual_guardcore(panel):
                     errors.append(
                         f"{source_name}: لینک اشتراک GuardCore دریافت نشد"
                     )

@@ -997,6 +997,7 @@ def database_table_counts() -> dict[str, int]:
         "plans",
         "pasarguard_panels",
         "marzban_panels",
+        "guardcore_panels",
         "orders",
         "customer_devices",
         "customer_sessions",

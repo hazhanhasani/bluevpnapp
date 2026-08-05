@@ -96,8 +96,10 @@ class GuardCorePanel(Base):
     base_url: Mapped[str] = mapped_column(String(500))
     auth_mode: Mapped[str] = mapped_column(
         String(20),
-        default="api_key",
+        default="manual",
     )
+    # manual: admin pastes the generated subscription link through Telegram.
+    # api_key/password: optional automatic GuardCore integration.
     api_key_enc: Mapped[str] = mapped_column(Text, default="")
     username_enc: Mapped[str] = mapped_column(Text, default="")
     password_enc: Mapped[str] = mapped_column(Text, default="")

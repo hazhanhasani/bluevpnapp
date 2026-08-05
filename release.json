@@ -1,14 +1,14 @@
 {
   "name": "BlueVPN",
-  "version": "2.2.0",
-  "channel": "android-guardcore-multi-provider",
-  "description": "GuardCore Provider برای پنل BlueVPN، ساخت و همگام‌سازی اشتراک روی PasarGuard، Marzban و GuardCore، تجمیع لینک‌ها، تخصیص حجم چندProvider و داشبورد مدیریت اتصال‌ها. تمرکز خروجی فقط Android است.",
-  "build_id": "20260804171929",
-  "built_at": "2026-08-04T17:19:29.470253+00:00",
-  "android_version": "2.2.<latest_release_patch_plus_one_or_zero>",
+  "version": "2.2.1",
+  "channel": "android-manual-guardcore",
+  "description": "PasarGuard و Marzban کاملاً خودکار؛ GuardCore نیمه‌خودکار با تصمیم ادمین در تلگرام و ثبت دستی لینک Subscription در اشتراک تجمیعی کاربر.",
+  "build_id": "20260805114858",
+  "built_at": "2026-08-05T11:48:58.822264+00:00",
+  "android_version": "2.2.<latest_release_patch_plus_one>",
   "android_version_code": "22000 + release_patch",
-  "deploy_bot_version": "2.5-push-trigger",
+  "deploy_bot_version": "2.6-manual-guardcore",
   "build_trigger": "git-empty-commit-push",
   "update_source": "github_releases",
-  "version_strategy": "If latest release is v2.2.N publish v2.2.(N+1); if no 2.2 release exists publish v2.2.0."
+  "version_strategy": "If latest release is v2.2.N publish v2.2.(N+1); if no 2.2 release exists start at v2.2.1."
 }

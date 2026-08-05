@@ -47,7 +47,7 @@ def _headers(authenticated: bool = True) -> dict[str, str]:
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "BlueVPN-Update-Service/2.2.0",
+        "User-Agent": "BlueVPN-Update-Service/2.2.1",
     }
 
     token = os.getenv("GITHUB_TOKEN", "").strip()

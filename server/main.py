@@ -14,12 +14,19 @@ from starlette.middleware.sessions import SessionMiddleware
 from .database import DATABASE_ERROR,DATABASE_MODE,SessionLocal,database_status,database_table_counts,initialize_database,get_db
 from .integrations import IntegrationError,combined_subscription,create_invoice,get_invoice,provision,sync_customer,test_marzban_panel,test_panel,verify_webhook
 from .guardcore import service_ids_from_json,test_guardcore_panel
+from .manual_guardcore import (
+    attach_manual_subscription,
+    is_manual_guardcore,
+    notify_manual_request,
+    pending_manual_requests,
+    set_manual_decision,
+)
 from .github_release import github_repository,latest_github_release
 from .models import AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 BASE=Path(__file__).resolve().parent; templates=Jinja2Templates(directory=BASE/'templates')
 DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','updated_at':utcnow().isoformat()}
-app=FastAPI(title='BlueVPN Platform',version='2.2.0'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+app=FastAPI(title='BlueVPN Platform',version='2.2.1'); app.add_middleware(SessionMiddleware,secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),same_site='lax',https_only=False); app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -91,9 +98,35 @@ def issue_session(db:Session,c:Customer,device_id:str,device_name:str,rotate_ref
     db.commit()
     return raw,refresh_raw
 async def activate(db:Session,order:Order):
-    if order.status=='activated':return
+    if order.status=='activated':
+        try:
+            await notify_manual_request(db,order)
+        except Exception:
+            pass
+        return
     order.status='paid';order.paid_at=order.paid_at or utcnow();db.commit()
-    try:await provision(db,order.customer,order.plan,order,settings(db)['public_base_url'])
+    try:
+        await provision(
+            db,
+            order.customer,
+            order.plan,
+            order,
+            settings(db)['public_base_url'],
+        )
+        # GuardCore manual is optional and must never break automatic
+        # PasarGuard/Marzban activation. Telegram notification is best-effort.
+        try:
+            await notify_manual_request(db,order)
+        except Exception as notify_exc:
+            metadata={}
+            try:metadata=json.loads(order.gateway_json or '{}')
+            except Exception:metadata={}
+            request_data=metadata.get('guardcore_manual')
+            if isinstance(request_data,dict):
+                request_data['notify_error']=str(notify_exc).replace(os.getenv('BOT_TOKEN',''),'***')[:500]
+                metadata['guardcore_manual']=request_data
+                order.gateway_json=json.dumps(metadata,ensure_ascii=False)
+                db.commit()
     except Exception as exc:
         if order.status!='partial_needs_sync':
             order.status='paid_needs_sync'
@@ -192,7 +225,7 @@ def health():
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
-        'version':'2.2.0',
+        'version':'2.2.1',
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }
@@ -470,6 +503,7 @@ def admin(request:Request,db:Session=Depends(get_db)):
         .order_by(Order.created_at.desc())
         .limit(100)
     ).all()
+    guardcore_manual_queue=pending_manual_requests(db,100)
     stats={
         'customers':db.scalar(select(func.count(Customer.id))) or 0,
         'active':db.scalar(select(func.count(Customer.id)).where(Customer.subscription_status=='active')) or 0,
@@ -477,6 +511,7 @@ def admin(request:Request,db:Session=Depends(get_db)):
         'manual':db.scalar(select(func.count(Order.id)).where(Order.order_code.like('MANUAL-%'))) or 0,
         'panels':len(panels)+len(marzban_panels)+len(guardcore_panels),
         'guardcore':len(guardcore_panels),
+        'guardcore_pending':len(guardcore_manual_queue),
     }
     return templates.TemplateResponse(
         request=request,
@@ -495,6 +530,7 @@ def admin(request:Request,db:Session=Depends(get_db)):
             'plans':plans,
             'customers':customers,
             'orders':orders,
+            'guardcore_manual_queue':guardcore_manual_queue,
             'stats':stats,
             'database_mode':DATABASE_MODE,
             'database_info':database_status(),
@@ -654,7 +690,7 @@ def add_guardcore_panel(
     request:Request,
     name:str=Form(...),
     base_url:str=Form(...),
-    auth_mode:str=Form('api_key'),
+    auth_mode:str=Form('manual'),
     api_key:str=Form(''),
     username:str=Form(''),
     password:str=Form(''),
@@ -664,8 +700,8 @@ def add_guardcore_panel(
     db:Session=Depends(get_db),
 ):
     admin_required(request)
-    if auth_mode not in {'api_key','password'}:
-        auth_mode='api_key'
+    if auth_mode not in {'manual','api_key','password'}:
+        auth_mode='manual'
     if usage_unit not in {'bytes','gb'}:
         usage_unit='bytes'
     if expire_mode not in {'days','seconds','timestamp'}:
@@ -696,7 +732,12 @@ async def guardcore_panel_test(
     panel=db.get(GuardCorePanel,panel_id)
     if not panel:
         raise HTTPException(404)
-    ok,message,services=await test_guardcore_panel(panel)
+    if is_manual_guardcore(panel):
+        ok=True
+        message='حالت دستی فعال است؛ لینک ساب از طریق ربات ثبت می‌شود'
+        services=[]
+    else:
+        ok,message,services=await test_guardcore_panel(panel)
     panel.last_test_ok=ok
     panel.last_test_message=message
     panel.last_test_at=utcnow()
@@ -707,6 +748,24 @@ async def guardcore_panel_test(
         '/admin?'+('saved=1' if ok else 'error='+quote_plus(message[:300]))+'#guardcore',
         303,
     )
+
+
+@app.post('/admin/guardcore-panels/{panel_id}/manual')
+def guardcore_panel_manual_mode(
+    request:Request,
+    panel_id:int,
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    panel=db.get(GuardCorePanel,panel_id)
+    if not panel:
+        raise HTTPException(404)
+    panel.auth_mode='manual'
+    panel.last_test_ok=True
+    panel.last_test_message='حالت دستی فعال است؛ لینک ساب از طریق ربات ثبت می‌شود'
+    panel.services_json='[]'
+    db.commit()
+    return RedirectResponse('/admin?saved=1#guardcore',303)
 
 
 @app.post('/admin/guardcore-panels/{panel_id}/toggle')
@@ -747,8 +806,11 @@ def add_plan(
     secondary=marzban_panel_id if marzban_panel_id>0 else None
     guard=guardcore_panel_id if guardcore_panel_id>0 else None
     mode=multi_provider_quota_mode if multi_provider_quota_mode in {'split','full'} else 'split'
-    if guard and not services:
-        return RedirectResponse('/admin?error=برای+GuardCore+حداقل+یک+Service+ID+لازم+است#plans',303)
+    guard_panel=db.get(GuardCorePanel,guard) if guard else None
+    if guard and not guard_panel:
+        return RedirectResponse('/admin?error=پنل+GuardCore+پیدا+نشد#plans',303)
+    if guard_panel and not is_manual_guardcore(guard_panel) and not services:
+        return RedirectResponse('/admin?error=برای+GuardCore+خودکار+حداقل+یک+Service+ID+لازم+است#plans',303)
     db.add(Plan(
         title=title,
         description=description,
@@ -791,8 +853,9 @@ def plan_panel_routing(
         return RedirectResponse('/admin?error=پنل+Marzban+پیدا+نشد#plans',303)
     if guard and not db.get(GuardCorePanel,guard):
         return RedirectResponse('/admin?error=پنل+GuardCore+پیدا+نشد#plans',303)
-    if guard and not services:
-        return RedirectResponse('/admin?error=برای+GuardCore+حداقل+یک+Service+ID+لازم+است#plans',303)
+    guard_panel=db.get(GuardCorePanel,guard) if guard else None
+    if guard_panel and not is_manual_guardcore(guard_panel) and not services:
+        return RedirectResponse('/admin?error=برای+GuardCore+خودکار+حداقل+یک+Service+ID+لازم+است#plans',303)
     mode=multi_provider_quota_mode if multi_provider_quota_mode in {'split','full'} else 'split'
     plan.marzban_panel_id=secondary
     plan.marzban_quota_mode=mode
@@ -955,6 +1018,99 @@ async def manual_activation_for_customer(
             'customers',
             error=f'فعال‌سازی دستی ناموفق بود: {str(exc)[:450]}',
         )
+
+@app.post('/admin/orders/{order_id}/guardcore/manual-link')
+async def admin_guardcore_manual_link(
+    request:Request,
+    order_id:str,
+    subscription_url:str=Form(...),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    try:
+        result=await attach_manual_subscription(
+            db,
+            order_id,
+            subscription_url,
+        )
+        return admin_redirect(
+            'guardcore-manual',
+            message=(
+                'ساب دستی GuardCore برای '
+                +result['customer_email']
+                +' ثبت شد'
+            ),
+        )
+    except Exception as exc:
+        return admin_redirect(
+            'guardcore-manual',
+            error='ثبت ساب GuardCore ناموفق بود: '+str(exc)[:500],
+        )
+
+
+@app.post('/admin/orders/{order_id}/guardcore/skip')
+def admin_guardcore_manual_skip(
+    request:Request,
+    order_id:str,
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    try:
+        set_manual_decision(
+            db,
+            order_id,
+            use_guardcore=False,
+        )
+        return admin_redirect(
+            'guardcore-manual',
+            message='اختصاص دستی GuardCore برای این سفارش رد شد',
+        )
+    except Exception as exc:
+        return admin_redirect(
+            'guardcore-manual',
+            error=str(exc)[:500],
+        )
+
+
+@app.post('/admin/orders/{order_id}/guardcore/notify')
+async def admin_guardcore_manual_notify(
+    request:Request,
+    order_id:str,
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    order=db.scalar(
+        select(Order)
+        .options(selectinload(Order.customer),selectinload(Order.plan))
+        .where(Order.id==order_id)
+    )
+    if not order:
+        return admin_redirect('guardcore-manual',error='سفارش پیدا نشد')
+    try:
+        metadata=json.loads(order.gateway_json or '{}')
+        item=metadata.get('guardcore_manual')
+        if isinstance(item,dict):
+            item['state']='awaiting_decision'
+            item['notified_at']=None
+            item.pop('notify_error',None)
+            metadata['guardcore_manual']=item
+            order.gateway_json=json.dumps(metadata,ensure_ascii=False)
+            db.commit()
+        sent=await notify_manual_request(db,order)
+        return admin_redirect(
+            'guardcore-manual',
+            message=(
+                'پیام برای ربات ارسال شد'
+                if sent else
+                'پیام ارسال نشد؛ BOT_TOKEN و ADMIN_IDS را بررسی کن'
+            ),
+        )
+    except Exception as exc:
+        return admin_redirect(
+            'guardcore-manual',
+            error='ارسال پیام ناموفق بود: '+str(exc)[:500],
+        )
+
 
 @app.post('/admin/customers/{customer_id}/source-check')
 async def customer_source_check(

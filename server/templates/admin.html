@@ -1,8 +1,8 @@
 <!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BlueVPN Platform</title><link rel="stylesheet" href="/static/style.css"></head><body>
 <header class="topbar"><div class="brand"><img src="/static/logo.png"><div><b>BlueVPN Platform</b><span>مدیریت حساب، فروش و اشتراک</span></div></div><form method="post" action="/admin/logout"><button class="secondary">خروج</button></form></header>
-<nav class="tabs"><a href="#overview">نمای کلی</a><a href="#database">دیتابیس</a><a href="#panels">پاسارگارد</a><a href="#marzban">مرزبان</a><a href="#guardcore">GuardCore</a><a href="#plans">پلن‌ها</a><a href="#bluepay">بلوپی</a><a href="#manual">فعال‌سازی دستی</a><a href="#customers">کاربران</a><a href="#orders">پرداخت‌ها</a><a href="#app">اپ و آپدیت</a></nav>
+<nav class="tabs"><a href="#overview">نمای کلی</a><a href="#database">دیتابیس</a><a href="#panels">پاسارگارد</a><a href="#marzban">مرزبان</a><a href="#guardcore">GuardCore</a><a href="#guardcore-manual">صف GuardCore</a><a href="#plans">پلن‌ها</a><a href="#bluepay">بلوپی</a><a href="#manual">فعال‌سازی دستی</a><a href="#customers">کاربران</a><a href="#orders">پرداخت‌ها</a><a href="#app">اپ و آپدیت</a></nav>
 <main class="container">{% if not database_info.persistent %}<div class="alert danger">هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</div>{% endif %}{% if saved %}<div class="alert success">تغییرات ذخیره شد.</div>{% endif %}{% if manual_message %}<div class="alert success">{{ manual_message }}</div>{% endif %}{% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
-<section id="overview" class="grid stats"><article><span>کاربران</span><strong>{{ stats.customers }}</strong></article><article><span>اشتراک فعال</span><strong>{{ stats.active }}</strong></article><article><span>پرداخت موفق</span><strong>{{ stats.paid }}</strong></article><article><span>فعال‌سازی دستی</span><strong>{{ stats.manual }}</strong></article><article><span>کل Providerها</span><strong>{{ stats.panels }}</strong></article><article><span>GuardCore</span><strong>{{ stats.guardcore }}</strong></article><article><span>دیتابیس</span><strong>{{ database_mode }}</strong></article></section>
+<section id="overview" class="grid stats"><article><span>کاربران</span><strong>{{ stats.customers }}</strong></article><article><span>اشتراک فعال</span><strong>{{ stats.active }}</strong></article><article><span>پرداخت موفق</span><strong>{{ stats.paid }}</strong></article><article><span>فعال‌سازی دستی</span><strong>{{ stats.manual }}</strong></article><article><span>کل Providerها</span><strong>{{ stats.panels }}</strong></article><article><span>GuardCore</span><strong>{{ stats.guardcore }}</strong></article><article><span>در انتظار ساب دستی</span><strong>{{ stats.guardcore_pending }}</strong></article><article><span>دیتابیس</span><strong>{{ database_mode }}</strong></article></section>
 <section id="database" class="card">
   <h2>دیتابیس خودکار و دائمی</h2>
   <p class="hint">
@@ -119,30 +119,47 @@
 </section>
 
 <section id="guardcore" class="card provider-card guardcore-card">
-  <div class="provider-title"><div><span class="provider-icon">G</span><div><h2>اتصال GuardCore</h2><p class="hint">مدیریت یکپارچه Marzban، PasarGuard، Marzneshin، Rustneshin و Remnawave از طریق GuardCore 0.13.x.</p></div></div><span class="badge ok">Multi Provider</span></div>
+  <div class="provider-title"><div><span class="provider-icon">G</span><div><h2>GuardCore نیمه‌خودکار</h2><p class="hint">PasarGuard و Marzban خودکار باقی می‌مانند. برای GuardCore، ربات پس از خرید مشخصات ساخت کاربر را می‌فرستد و فقط لینک ساب را از ادمین می‌گیرد.</p></div></div><span class="badge manual">Manual Subscription</span></div>
   <form method="post" action="/admin/guardcore-panels">
     <div class="form-grid">
-      <div><label>نام داخلی اتصال</label><input name="name" placeholder="GuardCore اصلی" required></div>
-      <div><label>Base URL</label><input name="base_url" placeholder="https://guard.example.com" required></div>
-      <div><label>روش احراز هویت</label><select name="auth_mode"><option value="api_key">X-API-Key (پیشنهادی)</option><option value="password">نام کاربری و رمز</option></select></div>
-      <div><label>API Key</label><input name="api_key" type="password" placeholder="کلید فقط در Backend رمزگذاری می‌شود"></div>
-      <div><label>نام کاربری مدیر</label><input name="username"></div>
-      <div><label>رمز مدیر</label><input name="password" type="password"></div>
-      <div><label>واحد limit_usage</label><select name="usage_unit"><option value="bytes">Byte (پیشنهادی)</option><option value="gb">GB</option></select></div>
+      <div><label>نام داخلی پنل</label><input name="name" placeholder="SolidLayer GuardCore" required></div>
+      <div><label>لینک ورود پنل</label><input name="base_url" placeholder="https://app.solidlayerco.com" required></div>
+      <div><label>روش فعال‌سازی</label><select name="auth_mode"><option value="manual" selected>دستی از طریق ربات — پیشنهادی</option><option value="api_key">خودکار با X-API-Key</option><option value="password">خودکار با نام کاربری و رمز</option></select></div>
+      <div><label>API Key؛ فقط حالت خودکار</label><input name="api_key" type="password"></div>
+      <div><label>نام کاربری مدیر؛ فقط خودکار</label><input name="username"></div>
+      <div><label>رمز مدیر؛ فقط خودکار</label><input name="password" type="password"></div>
+      <div><label>واحد limit_usage</label><select name="usage_unit"><option value="bytes">Byte</option><option value="gb">GB</option></select></div>
       <div><label>نوع limit_expire</label><select name="expire_mode"><option value="days">تعداد روز</option><option value="seconds">تعداد ثانیه</option><option value="timestamp">Unix Timestamp</option></select></div>
     </div>
-    <label class="check"><input type="checkbox" name="verify_tls" checked> اعتبارسنجی گواهی TLS</label>
-    <button class="save">افزودن GuardCore</button>
+    <label class="check"><input type="checkbox" name="verify_tls" checked> اعتبارسنجی TLS لینک ساب</label>
+    <button class="save">افزودن پنل GuardCore</button>
   </form>
-  <div class="table-wrap"><table><thead><tr><th>نام</th><th>آدرس</th><th>ورود</th><th>واحدها</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>
-  {% for p in guardcore_panels %}<tr><td>{{ p.name }}</td><td class="ltr">{{ p.base_url }}</td><td>{{ p.auth_mode }} · {{ guardcore_masks[p.id] }}</td><td>{{ p.usage_unit }} / {{ p.expire_mode }}</td><td>{% if p.last_test_ok %}<span class="badge ok">متصل</span><small class="provider-success">{{ p.last_test_message }}</small><details class="service-details"><summary>Serviceهای دریافت‌شده</summary><pre>{{ p.services_json }}</pre></details>{% else %}<span class="badge warn">{{ p.last_test_message or 'تست نشده' }}</span>{% endif %}</td><td class="actions"><form method="post" action="/admin/guardcore-panels/{{ p.id }}/test"><button>تست و دریافت Serviceها</button></form><form method="post" action="/admin/guardcore-panels/{{ p.id }}/toggle"><button class="secondary">{{ 'غیرفعال' if p.active else 'فعال' }}</button></form></td></tr>{% else %}<tr><td colspan="6">هنوز GuardCore ثبت نشده است.</td></tr>{% endfor %}
+  <div class="table-wrap"><table><thead><tr><th>نام</th><th>پنل</th><th>حالت</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>
+  {% for p in guardcore_panels %}<tr><td>{{ p.name }}</td><td class="ltr">{{ p.base_url }}</td><td>{% if p.auth_mode=='manual' %}<span class="badge manual">دستی با ربات</span>{% else %}{{ p.auth_mode }} · {{ guardcore_masks[p.id] }}{% endif %}</td><td>{% if p.auth_mode=='manual' %}<span class="badge ok">آماده دریافت ساب</span>{% elif p.last_test_ok %}<span class="badge ok">متصل</span><small class="provider-success">{{ p.last_test_message }}</small>{% else %}<span class="badge warn">{{ p.last_test_message or 'تست نشده' }}</span>{% endif %}</td><td class="actions"><form method="post" action="/admin/guardcore-panels/{{ p.id }}/test"><button>{{ 'بررسی حالت دستی' if p.auth_mode=='manual' else 'تست API و Serviceها' }}</button></form>{% if p.auth_mode!='manual' %}<form method="post" action="/admin/guardcore-panels/{{ p.id }}/manual"><button class="secondary">تبدیل به دستی</button></form>{% endif %}<form method="post" action="/admin/guardcore-panels/{{ p.id }}/toggle"><button class="secondary">{{ 'غیرفعال' if p.active else 'فعال' }}</button></form></td></tr>{% else %}<tr><td colspan="5">هنوز پنل دستی GuardCore ثبت نشده است.</td></tr>{% endfor %}
   </tbody></table></div>
+</section>
+
+<section id="guardcore-manual" class="card manual-guardcore-card">
+  <div class="provider-title"><div><span class="provider-icon">↗</span><div><h2>صف اختصاص دستی GuardCore</h2><p class="hint">همین سفارش‌ها هم‌زمان برای ادمین در تلگرام ارسال می‌شوند. اگر ربات ری‌استارت شد، لینک را از همین بخش هم می‌توان ثبت کرد.</p></div></div><span class="badge warn">{{ stats.guardcore_pending }} منتظر</span></div>
+  <div class="manual-queue">
+  {% for item in guardcore_manual_queue %}
+    {% set o=item.order %}{% set r=item.request %}
+    <article class="manual-ticket">
+      <div class="ticket-head"><div><b>{{ r.plan_title }}</b><small class="ltr">{{ o.order_code }}</small></div><span class="badge {{ 'warn' if r.state=='awaiting_decision' else 'manual' }}">{{ 'منتظر تصمیم' if r.state=='awaiting_decision' else 'منتظر لینک ساب' }}</span></div>
+      <div class="ticket-grid"><span>کاربر <b class="ltr">{{ r.customer_email }}</b></span><span>نام ساخت <code>{{ r.username }}</code></span><span>زمان <b>{{ r.duration_days or '∞' }} روز</b></span><span>حجم <b>{{ r.data_limit_gb or 'نامحدود' }}</b></span><span>پنل <a href="{{ r.panel_url }}" target="_blank">{{ r.panel_name }}</a></span></div>
+      <form method="post" action="/admin/orders/{{ o.id }}/guardcore/manual-link" class="manual-link-form"><input class="ltr" name="subscription_url" placeholder="لینک Subscription را Paste کن" required><button class="save">ثبت و افزودن به کاربر</button></form>
+      <div class="actions"><form method="post" action="/admin/orders/{{ o.id }}/guardcore/notify"><button>ارسال دوباره به ربات</button></form><form method="post" action="/admin/orders/{{ o.id }}/guardcore/skip"><button class="secondary">بدون GuardCore ادامه بده</button></form></div>
+    </article>
+  {% else %}
+    <div class="empty-state">درخواست منتظر GuardCore وجود ندارد.</div>
+  {% endfor %}
+  </div>
 </section>
 
 <section id="plans" class="card">
   <h2>پلن‌های فروش Multi Provider</h2>
   <p class="hint">
-    هر پلن می‌تواند هم‌زمان روی PasarGuard، Marzban و GuardCore ساخته شود.
+    هر پلن می‌تواند PasarGuard و Marzban خودکار داشته باشد و GuardCore به‌صورت دستی از طریق ربات به همان اشتراک تجمیعی اضافه شود.
     حجم به‌صورت مساوی تقسیم یا به‌طور کامل روی همه Providerها اعمال می‌شود.
     دکمه «همگام‌سازی کاربران فعلی» Providerهای تازه را بدون خرید مجدد اضافه می‌کند. حذف پلن فقط آن را از فروش مخفی می‌کند و سوابق باقی می‌مانند.
   </p>
@@ -162,7 +179,7 @@
         </select>
       </div>
       <div><label>پنل GuardCore</label><select name="guardcore_panel_id"><option value="0">بدون GuardCore</option>{% for p in guardcore_panels %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select></div>
-      <div><label>Service IDهای GuardCore</label><input name="guardcore_service_ids" placeholder="1,3,7"></div>
+      <div><label>Service IDهای GuardCore</label><input name="guardcore_service_ids" placeholder="در حالت دستی خالی بگذار"></div>
       <div>
         <label>نحوه تخصیص حجم</label>
         <select name="multi_provider_quota_mode">
@@ -188,7 +205,7 @@
         <span>{{ x.device_limit }} دستگاه</span>
         <span>{{ x.panel.name }}</span>
         {% if x.marzban_panel %}<span>Marzban: {{ x.marzban_panel.name }}</span>{% endif %}
-        {% if x.guardcore_panel %}<span>GuardCore: {{ x.guardcore_panel.name }}</span><span>Service: {{ x.guardcore_service_ids_json }}</span>{% endif %}
+        {% if x.guardcore_panel %}<span>GuardCore: {{ x.guardcore_panel.name }}</span><span>{{ 'دستی با ربات' if x.guardcore_panel.auth_mode=='manual' else 'Service: '+x.guardcore_service_ids_json }}</span>{% endif %}
         <span>{{ 'تقسیم حجم' if x.multi_provider_quota_mode=='split' else 'حجم کامل همه Providerها' }}</span>
       </div>
       <form method="post" action="/admin/plans/{{ x.id }}/panel-routing" class="mini-routing multi-routing">

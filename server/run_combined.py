@@ -20,7 +20,7 @@ import uvicorn
 APP_DIR = Path("/app")
 BOT_DIR = Path("/opt/bluevpn_bot")
 ERROR_LOG = Path("/tmp/bluevpn-startup-error.log")
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 
 for directory in (APP_DIR, BOT_DIR):
     value = str(directory)
@@ -206,7 +206,7 @@ def status_payload() -> dict[str, Any]:
             "error": STATE.bot_error[-1500:],
             "error_at": STATE.bot_error_at,
             "runtime": "server.deploy_bot_runtime",
-            "version": "2.5-push-trigger",
+            "version": "2.6-manual-guardcore",
             "build_trigger": "git-empty-commit-push",
         },
         "database_environment": database_environment_diagnostics(),

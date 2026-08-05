@@ -1,12 +1,28 @@
 {
-  "name": "BlueVPN",
-  "version": "1.0.15",
-  "channel": "force-marzban-source-and-diagnostics",
-  "description": "Repair or create the Marzban user before every subscription response, automatically attach the sole active Marzban panel to legacy plans, include direct Marzban API links, and expose separate PasarGuard/Marzban configuration counts to the admin.",
-  "build_id": "20260804115227",
-  "built_at": "2026-08-04T11:52:27.174937+00:00",
-  "android_version": "1.0.15",
-  "android_version_code": 29,
-  "deploy_bot_version": "2.5-push-trigger",
-  "build_trigger": "git-empty-commit-push"
+  "version": "3.0.2",
+  "channel": "performance-fix",
+  "build_id": "20260805164340",
+  "built_at": "2026-08-05T16:43:40.915943+00:00",
+  "android_version": "3.0.<latest_release_patch_plus_one>",
+  "android_version_code": "30000 + release_patch",
+  "description": "BlueVPN 3.0.2: instant first frame, cached server catalog and AI scores, asynchronous smart selection, and faster Xray verification.",
+  "features": [
+    "mcc-mnc-priority-operator-detection",
+    "instant-first-frame",
+    "non-blocking-server-cache-warmup",
+    "cached-mmkv-candidate-catalog",
+    "cached-blueai-json-scores",
+    "cached-operator-detection",
+    "async-smart-route-selection",
+    "fast-xray-verification",
+    "reduced-failover-delays",
+    "responsive-navigation",
+    "cached-server-page-rendering",
+    "concise-blueai-summary",
+    "pasarguard-auto",
+    "marzban-auto",
+    "guardcore-manual"
+  ],
+  "version_code": 30002,
+  "notes": "رفع کندی بازشدن برنامه، تأخیر لمس بخش‌ها، توقف طولانی روی انتخاب سرور و اتصال، و اسکن چندباره ۶۶ کانفیگ روی Thread اصلی. همچنین کد MCC/MNC سیم‌کارت دیتای فعال قبل از نام اپراتور بررسی می‌شود تا ایرانسل با سامانتل اشتباه نشود."
 }

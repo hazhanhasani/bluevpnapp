@@ -1,8 +1,55 @@
 <!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BlueVPN Platform</title><link rel="stylesheet" href="/static/style.css"></head><body>
 <header class="topbar"><div class="brand"><img src="/static/logo.png"><div><b>BlueVPN Platform</b><span>مدیریت حساب، فروش و اشتراک</span></div></div><form method="post" action="/admin/logout"><button class="secondary">خروج</button></form></header>
-<nav class="tabs"><a href="#overview">نمای کلی</a><a href="#database">دیتابیس</a><a href="#panels">پاسارگارد</a><a href="#plans">پلن‌ها</a><a href="#bluepay">بلوپی</a><a href="#manual">فعال‌سازی دستی</a><a href="#customers">کاربران</a><a href="#orders">پرداخت‌ها</a><a href="#app">اپ و آپدیت</a></nav>
-<main class="container">{% if not database_info.persistent %}<div class="alert danger">هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</div>{% endif %}{% if saved %}<div class="alert success">تغییرات ذخیره شد.</div>{% endif %}{% if manual_message %}<div class="alert success">{{ manual_message }}</div>{% endif %}{% if error %}<div class="alert danger">{{ error }}</div>{% endif %}
-<section id="overview" class="grid stats"><article><span>کاربران</span><strong>{{ stats.customers }}</strong></article><article><span>اشتراک فعال</span><strong>{{ stats.active }}</strong></article><article><span>پرداخت موفق</span><strong>{{ stats.paid }}</strong></article><article><span>فعال‌سازی دستی</span><strong>{{ stats.manual }}</strong></article><article><span>پنل پاسارگارد</span><strong>{{ stats.panels }}</strong></article><article><span>دیتابیس</span><strong>{{ database_mode }}</strong></article></section>
+<nav class="tabs"><a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">GuardCore</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف GuardCore</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#app" data-tab="app">اپ و آپدیت</a></nav>
+<main class="container">{% if not database_info.persistent %}<div class="alert danger flash-alert" data-sticky="1"><span>هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if saved %}<div class="alert success flash-alert"><span>تغییرات ذخیره شد.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if manual_message %}<div class="alert success flash-alert"><span>{{ manual_message }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if error %}<div class="alert danger flash-alert"><span>{{ error }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}
+<section id="overview" class="grid stats"><article><span>کاربران</span><strong data-live="stats.customers">{{ stats.customers }}</strong></article><article><span>اشتراک فعال</span><strong data-live="stats.active">{{ stats.active }}</strong></article><article><span>پرداخت موفق</span><strong data-live="stats.paid">{{ stats.paid }}</strong></article><article><span>فعال‌سازی دستی</span><strong data-live="stats.manual">{{ stats.manual }}</strong></article><article><span>کل Providerها</span><strong data-live="stats.panels">{{ stats.panels }}</strong></article><article><span>GuardCore</span><strong data-live="stats.guardcore">{{ stats.guardcore }}</strong></article><article><span>در انتظار ساب دستی</span><strong data-live="stats.guardcore_pending">{{ stats.guardcore_pending }}</strong></article><article><span>دیتابیس</span><strong>{{ database_mode }}</strong></article></section>
+
+<section id="blueai" class="card ai-command-center">
+  <div class="section-heading">
+    <div><span class="eyebrow">INTELLIGENCE LAYER</span><h2>مرکز فرمان BlueAI</h2><p>رتبه‌بندی مسیرها بر اساس اپراتور، نوع شبکه، ساعت، پایداری، مدت اتصال و موفقیت واقعی کاربران.</p></div>
+    <div class="ai-orb"><span data-live="blueai.average_score">{{ blueai.average_score|round|int }}</span><small>AI SCORE</small></div>
+  </div>
+  <div class="grid ai-kpis">
+    <article><span>رویدادهای یادگیری</span><strong data-live="blueai.total_events">{{ blueai.total_events }}</strong><small><b data-live="blueai.events_24h">{{ blueai.events_24h }}</b> مورد در ۲۴ ساعت</small></article>
+    <article><span>نرخ موفقیت</span><strong><span data-live="blueai.success_rate">{{ blueai.success_rate }}</span>٪</strong><small>تمام اپراتورها</small></article>
+    <article><span>مسیرهای شناخته‌شده</span><strong data-live="blueai.learned_routes">{{ blueai.learned_routes }}</strong><small>کانتکست‌های هوشمند</small></article>
+    <article><span>بازخورد کاربران</span><strong><span data-live="blueai.feedback_average">{{ blueai.feedback_average }}</span>/5</strong><small><b data-live="blueai.feedback_count">{{ blueai.feedback_count }}</b> گزارش</small></article>
+    <article><span>اتصال زنده</span><strong data-live="blueai.live_sessions">{{ blueai.live_sessions or 0 }}</strong><small id="blueai-live-status">درحال دریافت داده</small></article>
+  </div>
+  <div class="ai-grid-two">
+    <div class="insight-panel">
+      <div class="panel-title"><h3>بهترین مسیرهای فعلی</h3><span>به‌روزرسانی زنده</span></div>
+      {% if blueai.top_routes %}
+      <div class="route-rank-list" id="blueai-live-routes">
+        {% for route in blueai.top_routes %}
+        <article>
+          <div class="route-rank">{{ loop.index }}</div>
+          <div class="route-info"><strong>{{ route.location_title }}</strong><span>{{ route.operator }} • {{ route.network_type }} • {{ route.mode }}</span></div>
+          <div class="route-meter"><i style="width:{{ route.score }}%"></i></div>
+          <b>{{ route.score }}</b>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}<div class="empty-state">بعد از اولین اتصال‌های نسخه ۳، رتبه‌بندی اینجا ساخته می‌شود.</div>{% endif %}
+    </div>
+    <div class="insight-panel">
+      <div class="panel-title"><h3>DNA اپراتورها</h3><span>داده فنی ناشناس</span></div>
+      <div class="operator-list" id="blueai-live-operators">
+        {% for item in blueai.operators %}
+        <article><div><strong>{{ item.name }}</strong><span>{{ item.events }} اتصال</span></div><b>{{ (item.duration/3600)|round(1) }}h</b></article>
+        {% else %}<div class="empty-state">هنوز داده اپراتور ثبت نشده است.</div>{% endfor %}
+      </div>
+    </div>
+  </div>
+  <div class="insight-panel failures-panel">
+    <div class="panel-title"><h3>آخرین اختلال‌های تشخیص‌داده‌شده</h3><span>برای Auto-Heal</span></div>
+    <div class="failure-stream">
+      {% for item in blueai.recent_failures %}
+      <article><span class="status-pulse bad"></span><div><strong>{{ item.location_title }}</strong><small>{{ item.operator }} • {{ item.network_type }} • {{ item.failure_reason or 'عدم پاسخ مسیر' }}</small></div><time>{{ item.created_at }}</time></article>
+      {% else %}<div class="empty-state">اختلال ثبت‌شده‌ای وجود ندارد.</div>{% endfor %}
+    </div>
+  </div>
+</section>
 <section id="database" class="card">
   <h2>دیتابیس خودکار و دائمی</h2>
   <p class="hint">
@@ -34,7 +81,7 @@
   <div class="chips">
     <span>کاربر: {{ database_counts.get('customers',0) }}</span>
     <span>پلن: {{ database_counts.get('plans',0) }}</span>
-    <span>پنل: {{ database_counts.get('pasarguard_panels',0) }}</span>
+    <span>PasarGuard: {{ database_counts.get('pasarguard_panels',0) }}</span><span>Marzban: {{ database_counts.get('marzban_panels',0) }}</span><span>GuardCore: {{ database_counts.get('guardcore_panels',0) }}</span>
     <span>سفارش: {{ database_counts.get('orders',0) }}</span>
     <span>دستگاه: {{ database_counts.get('customer_devices',0) }}</span>
   </div>
@@ -118,12 +165,50 @@
   </div>
 </section>
 
+<section id="guardcore" class="card provider-card guardcore-card">
+  <div class="provider-title"><div><span class="provider-icon">G</span><div><h2>GuardCore نیمه‌خودکار</h2><p class="hint">PasarGuard و Marzban خودکار باقی می‌مانند. اولین GuardCore دستی فعال، حتی اگر داخل پلن انتخاب نشده باشد، بعد از هر خرید یا فعال‌سازی دستی به‌صورت سؤال بله/خیر در ربات پیشنهاد می‌شود.</p></div></div><span class="badge manual">Manual Subscription</span></div>
+  <form method="post" action="/admin/guardcore-panels">
+    <div class="form-grid">
+      <div><label>نام داخلی پنل</label><input name="name" placeholder="SolidLayer GuardCore" required></div>
+      <div><label>لینک ورود پنل</label><input name="base_url" placeholder="https://app.solidlayerco.com" required></div>
+      <div><label>روش فعال‌سازی</label><select name="auth_mode"><option value="manual" selected>دستی از طریق ربات — پیشنهادی</option><option value="api_key">خودکار با X-API-Key</option><option value="password">خودکار با نام کاربری و رمز</option></select></div>
+      <div><label>API Key؛ فقط حالت خودکار</label><input name="api_key" type="password"></div>
+      <div><label>نام کاربری مدیر؛ فقط خودکار</label><input name="username"></div>
+      <div><label>رمز مدیر؛ فقط خودکار</label><input name="password" type="password"></div>
+      <div><label>واحد limit_usage</label><select name="usage_unit"><option value="bytes">Byte</option><option value="gb">GB</option></select></div>
+      <div><label>نوع limit_expire</label><select name="expire_mode"><option value="days">تعداد روز</option><option value="seconds">تعداد ثانیه</option><option value="timestamp">Unix Timestamp</option></select></div>
+    </div>
+    <label class="check"><input type="checkbox" name="verify_tls" checked> اعتبارسنجی TLS لینک ساب</label>
+    <button class="save">افزودن پنل GuardCore</button>
+  </form>
+  <div class="table-wrap"><table><thead><tr><th>نام</th><th>پنل</th><th>حالت</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>
+  {% for p in guardcore_panels %}<tr><td>{{ p.name }}</td><td class="ltr">{{ p.base_url }}</td><td>{% if p.auth_mode=='manual' %}<span class="badge manual">دستی با ربات</span>{% else %}{{ p.auth_mode }} · {{ guardcore_masks[p.id] }}{% endif %}</td><td>{% if p.auth_mode=='manual' %}<span class="badge ok">آماده دریافت ساب</span>{% elif p.last_test_ok %}<span class="badge ok">متصل</span><small class="provider-success">{{ p.last_test_message }}</small>{% else %}<span class="badge warn">{{ p.last_test_message or 'تست نشده' }}</span>{% endif %}</td><td class="actions"><form method="post" action="/admin/guardcore-panels/{{ p.id }}/test"><button>{{ 'بررسی حالت دستی' if p.auth_mode=='manual' else 'تست API و Serviceها' }}</button></form>{% if p.auth_mode!='manual' %}<form method="post" action="/admin/guardcore-panels/{{ p.id }}/manual"><button class="secondary">تبدیل به دستی</button></form>{% endif %}<form method="post" action="/admin/guardcore-panels/{{ p.id }}/toggle"><button class="secondary">{{ 'غیرفعال' if p.active else 'فعال' }}</button></form></td></tr>{% else %}<tr><td colspan="5">هنوز پنل دستی GuardCore ثبت نشده است.</td></tr>{% endfor %}
+  </tbody></table></div>
+</section>
+
+<section id="guardcore-manual" class="card manual-guardcore-card">
+  <div class="provider-title"><div><span class="provider-icon">↗</span><div><h2>صف اختصاص دستی GuardCore</h2><p class="hint">همین سفارش‌ها هم‌زمان برای ادمین در تلگرام ارسال می‌شوند. اگر ربات ری‌استارت شد، لینک را از همین بخش هم می‌توان ثبت کرد.</p></div></div><span class="badge warn">{{ stats.guardcore_pending }} منتظر</span></div>
+  <div class="manual-queue">
+  {% for item in guardcore_manual_queue %}
+    {% set o=item.order %}{% set r=item.request %}
+    <article class="manual-ticket">
+      <div class="ticket-head"><div><b>{{ r.plan_title }}</b><small class="ltr">{{ o.order_code }}</small></div><span class="badge {{ 'warn' if r.state=='awaiting_decision' else 'manual' }}">{{ 'منتظر تصمیم' if r.state=='awaiting_decision' else 'منتظر لینک ساب' }}</span></div>
+      <div class="ticket-grid"><span>کاربر <b class="ltr">{{ r.customer_email }}</b></span><span>نام ساخت <code>{{ r.username }}</code></span><span>زمان <b>{{ r.duration_days or '∞' }} روز</b></span><span>حجم <b>{{ r.data_limit_gb or 'نامحدود' }}</b></span><span>پنل <a href="{{ r.panel_url }}" target="_blank">{{ r.panel_name }}</a></span></div>
+      <form method="post" action="/admin/orders/{{ o.id }}/guardcore/manual-link" class="manual-link-form"><input class="ltr" name="subscription_url" placeholder="لینک Subscription را Paste کن" required><button class="save">ثبت و افزودن به کاربر</button></form>
+      <div class="actions"><form method="post" action="/admin/orders/{{ o.id }}/guardcore/notify"><button>ارسال دوباره به ربات</button></form><form method="post" action="/admin/orders/{{ o.id }}/guardcore/skip"><button class="secondary">بدون GuardCore ادامه بده</button></form></div>
+    </article>
+  {% else %}
+    <div class="empty-state">درخواست منتظر GuardCore وجود ندارد.</div>
+  {% endfor %}
+  </div>
+</section>
+
 <section id="plans" class="card">
-  <h2>پلن‌های فروش چندپنلی</h2>
+  <h2>پلن‌های فروش Multi Provider</h2>
   <p class="hint">
-    برای پلن‌های قدیمی هم می‌توانی پنل دوم Marzban را همین‌جا انتخاب کنی.
-    بعد از ذخیره، دکمه «انتقال کاربران فعلی» کاربرهای قبلی را بدون خرید مجدد
-    روی Marzban می‌سازد. حذف پلن فقط آن را از فروش مخفی می‌کند و سوابق باقی می‌مانند.
+    هر پلن می‌تواند PasarGuard و Marzban خودکار داشته باشد و GuardCore به‌صورت دستی از طریق ربات به همان اشتراک تجمیعی اضافه شود.
+    حجم به‌صورت مساوی تقسیم یا به‌طور کامل روی همه Providerها اعمال می‌شود.
+    دکمه «همگام‌سازی کاربران فعلی» Providerهای تازه را بدون خرید مجدد اضافه می‌کند. حذف پلن فقط آن را از فروش مخفی می‌کند و سوابق باقی می‌مانند.
   </p>
   <form method="post" action="/admin/plans">
     <div class="form-grid">
@@ -140,11 +225,13 @@
           {% for p in marzban_panels %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}
         </select>
       </div>
+      <div><label>پنل GuardCore</label><select name="guardcore_panel_id"><option value="0">بدون GuardCore</option>{% for p in guardcore_panels %}<option value="{{ p.id }}">{{ p.name }}</option>{% endfor %}</select></div>
+      <div><label>Service IDهای GuardCore</label><input name="guardcore_service_ids" placeholder="در حالت دستی خالی بگذار"></div>
       <div>
-        <label>نحوه حجم دو پنل</label>
-        <select name="marzban_quota_mode">
-          <option value="split">تقسیم حجم بین دو پنل</option>
-          <option value="full">حجم کامل روی هر دو پنل</option>
+        <label>نحوه تخصیص حجم</label>
+        <select name="multi_provider_quota_mode">
+          <option value="split">تقسیم مساوی بین Providerها</option>
+          <option value="full">حجم کامل روی همه Providerها</option>
         </select>
       </div>
       <div><label>Group IDهای PasarGuard</label><input name="group_ids" placeholder="1,3,7"></div>
@@ -164,30 +251,23 @@
         <span>{{ x.data_limit_gb or '∞' }} GB</span>
         <span>{{ x.device_limit }} دستگاه</span>
         <span>{{ x.panel.name }}</span>
-        {% if x.marzban_panel %}
-          <span>مسیر پشتیبان فعال</span>
-          <span>{{ 'تقسیم حجم' if x.marzban_quota_mode=='split' else 'حجم کامل دوگانه' }}</span>
-        {% endif %}
+        {% if x.marzban_panel %}<span>Marzban: {{ x.marzban_panel.name }}</span>{% endif %}
+        {% if x.guardcore_panel %}<span>GuardCore: {{ x.guardcore_panel.name }}</span><span>{{ 'دستی با ربات' if x.guardcore_panel.auth_mode=='manual' else 'Service: '+x.guardcore_service_ids_json }}</span>{% endif %}
+        <span>{{ 'تقسیم حجم' if x.multi_provider_quota_mode=='split' else 'حجم کامل همه Providerها' }}</span>
       </div>
-      <form method="post" action="/admin/plans/{{ x.id }}/panel-routing" class="mini-routing">
-        <label>پنل دوم برای همین پلن</label>
-        <select name="marzban_panel_id">
-          <option value="0">بدون Marzban</option>
-          {% for p in marzban_panels %}
-          <option value="{{ p.id }}" {% if x.marzban_panel_id==p.id %}selected{% endif %}>{{ p.name }}</option>
-          {% endfor %}
-        </select>
-        <select name="marzban_quota_mode">
-          <option value="split" {% if x.marzban_quota_mode=='split' %}selected{% endif %}>تقسیم حجم</option>
-          <option value="full" {% if x.marzban_quota_mode=='full' %}selected{% endif %}>حجم کامل روی هر دو</option>
-        </select>
-        <button type="submit">ذخیره پنل دوم</button>
+      <form method="post" action="/admin/plans/{{ x.id }}/panel-routing" class="mini-routing multi-routing">
+        <label>مسیرهای این پلن</label>
+        <select name="marzban_panel_id"><option value="0">بدون Marzban</option>{% for p in marzban_panels %}<option value="{{ p.id }}" {% if x.marzban_panel_id==p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select>
+        <select name="guardcore_panel_id"><option value="0">بدون GuardCore</option>{% for p in guardcore_panels %}<option value="{{ p.id }}" {% if x.guardcore_panel_id==p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select>
+        <input name="guardcore_service_ids" value="{{ x.guardcore_service_ids_json|replace('[','')|replace(']','') }}" placeholder="Service IDها">
+        <select name="multi_provider_quota_mode"><option value="split" {% if x.multi_provider_quota_mode=='split' %}selected{% endif %}>تقسیم حجم</option><option value="full" {% if x.multi_provider_quota_mode=='full' %}selected{% endif %}>حجم کامل</option></select>
+        <button type="submit">ذخیره مسیرها</button>
       </form>
 
       <div class="actions">
-        {% if x.marzban_panel_id %}
-        <form method="post" action="/admin/plans/{{ x.id }}/repair-customers" onsubmit="return confirm('کاربران فعلی این پلن روی Marzban ساخته و همگام شوند؟');">
-          <button type="submit">انتقال کاربران فعلی به Marzban</button>
+        {% if x.marzban_panel_id or x.guardcore_panel_id %}
+        <form method="post" action="/admin/plans/{{ x.id }}/repair-customers" onsubmit="return confirm('کاربران فعلی این پلن روی Providerهای جدید ساخته و همگام شوند؟');">
+          <button type="submit">همگام‌سازی کاربران فعلی</button>
         </form>
         {% endif %}
         <form method="post" action="/admin/plans/{{ x.id }}/toggle">
@@ -246,14 +326,15 @@
 <section id="customers" class="card">
   <h2>کاربران و دستگاه‌ها</h2>
   <p class="hint">
-    «بررسی تعداد منابع» کاربر Marzban را در صورت نبودن می‌سازد و تعداد
-    کانفیگ‌های PasarGuard و Marzban داخل لینک نهایی را جداگانه گزارش می‌کند.
+    «بررسی تعداد منابع» کاربر Marzban را در صورت نبودن می‌سازد و جداگانه
+    نشان می‌دهد چند کانفیگ مستقیماً از ساب واقعی Marzban، چند کانفیگ از API
+    و چند کانفیگ از PasarGuard وارد لینک نهایی شده است.
     اگر فقط یک Marzban فعال باشد، به‌صورت خودکار به پلن قدیمی متصل می‌شود.
   </p>
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>ایمیل</th><th>اشتراک</th><th>کاربر PasarGuard</th><th>کاربر Marzban</th><th>دستگاه</th><th>انقضا</th><th>عملیات</th></tr>
+        <tr><th>ایمیل</th><th>اشتراک</th><th>کاربر PasarGuard</th><th>کاربر Marzban</th><th>کاربر GuardCore</th><th>دستگاه</th><th>انقضا</th><th>عملیات</th></tr>
       </thead>
       <tbody>
       {% for c in customers %}
@@ -266,6 +347,10 @@
             {% if c.marzban_last_error %}
               <small class="source-error">{{ c.marzban_last_error }}</small>
             {% endif %}
+          </td>
+          <td class="ltr">
+            {{ c.guardcore_username or '—' }}
+            {% if c.guardcore_last_error %}<small class="source-error">{{ c.guardcore_last_error }}</small>{% endif %}
           </td>
           <td>{{ c.device_limit }}</td>
           <td>{{ c.subscription_expire or 'نامحدود/ندارد' }}</td>
@@ -298,12 +383,178 @@
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="7">کاربری ثبت نشده است.</td></tr>
+        <tr><td colspan="8">کاربری ثبت نشده است.</td></tr>
       {% endfor %}
       </tbody>
     </table>
   </div>
 </section>
 <section id="orders" class="card"><h2>پرداخت و فعال‌سازی</h2><div class="table-wrap"><table><thead><tr><th>سفارش</th><th>کاربر</th><th>پلن</th><th>مبلغ</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{% for o in orders %}<tr><td class="ltr">{{ o.order_code }}{% if o.order_code.startswith("MANUAL-") %}<span class="badge manual">دستی</span>{% endif %}</td><td class="ltr">{{ o.customer.email }}</td><td>{{ o.plan.title }}</td><td>{% if o.order_code.startswith('MANUAL-') %}بدون درگاه{% else %}{{ '{:,}'.format(o.amount_toman) }}{% endif %}</td><td><span class="badge {{ 'ok' if o.status=='activated' else 'warn' }}">{{ o.status }}</span>{% if o.activation_error %}<small>{{ o.activation_error[:160] }}</small>{% endif %}</td><td>{% if o.status in ['paid','paid_needs_sync','partial_needs_sync'] %}<form method="post" action="/admin/orders/{{ o.id }}/activate"><button>تلاش فعال‌سازی</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="6">پرداختی وجود ندارد.</td></tr>{% endfor %}</tbody></table></div></section>
-<section id="app" class="card"><h2>اپلیکیشن و آپدیت خودکار</h2><form method="post" action="/admin/app-settings"><div class="form-grid"><div><label>نام برنامه</label><input name="app_name" value="{{ settings.app_name }}"></div><div><label>Public Base URL</label><input name="public_base_url" value="{{ settings.public_base_url }}"></div><div><label>نسخه جدید</label><input name="latest_version" value="{{ settings.latest_version }}"></div><div><label>Version Code</label><input name="latest_version_code" type="number" value="{{ settings.latest_version_code }}"></div><div><label>حداقل نسخه</label><input name="minimum_version" value="{{ settings.minimum_version }}"></div><div><label>لینک مستقیم APK</label><input name="apk_url" value="{{ settings.apk_url }}"></div><div><label>عنوان آپدیت</label><input name="update_title" value="{{ settings.update_title }}"></div><div><label>پشتیبانی</label><input name="support_url" value="{{ settings.support_url }}"></div><div class="wide"><label>توضیحات آپدیت</label><textarea name="update_message">{{ settings.update_message }}</textarea></div><div><label>شناسه اطلاعیه</label><input name="announcement_id" value="{{ settings.announcement_id }}"></div><div><label>عنوان اطلاعیه</label><input name="announcement_title" value="{{ settings.announcement_title }}"></div><div class="wide"><label>متن اطلاعیه</label><textarea name="announcement_message">{{ settings.announcement_message }}</textarea></div></div><div class="checks"><label><input type="checkbox" name="maintenance" {% if settings.maintenance %}checked{% endif %}> تعمیرات</label><label><input type="checkbox" name="force_update" {% if settings.force_update %}checked{% endif %}> آپدیت اجباری</label><label><input type="checkbox" name="announcement_enabled" {% if settings.announcement_enabled %}checked{% endif %}> اطلاعیه</label></div><button class="save">ذخیره</button></form></section>
-</main></body></html>
+<section id="app" class="card">
+  <h2>اپلیکیشن و آپدیت خودکار GitHub</h2>
+  <div class="github-release-box">
+    <b>منبع آپدیت: GitHub Releases</b>
+    <p>
+      شماره نسخه، Version Code، عنوان، توضیحات و لینک APK دیگر در این پنل
+      تعریف نمی‌شوند. هر Build موفق خودش Release می‌سازد و برنامه آخرین
+      نسخه را خودکار از GitHub دریافت می‌کند.
+    </p>
+    <code>github.com/{{ github_repository }}/releases/latest</code>
+  </div>
+  <form method="post" action="/admin/app-settings">
+    <div class="form-grid">
+      <div><label>نام برنامه</label><input name="app_name" value="{{ settings.app_name }}"></div>
+      <div><label>Public Base URL</label><input name="public_base_url" value="{{ settings.public_base_url }}"></div>
+      <div><label>حداقل نسخه مجاز</label><input name="minimum_version" value="{{ settings.minimum_version }}"></div>
+      <div><label>پشتیبانی</label><input name="support_url" value="{{ settings.support_url }}"></div>
+      <div><label>شناسه اطلاعیه</label><input name="announcement_id" value="{{ settings.announcement_id }}"></div>
+      <div><label>عنوان اطلاعیه</label><input name="announcement_title" value="{{ settings.announcement_title }}"></div>
+      <div class="wide"><label>متن اطلاعیه</label><textarea name="announcement_message">{{ settings.announcement_message }}</textarea></div>
+    </div>
+    <div class="checks">
+      <label title="اتصال و استفاده از برنامه برای همه کاربران مسدود می‌شود."><input type="checkbox" name="maintenance" {% if settings.maintenance %}checked{% endif %}> تعمیرات واقعی</label>
+      <label title="کاربر تا نصب نسخه جدید اجازه اتصال ندارد."><input type="checkbox" name="force_update" {% if settings.force_update %}checked{% endif %}> آپدیت اجباری واقعی</label>
+      <label title="APK مناسب گوشی خودکار دانلود و صفحه نصب باز می‌شود."><input type="checkbox" name="auto_update" {% if settings.get('auto_update',True) %}checked{% endif %}> دانلود خودکار آپدیت</label>
+      <label title="اطلاعیه برای هر شناسه فقط یک بار نمایش داده می‌شود."><input type="checkbox" name="announcement_enabled" {% if settings.announcement_enabled %}checked{% endif %}> اطلاعیه واقعی</label>
+    </div>
+    <p class="hint">
+      تعمیرات، آپدیت اجباری، دانلود خودکار و اطلاعیه در اجرای بعدی برنامه
+      مستقیماً از همین تنظیمات اعمال می‌شوند. برای نمایش دوباره اطلاعیه،
+      شناسه اطلاعیه را تغییر بده.
+    </p>
+    <button class="save">ذخیره تنظیمات عمومی</button>
+  
+<div class="ai-settings-panel">
+  <div><strong>🧠 BlueAI Engine</strong><span>یادگیری شخصی، رتبه‌بندی جمعی و ترمیم هوشمند اتصال</span></div>
+  <div class="checks">
+    <label class="check"><input type="checkbox" name="blueai_enabled" {% if settings.blueai_enabled %}checked{% endif %}> موتور هوشمند فعال</label>
+    <label class="check"><input type="checkbox" name="blueai_collective" {% if settings.blueai_collective %}checked{% endif %}> یادگیری جمعی ناشناس</label>
+    <label class="check"><input type="checkbox" name="blueai_auto_heal" {% if settings.blueai_auto_heal %}checked{% endif %}> ترمیم خودکار مسیر</label>
+  </div>
+  <div class="form-grid">
+    <label>حداقل نمونه برای اعتماد<input type="number" name="blueai_min_samples" min="1" max="100" value="{{ settings.blueai_min_samples or 3 }}"></label>
+    <label class="wide">پیام حریم خصوصی<input name="blueai_privacy_message" value="{{ settings.blueai_privacy_message }}"></label>
+  </div>
+</div>
+</form>
+</section>
+</main>
+<script>
+(() => {
+  const sections = [...document.querySelectorAll('main.container > section[id]')];
+  const links = [...document.querySelectorAll('.tabs a[data-tab]')];
+
+  function activateTab(id, updateHash = true) {
+    const target = document.getElementById(id) || document.getElementById('overview');
+    sections.forEach(section => { section.hidden = section !== target; });
+    links.forEach(link => link.classList.toggle('active', link.dataset.tab === target.id));
+    if (updateHash && location.hash !== `#${target.id}`) {
+      history.replaceState(null, '', `${location.pathname}#${target.id}`);
+    }
+    window.scrollTo({top: 0, behavior: 'instant'});
+  }
+
+  links.forEach(link => link.addEventListener('click', event => {
+    event.preventDefault();
+    activateTab(link.dataset.tab || 'overview');
+  }));
+  window.addEventListener('hashchange', () => activateTab(location.hash.slice(1) || 'overview', false));
+  activateTab(location.hash.slice(1) || 'overview', false);
+
+  document.querySelectorAll('.alert-close').forEach(button => {
+    button.addEventListener('click', () => button.closest('.flash-alert')?.remove());
+  });
+  document.querySelectorAll('.flash-alert:not([data-sticky="1"])').forEach(alert => {
+    setTimeout(() => alert.remove(), alert.classList.contains('danger') ? 12000 : 6500);
+  });
+  if (location.search) {
+    history.replaceState(null, '', `${location.pathname}${location.hash || '#overview'}`);
+  }
+
+  function readPath(root, path) {
+    return path.split('.').reduce((value, key) => value && value[key], root);
+  }
+  function updateScalarValues(data) {
+    document.querySelectorAll('[data-live]').forEach(element => {
+      const value = readPath(data, element.dataset.live || '');
+      if (value !== undefined && value !== null) element.textContent = value;
+    });
+  }
+  function create(tag, className, text) {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    if (text !== undefined) el.textContent = String(text);
+    return el;
+  }
+  function renderRoutes(rows) {
+    const root = document.getElementById('blueai-live-routes');
+    if (!root) return;
+    root.replaceChildren();
+    if (!rows.length) {
+      root.append(create('div', 'empty-state', 'هنوز داده کافی برای رتبه‌بندی وجود ندارد.'));
+      return;
+    }
+    rows.slice(0, 12).forEach((row, index) => {
+      const article = create('article');
+      article.append(create('div', 'route-rank', index + 1));
+      const info = create('div', 'route-info');
+      info.append(create('strong', '', row.location_title || 'نامشخص'));
+      info.append(create('span', '', `${row.operator || 'ناشناخته'} • ${row.network_type || 'unknown'} • ${row.mode || 'balanced'}`));
+      article.append(info);
+      const meter = create('div', 'route-meter');
+      const fill = create('i');
+      fill.style.width = `${Math.max(0, Math.min(100, Number(row.score || 0)))}%`;
+      meter.append(fill);
+      article.append(meter);
+      article.append(create('b', '', row.score || 0));
+      root.append(article);
+    });
+  }
+  function renderOperators(rows, liveRows) {
+    const root = document.getElementById('blueai-live-operators');
+    if (!root) return;
+    root.replaceChildren();
+    const liveMap = new Map((liveRows || []).map(item => [item.name, item.count]));
+    if (!rows.length && !liveMap.size) {
+      root.append(create('div', 'empty-state', 'هنوز داده اپراتور ثبت نشده است.'));
+      return;
+    }
+    const names = new Set([...rows.map(item => item.name), ...liveMap.keys()]);
+    [...names].slice(0, 10).forEach(name => {
+      const item = rows.find(row => row.name === name) || {events: 0, duration: 0};
+      const article = create('article');
+      const info = create('div');
+      info.append(create('strong', '', name || 'ناشناخته'));
+      info.append(create('span', '', `${item.events || 0} رویداد • ${liveMap.get(name) || 0} آنلاین`));
+      article.append(info);
+      article.append(create('b', '', `${(Number(item.duration || 0) / 3600).toFixed(1)}h`));
+      root.append(article);
+    });
+  }
+
+  let liveBusy = false;
+  async function refreshLive() {
+    const active = location.hash.slice(1) || 'overview';
+    if (!['overview', 'blueai'].includes(active) || liveBusy || document.hidden) return;
+    liveBusy = true;
+    try {
+      const response = await fetch('/admin/api/live', {headers: {'Accept': 'application/json'}, cache: 'no-store'});
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      updateScalarValues(data);
+      renderRoutes(data.blueai?.top_routes || []);
+      renderOperators(data.blueai?.operators || [], data.blueai?.live_operators || []);
+      const status = document.getElementById('blueai-live-status');
+      if (status) status.textContent = `زنده • ${new Date().toLocaleTimeString('fa-IR')}`;
+    } catch (error) {
+      const status = document.getElementById('blueai-live-status');
+      if (status) status.textContent = 'اتصال زنده موقتاً قطع است';
+    } finally {
+      liveBusy = false;
+    }
+  }
+  refreshLive();
+  setInterval(refreshLive, 8000);
+})();
+</script>
+</body></html>

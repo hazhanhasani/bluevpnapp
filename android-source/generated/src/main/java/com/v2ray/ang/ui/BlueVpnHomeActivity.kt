@@ -2180,18 +2180,19 @@ private fun dpHome(value: Int): Int =
                         "مسیر واقعی Xray تأیید شد • ${latency} ms"
                     recordCurrentConnection(latency)
                 } else {
-                    // Do not destroy a valid tunnel only because public probe
-                    // domains are filtered by the server or destination ISP.
-                    connectionVerified = true
-                    BlueVpnPreferences.markConnected(
-                        this@BlueVpnHomeActivity,
-                        resetTimer = false
+                    // A running core is not proof of a working VPN. Do not
+                    // expose a false connected state or send a live heartbeat.
+                    connectionVerified = false
+                    BlueVpnPreferences.clearConnected(
+                        this@BlueVpnHomeActivity
                     )
-                    resetTrafficBaseline()
-                    renderConnectionState(true)
+                    CoreServiceManager.stopVService(
+                        this@BlueVpnHomeActivity
+                    )
+                    renderConnectionState(false)
+                    statusText.text = "اتصال واقعی تأیید نشد"
                     statusCaption.text =
-                        "هسته Xray متصل است؛ سایت‌های تست عمومی پاسخ ندادند"
-                    recordCurrentConnection(0L)
+                        "هسته روشن بود اما هیچ درخواست واقعی از مسیر Xray عبور نکرد"
                 }
             }
         }
@@ -2217,17 +2218,10 @@ private fun dpHome(value: Int): Int =
                 if (latency != null) {
                     lastVerifiedLatency = latency
                     completeFailover(latency)
-                } else if (
-                    mainViewModel.isRunning.value == true &&
-                    MmkvManager.getSelectServer() == guid
-                ) {
-                    // Compatibility fallback: other clients accept the config
-                    // when Xray starts successfully. Keep it instead of
-                    // producing a false disconnect solely from blocked probes.
-                    completeFailover(null)
-                    statusCaption.text =
-                        "اتصال Xray برقرار شد؛ تست عمومی توسط مسیر محدود است"
                 } else {
+                    // Never count "core started" as a live connection. A route
+                    // is accepted only after a remote proof succeeds through
+                    // the local Xray proxy and the Android VPN transport.
                     failCurrentAndTryNext(reason)
                 }
             }
@@ -2246,10 +2240,10 @@ private fun dpHome(value: Int): Int =
             // and finish as soon as the first real response arrives. The old
             // implementation waited for every slow/blocked endpoint.
             val endpoints = listOf(
+                "${BuildConfig.BLUEVPN_API_BASE_URL.trimEnd('/')}/health",
                 "http://cp.cloudflare.com/generate_204",
-                "http://1.1.1.1/cdn-cgi/trace",
                 "http://connectivitycheck.gstatic.com/generate_204",
-                "http://example.com/",
+                "http://1.1.1.1/cdn-cgi/trace",
             )
 
             val executor = Executors.newFixedThreadPool(endpoints.size)
@@ -2318,7 +2312,31 @@ private fun dpHome(value: Int): Int =
                 )
 
                 val code = connection.responseCode
-                val valid = code == 204 || code in 200..499
+                val body = if (code == 200) {
+                    runCatching {
+                        connection.inputStream.bufferedReader().use {
+                            it.readText().take(4096)
+                        }
+                    }.getOrDefault("")
+                } else {
+                    ""
+                }
+                val valid = when {
+                    endpoint.endsWith("/health") ->
+                        code == 200 &&
+                            body.contains(
+                                "bluevpn-platform",
+                                ignoreCase = true,
+                            )
+                    endpoint.contains("generate_204") ->
+                        code == 204
+                    endpoint.contains("cdn-cgi/trace") ->
+                        code == 200 &&
+                            body.lineSequence().any {
+                                it.startsWith("ip=")
+                            }
+                    else -> false
+                }
 
                 if (valid) {
                     SystemClock.elapsedRealtime() - startedAt
@@ -2591,6 +2609,16 @@ private fun dpHome(value: Int): Int =
         refreshExperienceDashboard(candidates)
     }
 
+    private fun readTunnelTrafficBytes(): Pair<Long, Long> {
+        val uid = applicationInfo.uid
+        val rx = TrafficStats.getUidRxBytes(uid)
+        val tx = TrafficStats.getUidTxBytes(uid)
+        return Pair(
+            rx.takeIf { it >= 0L } ?: 0L,
+            tx.takeIf { it >= 0L } ?: 0L,
+        )
+    }
+
     private fun updateLiveStats() {
         val connected = mainViewModel.isRunning.value == true &&
             !failoverActive &&
@@ -2618,8 +2646,7 @@ private fun dpHome(value: Int): Int =
         durationValue.text = formatDuration(elapsedSeconds)
 
         val now = System.currentTimeMillis()
-        val rx = TrafficStats.getTotalRxBytes()
-        val tx = TrafficStats.getTotalTxBytes()
+        val (rx, tx) = readTunnelTrafficBytes()
 
         if (lastTrafficAt > 0L && rx >= 0L && tx >= 0L) {
             val seconds = max(0.001, (now - lastTrafficAt) / 1000.0)
@@ -2661,8 +2688,9 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun resetTrafficBaseline() {
-        lastRx = TrafficStats.getTotalRxBytes()
-        lastTx = TrafficStats.getTotalTxBytes()
+        val (rx, tx) = readTunnelTrafficBytes()
+        lastRx = rx
+        lastTx = tx
         lastTrafficAt = System.currentTimeMillis()
         sessionDownloadBytes = 0L
         sessionUploadBytes = 0L

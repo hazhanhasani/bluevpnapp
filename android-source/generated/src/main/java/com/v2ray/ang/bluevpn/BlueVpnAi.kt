@@ -8,11 +8,20 @@ import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.handler.MmkvManager
+import com.v2ray.ang.handler.SettingsManager
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.net.URL
 import java.security.MessageDigest
 import java.util.Calendar
 import java.util.Locale
+import java.util.UUID
+import java.util.concurrent.ExecutorCompletionService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
 object BlueVpnAi {
@@ -30,6 +39,149 @@ object BlueVpnAi {
         val operator: String,
         val networkType: String,
     )
+
+    data class TunnelVerification(
+        val latencyMs: Long,
+        val source: String,
+    )
+
+    private data class ProbeTarget(
+        val url: String,
+        val source: String,
+    )
+
+    fun hasVpnTransport(context: Context): Boolean {
+        val connectivity = context.getSystemService(
+            Context.CONNECTIVITY_SERVICE
+        ) as ConnectivityManager
+        return connectivity.allNetworks.any { network ->
+            val capabilities = connectivity.getNetworkCapabilities(network)
+                ?: return@any false
+            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                capabilities.hasCapability(
+                    NetworkCapabilities.NET_CAPABILITY_INTERNET
+                )
+        }
+    }
+
+    fun hasActiveSession(context: Context): Boolean =
+        prefs(context).getString(KEY_SESSION, "").orEmpty().isNotBlank()
+
+    fun verifyTunnel(context: Context): TunnelVerification? {
+        if (!hasVpnTransport(context)) return null
+        val httpPort = SettingsManager.getHttpPort()
+        if (httpPort !in 1..65535) return null
+
+        val apiHealth = BlueVpnAccountManager.apiBaseUrl()
+            .takeIf { it.startsWith("http") }
+            ?.let { "${it.trimEnd('/')}/health" }
+        val targets = buildList {
+            if (!apiHealth.isNullOrBlank()) {
+                add(ProbeTarget(apiHealth, "bluevpn-health"))
+            }
+            add(
+                ProbeTarget(
+                    "http://cp.cloudflare.com/generate_204",
+                    "cloudflare-204",
+                )
+            )
+            add(
+                ProbeTarget(
+                    "http://connectivitycheck.gstatic.com/generate_204",
+                    "google-204",
+                )
+            )
+            add(
+                ProbeTarget(
+                    "http://1.1.1.1/cdn-cgi/trace",
+                    "cloudflare-trace",
+                )
+            )
+        }
+
+        val executor = Executors.newFixedThreadPool(targets.size)
+        val completion =
+            ExecutorCompletionService<TunnelVerification?>(executor)
+        val futures = targets.map { target ->
+            completion.submit {
+                requestTunnelProof(target, httpPort)
+            }
+        }
+
+        return try {
+            val deadline = android.os.SystemClock.elapsedRealtime() + 3_200L
+            repeat(futures.size) {
+                val remaining = (
+                    deadline - android.os.SystemClock.elapsedRealtime()
+                ).coerceAtLeast(1L)
+                val future = completion.poll(
+                    remaining,
+                    TimeUnit.MILLISECONDS,
+                ) ?: return null
+                val result = runCatching { future.get() }.getOrNull()
+                if (result != null) return result
+            }
+            null
+        } finally {
+            futures.forEach { it.cancel(true) }
+            executor.shutdownNow()
+        }
+    }
+
+    private fun requestTunnelProof(
+        target: ProbeTarget,
+        httpPort: Int,
+    ): TunnelVerification? = runCatching {
+        val proxy = Proxy(
+            Proxy.Type.HTTP,
+            InetSocketAddress("127.0.0.1", httpPort),
+        )
+        val connection =
+            URL(target.url).openConnection(proxy) as HttpURLConnection
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        try {
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = 2_100
+            connection.readTimeout = 2_100
+            connection.requestMethod = "GET"
+            connection.useCaches = false
+            connection.setRequestProperty("Connection", "close")
+            connection.setRequestProperty(
+                "User-Agent",
+                "BlueVPN/${BuildConfig.VERSION_NAME}",
+            )
+
+            val code = connection.responseCode
+            val body = if (code == 200) {
+                runCatching {
+                    connection.inputStream.bufferedReader().use {
+                        it.readText().take(4096)
+                    }
+                }.getOrDefault("")
+            } else {
+                ""
+            }
+            val valid = when (target.source) {
+                "bluevpn-health" ->
+                    code == 200 &&
+                        body.contains("bluevpn-platform", ignoreCase = true)
+                "cloudflare-204", "google-204" -> code == 204
+                "cloudflare-trace" ->
+                    code == 200 &&
+                        body.lineSequence().any { it.startsWith("ip=") }
+                else -> false
+            }
+            if (!valid) null
+            else TunnelVerification(
+                latencyMs = (
+                    android.os.SystemClock.elapsedRealtime() - startedAt
+                ).coerceAtLeast(1L),
+                source = target.source,
+            )
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrNull()
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -333,6 +485,8 @@ object BlueVpnAi {
         if (!enabled(context)) return
         val network = network(context)
         val session = JSONObject()
+            .put("session_id", UUID.randomUUID().toString())
+            .put("heartbeat_seq", 0L)
             .put("started_at", System.currentTimeMillis())
             .put("config_key", fingerprint(candidate))
             .put("guid", candidate.guid)
@@ -374,6 +528,8 @@ object BlueVpnAi {
         val payload = basePayload(context)
             .put("consent", enabled(context))
             .put("event_type", "session")
+            .put("live_state", "disconnected")
+            .put("connected", false)
             .put("success", success)
             .put("duration_seconds", duration)
             .put("download_bytes", downloadBytes.coerceAtLeast(0L))
@@ -411,26 +567,74 @@ object BlueVpnAi {
         storage.edit().putLong(KEY_LAST_HEARTBEAT, now).apply()
 
         val session = JSONObject(raw)
+        val verification = verifyTunnel(context)
+            ?: return@runCatching JSONObject()
+                .put("accepted", false)
+                .put("live", false)
+                .put("reason", "tunnel_not_verified")
+
         val network = network(context)
+        val sequence = session.optLong("heartbeat_seq", 0L) + 1L
+        val previousDownload = session.optLong(
+            "last_download_bytes",
+            0L,
+        )
+        val previousUpload = session.optLong(
+            "last_upload_bytes",
+            0L,
+        )
+        val safeDownload = downloadBytes.coerceAtLeast(0L)
+        val safeUpload = uploadBytes.coerceAtLeast(0L)
+        val trafficActive =
+            safeDownload > previousDownload ||
+                safeUpload > previousUpload
+
+        session.put("heartbeat_seq", sequence)
+        session.put("last_download_bytes", safeDownload)
+        session.put("last_upload_bytes", safeUpload)
+        session.put("last_verified_at", now)
+        storage.edit()
+            .putString(KEY_SESSION, session.toString())
+            .apply()
+
         val payload = basePayload(context)
             .put("consent", true)
             .put("event_type", "heartbeat")
             .put("success", true)
+            .put("connected", true)
+            .put("tunnel_running", true)
+            .put("vpn_transport", true)
+            .put("internet_verified", true)
+            .put("verification_source", verification.source)
+            .put("probe_age_ms", 0)
+            .put("heartbeat_seq", sequence)
+            .put("traffic_active", trafficActive)
             .put(
                 "duration_seconds",
                 ((now - session.optLong("started_at", now)) / 1000L)
                     .coerceAtLeast(0L),
             )
-            .put("ping_ms", pingMs.coerceAtLeast(0L))
+            .put(
+                "ping_ms",
+                verification.latencyMs
+                    .takeIf { it > 0L }
+                    ?: pingMs.coerceAtLeast(0L),
+            )
             .put("health_score", healthScore.coerceIn(0, 100))
-            .put("download_bytes", downloadBytes.coerceAtLeast(0L))
-            .put("upload_bytes", uploadBytes.coerceAtLeast(0L))
+            .put("download_bytes", safeDownload)
+            .put("upload_bytes", safeUpload)
 
-        session.keys().forEach { key -> payload.put(key, session.opt(key)) }
+        session.keys().forEach { key ->
+            payload.put(key, session.opt(key))
+        }
         payload.put("operator", network.operator)
         payload.put("network_type", network.networkType)
-        BlueVpnAccountManager.postAiEvent(context, payload).getOrThrow()
+        BlueVpnAccountManager.postAiEvent(
+            context,
+            payload,
+        ).getOrThrow()
     }
+
 
     fun recordFailure(
         context: Context,

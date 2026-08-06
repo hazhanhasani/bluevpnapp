@@ -1,11 +1,11 @@
 {
-  "version": "3.0.28",
+  "version": "3.0.29",
   "channel": "phone-otp-farazsms",
-  "build_id": "20260806-workflow-queue-unblock-v3028",
-  "built_at": "2026-08-06T17:53:12Z",
-  "android_version": "3.0.28",
-  "android_version_code": 30028,
-  "description": "BlueVPN 3.0.28 خطای واقعی فایل Workflow نسخه 3.0.27 را رفع می‌کند: صف queue:max حذف و cancel-in-progress دوباره فعال شده تا Buildهای قدیمی و گیرکرده جای اجرای جدید را نگیرند.",
+  "build_id": "20260807-deploy-bot-stale-lock-recovery-v3029",
+  "built_at": "2026-08-07T00:00:00Z",
+  "android_version": "3.0.29",
+  "android_version_code": 30029,
+  "description": "BlueVPN 3.0.29 قفل گیرکرده ربات Deploy را رفع می‌کند: عملیات دارای شناسه یکتا و Task قابل لغو است، Build منتظر Runner پس از مهلت آزاد می‌شود و مدیر دکمه آزادسازی دستی دارد.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -212,8 +212,13 @@
     "deploy-bot-no-runner-redispatch",
     "github-workflow-queue-unblock",
     "cancel-stale-workflow-runs",
-    "single-latest-build-per-branch"
+    "single-latest-build-per-branch",
+    "deploy-bot-tokenized-job-lock",
+    "deploy-bot-manual-unlock",
+    "deploy-bot-stale-lock-watchdog",
+    "github-runner-queue-timeout",
+    "safe-job-replacement"
   ],
-  "version_code": 30028,
-  "notes": "Removes the queue:max experiment and restores cancel-in-progress:true so stale queued runs cannot block the latest BlueVPN build. GitHub hosted-runner availability remains external to the project."
+  "version_code": 30029,
+  "notes": "Deploy bot stale lock auto-recovery and manual unlock\nRemoves the queue:max experiment and restores cancel-in-progress:true so stale queued runs cannot block the latest BlueVPN build. GitHub hosted-runner availability remains external to the project."
 }

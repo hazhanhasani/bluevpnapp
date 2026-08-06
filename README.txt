@@ -1,1 +1,1 @@
-BlueVPN 3.0.28 — removes queue:max and restores cancel-in-progress=true so stale GitHub Actions runs cannot block the newest build. Phone OTP/Faraz SMS remains enabled.
+BlueVPN 3.0.29 — deploy bot stale-lock auto-recovery, manual unlock, Runner queue timeout, and safe replacement of waiting builds.

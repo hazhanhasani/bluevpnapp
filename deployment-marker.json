@@ -1,16 +1,17 @@
 {
-  "release": "3.0.28-workflow-queue-unblock",
-  "version_name": "3.0.28",
-  "version_code": 30028,
+  "release": "3.0.29-deploy-bot-stale-lock-recovery",
+  "version_name": "3.0.29",
+  "version_code": 30029,
   "changes": [
-    "Remove queue:max from GitHub Actions concurrency",
-    "Restore cancel-in-progress true for the main branch build stream",
-    "Keep only the newest workflow run per branch",
-    "Preserve static ubuntu-latest runner routing",
-    "Preserve phone OTP and Faraz SMS features"
+    "Add tokenized per-chat deploy jobs so an old task cannot clear a newer lock",
+    "Add manual unlock button and /unlock command",
+    "Cancel queued GitHub run when releasing a stale job",
+    "Auto-release Runner queue waits after 15 minutes",
+    "Add a watchdog for stale local deploy locks",
+    "Allow a new ZIP to safely replace a job waiting for GitHub Runner"
   ],
   "generated_at_unix": 1786038792,
-  "purpose": "رفع صف اشتباه Workflow و جلوگیری از گیرکردن اجرای جدید پشت Runهای قدیمی",
-  "updated_at": "2026-08-06T17:53:12Z",
-  "built_at": "2026-08-06T17:53:12Z"
+  "purpose": "رفع قفل ماندگار ربات هنگام گیرکردن نصب یا GitHub Actions Build",
+  "updated_at": "2026-08-07T00:00:00Z",
+  "built_at": "2026-08-07T00:00:00Z"
 }

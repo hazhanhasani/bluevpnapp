@@ -12,10 +12,10 @@ def test_only_latest_branch_build_is_kept():
     assert "runs-on: ubuntu-latest" in workflow
 
 
-def test_release_version_328():
+def test_release_version_current():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.28"
-    assert release["version_code"] == 30028
-    assert app["version_name"] == "3.0.28"
-    assert app["version_code"] == 30028
+    assert release["version"] == "3.0.29"
+    assert release["version_code"] == 30029
+    assert app["version_name"] == "3.0.29"
+    assert app["version_code"] == 30029

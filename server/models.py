@@ -408,6 +408,16 @@ class Order(Base):
         DateTime(timezone=True),
         index=True,
     )
+    checkout_opened_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
+    checkout_last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
+    checkout_closed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,

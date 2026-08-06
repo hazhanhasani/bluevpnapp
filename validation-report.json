@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.17",
-  "version_code": 30017,
-  "schema_version": 10,
-  "release": "3.0.17",
+  "project_version": "3.0.18",
+  "version_code": 30018,
+  "schema_version": 11,
+  "release": "3.0.18",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.17/30017)",
+  "version_consistency": "passed (release/branding/backend 3.0.18/30018)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -89,14 +89,14 @@
   "validation_status": "passed",
   "python_compile": "passed",
   "json_yaml": "passed",
-  "generated_android": "passed (22 embedded sources, 29 ids)",
+  "generated_android": "passed (22 embedded sources, 29 ids, checkout lifecycle checks)",
   "blueai_tests": "passed (5 tests)",
   "updater_physical_network_permission": "included",
   "updater_eperm_fallback": "included",
   "updater_default_route_retry": "included",
   "updater_friendly_error_mapping": "included",
   "admin_security_tests": "passed (3 unit tests + endpoint smoke)",
-  "all_pytest": "passed (23 tests)",
+  "all_pytest": "passed (28 tests)",
   "admin_dark_glass_dashboard": "implemented",
   "admin_vazirmatn_font": "implemented with local fallback stack",
   "admin_inline_svg_icons": "implemented",
@@ -157,7 +157,7 @@
     "manual_cleanup_endpoint": "csrf protected"
   },
   "schema_8_to_9_migration": "passed (SQLite old schema -> expires_at column + schema 9)",
-  "generated_at": "2026-08-06T05:04:59Z",
+  "generated_at": "2026-08-06T05:14:54Z",
   "schema_9_to_10_migration": "automatic (creates dedicated ai_live_connections table)",
   "live_connection_detection": {
     "counting_rule": "Android VPN transport + running Xray session + fresh remote HTTP proof through local Xray proxy",
@@ -174,5 +174,26 @@
     "core_only_state_is_live": false,
     "admin_verified_live_dashboard": true
   },
-  "verified_live_connection_tests": "passed (4 dedicated tests)"
+  "verified_live_connection_tests": "passed (4 dedicated tests)",
+  "schema_10_to_11_migration": "passed (checkout_opened_at + checkout_last_seen_at + checkout_closed_at)",
+  "bluepay_checkout_lifecycle": {
+    "hard_ttl_minutes": 30,
+    "close_grace_seconds": 300,
+    "android_return_signal": true,
+    "checkout_open_endpoint": true,
+    "checkout_heartbeat_endpoint": true,
+    "checkout_close_endpoint": true,
+    "abandoned_status_preserves_history": true,
+    "abandoned_invoice_not_reused": "passed",
+    "reopen_inside_grace_restores_hard_expiry": "passed",
+    "late_paid_recovery": true,
+    "database_columns": [
+      "checkout_opened_at",
+      "checkout_last_seen_at",
+      "checkout_closed_at"
+    ]
+  },
+  "checkout_lifecycle_tests": "passed (5 dedicated tests)",
+  "embedded_source_parity": "passed (6 source snapshots)",
+  "kotlin_syntax_scan": "passed (no parser diagnostics; Android symbols require Gradle)"
 }

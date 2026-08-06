@@ -343,10 +343,11 @@
     <article class="stat"><strong>{{ bluepay_pending.active }}</strong><span>فاکتور معلق معتبر</span></article>
     <article class="stat"><strong>{{ bluepay_pending.stale_pending }}</strong><span>معلقِ گذشته از مهلت</span></article>
     <article class="stat"><strong>{{ bluepay_pending.expired_local }}</strong><span>منقضی‌شده محلی</span></article>
+    <article class="stat"><strong>{{ bluepay_pending.abandoned }}</strong><span>خروج از پرداخت</span></article>
     <article class="stat"><strong>{{ bluepay_pending.superseded }}</strong><span>جایگزین‌شده</span></article>
   </div>
   <p class="hint">
-    فاکتورهای قدیمی حذف نمی‌شوند؛ به وضعیت <code>expired_local</code> منتقل می‌شوند
+    فاکتورهای قدیمی حذف نمی‌شوند؛ خروج از صفحه پرداخت پس از ۵ دقیقه به وضعیت <code>abandoned</code> و پایان مهلت ۳۰ دقیقه‌ای به <code>expired_local</code> منتقل می‌شود.
     تا اگر پرداخت دیرهنگام توسط BluePay تأیید شد، اشتراک همچنان فعال شود.
   </p>
 
@@ -356,7 +357,7 @@
       <div><label>API Key جدید</label><input name="api_key" type="password" placeholder="{{ payment_api_mask }}"></div>
       <div><label>Callback Secret جدید</label><input name="callback_secret" type="password" placeholder="{{ payment_callback_mask }}"></div>
       <div><label>Fee Mode</label><select name="fee_mode">{% for m in ['default','merchant','customer','split'] %}<option value="{{ m }}" {% if payment.fee_mode==m %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></div>
-      <div><label>مهلت فاکتور</label><input name="ttl_minutes" type="number" min="5" max="1440" value="{{ payment.ttl_minutes }}"></div>
+      <div><label>مهلت فاکتور</label><input name="ttl_minutes" type="number" min="5" max="30" value="{{ payment.ttl_minutes }}"></div>
     </div>
     <label class="check"><input type="checkbox" name="active" {% if payment.active %}checked{% endif %}> درگاه فعال</label>
     <button class="save">ذخیره BluePay</button>

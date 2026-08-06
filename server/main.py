@@ -283,7 +283,9 @@ def normalize_gateway_status(value:Any)->str:
 
 ORDER_CLEANUP_INTERVAL_SECONDS = max(60, int(os.getenv('BLUEPAY_CLEANUP_INTERVAL_SECONDS', '300')))
 ORDER_CREATING_GRACE_SECONDS = max(30, int(os.getenv('BLUEPAY_CREATING_GRACE_SECONDS', '120')))
-LOCAL_RECOVERABLE_STATUSES = {'expired_local', 'superseded'}
+CHECKOUT_ABANDON_GRACE_SECONDS = max(60, min(1800, int(os.getenv('BLUEPAY_ABANDON_GRACE_SECONDS', '300'))))
+CHECKOUT_MAX_TTL_MINUTES = max(5, min(30, int(os.getenv('BLUEPAY_INVOICE_TTL_MINUTES', '30'))))
+LOCAL_RECOVERABLE_STATUSES = {'expired_local', 'superseded', 'abandoned'}
 PAYMENT_CLEANUP_TASK: asyncio.Task | None = None
 
 def _order_metadata(order:Order)->dict:
@@ -297,10 +299,13 @@ def _set_order_metadata(order:Order,metadata:dict)->None:
     order.gateway_json=json.dumps(metadata,ensure_ascii=False)
 
 def payment_ttl_minutes(payment:PaymentSetting|None)->int:
-    raw=(payment.ttl_minutes if payment else 30) or 30
-    return max(5,min(1440,int(raw)))
+    # A checkout may stay open for at most 30 minutes. Administrators can
+    # choose a shorter TTL, but a stale setting can never extend it beyond
+    # the product requirement.
+    raw=(payment.ttl_minutes if payment else CHECKOUT_MAX_TTL_MINUTES) or CHECKOUT_MAX_TTL_MINUTES
+    return max(5,min(CHECKOUT_MAX_TTL_MINUTES,int(raw)))
 
-def computed_order_expiry(
+def hard_order_expiry(
     order:Order,
     payment:PaymentSetting|None=None,
     *,
@@ -312,10 +317,28 @@ def computed_order_expiry(
         return existing
     metadata=_order_metadata(order)
     try:
-        ttl=max(5,min(1440,int(metadata.get('_bluevpn_invoice_ttl_minutes'))))
+        ttl=max(5,min(CHECKOUT_MAX_TTL_MINUTES,int(metadata.get('_bluevpn_invoice_ttl_minutes'))))
     except (TypeError,ValueError):
         ttl=payment_ttl_minutes(payment)
     return (aware(order.created_at) or current)+timedelta(minutes=ttl)
+
+def computed_order_expiry(
+    order:Order,
+    payment:PaymentSetting|None=None,
+    *,
+    now:datetime|None=None,
+)->datetime:
+    """Return the effective local expiry for the checkout.
+
+    An invoice has a hard 30-minute maximum. Once the Android checkout is
+    explicitly closed, it remains reusable for only five more minutes. This
+    prevents the next purchase attempt from reopening an old BluePay page.
+    """
+    hard=hard_order_expiry(order,payment,now=now)
+    closed=aware(order.checkout_closed_at)
+    if closed is None:
+        return hard
+    return min(hard,closed+timedelta(seconds=CHECKOUT_ABANDON_GRACE_SECONDS))
 
 def ensure_order_expiry(
     order:Order,
@@ -323,27 +346,32 @@ def ensure_order_expiry(
     *,
     now:datetime|None=None,
 )->datetime:
-    now=aware(now or utcnow()) or datetime.now(timezone.utc)
-    existing=aware(order.expires_at)
+    current=aware(now or utcnow()) or datetime.now(timezone.utc)
     metadata=_order_metadata(order)
-    if existing is not None:
-        if not metadata.get('_bluevpn_invoice_expires_at'):
-            metadata['_bluevpn_invoice_expires_at']=iso_z(existing)
-            _set_order_metadata(order,metadata)
-        return existing
-
-    created=aware(order.created_at) or now
-    try:
-        ttl=max(5,min(1440,int(metadata.get('_bluevpn_invoice_ttl_minutes'))))
-    except (TypeError,ValueError):
-        ttl=payment_ttl_minutes(payment)
-    expires=computed_order_expiry(order,payment,now=now)
-    order.expires_at=expires
-    metadata['_bluevpn_invoice_ttl_minutes']=ttl
-    metadata['_bluevpn_invoice_expires_at']=iso_z(expires)
-    metadata.setdefault('_bluevpn_invoice_created_at',iso_z(created))
+    hard=aware(order.expires_at)
+    if hard is None:
+        created=aware(order.created_at) or current
+        try:
+            ttl=max(5,min(CHECKOUT_MAX_TTL_MINUTES,int(metadata.get('_bluevpn_invoice_ttl_minutes'))))
+        except (TypeError,ValueError):
+            ttl=payment_ttl_minutes(payment)
+        hard=created+timedelta(minutes=ttl)
+        order.expires_at=hard
+        metadata['_bluevpn_invoice_ttl_minutes']=ttl
+        metadata.setdefault('_bluevpn_invoice_created_at',iso_z(created))
+    metadata['_bluevpn_invoice_expires_at']=iso_z(hard)
+    effective=computed_order_expiry(order,payment,now=current)
+    metadata['_bluevpn_effective_expires_at']=iso_z(effective)
+    if order.checkout_opened_at:
+        metadata['_bluevpn_checkout_opened_at']=iso_z(aware(order.checkout_opened_at))
+    if order.checkout_last_seen_at:
+        metadata['_bluevpn_checkout_last_seen_at']=iso_z(aware(order.checkout_last_seen_at))
+    if order.checkout_closed_at:
+        metadata['_bluevpn_checkout_closed_at']=iso_z(aware(order.checkout_closed_at))
+    else:
+        metadata.pop('_bluevpn_checkout_closed_at',None)
     _set_order_metadata(order,metadata)
-    return expires
+    return effective
 
 def order_is_locally_expired(
     order:Order,
@@ -353,6 +381,64 @@ def order_is_locally_expired(
 )->bool:
     current=aware(now or utcnow()) or datetime.now(timezone.utc)
     return ensure_order_expiry(order,payment,now=current)<=current
+
+def _local_expiry_status(order:Order,now:datetime)->tuple[str,str]:
+    closed=aware(order.checkout_closed_at)
+    hard=hard_order_expiry(order,now=now)
+    if (
+        closed is not None
+        and closed+timedelta(seconds=CHECKOUT_ABANDON_GRACE_SECONDS)<=now
+        and hard>now
+    ):
+        return (
+            'abandoned',
+            'کاربر از صفحه پرداخت خارج شد و مهلت پنج‌دقیقه‌ای بازگشت پایان یافت؛ فاکتور جدید قابل ساخت است.',
+        )
+    return (
+        'expired_local',
+        'مهلت ۳۰ دقیقه‌ای پرداخت این فاکتور پایان یافته است؛ پرداخت دیرهنگام BluePay همچنان قابل بازیابی است.',
+    )
+
+def mark_checkout_open(order:Order,*,now:datetime|None=None)->None:
+    current=aware(now or utcnow()) or datetime.now(timezone.utc)
+    order.checkout_opened_at=current
+    order.checkout_last_seen_at=current
+    order.checkout_closed_at=None
+    metadata=_order_metadata(order)
+    metadata['_bluevpn_checkout_state']='open'
+    metadata['_bluevpn_checkout_opened_at']=iso_z(current)
+    metadata['_bluevpn_checkout_last_seen_at']=iso_z(current)
+    metadata.pop('_bluevpn_checkout_closed_at',None)
+    metadata['_bluevpn_effective_expires_at']=iso_z(hard_order_expiry(order,now=current))
+    _set_order_metadata(order,metadata)
+
+def mark_checkout_heartbeat(order:Order,*,now:datetime|None=None)->None:
+    current=aware(now or utcnow()) or datetime.now(timezone.utc)
+    if order.checkout_opened_at is None:
+        order.checkout_opened_at=current
+    order.checkout_last_seen_at=current
+    metadata=_order_metadata(order)
+    metadata['_bluevpn_checkout_state']='open'
+    metadata['_bluevpn_checkout_last_seen_at']=iso_z(current)
+    _set_order_metadata(order,metadata)
+
+def mark_checkout_closed(order:Order,*,now:datetime|None=None)->None:
+    current=aware(now or utcnow()) or datetime.now(timezone.utc)
+    if order.checkout_opened_at is None:
+        order.checkout_opened_at=current
+    order.checkout_last_seen_at=current
+    order.checkout_closed_at=current
+    metadata=_order_metadata(order)
+    metadata['_bluevpn_checkout_state']='closed'
+    metadata['_bluevpn_checkout_closed_at']=iso_z(current)
+    metadata['_bluevpn_checkout_last_seen_at']=iso_z(current)
+    metadata['_bluevpn_effective_expires_at']=iso_z(
+        min(
+            hard_order_expiry(order,now=current),
+            current+timedelta(seconds=CHECKOUT_ABANDON_GRACE_SECONDS),
+        )
+    )
+    _set_order_metadata(order,metadata)
 
 def _mark_order_status(
     order:Order,
@@ -394,10 +480,11 @@ def expire_stale_orders(
         if not had_expiry:
             initialized+=1
         if expires<=current:
+            local_status,message=_local_expiry_status(order,current)
             _mark_order_status(
                 order,
-                'expired_local',
-                'مهلت پرداخت این فاکتور پایان یافته است؛ در صورت پرداخت دیرهنگام، تأیید BluePay همچنان پردازش می‌شود.',
+                local_status,
+                message,
                 now=current,
             )
             expired+=1
@@ -413,12 +500,14 @@ def pending_order_counts(db:Session)->dict[str,int]:
             Order.status.in_(tuple(PENDING_GATEWAY_STATUSES|LOCAL_RECOVERABLE_STATUSES))
         )
     ).all())
-    active=expired=local_expired=superseded=0
+    active=expired=local_expired=superseded=abandoned=0
     for order in rows:
         if order.status=='expired_local':
             local_expired+=1
         elif order.status=='superseded':
             superseded+=1
+        elif order.status=='abandoned':
+            abandoned+=1
         elif computed_order_expiry(order,payment,now=now)<=now:
             expired+=1
         else:
@@ -428,6 +517,7 @@ def pending_order_counts(db:Session)->dict[str,int]:
         'stale_pending':expired,
         'expired_local':local_expired,
         'superseded':superseded,
+        'abandoned':abandoned,
     }
 
 async def _payment_cleanup_loop()->None:
@@ -646,11 +736,17 @@ async def activate(db:Session,order:Order):
 
 def order_response(order:Order,customer:Customer)->dict:
     metadata=_order_metadata(order)
-    expires=computed_order_expiry(order)
     now=aware(utcnow()) or datetime.now(timezone.utc)
+    hard_expires=hard_order_expiry(order,now=now)
+    effective_expires=computed_order_expiry(order,now=now)
     locally_expired=(
         order.status in (LOCAL_RECOVERABLE_STATUSES|{'expired'})
-        or (order.status in PENDING_GATEWAY_STATUSES and expires<=now)
+        or (order.status in PENDING_GATEWAY_STATUSES and effective_expires<=now)
+    )
+    checkout_state=(
+        'closed' if order.checkout_closed_at else
+        'open' if order.checkout_opened_at else
+        'created'
     )
     return {
         'id':order.id,
@@ -660,7 +756,13 @@ def order_response(order:Order,customer:Customer)->dict:
         'amount_toman':order.amount_toman,
         'activation_error':order.activation_error,
         'created_at':iso_z(aware(order.created_at)),
-        'expires_at':iso_z(expires),
+        'expires_at':iso_z(effective_expires),
+        'hard_expires_at':iso_z(hard_expires),
+        'checkout_state':checkout_state,
+        'checkout_opened_at':iso_z(aware(order.checkout_opened_at)),
+        'checkout_last_seen_at':iso_z(aware(order.checkout_last_seen_at)),
+        'checkout_closed_at':iso_z(aware(order.checkout_closed_at)),
+        'abandon_grace_seconds':CHECKOUT_ABANDON_GRACE_SECONDS,
         'expired':locally_expired,
         'replaced_by_order_id':str(metadata.get('_bluevpn_replacement_order_id') or ''),
         'paid_at':iso_z(aware(order.paid_at)),
@@ -706,10 +808,11 @@ async def refresh_order_from_bluepay(db:Session,order:Order)->dict|None:
             # later paid webhook or status response can still revive it.
             pass
         elif order_is_locally_expired(order,payment,now=now):
+            local_status,message=_local_expiry_status(order,now)
             _mark_order_status(
                 order,
-                'expired_local',
-                'مهلت پرداخت این فاکتور پایان یافته است؛ تأیید دیرهنگام BluePay همچنان پذیرفته می‌شود.',
+                local_status,
+                message,
                 now=now,
             )
         else:
@@ -761,10 +864,11 @@ def reusable_pending_order(
     creating: list[Order] = []
     for candidate in rows:
         if order_is_locally_expired(candidate,payment,now=now):
+            local_status,message=_local_expiry_status(candidate,now)
             _mark_order_status(
                 candidate,
-                'expired_local',
-                'مهلت پرداخت این فاکتور پایان یافته است.',
+                local_status,
+                message,
                 now=now,
             )
             continue
@@ -1130,6 +1234,8 @@ async def create_order(request:Request,c:Customer=Depends(current_customer),db:S
 
     existing,in_progress=reusable_pending_order(db,c,plan,pay)
     if existing is not None:
+        if not in_progress and existing.payment_url:
+            mark_checkout_open(existing)
         db.commit()
         if in_progress and not existing.payment_url:
             raise HTTPException(
@@ -1160,11 +1266,17 @@ async def create_order(request:Request,c:Customer=Depends(current_customer),db:S
         amount_toman=int(plan.price_toman),
         status='creating_invoice',
         expires_at=expires,
+        checkout_opened_at=now,
+        checkout_last_seen_at=now,
+        checkout_closed_at=None,
         gateway_json=json.dumps(
             {
                 '_bluevpn_invoice_created_at':iso_z(now),
                 '_bluevpn_invoice_ttl_minutes':ttl,
                 '_bluevpn_invoice_expires_at':iso_z(expires),
+                '_bluevpn_checkout_state':'open',
+                '_bluevpn_checkout_opened_at':iso_z(now),
+                '_bluevpn_checkout_last_seen_at':iso_z(now),
                 '_bluevpn_source':'android',
             },
             ensure_ascii=False,
@@ -1217,7 +1329,7 @@ async def create_order(request:Request,c:Customer=Depends(current_customer),db:S
     if remote_expiry is not None and remote_expiry>now:
         # Keep a sane upper bound. BluePay receives the same TTL, but a bad
         # response must not leave an invoice pending forever.
-        order.expires_at=min(remote_expiry,now+timedelta(minutes=1440))
+        order.expires_at=min(remote_expiry,now+timedelta(minutes=CHECKOUT_MAX_TTL_MINUTES))
     merge_order_metadata(db,order,'bluepay_create',invoice)
     metadata=_order_metadata(order)
     metadata['_bluevpn_invoice_expires_at']=iso_z(aware(order.expires_at))
@@ -1230,6 +1342,76 @@ async def create_order(request:Request,c:Customer=Depends(current_customer),db:S
         'check_after_success_url':f'/api/v1/orders/{order.id}/check-after-success',
         'poll_interval_seconds':5,
         'poll_timeout_seconds':30,
+    }
+
+def _checkout_order_for_customer(
+    db:Session,
+    order_id:str,
+    customer_id:int,
+)->Order:
+    order=db.scalar(
+        select(Order)
+        .options(selectinload(Order.customer),selectinload(Order.plan))
+        .where(Order.id==order_id,Order.customer_id==customer_id)
+        .with_for_update()
+    )
+    if not order:
+        raise HTTPException(404,detail={'code':'ORDER_NOT_FOUND','message':'فاکتور پیدا نشد'})
+    return order
+
+@app.post('/api/v1/orders/{order_id}/checkout/open')
+def checkout_open(
+    order_id:str,
+    c:Customer=Depends(current_customer),
+    db:Session=Depends(get_db),
+):
+    order=_checkout_order_for_customer(db,order_id,c.id)
+    now=aware(utcnow()) or datetime.now(timezone.utc)
+    if order.status in PENDING_GATEWAY_STATUSES:
+        if hard_order_expiry(order,db.get(PaymentSetting,1),now=now)<=now:
+            _mark_order_status(order,'expired_local','مهلت ۳۰ دقیقه‌ای پرداخت این فاکتور پایان یافته است.',now=now)
+        elif computed_order_expiry(order,db.get(PaymentSetting,1),now=now)<=now:
+            local_status,message=_local_expiry_status(order,now)
+            _mark_order_status(order,local_status,message,now=now)
+        else:
+            mark_checkout_open(order,now=now)
+    db.commit()
+    customer=db.get(Customer,c.id)
+    return {'success':True,'order':order_response(order,customer)}
+
+@app.post('/api/v1/orders/{order_id}/checkout/heartbeat')
+def checkout_heartbeat(
+    order_id:str,
+    c:Customer=Depends(current_customer),
+    db:Session=Depends(get_db),
+):
+    order=_checkout_order_for_customer(db,order_id,c.id)
+    now=aware(utcnow()) or datetime.now(timezone.utc)
+    if order.status in PENDING_GATEWAY_STATUSES and computed_order_expiry(order,db.get(PaymentSetting,1),now=now)>now:
+        mark_checkout_heartbeat(order,now=now)
+    db.commit()
+    customer=db.get(Customer,c.id)
+    return {'success':True,'order':order_response(order,customer)}
+
+@app.post('/api/v1/orders/{order_id}/checkout/close')
+def checkout_close(
+    order_id:str,
+    c:Customer=Depends(current_customer),
+    db:Session=Depends(get_db),
+):
+    order=_checkout_order_for_customer(db,order_id,c.id)
+    now=aware(utcnow()) or datetime.now(timezone.utc)
+    if order.status in PENDING_GATEWAY_STATUSES:
+        if hard_order_expiry(order,db.get(PaymentSetting,1),now=now)<=now:
+            _mark_order_status(order,'expired_local','مهلت ۳۰ دقیقه‌ای پرداخت این فاکتور پایان یافته است.',now=now)
+        else:
+            mark_checkout_closed(order,now=now)
+    db.commit()
+    customer=db.get(Customer,c.id)
+    return {
+        'success':True,
+        'close_grace_seconds':CHECKOUT_ABANDON_GRACE_SECONDS,
+        'order':order_response(order,customer),
     }
 
 @app.get('/api/v1/orders/{order_id}')
@@ -1247,14 +1429,14 @@ async def order_status(order_id:str,c:Customer=Depends(current_customer),db:Sess
         except Exception as exc:
             order.activation_error=str(exc)[:1000]
             if order.status in PENDING_GATEWAY_STATUSES and order_is_locally_expired(order,pay):
-                _mark_order_status(
-                    order,
-                    'expired_local',
-                    'مهلت پرداخت این فاکتور پایان یافته است؛ وضعیت پرداخت دیرهنگام بعداً هم قابل بازیابی است.',
-                )
+                now=aware(utcnow()) or datetime.now(timezone.utc)
+                local_status,message=_local_expiry_status(order,now)
+                _mark_order_status(order,local_status,message,now=now)
             db.commit()
     elif order.status in PENDING_GATEWAY_STATUSES and order_is_locally_expired(order,pay):
-        _mark_order_status(order,'expired_local','مهلت پرداخت این فاکتور پایان یافته است.')
+        now=aware(utcnow()) or datetime.now(timezone.utc)
+        local_status,message=_local_expiry_status(order,now)
+        _mark_order_status(order,local_status,message,now=now)
         db.commit()
     elif order.status in {'paid','paid_needs_sync','partial_needs_sync'}:
         await activate(db,order)
@@ -1289,17 +1471,17 @@ async def check_order_after_success(
             elif order.status in {'paid','paid_needs_sync','partial_needs_sync'}:
                 await activate(db,order)
             elif order.status in PENDING_GATEWAY_STATUSES and order_is_locally_expired(order,db.get(PaymentSetting,1)):
-                _mark_order_status(order,'expired_local','مهلت پرداخت این فاکتور پایان یافته است.')
+                now=aware(utcnow()) or datetime.now(timezone.utc)
+                local_status,message=_local_expiry_status(order,now)
+                _mark_order_status(order,local_status,message,now=now)
                 db.commit()
         except Exception as exc:
             last_error=str(exc)[:1000]
             order.activation_error=last_error
             if order.status in PENDING_GATEWAY_STATUSES and order_is_locally_expired(order,db.get(PaymentSetting,1)):
-                _mark_order_status(
-                    order,
-                    'expired_local',
-                    'مهلت پرداخت این فاکتور پایان یافته است؛ وضعیت پرداخت دیرهنگام بعداً هم قابل بازیابی است.',
-                )
+                now=aware(utcnow()) or datetime.now(timezone.utc)
+                local_status,message=_local_expiry_status(order,now)
+                _mark_order_status(order,local_status,message,now=now)
             db.commit()
 
         db.refresh(order)
@@ -1717,7 +1899,7 @@ def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form
     return RedirectResponse('/admin?saved=1#app',303)
 @app.post('/admin/payment-settings')
 def payment_settings(request:Request,base_url:str=Form(...),api_key:str=Form(''),callback_secret:str=Form(''),fee_mode:str=Form('default'),ttl_minutes:int=Form(30),active:str|None=Form(None),db:Session=Depends(get_db)):
-    admin_required(request);p=db.get(PaymentSetting,1) or PaymentSetting(id=1);p.base_url=base_url.rstrip('/');p.api_key_enc=encrypt(api_key.strip()) if api_key.strip() else p.api_key_enc;p.callback_secret_enc=encrypt(callback_secret.strip()) if callback_secret.strip() else p.callback_secret_enc;p.fee_mode=fee_mode;p.ttl_minutes=max(5,min(1440,ttl_minutes));p.active=active=='on';db.add(p);db.commit();return RedirectResponse('/admin?saved=1#bluepay',303)
+    admin_required(request);p=db.get(PaymentSetting,1) or PaymentSetting(id=1);p.base_url=base_url.rstrip('/');p.api_key_enc=encrypt(api_key.strip()) if api_key.strip() else p.api_key_enc;p.callback_secret_enc=encrypt(callback_secret.strip()) if callback_secret.strip() else p.callback_secret_enc;p.fee_mode=fee_mode;p.ttl_minutes=max(5,min(30,ttl_minutes));p.active=active=='on';db.add(p);db.commit();return RedirectResponse('/admin?saved=1#bluepay',303)
 @app.post('/admin/panels')
 def add_panel(request:Request,name:str=Form(...),base_url:str=Form(...),auth_mode:str=Form('api_key'),api_key:str=Form(''),username:str=Form(''),password:str=Form(''),proxy_settings_json:str=Form('{"vless":{}}'),verify_tls:str|None=Form(None),db:Session=Depends(get_db)):
     admin_required(request)

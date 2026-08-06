@@ -1,11 +1,11 @@
 {
-  "version": "3.0.17",
-  "channel": "verified-live-connections",
-  "build_id": "20260806-verified-live-connections-v3017",
-  "built_at": "2026-08-06T05:02:36Z",
-  "android_version": "3.0.17",
-  "android_version_code": 30017,
-  "description": "BlueVPN 3.0.17 اتصال زنده را فقط پس از اثبات هم‌زمان VPN اندروید، هسته Xray و عبور واقعی اینترنت ثبت می‌کند و گزارش زنده را در پس‌زمینه نیز ادامه می‌دهد.",
+  "version": "3.0.18",
+  "channel": "bluepay-checkout-lifecycle",
+  "build_id": "20260806-bluepay-checkout-lifecycle-v3018",
+  "built_at": "2026-08-06T05:12:52Z",
+  "android_version": "3.0.18",
+  "android_version_code": 30018,
+  "description": "BlueVPN 3.0.18 فاکتور BluePay را هنگام بازبودن صفحه تا ۳۰ دقیقه معتبر نگه می‌دارد و پس از بازگشت کاربر از صفحه پرداخت، فقط پنج دقیقه برای تکمیل یا بازگشت فرصت می‌دهد؛ سپس فاکتور قدیمی کنار گذاشته می‌شود و خرید بعدی فاکتور تازه می‌سازد.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -136,8 +136,13 @@
     "session-scoped-disconnect-protection",
     "uid-tunnel-traffic-counters",
     "verified-live-admin-dashboard",
-    "bluevpn-health-probe"
+    "bluevpn-health-probe",
+    "bluepay-checkout-return-detection",
+    "bluepay-five-minute-abandon-grace",
+    "bluepay-thirty-minute-hard-ttl",
+    "abandoned-invoice-replacement",
+    "checkout-lifecycle-api"
   ],
-  "version_code": 30017,
-  "notes": "روشن‌بودن هسته دیگر اتصال زنده محسوب نمی‌شود؛ هر نشست شناسه مستقل، Heartbeat ترتیبی، TTL کوتاه و اثبات اینترنت از داخل Xray دارد."
+  "version_code": 30018,
+  "notes": "Checkout open/close state is persisted in the orders table. Android marks the checkout closed when the user returns from the external payment page. A closed pending invoice remains reusable for 300 seconds, then becomes abandoned. Paid webhooks still recover late payments."
 }

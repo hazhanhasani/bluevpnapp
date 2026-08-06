@@ -1,17 +1,16 @@
 {
-  "release": "3.0.17-auto",
-  "version_name": "3.0.17",
-  "version_code": 30017,
+  "release": "3.0.18-bluepay-checkout-lifecycle",
+  "version_name": "3.0.18",
+  "version_code": 30018,
   "changes": [
-    "Persist an explicit expiry timestamp for every BluePay order",
-    "Expire legacy pending invoices locally without deleting financial history",
-    "Reuse the newest valid invoice instead of creating duplicates",
-    "Serialize invoice creation per customer with a database row lock",
-    "Run automatic cleanup every five minutes and once at startup",
-    "Allow paid webhooks and status checks to revive expired or superseded invoices",
-    "Expose pending-order lifecycle statistics and manual cleanup in admin"
+    "Keep an open checkout valid for at most 30 minutes",
+    "Mark the checkout closed when Android returns from the payment browser",
+    "Allow a five-minute return window after leaving the payment page",
+    "Mark the old invoice abandoned after the grace window and create a fresh invoice on the next attempt",
+    "Persist checkout opened, last-seen and closed timestamps in PostgreSQL/SQLite",
+    "Keep late paid webhooks recoverable without reusing stale payment URLs"
   ],
-  "generated_at_unix": 1785981000,
-  "purpose": "bluepay-pending-order-lifecycle-and-late-payment-recovery",
-  "updated_at": "2026-08-06T05:02:36Z"
+  "generated_at_unix": 1785993172,
+  "purpose": "bluepay-checkout-close-grace-and-fresh-invoice-replacement",
+  "updated_at": "2026-08-06T05:12:52Z"
 }

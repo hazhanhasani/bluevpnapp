@@ -2032,7 +2032,7 @@ async def create_invoice(
         "fee_mode": setting.fee_mode,
         "ttl_minutes": max(
             5,
-            min(1440, setting.ttl_minutes),
+            min(30, setting.ttl_minutes),
         ),
         "callback_url": callback_url,
     }

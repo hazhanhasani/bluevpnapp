@@ -5,8 +5,8 @@ import os
 import re
 from pathlib import Path
 
-_DEFAULT_VERSION = "3.0.17"
-_DEFAULT_VERSION_CODE = 30017
+_DEFAULT_VERSION = "3.0.18"
+_DEFAULT_VERSION_CODE = 30018
 
 
 def _valid_version(value: str) -> str:

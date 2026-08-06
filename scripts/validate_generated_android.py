@@ -35,6 +35,8 @@ def main() -> None:
         "BLUEVPN_SCREEN_BACKGROUND_B64",
         "BLUEVPN_AI_MANAGER_B64",
         "BLUEVPN_LIVE_REPORTER_B64",
+        "BLUEVPN_ACCOUNT_MANAGER_B64",
+        "BLUEVPN_SUBSCRIPTIONS_ACTIVITY_B64",
     }
     missing = required.difference(values)
     if missing:
@@ -86,6 +88,33 @@ def main() -> None:
     if live_failed:
         raise SystemExit(
             "failed live-connection checks: " + ", ".join(live_failed)
+        )
+
+    account_manager = values["BLUEVPN_ACCOUNT_MANAGER_B64"]
+    subscriptions = values["BLUEVPN_SUBSCRIPTIONS_ACTIVITY_B64"]
+    checkout_checks = {
+        "persistent browser return marker":
+            "markCheckoutBrowserOpen" in account_manager
+            and "consumeCheckoutBrowserOrder" in account_manager,
+        "checkout close API":
+            "/checkout/close" in account_manager
+            and "fun closeCheckout" in account_manager,
+        "return closes checkout":
+            "closeCheckoutAfterReturn" in subscriptions
+            and "checkoutBrowserOrder" in subscriptions
+            and "clearCheckoutBrowserOrder" in subscriptions,
+        "close retry":
+            "attempt<3" in subscriptions
+            and "postDelayed" in subscriptions,
+        "five minute status":
+            "۵ دقیقه" in subscriptions,
+        "abandoned invoice handling":
+            '"abandoned"' in subscriptions,
+    }
+    checkout_failed = [label for label, ok in checkout_checks.items() if not ok]
+    if checkout_failed:
+        raise SystemExit(
+            "failed checkout lifecycle checks: " + ", ".join(checkout_failed)
         )
 
     updater = values["BLUEVPN_UPDATE_MANAGER_B64"]

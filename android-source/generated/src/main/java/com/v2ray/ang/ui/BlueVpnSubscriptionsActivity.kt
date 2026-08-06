@@ -479,6 +479,8 @@ private fun loadPlans(){
  private fun sync(force:Boolean){if(busy)return;busy=true;lifecycleScope.launch(Dispatchers.IO){val r=BlueVpnAccountManager.sync(this@BlueVpnSubscriptionsActivity,force);withContext(Dispatchers.Main){busy=false;r.onFailure{if(!BlueVpnAccountManager.hasSession(this@BlueVpnSubscriptionsActivity))render() else status.text=it.message?:"خطای همگام‌سازی"};render()}}}
  private fun buy(planId:Int){
   if(busy)return
+  BlueVpnAccountManager.clearPendingOrder(this)
+  handler.removeCallbacks(poll)
   busy=true
   status.text="در حال ساخت فاکتور جدید..."
   lifecycleScope.launch(Dispatchers.IO){
@@ -516,8 +518,15 @@ private fun loadPlans(){
       status.text="از صفحه پرداخت خارج شدید؛ این فاکتور تا ۵ دقیقه دیگر بسته می‌شود"
       checkOrder(id)
      }
-    }.onFailure{
-     if(!isFinishing&&!isDestroyed&&attempt<3){
+    }.onFailure{error->
+     if(BlueVpnAccountManager.isDeletedOrderError(error)){
+      BlueVpnAccountManager.clearCheckoutBrowserOrder(this@BlueVpnSubscriptionsActivity)
+      BlueVpnAccountManager.clearPendingOrder(this@BlueVpnSubscriptionsActivity)
+      handler.removeCallbacks(poll)
+      if(!isFinishing&&!isDestroyed){
+       status.text="فاکتور باطل قبلی حذف شد؛ اکنون پرداخت جدید بسازید"
+      }
+     }else if(!isFinishing&&!isDestroyed&&attempt<3){
       handler.postDelayed(
        {closeCheckoutAfterReturn(id,attempt+1)},
        2000L*(attempt+1),
@@ -529,7 +538,15 @@ private fun loadPlans(){
    }
   }
  }
- private fun checkOrder(id:String){lifecycleScope.launch(Dispatchers.IO){val r=BlueVpnAccountManager.order(this@BlueVpnSubscriptionsActivity,id);withContext(Dispatchers.Main){r.onSuccess{o->when(o.optString("status")){"activated"->{BlueVpnAccountManager.clearPendingOrder(this@BlueVpnSubscriptionsActivity);handler.removeCallbacks(poll);sync(true);Toast.makeText(this@BlueVpnSubscriptionsActivity,"اشتراک فعال شد",Toast.LENGTH_LONG).show()}"paid","paid_needs_sync","partial_needs_sync","activating"->status.text="پرداخت تأیید شد؛ فعال‌سازی در حال انجام است";"expired","expired_local","abandoned","superseded","canceled","cancelled","failed"->{BlueVpnAccountManager.clearPendingOrder(this@BlueVpnSubscriptionsActivity);handler.removeCallbacks(poll);status.text=if(o.optString("status")=="abandoned")"فاکتور قبلی بسته شد؛ اکنون دوباره پرداخت را بزنید" else "مهلت یا وضعیت فاکتور قبلی پایان یافت؛ پرداخت جدید بسازید"};else->status.text="در انتظار تأیید پرداخت..."}}.onFailure{status.text=it.message?:"بررسی پرداخت ناموفق"}}}}
+ private fun checkOrder(id:String){lifecycleScope.launch(Dispatchers.IO){val r=BlueVpnAccountManager.order(this@BlueVpnSubscriptionsActivity,id);withContext(Dispatchers.Main){r.onSuccess{o->when(o.optString("status")){"activated"->{BlueVpnAccountManager.clearPendingOrder(this@BlueVpnSubscriptionsActivity);handler.removeCallbacks(poll);sync(true);Toast.makeText(this@BlueVpnSubscriptionsActivity,"اشتراک فعال شد",Toast.LENGTH_LONG).show()}"paid","paid_needs_sync","partial_needs_sync","activating"->status.text="پرداخت تأیید شد؛ فعال‌سازی در حال انجام است";"expired","expired_local","abandoned","superseded","canceled","cancelled","failed"->{BlueVpnAccountManager.clearPendingOrder(this@BlueVpnSubscriptionsActivity);handler.removeCallbacks(poll);status.text=if(o.optString("status")=="abandoned")"فاکتور قبلی بسته شد؛ اکنون دوباره پرداخت را بزنید" else "مهلت یا وضعیت فاکتور قبلی پایان یافت؛ پرداخت جدید بسازید"};else->status.text="در انتظار تأیید پرداخت..."}}.onFailure{error->
+ if(BlueVpnAccountManager.isDeletedOrderError(error)){
+  BlueVpnAccountManager.clearPendingOrder(this@BlueVpnSubscriptionsActivity)
+  handler.removeCallbacks(poll)
+  status.text="فاکتور باطل قبلی حذف شد؛ اکنون پرداخت جدید بسازید"
+ }else{
+  status.text=error.message?:"بررسی پرداخت ناموفق"
+ }
+}}}}
 private fun accountMetric(
  title:String,
  value:String,

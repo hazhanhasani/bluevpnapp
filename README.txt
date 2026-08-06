@@ -1,1 +1,1 @@
-BlueVPN 3.0.18 — BluePay checkout lifecycle: 30-minute open window, 5-minute close grace, then fresh invoice
+BlueVPN 3.0.19 — connected thermal and battery optimization; adaptive single heartbeat reporter, sequential cached tunnel proof, reduced UI/GPU polling

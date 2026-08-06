@@ -189,7 +189,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         override fun run() {
             updateLiveStats()
             monitorBlueAiHealth()
-            handler.postDelayed(this, 1000L)
+            handler.postDelayed(this, 2_000L)
         }
     }
 
@@ -1029,8 +1029,9 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         orbHaloInner.background = radialHaloDrawable(halo, 100)
         orbHaloOuter.background = radialHaloDrawable(halo, 74)
 
-        val animate = state == OrbVisualState.CONNECTED || state == OrbVisualState.CONNECTING
-        setOrbPulseEnabled(animate)
+        // Keep the connected state visually rich but static. A permanent
+        // 60-fps pulse while the tunnel is active wastes GPU and heats phones.
+        setOrbPulseEnabled(state == OrbVisualState.CONNECTING)
     }
 
     private fun setOrbPulseEnabled(enabled: Boolean) {
@@ -1840,11 +1841,16 @@ private fun dpHome(value: Int): Int =
         ) return
 
         val now = SystemClock.elapsedRealtime()
-        if (now - aiHealthCheckAt < 45_000L) return
+        if (now - aiHealthCheckAt < 180_000L) return
         aiHealthCheckAt = now
 
         lifecycleScope.launch(Dispatchers.IO) {
-            val latency = probeInternetThroughCore()
+            val latency = (
+                BlueVpnAi.recentTunnelVerification(
+                    this@BlueVpnHomeActivity,
+                    maxAgeMs = 125_000L,
+                ) ?: BlueVpnAi.verifyTunnel(this@BlueVpnHomeActivity)
+            )?.latencyMs
             withContext(Dispatchers.Main) {
                 if (latency != null) {
                     aiConsecutiveFailures = 0
@@ -2662,29 +2668,9 @@ private fun dpHome(value: Int): Int =
         lastTx = tx
         lastTrafficAt = now
 
-        if (now - lastAiHeartbeatAt > 30_000L) {
-            lastAiHeartbeatAt = now
-            val selected = BlueVpnLocationUtil
-                .allCandidates()
-                .firstOrNull { it.guid == MmkvManager.getSelectServer() }
-            val health = selected?.let {
-                BlueVpnLocationUtil.healthScore(this, it)
-            } ?: 0
-            lifecycleScope.launch(Dispatchers.IO) {
-                BlueVpnAi.heartbeat(
-                    this@BlueVpnHomeActivity,
-                    lastVerifiedLatency,
-                    health,
-                    sessionDownloadBytes,
-                    sessionUploadBytes,
-                )
-            }
-        }
-
-        if (now - lastPingRequestAt > 45_000L) {
-            lastPingRequestAt = now
-            mainViewModel.testCurrentServerRealPing()
-        }
+        // Background live reporting owns periodic tunnel verification.
+        // Do not duplicate heartbeats and real-ping tests from the Activity;
+        // the old overlap created several network probes per minute.
     }
 
     private fun resetTrafficBaseline() {

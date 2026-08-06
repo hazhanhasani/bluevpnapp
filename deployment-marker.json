@@ -1,16 +1,17 @@
 {
-  "release": "3.0.18-auto",
-  "version_name": "3.0.18",
-  "version_code": 30018,
+  "release": "3.0.19-thermal-battery-optimization",
+  "version_name": "3.0.19",
+  "version_code": 30019,
   "changes": [
-    "Keep an open checkout valid for at most 30 minutes",
-    "Mark the checkout closed when Android returns from the payment browser",
-    "Allow a five-minute return window after leaving the payment page",
-    "Mark the old invoice abandoned after the grace window and create a fresh invoice on the next attempt",
-    "Persist checkout opened, last-seen and closed timestamps in PostgreSQL/SQLite",
-    "Keep late paid webhooks recoverable without reusing stale payment URLs"
+    "Use one adaptive background live reporter instead of overlapping Activity and service heartbeats",
+    "Try tunnel proof targets sequentially and stop after the first success",
+    "Reuse a recent verified Xray proof while still checking Android VPN transport on every heartbeat",
+    "Use 75/90/120 second cadence for interactive, screen-off and power-save states",
+    "Update foreground traffic statistics every two seconds instead of every second",
+    "Animate the neon orb only while connecting; connected state is static",
+    "Reduce automatic health recovery checks to a three-minute window"
   ],
-  "generated_at_unix": 1785993172,
-  "purpose": "bluepay-checkout-close-grace-and-fresh-invoice-replacement",
-  "updated_at": "2026-08-06T05:12:52Z"
+  "generated_at_unix": 1785993912,
+  "purpose": "reduce-connected-phone-heat-and-battery-use",
+  "updated_at": "2026-08-06T05:25:12Z"
 }

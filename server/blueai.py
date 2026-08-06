@@ -50,8 +50,8 @@ def clamp_int(value: Any, minimum: int, maximum: int, default: int = 0) -> int:
         return default
 
 
-LIVE_TTL_SECONDS = 85
-LIVE_PROBE_MAX_AGE_MS = 70_000
+LIVE_TTL_SECONDS = 180
+LIVE_PROBE_MAX_AGE_MS = 130_000
 
 
 def as_bool(value: Any) -> bool:
@@ -931,7 +931,7 @@ def admin_overview(db: Session) -> dict[str, Any]:
             "traffic_active": bool(
                 row.last_traffic_at
                 and _as_utc(row.last_traffic_at)
-                >= now - timedelta(seconds=90)
+                >= now - timedelta(seconds=180)
             ),
             "verification_source": row.verification_source,
             "started_at": (

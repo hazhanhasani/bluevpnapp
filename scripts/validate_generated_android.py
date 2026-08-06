@@ -80,9 +80,20 @@ def main() -> None:
         "heartbeat proof fields":
             '.put("internet_verified", true)' in ai
             and '.put("verification_source", verification.source)' in ai,
-        "background reporter":
-            "scheduleWithFixedDelay" in reporter
+        "adaptive background reporter":
+            "private fun nextDelaySeconds" in reporter
+            and "POWER_SAVE_DELAY_SECONDS" in reporter
             and "BlueVpnAi.heartbeat" in reporter,
+        "sequential low-power proof":
+            "Executors.newFixedThreadPool" not in ai
+            and "for (target in targets)" in ai,
+        "cached proof reuse":
+            "fun recentTunnelVerification" in ai
+            and "probe_age_ms" in ai,
+        "no duplicate activity heartbeat":
+            "BlueVpnAi.heartbeat(" not in home,
+        "connected orb is static":
+            "setOrbPulseEnabled(state == OrbVisualState.CONNECTING)" in home,
     }
     live_failed = [label for label, ok in live_checks.items() if not ok]
     if live_failed:

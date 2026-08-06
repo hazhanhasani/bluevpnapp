@@ -1,11 +1,11 @@
 {
-  "version": "3.0.18",
-  "channel": "bluepay-checkout-lifecycle",
-  "build_id": "20260806-bluepay-checkout-lifecycle-v3018",
-  "built_at": "2026-08-06T05:12:52Z",
-  "android_version": "3.0.18",
-  "android_version_code": 30018,
-  "description": "BlueVPN 3.0.18 فاکتور BluePay را هنگام بازبودن صفحه تا ۳۰ دقیقه معتبر نگه می‌دارد و پس از بازگشت کاربر از صفحه پرداخت، فقط پنج دقیقه برای تکمیل یا بازگشت فرصت می‌دهد؛ سپس فاکتور قدیمی کنار گذاشته می‌شود و خرید بعدی فاکتور تازه می‌سازد.",
+  "version": "3.0.19",
+  "channel": "thermal-battery-optimization",
+  "build_id": "20260806-thermal-battery-optimization-v3019",
+  "built_at": "2026-08-06T05:25:12Z",
+  "android_version": "3.0.19",
+  "android_version_code": 30019,
+  "description": "BlueVPN 3.0.19 مصرف پردازنده، شبکه و GPU هنگام اتصال را کاهش می‌دهد: بررسی‌های تکراری و هم‌زمان حذف شده‌اند، اثبات تونل به‌صورت ترتیبی و قابل‌استفاده مجدد انجام می‌شود و گزارش اتصال زنده با وضعیت صفحه و ذخیره انرژی سازگار است.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -141,8 +141,19 @@
     "bluepay-five-minute-abandon-grace",
     "bluepay-thirty-minute-hard-ttl",
     "abandoned-invoice-replacement",
-    "checkout-lifecycle-api"
+    "checkout-lifecycle-api",
+    "low-power-live-reporter",
+    "adaptive-heartbeat-cadence",
+    "power-save-aware-heartbeat",
+    "single-heartbeat-owner",
+    "sequential-first-success-tunnel-proof",
+    "cached-tunnel-proof",
+    "duplicate-activity-heartbeat-removed",
+    "reduced-background-radio-wakeups",
+    "two-second-live-stats",
+    "static-connected-orb",
+    "three-minute-auto-health-window"
   ],
-  "version_code": 30018,
-  "notes": "Checkout open/close state is persisted in the orders table. Android marks the checkout closed when the user returns from the external payment page. A closed pending invoice remains reusable for 300 seconds, then becomes abandoned. Paid webhooks still recover late payments."
+  "version_code": 30019,
+  "notes": "No database migration is required. Live detection remains verified by VPN transport plus a real request through Xray, but the heavy proof is cached briefly and only one background reporter owns periodic heartbeats."
 }

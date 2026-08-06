@@ -36,7 +36,12 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   super.onResume()
   val returnedOrder=BlueVpnAccountManager.checkoutBrowserOrder(this)
   if(returnedOrder.isNotBlank()){closeCheckoutAfterReturn(returnedOrder)}
-  if(firstResume){firstResume=false}else{render()}
+  if(firstResume){
+   firstResume=false
+   if(returnedOrder.isBlank()&&BlueVpnAccountManager.hasSession(this)){
+    sync(true)
+   }
+  }else{render()}
   handler.removeCallbacks(poll)
   handler.post(poll)
  }

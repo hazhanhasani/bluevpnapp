@@ -269,6 +269,11 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 !startupOptimizationShown
             ) {
                 startStartupOptimization()
+            } else if (BlueVpnAccountManager.hasSession(this)) {
+                // Returning from the account/payment screen must immediately
+                // refresh entitlement state; the old five-minute cache could
+                // keep showing «نیاز به تمدید» after a successful activation.
+                syncManagedAccount(force = true)
             } else {
                 refreshDashboard()
                 refreshSubscriptionInfo(force = false)
@@ -1317,6 +1322,10 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             openAccount()
         } else if (!startupOptimizationShown) {
             startStartupOptimization()
+        } else if (!BlueVpnAccountManager.snapshot(this).subscriptionActive) {
+            // An inactive local badge is never allowed to stay cached. This is
+            // especially important immediately after an admin/manual renewal.
+            syncManagedAccount(force = true)
         }
 
         handler.post {
@@ -1506,7 +1515,9 @@ private fun startStartupOptimization() {
         statusCaption.text = "به‌روزرسانی سریع اشتراک در پس‌زمینه"
     }
 
-    syncManagedAccount(force = false)
+    syncManagedAccount(
+        force = !BlueVpnAccountManager.snapshot(this).subscriptionActive
+    )
     lifecycleScope.launch(Dispatchers.IO) {
         BlueVpnAi.refreshRecommendations(
             this@BlueVpnHomeActivity,

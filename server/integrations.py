@@ -1124,7 +1124,7 @@ def repair_subscription_states(
         ):
             customer.subscription_status = "active"
             customer.last_sync_error = (
-                "وضعیت اشتراک پس از بازیابی خودکار 3.0.23 اصلاح شد"
+                "وضعیت اشتراک پس از بازیابی خودکار 3.0.24 اصلاح شد"
             )
             repaired += 1
 

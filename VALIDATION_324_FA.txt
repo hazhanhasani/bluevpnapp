@@ -1,0 +1,16 @@
+BlueVPN 3.0.24 — subscription entitlement detection validation
+
+- Version consistency: PASSED (3.0.24 / 30024)
+- Activated-order entitlement recovery: PASSED
+- Explicit disabled/expired protection: PASSED
+- Android inactive-cache bypass: PASSED
+- App-version account-cache invalidation: PASSED
+- Account/payment return force sync: PASSED
+- First subscription-screen force sync: PASSED
+- Python compileall: PASSED
+- JSON/YAML/Jinja/XML parsing: PASSED
+- Android generated-source validation: PASSED (22 sources / 29 IDs)
+- Backend tests: PASSED (56/56)
+- Database migration: NOT REQUIRED (schema 11 unchanged)
+- Final APK compile: GitHub Actions
+- ZIP integrity: PASSED

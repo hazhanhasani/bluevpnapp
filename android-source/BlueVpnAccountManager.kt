@@ -293,6 +293,81 @@ object BlueVpnAccountManager {
     fun deviceName() =
         "${Build.MANUFACTURER} ${Build.MODEL}".trim()
 
+    private fun parseIsoMillis(raw: String?): Long? {
+        val value = raw?.trim().orEmpty()
+        if (value.isBlank() || value == "null") return null
+        if (value.startsWith("9999-")) return Long.MAX_VALUE
+        val normalized = value.replace(
+            Regex("\\.(\\d{3})\\d+([+-]\\d{2}:\\d{2}|Z)$"),
+            ".$1$2",
+        )
+        val patterns = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd",
+        )
+        return patterns.firstNotNullOfOrNull { pattern ->
+            runCatching {
+                SimpleDateFormat(pattern, Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("UTC")
+                    isLenient = false
+                }.parse(normalized)?.time
+            }.getOrNull()
+        }
+    }
+
+    private fun effectiveSubscriptionActive(
+        subscription: JSONObject,
+    ): Boolean {
+        val url = subscription.optString("url").trim()
+        val urlValid = url.startsWith("http://") || url.startsWith("https://")
+        val limit = subscription.optLong("data_limit_bytes", 0L)
+        val used = subscription.optLong("used_traffic_bytes", 0L)
+        val withinTraffic = limit <= 0L || used < limit
+        val status = subscription.optString("status", "inactive")
+            .trim()
+            .lowercase(Locale.US)
+        val statusActive = status in setOf("active", "enabled", "on", "valid")
+        val terminalStatus = status in setOf(
+            "disabled", "expired", "blocked", "banned", "deleted",
+            "limited", "revoked", "suspended",
+        )
+        if (terminalStatus) return false
+        val entitlementActive = subscription.optBoolean("entitlement_active", false)
+        val unlimited = subscription.optBoolean("unlimited", false) ||
+            subscription.optString("expire_mode") == "unlimited" ||
+            subscription.optString("expire").startsWith("9999-")
+        val skewMillis = subscription.optLong(
+            "clock_skew_tolerance_seconds",
+            120L,
+        ).coerceAtLeast(0L) * 1_000L
+        val expiryValid = when {
+            unlimited -> true
+            subscription.has("remaining_seconds") &&
+                !subscription.isNull("remaining_seconds") ->
+                subscription.optLong("remaining_seconds", -1L) >=
+                    -(skewMillis / 1_000L)
+            else -> {
+                val expiry = parseIsoMillis(
+                    subscription.optString("expire").ifBlank {
+                        subscription.optString("expires_at")
+                    }
+                )
+                expiry != null && expiry > System.currentTimeMillis() - skewMillis
+            }
+        }
+        val backendActive = subscription.optBoolean("active", false)
+        return urlValid && withinTraffic && expiryValid &&
+            (backendActive || statusActive || entitlementActive)
+    }
+
+    private fun accountCacheVersion(c: Context): Long =
+        prefs(c).getLong("account_app_version", -1L)
+
+    private fun currentAppVersion(): Long = BuildConfig.VERSION_CODE.toLong()
+
     fun snapshot(c: Context): BlueVpnAccountSnapshot {
         restorePrimary(c)
         val p = prefs(c)
@@ -545,12 +620,20 @@ object BlueVpnAccountManager {
         if (!hasSession(c)) error("AUTH_REQUIRED")
 
         val last = prefs(c).getLong("last_sync", 0)
+        val local = snapshot(c)
+        val appUpdated = accountCacheVersion(c) != currentAppVersion()
+        val entitlementUnknown =
+            !local.subscriptionActive ||
+                local.subscriptionUrl.isBlank() ||
+                local.status.equals("inactive", ignoreCase = true)
         if (
             !force &&
+            !appUpdated &&
+            !entitlementUnknown &&
             System.currentTimeMillis() - last <
             AUTO_SYNC_INTERVAL_MS
         ) {
-            return@runCatching snapshot(c)
+            return@runCatching local
         }
 
         val response = authenticatedRequest(
@@ -676,11 +759,12 @@ object BlueVpnAccountManager {
         ).edit().clear().apply()
 
         val email = account.optString("email")
+        val effectiveActive = effectiveSubscriptionActive(subscription)
         prefs(c).edit()
             .putString("email", email)
             .putBoolean(
                 "active",
-                subscription.optBoolean("active")
+                effectiveActive
             )
             .putString(
                 "status",
@@ -723,6 +807,14 @@ object BlueVpnAccountManager {
             .putString(
                 "sync_error",
                 subscription.optString("sync_error")
+            )
+            .putString(
+                "active_reason",
+                subscription.optString("active_reason")
+            )
+            .putLong(
+                "account_app_version",
+                currentAppVersion()
             )
             .commit()
 

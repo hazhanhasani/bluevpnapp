@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.23",
-  "version_code": 30023,
+  "project_version": "3.0.24",
+  "version_code": 30024,
   "schema_version": 11,
-  "release": "3.0.23",
+  "release": "3.0.24",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.23/30023)",
+  "version_consistency": "passed (release/branding/backend 3.0.24/30024)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -225,8 +225,8 @@
   },
   "jalali_tehran": "passed",
   "tests": "53 passed",
-  "android_validation": "passed (3.0.23 / 30023 / 22 sources / 29 IDs)",
-  "database_migration": "not required",
+  "android_validation": "passed (3.0.24 / 30024 / 22 sources / 29 IDs)",
+  "database_migration": "not required (schema 11)",
   "subscription_state_recovery": {
     "last_known_good_preserved": true,
     "provider_error_no_false_inactive": true,
@@ -251,5 +251,18 @@
   },
   "subscription_expiry_regression": "passed",
   "pasarguard_expiry_verification": "passed",
-  "test_count": 53
+  "test_count": 53,
+  "subscription_entitlement_detection_v324": {
+    "activated_order_authority": "passed",
+    "explicit_terminal_state_protection": "passed",
+    "inactive_cache_bypass": "passed",
+    "app_version_cache_invalidation": "passed",
+    "account_return_force_sync": "passed",
+    "subscription_screen_first_sync": "passed",
+    "api_active_reason": "included",
+    "api_entitlement_active": "included",
+    "api_remaining_seconds": "included"
+  },
+  "pytest": "56 passed",
+  "json_yaml_jinja_xml": "passed"
 }

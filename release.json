@@ -1,11 +1,11 @@
 {
-  "version": "3.0.23",
-  "channel": "subscription-expiry-regression-repair",
-  "build_id": "20260806-subscription-expiry-regression-repair-v3023",
-  "built_at": "2026-08-06T09:20:00Z",
-  "android_version": "3.0.23",
-  "android_version_code": 30023,
-  "description": "BlueVPN 3.0.23 تاریخ اشتراک‌های یک‌ماهه‌ای را که به امروز برگشته‌اند از آخرین فعال‌سازی معتبر بازسازی می‌کند، تاریخ را در PasarGuard با چند قالب سازگار ثبت و پس از ثبت دوباره بررسی می‌کند و از کوتاه‌شدن اعتبار هنگام Sync جلوگیری می‌کند.",
+  "version": "3.0.24",
+  "channel": "subscription-entitlement-detection-fix",
+  "build_id": "20260806-subscription-entitlement-detection-fix-v3024",
+  "built_at": "2026-08-06T09:35:02Z",
+  "android_version": "3.0.24",
+  "android_version_code": 30024,
+  "description": "BlueVPN 3.0.24 تشخیص اشتراک فعال را از کش پنج‌دقیقه‌ای جدا می‌کند، آخرین سفارش فعال‌شده را منبع پایدار اعتبار می‌داند و پس از تمدید یا بازگشت از صفحه حساب فوراً وضعیت واقعی را همگام می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -181,8 +181,16 @@
     "subscription-expiry-regression-guard",
     "startup-expiry-entitlement-reconstruction",
     "background-provider-expiry-repair",
-    "manual-repair-expiry-and-status"
+    "manual-repair-expiry-and-status",
+    "activated-order-entitlement-authority",
+    "subscription-entitlement-active-contract",
+    "subscription-remaining-seconds-contract",
+    "android-effective-entitlement-validation",
+    "inactive-account-cache-bypass",
+    "app-version-account-cache-invalidation",
+    "account-return-immediate-entitlement-sync",
+    "home-resume-inactive-force-sync"
   ],
-  "version_code": 30023,
-  "notes": "One-month subscriptions can no longer collapse to the current day. The backend reconstructs the paid entitlement, preserves the last known valid expiry, verifies PasarGuard after every write, and repairs affected provider records in the background."
+  "version_code": 30024,
+  "notes": "Active subscriptions are detected from the durable activated-order entitlement and refreshed immediately on app update, resume and return from the account screen. Stale inactive cache can no longer hide a valid subscription."
 }

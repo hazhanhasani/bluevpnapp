@@ -759,13 +759,97 @@ async def stop_payment_cleanup()->None:
     except asyncio.CancelledError:
         pass
 
-def account_json(c:Customer)->dict:
+TERMINAL_SUBSCRIPTION_STATUSES={
+    'disabled','expired','blocked','banned','deleted','limited','revoked','suspended'
+}
+
+
+def _latest_paid_entitlement(
+    db:Session|None,
+    customer:Customer,
+    *,
+    now:datetime,
+)->dict[str,Any]:
+    """Resolve the most recent activated entitlement without trusting cache flags.
+
+    A paid/activated order is the durable source of truth for the Android account
+    badge. Provider sync may temporarily leave ``subscription_status`` as
+    ``inactive``; that must not hide a still-valid paid entitlement.
+    """
+    result={
+        'active':False,
+        'unlimited':False,
+        'expires_at':None,
+        'order_id':None,
+        'plan_id':None,
+    }
+    if db is None or not customer.id:
+        return result
+    order=db.scalar(
+        select(Order)
+        .where(
+            Order.customer_id==customer.id,
+            Order.status=='activated',
+        )
+        .order_by(
+            Order.activated_at.desc().nullslast(),
+            Order.paid_at.desc().nullslast(),
+            Order.created_at.desc(),
+            Order.id.desc(),
+        )
+        .limit(1)
+    )
+    if not order:
+        return result
+    plan=db.get(Plan,order.plan_id) if order.plan_id else None
+    metadata=_order_metadata(order)
+    stored_target=parse_remote_date(metadata.get('_bluevpn_target_expire'))
+    base=aware(order.activated_at or order.paid_at or order.created_at)
+    calculated_target=None
+    duration_days=int(plan.duration_days or 0) if plan else 0
+    if base and duration_days>0:
+        calculated_target=(base+timedelta(days=duration_days)).replace(microsecond=0)
+    candidates=[item for item in (stored_target,calculated_target) if item is not None]
+    target=max(candidates) if candidates else None
+    unlimited=bool(plan and duration_days<=0)
+    active=bool(unlimited or (target and target>now-timedelta(seconds=EXPIRY_CLOCK_SKEW_SECONDS)))
+    result.update({
+        'active':active,
+        'unlimited':unlimited,
+        'expires_at':target,
+        'order_id':order.id,
+        'plan_id':order.plan_id,
+    })
+    return result
+
+
+def account_json(c:Customer,db:Session|None=None)->dict:
     now=aware(utcnow()) or datetime.now(timezone.utc)
-    expiry=aware(c.subscription_expire)
-    unlimited=(
+    stored_expiry=aware(c.subscription_expire)
+    entitlement=_latest_paid_entitlement(db,c,now=now)
+    entitlement_expiry=aware(entitlement.get('expires_at'))
+    expiry=max(
+        [item for item in (stored_expiry,entitlement_expiry) if item is not None],
+        default=None,
+    )
+    normalized_status=normalize_provider_status(
+        c.subscription_status,
+        default='inactive',
+    )
+    terminal=normalized_status in TERMINAL_SUBSCRIPTION_STATUSES
+    source_present=bool(
+        c.pasarguard_subscription_url
+        or c.marzban_subscription_url
+        or c.guardcore_subscription_url
+    )
+    unlimited=bool(
         expiry is None
-        and c.subscription_status=='active'
         and bool(c.subscription_url)
+        and not terminal
+        and (
+            normalized_status=='active'
+            or bool(entitlement.get('unlimited'))
+        )
     )
     within_expiry=(
         unlimited
@@ -779,27 +863,35 @@ def account_json(c:Customer)->dict:
         normalize_provider_status(value,default='unknown')=='active'
         for value in (c.marzban_status,c.guardcore_status)
     )
-    source_present=bool(
-        c.pasarguard_subscription_url
-        or c.marzban_subscription_url
-        or c.guardcore_subscription_url
-    )
-    recovered_finite_state=(
-        c.subscription_status!='active'
+    recovered_finite_state=bool(
+        not terminal
+        and normalized_status!='active'
         and expiry is not None
         and within_expiry
         and source_present
         and bool(c.last_sync_error)
     )
-    active=(
-        bool(c.subscription_url)
+    paid_entitlement_active=bool(
+        not terminal
+        and entitlement.get('active')
+        and source_present
+    )
+    active_reason='inactive'
+    if normalized_status=='active':
+        active_reason='stored_status'
+    elif provider_active:
+        active_reason='provider_status'
+    elif paid_entitlement_active:
+        active_reason='activated_order'
+    elif recovered_finite_state:
+        active_reason='recovered_state'
+    active=bool(
+        c.active
+        and bool(c.subscription_url)
         and within_expiry
         and within_traffic
-        and (
-            c.subscription_status=='active'
-            or provider_active
-            or recovered_finite_state
-        )
+        and not terminal
+        and active_reason!='inactive'
     )
     expire_value=(
         UNLIMITED_ANDROID_EXPIRY
@@ -813,6 +905,13 @@ def account_json(c:Customer)->dict:
         if expiry is not None
         else 'none'
     )
+    remaining_seconds=(
+        None
+        if unlimited
+        else max(0,int((expiry-now).total_seconds()))
+        if expiry is not None
+        else 0
+    )
     return {
         'id':c.id,
         'email':c.email,
@@ -824,12 +923,17 @@ def account_json(c:Customer)->dict:
         'timezone':TEHRAN_ZONE_NAME,
         'subscription':{
             'active':active,
-            'status':('active' if active else c.subscription_status),
+            'status':('active' if active else normalized_status),
+            'active_reason':active_reason,
+            'entitlement_active':bool(entitlement.get('active')),
+            'entitlement_order_id':entitlement.get('order_id'),
+            'entitlement_plan_id':entitlement.get('plan_id'),
             'url':c.subscription_url,
             'expire':expire_value,
             'expires_at':expire_value,
             'expire_fa':('نامحدود' if unlimited else format_jalali(expiry) if expiry else ''),
             'expires_at_fa':('نامحدود' if unlimited else format_jalali(expiry) if expiry else ''),
+            'remaining_seconds':remaining_seconds,
             'calendar':'jalali',
             'timezone':TEHRAN_ZONE_NAME,
             'expire_mode':expire_mode,
@@ -1347,7 +1451,7 @@ async def register(request:Request,db:Session=Depends(get_db)):
     b=await request.json();email=email_ok(str(b.get('email','')));password=str(b.get('password',''))
     if len(password)<8:raise HTTPException(422,detail={'code':'WEAK_PASSWORD','message':'رمز عبور حداقل ۸ نویسه باشد'})
     if db.scalar(select(Customer).where(Customer.email==email)):raise HTTPException(409,detail={'code':'EMAIL_EXISTS','message':'این ایمیل قبلاً ثبت شده است'})
-    c=Customer(email=email,password_hash=password_hash(password),device_limit=1);db.add(c);db.flush();token,refresh_token=issue_session(db,c,str(b.get('device_id','')),str(b.get('device_name','')));return {'success':True,'token':token,'refresh_token':refresh_token,'account':account_json(c)}
+    c=Customer(email=email,password_hash=password_hash(password),device_limit=1);db.add(c);db.flush();token,refresh_token=issue_session(db,c,str(b.get('device_id','')),str(b.get('device_name','')));return {'success':True,'token':token,'refresh_token':refresh_token,'account':account_json(c,db)}
 @app.post('/api/v1/auth/login')
 async def login(request:Request,db:Session=Depends(get_db)):
     ip=client_ip(request)
@@ -1370,7 +1474,7 @@ async def login(request:Request,db:Session=Depends(get_db)):
     c=db.scalar(select(Customer).where(Customer.email==email))
     if not c or not password_ok(str(b.get('password','')),c.password_hash):raise HTTPException(401,detail={'code':'INVALID_CREDENTIALS','message':'ایمیل یا رمز نادرست است'})
     AUTH_LIMITER.reset(target_key)
-    token,refresh_token=issue_session(db,c,str(b.get('device_id','')),str(b.get('device_name','')));return {'success':True,'token':token,'refresh_token':refresh_token,'account':account_json(c)}
+    token,refresh_token=issue_session(db,c,str(b.get('device_id','')),str(b.get('device_name','')));return {'success':True,'token':token,'refresh_token':refresh_token,'account':account_json(c,db)}
 @app.post('/api/v1/auth/refresh')
 async def refresh_login(request:Request,db:Session=Depends(get_db)):
     b=await request.json();email=email_ok(str(b.get('email','')));device_id=str(b.get('device_id','')).strip()[:180];refresh_token=str(b.get('refresh_token',''))
@@ -1411,7 +1515,7 @@ async def refresh_login(request:Request,db:Session=Depends(get_db)):
         'success':True,
         'token':token,
         'refresh_token':new_refresh_token,
-        'account':account_json(c),
+        'account':account_json(c,db),
     }
 @app.post('/api/v1/auth/logout')
 def logout(authorization:str|None=Header(None),x_device_id:str|None=Header(None),db:Session=Depends(get_db)):
@@ -1488,10 +1592,10 @@ async def ai_feedback(request:Request,c:Customer=Depends(current_customer),db:Se
 
 @app.get('/api/v1/account')
 async def account(c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
-    c=db.get(Customer,c.id);await sync_customer(db,c,settings(db)['public_base_url']);return {'success':True,'account':account_json(c)}
+    c=db.get(Customer,c.id);await sync_customer(db,c,settings(db)['public_base_url']);return {'success':True,'account':account_json(c,db)}
 @app.post('/api/v1/account/sync')
 async def account_sync(c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
-    c=db.get(Customer,c.id);await sync_customer(db,c,settings(db)['public_base_url']);return {'success':True,'account':account_json(c)}
+    c=db.get(Customer,c.id);await sync_customer(db,c,settings(db)['public_base_url']);return {'success':True,'account':account_json(c,db)}
 @app.post('/api/v1/orders')
 async def create_order(request:Request,c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
     b=await request.json()

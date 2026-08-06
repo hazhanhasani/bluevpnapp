@@ -1,16 +1,16 @@
 {
   "app": "BlueVPN",
-  "version": "3.0.24",
-  "version_code": 30024,
-  "workflow_source_commit": "d1082309e843b134789c6cfde16db218f6838762",
+  "version": "3.0.31",
+  "version_code": 30031,
+  "workflow_source_commit": "2ea893a96121ba6a8fc81ccae8a21fe780dc94ad",
   "upstream_ref": "2.2.6",
   "files": {
     "src/main/java/com/v2ray/ang/ui/BlueVpnHomeActivity.kt": "6c9a5768c564949410f9e7881c5633bedcd955816a317791a494af78536eba82",
     "src/main/java/com/v2ray/ang/ui/BlueVpnAiActivity.kt": "19d5f96874480ec47e33fa3e554d2952c78146ec6659307929d7e53954ce175c",
     "src/main/java/com/v2ray/ang/ui/BlueVpnServersActivity.kt": "1e18c4e28ed0d267b5187b5d52669705147b15c14da6726a85948768244e2e82",
-    "src/main/java/com/v2ray/ang/ui/BlueVpnSubscriptionsActivity.kt": "ec4b0d87d32dc29fc3ee0f1d2ca944d12ab2a30fec134e35768b5721be86bcbc",
+    "src/main/java/com/v2ray/ang/ui/BlueVpnSubscriptionsActivity.kt": "a08e879a0d517ad23463afbe5fba4c8aee93dac8a51fb1d4104b60e8a7c9de6b",
     "src/main/java/com/v2ray/ang/ui/BlueVpnSettingsActivity.kt": "5b52b79ef60d6054209f8577cf7d4ea42b0005700f830928862f029dda8c6377",
-    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAccountManager.kt": "64c9c340d4050a643d6807710b5ce5a51412a4c4452f435b435ce95d9fd1b1f9",
+    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAccountManager.kt": "add17b1261db05c5960b9b8848785f8bd3b4b442b41e7912176f6385df4159c6",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateManager.kt": "1e93e78d9ac0ac8beee1df33ecfc51fac1f64c3313f9096d98cbd70dffbbc915",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLocationUtil.kt": "0bc8c8f77ffdfd783e1ed8f8b9ea194376a974b6d5f9568afd22bc847970c415",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnExperience.kt": "5fbfdfa547e178f51d836308a3c6630d42383def25a627d92ecf08f14c89011e",
@@ -27,6 +27,6 @@
     "src/main/res/xml/bluevpn_update_paths.xml": "fd8e1c44efe522971fd3a97bd770da887ca9eabe498c97edb633e6940bd0fd98",
     "src/main/AndroidManifest.xml": "54558004b1176c30aaa42cbede23044f9e7d6def695d1dd8e594c5aeaf03535e",
     "src/main/java/com/v2ray/ang/AngApplication.kt": "cac7ce1054f235f7561fc75fad15bec65654529175482bb63ecf53456a38f459",
-    "build.gradle.kts": "482a0924c4367b12096e5de1bc508ee48d9c80411d9ba9f4c25e0d950ee4d0f1"
+    "build.gradle.kts": "2df28ca4a4d159ff13d0adbdc02b7efd507e4015227b91ac14a308135fd95b2b"
   }
 }

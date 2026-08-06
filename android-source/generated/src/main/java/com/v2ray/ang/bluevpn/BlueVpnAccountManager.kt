@@ -141,6 +141,32 @@ object BlueVpnAccountManager {
     fun clearPendingOrder(c: Context) =
         setPendingOrder(c, "")
 
+    fun markCheckoutBrowserOpen(c: Context, id: String) {
+        prefs(c).edit()
+            .putString("checkout_browser_order", id)
+            .putLong("checkout_browser_opened_at", System.currentTimeMillis())
+            .commit()
+    }
+
+    fun checkoutBrowserOrder(c: Context): String =
+        prefs(c).getString(
+            "checkout_browser_order",
+            "",
+        ).orEmpty()
+
+    fun clearCheckoutBrowserOrder(c: Context) {
+        prefs(c).edit()
+            .remove("checkout_browser_order")
+            .remove("checkout_browser_opened_at")
+            .commit()
+    }
+
+    fun consumeCheckoutBrowserOrder(c: Context): String {
+        val value = checkoutBrowserOrder(c)
+        clearCheckoutBrowserOrder(c)
+        return value
+    }
+
     fun deviceId(c: Context): String {
         restorePrimary(c)
 
@@ -476,6 +502,18 @@ object BlueVpnAccountManager {
             "POST",
             "/api/v1/orders",
             JSONObject().put("plan_id", planId),
+        ).getJSONObject("order")
+    }
+
+    fun closeCheckout(
+        c: Context,
+        id: String,
+    ): Result<JSONObject> = runCatching {
+        authenticatedRequest(
+            c,
+            "POST",
+            "/api/v1/orders/$id/checkout/close",
+            JSONObject(),
         ).getJSONObject("order")
     }
 

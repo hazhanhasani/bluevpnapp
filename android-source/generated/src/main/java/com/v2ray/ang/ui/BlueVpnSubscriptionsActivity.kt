@@ -31,7 +31,14 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
  private lateinit var content:LinearLayout;private lateinit var status:TextView;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true
  private val poll=object:Runnable{override fun run(){val id=BlueVpnAccountManager.pendingOrder(this@BlueVpnSubscriptionsActivity);if(id.isNotBlank()){checkOrder(id);handler.postDelayed(this,4000)}}}
  override fun onCreate(b:Bundle?){super.onCreate(b);window.statusBarColor=Color.parseColor("#07152F");window.navigationBarColor=Color.parseColor("#07152F");setContentView(screen());render()}
- override fun onResume(){super.onResume();if(firstResume){firstResume=false}else{render()};handler.removeCallbacks(poll);handler.post(poll)}
+ override fun onResume(){
+  super.onResume()
+  val returnedOrder=BlueVpnAccountManager.checkoutBrowserOrder(this)
+  if(returnedOrder.isNotBlank()){closeCheckoutAfterReturn(returnedOrder)}
+  if(firstResume){firstResume=false}else{render()}
+  handler.removeCallbacks(poll)
+  handler.post(poll)
+ }
  override fun onPause(){handler.removeCallbacks(poll);super.onPause()}
  private fun screen():View{val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(16),dp(18),dp(22));setBackgroundColor(Color.parseColor("#071A39"));layoutDirection=View.LAYOUT_DIRECTION_RTL};val h=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL};val back=button("بازگشت","#173B70").apply{setOnClickListener{finish()}};val title=TextView(this).apply{text="حساب و اشتراک";textSize=24f;setTextColor(Color.WHITE);setTypeface(typeface,Typeface.BOLD);gravity=Gravity.END};h.addView(back,LinearLayout.LayoutParams(dp(92),dp(48)));h.addView(title,LinearLayout.LayoutParams(0,dp(52),1f));root.addView(h);status=TextView(this).apply{textSize=12.5f;setTextColor(Color.parseColor("#9FB7D9"));gravity=Gravity.CENTER;setPadding(0,dp(7),0,dp(10))};root.addView(status);content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};root.addView(ScrollView(this).apply{isFillViewport=true;addView(content)},LinearLayout.LayoutParams(-1,0,1f));return root}
  private fun render(){content.removeAllViews();if(BlueVpnAccountManager.hasSession(this))account() else auth()}
@@ -470,8 +477,59 @@ private fun loadPlans(){
  }
  private fun authCall(e:String,p:String,reg:Boolean){if(busy)return;if(e.isBlank()||p.length<8){Toast.makeText(this,"ایمیل و رمز معتبر وارد کنید",Toast.LENGTH_SHORT).show();return};busy=true;status.text="در حال بررسی...";lifecycleScope.launch(Dispatchers.IO){val r=BlueVpnAccountManager.authenticate(this@BlueVpnSubscriptionsActivity,e,p,reg);withContext(Dispatchers.Main){busy=false;r.onSuccess{setResult(RESULT_OK);render()}.onFailure{status.text=it.message?:"ورود ناموفق"}}}}
  private fun sync(force:Boolean){if(busy)return;busy=true;lifecycleScope.launch(Dispatchers.IO){val r=BlueVpnAccountManager.sync(this@BlueVpnSubscriptionsActivity,force);withContext(Dispatchers.Main){busy=false;r.onFailure{if(!BlueVpnAccountManager.hasSession(this@BlueVpnSubscriptionsActivity))render() else status.text=it.message?:"خطای همگام‌سازی"};render()}}}
- private fun buy(planId:Int){status.text="در حال ساخت فاکتور...";lifecycleScope.launch(Dispatchers.IO){val r=BlueVpnAccountManager.createOrder(this@BlueVpnSubscriptionsActivity,planId);withContext(Dispatchers.Main){r.onSuccess{o->val id=o.optString("id");BlueVpnAccountManager.setPendingOrder(this@BlueVpnSubscriptionsActivity,id);status.text="پس از پرداخت به برنامه برگردید";startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(o.optString("payment_url"))))}.onFailure{status.text=it.message?:"ساخت فاکتور ناموفق"}}}}
- private fun checkOrder(id:String){lifecycleScope.launch(Dispatchers.IO){val r=BlueVpnAccountManager.order(this@BlueVpnSubscriptionsActivity,id);withContext(Dispatchers.Main){r.onSuccess{o->when(o.optString("status")){"activated"->{BlueVpnAccountManager.clearPendingOrder(this@BlueVpnSubscriptionsActivity);handler.removeCallbacks(poll);sync(true);Toast.makeText(this@BlueVpnSubscriptionsActivity,"اشتراک فعال شد",Toast.LENGTH_LONG).show()}"paid","paid_needs_sync"->status.text="پرداخت تأیید شد؛ فعال‌سازی در حال انجام است";"expired"->{BlueVpnAccountManager.clearPendingOrder(this@BlueVpnSubscriptionsActivity);status.text="مهلت فاکتور تمام شد"};else->status.text="در انتظار تأیید پرداخت..."}}}}}
+ private fun buy(planId:Int){
+  if(busy)return
+  busy=true
+  status.text="در حال ساخت فاکتور جدید..."
+  lifecycleScope.launch(Dispatchers.IO){
+   val result=BlueVpnAccountManager.createOrder(this@BlueVpnSubscriptionsActivity,planId)
+   withContext(Dispatchers.Main){
+    busy=false
+    result.onSuccess{o->
+     val id=o.optString("id")
+     val paymentUrl=o.optString("payment_url")
+     if(id.isBlank()||paymentUrl.isBlank()){
+      status.text="آدرس پرداخت معتبر دریافت نشد"
+      return@onSuccess
+     }
+     BlueVpnAccountManager.setPendingOrder(this@BlueVpnSubscriptionsActivity,id)
+     BlueVpnAccountManager.markCheckoutBrowserOpen(this@BlueVpnSubscriptionsActivity,id)
+     status.text="مهلت پرداخت ۳۰ دقیقه است؛ پس از خروج، فاکتور ۵ دقیقه دیگر باز می‌ماند"
+     try{
+      startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(paymentUrl)))
+     }catch(error:Exception){
+      BlueVpnAccountManager.clearCheckoutBrowserOrder(this@BlueVpnSubscriptionsActivity)
+      closeCheckoutAfterReturn(id)
+      status.text="مرورگر برای بازکردن صفحه پرداخت پیدا نشد"
+     }
+    }.onFailure{status.text=it.message?:"ساخت فاکتور ناموفق"}
+   }
+  }
+ }
+ private fun closeCheckoutAfterReturn(id:String,attempt:Int=0){
+  lifecycleScope.launch(Dispatchers.IO){
+   val result=BlueVpnAccountManager.closeCheckout(this@BlueVpnSubscriptionsActivity,id)
+   withContext(Dispatchers.Main){
+    result.onSuccess{
+     BlueVpnAccountManager.clearCheckoutBrowserOrder(this@BlueVpnSubscriptionsActivity)
+     if(!isFinishing&&!isDestroyed){
+      status.text="از صفحه پرداخت خارج شدید؛ این فاکتور تا ۵ دقیقه دیگر بسته می‌شود"
+      checkOrder(id)
+     }
+    }.onFailure{
+     if(!isFinishing&&!isDestroyed&&attempt<3){
+      handler.postDelayed(
+       {closeCheckoutAfterReturn(id,attempt+1)},
+       2000L*(attempt+1),
+      )
+     }else if(!isFinishing&&!isDestroyed){
+      status.text="ثبت خروج از پرداخت موقتاً انجام نشد؛ در بازگشت بعدی دوباره تلاش می‌شود"
+     }
+    }
+   }
+  }
+ }
+ private fun checkOrder(id:String){lifecycleScope.launch(Dispatchers.IO){val r=BlueVpnAccountManager.order(this@BlueVpnSubscriptionsActivity,id);withContext(Dispatchers.Main){r.onSuccess{o->when(o.optString("status")){"activated"->{BlueVpnAccountManager.clearPendingOrder(this@BlueVpnSubscriptionsActivity);handler.removeCallbacks(poll);sync(true);Toast.makeText(this@BlueVpnSubscriptionsActivity,"اشتراک فعال شد",Toast.LENGTH_LONG).show()}"paid","paid_needs_sync","partial_needs_sync","activating"->status.text="پرداخت تأیید شد؛ فعال‌سازی در حال انجام است";"expired","expired_local","abandoned","superseded","canceled","cancelled","failed"->{BlueVpnAccountManager.clearPendingOrder(this@BlueVpnSubscriptionsActivity);handler.removeCallbacks(poll);status.text=if(o.optString("status")=="abandoned")"فاکتور قبلی بسته شد؛ اکنون دوباره پرداخت را بزنید" else "مهلت یا وضعیت فاکتور قبلی پایان یافت؛ پرداخت جدید بسازید"};else->status.text="در انتظار تأیید پرداخت..."}}.onFailure{status.text=it.message?:"بررسی پرداخت ناموفق"}}}}
 private fun accountMetric(
  title:String,
  value:String,

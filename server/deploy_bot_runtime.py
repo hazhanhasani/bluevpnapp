@@ -40,8 +40,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bluevpn-one-click-bot")
 
-DEPLOY_BOT_VERSION = "3.3-explicit-workflow-dispatch"
-BUILD_TRIGGER_MODE = "verified-source-push-plus-explicit-actions-dispatch"
+DEPLOY_BOT_VERSION = "3.4-repository-dispatch-fallback"
+BUILD_TRIGGER_MODE = "repository-dispatch-with-workflow-dispatch-fallback"
 
 
 def _env_int(name: str, default: int, minimum: int = 1) -> int:
@@ -101,6 +101,10 @@ GITHUB_TOKEN = require_env("GITHUB_TOKEN")
 GITHUB_REPOSITORY = require_env("GITHUB_REPOSITORY")
 GIT_BRANCH = os.getenv("GIT_BRANCH", "main").strip() or "main"
 GITHUB_WORKFLOW = os.getenv("GITHUB_WORKFLOW", "build-apk.yml").strip() or "build-apk.yml"
+GITHUB_REPOSITORY_DISPATCH_EVENT = (
+    os.getenv("GITHUB_REPOSITORY_DISPATCH_EVENT", "bluevpn_build").strip()
+    or "bluevpn_build"
+)
 GIT_AUTHOR_NAME = os.getenv("GIT_AUTHOR_NAME", "BlueVPN Deploy Bot").strip()
 GIT_AUTHOR_EMAIL = os.getenv(
     "GIT_AUTHOR_EMAIL",
@@ -119,6 +123,11 @@ PUSH_EVENT_GRACE_SECONDS = _env_int(
     "PUSH_EVENT_GRACE_SECONDS",
     12,
     minimum=2,
+)
+REPOSITORY_DISPATCH_GRACE_SECONDS = _env_int(
+    "REPOSITORY_DISPATCH_GRACE_SECONDS",
+    30,
+    minimum=5,
 )
 RUNNER_QUEUE_TIMEOUT_SECONDS = _env_int(
     "RUNNER_QUEUE_TIMEOUT_SECONDS",
@@ -916,8 +925,43 @@ async def branch_head_sha() -> str:
     return sha
 
 
+async def dispatch_repository_event(commit_sha: str) -> dict[str, Any]:
+    """Trigger Actions using the repository dispatch endpoint.
+
+    This endpoint uses the same Contents: write permission already required by
+    the deploy bot for pushing project files. It therefore works even when the
+    token does not have the separate Actions: write permission needed by
+    workflow_dispatch.
+    """
+    request_id = secrets.token_hex(12)
+    response = await gh_request(
+        "POST",
+        f"/repos/{OWNER}/{REPO}/dispatches",
+        json_body={
+            "event_type": GITHUB_REPOSITORY_DISPATCH_EVENT,
+            "client_payload": {
+                "target_sha": commit_sha,
+                "ref": GIT_BRANCH,
+                "request_id": request_id,
+                "source": "bluevpn-deploy-bot",
+            },
+        },
+    )
+    if response.status_code not in {200, 204}:
+        raise RuntimeError(
+            "repository_dispatch ناموفق بود؛ توکن GitHub باید برای مخزن "
+            "مجوز Contents: write داشته باشد. "
+            f"HTTP {response.status_code}: {response.text[-1200:]}"
+        )
+    return {
+        "trigger": "repository_dispatch",
+        "request_id": request_id,
+        "target_sha": commit_sha,
+    }
+
+
 async def dispatch_workflow() -> dict[str, Any]:
-    """Explicitly create a workflow run instead of trusting push delivery."""
+    """Fallback trigger for tokens that also have Actions: write."""
     info = await ensure_workflow_enabled()
     response = await gh_request(
         "POST",
@@ -926,12 +970,12 @@ async def dispatch_workflow() -> dict[str, Any]:
     )
     if response.status_code not in {200, 204}:
         permission_hint = (
-            " توکن GitHub باید برای همین مخزن مجوز Actions: write داشته باشد."
+            " توکن GitHub برای این روش باید مجوز Actions: write داشته باشد."
             if response.status_code in {401, 403, 404}
             else ""
         )
         raise RuntimeError(
-            "درخواست مستقیم ساخت APK به GitHub Actions نرسید."
+            "workflow_dispatch ناموفق بود."
             + permission_hint
             + f" HTTP {response.status_code}: {response.text[-1200:]}"
         )
@@ -996,8 +1040,41 @@ async def ensure_commit_workflow_run(
                 return {"trigger": "push", "run": matches[0]}
             await asyncio.sleep(2)
 
-    dispatched = await dispatch_workflow()
-    return dispatched
+    repository_error = ""
+    try:
+        repository_result = await dispatch_repository_event(commit_sha)
+        deadline = time.monotonic() + REPOSITORY_DISPATCH_GRACE_SECONDS
+        while time.monotonic() < deadline:
+            matches = _matching_commit_runs(
+                await workflow_runs(),
+                commit_sha,
+                previous_ids,
+            )
+            if matches:
+                repository_result["run"] = matches[0]
+                return repository_result
+            await asyncio.sleep(3)
+        repository_error = (
+            "درخواست repository_dispatch پذیرفته شد اما GitHub در مهلت کوتاه "
+            "هیچ Run جدیدی نساخت."
+        )
+        logger.warning(repository_error)
+    except Exception as exc:
+        repository_error = redact(str(exc))[-1200:]
+        logger.warning("repository_dispatch failed, trying workflow_dispatch: %s", repository_error)
+
+    try:
+        result = await dispatch_workflow()
+        result["fallback_from"] = "repository_dispatch"
+        result["repository_dispatch_error"] = repository_error
+        return result
+    except Exception as exc:
+        workflow_error = redact(str(exc))[-1200:]
+        raise RuntimeError(
+            "هیچ‌یک از دو روش ساخت GitHub اجرا نشد.\n"
+            f"repository_dispatch: {repository_error}\n"
+            f"workflow_dispatch: {workflow_error}"
+        ) from exc
 
 
 async def workflow_runs() -> list[dict[str, Any]]:
@@ -1114,7 +1191,8 @@ async def wait_for_commit_run(
             raise RuntimeError(
                 "درخواست Build به GitHub ارسال شد اما هیچ اجرای جدیدی برای "
                 f"Commit {str(commit_sha or '')[:8]} ساخته نشد. "
-                "توکن باید مجوز Actions: write داشته باشد و Workflow فعال باشد."
+                "Workflow باید repository_dispatch را پشتیبانی کند؛ ربات هر دو روش "
+                "repository_dispatch و workflow_dispatch را امتحان کرده است."
             )
         if job_key is not None and job_token is not None:
             _set_job_status(
@@ -1477,7 +1555,7 @@ async def process_rebuild_job(
         previous_runs = await workflow_runs()
         previous_ids = {int(run["id"]) for run in previous_runs}
 
-        _set_job_status(job_key, job_token, "ارسال مستقیم درخواست Build")
+        _set_job_status(job_key, job_token, "ارسال درخواست مستقل Build")
         commit_sha = await branch_head_sha()
         trigger = await ensure_commit_workflow_run(
             commit_sha,
@@ -1486,11 +1564,11 @@ async def process_rebuild_job(
         )
 
         await progress.edit_text(
-            "🛠 درخواست مستقیم Build به GitHub Actions ارسال شد.\n"
+            "🛠 درخواست Build به GitHub ارسال شد.\n"
             f"مخزن: {GITHUB_REPOSITORY}\n"
             f"شاخه: {GIT_BRANCH}\n"
             f"Commit: {commit_sha[:8]}\n"
-            f"روش شروع: {trigger.get('trigger', 'workflow_dispatch')}\n\n"
+            f"روش شروع: {trigger.get('trigger', 'repository_dispatch')}\n\n"
             "در صورت گیرکردن Runner، قفل خودکار آزاد خواهد شد."
         )
 

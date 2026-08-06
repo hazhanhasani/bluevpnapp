@@ -1,11 +1,11 @@
 {
-  "version": "3.0.30",
+  "version": "3.0.31",
   "channel": "phone-otp-farazsms",
-  "build_id": "20260807-deploy-bot-explicit-workflow-dispatch-v3030",
+  "build_id": "20260807-deploy-bot-repository-dispatch-fallback-v3031",
   "built_at": "2026-08-07T00:00:00Z",
-  "android_version": "3.0.30",
-  "android_version_code": 30030,
-  "description": "BlueVPN 3.0.30 ساخت APK را پس از ثبت سورس مستقیماً با workflow_dispatch اجرا می‌کند؛ بنابراین Build دیگر به رخداد Push وابسته نیست و ربات اختلاف Commit فعلی با آخرین Build را تشخیص می‌دهد.",
+  "android_version": "3.0.31",
+  "android_version_code": 30031,
+  "description": "BlueVPN 3.0.31 ساخت APK را با repository_dispatch و همان مجوز Contents: write موجود اجرا می‌کند و در صورت نیاز به workflow_dispatch برمی‌گردد؛ بنابراین Build جدید به Push یا مجوز جداگانه Actions: write وابسته نیست.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -223,8 +223,13 @@
     "deploy-bot-branch-head-build-verification",
     "deploy-bot-new-run-id-filter",
     "deploy-bot-source-ahead-status",
-    "deploy-bot-no-empty-trigger-commits"
+    "deploy-bot-no-empty-trigger-commits",
+    "deploy-bot-repository-dispatch-trigger",
+    "deploy-bot-contents-write-compatible-build",
+    "deploy-bot-workflow-dispatch-fallback",
+    "workflow-repository-dispatch-event",
+    "workflow-exact-target-sha-checkout"
   ],
-  "version_code": 30030,
-  "notes": "Explicit GitHub Actions workflow_dispatch after verified source push. The bot no longer depends on push-event delivery, does not create empty trigger commits, ignores old workflow runs, and reports when the branch head has not been built."
+  "version_code": 30031,
+  "notes": "Primary repository_dispatch trigger using existing Contents: write permission, workflow_dispatch fallback, exact requested SHA checkout, and source-ahead recovery without extra variables."
 }

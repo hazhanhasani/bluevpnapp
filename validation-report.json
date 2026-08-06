@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.30",
-  "version_code": 30030,
+  "project_version": "3.0.31",
+  "version_code": 30031,
   "schema_version": 12,
-  "release": "3.0.30",
+  "release": "3.0.31",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.30/30030)",
+  "version_consistency": "passed (release/branding/backend 3.0.31/30031)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -225,7 +225,13 @@
   },
   "jalali_tehran": "passed",
   "tests": "88 passed",
-  "android_validation": "passed (3.0.30 / 30030 / 22 sources / 29 IDs)",
+  "android_validation": {
+    "status": "passed",
+    "version": "3.0.31",
+    "version_code": 30031,
+    "embedded_sources": 22,
+    "home_ids": 29
+  },
   "database_migration": "passed (schema 11 -> 12: phone columns + otp_challenges + sms_settings)",
   "subscription_state_recovery": {
     "last_known_good_preserved": true,
@@ -302,7 +308,7 @@
     "source": "exact workflow structure restored from 3.0.25",
     "dedicated_tests": "passed (3)"
   },
-  "test_summary": "88 passed; explicit workflow_dispatch and stale-lock recovery regression suites included",
+  "test_summary": "92 passed; repository_dispatch primary trigger, workflow_dispatch fallback, stale-lock recovery, Android source validation passed",
   "workflow_concurrency": "passed (cancel-in-progress=true, queue:max removed)",
   "deploy_bot_stale_lock_recovery": "passed (tokenized lock, manual unlock, watchdog, queue timeout, safe replacement)",
   "deploy_bot_explicit_workflow_dispatch": {
@@ -314,5 +320,16 @@
     "previous_run_ids_filtered": true,
     "source_ahead_status": true,
     "actions_write_permission_error": true
+  },
+  "deploy_bot_repository_dispatch": {
+    "repository_dispatch_endpoint": true,
+    "event_type": "bluevpn_build",
+    "contents_write_compatible": true,
+    "workflow_dispatch_fallback": true,
+    "fallback_grace_seconds": 30,
+    "target_sha_payload": true,
+    "target_sha_checkout_verification": true,
+    "previous_run_ids_filtered": true,
+    "source_ahead_status": true
   }
 }

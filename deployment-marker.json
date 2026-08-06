@@ -1,17 +1,17 @@
 {
-  "release": "3.0.30-deploy-bot-explicit-workflow-dispatch",
-  "version_name": "3.0.30",
-  "version_code": 30030,
+  "release": "3.0.31",
+  "version_name": "3.0.31",
+  "version_code": 30031,
   "changes": [
-    "Trigger GitHub Actions explicitly through workflow_dispatch after source verification",
-    "Enable the configured workflow automatically when it is disabled",
-    "Build the current branch head without creating empty trigger commits",
-    "Ignore workflow runs that existed before the new build request",
-    "Detect and report when the branch head is newer than the latest workflow run",
+    "Trigger GitHub Actions with repository_dispatch using existing Contents: write permission",
+    "Fallback automatically to workflow_dispatch when no repository-dispatch run appears",
+    "Pass and verify the exact target commit SHA in the workflow",
+    "Ignore old workflow runs when waiting for a newly requested build",
     "Keep stale-lock recovery, Runner timeout, and manual unlock behavior"
   ],
   "generated_at_unix": 1786039800,
-  "purpose": "رفع حالتی که Commitهای جدید روی GitHub ثبت می‌شدند اما Build جدید ساخته نمی‌شد",
-  "updated_at": "2026-08-07T00:30:00Z",
-  "built_at": "2026-08-07T00:30:00Z"
+  "purpose": "رفع حالتی که Commit جدید ثبت می‌شد اما GitHub Run تازه نمی‌ساخت و ربات Build قدیمی را نشان می‌داد",
+  "updated_at": "2026-08-07T01:15:00Z",
+  "built_at": "2026-08-07T01:15:00Z",
+  "build_id": "20260807-deploy-bot-repository-dispatch-fallback-v3031"
 }

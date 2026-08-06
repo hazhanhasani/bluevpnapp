@@ -5,6 +5,9 @@ on:
     branches:
       - main
   workflow_dispatch:
+  repository_dispatch:
+    types:
+      - bluevpn_build
 
 
 # Keep only the newest build for each branch. This prevents old queued
@@ -26,6 +29,8 @@ jobs:
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      BLUEVPN_TARGET_BRANCH: ${{ github.event.client_payload.ref || github.ref_name }}
+      BLUEVPN_TARGET_SHA: ${{ github.event.client_payload.target_sha || github.sha }}
 
     steps:
       - name: Checkout BlueVPN project
@@ -37,10 +42,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin "${GITHUB_REF_NAME}" --prune
-          git checkout -B "${GITHUB_REF_NAME}" "origin/${GITHUB_REF_NAME}"
+          git fetch origin "${BLUEVPN_TARGET_BRANCH}" --prune
+          git checkout -B "${BLUEVPN_TARGET_BRANCH}" "${BLUEVPN_TARGET_SHA}"
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          if [ "$ACTUAL_SHA" != "$BLUEVPN_TARGET_SHA" ]; then
+            echo "::error::Requested source SHA was not checked out. Expected=$BLUEVPN_TARGET_SHA Actual=$ACTUAL_SHA"
+            exit 1
+          fi
           echo "BUILD_STAGE=source-synchronized" >> "$GITHUB_ENV"
-          echo "Building latest branch commit: $(git rev-parse HEAD)"
+          echo "Building requested commit: ${ACTUAL_SHA}"
 
       - name: Check permanent signing secrets
         shell: bash
@@ -171,7 +181,7 @@ jobs:
         id: persist_metadata
         shell: bash
         env:
-          TARGET_BRANCH: ${{ github.ref_name }}
+          TARGET_BRANCH: ${{ github.event.client_payload.ref || github.ref_name }}
         run: |
           set -euo pipefail
           echo "BUILD_STAGE=persist-version-metadata" >> "$GITHUB_ENV"
@@ -327,7 +337,7 @@ jobs:
         id: persist_generated
         shell: bash
         env:
-          TARGET_BRANCH: ${{ github.ref_name }}
+          TARGET_BRANCH: ${{ github.event.client_payload.ref || github.ref_name }}
           VERSION: ${{ steps.config.outputs.version }}
           VERSION_CODE: ${{ steps.config.outputs.version_code }}
         run: |

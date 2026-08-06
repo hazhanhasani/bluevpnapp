@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session,selectinload
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 from .database import DATABASE_ERROR,DATABASE_MODE,ENGINE,SQLITE_PATH,SessionLocal,database_status,database_table_counts,initialize_database,get_db
-from .integrations import IntegrationError,combined_subscription,create_invoice,delete_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,parse_remote_date,provision,recent_bluepay_errors,sync_customer,test_marzban_panel,test_panel,verify_webhook
+from .integrations import IntegrationError,combined_subscription,create_invoice,delete_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,normalize_provider_status,parse_remote_date,provision,recent_bluepay_errors,repair_subscription_states,sync_customer,test_marzban_panel,test_panel,verify_webhook
 from .guardcore import service_ids_from_json,test_guardcore_panel
 from .manual_guardcore import (
     attach_manual_subscription,
@@ -257,6 +257,17 @@ def startup():
         if not db.get(AppSetting,1):db.add(AppSetting(id=1,payload=json.dumps(DEFAULT,ensure_ascii=False)))
         if not db.get(PaymentSetting,1):db.add(PaymentSetting(id=1))
         db.commit()
+        try:
+            repair=repair_subscription_states(db)
+            if repair.get('repaired'):
+                logger.warning(
+                    'Subscription recovery repaired %s of %s customers',
+                    repair['repaired'],
+                    repair['scanned'],
+                )
+        except Exception:
+            db.rollback()
+            logger.exception('Automatic subscription-state recovery failed')
     finally:db.close()
 def settings(db:Session)->dict:
     row=db.get(AppSetting,1)
@@ -506,7 +517,7 @@ def _delete_invalid_order(
 )->None:
     """Hard-delete an unpaid unusable invoice from the local database.
 
-    BlueVPN 3.0.21 deliberately does not retain abandoned/expired invoice
+    BlueVPN 3.0.22 deliberately does not retain abandoned/expired invoice
     rows, because retaining them allowed stale payment URLs to be selected on
     the next purchase. A compact redacted diagnostic is written outside the
     orders table before deletion.
@@ -692,11 +703,31 @@ def account_json(c:Customer)->dict:
         not c.data_limit_bytes
         or c.used_traffic_bytes<c.data_limit_bytes
     )
+    provider_active=any(
+        normalize_provider_status(value,default='unknown')=='active'
+        for value in (c.marzban_status,c.guardcore_status)
+    )
+    source_present=bool(
+        c.pasarguard_subscription_url
+        or c.marzban_subscription_url
+        or c.guardcore_subscription_url
+    )
+    recovered_finite_state=(
+        c.subscription_status!='active'
+        and expiry is not None
+        and within_expiry
+        and source_present
+        and bool(c.last_sync_error)
+    )
     active=(
-        c.subscription_status=='active'
-        and bool(c.subscription_url)
+        bool(c.subscription_url)
         and within_expiry
         and within_traffic
+        and (
+            c.subscription_status=='active'
+            or provider_active
+            or recovered_finite_state
+        )
     )
     expire_value=(
         UNLIMITED_ANDROID_EXPIRY
@@ -721,7 +752,7 @@ def account_json(c:Customer)->dict:
         'timezone':TEHRAN_ZONE_NAME,
         'subscription':{
             'active':active,
-            'status':c.subscription_status,
+            'status':('active' if active else c.subscription_status),
             'url':c.subscription_url,
             'expire':expire_value,
             'expires_at':expire_value,
@@ -2766,6 +2797,18 @@ async def customer_source_check(
             error=str(exc)[:1000],
         )
 
+
+@app.post('/admin/subscriptions/repair')
+def admin_subscription_repair(request:Request,db:Session=Depends(get_db)):
+    admin_required(request)
+    result=repair_subscription_states(db)
+    return admin_redirect(
+        'customers',
+        message=(
+            f"بازیابی اشتراک‌ها انجام شد؛ {result['repaired']} حساب از "
+            f"{result['scanned']} حساب اصلاح شد."
+        ),
+    )
 
 @app.post('/admin/customers/{customer_id}/sync')
 async def customer_sync(request:Request,customer_id:int,db:Session=Depends(get_db)):

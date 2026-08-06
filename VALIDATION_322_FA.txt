@@ -1,0 +1,11 @@
+BlueVPN 3.0.22 validation
+
+- Python compile: passed
+- JSON / YAML / Jinja: passed
+- Backend tests: 48 passed
+- Subscription recovery tests: 8 passed
+- Database migration: not required
+- Android generated-source validation: passed (22 sources / 29 IDs)
+- Version consistency: passed (3.0.22 / 30022)
+- ZIP integrity: passed
+- Final APK Gradle build: GitHub Actions

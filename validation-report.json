@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.21",
-  "version_code": 30021,
+  "project_version": "3.0.22",
+  "version_code": 30022,
   "schema_version": 11,
-  "release": "3.0.21",
+  "release": "3.0.22",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.21/30021)",
+  "version_consistency": "passed (release/branding/backend 3.0.22/30022)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -96,7 +96,7 @@
   "updater_default_route_retry": "included",
   "updater_friendly_error_mapping": "included",
   "admin_security_tests": "passed (3 unit tests + endpoint smoke)",
-  "all_pytest": "passed (33 tests)",
+  "all_pytest": "passed (48 tests)",
   "admin_dark_glass_dashboard": "implemented",
   "admin_vazirmatn_font": "implemented with local fallback stack",
   "admin_inline_svg_icons": "implemented",
@@ -158,7 +158,7 @@
     "invalid_rows_hard_deleted": true
   },
   "schema_8_to_9_migration": "passed (SQLite old schema -> expires_at column + schema 9)",
-  "generated_at": "2026-08-06T08:30:22Z",
+  "generated_at": "2026-08-06T08:55:15Z",
   "schema_9_to_10_migration": "automatic (creates dedicated ai_live_connections table)",
   "live_connection_detection": {
     "counting_rule": "Android VPN transport + running Xray session + fresh remote HTTP proof through local Xray proxy",
@@ -224,7 +224,29 @@
     "dedicated_tests": "passed (2)"
   },
   "jalali_tehran": "passed",
-  "tests": "40 passed",
-  "android_validation": "passed",
-  "database_migration": "not required"
+  "tests": "48 passed",
+  "android_validation": "passed (3.0.22 / 30022 / 22 sources / 29 IDs)",
+  "database_migration": "not required",
+  "subscription_state_recovery": {
+    "last_known_good_preserved": true,
+    "provider_error_no_false_inactive": true,
+    "missing_status_defaults_active_on_success": true,
+    "expiry_preserved_on_incomplete_payload": true,
+    "quota_preserved_on_partial_sync": true,
+    "startup_auto_repair": true,
+    "admin_manual_repair": true,
+    "erased_expiry_recovered_from_order_metadata": true,
+    "finite_future_recovery": true,
+    "unlimited_plan_recovery": true,
+    "healthy_explicit_inactive_still_honored": true,
+    "dedicated_tests": "passed (8)",
+    "schema_migration_required": false
+  },
+  "time_runtime_safety": {
+    "user_display_calendar": "jalali",
+    "user_display_timezone": "Asia/Tehran",
+    "process_timezone": "UTC/default",
+    "canonical_storage": "UTC",
+    "docker_TZ_override_removed": true
+  }
 }

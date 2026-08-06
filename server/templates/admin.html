@@ -404,7 +404,12 @@
 </section>
 
 <section id="customers" class="card">
-  <h2>کاربران و دستگاه‌ها</h2>
+  <div class="section-heading-actions">
+    <h2>کاربران و دستگاه‌ها</h2>
+    <form method="post" action="/admin/subscriptions/repair" onsubmit="return confirm('وضعیت اشتراک‌های معتبر که به‌اشتباه غیرفعال شده‌اند بازیابی شود؟');">
+      <button class="secondary" type="submit">بازیابی اشتراک‌های فعال</button>
+    </form>
+  </div>
   <p class="hint">
     «بررسی تعداد منابع» کاربر Marzban را در صورت نبودن می‌سازد و جداگانه
     نشان می‌دهد چند کانفیگ مستقیماً از ساب واقعی Marzban، چند کانفیگ از API

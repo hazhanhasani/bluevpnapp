@@ -63,6 +63,14 @@ UNLIMITED_EXPIRY_SENTINELS = {
     "infinite",
 }
 EXPIRY_CLOCK_SKEW = timedelta(minutes=2)
+ACTIVE_PROVIDER_STATUSES = {
+    "active", "enabled", "online", "ok", "success", "successful",
+    "valid", "connected", "ready",
+}
+INACTIVE_PROVIDER_STATUSES = {
+    "inactive", "disabled", "expired", "limited", "depleted",
+    "blocked", "suspended", "removed", "deleted", "stopped",
+}
 LATE_PAYMENT_BONUS_AFTER = timedelta(hours=1)
 LATE_PAYMENT_BONUS = timedelta(days=1)
 _BLUEPAY_LOG_LOCK = threading.Lock()
@@ -80,6 +88,34 @@ def aware(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def normalize_provider_status(value: Any, *, default: str = "unknown") -> str:
+    raw = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not raw:
+        return default
+    if raw in ACTIVE_PROVIDER_STATUSES:
+        return "active"
+    if raw in INACTIVE_PROVIDER_STATUSES:
+        return raw
+    return raw
+
+
+def _expiry_observation(data: dict | None) -> tuple[bool, datetime | None, bool]:
+    """Return (field_seen, parsed_expiry, explicit_unlimited)."""
+    if not isinstance(data, dict):
+        return False, None, False
+    for key in ("expire", "expires_at", "expiration", "expiry"):
+        if key not in data:
+            continue
+        raw = data.get(key)
+        parsed = parse_remote_date(raw)
+        unlimited = (
+            raw in (None, 0, "0")
+            or str(raw).strip().lower() in UNLIMITED_EXPIRY_SENTINELS
+        )
+        return True, parsed, unlimited
+    return False, None, False
 
 
 def iso_z(value: datetime | None) -> str | None:
@@ -661,23 +697,46 @@ def aggregate_customer(
     mz_error: str = "",
     gc_error: str = "",
 ) -> Customer:
+    """Merge provider snapshots without destroying the last known good subscription.
+
+    Provider outages and incomplete payloads must not turn a paid customer into an
+    inactive account. 3.0.22 only downgrades an active subscription when healthy,
+    authoritative provider responses explicitly report a terminal state.
+    """
+    previous_status = normalize_provider_status(
+        customer.subscription_status, default="inactive"
+    )
+    previous_expire = aware(customer.subscription_expire)
+    previous_limit = int(customer.data_limit_bytes or 0)
+    previous_used = int(customer.used_traffic_bytes or 0)
+
     statuses: list[str] = []
     expires: list[datetime] = []
     limits: list[int] = []
     usages: list[int] = []
+    expiry_fields_seen = False
+    explicit_unlimited = False
+    source_payload_count = 0
 
     if pg_data:
+        source_payload_count += 1
         customer.pg_user_id = pg_data.get("id")
         customer.pasarguard_subscription_url = str(
             pg_data.get("subscription_url")
             or customer.pasarguard_subscription_url
             or ""
         )
-        pg_status = str(pg_data.get("status") or "inactive")
+        # A returned PasarGuard user is active unless the provider explicitly
+        # reports a terminal state. Some versions omit the status field.
+        pg_status = normalize_provider_status(
+            pg_data.get("status"), default="active"
+        )
         statuses.append(pg_status)
-        pg_expire = parse_remote_date(pg_data.get("expire"))
-        if pg_expire:
-            expires.append(pg_expire)
+        seen, parsed_expire, unlimited = _expiry_observation(pg_data)
+        expiry_fields_seen = expiry_fields_seen or seen
+        explicit_unlimited = explicit_unlimited or (pg_status == "active" and unlimited)
+        if parsed_expire:
+            expires.append(parsed_expire)
         limits.append(int(pg_data.get("data_limit") or 0))
         usages.append(int(
             pg_data.get("used_traffic")
@@ -686,18 +745,22 @@ def aggregate_customer(
         ))
 
     if mz_data:
+        source_payload_count += 1
         customer.marzban_user_id = mz_data.get("id")
         customer.marzban_subscription_url = str(
             mz_data.get("subscription_url")
             or customer.marzban_subscription_url
             or ""
         )
-        customer.marzban_status = str(
-            mz_data.get("status") or "inactive"
+        customer.marzban_status = normalize_provider_status(
+            mz_data.get("status"), default="active"
         )
-        customer.marzban_expire = parse_remote_date(
-            mz_data.get("expire")
+        seen, parsed_expire, unlimited = _expiry_observation(mz_data)
+        expiry_fields_seen = expiry_fields_seen or seen
+        explicit_unlimited = explicit_unlimited or (
+            customer.marzban_status == "active" and unlimited
         )
+        customer.marzban_expire = parsed_expire
         customer.marzban_data_limit_bytes = int(
             mz_data.get("data_limit") or 0
         )
@@ -711,16 +774,22 @@ def aggregate_customer(
         usages.append(customer.marzban_used_traffic_bytes)
 
     if gc_data:
+        source_payload_count += 1
         customer.guardcore_subscription_id = gc_data.get("id")
         customer.guardcore_subscription_url = str(
             gc_data.get("subscription_url")
             or customer.guardcore_subscription_url
             or ""
         )
-        customer.guardcore_status = str(
-            gc_data.get("status") or "inactive"
+        customer.guardcore_status = normalize_provider_status(
+            gc_data.get("status"), default="active"
         )
-        customer.guardcore_expire = aware(gc_data.get("expire"))
+        seen, parsed_expire, unlimited = _expiry_observation(gc_data)
+        expiry_fields_seen = expiry_fields_seen or seen
+        explicit_unlimited = explicit_unlimited or (
+            customer.guardcore_status == "active" and unlimited
+        )
+        customer.guardcore_expire = parsed_expire
         customer.guardcore_data_limit_bytes = int(
             gc_data.get("data_limit") or 0
         )
@@ -733,16 +802,68 @@ def aggregate_customer(
         limits.append(customer.guardcore_data_limit_bytes)
         usages.append(customer.guardcore_used_traffic_bytes)
 
-    customer.subscription_status = (
-        "active"
-        if "active" in statuses
-        else statuses[0]
-        if statuses
-        else "inactive"
+    errors = [item for item in (pg_error, mz_error, gc_error) if item]
+    has_sync_errors = bool(errors)
+    now = aware(utcnow()) or datetime.now(timezone.utc)
+    previous_valid = (
+        previous_expire is None
+        or previous_expire > now - EXPIRY_CLOCK_SKEW
     )
-    customer.subscription_expire = max(expires) if expires else None
-    customer.data_limit_bytes = sum(limits)
-    customer.used_traffic_bytes = sum(usages)
+    has_subscription_source = bool(
+        customer.pasarguard_subscription_url
+        or customer.marzban_subscription_url
+        or customer.guardcore_subscription_url
+    )
+    active_source = "active" in statuses
+    terminal_responses = bool(statuses) and all(
+        status in INACTIVE_PROVIDER_STATUSES for status in statuses
+    )
+
+    if active_source:
+        customer.subscription_status = "active"
+    elif (
+        previous_status == "active"
+        and previous_valid
+        and has_subscription_source
+        and (has_sync_errors or source_payload_count == 0)
+    ):
+        # Transient provider failures must preserve the last known good state.
+        customer.subscription_status = "active"
+    elif terminal_responses and not has_sync_errors:
+        customer.subscription_status = statuses[0]
+    elif statuses:
+        customer.subscription_status = statuses[0]
+    else:
+        customer.subscription_status = previous_status
+
+    if expires:
+        customer.subscription_expire = max(expires)
+    elif active_source and explicit_unlimited:
+        customer.subscription_expire = None
+    elif has_sync_errors or not expiry_fields_seen:
+        customer.subscription_expire = previous_expire
+    # For explicit inactive responses, retain the historical expiry instead of
+    # erasing it. Status determines access while the date remains auditable.
+
+    if limits:
+        calculated_limit = sum(limits)
+        customer.data_limit_bytes = (
+            previous_limit
+            if has_sync_errors and previous_limit and calculated_limit < previous_limit
+            else calculated_limit
+        )
+    else:
+        customer.data_limit_bytes = previous_limit
+
+    if usages:
+        calculated_used = sum(usages)
+        customer.used_traffic_bytes = (
+            max(previous_used, calculated_used)
+            if has_sync_errors
+            else calculated_used
+        )
+    else:
+        customer.used_traffic_bytes = previous_used
 
     if plan:
         customer.plan_id = plan.id
@@ -750,13 +871,126 @@ def aggregate_customer(
 
     customer.marzban_last_error = mz_error[:1000]
     customer.guardcore_last_error = gc_error[:1000]
-    errors = [item for item in (pg_error, mz_error, gc_error) if item]
     customer.last_sync_error = (
-        "" if not errors else "برخی مسیرهای پشتیبان در حال همگام‌سازی هستند"
+        "" if not errors else "برخی مسیرهای سرویس موقتاً پاسخ نمی‌دهند؛ آخرین وضعیت معتبر حفظ شد"
     )
     ensure_subscription_identity(customer, public_base_url)
     customer.last_sync_at = utcnow()
     return customer
+
+
+def repair_subscription_states(
+    db: Session,
+    *,
+    commit: bool = True,
+) -> dict[str, int]:
+    """Repair customers incorrectly downgraded by an incomplete provider sync."""
+    now = aware(utcnow()) or datetime.now(timezone.utc)
+    scanned = repaired = 0
+    for customer in db.scalars(select(Customer)).all():
+        scanned += 1
+        current_status = normalize_provider_status(
+            customer.subscription_status, default="inactive"
+        )
+        if not customer.active or current_status == "active":
+            continue
+        if current_status in (INACTIVE_PROVIDER_STATUSES - {"inactive"}):
+            # Explicit disabled/expired/blocked states are authoritative and
+            # must never be revived by the automatic recovery pass.
+            continue
+        expiry_candidates = [
+            item for item in (
+                aware(customer.subscription_expire),
+                aware(customer.marzban_expire),
+                aware(customer.guardcore_expire),
+            )
+            if item is not None
+        ]
+        latest_order = db.scalar(
+            select(Order)
+            .where(
+                Order.customer_id == customer.id,
+                Order.status.in_((
+                    "activated", "paid", "paid_needs_sync", "partial_needs_sync"
+                )),
+            )
+            .order_by(Order.created_at.desc(), Order.id.desc())
+        )
+        latest_target_unlimited = False
+        if latest_order:
+            metadata = order_metadata(latest_order)
+            stored_target = metadata.get("_bluevpn_target_expire")
+            parsed_target = parse_remote_date(stored_target)
+            if parsed_target:
+                expiry_candidates.append(parsed_target)
+            elif str(stored_target or "").strip().lower() in (
+                UNLIMITED_EXPIRY_SENTINELS - {""}
+            ):
+                latest_target_unlimited = True
+            elif latest_order.plan_id:
+                order_plan = db.get(Plan, latest_order.plan_id)
+                base = aware(
+                    latest_order.activated_at
+                    or latest_order.paid_at
+                    or latest_order.created_at
+                )
+                if order_plan and base and int(order_plan.duration_days or 0) > 0:
+                    expiry_candidates.append(
+                        base + timedelta(days=int(order_plan.duration_days))
+                    )
+
+        expiry = max(expiry_candidates) if expiry_candidates else None
+        if expiry and (
+            customer.subscription_expire is None
+            or aware(customer.subscription_expire) < expiry
+        ):
+            customer.subscription_expire = expiry
+        finite_valid = expiry is not None and expiry > now - EXPIRY_CLOCK_SKEW
+        stored_provider_statuses = [
+            normalize_provider_status(value, default="unknown")
+            for value in (customer.marzban_status, customer.guardcore_status)
+            if str(value or "").strip()
+        ]
+        provider_active = "active" in stored_provider_statuses
+        has_source = bool(
+            customer.pasarguard_subscription_url
+            or customer.marzban_subscription_url
+            or customer.guardcore_subscription_url
+        )
+        recoverable_finite = (
+            finite_valid
+            and (
+                bool(customer.last_sync_error)
+                or bool(customer.pasarguard_subscription_url)
+                or not stored_provider_statuses
+            )
+        )
+        plan = db.get(Plan, customer.plan_id) if customer.plan_id else None
+        recoverable_unlimited = bool(
+            expiry is None
+            and customer.pasarguard_subscription_url
+            and (
+                latest_target_unlimited
+                or (
+                    plan
+                    and plan.active
+                    and not plan.deleted
+                    and int(plan.duration_days or 0) <= 0
+                )
+            )
+        )
+        # Finite future subscriptions and active unlimited plans are repaired.
+        if has_source and (recoverable_finite or recoverable_unlimited or provider_active):
+            customer.subscription_status = "active"
+            customer.last_sync_error = (
+                "وضعیت اشتراک پس از بازیابی خودکار 3.0.22 اصلاح شد"
+            )
+            repaired += 1
+    if commit and repaired:
+        db.commit()
+    elif commit:
+        db.flush()
+    return {"scanned": scanned, "repaired": repaired}
 
 
 async def provision_pasarguard(
@@ -1081,6 +1315,16 @@ async def provision(
         mz_error=mz_error,
         gc_error=gc_error,
     )
+    successful_payloads = [
+        item for item in (pg_data, mz_data, gc_data) if isinstance(item, dict)
+    ]
+    if successful_payloads and any(
+        normalize_provider_status(item.get("status"), default="active") == "active"
+        for item in successful_payloads
+    ):
+        # A successful provisioning response is authoritative. Some provider
+        # versions omit `status`, therefore a missing value defaults to active.
+        customer.subscription_status = "active"
     customer.subscription_expire = target_expire
     db.add(customer)
     db.commit()

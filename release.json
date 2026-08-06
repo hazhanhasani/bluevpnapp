@@ -1,11 +1,11 @@
 {
-  "version": "3.0.21",
-  "channel": "jalali-tehran-time",
-  "build_id": "20260806-jalali-tehran-time-v3021",
-  "built_at": "2026-08-06T08:28:06Z",
-  "android_version": "3.0.21",
-  "android_version_code": 30021,
-  "description": "BlueVPN 3.0.21 تمام تاریخ‌ها و ساعت‌های قابل نمایش را به تقویم شمسی و منطقه زمانی Asia/Tehran تبدیل می‌کند؛ زمان‌های داخلی و قراردادهای درگاه همچنان UTC استاندارد باقی می‌مانند.",
+  "version": "3.0.22",
+  "channel": "subscription-state-recovery",
+  "build_id": "20260806-subscription-state-recovery-v3022",
+  "built_at": "2026-08-06T08:55:15Z",
+  "android_version": "3.0.22",
+  "android_version_code": 30022,
+  "description": "BlueVPN 3.0.22 از غیرفعال‌شدن اشتراک‌های معتبر هنگام خطای موقت یا پاسخ ناقص پنل جلوگیری می‌کند، وضعیت‌های آسیب‌دیده را خودکار بازیابی می‌کند و نمایش شمسی/تهران را با محاسبات داخلی UTC حفظ می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -166,8 +166,17 @@
     "android-jalali-expiry-display",
     "admin-jalali-time-filter",
     "api-parallel-fa-datetime-fields",
-    "utc-internal-time-preserved"
+    "utc-internal-time-preserved",
+    "last-known-good-subscription-state",
+    "provider-outage-no-false-inactive",
+    "missing-provider-status-default-active",
+    "automatic-startup-subscription-repair",
+    "manual-admin-subscription-repair",
+    "future-expiry-state-recovery",
+    "unlimited-plan-state-recovery",
+    "partial-provider-quota-preservation",
+    "utc-process-clock-display-only-tehran"
   ],
-  "version_code": 30021,
-  "notes": "All user-facing date/time values use the Solar Hijri calendar and Asia/Tehran. Canonical UTC fields remain available for payment, expiry, database, webhook and Android calculations."
+  "version_code": 30022,
+  "notes": "Subscription state is now last-known-good and failure-safe. Startup repairs finite future subscriptions and valid unlimited plans that were incorrectly downgraded. User-facing dates remain Jalali/Asia-Tehran while the process clock and expiry calculations stay UTC."
 }

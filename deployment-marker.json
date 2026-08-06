@@ -1,17 +1,17 @@
 {
-  "release": "3.0.21-auto",
-  "version_name": "3.0.21",
-  "version_code": 30021,
+  "release": "3.0.22-subscription-state-recovery",
+  "version_name": "3.0.22",
+  "version_code": 30022,
   "changes": [
-    "Display all user-facing dates in the Jalali calendar",
-    "Use Asia/Tehran for displayed clocks and expiry dates",
-    "Add Persian datetime fields while preserving canonical UTC values",
-    "Show Jalali expiry inside the Android account screen",
-    "Show Jalali timestamps in admin, BlueAI and GuardCore notifications",
-    "Add timezone/calendar response headers"
+    "Preserve the last known good subscription during provider outages",
+    "Do not erase expiry, quota or usage on incomplete sync responses",
+    "Treat successful provider payloads without a status field as active",
+    "Repair incorrectly inactive future and unlimited subscriptions on startup",
+    "Add a manual repair action in the admin customer section",
+    "Keep the runtime clock UTC while displaying Jalali Asia/Tehran dates"
   ],
-  "generated_at_unix": 1786005022,
-  "purpose": "نمایش سراسری تاریخ شمسی و ساعت Asia/Tehran با حفظ UTC داخلی",
-  "updated_at": "2026-08-06T08:30:22Z",
-  "built_at": "2026-08-06T08:30:22Z"
+  "generated_at_unix": 1786006515,
+  "purpose": "بازیابی خودکار اشتراک‌های معتبری که پس از همگام‌سازی ناقص غیرفعال شده‌اند",
+  "updated_at": "2026-08-06T08:55:15Z",
+  "built_at": "2026-08-06T08:55:15Z"
 }

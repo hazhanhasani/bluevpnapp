@@ -1,1 +1,1 @@
-BlueVPN 3.0.21 — Jalali calendar and Asia/Tehran display time across Android, API, admin and operational notifications; UTC remains canonical internally
+BlueVPN 3.0.22 — failure-safe subscription sync, automatic recovery of incorrectly inactive accounts, and Jalali/Tehran display with UTC internal calculations

@@ -5,18 +5,32 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      runner:
+        description: GitHub-hosted runner image
+        required: false
+        default: ubuntu-22.04
+        type: choice
+        options:
+          - ubuntu-22.04
+          - ubuntu-24.04
 
 
+# Keep builds in order instead of cancelling a queued/running build when the
+# deploy bot pushes another verified source commit. queue:max is important for
+# Telegram uploads and automatic runner-recovery dispatches.
 concurrency:
-  group: bluevpn-release-${{ github.ref }}
-  cancel-in-progress: true
+  group: bluevpn-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: write
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: build (${{ inputs.runner || 'ubuntu-22.04' }})
+    runs-on: ${{ inputs.runner || 'ubuntu-22.04' }}
     timeout-minutes: 90
 
     env:
@@ -26,6 +40,14 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
 
     steps:
+      - name: Report selected runner
+        shell: bash
+        run: |
+          echo "Runner label: ${{ inputs.runner || 'ubuntu-22.04' }}"
+          echo "Runner name: ${RUNNER_NAME:-unknown}"
+          echo "Runner OS: ${RUNNER_OS:-unknown}"
+          echo "Runner architecture: ${RUNNER_ARCH:-unknown}"
+
       - name: Checkout BlueVPN project
         uses: actions/checkout@v6
         with:

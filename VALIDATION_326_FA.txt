@@ -1,0 +1,6 @@
+BlueVPN 3.0.26
+- Workflow روی ubuntu-22.04 پین شد.
+- صف Buildها با queue:max حفظ می‌شود و cancel-in-progress=false است.
+- Runner جایگزین ubuntu-24.04 از طریق workflow_dispatch فعال است.
+- ربات Runهای قدیمی را هنگام Retry انتخاب نمی‌کند.
+- هیچ متغیر اجباری جدیدی اضافه نشده است.

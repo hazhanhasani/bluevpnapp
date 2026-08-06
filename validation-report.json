@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.25",
-  "version_code": 30025,
+  "project_version": "3.0.27",
+  "version_code": 30027,
   "schema_version": 12,
-  "release": "3.0.25",
+  "release": "3.0.27",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.25/30025)",
+  "version_consistency": "passed (release/branding/backend 3.0.27/30027)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -96,7 +96,7 @@
   "updater_default_route_retry": "included",
   "updater_friendly_error_mapping": "included",
   "admin_security_tests": "passed (3 unit tests + endpoint smoke)",
-  "all_pytest": "passed (75 tests)",
+  "all_pytest": "passed (78 tests)",
   "admin_dark_glass_dashboard": "implemented",
   "admin_vazirmatn_font": "implemented with local fallback stack",
   "admin_inline_svg_icons": "implemented",
@@ -224,8 +224,8 @@
     "dedicated_tests": "passed (2)"
   },
   "jalali_tehran": "passed",
-  "tests": "75 passed",
-  "android_validation": "passed (3.0.25 / 30025 / 22 sources / 29 IDs)",
+  "tests": "78 passed",
+  "android_validation": "passed (3.0.27 / 30027 / 22 sources / 29 IDs)",
   "database_migration": "passed (schema 11 -> 12: phone columns + otp_challenges + sms_settings)",
   "subscription_state_recovery": {
     "last_known_good_preserved": true,
@@ -251,7 +251,7 @@
   },
   "subscription_expiry_regression": "passed",
   "pasarguard_expiry_verification": "passed",
-  "test_count": 75,
+  "test_count": 78,
   "subscription_entitlement_detection_v324": {
     "activated_order_authority": "passed",
     "explicit_terminal_state_protection": "passed",
@@ -263,7 +263,7 @@
     "api_entitlement_active": "included",
     "api_remaining_seconds": "included"
   },
-  "pytest": "75 passed",
+  "pytest": "78 passed",
   "json_yaml_jinja_xml": "passed",
   "schema_11_to_12_migration": "passed (legacy customer retained; phone auth tables and indexes created)",
   "phone_otp_farazsms_v325": {
@@ -292,5 +292,15 @@
     "expired_challenge_retention_days": 7,
     "dedicated_tests": "passed (19)",
     "api_end_to_end_smoke": "passed (request -> verify -> account/session creation)"
-  }
+  },
+  "github_workflow_restore": {
+    "runner": "ubuntu-latest",
+    "dynamic_runner_input": false,
+    "alternate_runner_dispatch": false,
+    "queue_max": true,
+    "cancel_in_progress": false,
+    "source": "exact workflow structure restored from 3.0.25",
+    "dedicated_tests": "passed (3)"
+  },
+  "test_summary": "79 passed"
 }

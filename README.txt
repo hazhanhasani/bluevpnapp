@@ -1,1 +1,1 @@
-BlueVPN 3.0.25 — passwordless Iranian phone login and registration with Faraz SMS/IPPanel pattern OTP, admin-managed SMS settings, legacy account phone binding, and database schema 12.
+BlueVPN 3.0.27 — exact restoration of the last-known-good GitHub Actions workflow, static ubuntu-latest runner routing, and removal of automatic alternate-runner redispatch. Phone OTP/Faraz SMS remains enabled.

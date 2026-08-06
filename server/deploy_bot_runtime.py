@@ -40,8 +40,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bluevpn-one-click-bot")
 
-DEPLOY_BOT_VERSION = "2.9-verified-github-source-persistence"
-BUILD_TRIGGER_MODE = "verified-source-commit-push"
+DEPLOY_BOT_VERSION = "3.1-known-good-workflow-restore"
+BUILD_TRIGGER_MODE = "verified-source-commit-push-stable-workflow"
 
 
 def _env_int(name: str, default: int, minimum: int = 1) -> int:

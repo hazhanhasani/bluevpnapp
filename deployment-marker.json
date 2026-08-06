@@ -1,17 +1,17 @@
 {
-  "release": "3.0.25-phone-otp-farazsms",
-  "version_name": "3.0.25",
-  "version_code": 30025,
+  "release": "3.0.27-known-good-workflow-restore",
+  "version_name": "3.0.27",
+  "version_code": 30027,
   "changes": [
-    "Replace email/password login with Iranian phone OTP",
-    "Integrate Faraz SMS/IPPanel Edge pattern sending",
-    "Configure SMS provider securely from the admin panel",
-    "Preserve legacy accounts and support verified phone binding",
-    "Add device-bound, expiring, one-time OTP challenges and rate limits",
-    "Upgrade database schema automatically to version 12"
+    "Restore the last-known-good build-apk.yml structure",
+    "Use a static ubuntu-latest GitHub-hosted runner label",
+    "Remove workflow_dispatch runner input and dynamic runs-on expression",
+    "Remove automatic fallback runner redispatch from deploy bot",
+    "Return to one verified source push equals one build run",
+    "Preserve phone OTP and Faraz SMS features from 3.0.25"
   ],
-  "generated_at_unix": 1786031170,
-  "purpose": "ورود و ثبت‌نام با شماره تماس و کد یک‌بارمصرف فراز اس‌ام‌اس",
-  "updated_at": "2026-08-06T15:46:10Z",
-  "built_at": "2026-08-06T15:46:10Z"
+  "generated_at_unix": 1786037977,
+  "purpose": "بازگردانی فایل Build گیت‌هاب به نسخه پایدار و قبلاً موفق",
+  "updated_at": "2026-08-06T17:39:37Z",
+  "built_at": "2026-08-06T17:39:37Z"
 }

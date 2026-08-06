@@ -7,9 +7,11 @@ on:
   workflow_dispatch:
 
 
+# Keep one verified build stream per branch without changing runner routing.
 concurrency:
-  group: bluevpn-release-${{ github.ref }}
-  cancel-in-progress: true
+  group: bluevpn-release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: write

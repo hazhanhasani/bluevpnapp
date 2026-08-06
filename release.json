@@ -1,11 +1,11 @@
 {
-  "version": "3.0.25",
+  "version": "3.0.27",
   "channel": "phone-otp-farazsms",
-  "build_id": "20260806-phone-otp-farazsms-v3025",
-  "built_at": "2026-08-06T15:46:10Z",
-  "android_version": "3.0.25",
-  "android_version_code": 30025,
-  "description": "BlueVPN 3.0.25 ورود و ثبت‌نام ایمیل/رمز را با شماره موبایل ایران و کد یک‌بارمصرف فراز اس‌ام‌اس جایگزین می‌کند؛ تنظیمات پیامک از پنل مدیریت انجام می‌شود و حساب‌های قبلی بدون حذف اطلاعات به شماره تماس متصل می‌شوند.",
+  "build_id": "20260806-known-good-workflow-v3027",
+  "built_at": "2026-08-06T17:39:37Z",
+  "android_version": "3.0.27",
+  "android_version_code": 30027,
+  "description": "BlueVPN 3.0.27 فایل Build گیت‌هاب را دقیقاً به ساختار پایدار و قبلاً موفق برمی‌گرداند؛ Runner پویا و Retry خودکار حذف شده و Build فقط با ubuntu-latest و یک Push اجرا می‌شود.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -205,8 +205,12 @@
     "otp-ip-and-phone-rate-limits",
     "encrypted-sms-api-key-storage",
     "sms-delivery-test-console",
-    "database-schema-12-phone-auth"
+    "database-schema-12-phone-auth",
+    "github-workflow-known-good-restore",
+    "static-ubuntu-latest-runner",
+    "single-push-build-trigger",
+    "deploy-bot-no-runner-redispatch"
   ],
-  "version_code": 30025,
-  "notes": "Passwordless phone authentication with Faraz SMS/IPPanel pattern OTP, secure admin-managed provider settings, legacy-account phone binding, device-bound challenges, rate limiting, and automatic schema 12 migration."
+  "version_code": 30027,
+  "notes": "Restores the exact last-known-good GitHub Actions routing: static ubuntu-latest, no dynamic runs-on input, no alternate-runner workflow_dispatch, and no queue-max runner recovery layer."
 }

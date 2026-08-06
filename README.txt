@@ -1,1 +1,1 @@
-BlueVPN 3.0.29 — deploy bot stale-lock auto-recovery, manual unlock, Runner queue timeout, and safe replacement of waiting builds.
+BlueVPN 3.0.30 — explicit GitHub Actions workflow_dispatch, branch-head verification, old-run filtering, and no empty trigger commits.

@@ -1,17 +1,17 @@
 {
-  "release": "3.0.29-deploy-bot-stale-lock-recovery",
-  "version_name": "3.0.29",
-  "version_code": 30029,
+  "release": "3.0.30-deploy-bot-explicit-workflow-dispatch",
+  "version_name": "3.0.30",
+  "version_code": 30030,
   "changes": [
-    "Add tokenized per-chat deploy jobs so an old task cannot clear a newer lock",
-    "Add manual unlock button and /unlock command",
-    "Cancel queued GitHub run when releasing a stale job",
-    "Auto-release Runner queue waits after 15 minutes",
-    "Add a watchdog for stale local deploy locks",
-    "Allow a new ZIP to safely replace a job waiting for GitHub Runner"
+    "Trigger GitHub Actions explicitly through workflow_dispatch after source verification",
+    "Enable the configured workflow automatically when it is disabled",
+    "Build the current branch head without creating empty trigger commits",
+    "Ignore workflow runs that existed before the new build request",
+    "Detect and report when the branch head is newer than the latest workflow run",
+    "Keep stale-lock recovery, Runner timeout, and manual unlock behavior"
   ],
-  "generated_at_unix": 1786038792,
-  "purpose": "رفع قفل ماندگار ربات هنگام گیرکردن نصب یا GitHub Actions Build",
-  "updated_at": "2026-08-07T00:00:00Z",
-  "built_at": "2026-08-07T00:00:00Z"
+  "generated_at_unix": 1786039800,
+  "purpose": "رفع حالتی که Commitهای جدید روی GitHub ثبت می‌شدند اما Build جدید ساخته نمی‌شد",
+  "updated_at": "2026-08-07T00:30:00Z",
+  "built_at": "2026-08-07T00:30:00Z"
 }

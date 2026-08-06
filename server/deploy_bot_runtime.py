@@ -40,8 +40,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bluevpn-one-click-bot")
 
-DEPLOY_BOT_VERSION = "3.2-stale-lock-auto-recovery"
-BUILD_TRIGGER_MODE = "verified-source-push-with-stale-lock-recovery"
+DEPLOY_BOT_VERSION = "3.3-explicit-workflow-dispatch"
+BUILD_TRIGGER_MODE = "verified-source-push-plus-explicit-actions-dispatch"
 
 
 def _env_int(name: str, default: int, minimum: int = 1) -> int:
@@ -114,6 +114,11 @@ RUN_DISCOVERY_TIMEOUT_SECONDS = _env_int(
     "RUN_DISCOVERY_TIMEOUT_SECONDS",
     300,
     minimum=60,
+)
+PUSH_EVENT_GRACE_SECONDS = _env_int(
+    "PUSH_EVENT_GRACE_SECONDS",
+    12,
+    minimum=2,
 )
 RUNNER_QUEUE_TIMEOUT_SECONDS = _env_int(
     "RUNNER_QUEUE_TIMEOUT_SECONDS",
@@ -297,7 +302,7 @@ def keyboard() -> ReplyKeyboardMarkup:
         [
             ["📦 نصب و ساخت خودکار"],
             ["🟡 صف GuardCore", "📊 وضعیت"],
-            ["🛠 ساخت دوباره", "⬇️ دریافت آخرین APK"],
+            ["🚀 ساخت فوری", "⬇️ دریافت آخرین APK"],
             ["🔓 آزادسازی عملیات", "🔐 بررسی امضا"],
         ],
         resize_keyboard=True,
@@ -863,67 +868,136 @@ def deploy_zip(zip_path: Path) -> dict[str, Any]:
         }
 
 
-def trigger_build_by_empty_commit() -> dict[str, str]:
-    """Create, push and remotely verify a build-trigger commit."""
-    token = quote(GITHUB_TOKEN, safe="")
-    remote = f"https://x-access-token:{token}@github.com/{GITHUB_REPOSITORY}.git"
-
-    with tempfile.TemporaryDirectory(prefix="bluevpn-trigger-") as temp:
-        repo = Path(temp) / "repo"
-
-        clone = subprocess.run(
-            [
-                "git",
-                "clone",
-                "--depth",
-                "50",
-                "--branch",
-                GIT_BRANCH,
-                remote,
-                str(repo),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=420,
+async def workflow_info() -> dict[str, Any]:
+    response = await gh_request(
+        "GET",
+        f"/repos/{OWNER}/{REPO}/actions/workflows/{GITHUB_WORKFLOW}",
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(
+            "خواندن تنظیمات Workflow ناموفق بود: "
+            f"HTTP {response.status_code} {response.text[-900:]}"
         )
-        if clone.returncode != 0:
-            raise RuntimeError(redact((clone.stderr or clone.stdout)[-3000:]))
+    return response.json()
 
-        def git(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
-            result = subprocess.run(
-                ["git", *args],
-                cwd=repo,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=420,
+
+async def ensure_workflow_enabled() -> dict[str, Any]:
+    info = await workflow_info()
+    if str(info.get("state") or "").lower() == "active":
+        return info
+
+    response = await gh_request(
+        "PUT",
+        f"/repos/{OWNER}/{REPO}/actions/workflows/{GITHUB_WORKFLOW}/enable",
+    )
+    if response.status_code not in {204, 200}:
+        raise RuntimeError(
+            "Workflow غیرفعال است و فعال‌سازی خودکار آن ناموفق بود. "
+            "توکن GitHub باید مجوز Actions: write داشته باشد. "
+            f"HTTP {response.status_code}: {response.text[-900:]}"
+        )
+    await asyncio.sleep(1)
+    return await workflow_info()
+
+
+async def branch_head_sha() -> str:
+    response = await gh_request(
+        "GET",
+        f"/repos/{OWNER}/{REPO}/git/ref/heads/{quote(GIT_BRANCH, safe='')}",
+    )
+    if response.status_code >= 400:
+        raise RuntimeError(
+            "خواندن آخرین Commit شاخه ناموفق بود: "
+            f"HTTP {response.status_code} {response.text[-900:]}"
+        )
+    sha = str((response.json().get("object") or {}).get("sha") or "").strip()
+    if not sha:
+        raise RuntimeError("GitHub برای شاخه مقصد SHA معتبری برنگرداند.")
+    return sha
+
+
+async def dispatch_workflow() -> dict[str, Any]:
+    """Explicitly create a workflow run instead of trusting push delivery."""
+    info = await ensure_workflow_enabled()
+    response = await gh_request(
+        "POST",
+        f"/repos/{OWNER}/{REPO}/actions/workflows/{GITHUB_WORKFLOW}/dispatches",
+        json_body={"ref": GIT_BRANCH},
+    )
+    if response.status_code not in {200, 204}:
+        permission_hint = (
+            " توکن GitHub باید برای همین مخزن مجوز Actions: write داشته باشد."
+            if response.status_code in {401, 403, 404}
+            else ""
+        )
+        raise RuntimeError(
+            "درخواست مستقیم ساخت APK به GitHub Actions نرسید."
+            + permission_hint
+            + f" HTTP {response.status_code}: {response.text[-1200:]}"
+        )
+
+    payload: dict[str, Any] = {}
+    if response.content:
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+    return {
+        "workflow_id": info.get("id"),
+        "workflow_state": info.get("state"),
+        "run_id": payload.get("workflow_run_id") or payload.get("id"),
+        "html_url": payload.get("html_url") or "",
+        "trigger": "workflow_dispatch",
+    }
+
+
+def _matching_commit_runs(
+    runs: list[dict[str, Any]],
+    commit_sha: str,
+    previous_ids: set[int],
+) -> list[dict[str, Any]]:
+    matches = [
+        run
+        for run in runs
+        if str(run.get("head_sha") or "") == commit_sha
+        and int(run.get("id") or 0) not in previous_ids
+    ]
+    return sorted(
+        matches,
+        key=lambda run: (str(run.get("created_at") or ""), int(run.get("id") or 0)),
+        reverse=True,
+    )
+
+
+async def ensure_commit_workflow_run(
+    commit_sha: str,
+    previous_ids: set[int],
+    *,
+    allow_push_grace: bool,
+) -> dict[str, Any]:
+    """Ensure one run exists for commit, using REST dispatch as fallback."""
+    current_head = await branch_head_sha()
+    if current_head != commit_sha:
+        raise RuntimeError(
+            "قبل از شروع Build، شاخه GitHub تغییر کرد. "
+            f"Commit مورد انتظار {commit_sha[:8]} و Commit فعلی {current_head[:8]} است. "
+            "برای جلوگیری از ساخت سورس اشتباه، دوباره تلاش کن."
+        )
+
+    if allow_push_grace:
+        deadline = time.monotonic() + PUSH_EVENT_GRACE_SECONDS
+        while time.monotonic() < deadline:
+            matches = _matching_commit_runs(
+                await workflow_runs(),
+                commit_sha,
+                previous_ids,
             )
-            if check and result.returncode != 0:
-                raise RuntimeError(
-                    redact((result.stderr or result.stdout)[-3000:])
-                )
-            return result
+            if matches:
+                return {"trigger": "push", "run": matches[0]}
+            await asyncio.sleep(2)
 
-        git("config", "user.name", GIT_AUTHOR_NAME)
-        git("config", "user.email", GIT_AUTHOR_EMAIL)
-        git(
-            "commit",
-            "--allow-empty",
-            "-m",
-            "build: trigger BlueVPN APK from persisted GitHub source",
-        )
-        commit, remote_commit = _push_and_verify(repo, git)
-        return {
-            "commit": commit,
-            "remote_commit": remote_commit,
-            "commit_url": _commit_url(commit),
-        }
-
-
-async def dispatch_build() -> dict[str, str]:
-    """Start a build only after GitHub confirms the trigger commit."""
-    return await asyncio.to_thread(trigger_build_by_empty_commit)
+    dispatched = await dispatch_workflow()
+    return dispatched
 
 
 async def workflow_runs() -> list[dict[str, Any]]:
@@ -949,23 +1023,49 @@ async def wait_for_commit_run(
 ) -> dict[str, Any]:
     deadline = time.monotonic() + BUILD_TIMEOUT_SECONDS
     discovery_deadline = time.monotonic() + RUN_DISCOVERY_TIMEOUT_SECONDS
-    selected: dict[str, Any] | None = None
     queued_since: float | None = None
+    queued_run_id: int | None = None
 
     while time.monotonic() < deadline:
         runs = await workflow_runs()
-        for run in runs:
-            if commit_sha and run.get("head_sha") == commit_sha:
-                selected = run
-                break
-            if not commit_sha and run.get("id") not in previous_ids:
-                selected = run
-                break
+        if commit_sha:
+            matches = _matching_commit_runs(runs, commit_sha, previous_ids)
+        else:
+            matches = sorted(
+                [
+                    run
+                    for run in runs
+                    if int(run.get("id") or 0) not in previous_ids
+                ],
+                key=lambda run: (
+                    str(run.get("created_at") or ""),
+                    int(run.get("id") or 0),
+                ),
+                reverse=True,
+            )
 
-        if selected:
+        if matches:
+            successful = next(
+                (
+                    run
+                    for run in matches
+                    if run.get("status") == "completed"
+                    and run.get("conclusion") == "success"
+                ),
+                None,
+            )
+            if successful is not None:
+                return successful
+
+            active = next(
+                (run for run in matches if run.get("status") != "completed"),
+                None,
+            )
+            selected = active or matches[0]
             run_id = int(selected.get("id") or 0)
             run_number = selected.get("run_number") or "?"
             run_status = str(selected.get("status") or "queued")
+
             if job_key is not None and job_token is not None:
                 if run_status == "in_progress":
                     label = f"Build #{run_number} در حال اجرا"
@@ -982,11 +1082,19 @@ async def wait_for_commit_run(
                 )
 
             if run_status == "completed":
+                # All newly created runs for this commit are terminal and none
+                # succeeded. Returning the newest one exposes the real result.
                 return selected
 
             if run_status in {"queued", "waiting", "pending", "requested"}:
-                queued_since = queued_since or time.monotonic()
-                if time.monotonic() - queued_since >= RUNNER_QUEUE_TIMEOUT_SECONDS:
+                if queued_run_id != run_id:
+                    queued_run_id = run_id
+                    queued_since = time.monotonic()
+                if (
+                    queued_since is not None
+                    and time.monotonic() - queued_since
+                    >= RUNNER_QUEUE_TIMEOUT_SECONDS
+                ):
                     try:
                         await _cancel_github_run(run_id)
                     except Exception:
@@ -997,30 +1105,25 @@ async def wait_for_commit_run(
                     )
             else:
                 queued_since = None
+                queued_run_id = None
 
-            await asyncio.sleep(12)
-            refreshed = await gh_request(
-                "GET",
-                f"/repos/{OWNER}/{REPO}/actions/runs/{selected['id']}",
+            await asyncio.sleep(10)
+            continue
+
+        if time.monotonic() >= discovery_deadline:
+            raise RuntimeError(
+                "درخواست Build به GitHub ارسال شد اما هیچ اجرای جدیدی برای "
+                f"Commit {str(commit_sha or '')[:8]} ساخته نشد. "
+                "توکن باید مجوز Actions: write داشته باشد و Workflow فعال باشد."
             )
-            if refreshed.status_code < 400:
-                selected = refreshed.json()
-                if selected.get("status") == "completed":
-                    return selected
-        else:
-            if time.monotonic() >= discovery_deadline:
-                raise RuntimeError(
-                    "پس از ثبت Commit، اجرای GitHub Actions ایجاد نشد. "
-                    "قفل ربات آزاد شد و ارسال دوباره ZIP امکان‌پذیر است."
-                )
-            if job_key is not None and job_token is not None:
-                _set_job_status(
-                    job_key,
-                    job_token,
-                    "منتظر ایجاد Build در GitHub",
-                    commit=commit_sha,
-                )
-            await asyncio.sleep(8)
+        if job_key is not None and job_token is not None:
+            _set_job_status(
+                job_key,
+                job_token,
+                "درخواست ارسال شد؛ منتظر ایجاد Build جدید",
+                commit=commit_sha,
+            )
+        await asyncio.sleep(5)
 
     raise RuntimeError("زمان انتظار برای پایان Build تمام شد و قفل ربات آزاد شد.")
 
@@ -1145,8 +1248,8 @@ async def start(
         f"شاخه مقصد: {GIT_BRANCH}\n\n"
         "ZIP پروژه یا آپدیت را بفرست.\n"
         "ربات ابتدا فایل‌ها را Commit و Push می‌کند، SHA واقعی شاخه "
-        "GitHub را تأیید می‌کند و فقط بعد از آن Build و ارسال APK را "
-        "ادامه می‌دهد.",
+        "GitHub را تأیید می‌کند و سپس Workflow را مستقیماً از API رسمی "
+        "GitHub Actions اجرا می‌کند؛ بنابراین به رخداد Push وابسته نیست.",
         parse_mode=ParseMode.HTML,
         reply_markup=keyboard(),
     )
@@ -1175,24 +1278,23 @@ async def process_zip_job(
         deployed = await asyncio.to_thread(deploy_zip, zip_path)
         commit = str(deployed["commit"])
 
-        if not deployed["changed"]:
-            _set_job_status(
-                job_key,
-                job_token,
-                "ایجاد Commit تأییدشده برای شروع Build",
-            )
-            await progress.edit_text(
-                "ℹ️ فایل‌ها تغییری نداشتند؛ یک Commit تأییدشده روی شاخه "
-                f"{GIT_BRANCH} می‌سازم تا Build شروع شود..."
-            )
-            trigger = await dispatch_build()
-            commit_for_run = trigger["commit"]
-            commit_url = trigger["commit_url"]
-        else:
-            commit_for_run = commit
-            commit_url = str(deployed["commit_url"])
-
+        commit_for_run = commit
+        commit_url = str(deployed["commit_url"])
         changed_count = len(deployed.get("changed_files") or [])
+
+        _set_job_status(
+            job_key,
+            job_token,
+            "درخواست مستقیم Build از GitHub Actions",
+            commit=commit_for_run,
+        )
+        trigger = await ensure_commit_workflow_run(
+            commit_for_run,
+            previous_ids,
+            allow_push_grace=bool(deployed["changed"]),
+        )
+        trigger_mode = str(trigger.get("trigger") or "workflow_dispatch")
+
         _set_job_status(
             job_key,
             job_token,
@@ -1207,6 +1309,7 @@ async def process_zip_job(
             f"Commit: {commit_for_run[:8]}\n"
             f"{commit_url}\n\n"
             "🛠 Build فقط از همین Commit اجرا می‌شود.\n"
+            f"روش شروع: {trigger_mode}\n"
             "در صورت گیرکردن Runner، دکمه «🔓 آزادسازی عملیات» فعال است."
         )
 
@@ -1374,16 +1477,20 @@ async def process_rebuild_job(
         previous_runs = await workflow_runs()
         previous_ids = {int(run["id"]) for run in previous_runs}
 
-        _set_job_status(job_key, job_token, "شروع Build با Commit تأییدشده")
-        trigger = await dispatch_build()
-        commit_sha = trigger["commit"]
+        _set_job_status(job_key, job_token, "ارسال مستقیم درخواست Build")
+        commit_sha = await branch_head_sha()
+        trigger = await ensure_commit_workflow_run(
+            commit_sha,
+            previous_ids,
+            allow_push_grace=False,
+        )
 
         await progress.edit_text(
-            "🛠 Build با Commit تأییدشده روی GitHub شروع شد.\n"
+            "🛠 درخواست مستقیم Build به GitHub Actions ارسال شد.\n"
             f"مخزن: {GITHUB_REPOSITORY}\n"
             f"شاخه: {GIT_BRANCH}\n"
             f"Commit: {commit_sha[:8]}\n"
-            f"{trigger['commit_url']}\n\n"
+            f"روش شروع: {trigger.get('trigger', 'workflow_dispatch')}\n\n"
             "در صورت گیرکردن Runner، قفل خودکار آزاد خواهد شد."
         )
 
@@ -1512,25 +1619,50 @@ async def status(
     )
 
     try:
-        runs = await workflow_runs()
+        info, head, runs = await asyncio.gather(
+            workflow_info(),
+            branch_head_sha(),
+            workflow_runs(),
+        )
+        workflow_state = str(info.get("state") or "نامشخص")
         if not runs:
             await update.effective_message.reply_text(
-                "📊 وضعیت ربات\n\n"
+                "📊 وضعیت BlueVPN\n\n"
                 f"{local_line}\n"
-                "هنوز Buildی در GitHub وجود ندارد.",
+                f"Workflow: {workflow_state}\n"
+                f"آخرین Commit شاخه: {head[:8]}\n"
+                "هیچ Buildی ثبت نشده است.\n\n"
+                "برای ساخت همین Commit دکمه «🚀 ساخت فوری» را بزن.",
                 reply_markup=keyboard(),
             )
             return
 
         run = runs[0]
+        run_sha = str(run.get("head_sha") or "")
+        source_ahead = bool(head and run_sha != head)
+        source_line = (
+            "⚠️ سورس GitHub از آخرین Build جدیدتر است و هنوز برای Commit فعلی "
+            "Build ساخته نشده.\n"
+            if source_ahead
+            else "✅ آخرین Build با Commit فعلی شاخه هماهنگ است.\n"
+        )
+        action_line = (
+            "برای ساخت Commit فعلی: 🚀 ساخت فوری"
+            if source_ahead and job_key not in ACTIVE_CHAT_JOBS
+            else "برای توقف Build گیرکرده: 🔓 آزادسازی عملیات"
+        )
         await update.effective_message.reply_text(
             "📊 وضعیت BlueVPN\n\n"
             f"{local_line}\n"
+            f"Workflow: {workflow_state}\n"
+            f"Commit فعلی شاخه: {head[:8]}\n"
+            f"Commit آخرین Build: {run_sha[:8] or 'نامشخص'}\n"
+            f"{source_line}"
             f"وضعیت GitHub: {run.get('status')}\n"
             f"نتیجه: {run.get('conclusion') or 'در انتظار'}\n"
             f"شماره Build: #{run.get('run_number')}\n"
             f"{run.get('html_url', '')}\n\n"
-            "برای توقف Build گیرکرده: 🔓 آزادسازی عملیات",
+            f"{action_line}",
             reply_markup=keyboard(),
         )
     except Exception as exc:
@@ -1882,7 +2014,7 @@ async def text_router(
         )
     elif text == "🟡 صف GuardCore":
         await guardcore_queue(update,context)
-    elif text == "🛠 ساخت دوباره":
+    elif text in {"🚀 ساخت فوری", "🛠 ساخت دوباره"}:
         await rebuild(update, context)
     elif text == "📊 وضعیت":
         await status(update, context)

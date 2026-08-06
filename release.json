@@ -1,11 +1,11 @@
 {
-  "version": "3.0.29",
+  "version": "3.0.30",
   "channel": "phone-otp-farazsms",
-  "build_id": "20260807-deploy-bot-stale-lock-recovery-v3029",
+  "build_id": "20260807-deploy-bot-explicit-workflow-dispatch-v3030",
   "built_at": "2026-08-07T00:00:00Z",
-  "android_version": "3.0.29",
-  "android_version_code": 30029,
-  "description": "BlueVPN 3.0.29 قفل گیرکرده ربات Deploy را رفع می‌کند: عملیات دارای شناسه یکتا و Task قابل لغو است، Build منتظر Runner پس از مهلت آزاد می‌شود و مدیر دکمه آزادسازی دستی دارد.",
+  "android_version": "3.0.30",
+  "android_version_code": 30030,
+  "description": "BlueVPN 3.0.30 ساخت APK را پس از ثبت سورس مستقیماً با workflow_dispatch اجرا می‌کند؛ بنابراین Build دیگر به رخداد Push وابسته نیست و ربات اختلاف Commit فعلی با آخرین Build را تشخیص می‌دهد.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -217,8 +217,14 @@
     "deploy-bot-manual-unlock",
     "deploy-bot-stale-lock-watchdog",
     "github-runner-queue-timeout",
-    "safe-job-replacement"
+    "safe-job-replacement",
+    "deploy-bot-explicit-workflow-dispatch",
+    "deploy-bot-auto-enable-workflow",
+    "deploy-bot-branch-head-build-verification",
+    "deploy-bot-new-run-id-filter",
+    "deploy-bot-source-ahead-status",
+    "deploy-bot-no-empty-trigger-commits"
   ],
-  "version_code": 30029,
-  "notes": "Deploy bot stale lock auto-recovery and manual unlock\nRemoves the queue:max experiment and restores cancel-in-progress:true so stale queued runs cannot block the latest BlueVPN build. GitHub hosted-runner availability remains external to the project."
+  "version_code": 30030,
+  "notes": "Explicit GitHub Actions workflow_dispatch after verified source push. The bot no longer depends on push-event delivery, does not create empty trigger commits, ignores old workflow runs, and reports when the branch head has not been built."
 }

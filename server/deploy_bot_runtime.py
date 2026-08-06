@@ -40,8 +40,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bluevpn-one-click-bot")
 
-DEPLOY_BOT_VERSION = "3.1-known-good-workflow-restore"
-BUILD_TRIGGER_MODE = "verified-source-commit-push-stable-workflow"
+DEPLOY_BOT_VERSION = "3.2-stale-lock-auto-recovery"
+BUILD_TRIGGER_MODE = "verified-source-push-with-stale-lock-recovery"
 
 
 def _env_int(name: str, default: int, minimum: int = 1) -> int:
@@ -110,6 +110,26 @@ MAX_ZIP_MB = int(os.getenv("MAX_ZIP_MB", "50"))
 MAX_EXTRACTED_MB = int(os.getenv("MAX_EXTRACTED_MB", "900"))
 MAX_FILES = int(os.getenv("MAX_FILES", "25000"))
 BUILD_TIMEOUT_SECONDS = int(os.getenv("BUILD_TIMEOUT_SECONDS", "5400"))
+RUN_DISCOVERY_TIMEOUT_SECONDS = _env_int(
+    "RUN_DISCOVERY_TIMEOUT_SECONDS",
+    300,
+    minimum=60,
+)
+RUNNER_QUEUE_TIMEOUT_SECONDS = _env_int(
+    "RUNNER_QUEUE_TIMEOUT_SECONDS",
+    900,
+    minimum=120,
+)
+JOB_STALE_TIMEOUT_SECONDS = _env_int(
+    "JOB_STALE_TIMEOUT_SECONDS",
+    1800,
+    minimum=300,
+)
+JOB_CRITICAL_GRACE_SECONDS = _env_int(
+    "JOB_CRITICAL_GRACE_SECONDS",
+    900,
+    minimum=120,
+)
 GITHUB_API_VERSION = "2022-11-28"
 GITHUB_API = "https://api.github.com"
 
@@ -136,6 +156,140 @@ DELETE_MANIFEST = ".bluevpn-delete"
 
 ACTIVE_CHAT_JOBS: set[int] = set()
 ACTIVE_JOB_STATUS: dict[int, str] = {}
+ACTIVE_JOB_TASKS: dict[int, asyncio.Task[Any]] = {}
+ACTIVE_JOB_TOKENS: dict[int, str] = {}
+ACTIVE_JOB_STARTED_AT: dict[int, float] = {}
+ACTIVE_JOB_UPDATED_AT: dict[int, float] = {}
+ACTIVE_JOB_COMMITS: dict[int, str] = {}
+ACTIVE_JOB_RUN_IDS: dict[int, int] = {}
+
+
+def _register_job(job_key: int, status: str) -> str:
+    token = secrets.token_hex(12)
+    now = time.monotonic()
+    ACTIVE_CHAT_JOBS.add(job_key)
+    ACTIVE_JOB_TOKENS[job_key] = token
+    ACTIVE_JOB_STATUS[job_key] = status
+    ACTIVE_JOB_STARTED_AT[job_key] = now
+    ACTIVE_JOB_UPDATED_AT[job_key] = now
+    ACTIVE_JOB_COMMITS.pop(job_key, None)
+    ACTIVE_JOB_RUN_IDS.pop(job_key, None)
+    return token
+
+
+def _set_job_status(
+    job_key: int,
+    token: str,
+    status: str,
+    *,
+    commit: str | None = None,
+    run_id: int | None = None,
+) -> bool:
+    if ACTIVE_JOB_TOKENS.get(job_key) != token:
+        return False
+    ACTIVE_JOB_STATUS[job_key] = status
+    ACTIVE_JOB_UPDATED_AT[job_key] = time.monotonic()
+    if commit:
+        ACTIVE_JOB_COMMITS[job_key] = commit
+    if run_id:
+        ACTIVE_JOB_RUN_IDS[job_key] = int(run_id)
+    return True
+
+
+def _clear_job(job_key: int, token: str | None = None) -> bool:
+    current = ACTIVE_JOB_TOKENS.get(job_key)
+    if token is not None and current != token:
+        return False
+    ACTIVE_CHAT_JOBS.discard(job_key)
+    ACTIVE_JOB_STATUS.pop(job_key, None)
+    ACTIVE_JOB_TASKS.pop(job_key, None)
+    ACTIVE_JOB_TOKENS.pop(job_key, None)
+    ACTIVE_JOB_STARTED_AT.pop(job_key, None)
+    ACTIVE_JOB_UPDATED_AT.pop(job_key, None)
+    ACTIVE_JOB_COMMITS.pop(job_key, None)
+    ACTIVE_JOB_RUN_IDS.pop(job_key, None)
+    return True
+
+
+def _reconcile_finished_job(job_key: int) -> None:
+    task = ACTIVE_JOB_TASKS.get(job_key)
+    if job_key in ACTIVE_CHAT_JOBS and task is not None and task.done():
+        _clear_job(job_key, ACTIVE_JOB_TOKENS.get(job_key))
+
+
+def _job_age_seconds(job_key: int) -> int:
+    started = ACTIVE_JOB_STARTED_AT.get(job_key)
+    if started is None:
+        return 0
+    return max(0, int(time.monotonic() - started))
+
+
+def _job_is_waiting(status: str) -> bool:
+    normalized = status.strip().lower()
+    return any(
+        marker in normalized
+        for marker in (
+            "منتظر build",
+            "در صف github",
+            "منتظر runner",
+            "queued",
+            "waiting",
+        )
+    )
+
+
+def _job_is_critical(status: str) -> bool:
+    normalized = status.strip().lower()
+    return any(
+        marker in normalized
+        for marker in (
+            "نصب فایل‌ها روی github",
+            "ایجاد commit",
+            "شروع build با commit",
+        )
+    )
+
+
+async def _cancel_github_run(run_id: int | None) -> bool:
+    if not run_id:
+        return False
+    response = await gh_request(
+        "POST",
+        f"/repos/{OWNER}/{REPO}/actions/runs/{int(run_id)}/cancel",
+    )
+    return response.status_code in {202, 409}
+
+
+async def _cancel_active_job(
+    job_key: int,
+    *,
+    reason: str,
+    force: bool = False,
+) -> tuple[bool, str]:
+    _reconcile_finished_job(job_key)
+    if job_key not in ACTIVE_CHAT_JOBS:
+        return False, "عملیات فعالی وجود ندارد."
+
+    status = ACTIVE_JOB_STATUS.get(job_key, "نامشخص")
+    age = _job_age_seconds(job_key)
+    if _job_is_critical(status) and age < JOB_CRITICAL_GRACE_SECONDS and not force:
+        return False, (
+            "عملیات اکنون در مرحله ثبت فایل‌ها روی GitHub است و آزادسازی فوری "
+            "می‌تواند دو Push هم‌زمان بسازد. چند دقیقه بعد دوباره امتحان کن."
+        )
+
+    token = ACTIVE_JOB_TOKENS.get(job_key)
+    run_id = ACTIVE_JOB_RUN_IDS.get(job_key)
+    task = ACTIVE_JOB_TASKS.get(job_key)
+    if task is not None and not task.done():
+        task.cancel()
+    try:
+        await _cancel_github_run(run_id)
+    except Exception as exc:
+        logger.warning("Could not cancel GitHub run %s: %s", run_id, redact(str(exc)))
+    _clear_job(job_key, token)
+    logger.info("Released deploy lock for chat %s: %s", job_key, reason)
+    return True, "قفل عملیات آزاد شد و Build قبلی در صورت امکان لغو شد."
 
 
 def keyboard() -> ReplyKeyboardMarkup:
@@ -144,7 +298,7 @@ def keyboard() -> ReplyKeyboardMarkup:
             ["📦 نصب و ساخت خودکار"],
             ["🟡 صف GuardCore", "📊 وضعیت"],
             ["🛠 ساخت دوباره", "⬇️ دریافت آخرین APK"],
-            ["🔐 بررسی امضا"],
+            ["🔓 آزادسازی عملیات", "🔐 بررسی امضا"],
         ],
         resize_keyboard=True,
     )
@@ -789,9 +943,14 @@ async def workflow_runs() -> list[dict[str, Any]]:
 async def wait_for_commit_run(
     commit_sha: str | None,
     previous_ids: set[int],
+    *,
+    job_key: int | None = None,
+    job_token: str | None = None,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + BUILD_TIMEOUT_SECONDS
+    discovery_deadline = time.monotonic() + RUN_DISCOVERY_TIMEOUT_SECONDS
     selected: dict[str, Any] | None = None
+    queued_since: float | None = None
 
     while time.monotonic() < deadline:
         runs = await workflow_runs()
@@ -804,8 +963,41 @@ async def wait_for_commit_run(
                 break
 
         if selected:
-            if selected.get("status") == "completed":
+            run_id = int(selected.get("id") or 0)
+            run_number = selected.get("run_number") or "?"
+            run_status = str(selected.get("status") or "queued")
+            if job_key is not None and job_token is not None:
+                if run_status == "in_progress":
+                    label = f"Build #{run_number} در حال اجرا"
+                elif run_status == "completed":
+                    label = f"Build #{run_number} کامل شد"
+                else:
+                    label = f"Build #{run_number} در صف GitHub؛ منتظر Runner"
+                _set_job_status(
+                    job_key,
+                    job_token,
+                    label,
+                    commit=commit_sha,
+                    run_id=run_id or None,
+                )
+
+            if run_status == "completed":
                 return selected
+
+            if run_status in {"queued", "waiting", "pending", "requested"}:
+                queued_since = queued_since or time.monotonic()
+                if time.monotonic() - queued_since >= RUNNER_QUEUE_TIMEOUT_SECONDS:
+                    try:
+                        await _cancel_github_run(run_id)
+                    except Exception:
+                        logger.exception("Could not cancel stale queued GitHub run")
+                    raise RuntimeError(
+                        "GitHub در مهلت تعیین‌شده هیچ Runnerی به Build اختصاص نداد. "
+                        "قفل ربات خودکار آزاد شد؛ بعداً دوباره Build را اجرا کن."
+                    )
+            else:
+                queued_since = None
+
             await asyncio.sleep(12)
             refreshed = await gh_request(
                 "GET",
@@ -816,9 +1008,21 @@ async def wait_for_commit_run(
                 if selected.get("status") == "completed":
                     return selected
         else:
+            if time.monotonic() >= discovery_deadline:
+                raise RuntimeError(
+                    "پس از ثبت Commit، اجرای GitHub Actions ایجاد نشد. "
+                    "قفل ربات آزاد شد و ارسال دوباره ZIP امکان‌پذیر است."
+                )
+            if job_key is not None and job_token is not None:
+                _set_job_status(
+                    job_key,
+                    job_token,
+                    "منتظر ایجاد Build در GitHub",
+                    commit=commit_sha,
+                )
             await asyncio.sleep(8)
 
-    raise RuntimeError("زمان انتظار برای پایان Build تمام شد.")
+    raise RuntimeError("زمان انتظار برای پایان Build تمام شد و قفل ربات آزاد شد.")
 
 
 async def download_apks(run_id: int) -> tuple[list[Path], tempfile.TemporaryDirectory]:
@@ -954,14 +1158,15 @@ async def process_zip_job(
     zip_path: Path,
     progress,
     job_key: int,
+    job_token: str,
     work_dir: Path,
 ) -> None:
     try:
-        ACTIVE_JOB_STATUS[job_key] = "خواندن آخرین Buildهای GitHub"
+        _set_job_status(job_key, job_token, "خواندن آخرین Buildهای GitHub")
         previous_runs = await workflow_runs()
         previous_ids = {int(run["id"]) for run in previous_runs}
 
-        ACTIVE_JOB_STATUS[job_key] = "نصب فایل‌ها روی GitHub"
+        _set_job_status(job_key, job_token, "نصب فایل‌ها روی GitHub")
         await progress.edit_text(
             "📤 در حال نصب پروژه روی GitHub...\n\n"
             "بررسی Secretها رد شد؛ عملیات مستقیم ادامه دارد."
@@ -971,7 +1176,11 @@ async def process_zip_job(
         commit = str(deployed["commit"])
 
         if not deployed["changed"]:
-            ACTIVE_JOB_STATUS[job_key] = "ایجاد Commit تأییدشده برای شروع Build"
+            _set_job_status(
+                job_key,
+                job_token,
+                "ایجاد Commit تأییدشده برای شروع Build",
+            )
             await progress.edit_text(
                 "ℹ️ فایل‌ها تغییری نداشتند؛ یک Commit تأییدشده روی شاخه "
                 f"{GIT_BRANCH} می‌سازم تا Build شروع شود..."
@@ -984,8 +1193,11 @@ async def process_zip_job(
             commit_url = str(deployed["commit_url"])
 
         changed_count = len(deployed.get("changed_files") or [])
-        ACTIVE_JOB_STATUS[job_key] = (
-            f"GitHub تأیید شد؛ منتظر Build {commit_for_run[:8]}"
+        _set_job_status(
+            job_key,
+            job_token,
+            f"GitHub تأیید شد؛ منتظر Build {commit_for_run[:8]}",
+            commit=commit_for_run,
         )
         await progress.edit_text(
             "✅ فایل‌ها واقعاً روی GitHub ثبت و SHA شاخه تأیید شد.\n"
@@ -995,13 +1207,18 @@ async def process_zip_job(
             f"Commit: {commit_for_run[:8]}\n"
             f"{commit_url}\n\n"
             "🛠 Build فقط از همین Commit اجرا می‌شود.\n"
-            "ربات قفل نیست؛ دکمه «📊 وضعیت» را می‌توانی بزنید."
+            "در صورت گیرکردن Runner، دکمه «🔓 آزادسازی عملیات» فعال است."
         )
 
-        run = await wait_for_commit_run(commit_for_run, previous_ids)
+        run = await wait_for_commit_run(
+            commit_for_run,
+            previous_ids,
+            job_key=job_key,
+            job_token=job_token,
+        )
 
         if run.get("conclusion") != "success":
-            ACTIVE_JOB_STATUS[job_key] = "Build ناموفق"
+            _set_job_status(job_key, job_token, "Build ناموفق")
             await progress.edit_text(
                 "❌ Build ناموفق بود.\n"
                 f"نتیجه: {run.get('conclusion')}\n"
@@ -1010,14 +1227,14 @@ async def process_zip_job(
             )
             return
 
-        ACTIVE_JOB_STATUS[job_key] = "دریافت و ارسال APK"
+        _set_job_status(job_key, job_token, "دریافت و ارسال APK")
         await progress.edit_text(
             "✅ Build موفق شد.\n"
             "⬇️ در حال دریافت و ارسال APK..."
         )
         await send_apks(update, context, run)
 
-        ACTIVE_JOB_STATUS[job_key] = "کامل شد"
+        _set_job_status(job_key, job_token, "کامل شد")
         await progress.edit_text(
             "🎉 <b>عملیات کامل شد</b>\n\n"
             "APK جدید در پیام‌های بالا ارسال شد.",
@@ -1025,23 +1242,30 @@ async def process_zip_job(
             reply_markup=keyboard(),
         )
     except asyncio.CancelledError:
-        ACTIVE_JOB_STATUS[job_key] = "عملیات لغو شد"
+        _set_job_status(job_key, job_token, "عملیات لغو شد")
+        try:
+            await progress.edit_text(
+                "🛑 عملیات قبلی لغو شد و قفل ربات آزاد است.",
+                reply_markup=keyboard(),
+            )
+        except Exception:
+            pass
         raise
     except Exception as exc:
         logger.exception("Background deploy/build failed")
-        ACTIVE_JOB_STATUS[job_key] = "خطا"
+        _set_job_status(job_key, job_token, "خطا")
         try:
             await progress.edit_text(
                 "❌ عملیات خودکار ناموفق بود.\n\n"
-                f"<code>{redact(str(exc))[-3000:]}</code>",
+                f"<code>{redact(str(exc))[-3000:]}</code>\n\n"
+                "✅ قفل ربات آزاد شد و می‌توانی ZIP را دوباره بفرستی.",
                 parse_mode=ParseMode.HTML,
                 reply_markup=keyboard(),
             )
         except Exception:
             logger.exception("Could not update deploy progress message")
     finally:
-        ACTIVE_CHAT_JOBS.discard(job_key)
-        ACTIVE_JOB_STATUS.pop(job_key, None)
+        _clear_job(job_key, job_token)
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
@@ -1064,21 +1288,43 @@ async def receive_zip(
         return
 
     job_key = int(update.effective_chat.id)
+    _reconcile_finished_job(job_key)
     if job_key in ACTIVE_CHAT_JOBS:
-        await update.effective_message.reply_text(
-            "⏳ یک نصب یا Build از قبل در حال اجراست.\n"
-            "دکمه «📊 وضعیت» را بزن.",
-            reply_markup=keyboard(),
-        )
-        return
+        old_status = ACTIVE_JOB_STATUS.get(job_key, "نامشخص")
+        old_age = _job_age_seconds(job_key)
+        if _job_is_waiting(old_status) or old_age >= JOB_STALE_TIMEOUT_SECONDS:
+            released, message = await _cancel_active_job(
+                job_key,
+                reason="جایگزینی با ZIP جدید",
+                force=old_age >= JOB_STALE_TIMEOUT_SECONDS,
+            )
+            if released:
+                await update.effective_message.reply_text(
+                    "♻️ عملیات قبلی که در انتظار Build مانده بود متوقف شد.\n"
+                    "ZIP جدید جای آن نصب می‌شود.",
+                    reply_markup=keyboard(),
+                )
+            else:
+                await update.effective_message.reply_text(
+                    f"⏳ {message}",
+                    reply_markup=keyboard(),
+                )
+                return
+        else:
+            await update.effective_message.reply_text(
+                "⏳ یک نصب یا Build از قبل در حال اجراست.\n"
+                f"مرحله: {old_status}\n"
+                f"مدت: {old_age // 60} دقیقه\n\n"
+                "برای توقف امن، دکمه «🔓 آزادسازی عملیات» را بزن.",
+                reply_markup=keyboard(),
+            )
+            return
 
     progress = await update.effective_message.reply_text(
         "📥 در حال دریافت ZIP..."
     )
 
-    work_dir = Path(
-        tempfile.mkdtemp(prefix="bluevpn-background-upload-")
-    )
+    work_dir = Path(tempfile.mkdtemp(prefix="bluevpn-background-upload-"))
     zip_path = work_dir / "project.zip"
 
     try:
@@ -1093,25 +1339,25 @@ async def receive_zip(
         )
         return
 
-    ACTIVE_CHAT_JOBS.add(job_key)
-    ACTIVE_JOB_STATUS[job_key] = "شروع عملیات"
-
-    context.application.create_task(
+    job_token = _register_job(job_key, "شروع عملیات")
+    task = context.application.create_task(
         process_zip_job(
             update=update,
             context=context,
             zip_path=zip_path,
             progress=progress,
             job_key=job_key,
+            job_token=job_token,
             work_dir=work_dir,
         ),
         update=update,
-        name=f"bluevpn-deploy-{job_key}",
+        name=f"bluevpn-deploy-{job_key}-{job_token[:6]}",
     )
+    ACTIVE_JOB_TASKS[job_key] = task
 
     await progress.edit_text(
         "✅ ZIP دریافت شد و عملیات در پس‌زمینه شروع شد.\n\n"
-        "مرحله بررسی Secretها کاملاً حذف شده است.",
+        "اگر GitHub Runner گیر کند، قفل بعد از مهلت خودکار آزاد می‌شود.",
         reply_markup=keyboard(),
     )
 
@@ -1121,13 +1367,14 @@ async def process_rebuild_job(
     context: ContextTypes.DEFAULT_TYPE,
     progress,
     job_key: int,
+    job_token: str,
 ) -> None:
     try:
-        ACTIVE_JOB_STATUS[job_key] = "خواندن Buildهای GitHub"
+        _set_job_status(job_key, job_token, "خواندن Buildهای GitHub")
         previous_runs = await workflow_runs()
         previous_ids = {int(run["id"]) for run in previous_runs}
 
-        ACTIVE_JOB_STATUS[job_key] = "شروع Build با Commit تأییدشده"
+        _set_job_status(job_key, job_token, "شروع Build با Commit تأییدشده")
         trigger = await dispatch_build()
         commit_sha = trigger["commit"]
 
@@ -1137,16 +1384,24 @@ async def process_rebuild_job(
             f"شاخه: {GIT_BRANCH}\n"
             f"Commit: {commit_sha[:8]}\n"
             f"{trigger['commit_url']}\n\n"
-            "GitHub SHA شاخه را تأیید کرده و ربات همچنان پاسخ‌گو است."
+            "در صورت گیرکردن Runner، قفل خودکار آزاد خواهد شد."
         )
 
-        ACTIVE_JOB_STATUS[job_key] = (
-            f"منتظر Build مربوط به {commit_sha[:8]}"
+        _set_job_status(
+            job_key,
+            job_token,
+            f"منتظر Build مربوط به {commit_sha[:8]}",
+            commit=commit_sha,
         )
-        run = await wait_for_commit_run(commit_sha, previous_ids)
+        run = await wait_for_commit_run(
+            commit_sha,
+            previous_ids,
+            job_key=job_key,
+            job_token=job_token,
+        )
 
         if run.get("conclusion") != "success":
-            ACTIVE_JOB_STATUS[job_key] = "Build ناموفق"
+            _set_job_status(job_key, job_token, "Build ناموفق")
             await progress.edit_text(
                 f"❌ Build ناموفق بود: {run.get('conclusion')}\n"
                 f"{run.get('html_url', '')}",
@@ -1154,31 +1409,29 @@ async def process_rebuild_job(
             )
             return
 
-        ACTIVE_JOB_STATUS[job_key] = "ارسال APK"
-        await progress.edit_text(
-            "✅ Build موفق شد؛ در حال ارسال APK..."
-        )
+        _set_job_status(job_key, job_token, "ارسال APK")
+        await progress.edit_text("✅ Build موفق شد؛ در حال ارسال APK...")
         await send_apks(update, context, run)
         await progress.edit_text(
             "✅ APK با موفقیت ارسال شد.",
             reply_markup=keyboard(),
         )
     except asyncio.CancelledError:
-        ACTIVE_JOB_STATUS[job_key] = "عملیات لغو شد"
+        _set_job_status(job_key, job_token, "عملیات لغو شد")
         raise
     except Exception as exc:
         logger.exception("Background rebuild failed")
-        ACTIVE_JOB_STATUS[job_key] = "خطا"
+        _set_job_status(job_key, job_token, "خطا")
         try:
             await progress.edit_text(
-                f"❌ {redact(str(exc))[-2800:]}",
+                f"❌ {redact(str(exc))[-2800:]}\n\n"
+                "✅ قفل ربات آزاد شد.",
                 reply_markup=keyboard(),
             )
         except Exception:
             logger.exception("Could not update rebuild progress")
     finally:
-        ACTIVE_CHAT_JOBS.discard(job_key)
-        ACTIVE_JOB_STATUS.pop(job_key, None)
+        _clear_job(job_key, job_token)
 
 
 async def rebuild(
@@ -1190,10 +1443,15 @@ async def rebuild(
         return
 
     job_key = int(update.effective_chat.id)
+    _reconcile_finished_job(job_key)
     if job_key in ACTIVE_CHAT_JOBS:
+        status_text = ACTIVE_JOB_STATUS.get(job_key, "نامشخص")
+        age = _job_age_seconds(job_key)
         await update.effective_message.reply_text(
             "⏳ یک عملیات از قبل در حال اجراست.\n"
-            "دکمه «📊 وضعیت» را بزن.",
+            f"مرحله: {status_text}\n"
+            f"مدت: {age // 60} دقیقه\n\n"
+            "دکمه «🔓 آزادسازی عملیات» را بزن.",
             reply_markup=keyboard(),
         )
         return
@@ -1202,18 +1460,37 @@ async def rebuild(
         "🛠 درخواست Build ثبت شد..."
     )
 
-    ACTIVE_CHAT_JOBS.add(job_key)
-    ACTIVE_JOB_STATUS[job_key] = "شروع Build"
-
-    context.application.create_task(
+    job_token = _register_job(job_key, "شروع Build")
+    task = context.application.create_task(
         process_rebuild_job(
             update=update,
             context=context,
             progress=progress,
             job_key=job_key,
+            job_token=job_token,
         ),
         update=update,
-        name=f"bluevpn-rebuild-{job_key}",
+        name=f"bluevpn-rebuild-{job_key}-{job_token[:6]}",
+    )
+    ACTIVE_JOB_TASKS[job_key] = task
+
+
+async def unlock(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> None:
+    if not is_admin(update.effective_user.id if update.effective_user else None):
+        await deny(update)
+        return
+    job_key = int(update.effective_chat.id)
+    released, message = await _cancel_active_job(
+        job_key,
+        reason="آزادسازی دستی توسط مدیر",
+    )
+    prefix = "✅" if released else "ℹ️"
+    await update.effective_message.reply_text(
+        f"{prefix} {message}",
+        reply_markup=keyboard(),
     )
 
 
@@ -1226,14 +1503,20 @@ async def status(
         return
 
     job_key = int(update.effective_chat.id)
+    _reconcile_finished_job(job_key)
     local_status = ACTIVE_JOB_STATUS.get(job_key, "بیکار")
+    age = _job_age_seconds(job_key)
+    local_line = (
+        f"عملیات ربات: {local_status}"
+        + (f"\nمدت عملیات: {age // 60} دقیقه" if job_key in ACTIVE_CHAT_JOBS else "")
+    )
 
     try:
         runs = await workflow_runs()
         if not runs:
             await update.effective_message.reply_text(
                 "📊 وضعیت ربات\n\n"
-                f"عملیات ربات: {local_status}\n"
+                f"{local_line}\n"
                 "هنوز Buildی در GitHub وجود ندارد.",
                 reply_markup=keyboard(),
             )
@@ -1242,17 +1525,18 @@ async def status(
         run = runs[0]
         await update.effective_message.reply_text(
             "📊 وضعیت BlueVPN\n\n"
-            f"عملیات ربات: {local_status}\n"
+            f"{local_line}\n"
             f"وضعیت GitHub: {run.get('status')}\n"
             f"نتیجه: {run.get('conclusion') or 'در انتظار'}\n"
             f"شماره Build: #{run.get('run_number')}\n"
-            f"{run.get('html_url', '')}",
+            f"{run.get('html_url', '')}\n\n"
+            "برای توقف Build گیرکرده: 🔓 آزادسازی عملیات",
             reply_markup=keyboard(),
         )
     except Exception as exc:
         await update.effective_message.reply_text(
             "📊 وضعیت ربات\n\n"
-            f"عملیات ربات: {local_status}\n"
+            f"{local_line}\n"
             "خواندن وضعیت GitHub ناموفق بود:\n"
             f"{redact(str(exc))[-1800:]}",
             reply_markup=keyboard(),
@@ -1377,6 +1661,35 @@ async def _guardcore_notification_loop(application: Application) -> None:
         await asyncio.sleep(60)
 
 
+async def _deploy_lock_watchdog_loop(application: Application) -> None:
+    while True:
+        await asyncio.sleep(60)
+        for job_key in list(ACTIVE_CHAT_JOBS):
+            _reconcile_finished_job(job_key)
+            if job_key not in ACTIVE_CHAT_JOBS:
+                continue
+            age = _job_age_seconds(job_key)
+            if age < JOB_STALE_TIMEOUT_SECONDS:
+                continue
+            released, _ = await _cancel_active_job(
+                job_key,
+                reason="آزادسازی خودکار قفل قدیمی توسط Watchdog",
+                force=True,
+            )
+            if released:
+                try:
+                    await application.bot.send_message(
+                        chat_id=job_key,
+                        text=(
+                            "🧹 عملیات قدیمی بیش از حد مجاز طول کشید و قفل ربات "
+                            "به‌صورت خودکار آزاد شد. اکنون می‌توانی ZIP را دوباره بفرستی."
+                        ),
+                        reply_markup=keyboard(),
+                    )
+                except Exception:
+                    logger.exception("Could not notify chat after stale lock cleanup")
+
+
 async def bot_post_init(application: Application) -> None:
     # Recover activations created while the bot was restarting and also
     # repair recent activated orders that missed the old plan-only trigger.
@@ -1384,6 +1697,10 @@ async def bot_post_init(application: Application) -> None:
     application.create_task(
         _guardcore_notification_loop(application),
         name='guardcore-notification-retry',
+    )
+    application.create_task(
+        _deploy_lock_watchdog_loop(application),
+        name='deploy-lock-watchdog',
     )
 
 
@@ -1569,6 +1886,8 @@ async def text_router(
         await rebuild(update, context)
     elif text == "📊 وضعیت":
         await status(update, context)
+    elif text == "🔓 آزادسازی عملیات":
+        await unlock(update, context)
     elif text == "⬇️ دریافت آخرین APK":
         await latest(update, context)
     elif text == "🔐 بررسی امضا":
@@ -1593,6 +1912,7 @@ def build_application() -> Application:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("build", rebuild))
     app.add_handler(CommandHandler("status", status))
+    app.add_handler(CommandHandler("unlock", unlock))
     app.add_handler(CommandHandler("latest", latest))
     app.add_handler(CommandHandler("signing", signing_status))
     app.add_handler(CommandHandler("guardcore", guardcore_queue))

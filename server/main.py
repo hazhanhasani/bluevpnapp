@@ -9,7 +9,7 @@ from fastapi import Depends,FastAPI,Form,Header,HTTPException,Request
 from fastapi.responses import FileResponse,HTMLResponse,JSONResponse,RedirectResponse,Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func,select
+from sqlalchemy import delete,func,select
 from sqlalchemy.orm import Session,selectinload
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
@@ -26,9 +26,10 @@ from .manual_guardcore import (
     set_manual_decision,
 )
 from .github_release import github_repository,latest_github_release
-from .models import AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,PasarGuardPanel,PaymentSetting,Plan,WebhookDelivery,AiConnectionEvent,AiRouteAggregate,AiFeedback
+from .models import AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,OtpChallenge,PasarGuardPanel,PaymentSetting,Plan,SmsSetting,WebhookDelivery,AiConnectionEvent,AiRouteAggregate,AiFeedback
 from .blueai import admin_overview as blueai_admin_overview, customer_dashboard as blueai_customer_dashboard, recommendations as blueai_recommendations, submit_event as blueai_submit_event, submit_feedback as blueai_submit_feedback
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
+from .sms import SmsError,local_phone,normalize_iran_phone,send_pattern_otp,sms_setting_ready
 from .version import VERSION, VERSION_CODE
 from .time_locale import TEHRAN_ZONE_NAME, format_jalali
 BASE=Path(__file__).resolve().parent
@@ -310,6 +311,7 @@ async def startup():
     try:
         if not db.get(AppSetting,1):db.add(AppSetting(id=1,payload=json.dumps(DEFAULT,ensure_ascii=False)))
         if not db.get(PaymentSetting,1):db.add(PaymentSetting(id=1))
+        if not db.get(SmsSetting,1):db.add(SmsSetting(id=1))
         db.commit()
         try:
             repair=repair_subscription_states(db)
@@ -342,6 +344,35 @@ def email_ok(raw:str)->str:
     e=raw.strip().lower()
     if len(e)>255 or not re.fullmatch(r"[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}",e):raise HTTPException(422,detail={'code':'INVALID_EMAIL','message':'ایمیل معتبر نیست'})
     return e
+
+def phone_ok(raw:str)->str:
+    try:
+        return normalize_iran_phone(raw)
+    except ValueError as exc:
+        raise HTTPException(422,detail={'code':'INVALID_PHONE','message':str(exc)}) from exc
+
+def phone_internal_email(phone:str)->str:
+    digits=re.sub(r'\D','',phone_ok(phone))
+    return f'phone-{digits}@users.bluevpn.local'
+
+def customer_identity(customer:Customer)->str:
+    return local_phone(customer.phone) if customer.phone else customer.email
+
+def customer_by_identity(db:Session,raw:str)->Customer|None:
+    value=str(raw or '').strip()
+    if not value:return None
+    try:
+        phone=normalize_iran_phone(value)
+    except ValueError:
+        phone=''
+    if phone:
+        found=db.scalar(select(Customer).where(Customer.phone==phone))
+        if found:return found
+    try:
+        email=email_ok(value)
+    except HTTPException:
+        return None
+    return db.scalar(select(Customer).where(Customer.email==email))
 def aware(d:datetime|None):
     if not d:return None
     return d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d.astimezone(timezone.utc)
@@ -914,7 +945,12 @@ def account_json(c:Customer,db:Session|None=None)->dict:
     )
     return {
         'id':c.id,
-        'email':c.email,
+        'email':(c.email if not c.phone else ''),
+        'phone':c.phone or '',
+        'phone_display':local_phone(c.phone) if c.phone else '',
+        'phone_verified':bool(c.phone and c.phone_verified_at),
+        'auth_method':c.auth_method or 'legacy_email',
+        'display_identity':customer_identity(c),
         'active':c.active,
         'plan_id':c.plan_id,
         'server_time':iso_z(now),
@@ -1417,6 +1453,12 @@ async def mobile_config(
             'github_error':github_error,
             'release_cache_seconds':15,
             'release_refresh_forced':bool(refresh),
+            'auth':{
+                'mode':'phone_otp',
+                'password_login':False,
+                'sms_provider':'farazsms_ippanel',
+                'sms_ready':sms_setting_ready(db.get(SmsSetting,1)),
+            },
             'blueai':{
                 'enabled':bool(s.get('blueai_enabled',True)),
                 'collective':bool(s.get('blueai_collective',True)),
@@ -1440,89 +1482,368 @@ async def mobile_config(
             'X-BlueVPN-Update-Source':'github-release',
         },
     )
+OTP_MAX_ATTEMPTS=max(3,min(10,int(os.getenv('AUTH_OTP_MAX_ATTEMPTS','5'))))
+
+
+def _otp_digest_input(challenge_id:str,phone:str,code:str)->str:
+    return f'{challenge_id}:{phone}:{code}'
+
+
+def _otp_code(length:int)->str:
+    digits=max(4,min(8,int(length or 5)))
+    floor=10**(digits-1)
+    return str(secrets.randbelow(9*floor)+floor)
+
+
+def _otp_setting(db:Session)->SmsSetting:
+    setting=db.get(SmsSetting,1)
+    if not sms_setting_ready(setting):
+        raise HTTPException(
+            503,
+            detail={
+                'code':'SMS_NOT_CONFIGURED',
+                'message':'سامانه پیامکی فراز اس‌ام‌اس هنوز در پنل مدیریت تنظیم یا فعال نشده است.',
+            },
+        )
+    return setting
+
+
+async def _create_otp_challenge(
+    request:Request,
+    db:Session,
+    phone_raw:str,
+    device_id:str,
+    purpose:str,
+    customer_id:int|None=None,
+)->dict:
+    phone=phone_ok(phone_raw)
+    device_id=str(device_id or '').strip()[:180]
+    if not device_id:
+        raise HTTPException(422,detail={'code':'DEVICE_ID_REQUIRED','message':'شناسه دستگاه لازم است'})
+    setting=_otp_setting(db)
+    now=utcnow()
+    retention_days=max(1,min(90,int(os.getenv('AUTH_OTP_RETENTION_DAYS','7'))))
+    db.execute(
+        delete(OtpChallenge).where(
+            OtpChallenge.expires_at < now-timedelta(days=retention_days)
+        )
+    )
+    phone_key=hashlib.sha256(phone.encode()).hexdigest()[:20]
+    window=max(300,int(os.getenv('AUTH_OTP_RATE_WINDOW_SECONDS','600')))
+    retry=max(
+        AUTH_LIMITER.hit(
+            f'otp-request-ip:{client_ip(request)}',
+            int(os.getenv('AUTH_OTP_IP_RATE_LIMIT','30')),
+            window,
+        ),
+        AUTH_LIMITER.hit(
+            f'otp-request-phone:{phone_key}',
+            int(os.getenv('AUTH_OTP_PHONE_RATE_LIMIT','5')),
+            window,
+        ),
+    )
+    if retry:raise rate_limit_exception(retry)
+
+    resend=max(30,min(600,int(setting.resend_seconds or 60)))
+    latest=db.scalar(
+        select(OtpChallenge)
+        .where(
+            OtpChallenge.phone==phone,
+            OtpChallenge.purpose==purpose,
+            OtpChallenge.consumed_at.is_(None),
+        )
+        .order_by(OtpChallenge.created_at.desc())
+    )
+    if latest:
+        age=max(0,int((now-(aware(latest.created_at) or now)).total_seconds()))
+        if age<resend:
+            wait=resend-age
+            raise HTTPException(
+                429,
+                detail={
+                    'code':'OTP_RESEND_WAIT',
+                    'message':f'{wait} ثانیه تا ارسال دوباره کد صبر کنید.',
+                    'retry_after_seconds':wait,
+                },
+                headers={'Retry-After':str(wait)},
+            )
+
+    for old in db.scalars(
+        select(OtpChallenge).where(
+            OtpChallenge.phone==phone,
+            OtpChallenge.purpose==purpose,
+            OtpChallenge.consumed_at.is_(None),
+        )
+    ).all():
+        old.consumed_at=now
+
+    challenge_id=str(uuid.uuid4())
+    code=_otp_code(setting.otp_length)
+    ttl=max(60,min(600,int(setting.otp_ttl_seconds or 120)))
+    challenge=OtpChallenge(
+        id=challenge_id,
+        phone=phone,
+        purpose=purpose,
+        customer_id=customer_id,
+        device_id=device_id,
+        code_hash=password_hash(_otp_digest_input(challenge_id,phone,code)),
+        attempts=0,
+        max_attempts=OTP_MAX_ATTEMPTS,
+        expires_at=now+timedelta(seconds=ttl),
+    )
+    db.add(challenge)
+    try:
+        await send_pattern_otp(setting,phone,code)
+    except SmsError as exc:
+        db.rollback()
+        logger.warning('Faraz SMS OTP send failed phone_hash=%s: %s',phone_key,exc)
+        raise HTTPException(
+            502,
+            detail={'code':'SMS_SEND_FAILED','message':str(exc)[:500]},
+        ) from exc
+    db.commit()
+    return {
+        'success':True,
+        'challenge_id':challenge.id,
+        'phone':local_phone(phone),
+        'expires_in_seconds':ttl,
+        'resend_after_seconds':resend,
+        'message':'کد تأیید برای شماره شما ارسال شد.',
+    }
+
+
+def _consume_otp(
+    db:Session,
+    *,
+    phone_raw:str,
+    challenge_id:str,
+    code:str,
+    device_id:str,
+    purpose:str,
+    customer_id:int|None=None,
+)->tuple[OtpChallenge,str]:
+    phone=phone_ok(phone_raw)
+    challenge=db.scalar(
+        select(OtpChallenge)
+        .where(
+            OtpChallenge.id==str(challenge_id or '').strip(),
+            OtpChallenge.phone==phone,
+            OtpChallenge.purpose==purpose,
+        )
+        .with_for_update()
+    )
+    now=utcnow()
+    if not challenge:
+        raise HTTPException(404,detail={'code':'OTP_NOT_FOUND','message':'درخواست کد تأیید پیدا نشد.'})
+    if customer_id is not None and challenge.customer_id!=customer_id:
+        raise HTTPException(403,detail={'code':'OTP_ACCOUNT_MISMATCH','message':'این کد برای حساب دیگری صادر شده است.'})
+    if challenge.device_id and challenge.device_id!=str(device_id or '').strip()[:180]:
+        raise HTTPException(401,detail={'code':'OTP_DEVICE_MISMATCH','message':'کد باید روی همان دستگاه درخواست‌کننده تأیید شود.'})
+    if challenge.consumed_at:
+        raise HTTPException(410,detail={'code':'OTP_ALREADY_USED','message':'این کد قبلاً استفاده شده است.'})
+    if aware(challenge.expires_at)<=now:
+        challenge.consumed_at=now
+        db.commit()
+        raise HTTPException(410,detail={'code':'OTP_EXPIRED','message':'مهلت کد تأیید پایان یافته است؛ کد جدید بگیرید.'})
+    if challenge.attempts>=challenge.max_attempts:
+        challenge.consumed_at=now
+        db.commit()
+        raise HTTPException(429,detail={'code':'OTP_LOCKED','message':'تعداد تلاش‌های ناموفق زیاد بود؛ کد جدید بگیرید.'})
+    clean_code=re.sub(r'\D','',str(code or '').translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹','0123456789')))
+    challenge.attempts+=1
+    if not password_ok(_otp_digest_input(challenge.id,phone,clean_code),challenge.code_hash):
+        if challenge.attempts>=challenge.max_attempts:
+            challenge.consumed_at=now
+        db.commit()
+        remaining=max(0,challenge.max_attempts-challenge.attempts)
+        raise HTTPException(
+            401,
+            detail={
+                'code':'INVALID_OTP',
+                'message':'کد تأیید نادرست است.',
+                'remaining_attempts':remaining,
+            },
+        )
+    challenge.consumed_at=now
+    db.flush()
+    return challenge,phone
+
+
+@app.post('/api/v1/auth/otp/request')
+async def request_auth_otp(request:Request,db:Session=Depends(get_db)):
+    body=await request.json()
+    return await _create_otp_challenge(
+        request,
+        db,
+        str(body.get('phone','')),
+        str(body.get('device_id','')),
+        'auth',
+    )
+
+
+@app.post('/api/v1/auth/otp/verify')
+async def verify_auth_otp(request:Request,db:Session=Depends(get_db)):
+    body=await request.json()
+    device_id=str(body.get('device_id','')).strip()[:180]
+    challenge,phone=_consume_otp(
+        db,
+        phone_raw=str(body.get('phone','')),
+        challenge_id=str(body.get('challenge_id','')),
+        code=str(body.get('code','')),
+        device_id=device_id,
+        purpose='auth',
+    )
+    customer=db.scalar(select(Customer).where(Customer.phone==phone).with_for_update())
+    is_new=False
+    if customer is None:
+        customer=Customer(
+            email=phone_internal_email(phone),
+            password_hash=password_hash(secrets.token_urlsafe(48)),
+            phone=phone,
+            phone_verified_at=utcnow(),
+            auth_method='phone_otp',
+            device_limit=1,
+        )
+        db.add(customer)
+        db.flush()
+        is_new=True
+    else:
+        if not customer.active:
+            db.commit()
+            raise HTTPException(401,detail={'code':'ACCOUNT_DISABLED','message':'این حساب غیرفعال شده است.'})
+        customer.phone_verified_at=customer.phone_verified_at or utcnow()
+        customer.auth_method='phone_otp'
+    db.commit()
+    token,refresh_token=issue_session(
+        db,
+        customer,
+        device_id,
+        str(body.get('device_name','')),
+    )
+    return {
+        'success':True,
+        'is_new_account':is_new,
+        'token':token,
+        'refresh_token':refresh_token,
+        'account':account_json(customer,db),
+    }
+
+
+@app.post('/api/v1/account/phone/otp/request')
+async def request_bind_phone_otp(
+    request:Request,
+    customer:Customer=Depends(current_customer),
+    db:Session=Depends(get_db),
+):
+    body=await request.json()
+    phone=phone_ok(str(body.get('phone','')))
+    owner=db.scalar(select(Customer).where(Customer.phone==phone,Customer.id!=customer.id))
+    if owner:
+        raise HTTPException(409,detail={'code':'PHONE_ALREADY_USED','message':'این شماره قبلاً به حساب دیگری متصل شده است.'})
+    return await _create_otp_challenge(
+        request,
+        db,
+        phone,
+        str(body.get('device_id','')),
+        'bind_phone',
+        customer.id,
+    )
+
+
+@app.post('/api/v1/account/phone/otp/verify')
+async def verify_bind_phone_otp(
+    request:Request,
+    customer:Customer=Depends(current_customer),
+    db:Session=Depends(get_db),
+):
+    body=await request.json()
+    _,phone=_consume_otp(
+        db,
+        phone_raw=str(body.get('phone','')),
+        challenge_id=str(body.get('challenge_id','')),
+        code=str(body.get('code','')),
+        device_id=str(body.get('device_id','')),
+        purpose='bind_phone',
+        customer_id=customer.id,
+    )
+    owner=db.scalar(select(Customer).where(Customer.phone==phone,Customer.id!=customer.id))
+    if owner:
+        db.commit()
+        raise HTTPException(409,detail={'code':'PHONE_ALREADY_USED','message':'این شماره قبلاً به حساب دیگری متصل شده است.'})
+    customer=db.get(Customer,customer.id)
+    customer.phone=phone
+    customer.phone_verified_at=utcnow()
+    customer.auth_method='phone_otp'
+    db.commit()
+    return {'success':True,'account':account_json(customer,db)}
+
+
 @app.post('/api/v1/auth/register')
-async def register(request:Request,db:Session=Depends(get_db)):
-    retry=rate_limit_retry(
-        request,'api-register',
-        int(os.getenv('AUTH_REGISTER_RATE_LIMIT','20')),
-        int(os.getenv('AUTH_REGISTER_WINDOW_SECONDS','3600')),
-    )
-    if retry:raise rate_limit_exception(retry)
-    b=await request.json();email=email_ok(str(b.get('email','')));password=str(b.get('password',''))
-    if len(password)<8:raise HTTPException(422,detail={'code':'WEAK_PASSWORD','message':'رمز عبور حداقل ۸ نویسه باشد'})
-    if db.scalar(select(Customer).where(Customer.email==email)):raise HTTPException(409,detail={'code':'EMAIL_EXISTS','message':'این ایمیل قبلاً ثبت شده است'})
-    c=Customer(email=email,password_hash=password_hash(password),device_limit=1);db.add(c);db.flush();token,refresh_token=issue_session(db,c,str(b.get('device_id','')),str(b.get('device_name','')));return {'success':True,'token':token,'refresh_token':refresh_token,'account':account_json(c,db)}
 @app.post('/api/v1/auth/login')
-async def login(request:Request,db:Session=Depends(get_db)):
-    ip=client_ip(request)
-    b=await request.json();email=email_ok(str(b.get('email','')))
-    account_key=hashlib.sha256(email.encode()).hexdigest()[:20]
-    window=int(os.getenv('AUTH_LOGIN_WINDOW_SECONDS','600'))
-    global_retry=AUTH_LIMITER.hit(
-        f'api-login-ip:{ip}',
-        int(os.getenv('AUTH_LOGIN_IP_RATE_LIMIT','120')),
-        window,
+async def legacy_password_auth_disabled():
+    raise HTTPException(
+        410,
+        detail={
+            'code':'PASSWORD_AUTH_DISABLED',
+            'message':'ورود با ایمیل و رمز حذف شده است؛ با شماره تماس و کد پیامکی وارد شوید.',
+        },
     )
-    target_key=f'api-login:{ip}:{account_key}'
-    target_retry=AUTH_LIMITER.hit(
-        target_key,
-        int(os.getenv('AUTH_LOGIN_RATE_LIMIT','12')),
-        window,
-    )
-    retry=max(global_retry,target_retry)
-    if retry:raise rate_limit_exception(retry)
-    c=db.scalar(select(Customer).where(Customer.email==email))
-    if not c or not password_ok(str(b.get('password','')),c.password_hash):raise HTTPException(401,detail={'code':'INVALID_CREDENTIALS','message':'ایمیل یا رمز نادرست است'})
-    AUTH_LIMITER.reset(target_key)
-    token,refresh_token=issue_session(db,c,str(b.get('device_id','')),str(b.get('device_name','')));return {'success':True,'token':token,'refresh_token':refresh_token,'account':account_json(c,db)}
+
+
 @app.post('/api/v1/auth/refresh')
 async def refresh_login(request:Request,db:Session=Depends(get_db)):
-    b=await request.json();email=email_ok(str(b.get('email','')));device_id=str(b.get('device_id','')).strip()[:180];refresh_token=str(b.get('refresh_token',''))
-    if not device_id or not refresh_token:raise HTTPException(401,detail={'code':'REFRESH_REQUIRED','message':'اطلاعات تمدید ورود کامل نیست'})
-    c=db.scalar(select(Customer).where(Customer.email==email))
-    if not c or not c.active:raise HTTPException(401,detail={'code':'ACCOUNT_DISABLED','message':'حساب در دسترس نیست'})
-    device=db.scalar(select(CustomerDevice).where(CustomerDevice.customer_id==c.id,CustomerDevice.device_id==device_id))
-    if not device or not device.active:raise HTTPException(401,detail={'code':'DEVICE_DISABLED','message':'این دستگاه غیرفعال شده است'})
+    body=await request.json()
+    identity=str(body.get('phone') or body.get('identity') or body.get('email') or '').strip()
+    device_id=str(body.get('device_id','')).strip()[:180]
+    refresh_token=str(body.get('refresh_token',''))
+    if not device_id or not refresh_token:
+        raise HTTPException(401,detail={'code':'REFRESH_REQUIRED','message':'اطلاعات تمدید ورود کامل نیست'})
+    customer=customer_by_identity(db,identity)
+    if not customer or not customer.active:
+        raise HTTPException(401,detail={'code':'ACCOUNT_DISABLED','message':'حساب در دسترس نیست'})
+    device=db.scalar(select(CustomerDevice).where(CustomerDevice.customer_id==customer.id,CustomerDevice.device_id==device_id))
+    if not device or not device.active:
+        raise HTTPException(401,detail={'code':'DEVICE_DISABLED','message':'این دستگاه غیرفعال شده است'})
 
     now=utcnow()
     submitted_hash=token_hash(refresh_token)
-
     current_valid=(
         bool(device.refresh_token_hash)
         and device.refresh_token_hash==submitted_hash
         and bool(device.refresh_expires_at)
         and aware(device.refresh_expires_at)>now
     )
-
     previous_valid=(
         bool(device.previous_refresh_token_hash)
         and device.previous_refresh_token_hash==submitted_hash
         and bool(device.previous_refresh_expires_at)
         and aware(device.previous_refresh_expires_at)>now
     )
-
     if not current_valid and not previous_valid:
         raise HTTPException(401,detail={'code':'INVALID_REFRESH','message':'مجوز تمدید ورود معتبر نیست'})
 
     token,new_refresh_token=issue_session(
         db,
-        c,
+        customer,
         device_id,
-        str(b.get('device_name','')),
+        str(body.get('device_name','')),
         rotate_refresh=True,
     )
     return {
         'success':True,
         'token':token,
         'refresh_token':new_refresh_token,
-        'account':account_json(c,db),
+        'account':account_json(customer,db),
     }
+
+
 @app.post('/api/v1/auth/logout')
 def logout(authorization:str|None=Header(None),x_device_id:str|None=Header(None),db:Session=Depends(get_db)):
-    raw=bearer(authorization);s=db.scalar(select(CustomerSession).where(CustomerSession.token_hash==token_hash(raw))) if raw else None
-    if s:
-        s.revoked_at=utcnow()
-        device=db.scalar(select(CustomerDevice).where(CustomerDevice.customer_id==s.customer_id,CustomerDevice.device_id==(x_device_id or s.device_id)))
+    raw=bearer(authorization)
+    session=db.scalar(select(CustomerSession).where(CustomerSession.token_hash==token_hash(raw))) if raw else None
+    if session:
+        session.revoked_at=utcnow()
+        device=db.scalar(select(CustomerDevice).where(CustomerDevice.customer_id==session.customer_id,CustomerDevice.device_id==(x_device_id or session.device_id)))
         if device:
             device.refresh_token_hash=''
             device.refresh_expires_at=None
@@ -1530,6 +1851,7 @@ def logout(authorization:str|None=Header(None),x_device_id:str|None=Header(None)
             device.previous_refresh_expires_at=None
         db.commit()
     return {'success':True}
+
 @app.get('/api/v1/plans')
 def plans(
     c:Customer=Depends(current_customer),
@@ -2186,7 +2508,8 @@ def admin(request:Request,db:Session=Depends(get_db)):
     if not request.session.get('admin'):
         return RedirectResponse('/admin/login',302)
     s=settings(db)
-    pay=db.get(PaymentSetting,1)
+    pay=db.get(PaymentSetting,1) or PaymentSetting(id=1)
+    sms=db.get(SmsSetting,1) or SmsSetting(id=1)
     panels=db.scalars(select(PasarGuardPanel).order_by(PasarGuardPanel.id.desc())).all()
     marzban_panels=db.scalars(select(MarzbanPanel).order_by(MarzbanPanel.id.desc())).all()
     guardcore_panels=db.scalars(select(GuardCorePanel).order_by(GuardCorePanel.id.desc())).all()
@@ -2227,6 +2550,9 @@ def admin(request:Request,db:Session=Depends(get_db)):
             'payment':pay,
             'payment_api_mask':mask(decrypt(pay.api_key_enc)),
             'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),
+            'sms':sms,
+            'sms_api_mask':mask(decrypt(sms.api_key_enc)),
+            'sms_ready':sms_setting_ready(sms),
             'panels':panels,
             'panel_masks':{x.id:mask(decrypt(x.api_key_enc) or decrypt(x.username_enc)) for x in panels},
             'marzban_panels':marzban_panels,
@@ -2251,6 +2577,7 @@ def admin(request:Request,db:Session=Depends(get_db)):
             'calendar':'jalali',
             'timezone':TEHRAN_ZONE_NAME,
             'now_fa':format_jalali(utcnow(),include_seconds=True),
+            'customer_identity':customer_identity,
         },
     )
 
@@ -2358,6 +2685,62 @@ def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form
 @app.post('/admin/payment-settings')
 def payment_settings(request:Request,base_url:str=Form(...),api_key:str=Form(''),callback_secret:str=Form(''),fee_mode:str=Form('default'),ttl_minutes:int=Form(30),active:str|None=Form(None),db:Session=Depends(get_db)):
     admin_required(request);p=db.get(PaymentSetting,1) or PaymentSetting(id=1);p.base_url=base_url.rstrip('/');p.api_key_enc=encrypt(api_key.strip()) if api_key.strip() else p.api_key_enc;p.callback_secret_enc=encrypt(callback_secret.strip()) if callback_secret.strip() else p.callback_secret_enc;p.fee_mode=fee_mode;p.ttl_minutes=max(5,min(30,ttl_minutes));p.active=active=='on';db.add(p);db.commit();return RedirectResponse('/admin?saved=1#bluepay',303)
+
+@app.post('/admin/sms-settings')
+def sms_settings(
+    request:Request,
+    base_url:str=Form('https://edge.ippanel.com/v1'),
+    api_key:str=Form(''),
+    from_number:str=Form(''),
+    pattern_code:str=Form(''),
+    parameter_name:str=Form('code'),
+    otp_length:int=Form(5),
+    otp_ttl_seconds:int=Form(120),
+    resend_seconds:int=Form(60),
+    active:str|None=Form(None),
+    verify_tls:str|None=Form(None),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    setting=db.get(SmsSetting,1) or SmsSetting(id=1)
+    setting.base_url=base_url.rstrip('/') or 'https://edge.ippanel.com/v1'
+    if api_key.strip():setting.api_key_enc=encrypt(api_key.strip())
+    setting.from_number=from_number.strip()
+    setting.pattern_code=pattern_code.strip()
+    setting.parameter_name=parameter_name.strip() or 'code'
+    setting.otp_length=max(4,min(8,int(otp_length or 5)))
+    setting.otp_ttl_seconds=max(60,min(600,int(otp_ttl_seconds or 120)))
+    setting.resend_seconds=max(30,min(600,int(resend_seconds or 60)))
+    setting.active=active=='on'
+    setting.verify_tls=verify_tls=='on'
+    db.add(setting);db.commit()
+    return RedirectResponse('/admin?saved=1#sms',303)
+
+@app.post('/admin/sms-settings/test')
+async def sms_settings_test(
+    request:Request,
+    test_phone:str=Form(...),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    setting=db.get(SmsSetting,1)
+    try:
+        phone=phone_ok(test_phone)
+        if not sms_setting_ready(setting):
+            raise SmsError('تنظیمات پیامک کامل یا فعال نیست')
+        await send_pattern_otp(setting,phone,'12345')
+        setting.last_test_ok=True
+        setting.last_test_message=f'پیام آزمایشی برای {local_phone(phone)} ارسال شد'
+        setting.last_test_at=utcnow()
+        db.commit()
+        return RedirectResponse('/admin?saved=1#sms',303)
+    except Exception as exc:
+        if setting:
+            setting.last_test_ok=False
+            setting.last_test_message=str(exc)[:500]
+            setting.last_test_at=utcnow()
+            db.commit()
+        return RedirectResponse('/admin?error='+quote_plus('تست فراز اس‌ام‌اس ناموفق بود: '+str(exc)[:350])+'#sms',303)
 @app.post('/admin/panels')
 def add_panel(request:Request,name:str=Form(...),base_url:str=Form(...),auth_mode:str=Form('api_key'),api_key:str=Form(''),username:str=Form(''),password:str=Form(''),proxy_settings_json:str=Form('{"vless":{}}'),verify_tls:str|None=Form(None),db:Session=Depends(get_db)):
     admin_required(request)
@@ -2731,22 +3114,40 @@ def plan_delete(request:Request,plan_id:int,db:Session=Depends(get_db)):
     plan.deleted_at=utcnow()
     db.commit()
     return RedirectResponse('/admin?saved=1#plans',303)
-@app.post('/admin/manual-activation')
-async def manual_activation_by_email(
+@app.post('/admin/customers/{customer_id}/phone')
+def admin_set_customer_phone(
     request:Request,
-    email:str=Form(...),
+    customer_id:int,
+    phone:str=Form(...),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    customer=db.get(Customer,customer_id)
+    if not customer:return admin_redirect('customers',error='کاربر پیدا نشد')
+    normalized=phone_ok(phone)
+    owner=db.scalar(select(Customer).where(Customer.phone==normalized,Customer.id!=customer.id))
+    if owner:return admin_redirect('customers',error='این شماره تماس قبلاً برای حساب دیگری ثبت شده است')
+    customer.phone=normalized
+    customer.phone_verified_at=utcnow()
+    customer.auth_method='phone_otp'
+    db.commit()
+    return admin_redirect('customers',message=f'شماره {local_phone(normalized)} برای حساب ثبت شد')
+
+@app.post('/admin/manual-activation')
+async def manual_activation_by_phone(
+    request:Request,
+    identity:str=Form(...),
     plan_id:int=Form(...),
     note:str=Form(''),
     db:Session=Depends(get_db),
 ):
     admin_required(request)
     try:
-        normalized=email_ok(email)
-        customer=db.scalar(select(Customer).where(Customer.email==normalized))
+        customer=customer_by_identity(db,identity)
         if not customer:
             return admin_redirect(
                 'manual',
-                error='کاربری با این ایمیل ثبت نشده است',
+                error='کاربری با این شماره تماس ثبت نشده است',
             )
         plan=db.get(Plan,plan_id)
         if not plan or plan.deleted:
@@ -2761,7 +3162,7 @@ async def manual_activation_by_email(
         return admin_redirect(
             'manual',
             message=(
-                f'اشتراک {customer.email} با پلن «{plan.title}» '
+                f'اشتراک {customer_identity(customer)} با پلن «{plan.title}» '
                 f'فعال یا تمدید شد؛ کد {order.order_code}{guard_note}'
             ),
         )
@@ -2797,7 +3198,7 @@ async def manual_activation_for_customer(
         return admin_redirect(
             'customers',
             message=(
-                f'اشتراک {customer.email} با پلن «{plan.title}» '
+                f'اشتراک {customer_identity(customer)} با پلن «{plan.title}» '
                 f'فعال یا تمدید شد{guard_note}'
             ),
         )

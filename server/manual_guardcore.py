@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session, selectinload
 from .models import Customer, GuardCorePanel, Order, Plan
 from .security import utcnow
 from .time_locale import format_jalali
+from .sms import local_phone
 from .version import VERSION
 
 
@@ -220,7 +221,7 @@ def prepare_manual_request(
         "panel_name": panel.name,
         "panel_url": panel.base_url,
         "customer_id": customer.id,
-        "customer_email": customer.email,
+        "customer_email": local_phone(customer.phone) if customer.phone else customer.email,
         "username": username,
         "plan_id": plan.id,
         "plan_title": plan.title,
@@ -511,7 +512,7 @@ async def attach_manual_subscription(
     return {
         "order_id": order.id,
         "order_code": order.order_code,
-        "customer_email": customer.email,
+        "customer_email": local_phone(customer.phone) if customer.phone else customer.email,
         "username": customer.guardcore_username,
         "panel_name": panel.name,
         "subscription_url": checked["url"],

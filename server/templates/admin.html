@@ -1,6 +1,6 @@
 <!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07101f"><title>BlueVPN Platform</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/style.css"></head><body>
 <header class="topbar"><div class="brand"><div class="brand-logo-wrap"><img src="/static/logo.png"><span class="brand-live-dot" aria-label="online"></span></div><div><b>BlueVPN Platform</b><span>مرکز مدیریت سرویس و هوش شبکه</span></div></div><div class="topbar-actions"><span class="secure-session"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4.5 5v6c0 5.1 3.2 9.7 7.5 11 4.3-1.3 7.5-5.9 7.5-11V5L12 2Zm0 3.1 4.5 1.8V11c0 3.6-2 7-4.5 8.1C9.5 18 7.5 14.6 7.5 11V6.9L12 5.1Zm-1 3.4v3H8.8v2.2H11v2.2h2v-2.2h2.2v-2.2H13v-3h-2Z"/></svg>نشست امن</span><span class="secure-session" id="tehran-clock">{{ now_fa }} • تهران</span><form method="post" action="/admin/logout"><button class="secondary icon-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H4v16h6v-2H6V6h4V4Zm4.6 3.4-1.4 1.4 2.2 2.2H9v2h6.4l-2.2 2.2 1.4 1.4L19.2 12l-4.6-4.6Z"/></svg>خروج</button></form></div></header>
-<nav class="tabs"><a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">GuardCore</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف GuardCore</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#app" data-tab="app">اپ و آپدیت</a></nav>
+<nav class="tabs"><a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">GuardCore</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف GuardCore</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#sms" data-tab="sms">پیامک و ورود</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#app" data-tab="app">اپ و آپدیت</a></nav>
 <main class="container">{% if not database_info.persistent %}<div class="alert danger flash-alert" data-sticky="1"><span>هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if saved %}<div class="alert success flash-alert"><span>تغییرات ذخیره شد.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if manual_message %}<div class="alert success flash-alert"><span>{{ manual_message }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if error %}<div class="alert danger flash-alert"><span>{{ error }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}
 <section id="overview" class="dashboard-overview">
   <div class="overview-hero card">
@@ -335,6 +335,38 @@
   {% endfor %}
   </div>
 </section>
+<section id="sms" class="card">
+  <h2>ورود با شماره تماس و فراز اس‌ام‌اس</h2>
+  <p class="hint">
+    ورود و ثبت‌نام کاربران بدون رمز انجام می‌شود. API Key فراز اس‌ام‌اس رمزگذاری‌شده ذخیره می‌شود و کد یک‌بارمصرف با پترن ارسال خواهد شد.
+  </p>
+  <div class="stat-grid">
+    <article class="stat"><strong>{{ 'آماده' if sms_ready else 'ناقص' }}</strong><span>وضعیت تنظیمات</span></article>
+    <article class="stat"><strong>{{ sms.last_test_message or 'تست نشده' }}</strong><span>آخرین تست</span></article>
+  </div>
+  <form method="post" action="/admin/sms-settings">
+    <div class="form-grid">
+      <div><label>Base URL</label><input name="base_url" value="{{ sms.base_url }}" required></div>
+      <div><label>API Key جدید</label><input name="api_key" type="password" placeholder="{{ sms_api_mask }}"></div>
+      <div><label>شماره فرستنده</label><input name="from_number" value="{{ sms.from_number }}" placeholder="+983000505" required></div>
+      <div><label>کد پترن</label><input name="pattern_code" value="{{ sms.pattern_code }}" required></div>
+      <div><label>نام پارامتر کد</label><input name="parameter_name" value="{{ sms.parameter_name or 'code' }}" required></div>
+      <div><label>تعداد رقم کد</label><input name="otp_length" type="number" min="4" max="8" value="{{ sms.otp_length or 5 }}"></div>
+      <div><label>اعتبار کد؛ ثانیه</label><input name="otp_ttl_seconds" type="number" min="60" max="600" value="{{ sms.otp_ttl_seconds or 120 }}"></div>
+      <div><label>فاصله ارسال مجدد؛ ثانیه</label><input name="resend_seconds" type="number" min="30" max="600" value="{{ sms.resend_seconds or 60 }}"></div>
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" name="active" {% if sms.active %}checked{% endif %}> ورود پیامکی فعال</label>
+      <label><input type="checkbox" name="verify_tls" {% if sms.verify_tls %}checked{% endif %}> اعتبارسنجی TLS</label>
+    </div>
+    <button class="save" type="submit">ذخیره تنظیمات فراز اس‌ام‌اس</button>
+  </form>
+  <form method="post" action="/admin/sms-settings/test" class="inline-form">
+    <input name="test_phone" inputmode="tel" placeholder="09123456789" required>
+    <button class="secondary" type="submit">ارسال کد آزمایشی 12345</button>
+  </form>
+</section>
+
 <section id="bluepay" class="card">
   <h2>درگاه BluePay</h2>
   <p class="hint">Callback فروشگاه: <code>{{ settings.public_base_url }}/webhooks/bluepay</code></p>
@@ -377,8 +409,8 @@
   <form method="post" action="/admin/manual-activation">
     <div class="form-grid">
       <div>
-        <label>ایمیل حساب کاربر</label>
-        <input name="email" type="email" placeholder="user@example.com" required>
+        <label>شماره تماس حساب کاربر</label>
+        <input name="identity" inputmode="tel" placeholder="09123456789" required>
       </div>
       <div>
         <label>پلن اشتراک</label>
@@ -419,12 +451,12 @@
   <div class="table-wrap">
     <table>
       <thead>
-        <tr><th>ایمیل</th><th>اشتراک</th><th>کاربر PasarGuard</th><th>کاربر Marzban</th><th>کاربر GuardCore</th><th>دستگاه</th><th>انقضا</th><th>عملیات</th></tr>
+        <tr><th>شماره تماس</th><th>اشتراک</th><th>کاربر PasarGuard</th><th>کاربر Marzban</th><th>کاربر GuardCore</th><th>دستگاه</th><th>انقضا</th><th>عملیات</th></tr>
       </thead>
       <tbody>
       {% for c in customers %}
         <tr>
-          <td class="ltr">{{ c.email }}</td>
+          <td class="ltr">{{ customer_identity(c) }}</td>
           <td><span class="badge {{ 'ok' if c.subscription_status=='active' else 'warn' }}">{{ c.subscription_status }}</span></td>
           <td class="ltr">{{ c.pg_username or '—' }}</td>
           <td class="ltr">
@@ -441,6 +473,12 @@
           <td>{{ (c.subscription_expire|jalali) if c.subscription_expire else 'نامحدود/ندارد' }}</td>
           <td>
             <div class="actions">
+              {% if not c.phone %}
+              <form method="post" action="/admin/customers/{{ c.id }}/phone" class="manual-mini-form">
+                <input name="phone" inputmode="tel" placeholder="09123456789" required>
+                <button type="submit">ثبت شماره</button>
+              </form>
+              {% endif %}
               <form method="post" action="/admin/customers/{{ c.id }}/source-check">
                 <button>بررسی تعداد منابع</button>
               </form>
@@ -474,7 +512,7 @@
     </table>
   </div>
 </section>
-<section id="orders" class="card"><h2>پرداخت و فعال‌سازی</h2><div class="table-wrap"><table><thead><tr><th>سفارش</th><th>کاربر</th><th>پلن</th><th>مبلغ</th><th>تاریخ تهران</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{% for o in orders %}<tr><td class="ltr">{{ o.order_code }}{% if o.order_code.startswith("MANUAL-") %}<span class="badge manual">دستی</span>{% endif %}</td><td class="ltr">{{ o.customer.email }}</td><td>{{ o.plan.title }}</td><td>{% if o.order_code.startswith('MANUAL-') %}بدون درگاه{% else %}{{ '{:,}'.format(o.amount_toman) }}{% endif %}</td><td>{{ o.created_at|jalali }}</td><td><span class="badge {{ 'ok' if o.status=='activated' else 'warn' }}">{{ o.status }}</span>{% if o.activation_error %}<small>{{ o.activation_error[:160] }}</small>{% endif %}</td><td>{% if o.status in ['paid','paid_needs_sync','partial_needs_sync'] %}<form method="post" action="/admin/orders/{{ o.id }}/activate"><button>تلاش فعال‌سازی</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="7">پرداختی وجود ندارد.</td></tr>{% endfor %}</tbody></table></div></section>
+<section id="orders" class="card"><h2>پرداخت و فعال‌سازی</h2><div class="table-wrap"><table><thead><tr><th>سفارش</th><th>کاربر</th><th>پلن</th><th>مبلغ</th><th>تاریخ تهران</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{% for o in orders %}<tr><td class="ltr">{{ o.order_code }}{% if o.order_code.startswith("MANUAL-") %}<span class="badge manual">دستی</span>{% endif %}</td><td class="ltr">{{ customer_identity(o.customer) }}</td><td>{{ o.plan.title }}</td><td>{% if o.order_code.startswith('MANUAL-') %}بدون درگاه{% else %}{{ '{:,}'.format(o.amount_toman) }}{% endif %}</td><td>{{ o.created_at|jalali }}</td><td><span class="badge {{ 'ok' if o.status=='activated' else 'warn' }}">{{ o.status }}</span>{% if o.activation_error %}<small>{{ o.activation_error[:160] }}</small>{% endif %}</td><td>{% if o.status in ['paid','paid_needs_sync','partial_needs_sync'] %}<form method="post" action="/admin/orders/{{ o.id }}/activate"><button>تلاش فعال‌سازی</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="7">پرداختی وجود ندارد.</td></tr>{% endfor %}</tbody></table></div></section>
 <section id="app" class="card">
   <h2>اپلیکیشن و آپدیت خودکار GitHub</h2>
   <div class="github-release-box">

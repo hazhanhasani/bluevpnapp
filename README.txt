@@ -1,1 +1,1 @@
-BlueVPN 3.0.24 — durable activated-order entitlement detection, forced refresh for stale inactive cache, app-version cache invalidation, and immediate account/home synchronization
+BlueVPN 3.0.25 — passwordless Iranian phone login and registration with Faraz SMS/IPPanel pattern OTP, admin-managed SMS settings, legacy account phone binding, and database schema 12.

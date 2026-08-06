@@ -30,6 +30,7 @@ from .models import (
 )
 from .security import decrypt, utcnow
 from .time_locale import format_jalali
+from .sms import local_phone
 from .version import VERSION
 from .guardcore import (
     get_subscription as get_guardcore_subscription,
@@ -45,6 +46,10 @@ from .manual_guardcore import (
 
 class IntegrationError(RuntimeError):
     pass
+
+
+def customer_label(customer: Customer) -> str:
+    return local_phone(customer.phone) if customer.phone else customer.email
 
 
 _MARZBAN_TOKENS: dict[int, tuple[str, float]] = {}
@@ -1358,7 +1363,7 @@ async def ensure_guardcore_for_existing_customer(
                 target_expire=target,
                 data_limit=limits.get("guardcore", 0),
                 service_ids=plan_guardcore_services(plan),
-                note=f"BlueVPN subscription repair; {customer.email}",
+                note=f"BlueVPN subscription repair; {customer_label(customer)}",
                 remote=None,
             )
         customer.guardcore_panel_id = panel.id
@@ -1428,7 +1433,7 @@ async def provision(
         providers.append("guardcore")
     limits = provider_quota_limits(plan, providers)
 
-    note = f"BlueVPN {customer.email}; {order.order_code}"
+    note = f"BlueVPN {customer_label(customer)}; {order.order_code}"
     pg_data = mz_data = gc_data = None
     pg_error = mz_error = gc_error = ""
 
@@ -2485,7 +2490,7 @@ async def create_invoice(
         "amount_toman": int(order.amount_toman),
         "order_id": order.order_code,
         "description": (
-            f"خرید {order.plan.title} برای {order.customer.email}"
+            f"خرید {order.plan.title} برای {customer_label(order.customer)}"
         ),
         "fee_mode": setting.fee_mode,
         "ttl_minutes": max(

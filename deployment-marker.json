@@ -1,16 +1,17 @@
 {
-  "release": "3.0.24-auto",
-  "version_name": "3.0.24",
-  "version_code": 30024,
+  "release": "3.0.25-phone-otp-farazsms",
+  "version_name": "3.0.25",
+  "version_code": 30025,
   "changes": [
-    "Use latest activated order as durable entitlement source",
-    "Bypass five-minute cache whenever local subscription is inactive",
-    "Invalidate account cache after app version updates",
-    "Force sync after returning from account/payment screen",
-    "Expose entitlement_active, active_reason and remaining_seconds in API"
+    "Replace email/password login with Iranian phone OTP",
+    "Integrate Faraz SMS/IPPanel Edge pattern sending",
+    "Configure SMS provider securely from the admin panel",
+    "Preserve legacy accounts and support verified phone binding",
+    "Add device-bound, expiring, one-time OTP challenges and rate limits",
+    "Upgrade database schema automatically to version 12"
   ],
-  "generated_at_unix": 1786008902,
-  "purpose": "رفع تشخیص اشتباه نیاز به تمدید برای اشتراک فعال",
-  "updated_at": "2026-08-06T09:35:02Z",
-  "built_at": "2026-08-06T09:35:02Z"
+  "generated_at_unix": 1786031170,
+  "purpose": "ورود و ثبت‌نام با شماره تماس و کد یک‌بارمصرف فراز اس‌ام‌اس",
+  "updated_at": "2026-08-06T15:46:10Z",
+  "built_at": "2026-08-06T15:46:10Z"
 }

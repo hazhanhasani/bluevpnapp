@@ -28,7 +28,16 @@ data class BlueVpnAccountSnapshot(
     val dataLimitBytes: Long,
     val usedTrafficBytes: Long,
     val deviceLimit: Int,
-    val syncError: String
+    val syncError: String,
+    val phoneVerified: Boolean,
+    val authMethod: String,
+)
+
+data class BlueVpnOtpRequest(
+    val challengeId: String,
+    val phone: String,
+    val expiresInSeconds: Int,
+    val resendAfterSeconds: Int,
 )
 
 object BlueVpnPersianDate {
@@ -383,6 +392,8 @@ object BlueVpnAccountManager {
             p.getLong("used", 0),
             p.getInt("devices", 1),
             p.getString("sync_error", "").orEmpty(),
+            p.getBoolean("phone_verified", false),
+            p.getString("auth_method", "legacy_email").orEmpty(),
         )
     }
 
@@ -438,43 +449,82 @@ object BlueVpnAccountManager {
             .commit()
     }
 
-    fun authenticate(
+    fun requestOtp(
         c: Context,
-        email: String,
-        password: String,
-        register: Boolean,
+        phone: String,
+        bindToCurrentAccount: Boolean = false,
+    ): Result<BlueVpnOtpRequest> = runCatching {
+        val response = if (bindToCurrentAccount) {
+            authenticatedRequest(
+                c,
+                "POST",
+                "/api/v1/account/phone/otp/request",
+                JSONObject()
+                    .put("phone", phone.trim())
+                    .put("device_id", deviceId(c))
+                    .put("device_name", deviceName()),
+            )
+        } else {
+            request(
+                c,
+                "POST",
+                "/api/v1/auth/otp/request",
+                JSONObject()
+                    .put("phone", phone.trim())
+                    .put("device_id", deviceId(c))
+                    .put("device_name", deviceName()),
+                false,
+            )
+        }
+        val challenge = response.optString("challenge_id")
+        if (challenge.isBlank()) error(message(response))
+        BlueVpnOtpRequest(
+            challengeId = challenge,
+            phone = response.optString("phone", phone.trim()),
+            expiresInSeconds = response.optInt("expires_in_seconds", 120),
+            resendAfterSeconds = response.optInt("resend_after_seconds", 60),
+        )
+    }
+
+    fun verifyOtp(
+        c: Context,
+        phone: String,
+        challengeId: String,
+        code: String,
+        bindToCurrentAccount: Boolean = false,
     ): Result<BlueVpnAccountSnapshot> = runCatching {
-        val response = request(
-            c,
-            "POST",
-            if (register) {
-                "/api/v1/auth/register"
-            } else {
-                "/api/v1/auth/login"
-            },
-            JSONObject()
-                .put("email", email.trim())
-                .put("password", password)
-                .put("device_id", deviceId(c))
-                .put("device_name", deviceName()),
-            false,
-        )
+        val payload = JSONObject()
+            .put("phone", phone.trim())
+            .put("challenge_id", challengeId)
+            .put("code", code.trim())
+            .put("device_id", deviceId(c))
+            .put("device_name", deviceName())
 
-        val access = response.optString("token")
-        val refresh = response.optString("refresh_token")
-        if (access.isBlank()) error(message(response))
+        val response = if (bindToCurrentAccount) {
+            authenticatedRequest(
+                c,
+                "POST",
+                "/api/v1/account/phone/otp/verify",
+                payload,
+            )
+        } else {
+            request(
+                c,
+                "POST",
+                "/api/v1/auth/otp/verify",
+                payload,
+                false,
+            )
+        }
 
-        persistAuth(
-            c,
-            access,
-            refresh,
-            email.trim(),
-        )
+        if (!bindToCurrentAccount) {
+            val access = response.optString("token")
+            val refresh = response.optString("refresh_token")
+            if (access.isBlank()) error(message(response))
+            persistAuth(c, access, refresh, phone.trim())
+        }
 
-        applyAccount(
-            c,
-            response.getJSONObject("account")
-        )
+        applyAccount(c, response.getJSONObject("account"))
     }
 
     private fun refreshSession(
@@ -496,7 +546,7 @@ object BlueVpnAccountManager {
         }
 
         val refresh = refreshToken(c)
-        val email = snapshot(c).email
+        val identity = snapshot(c).email
             .ifBlank {
                 backup(c).getString(
                     "email",
@@ -504,7 +554,7 @@ object BlueVpnAccountManager {
                 ).orEmpty()
             }
 
-        if (refresh.isBlank() || email.isBlank()) {
+        if (refresh.isBlank() || identity.isBlank()) {
             return@synchronized false
         }
 
@@ -514,7 +564,9 @@ object BlueVpnAccountManager {
                 "POST",
                 "/api/v1/auth/refresh",
                 JSONObject()
-                    .put("email", email)
+                    .put("identity", identity)
+                    .put("phone", identity)
+                    .put("email", identity)
                     .put("device_id", deviceId(c))
                     .put("device_name", deviceName())
                     .put("refresh_token", refresh),
@@ -535,7 +587,7 @@ object BlueVpnAccountManager {
                 c,
                 access,
                 newRefresh,
-                email,
+                identity,
             )
 
             response.optJSONObject("account")
@@ -758,10 +810,18 @@ object BlueVpnAccountManager {
             Context.MODE_PRIVATE
         ).edit().clear().apply()
 
-        val email = account.optString("email")
+        val identity = account.optString("display_identity").ifBlank {
+            account.optString("phone_display").ifBlank {
+                account.optString("phone").ifBlank {
+                    account.optString("email")
+                }
+            }
+        }
         val effectiveActive = effectiveSubscriptionActive(subscription)
         prefs(c).edit()
-            .putString("email", email)
+            .putString("email", identity)
+            .putBoolean("phone_verified", account.optBoolean("phone_verified", false))
+            .putString("auth_method", account.optString("auth_method", "legacy_email"))
             .putBoolean(
                 "active",
                 effectiveActive
@@ -818,9 +878,9 @@ object BlueVpnAccountManager {
             )
             .commit()
 
-        if (email.isNotBlank()) {
+        if (identity.isNotBlank()) {
             backup(c).edit()
-                .putString("email", email)
+                .putString("email", identity)
                 .commit()
         }
 

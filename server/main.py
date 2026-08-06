@@ -30,9 +30,11 @@ from .models import AppSetting,Customer,CustomerDevice,CustomerSession,GuardCore
 from .blueai import admin_overview as blueai_admin_overview, customer_dashboard as blueai_customer_dashboard, recommendations as blueai_recommendations, submit_event as blueai_submit_event, submit_feedback as blueai_submit_feedback
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 from .version import VERSION, VERSION_CODE
+from .time_locale import TEHRAN_ZONE_NAME, format_jalali
 BASE=Path(__file__).resolve().parent
 logger=logging.getLogger('bluevpn.main')
 templates=Jinja2Templates(directory=BASE/'templates')
+templates.env.filters['jalali']=format_jalali
 DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','updated_at':iso_z(utcnow())}
 
 
@@ -240,6 +242,14 @@ app.add_middleware(
     max_age=max(900,int(os.getenv('ADMIN_SESSION_MAX_AGE','43200'))),
 )
 app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+
+@app.middleware('http')
+async def locale_response_headers(request:Request,call_next):
+    response=await call_next(request)
+    response.headers.setdefault('Content-Language','fa-IR')
+    response.headers.setdefault('X-BlueVPN-Timezone',TEHRAN_ZONE_NAME)
+    response.headers.setdefault('X-BlueVPN-Calendar','jalali')
+    return response
 @app.on_event('startup')
 def startup():
     initialize_database(); db=SessionLocal()
@@ -496,7 +506,7 @@ def _delete_invalid_order(
 )->None:
     """Hard-delete an unpaid unusable invoice from the local database.
 
-    BlueVPN 3.0.20 deliberately does not retain abandoned/expired invoice
+    BlueVPN 3.0.21 deliberately does not retain abandoned/expired invoice
     rows, because retaining them allowed stale payment URLs to be selected on
     the next purchase. A compact redacted diagnostic is written outside the
     orders table before deletion.
@@ -509,7 +519,9 @@ def _delete_invalid_order(
         response_body={
             'status':order.status,
             'created_at':iso_z(aware(order.created_at)),
+            'created_at_fa':format_jalali(aware(order.created_at),fallback=''),
             'expires_at':iso_z(aware(order.expires_at)),
+            'expires_at_fa':format_jalali(aware(order.expires_at),fallback=''),
         },
     )
     db.delete(order)
@@ -704,12 +716,19 @@ def account_json(c:Customer)->dict:
         'active':c.active,
         'plan_id':c.plan_id,
         'server_time':iso_z(now),
+        'server_time_fa':format_jalali(now,include_seconds=True),
+        'calendar':'jalali',
+        'timezone':TEHRAN_ZONE_NAME,
         'subscription':{
             'active':active,
             'status':c.subscription_status,
             'url':c.subscription_url,
             'expire':expire_value,
             'expires_at':expire_value,
+            'expire_fa':('نامحدود' if unlimited else format_jalali(expiry) if expiry else ''),
+            'expires_at_fa':('نامحدود' if unlimited else format_jalali(expiry) if expiry else ''),
+            'calendar':'jalali',
+            'timezone':TEHRAN_ZONE_NAME,
             'expire_mode':expire_mode,
             'unlimited':unlimited,
             'clock_skew_tolerance_seconds':EXPIRY_CLOCK_SKEW_SECONDS,
@@ -721,6 +740,7 @@ def account_json(c:Customer)->dict:
             ),
             'device_limit':c.device_limit,
             'last_sync_at':iso_z(aware(c.last_sync_at)),
+            'last_sync_at_fa':format_jalali(aware(c.last_sync_at),fallback=''),
             'sync_error':c.last_sync_error,
         },
     }
@@ -844,17 +864,27 @@ def order_response(order:Order,customer:Customer)->dict:
         'amount_toman':order.amount_toman,
         'activation_error':order.activation_error,
         'created_at':iso_z(aware(order.created_at)),
+        'created_at_fa':format_jalali(aware(order.created_at),fallback=''),
         'expires_at':iso_z(effective_expires),
+        'expires_at_fa':format_jalali(effective_expires,fallback=''),
         'hard_expires_at':iso_z(hard_expires),
+        'hard_expires_at_fa':format_jalali(hard_expires,fallback=''),
         'checkout_state':checkout_state,
         'checkout_opened_at':iso_z(aware(order.checkout_opened_at)),
+        'checkout_opened_at_fa':format_jalali(aware(order.checkout_opened_at),fallback=''),
         'checkout_last_seen_at':iso_z(aware(order.checkout_last_seen_at)),
+        'checkout_last_seen_at_fa':format_jalali(aware(order.checkout_last_seen_at),fallback=''),
         'checkout_closed_at':iso_z(aware(order.checkout_closed_at)),
+        'checkout_closed_at_fa':format_jalali(aware(order.checkout_closed_at),fallback=''),
         'abandon_grace_seconds':CHECKOUT_ABANDON_GRACE_SECONDS,
         'expired':locally_expired,
         'replaced_by_order_id':str(metadata.get('_bluevpn_replacement_order_id') or ''),
         'paid_at':iso_z(aware(order.paid_at)),
+        'paid_at_fa':format_jalali(aware(order.paid_at),fallback=''),
         'activated_at':iso_z(aware(order.activated_at)),
+        'activated_at_fa':format_jalali(aware(order.activated_at),fallback=''),
+        'calendar':'jalali',
+        'timezone':TEHRAN_ZONE_NAME,
         'account':account_json(customer),
     }
 
@@ -1130,10 +1160,15 @@ async def create_manual_activation(
 @app.get('/health')
 def health():
     info=database_status()
+    now=utcnow()
     return {
         'status':'ok' if info['ready'] else 'error',
         'service':'bluevpn-platform',
         'version':VERSION,
+        'server_time':iso_z(now),
+        'server_time_fa':format_jalali(now,include_seconds=True),
+        'calendar':'jalali',
+        'timezone':TEHRAN_ZONE_NAME,
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }
@@ -1167,6 +1202,7 @@ async def mobile_config(
             'update_message':release.get('message',''),
             'release_url':release.get('release_url',''),
             'release_published_at':release.get('published_at',''),
+            'release_published_at_fa':format_jalali(release.get('published_at'),fallback=''),
             'release_build_number':int(release.get('build_number') or 0),
             'release_commit':release.get('commit',''),
             'update_source':'github_release',
@@ -1188,6 +1224,9 @@ async def mobile_config(
                 'message':s['announcement_message'],
             },
             'updated_at':s['updated_at'],
+            'updated_at_fa':format_jalali(s['updated_at'],fallback=''),
+            'calendar':'jalali',
+            'timezone':TEHRAN_ZONE_NAME,
         },
         headers={
             'Cache-Control':'no-store',
@@ -1333,7 +1372,7 @@ async def ai_event(request:Request,c:Customer=Depends(current_customer),db:Sessi
 async def ai_recommendations(operator:str='unknown',network_type:str='unknown',mode:str='balanced',hour:int|None=None,c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
     s=settings(db)
     rows=blueai_recommendations(db,operator=operator,network_type=network_type,mode=mode,bucket=hour,limit=30) if bool(s.get('blueai_enabled',True)) else []
-    return {'success':True,'enabled':bool(s.get('blueai_enabled',True)),'collective':bool(s.get('blueai_collective',True)),'recommendations':rows,'generated_at':iso_z(utcnow())}
+    return {'success':True,'enabled':bool(s.get('blueai_enabled',True)),'collective':bool(s.get('blueai_collective',True)),'recommendations':rows,'generated_at':iso_z(utcnow()),'generated_at_fa':format_jalali(utcnow(),include_seconds=True),'calendar':'jalali','timezone':TEHRAN_ZONE_NAME}
 
 @app.get('/api/v1/ai/dashboard')
 async def ai_dashboard(c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
@@ -1714,6 +1753,9 @@ async def check_order_after_success(
         'retry_after_seconds':interval_seconds if pending else 0,
         'last_error':last_error,
         'server_time':iso_z(utcnow()),
+        'server_time_fa':format_jalali(utcnow(),include_seconds=True),
+        'calendar':'jalali',
+        'timezone':TEHRAN_ZONE_NAME,
         'order':order_response(order,c),
     }
 
@@ -1999,6 +2041,9 @@ def admin(request:Request,db:Session=Depends(get_db)):
             'error':request.query_params.get('error',''),
             'github_repository':github_repository(),
             'csrf_token':csrf_token(request),
+            'calendar':'jalali',
+            'timezone':TEHRAN_ZONE_NAME,
+            'now_fa':format_jalali(utcnow(),include_seconds=True),
         },
     )
 
@@ -2020,6 +2065,10 @@ def admin_live(request: Request, db: Session = Depends(get_db)):
     }
     return {
         'success': True,
+        'server_time': iso_z(utcnow()),
+        'server_time_fa': format_jalali(utcnow(),include_seconds=True),
+        'calendar':'jalali',
+        'timezone':TEHRAN_ZONE_NAME,
         'stats': stats,
         'blueai': blueai_admin_overview(db),
         'bluepay_pending': pending_order_counts(db),

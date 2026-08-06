@@ -28,6 +28,7 @@ from .models import (
     Plan,
 )
 from .security import decrypt, utcnow
+from .time_locale import format_jalali
 from .version import VERSION
 from .guardcore import (
     get_subscription as get_guardcore_subscription,
@@ -1893,6 +1894,7 @@ def log_bluepay_error(
 ) -> None:
     entry = {
         "timestamp": iso_z(datetime.now(timezone.utc)),
+        "timestamp_fa": format_jalali(datetime.now(timezone.utc), include_seconds=True),
         "gateway": "bluepay",
         "operation": operation[:80],
         "order_code": order_code[:100],

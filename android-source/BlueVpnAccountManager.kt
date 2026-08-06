@@ -12,6 +12,10 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
+import java.util.TimeZone
 import java.util.UUID
 
 data class BlueVpnAccountSnapshot(
@@ -20,11 +24,88 @@ data class BlueVpnAccountSnapshot(
     val subscriptionUrl: String,
     val status: String,
     val expire: String?,
+    val expireFa: String?,
     val dataLimitBytes: Long,
     val usedTrafficBytes: Long,
     val deviceLimit: Int,
     val syncError: String
 )
+
+object BlueVpnPersianDate {
+    private val tehran = TimeZone.getTimeZone("Asia/Tehran")
+    private val persianDigits = mapOf(
+        '0' to '۰', '1' to '۱', '2' to '۲', '3' to '۳', '4' to '۴',
+        '5' to '۵', '6' to '۶', '7' to '۷', '8' to '۸', '9' to '۹',
+    )
+
+    fun formatIso(raw: String?, includeTime: Boolean = true): String? {
+        val value = raw?.trim().orEmpty()
+        if (value.isBlank() || value == "null") return null
+        if (value.startsWith("9999-")) return "نامحدود"
+        val normalized = value.replace(
+            Regex("\\.(\\d{3})\\d+([+-]\\d{2}:\\d{2}|Z)$"),
+            ".$1$2",
+        )
+        val patterns = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd",
+        )
+        val millis = patterns.firstNotNullOfOrNull { pattern ->
+            runCatching {
+                SimpleDateFormat(pattern, Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("UTC")
+                    isLenient = false
+                }.parse(normalized)?.time
+            }.getOrNull()
+        } ?: return null
+        val calendar = Calendar.getInstance(tehran).apply { timeInMillis = millis }
+        val (jy, jm, jd) = gregorianToJalali(
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH) + 1,
+            calendar.get(Calendar.DAY_OF_MONTH),
+        )
+        val date = "%04d/%02d/%02d".format(Locale.US, jy, jm, jd)
+        val result = if (includeTime) {
+            val time = "%02d:%02d".format(
+                Locale.US,
+                calendar.get(Calendar.HOUR_OF_DAY),
+                calendar.get(Calendar.MINUTE),
+            )
+            "$date، ساعت $time"
+        } else {
+            date
+        }
+        return result.map { persianDigits[it] ?: it }.joinToString("")
+    }
+
+    private fun gregorianToJalali(gy: Int, gm: Int, gd: Int): Triple<Int, Int, Int> {
+        val gDays = intArrayOf(0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334)
+        val gy2 = if (gm > 2) gy + 1 else gy
+        var days = 355666 + 365 * gy + (gy2 + 3) / 4 -
+            (gy2 + 99) / 100 + (gy2 + 399) / 400 + gd + gDays[gm - 1]
+        var jy = -1595 + 33 * (days / 12053)
+        days %= 12053
+        jy += 4 * (days / 1461)
+        days %= 1461
+        if (days > 365) {
+            jy += (days - 1) / 365
+            days = (days - 1) % 365
+        }
+        val jm: Int
+        val jd: Int
+        if (days < 186) {
+            jm = 1 + days / 31
+            jd = 1 + days % 31
+        } else {
+            jm = 7 + (days - 186) / 30
+            jd = 1 + (days - 186) % 30
+        }
+        return Triple(jy, jm, jd)
+    }
+}
 
 object BlueVpnAccountManager {
     private val refreshLock = Any()
@@ -222,6 +303,7 @@ object BlueVpnAccountManager {
             p.getString("url", "").orEmpty(),
             p.getString("status", "inactive").orEmpty(),
             p.getString("expire", null),
+            p.getString("expire_fa", null),
             p.getLong("limit", 0),
             p.getLong("used", 0),
             p.getInt("devices", 1),
@@ -610,6 +692,13 @@ object BlueVpnAccountManager {
             .putString(
                 "expire",
                 subscription.optString("expire")
+                    .takeIf {
+                        it.isNotBlank() && it != "null"
+                    }
+            )
+            .putString(
+                "expire_fa",
+                subscription.optString("expire_fa")
                     .takeIf {
                         it.isNotBlank() && it != "null"
                     }

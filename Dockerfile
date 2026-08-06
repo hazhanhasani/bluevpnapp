@@ -3,7 +3,8 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    TZ=Asia/Tehran
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -12,6 +13,7 @@ RUN apt-get update \
        curl \
        openjdk-21-jre-headless \
        postgresql-client \
+       tzdata \
     && java -version \
     && keytool -help >/dev/null \
     && rm -rf /var/lib/apt/lists/*

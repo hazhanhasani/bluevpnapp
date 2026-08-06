@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.20",
-  "version_code": 30020,
+  "project_version": "3.0.21",
+  "version_code": 30021,
   "schema_version": 11,
-  "release": "3.0.20",
+  "release": "3.0.21",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.20/30020)",
+  "version_consistency": "passed (release/branding/backend 3.0.21/30021)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -158,7 +158,7 @@
     "invalid_rows_hard_deleted": true
   },
   "schema_8_to_9_migration": "passed (SQLite old schema -> expires_at column + schema 9)",
-  "generated_at": "2026-08-06T05:41:28Z",
+  "generated_at": "2026-08-06T08:30:22Z",
   "schema_9_to_10_migration": "automatic (creates dedicated ai_live_connections table)",
   "live_connection_detection": {
     "counting_rule": "Android VPN transport + running Xray session + fresh remote HTTP proof through local Xray proxy",
@@ -222,5 +222,9 @@
     "android_404_410_pending_clear": true,
     "database_migration_required": false,
     "dedicated_tests": "passed (2)"
-  }
+  },
+  "jalali_tehran": "passed",
+  "tests": "40 passed",
+  "android_validation": "passed",
+  "database_migration": "not required"
 }

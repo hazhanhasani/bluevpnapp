@@ -10,6 +10,7 @@ from sqlalchemy import case, desc, func, select
 from sqlalchemy.orm import Session
 
 from .models import AiConnectionEvent, AiFeedback, AiLiveConnection, AiRouteAggregate, Customer
+from .time_locale import TEHRAN_ZONE_NAME, format_jalali
 
 
 def utcnow() -> datetime:
@@ -871,6 +872,7 @@ def admin_overview(db: Session) -> dict[str, Any]:
             "network_type": row.network_type,
             "failure_reason": row.failure_reason,
             "created_at": row.created_at.isoformat() if row.created_at else "",
+            "created_at_fa": format_jalali(row.created_at, fallback=""),
         }
         for row in failure_rows
     ]
@@ -939,11 +941,13 @@ def admin_overview(db: Session) -> dict[str, Any]:
                 if row.started_at
                 else ""
             ),
+            "started_at_fa": format_jalali(row.started_at, fallback=""),
             "last_verified_at": (
                 row.last_verified_at.isoformat()
                 if row.last_verified_at
                 else ""
             ),
+            "last_verified_at_fa": format_jalali(row.last_verified_at, fallback=""),
             "expires_in_seconds": max(
                 0,
                 int(
@@ -988,7 +992,11 @@ def admin_overview(db: Session) -> dict[str, Any]:
             )
         ],
         "last_event_at": newest.isoformat() if newest else "",
+        "last_event_at_fa": format_jalali(newest, fallback=""),
         "updated_at": utcnow().isoformat(),
+        "updated_at_fa": format_jalali(utcnow(), include_seconds=True),
+        "calendar": "jalali",
+        "timezone": TEHRAN_ZONE_NAME,
         "top_routes": top,
         "recent_failures": failures,
         "operators": [

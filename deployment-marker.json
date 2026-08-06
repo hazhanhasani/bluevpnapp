@@ -1,16 +1,17 @@
 {
-  "release": "3.0.20-auto",
-  "version_name": "3.0.20",
-  "version_code": 30020,
+  "release": "3.0.21-jalali-tehran-time",
+  "version_name": "3.0.21",
+  "version_code": 30021,
   "changes": [
-    "Hard-delete abandoned, expired, failed and duplicate unpaid invoice rows",
-    "Validate stored invoice state against BluePay before reusing its URL",
-    "Reject a newly-created invoice when BluePay returns an expired or repeated payment URL",
-    "Retry fresh invoice creation with a new order code up to two times",
-    "Best-effort DELETE/cancel invalid invoices in BluePay",
-    "Clear Android pending-order state when the backend returns 404 or 410"
+    "Display all user-facing dates in the Jalali calendar",
+    "Use Asia/Tehran for displayed clocks and expiry dates",
+    "Add Persian datetime fields while preserving canonical UTC values",
+    "Show Jalali expiry inside the Android account screen",
+    "Show Jalali timestamps in admin, BlueAI and GuardCore notifications",
+    "Add timezone/calendar response headers"
   ],
-  "generated_at_unix": 1785994888,
-  "purpose": "remove-invalid-bluepay-invoices-and-prevent-expired-payment-pages",
-  "updated_at": "2026-08-06T05:41:28Z"
+  "generated_at_unix": 1786005022,
+  "purpose": "نمایش سراسری تاریخ شمسی و ساعت Asia/Tehran با حفظ UTC داخلی",
+  "updated_at": "2026-08-06T08:30:22Z",
+  "built_at": "2026-08-06T08:30:22Z"
 }

@@ -1,0 +1,15 @@
+BlueVPN 3.0.21 — Jalali / Asia-Tehran validation
+
+- Python compileall: PASSED
+- Backend tests: PASSED (40/40)
+- Jalali conversion tests: PASSED
+- Asia/Tehran midnight rollover: PASSED
+- UTC canonical API fields preserved: PASSED
+- Persian API display fields: PASSED
+- Jinja template parsing: PASSED
+- Android embedded source validation: PASSED
+- Android Jalali expiry contract: PASSED
+- JSON/YAML/XML validation: PASSED
+- ZIP integrity: PASSED
+
+No database migration is required.

@@ -29,8 +29,12 @@ for directory in (APP_DIR, BOT_DIR):
 
 try:
     from server.version import VERSION
+    from server.time_locale import TEHRAN_ZONE_NAME, format_jalali
 except Exception:
-    VERSION = os.getenv("BLUEVPN_VERSION", "3.0.20")
+    VERSION = os.getenv("BLUEVPN_VERSION", "3.0.21")
+    TEHRAN_ZONE_NAME = "Asia/Tehran"
+    def format_jalali(value: Any, **_: Any) -> str:
+        return str(value)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,6 +45,10 @@ logger = logging.getLogger("bluevpn.bootstrap")
 
 def utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def tehran_now() -> str:
+    return format_jalali(datetime.now(timezone.utc), include_seconds=True)
 
 
 def redact(value: str) -> str:
@@ -278,6 +286,10 @@ def status_payload() -> dict[str, Any]:
         "version": VERSION,
         "alive": True,
         "started_at": STATE.started_at,
+        "started_at_fa": format_jalali(STATE.started_at, include_seconds=True),
+        "current_time_fa": tehran_now(),
+        "calendar": "jalali",
+        "timezone": TEHRAN_ZONE_NAME,
         "application": {
             "ready": STATE.app_ready,
             "status": STATE.app_status,
@@ -371,7 +383,7 @@ async def send_startup_alert(title: str, error: str) -> None:
         f"❌ خطای راه‌اندازی BlueVPN\n\n"
         f"بخش: {title}\n"
         f"نسخه Backend: {VERSION}\n"
-        f"زمان: {utc_iso()}"
+        f"زمان تهران: {tehran_now()}"
         f"{run_url}\n\n"
         f"{safe_error[-2500:]}"
         f"{diagnostics_text}\n\n"
@@ -427,7 +439,8 @@ def save_error(section: str, exc: BaseException) -> str:
             f"BlueVPN startup failure\n"
             f"section={section}\n"
             f"version={VERSION}\n"
-            f"time={utc_iso()}\n\n"
+            f"time_utc={utc_iso()}\n"
+            f"time_tehran_jalali={tehran_now()}\n\n"
             f"{safe}"
         ),
         encoding="utf-8",

@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from .models import Customer, GuardCorePanel, Order, Plan
 from .security import utcnow
+from .time_locale import format_jalali
 from .version import VERSION
 
 
@@ -229,8 +230,12 @@ def prepare_manual_request(
         "target_expire": (
             aware(target_expire).isoformat() if target_expire else None
         ),
+        "target_expire_fa": (
+            format_jalali(target_expire, fallback="") if target_expire else "نامحدود"
+        ),
         "data_limit_bytes": int(data_limit_bytes or 0),
         "created_at": previous.get("created_at") or utcnow().isoformat(),
+        "created_at_fa": previous.get("created_at_fa") or format_jalali(utcnow(), include_seconds=True),
         "notified_at": previous.get("notified_at"),
         "decision_at": previous.get("decision_at"),
         "attached_at": previous.get("attached_at"),

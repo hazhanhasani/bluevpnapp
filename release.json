@@ -1,11 +1,11 @@
 {
-  "version": "3.0.20",
-  "channel": "bluepay-invalid-invoice-purge",
-  "build_id": "20260806-bluepay-invalid-invoice-purge-v3020",
-  "built_at": "2026-08-06T05:41:28Z",
-  "android_version": "3.0.20",
-  "android_version_code": 30020,
-  "description": "BlueVPN 3.0.20 فاکتورهای باطل، منقضی و تکراری BluePay را از دیتابیس حذف می‌کند، لینک ذخیره‌شده را پیش از استفاده از خود درگاه اعتبارسنجی می‌کند و پاسخ فاکتور تازه اما منقضی را هرگز به اپلیکیشن تحویل نمی‌دهد.",
+  "version": "3.0.21",
+  "channel": "jalali-tehran-time",
+  "build_id": "20260806-jalali-tehran-time-v3021",
+  "built_at": "2026-08-06T08:28:06Z",
+  "android_version": "3.0.21",
+  "android_version_code": 30021,
+  "description": "BlueVPN 3.0.21 تمام تاریخ‌ها و ساعت‌های قابل نمایش را به تقویم شمسی و منطقه زمانی Asia/Tehran تبدیل می‌کند؛ زمان‌های داخلی و قراردادهای درگاه همچنان UTC استاندارد باقی می‌مانند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -159,8 +159,15 @@
     "bluepay-stale-link-fingerprint-rejection",
     "bluepay-fresh-invoice-retry",
     "bluepay-minimum-fresh-lifetime-validation",
-    "android-deleted-order-state-clear"
+    "android-deleted-order-state-clear",
+    "jalali-calendar-ui",
+    "asia-tehran-display-timezone",
+    "persian-digit-datetime",
+    "android-jalali-expiry-display",
+    "admin-jalali-time-filter",
+    "api-parallel-fa-datetime-fields",
+    "utc-internal-time-preserved"
   ],
-  "version_code": 30020,
-  "notes": "No database migration is required. Open checkout stays valid for up to 30 minutes; after browser exit it is purged after 5 minutes. Invalid remote invoices are cancelled/deleted on a best-effort basis and stale returned URLs are rejected."
+  "version_code": 30021,
+  "notes": "All user-facing date/time values use the Solar Hijri calendar and Asia/Tehran. Canonical UTC fields remain available for payment, expiry, database, webhook and Android calculations."
 }

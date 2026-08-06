@@ -121,6 +121,14 @@ def main() -> None:
             "۵ دقیقه" in subscriptions,
         "abandoned invoice handling":
             '"abandoned"' in subscriptions,
+        "Jalali Tehran formatter":
+            'object BlueVpnPersianDate' in account_manager
+            and 'Asia/Tehran' in account_manager
+            and 'gregorianToJalali' in account_manager,
+        "Persian expiry display":
+            'expireFa' in account_manager
+            and 'اعتبار تا:' in subscriptions
+            and 'BlueVpnPersianDate.formatIso' in subscriptions,
     }
     checkout_failed = [label for label, ok in checkout_checks.items() if not ok]
     if checkout_failed:

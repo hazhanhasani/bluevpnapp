@@ -1,5 +1,5 @@
 <!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07101f"><title>BlueVPN Platform</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/style.css"></head><body>
-<header class="topbar"><div class="brand"><div class="brand-logo-wrap"><img src="/static/logo.png"><span class="brand-live-dot" aria-label="online"></span></div><div><b>BlueVPN Platform</b><span>مرکز مدیریت سرویس و هوش شبکه</span></div></div><div class="topbar-actions"><span class="secure-session"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4.5 5v6c0 5.1 3.2 9.7 7.5 11 4.3-1.3 7.5-5.9 7.5-11V5L12 2Zm0 3.1 4.5 1.8V11c0 3.6-2 7-4.5 8.1C9.5 18 7.5 14.6 7.5 11V6.9L12 5.1Zm-1 3.4v3H8.8v2.2H11v2.2h2v-2.2h2.2v-2.2H13v-3h-2Z"/></svg>نشست امن</span><form method="post" action="/admin/logout"><button class="secondary icon-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H4v16h6v-2H6V6h4V4Zm4.6 3.4-1.4 1.4 2.2 2.2H9v2h6.4l-2.2 2.2 1.4 1.4L19.2 12l-4.6-4.6Z"/></svg>خروج</button></form></div></header>
+<header class="topbar"><div class="brand"><div class="brand-logo-wrap"><img src="/static/logo.png"><span class="brand-live-dot" aria-label="online"></span></div><div><b>BlueVPN Platform</b><span>مرکز مدیریت سرویس و هوش شبکه</span></div></div><div class="topbar-actions"><span class="secure-session"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4.5 5v6c0 5.1 3.2 9.7 7.5 11 4.3-1.3 7.5-5.9 7.5-11V5L12 2Zm0 3.1 4.5 1.8V11c0 3.6-2 7-4.5 8.1C9.5 18 7.5 14.6 7.5 11V6.9L12 5.1Zm-1 3.4v3H8.8v2.2H11v2.2h2v-2.2h2.2v-2.2H13v-3h-2Z"/></svg>نشست امن</span><span class="secure-session" id="tehran-clock">{{ now_fa }} • تهران</span><form method="post" action="/admin/logout"><button class="secondary icon-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H4v16h6v-2H6V6h4V4Zm4.6 3.4-1.4 1.4 2.2 2.2H9v2h6.4l-2.2 2.2 1.4 1.4L19.2 12l-4.6-4.6Z"/></svg>خروج</button></form></div></header>
 <nav class="tabs"><a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">GuardCore</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف GuardCore</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#app" data-tab="app">اپ و آپدیت</a></nav>
 <main class="container">{% if not database_info.persistent %}<div class="alert danger flash-alert" data-sticky="1"><span>هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if saved %}<div class="alert success flash-alert"><span>تغییرات ذخیره شد.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if manual_message %}<div class="alert success flash-alert"><span>{{ manual_message }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if error %}<div class="alert danger flash-alert"><span>{{ error }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}
 <section id="overview" class="dashboard-overview">
@@ -78,7 +78,7 @@
         </div>
         <div class="live-connection-proof">
           <b>{{ item.ping_ms }} ms</b>
-          <small>{{ 'در حال تبادل' if item.traffic_active else 'متصل و آماده' }} • {{ item.verification_source }}</small>
+          <small>{{ 'در حال تبادل' if item.traffic_active else 'متصل و آماده' }} • {{ item.verification_source }} • {{ item.last_verified_at_fa }}</small>
         </div>
       </article>
       {% else %}
@@ -90,7 +90,7 @@
     <div class="panel-title"><h3>آخرین اختلال‌های تشخیص‌داده‌شده</h3><span>برای Auto-Heal</span></div>
     <div class="failure-stream">
       {% for item in blueai.recent_failures %}
-      <article><span class="status-pulse bad"></span><div><strong>{{ item.location_title }}</strong><small>{{ item.operator }} • {{ item.network_type }} • {{ item.failure_reason or 'عدم پاسخ مسیر' }}</small></div><time>{{ item.created_at }}</time></article>
+      <article><span class="status-pulse bad"></span><div><strong>{{ item.location_title }}</strong><small>{{ item.operator }} • {{ item.network_type }} • {{ item.failure_reason or 'عدم پاسخ مسیر' }}</small></div><time>{{ item.created_at_fa or (item.created_at|jalali) }}</time></article>
       {% else %}<div class="empty-state">اختلال ثبت‌شده‌ای وجود ندارد.</div>{% endfor %}
     </div>
   </div>
@@ -245,7 +245,7 @@
     {% set o=item.order %}{% set r=item.request %}
     <article class="manual-ticket">
       <div class="ticket-head"><div><b>{{ r.plan_title }}</b><small class="ltr">{{ o.order_code }}</small></div><span class="badge {{ 'warn' if r.state=='awaiting_decision' else 'manual' }}">{{ 'منتظر تصمیم' if r.state=='awaiting_decision' else 'منتظر لینک ساب' }}</span></div>
-      <div class="ticket-grid"><span>کاربر <b class="ltr">{{ r.customer_email }}</b></span><span>نام ساخت <code>{{ r.username }}</code></span><span>زمان <b>{{ r.duration_days or '∞' }} روز</b></span><span>حجم <b>{{ r.data_limit_gb or 'نامحدود' }}</b></span><span>پنل <a href="{{ r.panel_url }}" target="_blank">{{ r.panel_name }}</a></span></div>
+      <div class="ticket-grid"><span>کاربر <b class="ltr">{{ r.customer_email }}</b></span><span>نام ساخت <code>{{ r.username }}</code></span><span>زمان <b>{{ r.duration_days or '∞' }} روز</b></span><span>حجم <b>{{ r.data_limit_gb or 'نامحدود' }}</b></span><span>انقضا <b>{{ r.target_expire_fa or 'نامحدود' }}</b></span><span>ثبت درخواست <b>{{ r.created_at_fa or (r.created_at|jalali) }}</b></span><span>پنل <a href="{{ r.panel_url }}" target="_blank">{{ r.panel_name }}</a></span></div>
       <form method="post" action="/admin/orders/{{ o.id }}/guardcore/manual-link" class="manual-link-form"><input class="ltr" name="subscription_url" placeholder="لینک Subscription را Paste کن" required><button class="save">ثبت و افزودن به کاربر</button></form>
       <div class="actions"><form method="post" action="/admin/orders/{{ o.id }}/guardcore/notify"><button>ارسال دوباره به ربات</button></form><form method="post" action="/admin/orders/{{ o.id }}/guardcore/skip"><button class="secondary">بدون GuardCore ادامه بده</button></form></div>
     </article>
@@ -433,7 +433,7 @@
             {% if c.guardcore_last_error %}<small class="source-error">{{ c.guardcore_last_error }}</small>{% endif %}
           </td>
           <td>{{ c.device_limit }}</td>
-          <td>{{ c.subscription_expire or 'نامحدود/ندارد' }}</td>
+          <td>{{ (c.subscription_expire|jalali) if c.subscription_expire else 'نامحدود/ندارد' }}</td>
           <td>
             <div class="actions">
               <form method="post" action="/admin/customers/{{ c.id }}/source-check">
@@ -469,7 +469,7 @@
     </table>
   </div>
 </section>
-<section id="orders" class="card"><h2>پرداخت و فعال‌سازی</h2><div class="table-wrap"><table><thead><tr><th>سفارش</th><th>کاربر</th><th>پلن</th><th>مبلغ</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{% for o in orders %}<tr><td class="ltr">{{ o.order_code }}{% if o.order_code.startswith("MANUAL-") %}<span class="badge manual">دستی</span>{% endif %}</td><td class="ltr">{{ o.customer.email }}</td><td>{{ o.plan.title }}</td><td>{% if o.order_code.startswith('MANUAL-') %}بدون درگاه{% else %}{{ '{:,}'.format(o.amount_toman) }}{% endif %}</td><td><span class="badge {{ 'ok' if o.status=='activated' else 'warn' }}">{{ o.status }}</span>{% if o.activation_error %}<small>{{ o.activation_error[:160] }}</small>{% endif %}</td><td>{% if o.status in ['paid','paid_needs_sync','partial_needs_sync'] %}<form method="post" action="/admin/orders/{{ o.id }}/activate"><button>تلاش فعال‌سازی</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="6">پرداختی وجود ندارد.</td></tr>{% endfor %}</tbody></table></div></section>
+<section id="orders" class="card"><h2>پرداخت و فعال‌سازی</h2><div class="table-wrap"><table><thead><tr><th>سفارش</th><th>کاربر</th><th>پلن</th><th>مبلغ</th><th>تاریخ تهران</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{% for o in orders %}<tr><td class="ltr">{{ o.order_code }}{% if o.order_code.startswith("MANUAL-") %}<span class="badge manual">دستی</span>{% endif %}</td><td class="ltr">{{ o.customer.email }}</td><td>{{ o.plan.title }}</td><td>{% if o.order_code.startswith('MANUAL-') %}بدون درگاه{% else %}{{ '{:,}'.format(o.amount_toman) }}{% endif %}</td><td>{{ o.created_at|jalali }}</td><td><span class="badge {{ 'ok' if o.status=='activated' else 'warn' }}">{{ o.status }}</span>{% if o.activation_error %}<small>{{ o.activation_error[:160] }}</small>{% endif %}</td><td>{% if o.status in ['paid','paid_needs_sync','partial_needs_sync'] %}<form method="post" action="/admin/orders/{{ o.id }}/activate"><button>تلاش فعال‌سازی</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="7">پرداختی وجود ندارد.</td></tr>{% endfor %}</tbody></table></div></section>
 <section id="app" class="card">
   <h2>اپلیکیشن و آپدیت خودکار GitHub</h2>
   <div class="github-release-box">
@@ -660,7 +660,7 @@
       info.append(create('small', '', `${row.operator || 'ناشناخته'} • ${row.network_type || 'unknown'} • ${row.device || 'دستگاه ناشناس'}`));
       const proof = create('div', 'live-connection-proof');
       proof.append(create('b', '', `${Number(row.ping_ms || 0)} ms`));
-      proof.append(create('small', '', `${row.traffic_active ? 'در حال تبادل' : 'متصل و آماده'} • ${row.verification_source || 'remote-proof'} • ${Number(row.expires_in_seconds || 0)}s`));
+      proof.append(create('small', '', `${row.traffic_active ? 'در حال تبادل' : 'متصل و آماده'} • ${row.verification_source || 'remote-proof'} • ${row.last_verified_at_fa || '—'} • ${Number(row.expires_in_seconds || 0)} ثانیه`));
       article.append(info, proof);
       root.append(article);
     });
@@ -680,7 +680,9 @@
       renderOperators(data.blueai?.operators || [], data.blueai?.live_operators || []);
       renderLiveConnections(data.blueai?.live_connections || []);
       const status = document.getElementById('blueai-live-status');
-      if (status) status.textContent = `زنده • ${new Date().toLocaleTimeString('fa-IR')}`;
+      if (status) status.textContent = `زنده • ${data.server_time_fa || 'ساعت تهران'}`;
+      const clock = document.getElementById('tehran-clock');
+      if (clock && data.server_time_fa) clock.textContent = `${data.server_time_fa} • تهران`;
     } catch (error) {
       const status = document.getElementById('blueai-live-status');
       if (status) status.textContent = 'اتصال زنده موقتاً قطع است';

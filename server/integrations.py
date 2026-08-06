@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -63,6 +64,8 @@ UNLIMITED_EXPIRY_SENTINELS = {
     "infinite",
 }
 EXPIRY_CLOCK_SKEW = timedelta(minutes=2)
+EXPIRY_REGRESSION_TOLERANCE = timedelta(minutes=5)
+PASARGUARD_EXPIRY_VERIFY_TOLERANCE = timedelta(minutes=3)
 ACTIVE_PROVIDER_STATUSES = {
     "active", "enabled", "online", "ok", "success", "successful",
     "valid", "connected", "ready",
@@ -116,6 +119,55 @@ def _expiry_observation(data: dict | None) -> tuple[bool, datetime | None, bool]
         )
         return True, parsed, unlimited
     return False, None, False
+
+
+
+def _expiry_matches_target(
+    data: dict | None,
+    target_expire: datetime | None,
+) -> bool:
+    seen, observed, unlimited = _expiry_observation(data)
+    if target_expire is None:
+        return bool(seen and unlimited)
+    target = aware(target_expire)
+    if not seen or observed is None or target is None:
+        return False
+    return observed >= target - PASARGUARD_EXPIRY_VERIFY_TOLERANCE
+
+
+def _pasarguard_expire_candidates(
+    target_expire: datetime | None,
+) -> list[int | str]:
+    """Return compatible expiry payloads for different PasarGuard builds.
+
+    Older PasarGuard/Marzban-derived APIs expect Unix seconds, while some newer
+    deployments accept ISO-8601. We verify the stored value after every write
+    and fall back without creating a duplicate user.
+    """
+    if target_expire is None:
+        return [0]
+    target = aware(target_expire)
+    if target is None:
+        return [0]
+    seconds = int(target.timestamp())
+    candidates: list[int | str] = [
+        seconds,
+        iso_z(target) or seconds,
+        seconds * 1000,
+    ]
+    unique: list[int | str] = []
+    for candidate in candidates:
+        if candidate not in unique:
+            unique.append(candidate)
+    return unique
+
+
+def _response_json(response: httpx.Response) -> dict:
+    try:
+        payload = response.json()
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def iso_z(value: datetime | None) -> str | None:
@@ -700,7 +752,7 @@ def aggregate_customer(
     """Merge provider snapshots without destroying the last known good subscription.
 
     Provider outages and incomplete payloads must not turn a paid customer into an
-    inactive account. 3.0.22 only downgrades an active subscription when healthy,
+    inactive account. 3.0.23 only downgrades an active subscription when healthy,
     authoritative provider responses explicitly report a terminal state.
     """
     previous_status = normalize_provider_status(
@@ -836,8 +888,20 @@ def aggregate_customer(
     else:
         customer.subscription_status = previous_status
 
+    expiry_regression_detected = False
     if expires:
-        customer.subscription_expire = max(expires)
+        observed_expiry = max(expires)
+        if (
+            active_source
+            and previous_status == "active"
+            and previous_expire is not None
+            and previous_expire > now - EXPIRY_CLOCK_SKEW
+            and observed_expiry < previous_expire - EXPIRY_REGRESSION_TOLERANCE
+        ):
+            customer.subscription_expire = previous_expire
+            expiry_regression_detected = True
+        else:
+            customer.subscription_expire = observed_expiry
     elif active_source and explicit_unlimited:
         customer.subscription_expire = None
     elif has_sync_errors or not expiry_fields_seen:
@@ -871,9 +935,15 @@ def aggregate_customer(
 
     customer.marzban_last_error = mz_error[:1000]
     customer.guardcore_last_error = gc_error[:1000]
-    customer.last_sync_error = (
-        "" if not errors else "برخی مسیرهای سرویس موقتاً پاسخ نمی‌دهند؛ آخرین وضعیت معتبر حفظ شد"
-    )
+    if expiry_regression_detected:
+        customer.last_sync_error = (
+            "یکی از پنل‌ها تاریخ کوتاه‌تری برگرداند؛ تاریخ معتبر قبلی حفظ شد "
+            "و اصلاح خودکار پنل در صف قرار گرفت."
+        )
+    else:
+        customer.last_sync_error = (
+            "" if not errors else "برخی مسیرهای سرویس موقتاً پاسخ نمی‌دهند؛ آخرین وضعیت معتبر حفظ شد"
+        )
     ensure_subscription_identity(customer, public_base_url)
     customer.last_sync_at = utcnow()
     return customer
@@ -883,68 +953,143 @@ def repair_subscription_states(
     db: Session,
     *,
     commit: bool = True,
-) -> dict[str, int]:
-    """Repair customers incorrectly downgraded by an incomplete provider sync."""
+) -> dict[str, Any]:
+    """Repair status and expiry regressions using the latest paid activation.
+
+    Version 3.0.23 also repairs accounts that stayed ``active`` but had their
+    expiry shortened to the current day by an incompatible provider payload.
+    """
     now = aware(utcnow()) or datetime.now(timezone.utc)
-    scanned = repaired = 0
+    scanned = repaired = expiry_repaired = 0
+    provider_repair_order_ids: list[int] = []
+
     for customer in db.scalars(select(Customer)).all():
         scanned += 1
-        current_status = normalize_provider_status(
-            customer.subscription_status, default="inactive"
-        )
-        if not customer.active or current_status == "active":
+        if not customer.active:
             continue
-        if current_status in (INACTIVE_PROVIDER_STATUSES - {"inactive"}):
-            # Explicit disabled/expired/blocked states are authoritative and
-            # must never be revived by the automatic recovery pass.
-            continue
-        expiry_candidates = [
-            item for item in (
-                aware(customer.subscription_expire),
-                aware(customer.marzban_expire),
-                aware(customer.guardcore_expire),
-            )
-            if item is not None
-        ]
+
         latest_order = db.scalar(
             select(Order)
             .where(
                 Order.customer_id == customer.id,
                 Order.status.in_((
-                    "activated", "paid", "paid_needs_sync", "partial_needs_sync"
+                    "activated", "paid", "paid_needs_sync",
+                    "partial_needs_sync", "manual_pending",
                 )),
             )
             .order_by(Order.created_at.desc(), Order.id.desc())
         )
+
         latest_target_unlimited = False
+        expected_target: datetime | None = None
+        parsed_target: datetime | None = None
+        metadata: dict[str, Any] = {}
         if latest_order:
             metadata = order_metadata(latest_order)
             stored_target = metadata.get("_bluevpn_target_expire")
             parsed_target = parse_remote_date(stored_target)
-            if parsed_target:
-                expiry_candidates.append(parsed_target)
-            elif str(stored_target or "").strip().lower() in (
+            if str(stored_target or "").strip().lower() in (
                 UNLIMITED_EXPIRY_SENTINELS - {""}
             ):
                 latest_target_unlimited = True
-            elif latest_order.plan_id:
-                order_plan = db.get(Plan, latest_order.plan_id)
-                base = aware(
-                    latest_order.activated_at
-                    or latest_order.paid_at
-                    or latest_order.created_at
-                )
-                if order_plan and base and int(order_plan.duration_days or 0) > 0:
-                    expiry_candidates.append(
-                        base + timedelta(days=int(order_plan.duration_days))
-                    )
 
+            order_plan = db.get(Plan, latest_order.plan_id) if latest_order.plan_id else None
+            base = aware(
+                latest_order.activated_at
+                or latest_order.paid_at
+                or latest_order.created_at
+            )
+            calculated_target = None
+            if (
+                order_plan
+                and base
+                and int(order_plan.duration_days or 0) > 0
+            ):
+                calculated_target = (
+                    base + timedelta(days=int(order_plan.duration_days))
+                ).replace(microsecond=0)
+
+            candidates = [
+                item for item in (parsed_target, calculated_target)
+                if item is not None
+            ]
+            expected_target = max(candidates) if candidates else None
+            if (
+                expected_target is not None
+                and (
+                    parsed_target is None
+                    or parsed_target < expected_target - EXPIRY_REGRESSION_TOLERANCE
+                )
+            ):
+                metadata["_bluevpn_target_expire"] = iso_z(expected_target)
+                metadata["_bluevpn_target_reconstructed_at"] = iso_z(now)
+                metadata["_bluevpn_target_reconstruction_source"] = (
+                    "activation_time_plus_plan_duration"
+                )
+                save_order_metadata(db, latest_order, metadata)
+
+        initial_status = normalize_provider_status(
+            customer.subscription_status, default="inactive"
+        )
+        explicit_terminal = initial_status in (
+            INACTIVE_PROVIDER_STATUSES - {"inactive"}
+        )
+        current_expiry = aware(customer.subscription_expire)
+        has_source = bool(
+            customer.pasarguard_subscription_url
+            or customer.marzban_subscription_url
+            or customer.guardcore_subscription_url
+        )
+
+        if (
+            latest_order
+            and expected_target is not None
+            and expected_target > now - EXPIRY_CLOCK_SKEW
+            and (
+                current_expiry is None
+                or current_expiry < expected_target - EXPIRY_REGRESSION_TOLERANCE
+            )
+        ):
+            customer.subscription_expire = expected_target
+            if has_source and not explicit_terminal:
+                if initial_status != "active":
+                    repaired += 1
+                customer.subscription_status = "active"
+            customer.last_sync_error = (
+                "تاریخ اشتراک از آخرین فعال‌سازی معتبر بازسازی شد؛ "
+                "اصلاح تاریخ پنل‌ها در پس‌زمینه انجام می‌شود."
+            )
+            expiry_repaired += 1
+            if (
+                not explicit_terminal
+                and latest_order.id not in provider_repair_order_ids
+            ):
+                provider_repair_order_ids.append(latest_order.id)
+
+        current_status = normalize_provider_status(
+            customer.subscription_status, default="inactive"
+        )
+        if current_status == "active":
+            continue
+        if current_status in (INACTIVE_PROVIDER_STATUSES - {"inactive"}):
+            continue
+
+        expiry_candidates = [
+            item for item in (
+                aware(customer.subscription_expire),
+                aware(customer.marzban_expire),
+                aware(customer.guardcore_expire),
+                expected_target,
+            )
+            if item is not None
+        ]
         expiry = max(expiry_candidates) if expiry_candidates else None
         if expiry and (
             customer.subscription_expire is None
             or aware(customer.subscription_expire) < expiry
         ):
             customer.subscription_expire = expiry
+
         finite_valid = expiry is not None and expiry > now - EXPIRY_CLOCK_SKEW
         stored_provider_statuses = [
             normalize_provider_status(value, default="unknown")
@@ -952,11 +1097,6 @@ def repair_subscription_states(
             if str(value or "").strip()
         ]
         provider_active = "active" in stored_provider_statuses
-        has_source = bool(
-            customer.pasarguard_subscription_url
-            or customer.marzban_subscription_url
-            or customer.guardcore_subscription_url
-        )
         recoverable_finite = (
             finite_valid
             and (
@@ -979,18 +1119,26 @@ def repair_subscription_states(
                 )
             )
         )
-        # Finite future subscriptions and active unlimited plans are repaired.
-        if has_source and (recoverable_finite or recoverable_unlimited or provider_active):
+        if has_source and (
+            recoverable_finite or recoverable_unlimited or provider_active
+        ):
             customer.subscription_status = "active"
             customer.last_sync_error = (
-                "وضعیت اشتراک پس از بازیابی خودکار 3.0.22 اصلاح شد"
+                "وضعیت اشتراک پس از بازیابی خودکار 3.0.23 اصلاح شد"
             )
             repaired += 1
-    if commit and repaired:
+
+    if commit and (repaired or expiry_repaired):
         db.commit()
     elif commit:
         db.flush()
-    return {"scanned": scanned, "repaired": repaired}
+
+    return {
+        "scanned": scanned,
+        "repaired": repaired,
+        "expiry_repaired": expiry_repaired,
+        "provider_repair_order_ids": provider_repair_order_ids,
+    }
 
 
 async def provision_pasarguard(
@@ -1004,54 +1152,118 @@ async def provision_pasarguard(
     note: str,
     remote: dict | None,
 ) -> dict:
-    payload = {
+    """Create/update a PasarGuard user and verify the stored expiry.
+
+    PasarGuard deployments differ on the accepted expiry type. We first use
+    Unix seconds (the canonical Marzban-compatible form), then ISO-8601 and
+    milliseconds as compatibility fallbacks. A successful HTTP response is not
+    trusted until a fresh GET confirms the expected expiry.
+    """
+    base_payload = {
         "status": "active",
-        "expire": (
-            0
-            if target_expire is None
-            else iso_z(target_expire)
-        ),
         "data_limit": data_limit,
         "data_limit_reset_strategy": "no_reset",
         "group_ids": groups,
         "hwid_limit": 1 if device_limit <= 1 else 2,
         "note": note,
     }
-
-    if remote is None:
-        payload.update(
-            {
-                "username": username,
-                "proxy_settings": proxy_settings(panel),
-            }
-        )
-        method = "POST"
-        url = panel_url(panel, "/api/user")
-    else:
-        method = "PUT"
-        url = panel_url(
-            panel,
-            f"/api/user/by-username/{username}",
-        )
+    expire_candidates = _pasarguard_expire_candidates(target_expire)
+    headers = await panel_headers(panel)
+    last_error = ""
+    observed: dict | None = remote
 
     async with httpx.AsyncClient(
         timeout=30,
         verify=panel.verify_tls,
     ) as client:
-        response = await client.request(
-            method,
-            url,
-            headers=await panel_headers(panel),
-            json=payload,
-        )
+        if remote is None:
+            created = False
+            for expire_value in expire_candidates:
+                payload = {
+                    **base_payload,
+                    "expire": expire_value,
+                    "username": username,
+                    "proxy_settings": proxy_settings(panel),
+                }
+                response = await client.post(
+                    panel_url(panel, "/api/user"),
+                    headers=headers,
+                    json=payload,
+                )
+                if response.status_code >= 400:
+                    last_error = (
+                        f"HTTP {response.status_code} {response.text[:500]}"
+                    )
+                    if response.status_code in {400, 409, 415, 422}:
+                        existing = await get_pg_user(panel, username)
+                        if existing is not None:
+                            observed = existing
+                            created = True
+                            break
+                        continue
+                    raise IntegrationError(
+                        "فعال‌سازی پاسارگارد ناموفق: " + last_error
+                    )
+                created = True
+                observed = await get_pg_user(panel, username)
+                if observed is None:
+                    observed = _response_json(response)
+                break
+            if not created:
+                raise IntegrationError(
+                    "فعال‌سازی پاسارگارد ناموفق: "
+                    + (last_error or "هیچ قالب معتبری برای تاریخ پذیرفته نشد")
+                )
 
-    if response.status_code >= 400:
-        raise IntegrationError(
-            "فعال‌سازی پاسارگارد ناموفق: "
-            f"HTTP {response.status_code} {response.text[:800]}"
-        )
+        if _expiry_matches_target(observed, target_expire):
+            return observed or {}
 
-    return response.json()
+        update_url = panel_url(
+            panel,
+            f"/api/user/by-username/{username}",
+        )
+        for index, expire_value in enumerate(expire_candidates):
+            payload = {**base_payload, "expire": expire_value}
+            response = await client.put(
+                update_url,
+                headers=headers,
+                json=payload,
+            )
+            if response.status_code >= 400:
+                last_error = (
+                    f"HTTP {response.status_code} {response.text[:500]}"
+                )
+                if response.status_code in {400, 415, 422}:
+                    continue
+                raise IntegrationError(
+                    "تمدید پاسارگارد ناموفق: " + last_error
+                )
+
+            await asyncio.sleep(0.35 if index == 0 else 0.8)
+            observed = await get_pg_user(panel, username)
+            if observed is None:
+                observed = _response_json(response)
+            if _expiry_matches_target(observed, target_expire):
+                return observed or {}
+
+    seen, actual, unlimited = _expiry_observation(observed)
+    expected_text = (
+        "نامحدود"
+        if target_expire is None
+        else iso_z(aware(target_expire))
+    )
+    actual_text = (
+        "نامحدود"
+        if seen and unlimited
+        else iso_z(actual)
+        if actual
+        else "نامشخص"
+    )
+    raise IntegrationError(
+        "پاسارگارد پاسخ موفق داد اما تاریخ اعتبار ذخیره نشد؛ "
+        f"انتظار={expected_text}، ثبت‌شده={actual_text}. "
+        + (last_error[:300] if last_error else "")
+    )
 
 
 async def provision_marzban(

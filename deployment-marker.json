@@ -1,14 +1,13 @@
 {
-  "release": "3.0.22-auto",
-  "version_name": "3.0.22",
-  "version_code": 30022,
+  "release": "3.0.23-subscription-expiry-regression-repair",
+  "version_name": "3.0.23",
+  "version_code": 30023,
   "changes": [
-    "Preserve the last known good subscription during provider outages",
-    "Do not erase expiry, quota or usage on incomplete sync responses",
-    "Treat successful provider payloads without a status field as active",
-    "Repair incorrectly inactive future and unlimited subscriptions on startup",
-    "Add a manual repair action in the admin customer section",
-    "Keep the runtime clock UTC while displaying Jalali Asia/Tehran dates"
+    "Repair subscription expiry shortened to the activation day",
+    "Verify PasarGuard expiry after POST/PUT",
+    "Fallback between Unix seconds, ISO-8601 and epoch milliseconds",
+    "Preserve last known paid expiry during provider sync",
+    "Repair affected provider records automatically after startup"
   ],
   "generated_at_unix": 1786006515,
   "purpose": "بازیابی خودکار اشتراک‌های معتبری که پس از همگام‌سازی ناقص غیرفعال شده‌اند",

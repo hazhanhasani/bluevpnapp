@@ -243,6 +243,59 @@ app.add_middleware(
 )
 app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
 
+SUBSCRIPTION_PROVIDER_REPAIR_TASK: asyncio.Task | None = None
+
+async def _repair_subscription_provider_orders(order_ids:list[int])->None:
+    if not order_ids:
+        return
+    await asyncio.sleep(1)
+    db=SessionLocal()
+    try:
+        for order_id in order_ids[:100]:
+            order=db.scalar(
+                select(Order)
+                .options(selectinload(Order.customer),selectinload(Order.plan))
+                .where(Order.id==order_id)
+            )
+            if not order or not order.customer or not order.plan:
+                continue
+            try:
+                await provision(
+                    db,
+                    order.customer,
+                    order.plan,
+                    order,
+                    settings(db)['public_base_url'],
+                )
+                logger.warning(
+                    'Subscription expiry repaired on providers for order %s',
+                    order.order_code,
+                )
+            except Exception:
+                db.rollback()
+                logger.exception(
+                    'Provider expiry repair failed for order id=%s',
+                    order_id,
+                )
+    finally:
+        db.close()
+
+
+def _schedule_subscription_provider_repair(order_ids:list[int])->None:
+    global SUBSCRIPTION_PROVIDER_REPAIR_TASK
+    unique=[int(item) for item in dict.fromkeys(order_ids) if int(item)>0]
+    if not unique:
+        return
+    if (
+        SUBSCRIPTION_PROVIDER_REPAIR_TASK is not None
+        and not SUBSCRIPTION_PROVIDER_REPAIR_TASK.done()
+    ):
+        return
+    SUBSCRIPTION_PROVIDER_REPAIR_TASK=asyncio.create_task(
+        _repair_subscription_provider_orders(unique),
+        name='subscription-provider-expiry-repair',
+    )
+
 @app.middleware('http')
 async def locale_response_headers(request:Request,call_next):
     response=await call_next(request)
@@ -251,24 +304,30 @@ async def locale_response_headers(request:Request,call_next):
     response.headers.setdefault('X-BlueVPN-Calendar','jalali')
     return response
 @app.on_event('startup')
-def startup():
+async def startup():
     initialize_database(); db=SessionLocal()
+    provider_repair_order_ids:list[int]=[]
     try:
         if not db.get(AppSetting,1):db.add(AppSetting(id=1,payload=json.dumps(DEFAULT,ensure_ascii=False)))
         if not db.get(PaymentSetting,1):db.add(PaymentSetting(id=1))
         db.commit()
         try:
             repair=repair_subscription_states(db)
-            if repair.get('repaired'):
+            provider_repair_order_ids=list(
+                repair.get('provider_repair_order_ids') or []
+            )
+            if repair.get('repaired') or repair.get('expiry_repaired'):
                 logger.warning(
-                    'Subscription recovery repaired %s of %s customers',
-                    repair['repaired'],
-                    repair['scanned'],
+                    'Subscription recovery: status=%s expiry=%s scanned=%s',
+                    repair.get('repaired',0),
+                    repair.get('expiry_repaired',0),
+                    repair.get('scanned',0),
                 )
         except Exception:
             db.rollback()
             logger.exception('Automatic subscription-state recovery failed')
     finally:db.close()
+    _schedule_subscription_provider_repair(provider_repair_order_ids)
 def settings(db:Session)->dict:
     row=db.get(AppSetting,1)
     if not row:row=AppSetting(id=1,payload=json.dumps(DEFAULT,ensure_ascii=False));db.add(row);db.commit()
@@ -517,7 +576,7 @@ def _delete_invalid_order(
 )->None:
     """Hard-delete an unpaid unusable invoice from the local database.
 
-    BlueVPN 3.0.22 deliberately does not retain abandoned/expired invoice
+    BlueVPN 3.0.23 deliberately does not retain abandoned/expired invoice
     rows, because retaining them allowed stale payment URLs to be selected on
     the next purchase. A compact redacted diagnostic is written outside the
     orders table before deletion.
@@ -673,6 +732,19 @@ async def start_payment_cleanup()->None:
             _payment_cleanup_loop(),
             name='bluepay-pending-cleanup',
         )
+
+@app.on_event('shutdown')
+async def stop_subscription_provider_repair()->None:
+    global SUBSCRIPTION_PROVIDER_REPAIR_TASK
+    task=SUBSCRIPTION_PROVIDER_REPAIR_TASK
+    SUBSCRIPTION_PROVIDER_REPAIR_TASK=None
+    if task is None or task.done():
+        return
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 @app.on_event('shutdown')
 async def stop_payment_cleanup()->None:
@@ -2799,14 +2871,19 @@ async def customer_source_check(
 
 
 @app.post('/admin/subscriptions/repair')
-def admin_subscription_repair(request:Request,db:Session=Depends(get_db)):
+async def admin_subscription_repair(request:Request,db:Session=Depends(get_db)):
     admin_required(request)
     result=repair_subscription_states(db)
+    _schedule_subscription_provider_repair(
+        list(result.get('provider_repair_order_ids') or [])
+    )
     return admin_redirect(
         'customers',
         message=(
-            f"بازیابی اشتراک‌ها انجام شد؛ {result['repaired']} حساب از "
-            f"{result['scanned']} حساب اصلاح شد."
+            f"بازیابی اشتراک‌ها انجام شد؛ وضعیت {result.get('repaired',0)} حساب و "
+            f"تاریخ {result.get('expiry_repaired',0)} حساب از "
+            f"{result.get('scanned',0)} حساب اصلاح شد. "
+            "اصلاح تاریخ پنل‌ها نیز در پس‌زمینه اجرا می‌شود."
         ),
     )
 

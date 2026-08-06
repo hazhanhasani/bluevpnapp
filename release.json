@@ -1,11 +1,11 @@
 {
-  "version": "3.0.22",
-  "channel": "subscription-state-recovery",
-  "build_id": "20260806-subscription-state-recovery-v3022",
-  "built_at": "2026-08-06T08:55:15Z",
-  "android_version": "3.0.22",
-  "android_version_code": 30022,
-  "description": "BlueVPN 3.0.22 از غیرفعال‌شدن اشتراک‌های معتبر هنگام خطای موقت یا پاسخ ناقص پنل جلوگیری می‌کند، وضعیت‌های آسیب‌دیده را خودکار بازیابی می‌کند و نمایش شمسی/تهران را با محاسبات داخلی UTC حفظ می‌کند.",
+  "version": "3.0.23",
+  "channel": "subscription-expiry-regression-repair",
+  "build_id": "20260806-subscription-expiry-regression-repair-v3023",
+  "built_at": "2026-08-06T09:20:00Z",
+  "android_version": "3.0.23",
+  "android_version_code": 30023,
+  "description": "BlueVPN 3.0.23 تاریخ اشتراک‌های یک‌ماهه‌ای را که به امروز برگشته‌اند از آخرین فعال‌سازی معتبر بازسازی می‌کند، تاریخ را در PasarGuard با چند قالب سازگار ثبت و پس از ثبت دوباره بررسی می‌کند و از کوتاه‌شدن اعتبار هنگام Sync جلوگیری می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -175,8 +175,14 @@
     "future-expiry-state-recovery",
     "unlimited-plan-state-recovery",
     "partial-provider-quota-preservation",
-    "utc-process-clock-display-only-tehran"
+    "utc-process-clock-display-only-tehran",
+    "pasarguard-expiry-write-verification",
+    "pasarguard-unix-iso-millis-fallback",
+    "subscription-expiry-regression-guard",
+    "startup-expiry-entitlement-reconstruction",
+    "background-provider-expiry-repair",
+    "manual-repair-expiry-and-status"
   ],
-  "version_code": 30022,
-  "notes": "Subscription state is now last-known-good and failure-safe. Startup repairs finite future subscriptions and valid unlimited plans that were incorrectly downgraded. User-facing dates remain Jalali/Asia-Tehran while the process clock and expiry calculations stay UTC."
+  "version_code": 30023,
+  "notes": "One-month subscriptions can no longer collapse to the current day. The backend reconstructs the paid entitlement, preserves the last known valid expiry, verifies PasarGuard after every write, and repairs affected provider records in the background."
 }

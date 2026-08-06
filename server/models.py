@@ -404,6 +404,10 @@ class Order(Base):
     activated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,

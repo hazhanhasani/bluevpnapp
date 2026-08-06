@@ -1,11 +1,11 @@
 {
-  "version": "3.0.15",
-  "channel": "bluepay-expiry-sync-fix",
-  "build_id": "20260806-bluepay-expiry-sync-v3015",
-  "built_at": "2026-08-06T02:30:00Z",
-  "android_version": "3.0.15",
-  "android_version_code": 30015,
-  "description": "BlueVPN 3.0.15 استانداردسازی UTC با پسوند Z، پشتیبانی صریح از پلن نامحدود، تمدید دقیق از انتهای اعتبار قبلی، بررسی ۳۰ ثانیه‌ای پس از پرداخت، کنترل مبلغ ریال/تومان، لاگ اختصاصی BluePay و رفع Race در GitHub Actions را اضافه می‌کند.",
+  "version": "3.0.16",
+  "channel": "bluepay-pending-order-lifecycle",
+  "build_id": "20260806-bluepay-pending-lifecycle-v3016",
+  "built_at": "2026-08-06T03:10:00Z",
+  "android_version": "3.0.16",
+  "android_version_code": 30016,
+  "description": "BlueVPN 3.0.16 چرخه عمر فاکتورهای BluePay را اصلاح می‌کند: انقضای محلی زمان‌دار، استفاده مجدد از فاکتور معتبر، جلوگیری از فاکتور تکراری، پاک‌سازی خودکار و بازیابی پرداخت دیرهنگام.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -114,8 +114,18 @@
     "workflow-latest-branch-sync",
     "workflow-push-rebase-retry",
     "workflow-cancel-stale-builds",
-    "github-actions-node24-upgrade"
+    "github-actions-node24-upgrade",
+    "bluepay-order-expiry-column",
+    "bluepay-legacy-pending-migration",
+    "bluepay-automatic-stale-order-cleanup",
+    "bluepay-valid-invoice-reuse",
+    "bluepay-duplicate-invoice-suppression",
+    "bluepay-customer-row-creation-lock",
+    "bluepay-local-expiry-without-history-deletion",
+    "bluepay-late-payment-recovery",
+    "bluepay-superseded-order-recovery",
+    "bluepay-admin-pending-dashboard"
   ],
-  "version_code": 30015,
-  "notes": "تاریخ انقضا و همگام‌سازی پرداخت BluePay اصلاح شد؛ پلن نامحدود دیگر پایان‌یافته نمایش داده نمی‌شود و Buildهای هم‌زمان قبل از Gradle با خطای branch advanced متوقف نمی‌شوند."
+  "version_code": 30016,
+  "notes": "پرداخت‌های معلق قدیمی دیگر برای همیشه pending نمی‌مانند؛ حذف نمی‌شوند و پرداخت دیرهنگام همچنان می‌تواند سفارش را فعال کند."
 }

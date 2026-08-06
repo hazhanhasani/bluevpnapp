@@ -1,1 +1,5 @@
-BlueVPN 3.0.15 — BluePay expiry, callback race, currency and GitHub workflow fix
+BlueVPN 3.0.16 — BluePay pending-order lifecycle fix
+
+این نسخه پرداخت‌های معلق قدیمی را بدون حذف سابقه به expired_local منتقل می‌کند،
+فاکتور معتبر قبلی را دوباره استفاده می‌کند، از ساخت فاکتور تکراری جلوگیری می‌کند
+و پرداخت‌های دیرهنگام را از طریق Webhook یا استعلام وضعیت بازیابی می‌کند.

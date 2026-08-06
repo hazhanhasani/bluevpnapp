@@ -311,7 +311,38 @@
   {% endfor %}
   </div>
 </section>
-<section id="bluepay" class="card"><h2>درگاه BluePay</h2><p class="hint">Callback فروشگاه: <code>{{ settings.public_base_url }}/webhooks/bluepay</code></p><form method="post" action="/admin/payment-settings"><div class="form-grid"><div><label>Base URL</label><input name="base_url" value="{{ payment.base_url }}" required></div><div><label>API Key جدید</label><input name="api_key" type="password" placeholder="{{ payment_api_mask }}"></div><div><label>Callback Secret جدید</label><input name="callback_secret" type="password" placeholder="{{ payment_callback_mask }}"></div><div><label>Fee Mode</label><select name="fee_mode">{% for m in ['default','merchant','customer','split'] %}<option value="{{ m }}" {% if payment.fee_mode==m %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></div><div><label>مهلت فاکتور</label><input name="ttl_minutes" type="number" value="{{ payment.ttl_minutes }}"></div></div><label class="check"><input type="checkbox" name="active" {% if payment.active %}checked{% endif %}> درگاه فعال</label><button class="save">ذخیره BluePay</button></form></section>
+<section id="bluepay" class="card">
+  <h2>درگاه BluePay</h2>
+  <p class="hint">Callback فروشگاه: <code>{{ settings.public_base_url }}/webhooks/bluepay</code></p>
+
+  <div class="stat-grid bluepay-order-stats">
+    <article class="stat"><strong>{{ bluepay_pending.active }}</strong><span>فاکتور معلق معتبر</span></article>
+    <article class="stat"><strong>{{ bluepay_pending.stale_pending }}</strong><span>معلقِ گذشته از مهلت</span></article>
+    <article class="stat"><strong>{{ bluepay_pending.expired_local }}</strong><span>منقضی‌شده محلی</span></article>
+    <article class="stat"><strong>{{ bluepay_pending.superseded }}</strong><span>جایگزین‌شده</span></article>
+  </div>
+  <p class="hint">
+    فاکتورهای قدیمی حذف نمی‌شوند؛ به وضعیت <code>expired_local</code> منتقل می‌شوند
+    تا اگر پرداخت دیرهنگام توسط BluePay تأیید شد، اشتراک همچنان فعال شود.
+  </p>
+
+  <form method="post" action="/admin/payment-settings">
+    <div class="form-grid">
+      <div><label>Base URL</label><input name="base_url" value="{{ payment.base_url }}" required></div>
+      <div><label>API Key جدید</label><input name="api_key" type="password" placeholder="{{ payment_api_mask }}"></div>
+      <div><label>Callback Secret جدید</label><input name="callback_secret" type="password" placeholder="{{ payment_callback_mask }}"></div>
+      <div><label>Fee Mode</label><select name="fee_mode">{% for m in ['default','merchant','customer','split'] %}<option value="{{ m }}" {% if payment.fee_mode==m %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></div>
+      <div><label>مهلت فاکتور</label><input name="ttl_minutes" type="number" min="5" max="1440" value="{{ payment.ttl_minutes }}"></div>
+    </div>
+    <label class="check"><input type="checkbox" name="active" {% if payment.active %}checked{% endif %}> درگاه فعال</label>
+    <button class="save">ذخیره BluePay</button>
+  </form>
+
+  <form method="post" action="/admin/bluepay/cleanup" class="inline-form" onsubmit="return confirm('فاکتورهای معلقی که مهلتشان تمام شده منقضی شوند؟ سوابق حذف نمی‌شوند.');">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button type="submit" class="secondary">پاک‌سازی پرداخت‌های معلق قدیمی</button>
+  </form>
+</section>
 
 <section id="manual" class="card">
   <h2>فعال‌سازی یا تمدید دستی اشتراک</h2>

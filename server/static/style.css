@@ -13,7 +13,7 @@
 [hidden]{display:none!important}.tabs a.active{border-color:rgba(91,158,255,.52);background:linear-gradient(135deg,rgba(53,126,255,.26),rgba(111,82,255,.20));color:#fff}.flash-alert{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px;transition:.25s}.alert-close{padding:0;width:28px;height:28px;border-radius:9px;background:rgba(255,255,255,.10);box-shadow:none;font-size:19px;line-height:1}.alert-close:hover{transform:none;background:rgba(255,255,255,.18)}#blueai-live-status{color:#6de2ea}.admin-live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#42dfad;box-shadow:0 0 14px #42dfad}
 @media(max-width:680px){.topbar{position:sticky;top:0}.tabs{position:sticky;top:76px}.container{padding-top:12px}.stats{grid-template-columns:1fr 1fr}.stats article,.ai-kpis article{min-height:96px;padding:14px}.ai-kpis{grid-template-columns:1fr 1fr}.section-heading h2{font-size:21px}.tabs a{padding:9px 12px}.card{margin:0 0 14px}.table-wrap{max-height:68vh}}
 
-/* v3.0.15 — Dark Glass Admin Dashboard */
+/* v3.0.16 — Dark Glass Admin Dashboard */
 :root{
   --bg:#030712;
   --bg-deep:#02050c;
@@ -71,3 +71,11 @@ input,textarea,select{background:rgba(2,10,23,.66);border-color:rgba(112,159,232
 @media(max-width:760px){.secure-session{display:none}.overview-hero{display:block}.hero-health{margin-top:16px;width:max-content}.operator-chart-grid{grid-template-columns:1fr}.database-actions{display:grid}.backup-form{display:grid}.backup-form small{max-width:none}.topbar-actions{gap:6px}.brand b{font-size:15px}.overview-hero h1{font-size:23px}}
 @media(max-width:520px){.stats{grid-template-columns:1fr 1fr;gap:9px}.stats article.stat-card{min-height:114px;padding:12px;gap:9px;align-items:flex-start;flex-direction:column}.stat-icon{width:38px;height:38px;border-radius:13px}.stat-icon svg{width:20px;height:20px}.stat-card strong{font-size:22px}.ai-kpis{grid-template-columns:1fr 1fr}.topbar .brand span{display:none}}
 .database-grid{grid-template-columns:repeat(auto-fit,minmax(190px,1fr))}.database-grid article{min-width:0}.database-grid article strong{max-width:100%;overflow-wrap:anywhere;word-break:break-word;font-size:13px;line-height:1.65}.database-grid article strong.ltr{direction:ltr;text-align:left}
+
+/* BluePay pending-invoice lifecycle — v3.0.16 */
+.bluepay-order-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:16px 0}
+.bluepay-order-stats .stat{display:flex;flex-direction:column;gap:5px;min-height:92px;padding:15px;border:1px solid rgba(115,164,239,.18);border-radius:17px;background:linear-gradient(145deg,rgba(20,48,91,.62),rgba(6,20,43,.58))}
+.bluepay-order-stats .stat strong{font-size:25px;line-height:1.1}
+.bluepay-order-stats .stat span{font-size:10px;color:var(--muted);line-height:1.8}
+.inline-form{display:flex;align-items:center;gap:10px;margin-top:16px}
+@media(max-width:760px){.bluepay-order-stats{grid-template-columns:1fr 1fr}}

@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.15",
-  "version_code": 30015,
-  "schema_version": 8,
-  "release": "3.0.15",
+  "project_version": "3.0.16",
+  "version_code": 30016,
+  "schema_version": 9,
+  "release": "3.0.16",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.15/30015)",
+  "version_consistency": "passed (release/branding/backend 3.0.16/30016)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -96,7 +96,7 @@
   "updater_default_route_retry": "included",
   "updater_friendly_error_mapping": "included",
   "admin_security_tests": "passed (3 unit tests + endpoint smoke)",
-  "all_pytest": "passed (16 tests)",
+  "all_pytest": "passed (19 tests)",
   "admin_dark_glass_dashboard": "implemented",
   "admin_vazirmatn_font": "implemented with local fallback stack",
   "admin_inline_svg_icons": "implemented",
@@ -141,5 +141,20 @@
   "payment_expiry_tests": "passed",
   "bluepay_late_confirmation_bonus": "passed",
   "github_branch_race_recovery": "implemented and unit-tested",
-  "github_actions_runtime_upgrade": "checkout v6, upload-artifact v6, setup-python v6, setup-java v5"
+  "github_actions_runtime_upgrade": "checkout v6, upload-artifact v6, setup-python v6, setup-java v5",
+  "bluepay_pending_order_lifecycle": {
+    "explicit_expires_at_column": true,
+    "legacy_pending_initialization": "passed",
+    "automatic_cleanup_interval_seconds": 300,
+    "startup_cleanup": true,
+    "valid_invoice_reuse": true,
+    "duplicate_invoice_suppression": true,
+    "customer_row_creation_lock": true,
+    "expired_local_preserves_history": true,
+    "superseded_preserves_history": true,
+    "late_paid_recovery": "passed",
+    "admin_pending_dashboard": true,
+    "manual_cleanup_endpoint": "csrf protected"
+  },
+  "schema_8_to_9_migration": "passed (SQLite old schema -> expires_at column + schema 9)"
 }

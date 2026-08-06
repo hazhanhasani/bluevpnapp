@@ -1,0 +1,13 @@
+گزارش اعتبارسنجی BlueVPN 3.0.16
+
+- نسخه Backend و Android: 3.0.16 / 30016
+- Schema دیتابیس: 9
+- Python compileall: موفق
+- JSON/YAML/Jinja parse: موفق
+- Android generated validation: موفق، 21 منبع و 29 شناسه
+- Pytest: 19 تست موفق
+- تست پرداخت معلق قدیمی بدون حذف رکورد: موفق
+- تست استفاده مجدد از فاکتور معتبر و supersede: موفق
+- تست بازیابی پرداخت دیرهنگام: موفق
+- مهاجرت واقعی SQLite از Schema 8 به 9: موفق
+- Build نهایی APK: در GitHub Actions انجام می‌شود

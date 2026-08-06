@@ -1,20 +1,17 @@
 {
-  "release": "3.0.15-auto",
-  "version_name": "3.0.15",
-  "version_code": 30015,
+  "release": "3.0.16-bluepay-pending-order-lifecycle",
+  "version_name": "3.0.16",
+  "version_code": 30016,
   "changes": [
-    "Serialize all account expiry timestamps as UTC ISO-8601 with Z suffix",
-    "Represent active unlimited subscriptions with explicit unlimited metadata and Android-safe far-future expiry",
-    "Extend renewals from the current valid expiry and tolerate two minutes of provider clock skew",
-    "Long-poll BluePay for up to 30 seconds after returning from payment",
-    "Normalize gateway rial/toman values and block mismatched amounts",
-    "Persist redacted BluePay HTTP failures in a dedicated JSONL log",
-    "Grant one compensatory day when confirmation arrives more than one hour late",
-    "Serialize activation claims to avoid webhook/poll double provisioning",
-    "Synchronize GitHub Actions with latest branch and retry push after rebase",
-    "Cancel stale queued builds and upgrade official actions to Node 24 generations"
+    "Persist an explicit expiry timestamp for every BluePay order",
+    "Expire legacy pending invoices locally without deleting financial history",
+    "Reuse the newest valid invoice instead of creating duplicates",
+    "Serialize invoice creation per customer with a database row lock",
+    "Run automatic cleanup every five minutes and once at startup",
+    "Allow paid webhooks and status checks to revive expired or superseded invoices",
+    "Expose pending-order lifecycle statistics and manual cleanup in admin"
   ],
-  "generated_at_unix": 1785974400,
-  "purpose": "bluepay-expiry-sync-and-workflow-race-fix",
-  "updated_at": "2026-08-06T02:30:00Z"
+  "generated_at_unix": 1785981000,
+  "purpose": "bluepay-pending-order-lifecycle-and-late-payment-recovery",
+  "updated_at": "2026-08-06T03:10:00Z"
 }

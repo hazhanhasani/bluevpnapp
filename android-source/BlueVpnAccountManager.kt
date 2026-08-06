@@ -141,6 +141,11 @@ object BlueVpnAccountManager {
     fun clearPendingOrder(c: Context) =
         setPendingOrder(c, "")
 
+    fun isDeletedOrderError(error: Throwable): Boolean =
+        error is ApiException &&
+            (error.status == 404 || error.status == 410) &&
+            error.code in setOf("ORDER_NOT_FOUND", "ORDER_GONE", "HTTP_404", "HTTP_410")
+
     fun markCheckoutBrowserOpen(c: Context, id: String) {
         prefs(c).edit()
             .putString("checkout_browser_order", id)

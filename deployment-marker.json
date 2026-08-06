@@ -1,17 +1,16 @@
 {
-  "release": "3.0.19-auto",
-  "version_name": "3.0.19",
-  "version_code": 30019,
+  "release": "3.0.20-bluepay-invalid-invoice-purge",
+  "version_name": "3.0.20",
+  "version_code": 30020,
   "changes": [
-    "Use one adaptive background live reporter instead of overlapping Activity and service heartbeats",
-    "Try tunnel proof targets sequentially and stop after the first success",
-    "Reuse a recent verified Xray proof while still checking Android VPN transport on every heartbeat",
-    "Use 75/90/120 second cadence for interactive, screen-off and power-save states",
-    "Update foreground traffic statistics every two seconds instead of every second",
-    "Animate the neon orb only while connecting; connected state is static",
-    "Reduce automatic health recovery checks to a three-minute window"
+    "Hard-delete abandoned, expired, failed and duplicate unpaid invoice rows",
+    "Validate stored invoice state against BluePay before reusing its URL",
+    "Reject a newly-created invoice when BluePay returns an expired or repeated payment URL",
+    "Retry fresh invoice creation with a new order code up to two times",
+    "Best-effort DELETE/cancel invalid invoices in BluePay",
+    "Clear Android pending-order state when the backend returns 404 or 410"
   ],
-  "generated_at_unix": 1785993912,
-  "purpose": "reduce-connected-phone-heat-and-battery-use",
-  "updated_at": "2026-08-06T05:25:12Z"
+  "generated_at_unix": 1785994888,
+  "purpose": "remove-invalid-bluepay-invoices-and-prevent-expired-payment-pages",
+  "updated_at": "2026-08-06T05:41:28Z"
 }

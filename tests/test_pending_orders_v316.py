@@ -43,7 +43,7 @@ def seed(db: Session):
     return payment, customer, plan
 
 
-def test_cleanup_expires_but_does_not_delete_old_pending_order():
+def test_cleanup_deletes_old_pending_order():
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
@@ -61,15 +61,14 @@ def test_cleanup_expires_but_does_not_delete_old_pending_order():
         db.add(old)
         db.commit()
 
+        old_id = old.id
         result = expire_stale_orders(db)
-        db.refresh(old)
-        assert result["expired"] == 1
-        assert old.status == "expired_local"
-        assert old.expires_at is not None
-        assert db.scalar(select(func.count(Order.id))) == 1
+        assert result["deleted"] == 1
+        assert db.get(Order, old_id) is None
+        assert db.scalar(select(func.count(Order.id))) == 0
 
 
-def test_reuses_newest_valid_invoice_and_supersedes_duplicate():
+def test_reuses_newest_valid_invoice_and_deletes_duplicate():
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     now = datetime.now(timezone.utc)
@@ -100,46 +99,35 @@ def test_reuses_newest_valid_invoice_and_supersedes_duplicate():
         db.add_all([older, newest])
         db.commit()
 
+        older_id = older.id
         selected, in_progress = reusable_pending_order(db, customer, plan, payment)
         db.commit()
-        db.refresh(older)
         assert selected is not None
         assert selected.id == newest.id
         assert in_progress is False
-        assert older.status == "superseded"
+        assert db.get(Order, older_id) is None
         assert newest.status == "pending"
 
 
-def test_late_paid_status_revives_locally_expired_order(monkeypatch):
+def test_cleanup_deletes_terminal_invalid_order():
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
         _, customer, plan = seed(db)
         order = Order(
-            order_code="LATE-PAID",
+            order_code="TERMINAL-INVALID",
             customer_id=customer.id,
             plan_id=plan.id,
             amount_toman=plan.price_toman,
-            payment_id="late-payment",
-            payment_url="https://pay.example/late",
+            payment_id="invalid-payment",
+            payment_url="https://pay.example/invalid",
             status="expired_local",
             created_at=datetime.now(timezone.utc) - timedelta(hours=2),
             expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
         )
         db.add(order)
         db.commit()
-
-        async def fake_get_invoice(_payment, _payment_id):
-            return {"status": "paid", "amount_toman": plan.price_toman}
-
-        async def fake_activate(_db, current):
-            current.status = "activated"
-            current.activated_at = datetime.now(timezone.utc)
-            _db.commit()
-
-        monkeypatch.setattr("server.main.get_invoice", fake_get_invoice)
-        monkeypatch.setattr("server.main.activate", fake_activate)
-        asyncio.run(refresh_order_from_bluepay(db, order))
-        db.refresh(order)
-        assert order.status == "activated"
-        assert order.paid_at is not None
+        order_id = order.id
+        result = expire_stale_orders(db)
+        assert result["deleted"] == 1
+        assert db.get(Order, order_id) is None

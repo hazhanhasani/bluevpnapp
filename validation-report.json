@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.19",
-  "version_code": 30019,
+  "project_version": "3.0.20",
+  "version_code": 30020,
   "schema_version": 11,
-  "release": "3.0.19",
+  "release": "3.0.20",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.19/30019)",
+  "version_consistency": "passed (release/branding/backend 3.0.20/30020)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -96,7 +96,7 @@
   "updater_default_route_retry": "included",
   "updater_friendly_error_mapping": "included",
   "admin_security_tests": "passed (3 unit tests + endpoint smoke)",
-  "all_pytest": "passed (31 tests)",
+  "all_pytest": "passed (33 tests)",
   "admin_dark_glass_dashboard": "implemented",
   "admin_vazirmatn_font": "implemented with local fallback stack",
   "admin_inline_svg_icons": "implemented",
@@ -150,14 +150,15 @@
     "valid_invoice_reuse": true,
     "duplicate_invoice_suppression": true,
     "customer_row_creation_lock": true,
-    "expired_local_preserves_history": true,
-    "superseded_preserves_history": true,
+    "expired_local_preserves_history": false,
+    "superseded_preserves_history": false,
     "late_paid_recovery": "passed",
     "admin_pending_dashboard": true,
-    "manual_cleanup_endpoint": "csrf protected"
+    "manual_cleanup_endpoint": "csrf protected",
+    "invalid_rows_hard_deleted": true
   },
   "schema_8_to_9_migration": "passed (SQLite old schema -> expires_at column + schema 9)",
-  "generated_at": "2026-08-06T05:25:54Z",
+  "generated_at": "2026-08-06T05:41:28Z",
   "schema_9_to_10_migration": "automatic (creates dedicated ai_live_connections table)",
   "live_connection_detection": {
     "counting_rule": "Android VPN transport + running Xray session + fresh remote HTTP proof through local Xray proxy",
@@ -186,7 +187,7 @@
     "checkout_open_endpoint": true,
     "checkout_heartbeat_endpoint": true,
     "checkout_close_endpoint": true,
-    "abandoned_status_preserves_history": true,
+    "abandoned_status_preserves_history": false,
     "abandoned_invoice_not_reused": "passed",
     "reopen_inside_grace_restores_hard_expiry": "passed",
     "late_paid_recovery": true,
@@ -194,7 +195,8 @@
       "checkout_opened_at",
       "checkout_last_seen_at",
       "checkout_closed_at"
-    ]
+    ],
+    "abandoned_invoice_hard_deleted": true
   },
   "checkout_lifecycle_tests": "passed (5 dedicated tests)",
   "embedded_source_parity": "passed (BlueVpnAi, BlueVpnLiveReporter, BlueVpnHomeActivity)",
@@ -209,5 +211,16 @@
     "connecting_orb_animation": "pulse",
     "database_migration_required": false,
     "dedicated_tests": "passed (3)"
+  },
+  "bluepay_invalid_invoice_purge": {
+    "hard_delete_local_invalid_rows": true,
+    "remote_delete_or_cancel": "best effort (DELETE then POST /cancel fallback)",
+    "stored_invoice_remote_validation": true,
+    "fresh_invoice_min_lifetime_seconds": 60,
+    "fresh_invoice_retries": 2,
+    "repeated_payment_id_or_url_rejected": true,
+    "android_404_410_pending_clear": true,
+    "database_migration_required": false,
+    "dedicated_tests": "passed (2)"
   }
 }

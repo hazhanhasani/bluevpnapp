@@ -1,11 +1,11 @@
 {
-  "version": "3.0.19",
-  "channel": "thermal-battery-optimization",
-  "build_id": "20260806-thermal-battery-optimization-v3019",
-  "built_at": "2026-08-06T05:25:12Z",
-  "android_version": "3.0.19",
-  "android_version_code": 30019,
-  "description": "BlueVPN 3.0.19 مصرف پردازنده، شبکه و GPU هنگام اتصال را کاهش می‌دهد: بررسی‌های تکراری و هم‌زمان حذف شده‌اند، اثبات تونل به‌صورت ترتیبی و قابل‌استفاده مجدد انجام می‌شود و گزارش اتصال زنده با وضعیت صفحه و ذخیره انرژی سازگار است.",
+  "version": "3.0.20",
+  "channel": "bluepay-invalid-invoice-purge",
+  "build_id": "20260806-bluepay-invalid-invoice-purge-v3020",
+  "built_at": "2026-08-06T05:41:28Z",
+  "android_version": "3.0.20",
+  "android_version_code": 30020,
+  "description": "BlueVPN 3.0.20 فاکتورهای باطل، منقضی و تکراری BluePay را از دیتابیس حذف می‌کند، لینک ذخیره‌شده را پیش از استفاده از خود درگاه اعتبارسنجی می‌کند و پاسخ فاکتور تازه اما منقضی را هرگز به اپلیکیشن تحویل نمی‌دهد.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -152,8 +152,15 @@
     "reduced-background-radio-wakeups",
     "two-second-live-stats",
     "static-connected-orb",
-    "three-minute-auto-health-window"
+    "three-minute-auto-health-window",
+    "bluepay-invalid-invoice-hard-delete",
+    "bluepay-remote-invoice-cancel-best-effort",
+    "bluepay-reuse-remote-status-validation",
+    "bluepay-stale-link-fingerprint-rejection",
+    "bluepay-fresh-invoice-retry",
+    "bluepay-minimum-fresh-lifetime-validation",
+    "android-deleted-order-state-clear"
   ],
-  "version_code": 30019,
-  "notes": "No database migration is required. Live detection remains verified by VPN transport plus a real request through Xray, but the heavy proof is cached briefly and only one background reporter owns periodic heartbeats."
+  "version_code": 30020,
+  "notes": "No database migration is required. Open checkout stays valid for up to 30 minutes; after browser exit it is purged after 5 minutes. Invalid remote invoices are cancelled/deleted on a best-effort basis and stale returned URLs are rejected."
 }

@@ -103,9 +103,9 @@ def test_cleanup_marks_closed_checkout_abandoned_after_grace():
             db,
             now=now + timedelta(seconds=CHECKOUT_ABANDON_GRACE_SECONDS + 1),
         )
-        db.refresh(order)
-        assert result["expired"] == 1
-        assert order.status == "abandoned"
+        order_id = order.id
+        assert result["deleted"] == 1
+        assert db.get(Order, order_id) is None
 
 
 def test_reopen_before_grace_restores_original_hard_expiry():
@@ -136,7 +136,7 @@ def test_new_attempt_after_abandonment_does_not_reuse_old_invoice():
         db.commit()
         selected, in_progress = reusable_pending_order(db, customer, plan, payment)
         db.commit()
-        db.refresh(order)
+        order_id = order.id
         assert selected is None
         assert in_progress is False
-        assert order.status == "abandoned"
+        assert db.get(Order, order_id) is None

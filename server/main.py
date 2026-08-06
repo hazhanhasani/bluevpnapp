@@ -1,7 +1,7 @@
 from __future__ import annotations
 import asyncio,hashlib,ipaddress,json,logging,os,re,secrets,shutil,sqlite3,subprocess,tempfile,threading,time,uuid,zipfile
 from collections import deque
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus,urlparse
 from datetime import datetime,timedelta,timezone
 from pathlib import Path
 from typing import Any
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session,selectinload
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 from .database import DATABASE_ERROR,DATABASE_MODE,ENGINE,SQLITE_PATH,SessionLocal,database_status,database_table_counts,initialize_database,get_db
-from .integrations import IntegrationError,combined_subscription,create_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,parse_remote_date,provision,recent_bluepay_errors,sync_customer,test_marzban_panel,test_panel,verify_webhook
+from .integrations import IntegrationError,combined_subscription,create_invoice,delete_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,parse_remote_date,provision,recent_bluepay_errors,sync_customer,test_marzban_panel,test_panel,verify_webhook
 from .guardcore import service_ids_from_json,test_guardcore_panel
 from .manual_guardcore import (
     attach_manual_subscription,
@@ -286,6 +286,12 @@ ORDER_CREATING_GRACE_SECONDS = max(30, int(os.getenv('BLUEPAY_CREATING_GRACE_SEC
 CHECKOUT_ABANDON_GRACE_SECONDS = max(60, min(1800, int(os.getenv('BLUEPAY_ABANDON_GRACE_SECONDS', '300'))))
 CHECKOUT_MAX_TTL_MINUTES = max(5, min(30, int(os.getenv('BLUEPAY_INVOICE_TTL_MINUTES', '30'))))
 LOCAL_RECOVERABLE_STATUSES = {'expired_local', 'superseded', 'abandoned'}
+PURGEABLE_ORDER_STATUSES = LOCAL_RECOVERABLE_STATUSES | {
+    'invoice_failed','amount_mismatch','canceled','cancelled','expired',
+    'failed','rejected','refunded',
+}
+FRESH_INVOICE_RETRY_COUNT = max(1,min(3,int(os.getenv('BLUEPAY_FRESH_INVOICE_RETRIES','2'))))
+FRESH_INVOICE_MIN_LIFETIME_SECONDS = max(15,min(300,int(os.getenv('BLUEPAY_FRESH_INVOICE_MIN_LIFETIME_SECONDS','60'))))
 PAYMENT_CLEANUP_TASK: asyncio.Task | None = None
 
 def _order_metadata(order:Order)->dict:
@@ -459,6 +465,71 @@ def _mark_order_status(
         metadata['_bluevpn_replacement_order_id']=replacement_order_id
     _set_order_metadata(order,metadata)
 
+def _payment_url_is_valid(value:str)->bool:
+    try:
+        parsed=urlparse(str(value or '').strip())
+    except Exception:
+        return False
+    return parsed.scheme in {'http','https'} and bool(parsed.netloc)
+
+def _invoice_fingerprints(
+    db:Session,
+    customer_id:int,
+    plan_id:int,
+)->tuple[set[str],set[str]]:
+    rows=list(db.execute(
+        select(Order.payment_id,Order.payment_url).where(
+            Order.customer_id==customer_id,
+            Order.plan_id==plan_id,
+        )
+    ).all())
+    payment_ids={str(payment_id or '').strip() for payment_id,_ in rows if str(payment_id or '').strip()}
+    payment_urls={str(payment_url or '').strip() for _,payment_url in rows if str(payment_url or '').strip()}
+    return payment_ids,payment_urls
+
+def _delete_invalid_order(
+    db:Session,
+    order:Order,
+    reason:str,
+    *,
+    event:str='local_invalid_invoice_deleted',
+)->None:
+    """Hard-delete an unpaid unusable invoice from the local database.
+
+    BlueVPN 3.0.20 deliberately does not retain abandoned/expired invoice
+    rows, because retaining them allowed stale payment URLs to be selected on
+    the next purchase. A compact redacted diagnostic is written outside the
+    orders table before deletion.
+    """
+    log_bluepay_error(
+        event,
+        order_code=order.order_code,
+        payment_id=order.payment_id,
+        error=reason[:1000],
+        response_body={
+            'status':order.status,
+            'created_at':iso_z(aware(order.created_at)),
+            'expires_at':iso_z(aware(order.expires_at)),
+        },
+    )
+    db.delete(order)
+
+async def _delete_invalid_remote_and_local(
+    db:Session,
+    order:Order,
+    payment:PaymentSetting,
+    reason:str,
+    *,
+    event:str='remote_and_local_invoice_deleted',
+)->None:
+    if order.payment_id:
+        try:
+            await delete_invoice(payment,order.payment_id)
+        except Exception as exc:
+            logger.warning('BluePay remote invoice delete failed for %s: %s',order.order_code,exc)
+    _delete_invalid_order(db,order,reason,event=event)
+    db.commit()
+
 def expire_stale_orders(
     db:Session,
     *,
@@ -472,7 +543,7 @@ def expire_stale_orders(
     if customer_id is not None:
         query=query.where(Order.customer_id==customer_id)
     rows=list(db.scalars(query.order_by(Order.created_at.asc())).all())
-    expired=0
+    deleted=0
     initialized=0
     for order in rows:
         had_expiry=order.expires_at is not None
@@ -481,16 +552,33 @@ def expire_stale_orders(
             initialized+=1
         if expires<=current:
             local_status,message=_local_expiry_status(order,current)
-            _mark_order_status(
-                order,
-                local_status,
-                message,
-                now=current,
-            )
-            expired+=1
-    if commit and (expired or initialized):
+            order.status=local_status
+            _delete_invalid_order(db,order,message)
+            deleted+=1
+
+    terminal=select(Order).where(Order.status.in_(tuple(PURGEABLE_ORDER_STATUSES)))
+    if customer_id is not None:
+        terminal=terminal.where(Order.customer_id==customer_id)
+    for order in list(db.scalars(terminal).all()):
+        _delete_invalid_order(
+            db,
+            order,
+            order.activation_error or 'فاکتور باطل یا غیرقابل استفاده از دیتابیس حذف شد.',
+            event='terminal_invoice_deleted',
+        )
+        deleted+=1
+
+    if commit and (deleted or initialized):
         db.commit()
-    return {'expired':expired,'initialized':initialized,'scanned':len(rows)}
+    else:
+        db.flush()
+    # Keep the legacy ``expired`` key for dashboard/startup compatibility.
+    return {
+        'expired':deleted,
+        'deleted':deleted,
+        'initialized':initialized,
+        'scanned':len(rows),
+    }
 
 def pending_order_counts(db:Session)->dict[str,int]:
     now=aware(utcnow()) or datetime.now(timezone.utc)
@@ -528,7 +616,7 @@ async def _payment_cleanup_loop()->None:
             result=expire_stale_orders(db)
             if result['expired']:
                 logger.info(
-                    'BluePay cleanup expired %s stale orders',
+                    'BluePay cleanup deleted %s invalid orders',
                     result['expired'],
                 )
         except asyncio.CancelledError:
@@ -549,7 +637,7 @@ async def start_payment_cleanup()->None:
         result=expire_stale_orders(db)
         if result['expired']:
             logger.warning(
-                'BluePay startup cleanup expired %s stale orders',
+                'BluePay startup cleanup deleted %s invalid orders',
                 result['expired'],
             )
     except Exception:
@@ -843,10 +931,11 @@ def reusable_pending_order(
     plan:Plan,
     payment:PaymentSetting,
 )->tuple[Order|None,bool]:
-    """Return the newest usable invoice and collapse older duplicates.
+    """Return the newest locally usable invoice and delete duplicates.
 
-    The customer row is locked by the caller before this function runs, so two
-    simultaneous taps cannot create two BluePay invoices for the same plan.
+    Remote validity is checked asynchronously by ``create_order`` before a
+    URL is returned. The customer row is locked by the caller, so two taps
+    cannot create two invoices.
     """
     now=aware(utcnow()) or datetime.now(timezone.utc)
     expire_stale_orders(db,customer_id=customer.id,now=now,commit=False)
@@ -860,47 +949,97 @@ def reusable_pending_order(
         .order_by(Order.created_at.desc(),Order.id.desc())
     ).all())
 
-    completed: list[Order] = []
-    creating: list[Order] = []
+    completed:list[Order]=[]
+    creating:list[Order]=[]
     for candidate in rows:
         if order_is_locally_expired(candidate,payment,now=now):
-            local_status,message=_local_expiry_status(candidate,now)
-            _mark_order_status(
-                candidate,
-                local_status,
-                message,
-                now=now,
-            )
+            _,message=_local_expiry_status(candidate,now)
+            _delete_invalid_order(db,candidate,message)
             continue
-        if candidate.payment_id and candidate.payment_url:
+        if candidate.payment_id and _payment_url_is_valid(candidate.payment_url):
             completed.append(candidate)
             continue
         age_seconds=max(0.0,(now-(aware(candidate.created_at) or now)).total_seconds())
         if candidate.status=='creating_invoice' and age_seconds<=ORDER_CREATING_GRACE_SECONDS:
             creating.append(candidate)
-        elif candidate.status=='creating_invoice':
-            _mark_order_status(
+        else:
+            _delete_invalid_order(
+                db,
                 candidate,
-                'invoice_failed',
-                'ساخت فاکتور قبلی کامل نشد و امکان تلاش مجدد فراهم شد.',
-                now=now,
+                'ساخت فاکتور قبلی کامل نشد و رکورد ناقص حذف شد.',
+                event='incomplete_invoice_deleted',
             )
 
     usable=(completed[0] if completed else creating[0] if creating else None)
     in_progress=bool(usable is not None and usable in creating)
     if usable is not None:
         for candidate in rows:
-            if candidate.id==usable.id or candidate.status not in PENDING_GATEWAY_STATUSES:
+            if candidate is usable or candidate.id==usable.id:
                 continue
-            _mark_order_status(
+            if candidate in db.deleted:
+                continue
+            _delete_invalid_order(
+                db,
                 candidate,
-                'superseded',
-                'این فاکتور با فاکتور جدیدتر جایگزین شد؛ پرداخت دیرهنگام همچنان قابل بازیابی است.',
-                now=now,
-                replacement_order_id=usable.id,
+                'فاکتور تکراری قدیمی حذف شد و فقط جدیدترین فاکتور معتبر باقی ماند.',
+                event='duplicate_invoice_deleted',
             )
     db.flush()
     return usable,in_progress
+
+async def _validate_reusable_invoice(
+    db:Session,
+    order:Order,
+    payment:PaymentSetting,
+)->str:
+    """Return ``usable``, ``paid`` or ``invalid`` for a stored invoice."""
+    now=aware(utcnow()) or datetime.now(timezone.utc)
+    if not order.payment_id or not _payment_url_is_valid(order.payment_url):
+        await _delete_invalid_remote_and_local(db,order,payment,'شناسه یا آدرس فاکتور قبلی ناقص بود.')
+        return 'invalid'
+    try:
+        remote=await get_invoice(payment,order.payment_id)
+    except IntegrationError as exc:
+        # A temporary status-check outage should not create duplicate payable
+        # invoices. Local hard TTL is still enforced.
+        logger.warning('BluePay reuse validation unavailable for %s: %s',order.order_code,exc)
+        return 'usable' if not order_is_locally_expired(order,payment,now=now) else 'invalid'
+
+    merge_order_metadata(db,order,'bluepay_reuse_validation',remote)
+    status=normalize_gateway_status(remote.get('status'))
+    remote_amount,_=normalize_gateway_amount_toman(remote,order.amount_toman)
+    remote_expiry=parse_remote_date(
+        remote.get('expires_at') or remote.get('expire_at') or remote.get('expiration_at')
+    )
+    remote_url=str(remote.get('payment_url') or remote.get('url') or order.payment_url or '').strip()
+
+    if remote_amount is not None and remote_amount!=order.amount_toman:
+        await _delete_invalid_remote_and_local(db,order,payment,'مبلغ فاکتور ذخیره‌شده با سفارش برابر نبود.')
+        return 'invalid'
+    if status=='paid':
+        order.status='paid'
+        order.paid_at=order.paid_at or now
+        order.activation_error=''
+        db.commit()
+        await activate(db,order)
+        return 'paid'
+    if status not in PENDING_GATEWAY_STATUSES:
+        await _delete_invalid_remote_and_local(db,order,payment,f'وضعیت فاکتور قبلی در BluePay قابل پرداخت نبود: {status}')
+        return 'invalid'
+    if remote_expiry is not None and remote_expiry<=now+timedelta(seconds=FRESH_INVOICE_MIN_LIFETIME_SECONDS):
+        await _delete_invalid_remote_and_local(db,order,payment,'فاکتور قبلی در BluePay منقضی یا نزدیک به انقضا بود.')
+        return 'invalid'
+    if not _payment_url_is_valid(remote_url):
+        await _delete_invalid_remote_and_local(db,order,payment,'BluePay برای فاکتور قبلی آدرس پرداخت معتبر برنگرداند.')
+        return 'invalid'
+
+    order.payment_url=remote_url
+    if remote_expiry is not None:
+        order.expires_at=min(remote_expiry,now+timedelta(minutes=CHECKOUT_MAX_TTL_MINUTES))
+    order.status=status
+    db.commit()
+    return 'usable'
+
 
 def admin_redirect(anchor:str,message:str='',error:str='')->RedirectResponse:
     query=[]
@@ -1226,123 +1365,169 @@ async def create_order(request:Request,c:Customer=Depends(current_customer),db:S
     if not pay or not pay.active:
         raise HTTPException(503,detail={'code':'PAYMENT_NOT_CONFIGURED','message':'درگاه BluePay فعال یا کامل نیست'})
 
-    # Serialise invoice creation per customer at the database level. This
-    # prevents double invoices when the app retries or the user taps twice.
     c=db.scalar(select(Customer).where(Customer.id==c.id).with_for_update())
     if not c:
         raise HTTPException(404,detail={'code':'ACCOUNT_NOT_FOUND','message':'حساب کاربر پیدا نشد'})
 
+    blocked_payment_ids,blocked_payment_urls=_invoice_fingerprints(db,c.id,plan.id)
     existing,in_progress=reusable_pending_order(db,c,plan,pay)
-    if existing is not None:
-        if not in_progress and existing.payment_url:
+    if existing is not None and not in_progress:
+        reuse_state=await _validate_reusable_invoice(db,existing,pay)
+        if reuse_state=='usable':
             mark_checkout_open(existing)
-        db.commit()
-        if in_progress and not existing.payment_url:
+            db.commit()
+            return {
+                'success':True,
+                'reused':True,
+                'order':order_response(existing,c),
+                'check_after_success_url':f'/api/v1/orders/{existing.id}/check-after-success',
+                'poll_interval_seconds':5,
+                'poll_timeout_seconds':30,
+            }
+        if reuse_state=='paid':
             raise HTTPException(
                 409,
                 detail={
-                    'code':'INVOICE_CREATION_IN_PROGRESS',
-                    'message':'فاکتور قبلی هنوز در حال ساخته‌شدن است؛ چند ثانیه دیگر دوباره بررسی کنید.',
-                    'order_id':existing.id,
+                    'code':'PREVIOUS_ORDER_ALREADY_PAID',
+                    'message':'پرداخت قبلی همین حالا تأیید و اشتراک فعال شد؛ ابتدا وضعیت حساب را تازه‌سازی کنید.',
                 },
-                headers={'Retry-After':'3'},
             )
+        existing=None
+
+    if existing is not None and in_progress and not existing.payment_url:
+        db.commit()
+        raise HTTPException(
+            409,
+            detail={
+                'code':'INVOICE_CREATION_IN_PROGRESS',
+                'message':'فاکتور قبلی هنوز در حال ساخته‌شدن است؛ چند ثانیه دیگر دوباره بررسی کنید.',
+                'order_id':existing.id,
+            },
+            headers={'Retry-After':'3'},
+        )
+
+    base=settings(db)['public_base_url'].rstrip('/')
+    last_error='BluePay فاکتور قابل پرداخت ایجاد نکرد.'
+    for attempt in range(1,FRESH_INVOICE_RETRY_COUNT+1):
+        now=aware(utcnow()) or datetime.now(timezone.utc)
+        ttl=payment_ttl_minutes(pay)
+        expires=now+timedelta(minutes=ttl)
+        order=Order(
+            order_code=f'BV-{c.id}-{uuid.uuid4().hex[:16].upper()}',
+            customer_id=c.id,
+            plan_id=plan.id,
+            amount_toman=int(plan.price_toman),
+            status='creating_invoice',
+            expires_at=expires,
+            checkout_opened_at=now,
+            checkout_last_seen_at=now,
+            checkout_closed_at=None,
+            gateway_json=json.dumps(
+                {
+                    '_bluevpn_invoice_created_at':iso_z(now),
+                    '_bluevpn_invoice_ttl_minutes':ttl,
+                    '_bluevpn_invoice_expires_at':iso_z(expires),
+                    '_bluevpn_checkout_state':'open',
+                    '_bluevpn_checkout_opened_at':iso_z(now),
+                    '_bluevpn_checkout_last_seen_at':iso_z(now),
+                    '_bluevpn_source':'android',
+                    '_bluevpn_fresh_attempt':attempt,
+                    '_bluevpn_request_nonce':uuid.uuid4().hex,
+                },
+                ensure_ascii=False,
+            ),
+        )
+        db.add(order)
+        db.commit()
+        order=db.scalar(
+            select(Order)
+            .options(selectinload(Order.customer),selectinload(Order.plan))
+            .where(Order.id==order.id)
+        )
+
+        try:
+            invoice=await create_invoice(pay,order,base+'/webhooks/bluepay')
+        except IntegrationError as exc:
+            last_error=str(exc)
+            _delete_invalid_order(db,order,last_error,event='invoice_create_attempt_deleted')
+            db.commit()
+            if attempt<FRESH_INVOICE_RETRY_COUNT:
+                continue
+            raise HTTPException(502,detail={'code':'INVOICE_CREATE_FAILED','message':last_error})
+
+        invoice_amount,currency=normalize_gateway_amount_toman(invoice,order.amount_toman)
+        payment_id=str(invoice.get('payment_id') or invoice.get('id') or '').strip()
+        payment_url=str(invoice.get('payment_url') or invoice.get('url') or '').strip()
+        status=normalize_gateway_status(invoice.get('status'))
+        remote_expiry=parse_remote_date(
+            invoice.get('expires_at') or invoice.get('expire_at') or invoice.get('expiration_at')
+        )
+
+        invalid_reason=''
+        if invoice_amount is not None and invoice_amount!=order.amount_toman:
+            invalid_reason=(
+                f'مبلغ فاکتور BluePay {invoice_amount} تومان ({currency}) است، '
+                f'اما مبلغ سفارش {order.amount_toman} تومان است'
+            )
+        elif not payment_id or not _payment_url_is_valid(payment_url):
+            invalid_reason='BluePay شناسه یا آدرس پرداخت معتبر برنگرداند.'
+        elif status not in PENDING_GATEWAY_STATUSES and status!='paid':
+            invalid_reason=f'BluePay فاکتور تازه را با وضعیت غیرقابل پرداخت {status} برگرداند.'
+        elif remote_expiry is not None and remote_expiry<=now+timedelta(seconds=FRESH_INVOICE_MIN_LIFETIME_SECONDS):
+            invalid_reason='BluePay فاکتور تازه‌ای برگرداند که منقضی یا نزدیک به انقضا بود.'
+        elif payment_id in blocked_payment_ids or payment_url in blocked_payment_urls:
+            invalid_reason='BluePay همان فاکتور یا لینک باطل قبلی را دوباره برگرداند.'
+
+        if invalid_reason:
+            last_error=invalid_reason
+            log_bluepay_error(
+                'stale_fresh_invoice_rejected',
+                order_code=order.order_code,
+                payment_id=payment_id,
+                error=invalid_reason,
+                response_body=invoice,
+            )
+            blocked_payment_ids.add(payment_id)
+            blocked_payment_urls.add(payment_url)
+            if payment_id:
+                try:
+                    await delete_invoice(pay,payment_id)
+                except Exception as exc:
+                    logger.warning('BluePay fresh invalid invoice delete failed for %s: %s',order.order_code,exc)
+            _delete_invalid_order(db,order,invalid_reason,event='fresh_invoice_deleted')
+            db.commit()
+            if attempt<FRESH_INVOICE_RETRY_COUNT:
+                continue
+            raise HTTPException(
+                502,
+                detail={
+                    'code':'BLUEPAY_STALE_INVOICE_RESPONSE',
+                    'message':'درگاه فاکتور تازه و قابل پرداخت نساخت؛ فاکتور باطل باز نشد. چند لحظه بعد دوباره تلاش کنید.',
+                },
+            )
+
+        order.payment_id=payment_id
+        order.payment_url=payment_url
+        order.status=status
+        order.activation_error=''
+        if remote_expiry is not None and remote_expiry>now:
+            order.expires_at=min(remote_expiry,now+timedelta(minutes=CHECKOUT_MAX_TTL_MINUTES))
+        merge_order_metadata(db,order,'bluepay_create',invoice)
+        metadata=_order_metadata(order)
+        metadata['_bluevpn_invoice_expires_at']=iso_z(aware(order.expires_at))
+        metadata['_bluevpn_fresh_invoice_validated']=True
+        _set_order_metadata(order,metadata)
+        db.commit()
         return {
             'success':True,
-            'reused':True,
-            'order':order_response(existing,c),
-            'check_after_success_url':f'/api/v1/orders/{existing.id}/check-after-success',
+            'reused':False,
+            'order':order_response(order,c),
+            'check_after_success_url':f'/api/v1/orders/{order.id}/check-after-success',
             'poll_interval_seconds':5,
             'poll_timeout_seconds':30,
         }
 
-    now=aware(utcnow()) or datetime.now(timezone.utc)
-    ttl=payment_ttl_minutes(pay)
-    expires=now+timedelta(minutes=ttl)
-    order=Order(
-        order_code=f'BV-{c.id}-{uuid.uuid4().hex[:13].upper()}',
-        customer_id=c.id,
-        plan_id=plan.id,
-        amount_toman=int(plan.price_toman),
-        status='creating_invoice',
-        expires_at=expires,
-        checkout_opened_at=now,
-        checkout_last_seen_at=now,
-        checkout_closed_at=None,
-        gateway_json=json.dumps(
-            {
-                '_bluevpn_invoice_created_at':iso_z(now),
-                '_bluevpn_invoice_ttl_minutes':ttl,
-                '_bluevpn_invoice_expires_at':iso_z(expires),
-                '_bluevpn_checkout_state':'open',
-                '_bluevpn_checkout_opened_at':iso_z(now),
-                '_bluevpn_checkout_last_seen_at':iso_z(now),
-                '_bluevpn_source':'android',
-            },
-            ensure_ascii=False,
-        ),
-    )
-    db.add(order)
-    db.commit()
-    order=db.scalar(
-        select(Order)
-        .options(selectinload(Order.customer),selectinload(Order.plan))
-        .where(Order.id==order.id)
-    )
-
-    base=settings(db)['public_base_url'].rstrip('/')
-    try:
-        invoice=await create_invoice(pay,order,base+'/webhooks/bluepay')
-    except IntegrationError as exc:
-        order.status='invoice_failed'
-        order.activation_error=str(exc)
-        db.commit()
-        raise HTTPException(502,detail={'code':'INVOICE_CREATE_FAILED','message':str(exc)})
-
-    invoice_amount,currency=normalize_gateway_amount_toman(invoice,order.amount_toman)
-    if invoice_amount is not None and invoice_amount!=order.amount_toman:
-        order.status='amount_mismatch'
-        order.activation_error=(
-            f'مبلغ فاکتور BluePay {invoice_amount} تومان ({currency}) است، '
-            f'اما مبلغ سفارش {order.amount_toman} تومان است'
-        )
-        log_bluepay_error(
-            'create_invoice_amount_mismatch',
-            order_code=order.order_code,
-            payment_id=str(invoice.get('payment_id','')),
-            error=order.activation_error,
-            response_body=invoice,
-        )
-        merge_order_metadata(db,order,'bluepay_create',invoice)
-        db.commit()
-        raise HTTPException(502,detail={'code':'INVOICE_AMOUNT_MISMATCH','message':order.activation_error})
-
-    order.payment_id=str(invoice.get('payment_id') or invoice.get('id') or '')
-    order.payment_url=str(invoice.get('payment_url') or invoice.get('url') or '')
-    order.status=normalize_gateway_status(invoice.get('status'))
-    order.activation_error=''
-    remote_expiry=parse_remote_date(
-        invoice.get('expires_at')
-        or invoice.get('expire_at')
-        or invoice.get('expiration_at')
-    )
-    if remote_expiry is not None and remote_expiry>now:
-        # Keep a sane upper bound. BluePay receives the same TTL, but a bad
-        # response must not leave an invoice pending forever.
-        order.expires_at=min(remote_expiry,now+timedelta(minutes=CHECKOUT_MAX_TTL_MINUTES))
-    merge_order_metadata(db,order,'bluepay_create',invoice)
-    metadata=_order_metadata(order)
-    metadata['_bluevpn_invoice_expires_at']=iso_z(aware(order.expires_at))
-    _set_order_metadata(order,metadata)
-    db.commit()
-    return {
-        'success':True,
-        'reused':False,
-        'order':order_response(order,c),
-        'check_after_success_url':f'/api/v1/orders/{order.id}/check-after-success',
-        'poll_interval_seconds':5,
-        'poll_timeout_seconds':30,
-    }
+    raise HTTPException(502,detail={'code':'INVOICE_CREATE_FAILED','message':last_error})
 
 def _checkout_order_for_customer(
     db:Session,
@@ -1369,12 +1554,15 @@ def checkout_open(
     now=aware(utcnow()) or datetime.now(timezone.utc)
     if order.status in PENDING_GATEWAY_STATUSES:
         if hard_order_expiry(order,db.get(PaymentSetting,1),now=now)<=now:
-            _mark_order_status(order,'expired_local','مهلت ۳۰ دقیقه‌ای پرداخت این فاکتور پایان یافته است.',now=now)
-        elif computed_order_expiry(order,db.get(PaymentSetting,1),now=now)<=now:
-            local_status,message=_local_expiry_status(order,now)
-            _mark_order_status(order,local_status,message,now=now)
-        else:
-            mark_checkout_open(order,now=now)
+            _delete_invalid_order(db,order,'مهلت ۳۰ دقیقه‌ای پرداخت این فاکتور پایان یافته است.')
+            db.commit()
+            raise HTTPException(410,detail={'code':'ORDER_GONE','message':'فاکتور منقضی حذف شد؛ پرداخت جدید بسازید'})
+        if computed_order_expiry(order,db.get(PaymentSetting,1),now=now)<=now:
+            _,message=_local_expiry_status(order,now)
+            _delete_invalid_order(db,order,message)
+            db.commit()
+            raise HTTPException(410,detail={'code':'ORDER_GONE','message':'فاکتور باطل حذف شد؛ پرداخت جدید بسازید'})
+        mark_checkout_open(order,now=now)
     db.commit()
     customer=db.get(Customer,c.id)
     return {'success':True,'order':order_response(order,customer)}
@@ -1387,7 +1575,12 @@ def checkout_heartbeat(
 ):
     order=_checkout_order_for_customer(db,order_id,c.id)
     now=aware(utcnow()) or datetime.now(timezone.utc)
-    if order.status in PENDING_GATEWAY_STATUSES and computed_order_expiry(order,db.get(PaymentSetting,1),now=now)>now:
+    if order.status in PENDING_GATEWAY_STATUSES:
+        if computed_order_expiry(order,db.get(PaymentSetting,1),now=now)<=now:
+            _,message=_local_expiry_status(order,now)
+            _delete_invalid_order(db,order,message)
+            db.commit()
+            raise HTTPException(410,detail={'code':'ORDER_GONE','message':'فاکتور باطل حذف شد؛ پرداخت جدید بسازید'})
         mark_checkout_heartbeat(order,now=now)
     db.commit()
     customer=db.get(Customer,c.id)
@@ -1403,9 +1596,10 @@ def checkout_close(
     now=aware(utcnow()) or datetime.now(timezone.utc)
     if order.status in PENDING_GATEWAY_STATUSES:
         if hard_order_expiry(order,db.get(PaymentSetting,1),now=now)<=now:
-            _mark_order_status(order,'expired_local','مهلت ۳۰ دقیقه‌ای پرداخت این فاکتور پایان یافته است.',now=now)
-        else:
-            mark_checkout_closed(order,now=now)
+            _delete_invalid_order(db,order,'مهلت ۳۰ دقیقه‌ای پرداخت این فاکتور پایان یافته است.')
+            db.commit()
+            raise HTTPException(410,detail={'code':'ORDER_GONE','message':'فاکتور منقضی حذف شد؛ پرداخت جدید بسازید'})
+        mark_checkout_closed(order,now=now)
     db.commit()
     customer=db.get(Customer,c.id)
     return {
@@ -1421,7 +1615,7 @@ async def order_status(order_id:str,c:Customer=Depends(current_customer),db:Sess
         .options(selectinload(Order.customer),selectinload(Order.plan))
         .where(Order.id==order_id,Order.customer_id==c.id)
     )
-    if not order:raise HTTPException(404,'Order not found')
+    if not order:raise HTTPException(404,detail={'code':'ORDER_NOT_FOUND','message':'فاکتور قبلی حذف شده است؛ پرداخت جدید بسازید'})
     pay=db.get(PaymentSetting,1)
     if order.payment_id and order.status in (PENDING_GATEWAY_STATUSES|LOCAL_RECOVERABLE_STATUSES):
         try:
@@ -1440,6 +1634,10 @@ async def order_status(order_id:str,c:Customer=Depends(current_customer),db:Sess
         db.commit()
     elif order.status in {'paid','paid_needs_sync','partial_needs_sync'}:
         await activate(db,order)
+    if order.status in PURGEABLE_ORDER_STATUSES:
+        _delete_invalid_order(db,order,order.activation_error or 'فاکتور باطل حذف شد.')
+        db.commit()
+        raise HTTPException(410,detail={'code':'ORDER_GONE','message':'فاکتور باطل حذف شد؛ پرداخت جدید بسازید'})
     c=db.get(Customer,c.id)
     db.refresh(order)
     return {'success':True,'order':order_response(order,c)}
@@ -1463,7 +1661,7 @@ async def check_order_after_success(
             .options(selectinload(Order.customer),selectinload(Order.plan))
             .where(Order.id==order_id,Order.customer_id==c.id)
         )
-        if not order:raise HTTPException(404,'Order not found')
+        if not order:raise HTTPException(404,detail={'code':'ORDER_NOT_FOUND','message':'فاکتور قبلی حذف شده است؛ پرداخت جدید بسازید'})
         attempts+=1
         try:
             if order.payment_id and order.status in (PENDING_GATEWAY_STATUSES|LOCAL_RECOVERABLE_STATUSES):
@@ -1484,9 +1682,13 @@ async def check_order_after_success(
                 _mark_order_status(order,local_status,message,now=now)
             db.commit()
 
+        if order.status in PURGEABLE_ORDER_STATUSES:
+            _delete_invalid_order(db,order,order.activation_error or 'فاکتور باطل حذف شد.')
+            db.commit()
+            raise HTTPException(410,detail={'code':'ORDER_GONE','message':'فاکتور باطل حذف شد؛ پرداخت جدید بسازید'})
         db.refresh(order)
         terminal=(
-            order.status in {'activated','amount_mismatch'}
+            order.status in {'activated'}
             or order.status in FAILED_GATEWAY_STATUSES
             or order.status in LOCAL_RECOVERABLE_STATUSES
         )
@@ -1634,7 +1836,7 @@ def admin_bluepay_cleanup(
     result=expire_stale_orders(db)
     counts=pending_order_counts(db)
     message=(
-        f"پاک‌سازی انجام شد: {result['expired']} فاکتور منقضی و "
+        f"پاک‌سازی انجام شد: {result['deleted']} فاکتور باطل حذف و "
         f"{result['initialized']} فاکتور قدیمی زمان‌دار شد. "
         f"فاکتور فعال: {counts['active']}"
     )

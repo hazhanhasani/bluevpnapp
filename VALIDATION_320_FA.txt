@@ -1,0 +1,14 @@
+اعتبارسنجی BlueVPN 3.0.20
+
+نسخه: 3.0.20
+Version Code: 30020
+Schema: 11 بدون Migration جدید
+
+- حذف فاکتورهای abandoned / expired_local / superseded / failed: موفق
+- حذف فاکتور معلق بعد از ۵ دقیقه خروج: موفق
+- اعتبارسنجی وضعیت فاکتور ذخیره‌شده از BluePay: موفق
+- رد لینک یا payment_id تکراری و منقضی: پیاده‌سازی شد
+- تلاش مجدد با order_code تازه: پیاده‌سازی شد
+- پاک‌شدن pending_order اندروید در 404/410: پیاده‌سازی شد
+- تست‌های Backend: 33/33 موفق
+- Build نهایی Android: در GitHub Actions

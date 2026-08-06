@@ -2093,6 +2093,68 @@ async def create_invoice(
     return body
 
 
+async def delete_invoice(
+    setting: PaymentSetting,
+    payment_id: str,
+) -> bool:
+    """Best-effort removal/cancellation of an unpaid BluePay invoice.
+
+    Newer BluePay deployments accept ``DELETE /api/v1/invoices/{id}``.
+    Older deployments may expose ``POST /api/v1/invoices/{id}/cancel``.
+    Unsupported endpoints are ignored so BlueVPN can still remove the stale
+    local row and refuse to reopen its URL.
+    """
+    base, key, _ = payment_secret(setting)
+    payment_id = str(payment_id or "").strip()
+    if not key or not payment_id:
+        return False
+
+    encoded = quote(payment_id, safe="")
+    candidates = (
+        ("DELETE", f"{base}/api/v1/invoices/{encoded}"),
+        ("POST", f"{base}/api/v1/invoices/{encoded}/cancel"),
+    )
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0, connect=8.0),
+            follow_redirects=False,
+        ) as client:
+            for method, url in candidates:
+                response = await client.request(
+                    method,
+                    url,
+                    headers={
+                        "X-API-Key": key,
+                        "Accept": "application/json",
+                        "User-Agent": f"BlueVPN-Backend/{VERSION}",
+                    },
+                    json={} if method == "POST" else None,
+                )
+                if response.status_code in {200, 202, 204, 404, 410}:
+                    return True
+                if response.status_code in {405, 501}:
+                    continue
+                try:
+                    body = response.json()
+                except Exception:
+                    body = {"raw": response.text[:1000]}
+                log_bluepay_error(
+                    "delete_invoice",
+                    payment_id=payment_id,
+                    status_code=response.status_code,
+                    response_body=body,
+                )
+                return False
+    except httpx.HTTPError as exc:
+        log_bluepay_error(
+            "delete_invoice",
+            payment_id=payment_id,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return False
+    return False
+
+
 async def get_invoice(
     setting: PaymentSetting,
     payment_id: str,

@@ -1,1 +1,1 @@
-BlueVPN 3.0.19 — connected thermal and battery optimization; adaptive single heartbeat reporter, sequential cached tunnel proof, reduced UI/GPU polling
+BlueVPN 3.0.20 — hard-delete invalid BluePay invoices, validate stored payment URLs remotely, reject stale fresh invoices, retry with a new order code

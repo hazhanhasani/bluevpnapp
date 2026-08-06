@@ -1,0 +1,6 @@
+BlueVPN 3.0.28 validation
+- queue:max removed from build-apk.yml
+- cancel-in-progress:true restored
+- static ubuntu-latest retained
+- version consistency: 3.0.28 / 30028
+- phone OTP/Faraz SMS retained

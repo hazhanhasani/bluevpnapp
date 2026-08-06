@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
 
 
-# Keep one verified build stream per branch without changing runner routing.
+# Keep only the newest build for each branch. This prevents old queued
+# workflow runs from blocking a newly uploaded release.
 concurrency:
-  group: bluevpn-release-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
-  queue: max
+  group: bluevpn-release-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write

@@ -1,11 +1,11 @@
 {
-  "version": "3.0.27",
+  "version": "3.0.28",
   "channel": "phone-otp-farazsms",
-  "build_id": "20260806-known-good-workflow-v3027",
-  "built_at": "2026-08-06T17:39:37Z",
-  "android_version": "3.0.27",
-  "android_version_code": 30027,
-  "description": "BlueVPN 3.0.27 فایل Build گیت‌هاب را دقیقاً به ساختار پایدار و قبلاً موفق برمی‌گرداند؛ Runner پویا و Retry خودکار حذف شده و Build فقط با ubuntu-latest و یک Push اجرا می‌شود.",
+  "build_id": "20260806-workflow-queue-unblock-v3028",
+  "built_at": "2026-08-06T17:53:12Z",
+  "android_version": "3.0.28",
+  "android_version_code": 30028,
+  "description": "BlueVPN 3.0.28 خطای واقعی فایل Workflow نسخه 3.0.27 را رفع می‌کند: صف queue:max حذف و cancel-in-progress دوباره فعال شده تا Buildهای قدیمی و گیرکرده جای اجرای جدید را نگیرند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -209,8 +209,11 @@
     "github-workflow-known-good-restore",
     "static-ubuntu-latest-runner",
     "single-push-build-trigger",
-    "deploy-bot-no-runner-redispatch"
+    "deploy-bot-no-runner-redispatch",
+    "github-workflow-queue-unblock",
+    "cancel-stale-workflow-runs",
+    "single-latest-build-per-branch"
   ],
-  "version_code": 30027,
-  "notes": "Restores the exact last-known-good GitHub Actions routing: static ubuntu-latest, no dynamic runs-on input, no alternate-runner workflow_dispatch, and no queue-max runner recovery layer."
+  "version_code": 30028,
+  "notes": "Removes the queue:max experiment and restores cancel-in-progress:true so stale queued runs cannot block the latest BlueVPN build. GitHub hosted-runner availability remains external to the project."
 }

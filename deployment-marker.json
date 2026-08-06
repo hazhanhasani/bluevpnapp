@@ -1,17 +1,16 @@
 {
-  "release": "3.0.27-known-good-workflow-restore",
-  "version_name": "3.0.27",
-  "version_code": 30027,
+  "release": "3.0.28-workflow-queue-unblock",
+  "version_name": "3.0.28",
+  "version_code": 30028,
   "changes": [
-    "Restore the last-known-good build-apk.yml structure",
-    "Use a static ubuntu-latest GitHub-hosted runner label",
-    "Remove workflow_dispatch runner input and dynamic runs-on expression",
-    "Remove automatic fallback runner redispatch from deploy bot",
-    "Return to one verified source push equals one build run",
-    "Preserve phone OTP and Faraz SMS features from 3.0.25"
+    "Remove queue:max from GitHub Actions concurrency",
+    "Restore cancel-in-progress true for the main branch build stream",
+    "Keep only the newest workflow run per branch",
+    "Preserve static ubuntu-latest runner routing",
+    "Preserve phone OTP and Faraz SMS features"
   ],
-  "generated_at_unix": 1786037977,
-  "purpose": "بازگردانی فایل Build گیت‌هاب به نسخه پایدار و قبلاً موفق",
-  "updated_at": "2026-08-06T17:39:37Z",
-  "built_at": "2026-08-06T17:39:37Z"
+  "generated_at_unix": 1786038792,
+  "purpose": "رفع صف اشتباه Workflow و جلوگیری از گیرکردن اجرای جدید پشت Runهای قدیمی",
+  "updated_at": "2026-08-06T17:53:12Z",
+  "built_at": "2026-08-06T17:53:12Z"
 }

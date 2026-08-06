@@ -1,14 +1,14 @@
 {
-  "project_version": "3.0.27",
-  "version_code": 30027,
+  "project_version": "3.0.28",
+  "version_code": 30028,
   "schema_version": 12,
-  "release": "3.0.27",
+  "release": "3.0.28",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
   "android_layout_ids": "passed (29/29 unique)",
   "embedded_android_sources": "passed",
-  "workflow_yaml": "passed",
+  "workflow_yaml": "passed (static ubuntu-latest; latest-run concurrency)",
   "secret_scan": "passed",
   "backend_blueai_live_smoke": "passed",
   "admin_live_endpoint_smoke": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.27/30027)",
+  "version_consistency": "passed (release/branding/backend 3.0.28/30028)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -96,7 +96,7 @@
   "updater_default_route_retry": "included",
   "updater_friendly_error_mapping": "included",
   "admin_security_tests": "passed (3 unit tests + endpoint smoke)",
-  "all_pytest": "passed (78 tests)",
+  "all_pytest": "passed (79 tests)",
   "admin_dark_glass_dashboard": "implemented",
   "admin_vazirmatn_font": "implemented with local fallback stack",
   "admin_inline_svg_icons": "implemented",
@@ -225,7 +225,7 @@
   },
   "jalali_tehran": "passed",
   "tests": "78 passed",
-  "android_validation": "passed (3.0.27 / 30027 / 22 sources / 29 IDs)",
+  "android_validation": "passed (3.0.28 / 30028 / 22 sources / 29 IDs)",
   "database_migration": "passed (schema 11 -> 12: phone columns + otp_challenges + sms_settings)",
   "subscription_state_recovery": {
     "last_known_good_preserved": true,
@@ -302,5 +302,6 @@
     "source": "exact workflow structure restored from 3.0.25",
     "dedicated_tests": "passed (3)"
   },
-  "test_summary": "79 passed"
+  "test_summary": "79 passed",
+  "workflow_concurrency": "passed (cancel-in-progress=true, queue:max removed)"
 }

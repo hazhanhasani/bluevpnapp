@@ -19,9 +19,6 @@ import java.security.MessageDigest
 import java.util.Calendar
 import java.util.Locale
 import java.util.UUID
-import java.util.concurrent.ExecutorCompletionService
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
 object BlueVpnAi {
@@ -32,8 +29,12 @@ object BlueVpnAi {
     private const val KEY_SESSION = "active_session"
     private const val KEY_PERSONAL = "personal_routes"
     private const val KEY_LAST_HEARTBEAT = "last_heartbeat"
+    private const val KEY_LAST_PROBE_AT = "last_probe_at"
+    private const val KEY_LAST_PROBE_SOURCE = "last_probe_source"
+    private const val KEY_LAST_PROBE_LATENCY = "last_probe_latency"
     private const val SYNC_INTERVAL = 5 * 60 * 1000L
-    private const val HEARTBEAT_INTERVAL = 30 * 1000L
+    private const val HEARTBEAT_INTERVAL = 60 * 1000L
+    private const val PROBE_CACHE_MAX_AGE_MS = 125 * 1000L
 
     data class NetworkSnapshot(
         val operator: String,
@@ -67,6 +68,31 @@ object BlueVpnAi {
     fun hasActiveSession(context: Context): Boolean =
         prefs(context).getString(KEY_SESSION, "").orEmpty().isNotBlank()
 
+    /**
+     * Returns a recently verified tunnel proof without waking radios or
+     * creating new sockets. The Android VPN transport is still checked on
+     * every call, so a stopped VPN can never reuse an old proof.
+     */
+    fun recentTunnelVerification(
+        context: Context,
+        maxAgeMs: Long = PROBE_CACHE_MAX_AGE_MS,
+    ): TunnelVerification? {
+        if (!hasVpnTransport(context)) return null
+        val storage = prefs(context)
+        val verifiedAt = storage.getLong(KEY_LAST_PROBE_AT, 0L)
+        val age = System.currentTimeMillis() - verifiedAt
+        if (verifiedAt <= 0L || age !in 0..maxAgeMs) return null
+        val source = storage.getString(KEY_LAST_PROBE_SOURCE, "").orEmpty()
+        val latency = storage.getLong(KEY_LAST_PROBE_LATENCY, 0L)
+        if (source.isBlank() || latency <= 0L) return null
+        return TunnelVerification(latency, source)
+    }
+
+    /**
+     * Performs a real request through the local Xray HTTP proxy. Targets are
+     * tried sequentially and the first success wins; unlike the old version,
+     * this does not launch four concurrent sockets every few seconds.
+     */
     fun verifyTunnel(context: Context): TunnelVerification? {
         if (!hasVpnTransport(context)) return null
         val httpPort = SettingsManager.getHttpPort()
@@ -76,9 +102,6 @@ object BlueVpnAi {
             .takeIf { it.startsWith("http") }
             ?.let { "${it.trimEnd('/')}/health" }
         val targets = buildList {
-            if (!apiHealth.isNullOrBlank()) {
-                add(ProbeTarget(apiHealth, "bluevpn-health"))
-            }
             add(
                 ProbeTarget(
                     "http://cp.cloudflare.com/generate_204",
@@ -91,6 +114,9 @@ object BlueVpnAi {
                     "google-204",
                 )
             )
+            if (!apiHealth.isNullOrBlank()) {
+                add(ProbeTarget(apiHealth, "bluevpn-health"))
+            }
             add(
                 ProbeTarget(
                     "http://1.1.1.1/cdn-cgi/trace",
@@ -99,33 +125,16 @@ object BlueVpnAi {
             )
         }
 
-        val executor = Executors.newFixedThreadPool(targets.size)
-        val completion =
-            ExecutorCompletionService<TunnelVerification?>(executor)
-        val futures = targets.map { target ->
-            completion.submit {
-                requestTunnelProof(target, httpPort)
-            }
+        for (target in targets) {
+            val result = requestTunnelProof(target, httpPort) ?: continue
+            prefs(context).edit()
+                .putLong(KEY_LAST_PROBE_AT, System.currentTimeMillis())
+                .putString(KEY_LAST_PROBE_SOURCE, result.source)
+                .putLong(KEY_LAST_PROBE_LATENCY, result.latencyMs)
+                .apply()
+            return result
         }
-
-        return try {
-            val deadline = android.os.SystemClock.elapsedRealtime() + 3_200L
-            repeat(futures.size) {
-                val remaining = (
-                    deadline - android.os.SystemClock.elapsedRealtime()
-                ).coerceAtLeast(1L)
-                val future = completion.poll(
-                    remaining,
-                    TimeUnit.MILLISECONDS,
-                ) ?: return null
-                val result = runCatching { future.get() }.getOrNull()
-                if (result != null) return result
-            }
-            null
-        } finally {
-            futures.forEach { it.cancel(true) }
-            executor.shutdownNow()
-        }
+        return null
     }
 
     private fun requestTunnelProof(
@@ -497,7 +506,13 @@ object BlueVpnAi {
             .put("ping_ms", pingMs.coerceAtLeast(0L))
             .put("health_score", healthScore)
             .put("mode", BlueVpnExperience.mode(context).key)
-        prefs(context).edit().putString(KEY_SESSION, session.toString()).apply()
+        prefs(context).edit()
+            .putString(KEY_SESSION, session.toString())
+            .remove(KEY_LAST_HEARTBEAT)
+            .remove(KEY_LAST_PROBE_AT)
+            .remove(KEY_LAST_PROBE_SOURCE)
+            .remove(KEY_LAST_PROBE_LATENCY)
+            .apply()
     }
 
     fun finishSession(
@@ -514,6 +529,9 @@ object BlueVpnAi {
         storage.edit()
             .remove(KEY_SESSION)
             .remove(KEY_LAST_HEARTBEAT)
+            .remove(KEY_LAST_PROBE_AT)
+            .remove(KEY_LAST_PROBE_SOURCE)
+            .remove(KEY_LAST_PROBE_LATENCY)
             .apply()
         val duration = (
             System.currentTimeMillis() -
@@ -567,11 +585,15 @@ object BlueVpnAi {
         storage.edit().putLong(KEY_LAST_HEARTBEAT, now).apply()
 
         val session = JSONObject(raw)
-        val verification = verifyTunnel(context)
+        val verification = recentTunnelVerification(context)
+            ?: verifyTunnel(context)
             ?: return@runCatching JSONObject()
                 .put("accepted", false)
                 .put("live", false)
                 .put("reason", "tunnel_not_verified")
+        val probeAgeMs = (
+            now - storage.getLong(KEY_LAST_PROBE_AT, now)
+        ).coerceAtLeast(0L)
 
         val network = network(context)
         val sequence = session.optLong("heartbeat_seq", 0L) + 1L
@@ -606,7 +628,7 @@ object BlueVpnAi {
             .put("vpn_transport", true)
             .put("internet_verified", true)
             .put("verification_source", verification.source)
-            .put("probe_age_ms", 0)
+            .put("probe_age_ms", probeAgeMs)
             .put("heartbeat_seq", sequence)
             .put("traffic_active", trafficActive)
             .put(

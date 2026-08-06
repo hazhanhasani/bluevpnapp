@@ -1,7 +1,7 @@
 {
-  "release": "3.0.26-github-runner-recovery",
-  "version_name": "3.0.26",
-  "version_code": 30026,
+  "release": "3.0.25-phone-otp-farazsms",
+  "version_name": "3.0.25",
+  "version_code": 30025,
   "changes": [
     "Replace email/password login with Iranian phone OTP",
     "Integrate Faraz SMS/IPPanel Edge pattern sending",

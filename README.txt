@@ -1,1 +1,1 @@
-BlueVPN 3.0.26 — GitHub hosted-runner acquisition recovery, queued build preservation, explicit Ubuntu runner pinning, and automatic alternate-runner retry. Phone OTP/Faraz SMS from 3.0.25 is preserved.
+BlueVPN 3.0.25 — passwordless Iranian phone login and registration with Faraz SMS/IPPanel pattern OTP, admin-managed SMS settings, legacy account phone binding, and database schema 12.

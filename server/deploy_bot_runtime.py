@@ -40,8 +40,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("bluevpn-one-click-bot")
 
-DEPLOY_BOT_VERSION = "3.0-hosted-runner-recovery"
-BUILD_TRIGGER_MODE = "verified-source-push-with-runner-fallback"
+DEPLOY_BOT_VERSION = "2.9-verified-github-source-persistence"
+BUILD_TRIGGER_MODE = "verified-source-commit-push"
 
 
 def _env_int(name: str, default: int, minimum: int = 1) -> int:
@@ -110,18 +110,6 @@ MAX_ZIP_MB = int(os.getenv("MAX_ZIP_MB", "50"))
 MAX_EXTRACTED_MB = int(os.getenv("MAX_EXTRACTED_MB", "900"))
 MAX_FILES = int(os.getenv("MAX_FILES", "25000"))
 BUILD_TIMEOUT_SECONDS = int(os.getenv("BUILD_TIMEOUT_SECONDS", "5400"))
-PRIMARY_GITHUB_RUNNER = (
-    os.getenv("GITHUB_PRIMARY_RUNNER", "ubuntu-22.04").strip()
-    or "ubuntu-22.04"
-)
-FALLBACK_GITHUB_RUNNER = (
-    os.getenv("GITHUB_FALLBACK_RUNNER", "ubuntu-24.04").strip()
-    or "ubuntu-24.04"
-)
-AUTO_RETRY_RUNNER_ACQUISITION = (
-    os.getenv("AUTO_RETRY_RUNNER_ACQUISITION", "true").strip().lower()
-    not in {"0", "false", "off", "no"}
-)
 GITHUB_API_VERSION = "2022-11-28"
 GITHUB_API = "https://api.github.com"
 
@@ -788,7 +776,7 @@ async def workflow_runs() -> list[dict[str, Any]]:
     response = await gh_request(
         "GET",
         f"/repos/{OWNER}/{REPO}/actions/workflows/{GITHUB_WORKFLOW}/runs"
-        f"?branch={quote(GIT_BRANCH)}&per_page=30",
+        f"?branch={quote(GIT_BRANCH)}&per_page=20",
     )
     if response.status_code >= 400:
         raise RuntimeError(
@@ -798,61 +786,9 @@ async def workflow_runs() -> list[dict[str, Any]]:
     return response.json().get("workflow_runs", [])
 
 
-async def workflow_jobs(run_id: int) -> list[dict[str, Any]]:
-    response = await gh_request(
-        "GET",
-        f"/repos/{OWNER}/{REPO}/actions/runs/{run_id}/jobs?filter=all&per_page=100",
-    )
-    if response.status_code >= 400:
-        logger.warning(
-            "Could not inspect jobs for run %s: HTTP %s %s",
-            run_id,
-            response.status_code,
-            response.text[-400:],
-        )
-        return []
-    return response.json().get("jobs", [])
-
-
-def _job_started_on_runner(job: dict[str, Any]) -> bool:
-    if str(job.get("runner_name") or "").strip():
-        return True
-    for step in job.get("steps") or []:
-        if step.get("started_at") or step.get("completed_at"):
-            return True
-        if step.get("status") in {"in_progress", "completed"}:
-            return True
-    return False
-
-
-async def runner_was_never_acquired(run_id: int) -> bool:
-    jobs = await workflow_jobs(run_id)
-    if not jobs:
-        return False
-    return all(not _job_started_on_runner(job) for job in jobs)
-
-
-async def dispatch_workflow_on_runner(runner: str) -> None:
-    response = await gh_request(
-        "POST",
-        f"/repos/{OWNER}/{REPO}/actions/workflows/{GITHUB_WORKFLOW}/dispatches",
-        json_body={
-            "ref": GIT_BRANCH,
-            "inputs": {"runner": runner},
-        },
-    )
-    if response.status_code != 204:
-        raise RuntimeError(
-            "شروع Build جایگزین ناموفق بود: "
-            f"HTTP {response.status_code} {response.text[-700:]}"
-        )
-
-
 async def wait_for_commit_run(
     commit_sha: str | None,
     previous_ids: set[int],
-    *,
-    event: str | None = None,
 ) -> dict[str, Any]:
     deadline = time.monotonic() + BUILD_TIMEOUT_SECONDS
     selected: dict[str, Any] | None = None
@@ -860,15 +796,12 @@ async def wait_for_commit_run(
     while time.monotonic() < deadline:
         runs = await workflow_runs()
         for run in runs:
-            run_id = int(run.get("id") or 0)
-            if not run_id or run_id in previous_ids:
-                continue
-            if event and run.get("event") != event:
-                continue
-            if commit_sha and run.get("head_sha") != commit_sha:
-                continue
-            selected = run
-            break
+            if commit_sha and run.get("head_sha") == commit_sha:
+                selected = run
+                break
+            if not commit_sha and run.get("id") not in previous_ids:
+                selected = run
+                break
 
         if selected:
             if selected.get("status") == "completed":
@@ -886,42 +819,6 @@ async def wait_for_commit_run(
             await asyncio.sleep(8)
 
     raise RuntimeError("زمان انتظار برای پایان Build تمام شد.")
-
-
-async def recover_runner_acquisition_failure(
-    run: dict[str, Any],
-    commit_sha: str,
-    progress=None,
-) -> dict[str, Any]:
-    if not AUTO_RETRY_RUNNER_ACQUISITION:
-        return run
-    if run.get("conclusion") != "failure":
-        return run
-    run_id = int(run.get("id") or 0)
-    if not run_id or not await runner_was_never_acquired(run_id):
-        return run
-
-    previous_runs = await workflow_runs()
-    previous_ids = {int(item["id"]) for item in previous_runs}
-    runner = FALLBACK_GITHUB_RUNNER
-    if progress is not None:
-        await progress.edit_text(
-            "⚠️ GitHub برای Build اول Runner اختصاص نداد.\n"
-            f"🔁 تلاش خودکار روی Runner جایگزین: {runner}\n"
-            f"Commit: {commit_sha[:8]}"
-        )
-
-    logger.warning(
-        "Run %s never acquired a hosted runner; dispatching fallback on %s",
-        run_id,
-        runner,
-    )
-    await dispatch_workflow_on_runner(runner)
-    return await wait_for_commit_run(
-        commit_sha,
-        previous_ids,
-        event="workflow_dispatch",
-    )
 
 
 async def download_apks(run_id: int) -> tuple[list[Path], tempfile.TemporaryDirectory]:
@@ -1102,11 +999,6 @@ async def process_zip_job(
         )
 
         run = await wait_for_commit_run(commit_for_run, previous_ids)
-        run = await recover_runner_acquisition_failure(
-            run,
-            commit_for_run,
-            progress,
-        )
 
         if run.get("conclusion") != "success":
             ACTIVE_JOB_STATUS[job_key] = "Build ناموفق"
@@ -1252,11 +1144,6 @@ async def process_rebuild_job(
             f"منتظر Build مربوط به {commit_sha[:8]}"
         )
         run = await wait_for_commit_run(commit_sha, previous_ids)
-        run = await recover_runner_acquisition_failure(
-            run,
-            commit_sha,
-            progress,
-        )
 
         if run.get("conclusion") != "success":
             ACTIVE_JOB_STATUS[job_key] = "Build ناموفق"

@@ -121,8 +121,7 @@ def test_gateway_amount_normalizes_rial_and_toman():
 
 def test_workflow_no_longer_fails_on_branch_advanced_guard():
     workflow = Path(".github/workflows/build-apk.yml").read_text(encoding="utf-8")
-    assert "cancel-in-progress: false" in workflow
-    assert "queue: max" in workflow
+    assert "cancel-in-progress: true" in workflow
     assert "Synchronize checkout with latest branch" in workflow
     assert "rebasing attempt" in workflow
     assert "The GitHub branch advanced while version metadata was being prepared" not in workflow

@@ -1,7 +1,7 @@
 {
-  "release": "3.0.16-auto",
-  "version_name": "3.0.16",
-  "version_code": 30016,
+  "release": "3.0.17-verified-live-connections",
+  "version_name": "3.0.17",
+  "version_code": 30017,
   "changes": [
     "Persist an explicit expiry timestamp for every BluePay order",
     "Expire legacy pending invoices locally without deleting financial history",
@@ -13,5 +13,5 @@
   ],
   "generated_at_unix": 1785981000,
   "purpose": "bluepay-pending-order-lifecycle-and-late-payment-recovery",
-  "updated_at": "2026-08-06T03:10:00Z"
+  "updated_at": "2026-08-06T05:02:36Z"
 }

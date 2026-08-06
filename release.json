@@ -1,11 +1,11 @@
 {
-  "version": "3.0.16",
-  "channel": "bluepay-pending-order-lifecycle",
-  "build_id": "20260806-bluepay-pending-lifecycle-v3016",
-  "built_at": "2026-08-06T03:10:00Z",
-  "android_version": "3.0.16",
-  "android_version_code": 30016,
-  "description": "BlueVPN 3.0.16 چرخه عمر فاکتورهای BluePay را اصلاح می‌کند: انقضای محلی زمان‌دار، استفاده مجدد از فاکتور معتبر، جلوگیری از فاکتور تکراری، پاک‌سازی خودکار و بازیابی پرداخت دیرهنگام.",
+  "version": "3.0.17",
+  "channel": "verified-live-connections",
+  "build_id": "20260806-verified-live-connections-v3017",
+  "built_at": "2026-08-06T05:02:36Z",
+  "android_version": "3.0.17",
+  "android_version_code": 30017,
+  "description": "BlueVPN 3.0.17 اتصال زنده را فقط پس از اثبات هم‌زمان VPN اندروید، هسته Xray و عبور واقعی اینترنت ثبت می‌کند و گزارش زنده را در پس‌زمینه نیز ادامه می‌دهد.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -124,8 +124,20 @@
     "bluepay-local-expiry-without-history-deletion",
     "bluepay-late-payment-recovery",
     "bluepay-superseded-order-recovery",
-    "bluepay-admin-pending-dashboard"
+    "bluepay-admin-pending-dashboard",
+    "verified-live-connection-registry",
+    "android-vpn-transport-proof",
+    "xray-remote-internet-proof",
+    "strict-no-core-only-connected-state",
+    "background-live-heartbeat-reporter",
+    "live-session-id-and-sequence",
+    "out-of-order-heartbeat-protection",
+    "stale-session-ttl-expiry",
+    "session-scoped-disconnect-protection",
+    "uid-tunnel-traffic-counters",
+    "verified-live-admin-dashboard",
+    "bluevpn-health-probe"
   ],
-  "version_code": 30016,
-  "notes": "پرداخت‌های معلق قدیمی دیگر برای همیشه pending نمی‌مانند؛ حذف نمی‌شوند و پرداخت دیرهنگام همچنان می‌تواند سفارش را فعال کند."
+  "version_code": 30017,
+  "notes": "روشن‌بودن هسته دیگر اتصال زنده محسوب نمی‌شود؛ هر نشست شناسه مستقل، Heartbeat ترتیبی، TTL کوتاه و اثبات اینترنت از داخل Xray دارد."
 }

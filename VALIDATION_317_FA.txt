@@ -1,0 +1,18 @@
+اعتبارسنجی BlueVPN 3.0.17 — اتصال زنده واقعی
+
+نسخه: 3.0.17
+Version Code: 30017
+Schema: 10
+
+- Python compileall: موفق
+- JSON/YAML/Jinja: موفق
+- اعتبارسنجی منابع تولیدشده Android: موفق (22 منبع، 29 شناسه)
+- تست کامل Backend: موفق (23 تست)
+- تست اختصاصی اتصال زنده: موفق (4 تست)
+- اثبات VPN transport + Xray remote probe: فعال
+- انقضای خودکار نشست بدون Heartbeat: 85 ثانیه
+- حداکثر سن Probe: 70 ثانیه
+- گزارش پس‌زمینه: هر 32 ثانیه
+- محافظت Session ID و Heartbeat Sequence: فعال
+- شمارنده ترافیک UID برنامه: فعال
+- کامپایل نهایی Gradle/APK: در GitHub Actions انجام می‌شود

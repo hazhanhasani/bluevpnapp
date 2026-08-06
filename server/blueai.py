@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import case, desc, func, select
 from sqlalchemy.orm import Session
 
-from .models import AiConnectionEvent, AiFeedback, AiRouteAggregate, Customer
+from .models import AiConnectionEvent, AiFeedback, AiLiveConnection, AiRouteAggregate, Customer
 
 
 def utcnow() -> datetime:
@@ -48,6 +48,214 @@ def clamp_int(value: Any, minimum: int, maximum: int, default: int = 0) -> int:
         return max(minimum, min(maximum, int(float(value))))
     except Exception:
         return default
+
+
+LIVE_TTL_SECONDS = 85
+LIVE_PROBE_MAX_AGE_MS = 70_000
+
+
+def as_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value or "").strip().lower() in {
+        "1", "true", "yes", "on", "connected", "verified",
+    }
+
+
+def epoch_millis_to_utc(value: Any) -> datetime | None:
+    try:
+        raw = int(value)
+    except (TypeError, ValueError):
+        return None
+    if raw <= 0:
+        return None
+    seconds = raw / 1000.0 if raw > 10_000_000_000 else float(raw)
+    try:
+        return datetime.fromtimestamp(seconds, timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def heartbeat_proof(payload: dict[str, Any]) -> tuple[bool, str]:
+    session_id = clean(payload.get("session_id"), 80, "")
+    probe_age_ms = clamp_int(
+        payload.get("probe_age_ms"),
+        0,
+        86_400_000,
+        86_400_000,
+    )
+    source = clean(payload.get("verification_source"), 80, "")
+    checks = {
+        "session": len(session_id) >= 8,
+        "connected": as_bool(payload.get("connected")),
+        "tunnel_running": as_bool(payload.get("tunnel_running")),
+        "vpn_transport": as_bool(payload.get("vpn_transport")),
+        "internet_verified": as_bool(payload.get("internet_verified")),
+        "fresh_probe": probe_age_ms <= LIVE_PROBE_MAX_AGE_MS,
+        "source": source in {
+            "bluevpn-health",
+            "cloudflare-204",
+            "google-204",
+            "cloudflare-trace",
+            "xray-http-probe",
+        },
+    }
+    failed = [name for name, ok in checks.items() if not ok]
+    return not failed, ",".join(failed)
+
+
+def update_live_connection(
+    db: Session,
+    customer: Customer,
+    payload: dict[str, Any],
+    *,
+    operator: str,
+    network_type: str,
+    mode: str,
+    proof_ok: bool,
+    proof_error: str,
+) -> tuple[AiLiveConnection | None, bool]:
+    device_id = clean(payload.get("device_id"), 80, "")
+    session_id = clean(payload.get("session_id"), 80, "")
+    if not device_id or not session_id:
+        return None, False
+
+    now = utcnow()
+    heartbeat_seq = clamp_int(payload.get("heartbeat_seq"), 0, 10**18)
+    row = db.scalar(
+        select(AiLiveConnection)
+        .where(
+            AiLiveConnection.customer_id == customer.id,
+            AiLiveConnection.device_id == device_id,
+        )
+        .with_for_update()
+    )
+    if row is None:
+        row = AiLiveConnection(
+            customer_id=customer.id,
+            device_id=device_id,
+        )
+        db.add(row)
+        db.flush()
+
+    same_session = row.session_id == session_id
+    if (
+        same_session
+        and heartbeat_seq
+        and heartbeat_seq < int(row.heartbeat_seq or 0)
+    ):
+        return row, False
+
+    if not proof_ok:
+        if same_session:
+            row.connected = False
+            row.verified = False
+            row.tunnel_running = as_bool(payload.get("tunnel_running"))
+            row.vpn_transport = as_bool(payload.get("vpn_transport"))
+            row.last_seen_at = now
+            row.expires_at = now
+            row.disconnected_at = now
+            row.disconnect_reason = f"unverified:{proof_error}"[:500]
+        return row, False
+
+    started_at = epoch_millis_to_utc(payload.get("started_at"))
+    traffic_active = as_bool(payload.get("traffic_active"))
+    row.session_id = session_id
+    row.config_key = clean(payload.get("config_key"), 80, "")
+    row.location_key = clean(payload.get("location_key"), 24)
+    row.location_title = clean(
+        payload.get("location_title"),
+        100,
+        "نامشخص",
+    )
+    row.operator = operator
+    row.network_type = network_type
+    row.mode = mode
+    row.connected = True
+    row.verified = True
+    row.tunnel_running = True
+    row.vpn_transport = True
+    row.verification_source = clean(
+        payload.get("verification_source"),
+        80,
+        "",
+    )
+    row.ping_ms = clamp_int(payload.get("ping_ms"), 0, 10000)
+    row.health_score = clamp_int(payload.get("health_score"), 0, 100)
+    incoming_download = clamp_int(
+        payload.get("download_bytes"),
+        0,
+        10**18,
+    )
+    incoming_upload = clamp_int(
+        payload.get("upload_bytes"),
+        0,
+        10**18,
+    )
+    if same_session:
+        row.download_bytes = max(
+            int(row.download_bytes or 0),
+            incoming_download,
+        )
+        row.upload_bytes = max(
+            int(row.upload_bytes or 0),
+            incoming_upload,
+        )
+    else:
+        row.download_bytes = incoming_download
+        row.upload_bytes = incoming_upload
+    row.traffic_active = traffic_active
+    if traffic_active:
+        row.last_traffic_at = now
+    row.heartbeat_seq = heartbeat_seq
+    row.started_at = started_at or (
+        row.started_at if same_session else now
+    )
+    row.last_verified_at = now
+    row.last_seen_at = now
+    row.expires_at = now + timedelta(seconds=LIVE_TTL_SECONDS)
+    row.disconnected_at = None
+    row.disconnect_reason = ""
+    row.app_version = clean(payload.get("app_version"), 40, "")
+    row.android_version = clean(
+        payload.get("android_version"),
+        40,
+        "",
+    )
+    row.device_model = clean(payload.get("device_model"), 160, "")
+    return row, True
+
+
+def disconnect_live_connection(
+    db: Session,
+    customer: Customer,
+    payload: dict[str, Any],
+    reason: str,
+) -> bool:
+    device_id = clean(payload.get("device_id"), 80, "")
+    session_id = clean(payload.get("session_id"), 80, "")
+    if not device_id or not session_id:
+        return False
+    row = db.scalar(
+        select(AiLiveConnection)
+        .where(
+            AiLiveConnection.customer_id == customer.id,
+            AiLiveConnection.device_id == device_id,
+        )
+        .with_for_update()
+    )
+    if row is None or row.session_id != session_id:
+        return False
+    now = utcnow()
+    row.connected = False
+    row.verified = False
+    row.last_seen_at = now
+    row.expires_at = now
+    row.disconnected_at = now
+    row.disconnect_reason = clean(reason, 500, "disconnected")
+    return True
 
 
 def hour_bucket(value: Any = None) -> int:
@@ -291,8 +499,15 @@ def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> di
     network_type = clean(payload.get("network_type"), 30).lower()
     mode = clean(payload.get("mode"), 30, "balanced").lower()
     event_type = clean(payload.get("event_type"), 30, "session").lower()
-    success = bool(payload.get("success", False))
     bucket = hour_bucket(payload.get("hour_bucket"))
+
+    proof_ok = False
+    proof_error = ""
+    if event_type == "heartbeat":
+        proof_ok, proof_error = heartbeat_proof(payload)
+        success = proof_ok
+    else:
+        success = as_bool(payload.get("success"))
 
     event = AiConnectionEvent(
         customer_id=customer.id,
@@ -312,7 +527,11 @@ def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> di
         health_score=clamp_int(payload.get("health_score"), 0, 100),
         download_bytes=clamp_int(payload.get("download_bytes"), 0, 10**18),
         upload_bytes=clamp_int(payload.get("upload_bytes"), 0, 10**18),
-        failure_reason=clean(payload.get("failure_reason"), 500, ""),
+        failure_reason=(
+            clean(payload.get("failure_reason"), 500, "")
+            if event_type != "heartbeat"
+            else clean(proof_error, 500, "")
+        ),
         app_version=clean(payload.get("app_version"), 40, ""),
         android_version=clean(payload.get("android_version"), 40, ""),
         device_model=clean(payload.get("device_model"), 160, ""),
@@ -322,13 +541,46 @@ def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> di
     db.flush()
 
     if event_type == "heartbeat":
+        live_row, accepted_live = update_live_connection(
+            db,
+            customer,
+            payload,
+            operator=operator,
+            network_type=network_type,
+            mode=mode,
+            proof_ok=proof_ok,
+            proof_error=proof_error,
+        )
         db.commit()
         return {
             "accepted": True,
-            "live": True,
+            "live": accepted_live,
+            "verified": proof_ok,
+            "proof_error": proof_error,
             "operator": operator,
             "network_type": network_type,
+            "session_id": live_row.session_id if live_row else "",
+            "expires_in_seconds": (
+                LIVE_TTL_SECONDS if accepted_live else 0
+            ),
         }
+
+    if (
+        event_type in {"session", "disconnect"}
+        or clean(payload.get("live_state"), 30, "").lower()
+        == "disconnected"
+        or not as_bool(payload.get("connected", True))
+    ):
+        disconnect_live_connection(
+            db,
+            customer,
+            payload,
+            clean(
+                payload.get("failure_reason"),
+                500,
+                event_type,
+            ),
+        )
 
     aggregate = db.scalar(
         select(AiRouteAggregate)
@@ -357,22 +609,45 @@ def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> di
     aggregate.location_key = event.location_key
     aggregate.location_title = event.location_title
     aggregate.sample_count = int(aggregate.sample_count or 0) + 1
-    aggregate.success_count = int(aggregate.success_count or 0) + (1 if success else 0)
-    aggregate.failure_count = int(aggregate.failure_count or 0) + (0 if success else 1)
-    aggregate.total_duration_seconds = int(aggregate.total_duration_seconds or 0) + event.duration_seconds
+    aggregate.success_count = int(aggregate.success_count or 0) + (
+        1 if success else 0
+    )
+    aggregate.failure_count = int(aggregate.failure_count or 0) + (
+        0 if success else 1
+    )
+    aggregate.total_duration_seconds = (
+        int(aggregate.total_duration_seconds or 0)
+        + event.duration_seconds
+    )
     if event.ping_ms > 0:
-        aggregate.total_ping_ms = int(aggregate.total_ping_ms or 0) + event.ping_ms
+        aggregate.total_ping_ms = (
+            int(aggregate.total_ping_ms or 0)
+            + event.ping_ms
+        )
         aggregate.ping_samples = int(aggregate.ping_samples or 0) + 1
     if event.jitter_ms > 0:
-        aggregate.total_jitter_ms = int(aggregate.total_jitter_ms or 0) + event.jitter_ms
+        aggregate.total_jitter_ms = (
+            int(aggregate.total_jitter_ms or 0)
+            + event.jitter_ms
+        )
         aggregate.jitter_samples = int(aggregate.jitter_samples or 0) + 1
-    aggregate.total_packet_loss_x100 = int(aggregate.total_packet_loss_x100 or 0) + event.packet_loss_x100
-    aggregate.success_rate = aggregate.success_count / max(1, aggregate.sample_count)
-    aggregate.average_ping_ms = aggregate.total_ping_ms / max(1, aggregate.ping_samples)
-    aggregate.average_duration_seconds = aggregate.total_duration_seconds / max(1, aggregate.success_count)
+    aggregate.total_packet_loss_x100 = (
+        int(aggregate.total_packet_loss_x100 or 0)
+        + event.packet_loss_x100
+    )
+    aggregate.success_rate = (
+        aggregate.success_count
+        / max(1, aggregate.sample_count)
+    )
+    aggregate.average_ping_ms = (
+        aggregate.total_ping_ms
+        / max(1, aggregate.ping_samples)
+    )
+    aggregate.average_duration_seconds = (
+        aggregate.total_duration_seconds
+        / max(1, aggregate.success_count)
+    )
 
-    # Only recent events for the same route/operator context are loaded. The
-    # bounded 48-hour/600-event window keeps submission latency predictable.
     recent_events = db.scalars(
         select(AiConnectionEvent)
         .where(
@@ -381,12 +656,16 @@ def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> di
             AiConnectionEvent.operator == operator,
             AiConnectionEvent.network_type == network_type,
             AiConnectionEvent.mode == mode,
-            AiConnectionEvent.created_at >= utcnow() - timedelta(hours=48),
+            AiConnectionEvent.created_at
+            >= utcnow() - timedelta(hours=48),
         )
         .order_by(AiConnectionEvent.created_at.desc())
         .limit(600)
     ).all()
-    recent_stats = _recent_route_stats(list(recent_events), half_life_hours=2.0)
+    recent_stats = _recent_route_stats(
+        list(recent_events),
+        half_life_hours=2.0,
+    )
     details = _route_score_details(aggregate, recent_stats)
 
     aggregate.score = int(details["score"])
@@ -398,11 +677,18 @@ def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> di
         "route_score": aggregate.score,
         "samples": int(aggregate.sample_count or 0),
         "confidence": details["confidence"],
-        "recent_effective_samples": details["recent_effective_samples"],
-        "recent_success_rate": round(float(details["recent_success_rate"]) * 100.0, 1),
+        "recent_effective_samples": details[
+            "recent_effective_samples"
+        ],
+        "recent_success_rate": round(
+            float(details["recent_success_rate"]) * 100.0,
+            1,
+        ),
         "average_jitter_ms": details["average_jitter_ms"],
         "jitter_penalty": details["jitter_penalty"],
-        "blocked_for_operator": bool(details["blocked_for_operator"]),
+        "blocked_for_operator": bool(
+            details["blocked_for_operator"]
+        ),
         "blocked_operator": details["blocked_operator"],
         "block_reason": details["block_reason"],
     }
@@ -607,23 +893,68 @@ def admin_overview(db: Session) -> dict[str, Any]:
         .limit(10)
     ).all()
 
-    recent_heartbeats = db.scalars(
-        select(AiConnectionEvent)
+    now = utcnow()
+    live_events = db.scalars(
+        select(AiLiveConnection)
         .where(
-            AiConnectionEvent.event_type == "heartbeat",
-            AiConnectionEvent.created_at >= utcnow() - timedelta(seconds=95),
+            AiLiveConnection.connected.is_(True),
+            AiLiveConnection.verified.is_(True),
+            AiLiveConnection.tunnel_running.is_(True),
+            AiLiveConnection.vpn_transport.is_(True),
+            AiLiveConnection.expires_at > now,
+            AiLiveConnection.last_verified_at
+            >= now - timedelta(seconds=LIVE_TTL_SECONDS),
         )
-        .order_by(AiConnectionEvent.created_at.desc())
-        .limit(1000)
+        .order_by(AiLiveConnection.last_verified_at.desc())
+        .limit(2000)
     ).all()
-    live_by_device: dict[tuple[int, str], AiConnectionEvent] = {}
-    for event in recent_heartbeats:
-        key = (int(event.customer_id or 0), event.device_id or "")
-        live_by_device.setdefault(key, event)
-    live_events = list(live_by_device.values())
     live_operators: dict[str, int] = {}
     for event in live_events:
-        live_operators[event.operator] = live_operators.get(event.operator, 0) + 1
+        live_operators[event.operator] = (
+            live_operators.get(event.operator, 0) + 1
+        )
+    live_connections = [
+        {
+            "customer_id": int(row.customer_id or 0),
+            "device": (
+                (row.device_model or "دستگاه ناشناس")[:80]
+            ),
+            "location_title": row.location_title,
+            "location_key": row.location_key,
+            "operator": row.operator,
+            "network_type": row.network_type,
+            "mode": row.mode,
+            "ping_ms": int(row.ping_ms or 0),
+            "health_score": int(row.health_score or 0),
+            "download_bytes": int(row.download_bytes or 0),
+            "upload_bytes": int(row.upload_bytes or 0),
+            "traffic_active": bool(
+                row.last_traffic_at
+                and _as_utc(row.last_traffic_at)
+                >= now - timedelta(seconds=90)
+            ),
+            "verification_source": row.verification_source,
+            "started_at": (
+                row.started_at.isoformat()
+                if row.started_at
+                else ""
+            ),
+            "last_verified_at": (
+                row.last_verified_at.isoformat()
+                if row.last_verified_at
+                else ""
+            ),
+            "expires_in_seconds": max(
+                0,
+                int(
+                    (
+                        _as_utc(row.expires_at) - now
+                    ).total_seconds()
+                ),
+            ),
+        }
+        for row in live_events
+    ]
 
     feedback_count = db.scalar(select(func.count(AiFeedback.id))) or 0
     feedback_avg = db.scalar(select(func.avg(AiFeedback.rating))) or 0
@@ -639,6 +970,16 @@ def admin_overview(db: Session) -> dict[str, Any]:
         "feedback_count": int(feedback_count),
         "feedback_average": round(float(feedback_avg), 1),
         "live_sessions": len(live_events),
+        "live_active_traffic": sum(
+            1
+            for row in live_connections
+            if row["traffic_active"]
+        ),
+        "live_connections": live_connections,
+        "live_detection": {
+            "method": "vpn_transport+xray_proxy+remote_proof",
+            "ttl_seconds": LIVE_TTL_SECONDS,
+        },
         "live_operators": [
             {"name": name, "count": count}
             for name, count in sorted(

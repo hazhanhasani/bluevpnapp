@@ -33,6 +33,8 @@ def main() -> None:
         "BLUEVPN_UPDATE_MANAGER_B64",
         "BLUEVPN_IDS_B64",
         "BLUEVPN_SCREEN_BACKGROUND_B64",
+        "BLUEVPN_AI_MANAGER_B64",
+        "BLUEVPN_LIVE_REPORTER_B64",
     }
     missing = required.difference(values)
     if missing:
@@ -53,10 +55,38 @@ def main() -> None:
         "connected state": "OrbVisualState.CONNECTED" in home,
         "error state": "OrbVisualState.ERROR" in home,
         "submit compile fix": "completion.submit<" not in home and "completion.submit {" in home,
+        "no core-only live fallback":
+            "Compatibility fallback: other clients accept the config" not in home
+            and "هسته Xray متصل است؛ سایت‌های تست عمومی پاسخ ندادند" not in home,
+        "strict remote proof":
+            "bluevpn-platform" in home
+            and 'endpoint.contains("generate_204")' in home,
     }
     failed = [label for label, ok in checks.items() if not ok]
     if failed:
         raise SystemExit("failed checks: " + ", ".join(failed))
+
+    ai = values["BLUEVPN_AI_MANAGER_B64"]
+    reporter = values["BLUEVPN_LIVE_REPORTER_B64"]
+    live_checks = {
+        "VPN transport required":
+            "fun hasVpnTransport" in ai,
+        "remote tunnel proof":
+            "fun verifyTunnel" in ai
+            and "bluevpn-health" in ai
+            and "cloudflare-204" in ai,
+        "heartbeat proof fields":
+            '.put("internet_verified", true)' in ai
+            and '.put("verification_source", verification.source)' in ai,
+        "background reporter":
+            "scheduleWithFixedDelay" in reporter
+            and "BlueVpnAi.heartbeat" in reporter,
+    }
+    live_failed = [label for label, ok in live_checks.items() if not ok]
+    if live_failed:
+        raise SystemExit(
+            "failed live-connection checks: " + ", ".join(live_failed)
+        )
 
     updater = values["BLUEVPN_UPDATE_MANAGER_B64"]
     updater_checks = {

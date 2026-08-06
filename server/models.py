@@ -465,6 +465,116 @@ class AiConnectionEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
+class AiLiveConnection(Base):
+    """Current verified VPN session for one customer device.
+
+    This is deliberately separate from the append-only AI event stream.  A
+    heartbeat is considered live only when the Android client proves all three
+    conditions: the core is running, an Android VPN transport exists, and a
+    fresh HTTP request succeeds through the local Xray proxy.
+    """
+
+    __tablename__ = "ai_live_connections"
+    __table_args__ = (
+        UniqueConstraint(
+            "customer_id",
+            "device_id",
+            name="uq_ai_live_customer_device",
+        ),
+        Index(
+            "ix_ai_live_verified_expiry",
+            "connected",
+            "verified",
+            "expires_at",
+        ),
+        Index("ix_ai_live_operator", "operator", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    customer_id: Mapped[int] = mapped_column(
+        ForeignKey("customers.id"),
+        index=True,
+    )
+    device_id: Mapped[str] = mapped_column(String(80), default="", index=True)
+    session_id: Mapped[str] = mapped_column(String(80), default="", index=True)
+    config_key: Mapped[str] = mapped_column(String(80), default="", index=True)
+    location_key: Mapped[str] = mapped_column(
+        String(24),
+        default="unknown",
+        index=True,
+    )
+    location_title: Mapped[str] = mapped_column(
+        String(100),
+        default="نامشخص",
+    )
+    operator: Mapped[str] = mapped_column(
+        String(100),
+        default="unknown",
+        index=True,
+    )
+    network_type: Mapped[str] = mapped_column(
+        String(30),
+        default="unknown",
+        index=True,
+    )
+    mode: Mapped[str] = mapped_column(
+        String(30),
+        default="balanced",
+        index=True,
+    )
+    connected: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        index=True,
+    )
+    verified: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        index=True,
+    )
+    tunnel_running: Mapped[bool] = mapped_column(Boolean, default=False)
+    vpn_transport: Mapped[bool] = mapped_column(Boolean, default=False)
+    verification_source: Mapped[str] = mapped_column(
+        String(80),
+        default="",
+    )
+    ping_ms: Mapped[int] = mapped_column(Integer, default=0)
+    health_score: Mapped[int] = mapped_column(Integer, default=0)
+    download_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    upload_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    traffic_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_traffic_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    heartbeat_seq: Mapped[int] = mapped_column(BigInteger, default=0)
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    last_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        index=True,
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        index=True,
+    )
+    disconnected_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    disconnect_reason: Mapped[str] = mapped_column(Text, default="")
+    app_version: Mapped[str] = mapped_column(String(40), default="")
+    android_version: Mapped[str] = mapped_column(String(40), default="")
+    device_model: Mapped[str] = mapped_column(String(160), default="")
+
+
+
+
 class AiRouteAggregate(Base):
     __tablename__ = "ai_route_aggregates"
     __table_args__ = (

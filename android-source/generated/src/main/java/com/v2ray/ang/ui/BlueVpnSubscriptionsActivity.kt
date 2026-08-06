@@ -21,6 +21,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
+import com.v2ray.ang.bluevpn.BlueVpnPersianDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -320,7 +321,10 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
 
   box.addView(TextView(this).apply{
    text=if(account.subscriptionActive){
-    "اعتبار: ${account.expire?:"نامحدود"}"
+    val expireDisplay = account.expireFa
+     ?: BlueVpnPersianDate.formatIso(account.expire)
+     ?: "نامحدود"
+    "اعتبار تا: $expireDisplay • تهران"
    }else{
     "پس از انتخاب پلن، کانفیگ‌ها خودکار به حساب اضافه می‌شوند."
    }

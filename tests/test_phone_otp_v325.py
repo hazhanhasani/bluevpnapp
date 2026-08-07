@@ -260,7 +260,7 @@ assert {'phone','phone_verified_at','auth_method'} <= columns
 assert inspect(ENGINE).has_table('otp_challenges')
 assert inspect(ENGINE).has_table('sms_settings')
 with ENGINE.connect() as c:
-    assert c.scalar(text("SELECT value FROM bluevpn_schema_meta WHERE key='schema_version'")) == '12'
+    assert c.scalar(text("SELECT value FROM bluevpn_schema_meta WHERE key='schema_version'")) == '13'
     assert c.scalar(text("SELECT email FROM customers WHERE id=1")) == 'legacy@example.com'
 """
     result = subprocess.run(

@@ -1,1 +1,1 @@
-BlueVPN 3.0.31 — repository_dispatch primary build trigger, workflow_dispatch fallback, exact target SHA checkout, stale-run filtering, and deploy-bot lock recovery.
+BlueVPN 3.0.32 — complete BluePanel SMS center with 38 FarazSMS patterns, automated event notifications, delivery queue, retry, dedupe, broadcasts and audit logs.

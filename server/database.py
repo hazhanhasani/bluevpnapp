@@ -25,7 +25,7 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 logger = logging.getLogger("bluevpn.database")
 
-SCHEMA_VERSION = "12"
+SCHEMA_VERSION = "13"
 DATA_DIR = Path(os.getenv("DATA_DIR", "/app/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 SQLITE_PATH = DATA_DIR / "bluevpn.db"
@@ -1003,6 +1003,8 @@ def database_table_counts() -> dict[str, int]:
         "customer_sessions",
         "otp_challenges",
         "sms_settings",
+        "sms_templates",
+        "sms_deliveries",
         "webhook_deliveries",
     ):
         if not inspect(ENGINE).has_table(table_name):

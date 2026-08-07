@@ -1,6 +1,6 @@
 <!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07101f"><title>BlueVPN Platform</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/style.css"></head><body>
 <header class="topbar"><div class="brand"><div class="brand-logo-wrap"><img src="/static/logo.png"><span class="brand-live-dot" aria-label="online"></span></div><div><b>BlueVPN Platform</b><span>مرکز مدیریت سرویس و هوش شبکه</span></div></div><div class="topbar-actions"><span class="secure-session"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4.5 5v6c0 5.1 3.2 9.7 7.5 11 4.3-1.3 7.5-5.9 7.5-11V5L12 2Zm0 3.1 4.5 1.8V11c0 3.6-2 7-4.5 8.1C9.5 18 7.5 14.6 7.5 11V6.9L12 5.1Zm-1 3.4v3H8.8v2.2H11v2.2h2v-2.2h2.2v-2.2H13v-3h-2Z"/></svg>نشست امن</span><span class="secure-session" id="tehran-clock">{{ now_fa }} • تهران</span><form method="post" action="/admin/logout"><button class="secondary icon-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H4v16h6v-2H6V6h4V4Zm4.6 3.4-1.4 1.4 2.2 2.2H9v2h6.4l-2.2 2.2 1.4 1.4L19.2 12l-4.6-4.6Z"/></svg>خروج</button></form></div></header>
-<nav class="tabs"><a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">GuardCore</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف GuardCore</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#sms" data-tab="sms">پیامک و ورود</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#app" data-tab="app">اپ و آپدیت</a></nav>
+<nav class="tabs"><a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">GuardCore</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف GuardCore</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#sms" data-tab="sms">تنظیمات پیامک</a><a href="#sms-templates" data-tab="sms-templates">پترن‌ها</a><a href="#sms-broadcast" data-tab="sms-broadcast">ارسال عمومی</a><a href="#sms-deliveries" data-tab="sms-deliveries">گزارش پیامک</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#app" data-tab="app">اپ و آپدیت</a></nav>
 <main class="container">{% if not database_info.persistent %}<div class="alert danger flash-alert" data-sticky="1"><span>هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if saved %}<div class="alert success flash-alert"><span>تغییرات ذخیره شد.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if manual_message %}<div class="alert success flash-alert"><span>{{ manual_message }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if error %}<div class="alert danger flash-alert"><span>{{ error }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}
 <section id="overview" class="dashboard-overview">
   <div class="overview-hero card">
@@ -336,35 +336,97 @@
   </div>
 </section>
 <section id="sms" class="card">
-  <h2>ورود با شماره تماس و فراز اس‌ام‌اس</h2>
-  <p class="hint">
-    ورود و ثبت‌نام کاربران بدون رمز انجام می‌شود. API Key فراز اس‌ام‌اس رمزگذاری‌شده ذخیره می‌شود و کد یک‌بارمصرف با پترن ارسال خواهد شد.
-  </p>
+  <div class="section-heading">
+    <div><span class="eyebrow">BLUEPANEL SMS CENTER</span><h2>مرکز پیامک بلوپنل</h2><p>ورود پیامکی، اعلان‌های خودکار، یادآوری اشتراک، امنیت، پرداخت و ارسال عمومی از یک مرکز واحد.</p></div>
+  </div>
   <div class="stat-grid">
-    <article class="stat"><strong>{{ 'آماده' if sms_ready else 'ناقص' }}</strong><span>وضعیت تنظیمات</span></article>
-    <article class="stat"><strong>{{ sms.last_test_message or 'تست نشده' }}</strong><span>آخرین تست</span></article>
+    <article class="stat"><strong>{{ 'آماده' if sms_ready else 'ناقص' }}</strong><span>ورود با کد پیامکی</span></article>
+    <article class="stat"><strong>{{ 'فعال' if sms_notification_ready else 'غیرفعال' }}</strong><span>اعلان‌های خودکار</span></article>
+    <article class="stat"><strong>{{ sms_delivery_stats.sent }}</strong><span>ارسال موفق</span></article>
+    <article class="stat"><strong>{{ sms_delivery_stats.failed }}</strong><span>ارسال ناموفق</span></article>
   </div>
   <form method="post" action="/admin/sms-settings">
     <div class="form-grid">
-      <div><label>Base URL</label><input name="base_url" value="{{ sms.base_url }}" required></div>
+      <div><label>Base URL فراز اس‌ام‌اس</label><input name="base_url" value="{{ sms.base_url }}" required></div>
       <div><label>API Key جدید</label><input name="api_key" type="password" placeholder="{{ sms_api_mask }}"></div>
       <div><label>شماره فرستنده</label><input name="from_number" value="{{ sms.from_number }}" placeholder="+983000505" required></div>
-      <div><label>کد پترن</label><input name="pattern_code" value="{{ sms.pattern_code }}" required></div>
-      <div><label>نام پارامتر کد</label><input name="parameter_name" value="{{ sms.parameter_name or 'code' }}" required></div>
+      <div><label>کد پترن ورود</label><input name="pattern_code" value="{{ sms.pattern_code }}" required></div>
+      <div><label>نام پارامتر کد ورود</label><input name="parameter_name" value="{{ sms.parameter_name or 'code' }}" required></div>
       <div><label>تعداد رقم کد</label><input name="otp_length" type="number" min="4" max="8" value="{{ sms.otp_length or 5 }}"></div>
       <div><label>اعتبار کد؛ ثانیه</label><input name="otp_ttl_seconds" type="number" min="60" max="600" value="{{ sms.otp_ttl_seconds or 120 }}"></div>
       <div><label>فاصله ارسال مجدد؛ ثانیه</label><input name="resend_seconds" type="number" min="30" max="600" value="{{ sms.resend_seconds or 60 }}"></div>
+      <div><label>روزهای یادآوری</label><input name="reminder_days" value="{{ (sms.reminder_days_json or '[3,2,1]')|replace('[','')|replace(']','') }}" placeholder="3,2,1"></div>
+      <div><label>هشدار حجم باقی‌مانده؛ گیگ</label><input name="low_volume_threshold_gb" type="number" min="1" max="9999" value="{{ sms.low_volume_threshold_gb or 5 }}"></div>
+      <div><label>حداکثر تلاش ارسال</label><input name="retry_max_attempts" type="number" min="1" max="5" value="{{ sms.retry_max_attempts or 3 }}"></div>
     </div>
     <div class="checks">
       <label><input type="checkbox" name="active" {% if sms.active %}checked{% endif %}> ورود پیامکی فعال</label>
+      <label><input type="checkbox" name="notification_active" {% if sms.notification_active %}checked{% endif %}> اعلان‌های خودکار فعال</label>
       <label><input type="checkbox" name="verify_tls" {% if sms.verify_tls %}checked{% endif %}> اعتبارسنجی TLS</label>
     </div>
-    <button class="save" type="submit">ذخیره تنظیمات فراز اس‌ام‌اس</button>
+    <button class="save" type="submit">ذخیره تنظیمات مرکز پیامک</button>
   </form>
   <form method="post" action="/admin/sms-settings/test" class="inline-form">
     <input name="test_phone" inputmode="tel" placeholder="09123456789" required>
     <button class="secondary" type="submit">ارسال کد آزمایشی 12345</button>
   </form>
+</section>
+
+<section id="sms-templates" class="card">
+  <div class="section-heading"><div><span class="eyebrow">38 PATTERNS</span><h2>پترن‌های پیامکی بلوپنل</h2><p>کد پترن ثبت‌شده در فراز اس‌ام‌اس را مقابل هر پیام وارد کن. متن و قرارداد متغیرها ثابت و با همان مقادیری است که تعریف کردی.</p></div></div>
+  <form method="post" action="/admin/sms-templates">
+    <div class="sms-template-grid">
+      {% for row in sms_templates %}
+      {% set spec=sms_template_specs[row.key] %}
+      <article class="sms-template-card">
+        <div class="sms-template-head"><div><span>{{ spec.category }}</span><strong>{{ loop.index }}. {{ spec.title }}</strong></div><label class="switch-line"><input type="checkbox" name="enabled_{{ row.key }}" {% if row.enabled %}checked{% endif %}> فعال</label></div>
+        <pre>{{ spec.body }}</pre>
+        <div class="sms-vars">
+          {% for var in spec.variables %}<span><b>%{{ var.name }}%</b> • {{ var.kind }} • {{ var.length }} کاراکتر</span>{% else %}<span>بدون متغیر</span>{% endfor %}
+        </div>
+        <label>کد پترن فراز اس‌ام‌اس<input name="pattern_{{ row.key }}" value="{{ row.pattern_code }}" placeholder="Pattern code"></label>
+      </article>
+      {% endfor %}
+    </div>
+    <button class="save" type="submit">ذخیره همه ۳۸ پترن</button>
+  </form>
+  <div class="sms-test-box">
+    <h3>تست یک پترن</h3>
+    <form method="post" action="/admin/sms-templates/test">
+      <div class="form-grid">
+        <div><label>پترن</label><select name="event_key">{% for row in sms_templates %}<option value="{{ row.key }}">{{ row.title }}</option>{% endfor %}</select></div>
+        <div><label>شماره تست</label><input name="test_phone" inputmode="tel" placeholder="09123456789" required></div>
+        <div class="wide"><label>پارامترها به‌صورت JSON</label><textarea name="params_json" rows="3" placeholder='{"plan":"یک ماهه","expire_date":"1405/06/20"}'>{}</textarea></div>
+      </div>
+      <button class="secondary" type="submit">ارسال تست پترن انتخابی</button>
+    </form>
+  </div>
+</section>
+
+<section id="sms-broadcast" class="card">
+  <div class="section-heading"><div><span class="eyebrow">SAFE BROADCAST</span><h2>ارسال عمومی مدیریت</h2><p>فقط پترن‌های اطلاع‌رسانی عمومی قابل انتخاب‌اند. ارسال‌ها وارد صف می‌شوند و با Retry کنترل‌شده انجام می‌شوند.</p></div></div>
+  <form method="post" action="/admin/sms/broadcast" data-confirm="ارسال عمومی برای کاربران انتخاب‌شده در صف قرار بگیرد؟">
+    <div class="form-grid">
+      <div><label>نوع پیام</label><select name="event_key" required>{% for row in sms_templates %}{% if row.broadcast %}<option value="{{ row.key }}">{{ row.title }}</option>{% endif %}{% endfor %}</select></div>
+      <div><label>مخاطبان</label><select name="audience"><option value="active">فقط حساب‌های فعال</option><option value="all">همه کاربران دارای شماره</option></select></div>
+      <div class="wide"><label>پارامترها به‌صورت JSON</label><textarea name="params_json" rows="4" placeholder='{"message":"متن اطلاعیه"}'>{}</textarea></div>
+    </div>
+    <button class="save" type="submit">ساخت صف ارسال عمومی</button>
+  </form>
+</section>
+
+<section id="sms-deliveries" class="card">
+  <div class="section-heading"><div><span class="eyebrow">DELIVERY AUDIT</span><h2>گزارش و صف ارسال پیامک</h2><p>ثبت کامل وضعیت، تعداد تلاش، خطای سرویس‌دهنده و جلوگیری از ارسال تکراری.</p></div></div>
+  <div class="stat-grid">
+    <article class="stat"><strong>{{ sms_delivery_stats.pending }}</strong><span>در صف</span></article>
+    <article class="stat"><strong>{{ sms_delivery_stats.retry }}</strong><span>در انتظار تلاش مجدد</span></article>
+    <article class="stat"><strong>{{ sms_delivery_stats.sent }}</strong><span>موفق</span></article>
+    <article class="stat"><strong>{{ sms_delivery_stats.failed }}</strong><span>ناموفق نهایی</span></article>
+  </div>
+  <form method="post" action="/admin/sms/process" class="inline-form"><button class="secondary" type="submit">اسکن یادآوری‌ها و پردازش فوری صف</button></form>
+  <div class="table-wrap"><table><thead><tr><th>زمان</th><th>رویداد</th><th>شماره</th><th>وضعیت</th><th>تلاش</th><th>خطا</th></tr></thead><tbody>
+    {% for d in sms_deliveries %}<tr><td>{{ d.created_at|jalali }}</td><td>{{ sms_template_specs[d.event_key].title if d.event_key in sms_template_specs else d.event_key }}</td><td>{{ d.phone }}</td><td><span class="status {{ d.status }}">{{ d.status }}</span></td><td>{{ d.attempts }}/{{ d.max_attempts }}</td><td>{{ d.last_error[:180] }}</td></tr>{% else %}<tr><td colspan="6">هنوز گزارشی ثبت نشده است.</td></tr>{% endfor %}
+  </tbody></table></div>
 </section>
 
 <section id="bluepay" class="card">
@@ -484,6 +546,10 @@
               </form>
               <form method="post" action="/admin/customers/{{ c.id }}/sync">
                 <button class="secondary">همگام‌سازی</button>
+              </form>
+              <form method="post" action="/admin/customers/{{ c.id }}/status" class="manual-mini-form">
+                <input type="hidden" name="status" value="{{ 'blocked' if c.active else 'active' }}">
+                <button class="{{ 'danger' if c.active else 'secondary' }}">{{ 'مسدودکردن حساب' if c.active else 'رفع مسدودی' }}</button>
               </form>
               <form method="post" action="/admin/customers/{{ c.id }}/reset-devices">
                 <button class="danger">خروج دستگاه‌ها</button>

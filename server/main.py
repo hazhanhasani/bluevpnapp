@@ -26,10 +26,12 @@ from .manual_guardcore import (
     set_manual_decision,
 )
 from .github_release import github_repository,latest_github_release
-from .models import AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,OtpChallenge,PasarGuardPanel,PaymentSetting,Plan,SmsSetting,WebhookDelivery,AiConnectionEvent,AiRouteAggregate,AiFeedback
+from .models import AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,OtpChallenge,PasarGuardPanel,PaymentSetting,Plan,SmsDelivery,SmsSetting,SmsTemplate,WebhookDelivery,AiConnectionEvent,AiRouteAggregate,AiFeedback
 from .blueai import admin_overview as blueai_admin_overview, customer_dashboard as blueai_customer_dashboard, recommendations as blueai_recommendations, submit_event as blueai_submit_event, submit_feedback as blueai_submit_feedback
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
-from .sms import SmsError,local_phone,normalize_iran_phone,send_pattern_otp,sms_setting_ready
+from .sms import SmsError,customer_name,delivery_params,jalali_date,jalali_datetime_short,local_phone,normalize_iran_phone,process_pending_sms,queue_sms_event,seed_sms_templates,send_pattern,send_pattern_otp,sms_notification_ready,sms_setting_ready
+from .sms_catalog import SMS_TEMPLATE_MAP, SMS_TEMPLATE_SPECS
+from .sms_runtime import queue_broadcast,scan_subscription_notifications,start_sms_runtime,stop_sms_runtime
 from .version import VERSION, VERSION_CODE
 from .time_locale import TEHRAN_ZONE_NAME, format_jalali
 BASE=Path(__file__).resolve().parent
@@ -313,6 +315,7 @@ async def startup():
         if not db.get(PaymentSetting,1):db.add(PaymentSetting(id=1))
         if not db.get(SmsSetting,1):db.add(SmsSetting(id=1))
         db.commit()
+        seed_sms_templates(db)
         try:
             repair=repair_subscription_states(db)
             provider_repair_order_ids=list(
@@ -330,6 +333,12 @@ async def startup():
             logger.exception('Automatic subscription-state recovery failed')
     finally:db.close()
     _schedule_subscription_provider_repair(provider_repair_order_ids)
+    start_sms_runtime()
+
+@app.on_event('shutdown')
+async def shutdown_sms_notifications()->None:
+    await stop_sms_runtime()
+
 def settings(db:Session)->dict:
     row=db.get(AppSetting,1)
     if not row:row=AppSetting(id=1,payload=json.dumps(DEFAULT,ensure_ascii=False));db.add(row);db.commit()
@@ -666,6 +675,14 @@ def expire_stale_orders(
         if expires<=current:
             local_status,message=_local_expiry_status(order,current)
             order.status=local_status
+            customer=db.get(Customer,order.customer_id)
+            if customer and customer.phone:
+                queue_sms_event(
+                    db,'invoice_expired',customer.phone,
+                    delivery_params(invoice_id=order.order_code[:40]),
+                    customer_id=customer.id,
+                    dedupe_seed=f'invoice-expired:{order.id}',
+                )
             _delete_invalid_order(db,order,message)
             deleted+=1
 
@@ -1000,6 +1017,7 @@ def issue_session(db:Session,c:Customer,device_id:str,device_name:str,rotate_ref
     device_id=device_id.strip()[:180]
     if not device_id:raise HTTPException(422,detail={'code':'DEVICE_ID_REQUIRED','message':'شناسه دستگاه لازم است'})
     device=db.scalar(select(CustomerDevice).where(CustomerDevice.customer_id==c.id,CustomerDevice.device_id==device_id));count=db.scalar(select(func.count(CustomerDevice.id)).where(CustomerDevice.customer_id==c.id,CustomerDevice.active.is_(True))) or 0
+    is_new_device=device is None
     if not device and count>=max(1,c.device_limit):raise HTTPException(409,detail={'code':'DEVICE_LIMIT_REACHED','message':f'حداکثر {c.device_limit} دستگاه برای این حساب مجاز است'})
     if not device:
         device=CustomerDevice(customer_id=c.id,device_id=device_id,device_name=device_name[:180],active=True);db.add(device);db.flush()
@@ -1025,6 +1043,13 @@ def issue_session(db:Session,c:Customer,device_id:str,device_name:str,rotate_ref
         device.refresh_expires_at=now+timedelta(days=3650)
 
     db.commit()
+    if is_new_device and c.phone:
+        queue_sms_event(
+            db,'new_device_login',c.phone,
+            delivery_params(device=(device.device_name or 'دستگاه جدید')[:30],date=jalali_datetime_short(now)),
+            customer_id=c.id,
+            dedupe_seed=f'new-device:{c.id}:{device_id}',
+        )
     return raw,refresh_raw
 async def activate(db:Session,order:Order):
     locked=db.scalar(
@@ -1036,6 +1061,12 @@ async def activate(db:Session,order:Order):
     if not locked:
         raise IntegrationError('سفارش پیدا نشد')
     order=locked
+    previous_plan_id=order.customer.plan_id
+    previous_expiry=aware(order.customer.subscription_expire)
+    previous_active=bool(
+        order.customer.subscription_status=='active'
+        and (previous_expiry is None or previous_expiry>utcnow())
+    )
     if order.status=='activated':
         try:
             ensure_manual_request_for_order(db,order)
@@ -1066,6 +1097,40 @@ async def activate(db:Session,order:Order):
             order,
             settings(db)['public_base_url'],
         )
+        db.refresh(order)
+        db.refresh(order.customer)
+        if order.status=='activated' and order.customer.phone:
+            expire_text=jalali_date(order.customer.subscription_expire)
+            common=delivery_params(plan=order.plan.title[:40],expire_date=expire_text)
+            if order.order_code.startswith('MANUAL-'):
+                subscription_event='admin_subscription_activated'
+            elif previous_active and previous_plan_id==order.plan_id:
+                subscription_event='subscription_renewed'
+            elif previous_active and previous_plan_id and previous_plan_id!=order.plan_id:
+                previous_plan=db.get(Plan,previous_plan_id)
+                upgraded=bool(
+                    previous_plan
+                    and (
+                        int(order.plan.price_toman or 0)>int(previous_plan.price_toman or 0)
+                        or int(order.plan.duration_days or 0)>int(previous_plan.duration_days or 0)
+                        or int(order.plan.data_limit_gb or 0)>int(previous_plan.data_limit_gb or 0)
+                    )
+                )
+                subscription_event='subscription_upgraded' if upgraded else 'subscription_plan_changed'
+            else:
+                subscription_event='subscription_activated'
+            queue_sms_event(
+                db,subscription_event,order.customer.phone,common,
+                customer_id=order.customer.id,order_id=order.id,
+                dedupe_seed=f'subscription:{order.id}:{subscription_event}',
+            )
+            if not order.order_code.startswith('MANUAL-') and int(order.amount_toman or 0)>0:
+                queue_sms_event(
+                    db,'payment_success',order.customer.phone,
+                    delivery_params(amount=int(order.amount_toman),invoice_id=order.order_code[:40]),
+                    customer_id=order.customer.id,order_id=order.id,
+                    dedupe_seed=f'payment-success:{order.id}',
+                )
         try:
             ensure_manual_request_for_order(db,order)
             await notify_manual_request(db,order)
@@ -1183,6 +1248,15 @@ async def refresh_order_from_bluepay(db:Session,order:Order)->dict|None:
         if status in FAILED_GATEWAY_STATUSES:
             order.activation_error=order.activation_error or 'پرداخت توسط درگاه نهایی نشد.'
     db.commit()
+    if order.status in FAILED_GATEWAY_STATUSES:
+        customer=db.get(Customer,order.customer_id)
+        if customer and customer.phone:
+            queue_sms_event(
+                db,'payment_failed',customer.phone,
+                delivery_params(invoice_id=order.order_code[:40]),
+                customer_id=customer.id,order_id=order.id,
+                dedupe_seed=f'payment-failed:{order.id}:{order.status}',
+            )
     if order.status=='paid':
         await activate(db,order)
     return remote
@@ -1593,7 +1667,12 @@ async def _create_otp_challenge(
     )
     db.add(challenge)
     try:
-        await send_pattern_otp(setting,phone,code)
+        if purpose=='bind_phone':
+            template=db.get(SmsTemplate,'phone_change_otp')
+            pattern_code=(template.pattern_code if template and template.enabled else '') or setting.pattern_code
+            await send_pattern(setting,phone,pattern_code,{'code':code})
+        else:
+            await send_pattern_otp(setting,phone,code)
     except SmsError as exc:
         db.rollback()
         logger.warning('Faraz SMS OTP send failed phone_hash=%s: %s',phone_key,exc)
@@ -1652,9 +1731,18 @@ def _consume_otp(
     clean_code=re.sub(r'\D','',str(code or '').translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹','0123456789')))
     challenge.attempts+=1
     if not password_ok(_otp_digest_input(challenge.id,phone,clean_code),challenge.code_hash):
-        if challenge.attempts>=challenge.max_attempts:
+        locked_out=challenge.attempts>=challenge.max_attempts
+        if locked_out:
             challenge.consumed_at=now
         db.commit()
+        if locked_out:
+            owner=db.scalar(select(Customer).where(Customer.phone==phone))
+            if owner:
+                queue_sms_event(
+                    db,'suspicious_login',phone,{},
+                    customer_id=owner.id,
+                    dedupe_seed=f'otp-lock:{challenge.id}',
+                )
         remaining=max(0,challenge.max_attempts-challenge.attempts)
         raise HTTPException(
             401,
@@ -1720,6 +1808,13 @@ async def verify_auth_otp(request:Request,db:Session=Depends(get_db)):
         device_id,
         str(body.get('device_name','')),
     )
+    if is_new and customer.phone:
+        queue_sms_event(
+            db,'welcome',customer.phone,
+            delivery_params(name=customer_name(customer)),
+            customer_id=customer.id,
+            dedupe_seed=f'welcome:{customer.id}',
+        )
     return {
         'success':True,
         'is_new_account':is_new,
@@ -1775,6 +1870,11 @@ async def verify_bind_phone_otp(
     customer.phone_verified_at=utcnow()
     customer.auth_method='phone_otp'
     db.commit()
+    queue_sms_event(
+        db,'phone_changed',phone,{},
+        customer_id=customer.id,
+        dedupe_seed=f'phone-changed:{customer.id}:{phone}',
+    )
     return {'success':True,'account':account_json(customer,db)}
 
 
@@ -2086,6 +2186,13 @@ async def create_order(request:Request,c:Customer=Depends(current_customer),db:S
         metadata['_bluevpn_fresh_invoice_validated']=True
         _set_order_metadata(order,metadata)
         db.commit()
+        if c.phone:
+            queue_sms_event(
+                db,'invoice_created',c.phone,
+                delivery_params(invoice_id=order.order_code[:40],amount=int(order.amount_toman)),
+                customer_id=c.id,order_id=order.id,
+                dedupe_seed=f'invoice-created:{order.id}',
+            )
         return {
             'success':True,
             'reused':False,
@@ -2376,6 +2483,15 @@ async def bluepay_webhook(request:Request,x_gateway_signature:str|None=Header(No
         order.status=incoming_status
     db.commit()
 
+    if order.status in FAILED_GATEWAY_STATUSES:
+        customer=db.get(Customer,order.customer_id)
+        if customer and customer.phone:
+            queue_sms_event(
+                db,'payment_failed',customer.phone,
+                delivery_params(invoice_id=order.order_code[:40]),
+                customer_id=customer.id,order_id=order.id,
+                dedupe_seed=f'payment-failed:{order.id}:{order.status}',
+            )
     if order.status=='paid':
         await activate(db,order)
     return {
@@ -2510,6 +2626,14 @@ def admin(request:Request,db:Session=Depends(get_db)):
     s=settings(db)
     pay=db.get(PaymentSetting,1) or PaymentSetting(id=1)
     sms=db.get(SmsSetting,1) or SmsSetting(id=1)
+    seed_sms_templates(db)
+    template_rows={row.key:row for row in db.scalars(select(SmsTemplate)).all()}
+    sms_templates=[template_rows[item.key] for item in SMS_TEMPLATE_SPECS if item.key in template_rows]
+    sms_deliveries=db.scalars(select(SmsDelivery).order_by(SmsDelivery.created_at.desc()).limit(100)).all()
+    sms_delivery_stats={
+        status:int(db.scalar(select(func.count(SmsDelivery.id)).where(SmsDelivery.status==status)) or 0)
+        for status in ('pending','retry','sent','failed','skipped')
+    }
     panels=db.scalars(select(PasarGuardPanel).order_by(PasarGuardPanel.id.desc())).all()
     marzban_panels=db.scalars(select(MarzbanPanel).order_by(MarzbanPanel.id.desc())).all()
     guardcore_panels=db.scalars(select(GuardCorePanel).order_by(GuardCorePanel.id.desc())).all()
@@ -2553,6 +2677,11 @@ def admin(request:Request,db:Session=Depends(get_db)):
             'sms':sms,
             'sms_api_mask':mask(decrypt(sms.api_key_enc)),
             'sms_ready':sms_setting_ready(sms),
+            'sms_notification_ready':sms_notification_ready(sms),
+            'sms_templates':sms_templates,
+            'sms_template_specs':SMS_TEMPLATE_MAP,
+            'sms_deliveries':sms_deliveries,
+            'sms_delivery_stats':sms_delivery_stats,
             'panels':panels,
             'panel_masks':{x.id:mask(decrypt(x.api_key_enc) or decrypt(x.username_enc)) for x in panels},
             'marzban_panels':marzban_panels,
@@ -2697,7 +2826,11 @@ def sms_settings(
     otp_length:int=Form(5),
     otp_ttl_seconds:int=Form(120),
     resend_seconds:int=Form(60),
+    reminder_days:str=Form('3,2,1'),
+    low_volume_threshold_gb:int=Form(5),
+    retry_max_attempts:int=Form(3),
     active:str|None=Form(None),
+    notification_active:str|None=Form(None),
     verify_tls:str|None=Form(None),
     db:Session=Depends(get_db),
 ):
@@ -2711,9 +2844,24 @@ def sms_settings(
     setting.otp_length=max(4,min(8,int(otp_length or 5)))
     setting.otp_ttl_seconds=max(60,min(600,int(otp_ttl_seconds or 120)))
     setting.resend_seconds=max(30,min(600,int(resend_seconds or 60)))
+    days=[]
+    for raw in re.split(r'[,،\s]+',str(reminder_days or '')):
+        if not raw:continue
+        try:value=int(raw)
+        except ValueError:continue
+        if 1<=value<=30 and value not in days:days.append(value)
+    setting.reminder_days_json=json.dumps(days or [3,2,1])
+    setting.low_volume_threshold_gb=max(1,min(9999,int(low_volume_threshold_gb or 5)))
+    setting.retry_max_attempts=max(1,min(5,int(retry_max_attempts or 3)))
     setting.active=active=='on'
+    setting.notification_active=notification_active=='on'
     setting.verify_tls=verify_tls=='on'
     db.add(setting);db.commit()
+    auth_template=db.get(SmsTemplate,'auth_otp')
+    if auth_template:
+        auth_template.pattern_code=setting.pattern_code
+        auth_template.enabled=setting.active
+        db.commit()
     return RedirectResponse('/admin?saved=1#sms',303)
 
 @app.post('/admin/sms-settings/test')
@@ -2741,6 +2889,111 @@ async def sms_settings_test(
             setting.last_test_at=utcnow()
             db.commit()
         return RedirectResponse('/admin?error='+quote_plus('تست فراز اس‌ام‌اس ناموفق بود: '+str(exc)[:350])+'#sms',303)
+@app.post('/admin/sms-templates')
+async def sms_templates_update(request:Request,db:Session=Depends(get_db)):
+    admin_required(request)
+    form=await request.form()
+    seed_sms_templates(db)
+    for spec in SMS_TEMPLATE_SPECS:
+        row=db.get(SmsTemplate,spec.key)
+        if not row:continue
+        row.pattern_code=str(form.get(f'pattern_{spec.key}') or '').strip()[:160]
+        row.enabled=str(form.get(f'enabled_{spec.key}') or '')=='on'
+    auth=db.get(SmsTemplate,'auth_otp')
+    setting=db.get(SmsSetting,1)
+    if auth and setting:
+        setting.pattern_code=auth.pattern_code
+        setting.active=bool(auth.enabled and setting.active)
+    db.commit()
+    return RedirectResponse('/admin?saved=1#sms-templates',303)
+
+@app.post('/admin/sms-templates/test')
+async def sms_template_test(
+    request:Request,
+    event_key:str=Form(...),
+    test_phone:str=Form(...),
+    params_json:str=Form('{}'),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    setting=db.get(SmsSetting,1)
+    template=db.get(SmsTemplate,event_key)
+    spec=SMS_TEMPLATE_MAP.get(event_key)
+    try:
+        if not setting or not template or not spec:raise SmsError('پترن انتخاب‌شده پیدا نشد')
+        if not template.pattern_code.strip():raise SmsError('کد پترن این پیام ثبت نشده است')
+        try:params=json.loads(params_json or '{}')
+        except Exception as exc:raise SmsError('JSON پارامترها معتبر نیست') from exc
+        if not isinstance(params,dict):raise SmsError('پارامترها باید یک JSON Object باشند')
+        # Validation is performed by queue_sms_event; direct test uses the same
+        # declared variables and avoids creating a permanent customer event.
+        expected={item.name for item in spec.variables}
+        clean={name:str(params.get(name,'')) for name in expected}
+        result=await send_pattern(setting,phone_ok(test_phone),template.pattern_code,clean)
+        template.updated_at=utcnow()
+        db.commit()
+        return admin_redirect('sms-templates',message=f'پیام آزمایشی «{spec.title}» ارسال شد؛ پاسخ: {str(result)[:160]}')
+    except Exception as exc:
+        return admin_redirect('sms-templates',error='تست پیامک ناموفق بود: '+str(exc)[:500])
+
+@app.post('/admin/sms/process')
+async def sms_process_now(request:Request,db:Session=Depends(get_db)):
+    admin_required(request)
+    scan=scan_subscription_notifications(db)
+    result=await process_pending_sms(db,100)
+    return admin_redirect('sms-deliveries',message=f"اسکن {scan['scanned']} کاربر؛ {scan['queued']} پیام در صف؛ {result['sent']} ارسال موفق و {result['failed']} ناموفق")
+
+@app.post('/admin/sms/broadcast')
+async def sms_broadcast(
+    request:Request,
+    event_key:str=Form(...),
+    params_json:str=Form('{}'),
+    audience:str=Form('active'),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    spec=SMS_TEMPLATE_MAP.get(event_key)
+    template=db.get(SmsTemplate,event_key)
+    if not spec or not spec.broadcast or not template:
+        return admin_redirect('sms-broadcast',error='این پترن برای ارسال عمومی مجاز نیست')
+    try:
+        params=json.loads(params_json or '{}')
+        if not isinstance(params,dict):raise ValueError()
+    except Exception:
+        return admin_redirect('sms-broadcast',error='JSON پارامترهای ارسال عمومی معتبر نیست')
+    seed=f"{event_key}:{utcnow().strftime('%Y%m%d%H%M%S')}:{uuid.uuid4().hex[:8]}"
+    try:
+        queued=queue_broadcast(db,event_key,params,only_active=audience!='all',dedupe_seed=seed)
+    except Exception as exc:
+        return admin_redirect('sms-broadcast',error='ساخت صف ارسال عمومی ناموفق بود: '+str(exc)[:500])
+    return admin_redirect('sms-broadcast',message=f'{queued} پیام برای ارسال عمومی در صف قرار گرفت')
+
+@app.post('/api/v1/internal/sms/events')
+async def internal_sms_event(
+    request:Request,
+    x_sms_event_secret:str|None=Header(None),
+    db:Session=Depends(get_db),
+):
+    expected=os.getenv('SMS_EVENT_SECRET','').strip()
+    if not expected or not x_sms_event_secret or not secrets.compare_digest(expected,x_sms_event_secret):
+        raise HTTPException(401,detail={'code':'INVALID_SMS_EVENT_SECRET','message':'دسترسی ارسال رویداد پیامکی معتبر نیست'})
+    body=await request.json()
+    event_key=str(body.get('event_key') or '').strip()
+    spec=SMS_TEMPLATE_MAP.get(event_key)
+    if not spec:raise HTTPException(422,detail={'code':'UNKNOWN_SMS_EVENT','message':'نوع پیامک شناخته‌شده نیست'})
+    customer_id=int(body.get('customer_id') or 0) or None
+    customer=db.get(Customer,customer_id) if customer_id else None
+    phone=str(body.get('phone') or (customer.phone if customer else '') or '')
+    params=body.get('params') or {}
+    if not isinstance(params,dict):raise HTTPException(422,detail={'code':'INVALID_SMS_PARAMS','message':'پارامترها باید Object باشند'})
+    delivery=queue_sms_event(
+        db,event_key,phone,params,
+        customer_id=(customer.id if customer else None),
+        order_id=(str(body.get('order_id') or '') or None),
+        dedupe_seed=str(body.get('dedupe_key') or uuid.uuid4().hex),
+    )
+    return {'success':True,'queued':bool(delivery),'delivery_id':delivery.id if delivery else None}
+
 @app.post('/admin/panels')
 def add_panel(request:Request,name:str=Form(...),base_url:str=Form(...),auth_mode:str=Form('api_key'),api_key:str=Form(''),username:str=Form(''),password:str=Form(''),proxy_settings_json:str=Form('{"vless":{}}'),verify_tls:str|None=Form(None),db:Session=Depends(get_db)):
     admin_required(request)
@@ -3131,7 +3384,40 @@ def admin_set_customer_phone(
     customer.phone_verified_at=utcnow()
     customer.auth_method='phone_otp'
     db.commit()
+    queue_sms_event(
+        db,'phone_changed',normalized,{},
+        customer_id=customer.id,
+        dedupe_seed=f'admin-phone-changed:{customer.id}:{normalized}',
+    )
     return admin_redirect('customers',message=f'شماره {local_phone(normalized)} برای حساب ثبت شد')
+
+@app.post('/admin/customers/{customer_id}/status')
+def admin_customer_status(
+    request:Request,
+    customer_id:int,
+    status:str=Form(...),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    customer=db.get(Customer,customer_id)
+    if not customer:return admin_redirect('customers',error='کاربر پیدا نشد')
+    requested=str(status or '').strip().lower()
+    if requested not in {'active','blocked'}:
+        return admin_redirect('customers',error='وضعیت حساب معتبر نیست')
+    was_active=bool(customer.active)
+    customer.active=requested=='active'
+    if not customer.active:
+        for session in db.scalars(select(CustomerSession).where(CustomerSession.customer_id==customer.id,CustomerSession.revoked_at.is_(None))).all():
+            session.revoked_at=utcnow()
+    db.commit()
+    if customer.phone and was_active!=customer.active:
+        event_key='account_unblocked' if customer.active else 'account_temporarily_blocked'
+        queue_sms_event(
+            db,event_key,customer.phone,{},
+            customer_id=customer.id,
+            dedupe_seed=f'account-status:{customer.id}:{requested}:{utcnow().strftime("%Y%m%d%H%M")}',
+        )
+    return admin_redirect('customers',message='وضعیت حساب کاربر ذخیره شد')
 
 @app.post('/admin/manual-activation')
 async def manual_activation_by_phone(
@@ -3400,8 +3686,17 @@ async def customer_sync(request:Request,customer_id:int,db:Session=Depends(get_d
 @app.post('/admin/customers/{customer_id}/reset-devices')
 def reset_devices(request:Request,customer_id:int,db:Session=Depends(get_db)):
     admin_required(request)
+    customer=db.get(Customer,customer_id)
     for d in db.scalars(select(CustomerDevice).where(CustomerDevice.customer_id==customer_id)):
+        was_active=bool(d.active)
         d.active=False
+        if was_active and customer and customer.phone:
+            queue_sms_event(
+                db,'device_removed',customer.phone,
+                delivery_params(device=(d.device_name or 'دستگاه')[:30]),
+                customer_id=customer.id,
+                dedupe_seed=f'device-removed:{customer.id}:{d.device_id}:{utcnow().strftime("%Y%m%d%H%M")}',
+            )
         d.refresh_token_hash=''
         d.refresh_expires_at=None
         d.previous_refresh_token_hash=''

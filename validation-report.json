@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.31",
-  "version_code": 30031,
-  "schema_version": 12,
-  "release": "3.0.31",
+  "project_version": "3.0.32",
+  "version_code": 30032,
+  "schema_version": 13,
+  "release": "3.0.32",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.31/30031)",
+  "version_consistency": "passed (release/branding/backend 3.0.32/30032)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -269,7 +269,7 @@
     "api_entitlement_active": "included",
     "api_remaining_seconds": "included"
   },
-  "pytest": "88 passed",
+  "pytest": "passed (98 tests)",
   "json_yaml_jinja_xml": "passed",
   "schema_11_to_12_migration": "passed (legacy customer retained; phone auth tables and indexes created)",
   "phone_otp_farazsms_v325": {
@@ -331,5 +331,19 @@
     "target_sha_checkout_verification": true,
     "previous_run_ids_filtered": true,
     "source_ahead_status": true
+  },
+  "bluepanel_sms_center": {
+    "pattern_count": 38,
+    "catalog": "passed",
+    "admin_pattern_center": "passed",
+    "delivery_queue": "passed",
+    "retry_and_dedupe": "passed",
+    "scheduled_subscription_scan": "passed",
+    "broadcast_console": "passed",
+    "internal_event_api": "passed",
+    "database_tables": [
+      "sms_templates",
+      "sms_deliveries"
+    ]
   }
 }

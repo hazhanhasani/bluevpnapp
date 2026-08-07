@@ -1,17 +1,17 @@
 {
-  "release": "3.0.31-auto",
-  "version_name": "3.0.31",
-  "version_code": 30031,
+  "release": "3.0.32",
+  "version_name": "3.0.32",
+  "version_code": 30032,
   "changes": [
-    "Trigger GitHub Actions with repository_dispatch using existing Contents: write permission",
-    "Fallback automatically to workflow_dispatch when no repository-dispatch run appears",
-    "Pass and verify the exact target commit SHA in the workflow",
-    "Ignore old workflow runs when waiting for a newly requested build",
-    "Keep stale-lock recovery, Runner timeout, and manual unlock behavior"
+    "Add all 38 BluePanel FarazSMS patterns and variable contracts",
+    "Add event queue, retry, dedupe and delivery audit logs",
+    "Add automatic payment, subscription, device, phone and security notifications",
+    "Add hourly expiry, reminder and low-volume scanner",
+    "Add admin pattern center, test console, broadcast console and internal event API"
   ],
   "generated_at_unix": 1786039800,
-  "purpose": "رفع حالتی که Commit جدید ثبت می‌شد اما GitHub Run تازه نمی‌ساخت و ربات Build قدیمی را نشان می‌داد",
-  "updated_at": "2026-08-07T01:15:00Z",
-  "built_at": "2026-08-07T01:15:00Z",
-  "build_id": "20260807-deploy-bot-repository-dispatch-fallback-v3031"
+  "purpose": "ارتقای کامل پروژه بر اساس ۳۸ پترن پیامکی بلوپنل",
+  "updated_at": "2026-08-07T19:30:00Z",
+  "built_at": "2026-08-07T19:30:00Z",
+  "build_id": "20260807-bluepanel-sms-center-v3032"
 }

@@ -415,6 +415,10 @@ class SmsSetting(Base):
     otp_ttl_seconds: Mapped[int] = mapped_column(Integer, default=120)
     resend_seconds: Mapped[int] = mapped_column(Integer, default=60)
     active: Mapped[bool] = mapped_column(Boolean, default=False)
+    notification_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    reminder_days_json: Mapped[str] = mapped_column(Text, default="[3,2,1]")
+    low_volume_threshold_gb: Mapped[int] = mapped_column(Integer, default=5)
+    retry_max_attempts: Mapped[int] = mapped_column(Integer, default=3)
     verify_tls: Mapped[bool] = mapped_column(Boolean, default=True)
     last_test_ok: Mapped[bool] = mapped_column(Boolean, default=False)
     last_test_message: Mapped[str] = mapped_column(Text, default="")
@@ -424,6 +428,61 @@ class SmsSetting(Base):
         default=utcnow,
         onupdate=utcnow,
     )
+
+
+class SmsTemplate(Base):
+    __tablename__ = "sms_templates"
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    title: Mapped[str] = mapped_column(String(160))
+    category: Mapped[str] = mapped_column(String(80), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    variables_json: Mapped[str] = mapped_column(Text, default="[]")
+    pattern_code: Mapped[str] = mapped_column(String(160), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    broadcast: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
+class SmsDelivery(Base):
+    __tablename__ = "sms_deliveries"
+    __table_args__ = (
+        Index("ix_sms_delivery_status_next", "status", "next_attempt_at"),
+        Index("ix_sms_delivery_customer_created", "customer_id", "created_at"),
+        UniqueConstraint("dedupe_key"),
+    )
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    event_key: Mapped[str] = mapped_column(String(80), index=True)
+    customer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("customers.id"), nullable=True, index=True
+    )
+    order_id: Mapped[str | None] = mapped_column(
+        ForeignKey("orders.id"), nullable=True, index=True
+    )
+    phone: Mapped[str] = mapped_column(String(20), index=True)
+    params_json: Mapped[str] = mapped_column(Text, default="{}")
+    dedupe_key: Mapped[str] = mapped_column(String(200), unique=True)
+    status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    provider_message_id: Mapped[str] = mapped_column(String(180), default="")
+    response_json: Mapped[str] = mapped_column(Text, default="")
+    last_error: Mapped[str] = mapped_column(Text, default="")
+    next_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow
+    )
+
 
 
 class PaymentSetting(Base):

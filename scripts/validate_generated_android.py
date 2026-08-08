@@ -33,6 +33,7 @@ def main() -> None:
         "BLUEVPN_UPDATE_MANAGER_B64",
         "BLUEVPN_IDS_B64",
         "BLUEVPN_SCREEN_BACKGROUND_B64",
+        "BLUEVPN_SCREEN_BACKGROUND_NIGHT_B64",
         "BLUEVPN_AI_MANAGER_B64",
         "BLUEVPN_LIVE_REPORTER_B64",
         "BLUEVPN_ACCOUNT_MANAGER_B64",
@@ -53,7 +54,8 @@ def main() -> None:
         "no XML inflation": "setContentView(R.layout.activity_bluevpn_home)" not in home,
         "neon orb": "private fun applyOrbVisual" in home,
         "pulse animator": "ValueAnimator.ofFloat(0f, 1f)" in home,
-        "floating stats": "createFloatingStatCard" in home,
+        "minimal screen without visible traffic cards":
+            "createFloatingStatCard(" not in home.split("private fun createScreen(): View {", 1)[1].split("private fun createHeader(): View {", 1)[0],
         "connected state": "OrbVisualState.CONNECTED" in home,
         "error state": "OrbVisualState.ERROR" in home,
         "submit compile fix": "completion.submit<" not in home and "completion.submit {" in home,
@@ -63,6 +65,12 @@ def main() -> None:
         "strict remote proof":
             "bluevpn-platform" in home
             and 'endpoint.contains("generate_204")' in home,
+        "background Check-Host exit location":
+            "https://check-host.net/cdn-cgi/trace" in home
+            and 'firstOrNull { it.startsWith("loc=") }' in home
+            and "markVerifiedCountry" in home,
+        "connected caption hidden":
+            "statusCaption.visibility = View.GONE" in home,
     }
     failed = [label for label, ok in checks.items() if not ok]
     if failed:
@@ -110,6 +118,21 @@ def main() -> None:
         raise SystemExit(
             "embedded subscriptions activity differs from android-source snapshot"
         )
+
+    source_parity = {
+        "BLUEVPN_HOME_ACTIVITY_B64": "BlueVpnHomeActivity.kt",
+        "BLUEVPN_LOCATION_UTIL_B64": "BlueVpnLocationUtil.kt",
+        "BLUEVPN_EXPERIENCE_B64": "BlueVpnExperience.kt",
+        "BLUEVPN_SERVERS_ACTIVITY_B64": "BlueVpnServersActivity.kt",
+        "BLUEVPN_SETTINGS_ACTIVITY_B64": "BlueVpnSettingsActivity.kt",
+        "BLUEVPN_THEME_B64": "BlueVpnTheme.kt",
+        "BLUEVPN_SCREEN_BACKGROUND_B64": "bluevpn_screen_background.xml",
+        "BLUEVPN_SCREEN_BACKGROUND_NIGHT_B64": "bluevpn_screen_background_night.xml",
+    }
+    for constant, filename in source_parity.items():
+        snapshot = (ROOT / "android-source" / filename).read_text(encoding="utf-8")
+        if values.get(constant) != snapshot:
+            raise SystemExit(f"embedded {constant} differs from {filename}")
 
     checkout_checks = {
         "persistent browser return marker":
@@ -190,6 +213,10 @@ def main() -> None:
         raise SystemExit(
             "failed updater checks: " + ", ".join(updater_failed)
         )
+
+    prepare_text = PREPARE.read_text(encoding="utf-8")
+    if 'android:name=".ui.BlueVpnAiActivity"' in prepare_text:
+        raise SystemExit("AI activity must not be registered in the customer manifest")
 
     required_ids = set(re.findall(r"R\.id\.(bluevpn_[A-Za-z0-9_]+)", home))
     expected_ids = {

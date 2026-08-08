@@ -727,6 +727,7 @@ class AiRouteAggregate(Base):
             name="uq_ai_route_context",
         ),
         Index("ix_ai_route_rank", "operator", "network_type", "mode", "score"),
+        Index("ix_ai_route_live_rank", "operator", "network_type", "recent_score", "updated_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -747,6 +748,13 @@ class AiRouteAggregate(Base):
     jitter_samples: Mapped[int] = mapped_column(Integer, default=0)
     total_packet_loss_x100: Mapped[int] = mapped_column(BigInteger, default=0)
     score: Mapped[int] = mapped_column(Integer, default=50, index=True)
+    recent_score: Mapped[int] = mapped_column(Integer, default=50, index=True)
+    confidence_score: Mapped[float] = mapped_column(Float, default=0.0)
+    recent_success_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    adaptive_sample_weight: Mapped[float] = mapped_column(Float, default=0.0)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_failure_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     success_rate: Mapped[float] = mapped_column(Float, default=0.0)
     average_ping_ms: Mapped[float] = mapped_column(Float, default=0.0)
     average_duration_seconds: Mapped[float] = mapped_column(Float, default=0.0)

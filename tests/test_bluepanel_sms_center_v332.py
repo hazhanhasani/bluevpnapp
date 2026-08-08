@@ -29,11 +29,11 @@ def memory_engine():
 def test_release_and_schema_v332():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.37"
-    assert release["version_code"] == 30037
-    assert app["version_name"] == "3.0.37"
-    assert app["version_code"] == 30037
-    assert SCHEMA_VERSION == "14"
+    assert release["version"] == "3.0.38"
+    assert release["version_code"] == 30038
+    assert app["version_name"] == "3.0.38"
+    assert app["version_code"] == 30038
+    assert SCHEMA_VERSION == "15"
 
 
 def test_catalog_contains_exactly_38_bluepanel_patterns():

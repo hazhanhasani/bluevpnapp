@@ -24,14 +24,14 @@ def _embedded(name: str) -> bytes:
     raise AssertionError(f"embedded source not found: {name}")
 
 
-def test_v337_metadata_and_generated_sources_are_synchronized():
+def test_v338_metadata_and_generated_sources_are_synchronized():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding" / "app.json").read_text(encoding="utf-8"))
 
-    assert release["version"] == "3.0.37"
-    assert release["version_code"] == 30037
-    assert app["version_name"] == "3.0.37"
-    assert app["version_code"] == 30037
+    assert release["version"] == "3.0.38"
+    assert release["version_code"] == 30038
+    assert app["version_name"] == "3.0.38"
+    assert app["version_code"] == 30038
 
     assert _embedded("BLUEVPN_HOME_ACTIVITY_B64") == (
         ROOT / "android-source" / "BlueVpnHomeActivity.kt"
@@ -41,6 +41,9 @@ def test_v337_metadata_and_generated_sources_are_synchronized():
     ).read_bytes()
     assert _embedded("BLUEVPN_SCREEN_BACKGROUND_B64") == (
         ROOT / "android-source" / "bluevpn_screen_background.xml"
+    ).read_bytes()
+    assert _embedded("BLUEVPN_THEME_B64") == (
+        ROOT / "android-source" / "BlueVpnTheme.kt"
     ).read_bytes()
 
 
@@ -58,11 +61,11 @@ def test_minimal_home_and_location_browser_contract():
 
     assert "ScrollView(this)" not in screen
     assert "private lateinit var connectTrack: MaterialCardView" in home
-    assert '"برای اتصال لمس کنید"' in home
+    assert '"برای اتصال لمس یا بکشید"' in home
     assert "animated-connection-knob" in json.dumps(
         json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     )
-    assert 'text = "مکان  ◉"' in servers
+    assert 'textView("مکان‌ها"' in servers
     assert 'LocationTab.FAVORITES' in servers
     assert 'LocationTab.RECENT' in servers
     assert "BlueVpnExperience.history(this)" in servers

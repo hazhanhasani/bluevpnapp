@@ -609,6 +609,13 @@ def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> di
 
     aggregate.location_key = event.location_key
     aggregate.location_title = event.location_title
+    observed_at = utcnow()
+    if success:
+        aggregate.last_success_at = observed_at
+        aggregate.consecutive_failures = 0
+    else:
+        aggregate.last_failure_at = observed_at
+        aggregate.consecutive_failures = int(aggregate.consecutive_failures or 0) + 1
     aggregate.sample_count = int(aggregate.sample_count or 0) + 1
     aggregate.success_count = int(aggregate.success_count or 0) + (
         1 if success else 0
@@ -670,7 +677,11 @@ def submit_event(db: Session, customer: Customer, payload: dict[str, Any]) -> di
     details = _route_score_details(aggregate, recent_stats)
 
     aggregate.score = int(details["score"])
-    aggregate.updated_at = utcnow()
+    aggregate.recent_score = int(details["score"])
+    aggregate.confidence_score = float(details["confidence"])
+    aggregate.recent_success_rate = float(details["recent_success_rate"])
+    aggregate.adaptive_sample_weight = float(details["recent_effective_samples"])
+    aggregate.updated_at = observed_at
     db.commit()
 
     return {
@@ -747,8 +758,17 @@ def recommendations(
             context_weight += 7
         distance = min((row.hour_bucket - bucket) % 24, (bucket - row.hour_bucket) % 24)
         context_weight += max(0, 6 - distance * 2)
-        confidence = min(8, int(math.log2(max(1, row.sample_count))) * 2)
-        weighted = max(0, min(100, int(row.score or 0) + context_weight + confidence))
+        sample_confidence = min(8, int(math.log2(max(1, row.sample_count))) * 2)
+        adaptive_confidence = min(8, int(round(float(row.confidence_score or 0.0) * 8.0)))
+        failure_penalty = min(24, int(row.consecutive_failures or 0) * 6)
+        live_score = int(row.recent_score if row.recent_score is not None else row.score or 0)
+        weighted = max(
+            0,
+            min(
+                100,
+                live_score + context_weight + sample_confidence + adaptive_confidence - failure_penalty,
+            ),
+        )
 
         item = combined.get(row.config_key)
         if item is None or weighted > item["score"]:
@@ -758,6 +778,10 @@ def recommendations(
                 "location_title": row.location_title,
                 "score": weighted,
                 "base_score": int(row.score or 0),
+                "recent_score": int(row.recent_score or row.score or 0),
+                "confidence": round(float(row.confidence_score or 0.0), 4),
+                "recent_success_rate": round(float(row.recent_success_rate or 0.0) * 100.0, 1),
+                "consecutive_failures": int(row.consecutive_failures or 0),
                 "samples": int(row.sample_count or 0),
                 "success_rate": round(float(row.success_rate or 0.0) * 100.0, 1),
                 "average_ping_ms": round(float(row.average_ping_ms or 0.0), 1),

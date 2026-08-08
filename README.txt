@@ -1,1 +1,1 @@
-BlueVPN 3.0.37 — رابط مینیمال اختصاصی BlueVPN با صفحه اصلی بدون اسکرول، کلید اتصال کپسولی، آمار زنده فشرده و صفحه مکان‌ها با تب‌های همه، مورد علاقه و اخیر. ورود ایمیلی/پیامکی و پنل سوم سراسری حفظ شده‌اند.
+BlueVPN 3.0.38 - Jump-inspired polish, light/dark theme, stable gesture connect, hidden background intelligence, instant route selection and database schema 15.

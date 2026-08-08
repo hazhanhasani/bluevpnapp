@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.32",
-  "version_code": 30032,
+  "project_version": "3.0.34",
+  "version_code": 30034,
   "schema_version": 13,
-  "release": "3.0.32",
+  "release": "3.0.34",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",

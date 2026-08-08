@@ -1,1 +1,1 @@
-BlueVPN 3.0.39 - Kotlin build fix for the server search field with generated-source parity protection; all 3.0.38 UI, theme and routing improvements are preserved.
+BlueVPN 3.0.40 - Android ExtraTranslation lint fix with default-locale fallbacks and generated resource parity protection; all 3.0.39 features are preserved.

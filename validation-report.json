@@ -1,26 +1,33 @@
 {
-  "project_version": "3.0.39",
-  "version_code": 30039,
+  "project_version": "3.0.40",
+  "version_code": 30040,
   "schema_version": 15,
-  "release": "3.0.39",
-  "generated_at": "2026-08-09T00:45:00Z",
+  "release": "3.0.40",
+  "generated_at": "2026-08-09T01:20:00Z",
   "validation_status": "passed_with_full_apk_compile_pending_github_actions",
   "build_fix": {
-    "file": "BlueVpnServersActivity.kt",
-    "failed_line_previous_release": 200,
-    "old_expression": "singleLine = true",
-    "new_expression": "isSingleLine = true",
-    "embedded_generator_synced": true
+    "file": "scripts/prepare_android.py",
+    "failed_resource_file_previous_release": "values-fa/strings.xml",
+    "lint_rule": "ExtraTranslation",
+    "keys": [
+      "service_started",
+      "service_stopped",
+      "notification_service_running"
+    ],
+    "default_locale_fallbacks_added": true,
+    "generated_resource_parity_guard": true
   },
   "full_android_gradle_compile": "pending_github_actions",
   "preserved_from_3_0_38": true,
-  "artifact_name": "bluevpn-complete-v3.0.39-servers-singleline-build-fix.zip",
+  "artifact_name": "bluevpn-complete-v3.0.40-android-string-lint-fix.zip",
   "python_compileall": "passed",
   "android_generator_sync": "passed (24 embedded sources/resources)",
   "android_source_parity": "passed",
-  "servers_singleline_regression": "passed",
-  "invalid_singleline_assignments": 0,
-  "pytest": "passed (118/118)",
+  "pytest": "passed (121/121)",
   "zip_integrity": "passed",
-  "packaged_file_count": 208
+  "packaged_file_count": 211,
+  "preserved_from_3_0_39": true,
+  "android_default_locale_string_fallbacks": "passed",
+  "android_localized_resource_parity": "passed",
+  "extra_translation_regression": "passed"
 }

@@ -1,0 +1,8 @@
+BlueVPN 3.0.40 — گزارش اصلاح Android Lint
+
+خطای قبلی: ExtraTranslation در values-fa/strings.xml
+کلیدهای اصلاح‌شده: service_started, service_stopped, notification_service_running
+روش اصلاح: افزودن fallback به values/strings.xml بدون بازنویسی رشته‌های موجود upstream
+محافظ مولد: فعال
+تست رگرسیون منابع: فعال
+کامپایل کامل APK: در GitHub Actions انجام می‌شود

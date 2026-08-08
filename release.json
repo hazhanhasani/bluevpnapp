@@ -1,11 +1,11 @@
 {
-  "version": "3.0.39",
-  "channel": "servers-singleline-build-fix",
-  "build_id": "20260809-servers-singleline-build-fix-v3039",
-  "built_at": "2026-08-09T00:45:00Z",
-  "android_version": "3.0.39",
-  "android_version_code": 30039,
-  "description": "BlueVPN 3.0.39 اصلاح کامپایل صفحه انتخاب سرور و جلوگیری از بازتولید مجدد ویژگی نامعتبر singleLine است؛ تمام قابلیت‌های نسخه 3.0.38 حفظ شده‌اند.",
+  "version": "3.0.40",
+  "channel": "android-string-lint-fix",
+  "build_id": "20260809-android-string-lint-fix-v3040",
+  "built_at": "2026-08-09T01:20:00Z",
+  "android_version": "3.0.40",
+  "android_version_code": 30040,
+  "description": "BlueVPN 3.0.40 خطای Android Lint مربوط به ExtraTranslation را با افزودن امن رشته‌های پیش‌فرض و کنترل برابری منابع محلی‌سازی رفع می‌کند؛ تمام قابلیت‌های نسخه 3.0.39 حفظ شده‌اند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -292,8 +292,11 @@
     "retired-connection-presets",
     "servers-search-is-single-line-compile-fix",
     "embedded-servers-source-sync-guard",
-    "servers-kotlin-regression-test"
+    "servers-kotlin-regression-test",
+    "default-locale-service-string-fallbacks",
+    "android-extra-translation-lint-guard",
+    "localized-resource-parity-test"
   ],
-  "version_code": 30039,
-  "notes": "خطای Kotlin در BlueVpnServersActivity با isSingleLine رفع شد و تست همگام‌سازی سورس مولد اضافه شد. طراحی، تم‌ها، اتصال هوشمند و ورود ایمیلی/پیامکی نسخه 3.0.38 حفظ شده‌اند."
+  "version_code": 30040,
+  "notes": "سه رشته service_started، service_stopped و notification_service_running اکنون در locale پیش‌فرض نیز تعریف می‌شوند. مولد پیش از Build نبودن کلید پیش‌فرض را متوقف می‌کند و تست رگرسیون منابع اضافه شده است."
 }

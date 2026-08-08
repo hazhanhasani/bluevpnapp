@@ -1,17 +1,17 @@
 {
-  "release": "3.0.39-auto",
-  "version_name": "3.0.39",
-  "version_code": 30039,
+  "release": "3.0.40",
+  "version_name": "3.0.40",
+  "version_code": 30040,
   "changes": [
-    "Fix Kotlin compile failure in BlueVpnServersActivity search field",
-    "Use EditText.isSingleLine instead of unresolved singleLine synthetic property",
-    "Synchronize the Kotlin snapshot and embedded Android generator source",
-    "Add regression checks for generated-source persistence",
-    "Preserve all BlueVPN 3.0.38 UI, theme, authentication and routing improvements"
+    "Add default-locale counterparts for all BlueVPN Persian service strings",
+    "Fix Android Lint ExtraTranslation errors for service_started, service_stopped and notification_service_running",
+    "Stop generated Android preparation when a translated key has no default resource",
+    "Add regression coverage for default and Persian string parity",
+    "Preserve every BlueVPN 3.0.39 feature and design change"
   ],
   "generated_at_unix": 1786231800,
-  "purpose": "رفع خطای Build صفحه سرورها و جلوگیری از بازگشت آن در سورس تولیدی",
-  "updated_at": "2026-08-09T00:45:00Z",
-  "built_at": "2026-08-09T00:45:00Z",
-  "build_id": "20260809-servers-singleline-build-fix-v3039"
+  "purpose": "رفع خطای Android Lint منابع ترجمه و جلوگیری از تکرار آن در سورس تولیدی",
+  "updated_at": "2026-08-09T01:20:00Z",
+  "built_at": "2026-08-09T01:20:00Z",
+  "build_id": "20260809-android-string-lint-fix-v3040"
 }

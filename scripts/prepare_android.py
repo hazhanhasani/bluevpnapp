@@ -80,28 +80,25 @@ def _upsert_android_string(xml_text: str, name: str, value: str) -> str:
     return xml_text.replace(closing_tag, addition + closing_tag, 1)
 
 
-def patch_strings() -> None:
-    # Change the default app name.
-    default_path = APP / "src/main/res/values/strings.xml"
-    default_text = default_path.read_text(encoding="utf-8")
-    default_text = _upsert_android_string(
-        default_text,
-        "app_name",
-        CONFIG["app_name"],
+def _android_string_names(xml_text: str) -> set[str]:
+    """Return all <string name="..."> resource identifiers in an XML file."""
+    return set(
+        re.findall(
+            r'<string\s+name="([^"]+)"',
+            xml_text,
+            flags=re.DOTALL,
+        )
     )
-    default_path.write_text(default_text, encoding="utf-8")
 
-    # v2rayNG already contains Persian resources. Edit the existing file
-    # instead of defining the same resource names in a second XML file.
-    fa_dir = APP / "src/main/res/values-fa"
-    fa_dir.mkdir(parents=True, exist_ok=True)
-    fa_path = fa_dir / "strings.xml"
 
-    if fa_path.exists():
-        fa_text = fa_path.read_text(encoding="utf-8")
-    else:
-        fa_text = '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
+def _ensure_android_string(xml_text: str, name: str, value: str) -> str:
+    """Append a string only when the default locale does not already define it."""
+    if name in _android_string_names(xml_text):
+        return xml_text
+    return _upsert_android_string(xml_text, name, value)
 
+
+def patch_strings() -> None:
     translations = {
         "app_widget_name": "اتصال سریع",
         "app_tile_name": "BlueVPN",
@@ -118,8 +115,57 @@ def patch_strings() -> None:
         "notification_service_running": "اتصال امن BlueVPN فعال است",
     }
 
+    # Android Lint requires every translated key to exist in the default
+    # locale. Preserve upstream English text when it exists and add a clean
+    # BlueVPN fallback only for keys that upstream does not define.
+    default_fallbacks = {
+        "app_widget_name": "Quick connect",
+        "app_tile_name": "BlueVPN",
+        "connection_connected": "Connected; tap to check the connection",
+        "connection_not_connected": "Not connected",
+        "title_sub_setting": "Subscription management",
+        "title_sub_update": "Update subscription",
+        "import_subscription_success": "Subscription added successfully",
+        "import_subscription_failure": "Could not add subscription",
+        "toast_services_start": "Establishing a secure connection",
+        "toast_services_stop": "Connection stopped",
+        "service_started": "BlueVPN connection is active",
+        "service_stopped": "BlueVPN connection has stopped",
+        "notification_service_running": "BlueVPN secure connection is active",
+    }
+
+    default_path = APP / "src/main/res/values/strings.xml"
+    default_text = default_path.read_text(encoding="utf-8")
+    default_text = _upsert_android_string(
+        default_text,
+        "app_name",
+        CONFIG["app_name"],
+    )
+    for name, value in default_fallbacks.items():
+        default_text = _ensure_android_string(default_text, name, value)
+    default_path.write_text(default_text, encoding="utf-8")
+
+    # v2rayNG already contains Persian resources. Edit the existing file
+    # instead of defining the same resource names in a second XML file.
+    fa_dir = APP / "src/main/res/values-fa"
+    fa_dir.mkdir(parents=True, exist_ok=True)
+    fa_path = fa_dir / "strings.xml"
+
+    if fa_path.exists():
+        fa_text = fa_path.read_text(encoding="utf-8")
+    else:
+        fa_text = '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n</resources>\n'
+
     for name, value in translations.items():
         fa_text = _upsert_android_string(fa_text, name, value)
+
+    default_names = _android_string_names(default_text)
+    missing_defaults = sorted(set(translations) - default_names)
+    if missing_defaults:
+        raise RuntimeError(
+            "Missing default Android string resources for translated keys: "
+            + ", ".join(missing_defaults)
+        )
 
     # Keep all user-facing resource text under the BlueVPN brand. Internal
     # package names and the GPL source notice remain unchanged.

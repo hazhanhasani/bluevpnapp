@@ -103,6 +103,14 @@ def main() -> None:
 
     account_manager = values["BLUEVPN_ACCOUNT_MANAGER_B64"]
     subscriptions = values["BLUEVPN_SUBSCRIPTIONS_ACTIVITY_B64"]
+    subscriptions_source = (
+        ROOT / "android-source/BlueVpnSubscriptionsActivity.kt"
+    ).read_text(encoding="utf-8")
+    if subscriptions != subscriptions_source:
+        raise SystemExit(
+            "embedded subscriptions activity differs from android-source snapshot"
+        )
+
     checkout_checks = {
         "persistent browser return marker":
             "markCheckoutBrowserOpen" in account_manager
@@ -129,6 +137,14 @@ def main() -> None:
             'expireFa' in account_manager
             and 'اعتبار تا:' in subscriptions
             and 'BlueVpnPersianDate.formatIso' in subscriptions,
+        "email password listener after initialization":
+            'val password=authField("رمز عبور؛ حداقل ۸ کاراکتر").apply{' in subscriptions
+            and 'password.setOnEditorActionListener{' in subscriptions,
+        "no password self reference in initializer":
+            re.search(
+                r'val password=authField\([^\n]+\)\.apply\{[^\n]*password\.text',
+                subscriptions,
+            ) is None,
     }
     checkout_failed = [label for label, ok in checkout_checks.items() if not ok]
     if checkout_failed:

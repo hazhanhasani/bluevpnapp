@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.35",
-  "version_code": 30035,
+  "project_version": "3.0.36",
+  "version_code": 30036,
   "schema_version": 14,
-  "release": "3.0.35",
+  "release": "3.0.36",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.35/30035)",
+  "version_consistency": "passed (release/branding/backend 3.0.36/30036)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -96,7 +96,7 @@
   "updater_default_route_retry": "included",
   "updater_friendly_error_mapping": "included",
   "admin_security_tests": "passed (3 unit tests + endpoint smoke)",
-  "all_pytest": "passed (107/107)",
+  "all_pytest": "passed (109/109)",
   "admin_dark_glass_dashboard": "implemented",
   "admin_vazirmatn_font": "implemented with local fallback stack",
   "admin_inline_svg_icons": "implemented",
@@ -225,7 +225,7 @@
   },
   "jalali_tehran": "passed",
   "tests": "88 passed",
-  "android_validation": "passed (3.0.35/30035, 22 embedded sources, 29 home IDs)",
+  "android_validation": "passed (3.0.36/30036, 22 embedded sources, 29 home IDs)",
   "database_migration": "passed (legacy SQLite GuardCore table upgraded to schema 14; global_subscription_url added; data retained)",
   "subscription_state_recovery": {
     "last_known_good_preserved": true,
@@ -263,7 +263,7 @@
     "api_entitlement_active": "included",
     "api_remaining_seconds": "included"
   },
-  "pytest": "passed (107 tests)",
+  "pytest": "passed (109 tests)",
   "json_yaml_jinja_xml": "passed",
   "schema_11_to_12_migration": "passed (legacy customer retained; phone auth tables and indexes created)",
   "phone_otp_farazsms_v325": {
@@ -343,5 +343,8 @@
   "email_password_auth": "passed (registration, login, invalid credentials, device-bound session)",
   "dual_email_sms_auth_ui": "passed",
   "global_third_panel_subscription": "passed (old-user backfill and new-user automatic assignment)",
-  "shared_subscription_entitlement_gate": "passed (inactive/expired account receives HTTP 410)"
+  "shared_subscription_entitlement_gate": "passed (inactive/expired account receives HTTP 410)",
+  "email_password_kotlin_scope_fix": "passed (listener registered after field initialization)",
+  "embedded_subscriptions_source_sync": "passed (snapshot equals generated Base64 source)",
+  "kotlin_password_scope_compile_check": "passed with kotlinc"
 }

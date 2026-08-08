@@ -29,10 +29,10 @@ def memory_engine():
 def test_release_and_schema_v332():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.35"
-    assert release["version_code"] == 30035
-    assert app["version_name"] == "3.0.35"
-    assert app["version_code"] == 30035
+    assert release["version"] == "3.0.36"
+    assert release["version_code"] == 30036
+    assert app["version_name"] == "3.0.36"
+    assert app["version_code"] == 30036
     assert SCHEMA_VERSION == "14"
 
 

@@ -1,11 +1,11 @@
 {
-  "version": "3.0.35",
-  "channel": "email-auth-global-third-panel",
-  "build_id": "20260808-email-auth-global-third-panel-v3035",
-  "built_at": "2026-08-08T19:30:00Z",
-  "android_version": "3.0.35",
-  "android_version_code": 30035,
-  "description": "BlueVPN 3.0.35 ورود و ثبت‌نام ایمیلی را در کنار ورود پیامکی فعال می‌کند و پنل سوم را با یک لینک ساب سراسری برای همه کاربران قدیمی و جدید، همراه با قطع دسترسی پس از پایان اشتراک، ارائه می‌دهد.",
+  "version": "3.0.36",
+  "channel": "email-auth-kotlin-scope-fix",
+  "build_id": "20260808-email-auth-kotlin-scope-fix-v3036",
+  "built_at": "2026-08-08T19:28:20Z",
+  "android_version": "3.0.36",
+  "android_version_code": 30036,
+  "description": "BlueVPN 3.0.36 خطای کامپایل Kotlin در فرم ورود ایمیلی را رفع می‌کند؛ ورود ایمیلی/پیامکی و پنل سوم سراسری نسخه قبل بدون تغییر حفظ شده‌اند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -263,8 +263,11 @@
     "global-third-panel-subscription",
     "global-subscription-old-user-backfill",
     "entitlement-gated-shared-subscription",
-    "database-schema-14-global-third-panel"
+    "database-schema-14-global-third-panel",
+    "email-password-field-scope-compile-fix",
+    "embedded-subscriptions-source-sync-guard",
+    "email-auth-kotlin-regression-test"
   ],
-  "version_code": 30035,
-  "notes": "Email/password authentication alongside SMS OTP, plus one global third-panel subscription source protected by each customer BlueVPN entitlement."
+  "version_code": 30036,
+  "notes": "Fix Kotlin password-field self-reference during initialization and add generated-source regression guards."
 }

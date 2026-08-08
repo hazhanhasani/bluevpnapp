@@ -1,1 +1,1 @@
-BlueVPN 3.0.35 — email/password auth alongside SMS OTP, plus an entitlement-gated global third-panel subscription for all old and new users.
+BlueVPN 3.0.36 — Kotlin compile fix for email/password login; SMS login and the entitlement-gated global third-panel subscription remain included.

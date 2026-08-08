@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.36",
-  "version_code": 30036,
+  "project_version": "3.0.37",
+  "version_code": 30037,
   "schema_version": 14,
-  "release": "3.0.36",
+  "release": "3.0.37",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.36/30036)",
+  "version_consistency": "passed (release/branding/backend 3.0.37/30037)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -52,7 +52,7 @@
   "floating_glass_stats": "passed",
   "conditional_frost_blur": "Android 12+ only",
   "mesh_gradient_xml": "passed",
-  "generated_home_source_bytes": 101947,
+  "generated_home_source_bytes": 104566,
   "json_parse": "passed",
   "xml_parse": "passed",
   "telegram_httpx_request": "passed (separate normal/getUpdates transports)",
@@ -96,7 +96,7 @@
   "updater_default_route_retry": "included",
   "updater_friendly_error_mapping": "included",
   "admin_security_tests": "passed (3 unit tests + endpoint smoke)",
-  "all_pytest": "passed (109/109)",
+  "all_pytest": "passed (111/111)",
   "admin_dark_glass_dashboard": "implemented",
   "admin_vazirmatn_font": "implemented with local fallback stack",
   "admin_inline_svg_icons": "implemented",
@@ -225,7 +225,7 @@
   },
   "jalali_tehran": "passed",
   "tests": "88 passed",
-  "android_validation": "passed (3.0.36/30036, 22 embedded sources, 29 home IDs)",
+  "android_validation": "passed (3.0.37/30037, 22 embedded sources, 29 home IDs)",
   "database_migration": "passed (legacy SQLite GuardCore table upgraded to schema 14; global_subscription_url added; data retained)",
   "subscription_state_recovery": {
     "last_known_good_preserved": true,
@@ -263,7 +263,7 @@
     "api_entitlement_active": "included",
     "api_remaining_seconds": "included"
   },
-  "pytest": "passed (109 tests)",
+  "pytest": "passed (111 tests)",
   "json_yaml_jinja_xml": "passed",
   "schema_11_to_12_migration": "passed (legacy customer retained; phone auth tables and indexes created)",
   "phone_otp_farazsms_v325": {
@@ -346,5 +346,11 @@
   "shared_subscription_entitlement_gate": "passed (inactive/expired account receives HTTP 410)",
   "email_password_kotlin_scope_fix": "passed (listener registered after field initialization)",
   "embedded_subscriptions_source_sync": "passed (snapshot equals generated Base64 source)",
-  "kotlin_password_scope_compile_check": "passed with kotlinc"
+  "kotlin_password_scope_compile_check": "passed with kotlinc",
+  "jump_inspired_original_ui": "passed (BlueVPN branding only; no copied JumpJump assets or name)",
+  "non_scrolling_home": "passed (programmatic full-height layout without ScrollView)",
+  "pill_connection_control": "passed",
+  "location_tabs": "passed (all/favorites/recent)",
+  "generated_servers_source_bytes": 27619,
+  "generated_screen_background_bytes": 1201
 }

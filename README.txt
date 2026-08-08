@@ -1,1 +1,1 @@
-BlueVPN 3.0.36 — Kotlin compile fix for email/password login; SMS login and the entitlement-gated global third-panel subscription remain included.
+BlueVPN 3.0.37 — رابط مینیمال اختصاصی BlueVPN با صفحه اصلی بدون اسکرول، کلید اتصال کپسولی، آمار زنده فشرده و صفحه مکان‌ها با تب‌های همه، مورد علاقه و اخیر. ورود ایمیلی/پیامکی و پنل سوم سراسری حفظ شده‌اند.

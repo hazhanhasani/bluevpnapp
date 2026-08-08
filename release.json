@@ -1,11 +1,11 @@
 {
-  "version": "3.0.36",
-  "channel": "email-auth-kotlin-scope-fix",
-  "build_id": "20260808-email-auth-kotlin-scope-fix-v3036",
-  "built_at": "2026-08-08T19:28:20Z",
-  "android_version": "3.0.36",
-  "android_version_code": 30036,
-  "description": "BlueVPN 3.0.36 خطای کامپایل Kotlin در فرم ورود ایمیلی را رفع می‌کند؛ ورود ایمیلی/پیامکی و پنل سوم سراسری نسخه قبل بدون تغییر حفظ شده‌اند.",
+  "version": "3.0.37",
+  "channel": "jump-inspired-minimal-ui",
+  "build_id": "20260808-jump-inspired-minimal-ui-v3037",
+  "built_at": "2026-08-08T22:24:25Z",
+  "android_version": "3.0.37",
+  "android_version_code": 30037,
+  "description": "BlueVPN 3.0.37 رابط اندروید را با طراحی مینیمال و حرفه‌ای الهام‌گرفته از ساختار JumpJump بازطراحی می‌کند: صفحه اصلی بدون اسکرول، کلید اتصال کپسولی، کارت انتخاب سرور و صفحه مکان‌های تب‌بندی‌شده.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -266,8 +266,18 @@
     "database-schema-14-global-third-panel",
     "email-password-field-scope-compile-fix",
     "embedded-subscriptions-source-sync-guard",
-    "email-auth-kotlin-regression-test"
+    "email-auth-kotlin-regression-test",
+    "jump-inspired-original-bluevpn-ui",
+    "non-scrolling-minimal-home",
+    "pill-connection-control",
+    "animated-connection-knob",
+    "compact-live-network-stats",
+    "dark-location-browser",
+    "location-all-favorites-recent-tabs",
+    "recent-location-history-filter",
+    "minimal-server-selector-card",
+    "bluevpn-original-branding-no-ui-copy"
   ],
-  "version_code": 30036,
-  "notes": "Fix Kotlin password-field self-reference during initialization and add generated-source regression guards."
+  "version_code": 30037,
+  "notes": "Jump-inspired BlueVPN visual redesign with a non-scrolling home, pill connection control, compact live stats, and all/favorites/recent location tabs. Existing VPN, email/SMS authentication, and global third-panel entitlement logic are preserved."
 }

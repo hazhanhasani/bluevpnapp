@@ -1,7 +1,7 @@
 {
-  "release": "3.0.36-auto",
-  "version_name": "3.0.36",
-  "version_code": 30036,
+  "release": "3.0.37",
+  "version_name": "3.0.37",
+  "version_code": 30037,
   "changes": [
     "Move the password editor listener outside the password field initializer",
     "Regenerate the embedded BlueVpnSubscriptionsActivity Kotlin source",

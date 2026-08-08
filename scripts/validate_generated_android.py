@@ -134,6 +134,12 @@ def main() -> None:
         if values.get(constant) != snapshot:
             raise SystemExit(f"embedded {constant} differs from {filename}")
 
+    servers = values["BLUEVPN_SERVERS_ACTIVITY_B64"]
+    if "isSingleLine = true" not in servers:
+        raise SystemExit("servers search field must use EditText.isSingleLine")
+    if re.search(r"(?m)^\s*singleLine\s*=", servers):
+        raise SystemExit("unresolved singleLine synthetic property remains in servers source")
+
     checkout_checks = {
         "persistent browser return marker":
             "markCheckoutBrowserOpen" in account_manager

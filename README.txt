@@ -1,1 +1,1 @@
-BlueVPN 3.0.38 - Jump-inspired polish, light/dark theme, stable gesture connect, hidden background intelligence, instant route selection and database schema 15.
+BlueVPN 3.0.39 - Kotlin build fix for the server search field with generated-source parity protection; all 3.0.38 UI, theme and routing improvements are preserved.

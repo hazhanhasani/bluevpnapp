@@ -1,19 +1,17 @@
 {
-  "release": "3.0.38-auto",
-  "version_name": "3.0.38",
-  "version_code": 30038,
+  "release": "3.0.39",
+  "version_name": "3.0.39",
+  "version_code": 30039,
   "changes": [
-    "Add dark, light and system themes with animated BlueVPN background",
-    "Rebuild home, settings, authentication and locations with a minimal Jump-inspired interface",
-    "Hide ping, traffic, connection modes, AI controls and technical service wording",
-    "Fix drag cancellation, custom power glyph and black cold-start rendering",
-    "Add instant route shortlist and recent verified-route memory",
-    "Upgrade adaptive route database to schema 15",
-    "Detect exit country through Check-Host in the background without exposing diagnostics"
+    "Fix Kotlin compile failure in BlueVpnServersActivity search field",
+    "Use EditText.isSingleLine instead of unresolved singleLine synthetic property",
+    "Synchronize the Kotlin snapshot and embedded Android generator source",
+    "Add regression checks for generated-source persistence",
+    "Preserve all BlueVPN 3.0.38 UI, theme, authentication and routing improvements"
   ],
-  "generated_at_unix": 1786230272,
-  "purpose": "بازطراحی کامل رابط، رفع باگ اتصال و ارتقای انتخاب هوشمند مسیر",
-  "updated_at": "2026-08-08T23:15:00.565791Z",
-  "built_at": "2026-08-09T00:20:00Z",
-  "build_id": "20260809-jump-polish-theme-fast-connect-v3038"
+  "generated_at_unix": 1786231800,
+  "purpose": "رفع خطای Build صفحه سرورها و جلوگیری از بازگشت آن در سورس تولیدی",
+  "updated_at": "2026-08-09T00:45:00Z",
+  "built_at": "2026-08-09T00:45:00Z",
+  "build_id": "20260809-servers-singleline-build-fix-v3039"
 }

@@ -1,11 +1,11 @@
 {
-  "version": "3.0.38",
-  "channel": "jump-polish-theme-fast-connect",
-  "build_id": "20260809-jump-polish-theme-fast-connect-v3038",
-  "built_at": "2026-08-09T00:20:00Z",
-  "android_version": "3.0.38",
-  "android_version_code": 30038,
-  "description": "BlueVPN 3.0.38 بازطراحی کامل رابط با تم روشن و تیره، کلید اتصال پایدار، حذف آمار و حالت‌های اضافی، انتخاب لحظه‌ای مسیر و ارتقای دیتابیس هوشمند به Schema 15 است.",
+  "version": "3.0.39",
+  "channel": "servers-singleline-build-fix",
+  "build_id": "20260809-servers-singleline-build-fix-v3039",
+  "built_at": "2026-08-09T00:45:00Z",
+  "android_version": "3.0.39",
+  "android_version_code": 30039,
+  "description": "BlueVPN 3.0.39 اصلاح کامپایل صفحه انتخاب سرور و جلوگیری از بازتولید مجدد ویژگی نامعتبر singleLine است؛ تمام قابلیت‌های نسخه 3.0.38 حفظ شده‌اند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -289,8 +289,11 @@
     "clean-connection-notifications",
     "check-host-background-exit-location",
     "system-aware-launch-background",
-    "retired-connection-presets"
+    "retired-connection-presets",
+    "servers-search-is-single-line-compile-fix",
+    "embedded-servers-source-sync-guard",
+    "servers-kotlin-regression-test"
   ],
-  "version_code": 30038,
-  "notes": "بازطراحی مینیمال BlueVPN با تم روشن/تیره، کلید اتصال پایدار، حذف آمار و حالت‌های اضافی، تشخیص پس‌زمینه مکان خروجی و انتخاب سریع مسیر. منطق ورود ایمیلی/پیامکی و پنل سوم سراسری حفظ شده است."
+  "version_code": 30039,
+  "notes": "خطای Kotlin در BlueVpnServersActivity با isSingleLine رفع شد و تست همگام‌سازی سورس مولد اضافه شد. طراحی، تم‌ها، اتصال هوشمند و ورود ایمیلی/پیامکی نسخه 3.0.38 حفظ شده‌اند."
 }

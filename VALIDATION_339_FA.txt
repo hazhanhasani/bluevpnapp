@@ -1,0 +1,7 @@
+BlueVPN 3.0.39 — گزارش اصلاح Build
+
+- خطای BlueVpnServersActivity.kt:200 رفع شد.
+- singleLine = true با isSingleLine = true جایگزین شد.
+- snapshot Kotlin و Base64 مولد همگام شدند.
+- تست رگرسیون جلوگیری از singleLine نامعتبر اضافه شد.
+- کامپایل کامل APK بر عهده GitHub Actions است.

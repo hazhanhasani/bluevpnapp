@@ -1,48 +1,26 @@
 {
-  "project_version": "3.0.38",
-  "version_code": 30038,
+  "project_version": "3.0.39",
+  "version_code": 30039,
   "schema_version": 15,
-  "release": "3.0.38",
-  "generated_at": "2026-08-08T23:14:15.156988Z",
+  "release": "3.0.39",
+  "generated_at": "2026-08-09T00:45:00Z",
   "validation_status": "passed_with_full_apk_compile_pending_github_actions",
+  "build_fix": {
+    "file": "BlueVpnServersActivity.kt",
+    "failed_line_previous_release": 200,
+    "old_expression": "singleLine = true",
+    "new_expression": "isSingleLine = true",
+    "embedded_generator_synced": true
+  },
+  "full_android_gradle_compile": "pending_github_actions",
+  "preserved_from_3_0_38": true,
+  "artifact_name": "bluevpn-complete-v3.0.39-servers-singleline-build-fix.zip",
   "python_compileall": "passed",
   "android_generator_sync": "passed (24 embedded sources/resources)",
-  "android_xml_parse": "passed",
   "android_source_parity": "passed",
-  "kotlin_parser_scan": "passed (no parser diagnostics; Android symbols require Gradle classpath)",
-  "pytest": "passed (114/114)",
-  "secret_scan": "passed",
-  "database_migration": "passed (schema 15)",
-  "full_android_gradle_compile": "pending_github_actions",
-  "ui": {
-    "theme": "system/dark/light",
-    "system_aware_launch_background": true,
-    "dynamic_background": true,
-    "custom_power_glyph": true,
-    "stable_drag_connect": true,
-    "black_start_guard": true,
-    "visible_ping": false,
-    "visible_download_upload": false,
-    "visible_connection_presets": false,
-    "visible_ai_screen": false,
-    "visible_technical_branding": false,
-    "connected_diagnostic_caption": false
-  },
-  "routing": {
-    "instant_candidate_shortlist": true,
-    "recent_success_memory": true,
-    "adaptive_confidence_schema": 15,
-    "check_host_background_exit_country": true,
-    "check_host_visible_to_user": false,
-    "connection_attempt_timeout_ms": 5000
-  },
-  "preserved_features": [
-    "email/password authentication",
-    "SMS authentication",
-    "global third-panel subscription",
-    "subscription entitlement gate",
-    "Pasarguard and Marzban integration"
-  ],
-  "zip_integrity": "validated_during_final_packaging",
-  "artifact_name": "bluevpn-complete-v3.0.38-jump-polish-theme-fast-connect.zip"
+  "servers_singleline_regression": "passed",
+  "invalid_singleline_assignments": 0,
+  "pytest": "passed (118/118)",
+  "zip_integrity": "passed",
+  "packaged_file_count": 208
 }

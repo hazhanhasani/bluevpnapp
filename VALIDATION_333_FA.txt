@@ -1,0 +1,17 @@
+BluePanel Public Website 3.0.33
+================================
+Python compile: PASS
+Jinja template parse/import: PASS
+Public route smoke test: PASS
+Root landing: HTTP 200
+Terms: HTTP 200
+Privacy: HTTP 200
+Refund policy: HTTP 200
+Contact: HTTP 200
+robots.txt: HTTP 200
+sitemap.xml: HTTP 200
+Public API docs: HTTP 404 by default
+Public landing forbidden-word regression: PASS
+Pytest: 102 passed
+Version: 3.0.33
+Version code: 30033

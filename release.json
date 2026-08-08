@@ -1,11 +1,11 @@
 {
-  "version": "3.0.32",
-  "channel": "bluepanel-sms-center",
-  "build_id": "20260807-bluepanel-sms-center-v3032",
-  "built_at": "2026-08-07T19:30:00Z",
-  "android_version": "3.0.32",
-  "android_version_code": 30032,
-  "description": "BlueVPN 3.0.32 مرکز کامل پیامک بلوپنل را با ۳۸ پترن، اعلان خودکار رویدادها، صف و Retry، یادآوری اشتراک و حجم، گزارش تحویل، تست پترن، ارسال عمومی امن و API رویداد داخلی اضافه می‌کند.",
+  "version": "3.0.33",
+  "channel": "bluepanel-public-website",
+  "build_id": "20260808-bluepanel-public-website-v3033",
+  "built_at": "2026-08-08T14:30:00Z",
+  "android_version": "3.0.33",
+  "android_version_code": 30033,
+  "description": "BlueVPN 3.0.33 صفحه عمومی و شفاف بلوپنل را برای معرفی مدیریت حساب، سفارش، صورتحساب، اعلان پیامکی و پشتیبانی، همراه با قوانین، حریم خصوصی، بازگشت وجه، تماس، نشان اعتماد قابل تنظیم، robots و sitemap اضافه می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -247,8 +247,14 @@
     "sms-safe-broadcast-console",
     "sms-internal-event-api",
     "sms-schema-13",
-    "bluepanel-sms-branding"
+    "bluepanel-sms-branding",
+    "bluepanel-public-landing-page",
+    "public-terms-and-privacy-pages",
+    "public-refund-and-contact-pages",
+    "configurable-enamad-badge",
+    "public-robots-and-sitemap",
+    "production-api-docs-disabled"
   ],
-  "version_code": 30032,
+  "version_code": 30033,
   "notes": "Complete BluePanel SMS notification center with 38 FarazSMS/IPPanel patterns, event-driven delivery, retries, dedupe, scheduled scans, broadcast console and delivery audit."
 }

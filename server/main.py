@@ -236,7 +236,14 @@ def create_database_backup()->tuple[Path,str,Path]:
 
 
 session_https_only=env_bool('SESSION_HTTPS_ONLY',bool(os.getenv('RAILWAY_PROJECT_ID')))
-app=FastAPI(title='BlueVPN Ultimate AI Platform',version=VERSION)
+PUBLIC_API_DOCS=env_bool('PUBLIC_API_DOCS',False)
+app=FastAPI(
+    title='BluePanel Digital Services Platform',
+    version=VERSION,
+    docs_url='/docs' if PUBLIC_API_DOCS else None,
+    redoc_url='/redoc' if PUBLIC_API_DOCS else None,
+    openapi_url='/openapi.json' if PUBLIC_API_DOCS else None,
+)
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),
@@ -347,6 +354,81 @@ def settings(db:Session)->dict:
     return {**DEFAULT,**data}
 def save_settings(db:Session,data:dict):
     data['updated_at']=iso_z(utcnow());row=db.get(AppSetting,1) or AppSetting(id=1,payload='{}');row.payload=json.dumps(data,ensure_ascii=False);row.updated_at=utcnow();db.add(row);db.commit()
+
+
+def public_site_context(request:Request,db:Session)->dict:
+    current=settings(db)
+    canonical_base=(os.getenv('PUBLIC_SITE_URL') or str(request.base_url)).strip().rstrip('/')
+    return {
+        'request':request,
+        'site_name':os.getenv('PUBLIC_SITE_NAME','بلوپنل').strip() or 'بلوپنل',
+        'site_description':os.getenv(
+            'PUBLIC_SITE_DESCRIPTION',
+            'سامانه‌ای برای مدیریت حساب کاربران، سفارش‌ها، صورتحساب‌ها، اعلان‌های پیامکی و پشتیبانی خدمات دیجیتال.',
+        ).strip(),
+        'canonical_base':canonical_base,
+        'canonical_url':canonical_base + (request.url.path if request.url.path != '/' else '/'),
+        'support_url':(os.getenv('PUBLIC_SUPPORT_URL') or current.get('support_url') or '').strip(),
+        'support_phone':os.getenv('PUBLIC_SUPPORT_PHONE','').strip(),
+        'support_email':os.getenv('PUBLIC_SUPPORT_EMAIL','').strip(),
+        'business_owner':os.getenv('PUBLIC_BUSINESS_OWNER','').strip(),
+        'business_address':os.getenv('PUBLIC_BUSINESS_ADDRESS','').strip(),
+        'business_hours':os.getenv('PUBLIC_BUSINESS_HOURS','شنبه تا پنجشنبه، ساعت ۹ تا ۱۸').strip(),
+        'enamad_url':os.getenv('ENAMAD_VERIFY_URL','').strip(),
+        'enamad_logo_url':os.getenv('ENAMAD_LOGO_URL','').strip(),
+        'current_year':datetime.now().year,
+        'updated_at':format_jalali(utcnow(),fallback=''),
+    }
+
+
+def legal_page_data(page:str)->dict:
+    pages={
+        'terms':{
+            'label':'قوانین استفاده',
+            'title':'قوانین و مقررات بلوپنل',
+            'description':'شرایط عمومی استفاده از سامانه و دریافت خدمات دیجیتال از بلوپنل.',
+            'sections':[
+                {'title':'پذیرش شرایط','paragraphs':['استفاده از سامانه به معنی مطالعه و پذیرش این مقررات و شرایط اختصاصی هر خدمت است. جزئیات، مدت، مبلغ و محدودیت‌های هر خدمت پیش از ثبت نهایی نمایش داده می‌شود.']},
+                {'title':'حساب کاربری','paragraphs':['کاربر مسئول صحت شماره همراه و اطلاعات ثبت‌شده و همچنین حفاظت از کدهای ورود و دسترسی حساب خود است. رویدادهای امنیتی مهم می‌توانند از طریق پیامک اطلاع‌رسانی شوند.']},
+                {'title':'سفارش و پرداخت','paragraphs':['ثبت پرداخت به‌تنهایی به معنی تکمیل خدمت نیست و وضعیت نهایی در حساب کاربری یا پیام تأیید اعلام می‌شود. شناسه صورتحساب و سوابق پرداخت برای پیگیری نگهداری می‌شوند.']},
+                {'title':'استفاده مجاز','paragraphs':['کاربر متعهد است از خدمات در چهارچوب قوانین جاری، حقوق اشخاص ثالث و شرایط اعلام‌شده استفاده کند. در صورت سوءاستفاده، تقلب یا تهدید امنیت سامانه، دسترسی می‌تواند محدود یا متوقف شود.']},
+                {'title':'تغییرات خدمات','paragraphs':['تغییرات مهم در مقررات یا شیوه ارائه خدمات از طریق همین وب‌سایت یا کانال‌های رسمی اطلاع‌رسانی می‌شود.']},
+            ],
+        },
+        'privacy':{
+            'label':'حریم خصوصی',
+            'title':'سیاست حریم خصوصی بلوپنل',
+            'description':'توضیح نحوه دریافت، استفاده و حفاظت از اطلاعات کاربران.',
+            'sections':[
+                {'title':'اطلاعات مورد نیاز','paragraphs':['برای ایجاد و مدیریت حساب ممکن است شماره همراه، اطلاعات سفارش، صورتحساب، وضعیت پرداخت، درخواست‌های پشتیبانی و داده‌های فنی ضروری ثبت شود.']},
+                {'title':'هدف پردازش','paragraphs':['اطلاعات برای احراز هویت، ارائه و پیگیری خدمت، جلوگیری از تقلب، ارسال اعلان‌های ضروری، پاسخ‌گویی به پشتیبانی و بهبود پایداری سامانه استفاده می‌شود.']},
+                {'title':'پیامک‌ها','paragraphs':['پیامک برای کد ورود، وضعیت سفارش و پرداخت، فعال‌سازی یا تمدید خدمت، هشدارهای امنیتی و پاسخ پشتیبانی ارسال می‌شود. پیام تبلیغاتی بدون رضایت کاربر ارسال نمی‌شود.']},
+                {'title':'نگهداری و حفاظت','paragraphs':['دسترسی به اطلاعات به نیازهای عملیاتی و پشتیبانی محدود می‌شود و برای کاهش دسترسی غیرمجاز از کنترل‌های فنی و مدیریتی استفاده می‌شود. مدت نگهداری بر اساس ضرورت ارائه خدمت و الزامات قانونی تعیین می‌شود.']},
+                {'title':'درخواست کاربر','paragraphs':['کاربر می‌تواند برای اصلاح اطلاعات نادرست یا پیگیری وضعیت داده‌های حساب خود از مسیرهای رسمی پشتیبانی درخواست ثبت کند.']},
+            ],
+        },
+        'refund-policy':{
+            'label':'بازگشت وجه',
+            'title':'شرایط بررسی و بازگشت وجه',
+            'description':'ضوابط عمومی رسیدگی به پرداخت ناموفق، پرداخت تکراری یا انجام‌نشدن خدمت.',
+            'sections':[
+                {'title':'خطای پرداخت','paragraphs':['در صورت کسر وجه و ثبت‌نشدن پرداخت، کاربر باید شناسه صورتحساب، مبلغ، زمان پرداخت و اطلاعات پیگیری بانکی را برای پشتیبانی ارسال کند.']},
+                {'title':'انجام‌نشدن خدمت','paragraphs':['اگر خدمت پس از تأیید پرداخت در مهلت اعلام‌شده فعال نشود، درخواست بررسی و در صورت احراز شرایط، اصلاح سفارش یا بازگشت وجه انجام می‌شود.']},
+                {'title':'پس از فعال‌سازی','paragraphs':['پس از فعال‌شدن و شروع استفاده از خدمت، امکان بازگشت وجه تابع نوع خدمت، میزان استفاده و شرایط اختصاصی نمایش‌داده‌شده هنگام سفارش است.']},
+                {'title':'زمان رسیدگی','paragraphs':['نتیجه بررسی از طریق حساب کاربری یا راه ارتباطی ثبت‌شده اعلام می‌شود. زمان واریز نهایی پس از تأیید می‌تواند به چرخه بانکی وابسته باشد.']},
+            ],
+        },
+        'contact':{
+            'label':'تماس با ما',
+            'title':'راه‌های ارتباط با بلوپنل',
+            'description':'برای پیگیری سفارش، پرداخت، حساب کاربری یا پشتیبانی از کانال‌های رسمی استفاده کنید.',
+            'sections':[
+                {'title':'پشتیبانی','paragraphs':['پشتیبانی در بازه اعلام‌شده به درخواست‌ها رسیدگی می‌کند. برای پیگیری سریع‌تر، شماره همراه حساب و شناسه صورتحساب یا درخواست را همراه پیام ارسال کنید.']},
+                {'title':'امنیت ارتباط','paragraphs':['بلوپنل هرگز رمز، کد یک‌بارمصرف یا اطلاعات کامل کارت بانکی را از طریق پیام یا تماس درخواست نمی‌کند.']},
+            ],
+        },
+    }
+    return pages[page]
 def admin_required(request:Request):
     if not request.session.get('admin'):raise HTTPException(401,'Unauthorized')
 def email_ok(raw:str)->str:
@@ -1480,7 +1562,7 @@ def health():
     now=utcnow()
     return {
         'status':'ok' if info['ready'] else 'error',
-        'service':'bluevpn-platform',
+        'service':'bluepanel-platform',
         'version':VERSION,
         'server_time':iso_z(now),
         'server_time_fa':format_jalali(now,include_seconds=True),
@@ -1489,8 +1571,48 @@ def health():
         'database':info,
         'counts':database_table_counts() if info['ready'] else {},
     }
-@app.get('/')
-def root():return RedirectResponse('/admin',302)
+@app.get('/',response_class=HTMLResponse)
+def root(request:Request,db:Session=Depends(get_db)):
+    return templates.TemplateResponse(request=request,name='landing.html',context=public_site_context(request,db))
+
+@app.get('/terms',response_class=HTMLResponse)
+def public_terms(request:Request,db:Session=Depends(get_db)):
+    context=public_site_context(request,db);context.update(legal_page_data('terms'))
+    return templates.TemplateResponse(request=request,name='legal.html',context=context)
+
+@app.get('/privacy',response_class=HTMLResponse)
+def public_privacy(request:Request,db:Session=Depends(get_db)):
+    context=public_site_context(request,db);context.update(legal_page_data('privacy'))
+    return templates.TemplateResponse(request=request,name='legal.html',context=context)
+
+@app.get('/refund-policy',response_class=HTMLResponse)
+def public_refund_policy(request:Request,db:Session=Depends(get_db)):
+    context=public_site_context(request,db);context.update(legal_page_data('refund-policy'))
+    return templates.TemplateResponse(request=request,name='legal.html',context=context)
+
+@app.get('/contact',response_class=HTMLResponse)
+def public_contact(request:Request,db:Session=Depends(get_db)):
+    context=public_site_context(request,db);page=legal_page_data('contact')
+    page['sections'].append({'title':'اطلاعات رسمی','paragraphs':[
+        f"تلفن پشتیبانی: {context['support_phone'] or 'از طریق کانال پشتیبانی اعلام‌شده'}",
+        f"ایمیل پشتیبانی: {context['support_email'] or 'از طریق کانال پشتیبانی اعلام‌شده'}",
+        f"ساعات پاسخ‌گویی: {context['business_hours']}",
+        f"نشانی: {context['business_address'] or 'اطلاعات ثبتی در نشان اعتماد قابل مشاهده است'}",
+    ]})
+    context.update(page)
+    return templates.TemplateResponse(request=request,name='legal.html',context=context)
+
+@app.get('/robots.txt')
+def robots_txt(request:Request):
+    base=(os.getenv('PUBLIC_SITE_URL') or str(request.base_url)).strip().rstrip('/')
+    body=f"User-agent: *\nAllow: /\nDisallow: /admin\nDisallow: /api/\nSitemap: {base}/sitemap.xml\n"
+    return Response(body,media_type='text/plain; charset=utf-8')
+
+@app.get('/sitemap.xml')
+def sitemap_xml(request:Request):
+    base=(os.getenv('PUBLIC_SITE_URL') or str(request.base_url)).strip().rstrip('/')
+    urls=''.join(f'<url><loc>{base}{path}</loc></url>' for path in ('/','/terms','/privacy','/refund-policy','/contact'))
+    return Response(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>',media_type='application/xml')
 @app.get('/api/v1/mobile/config')
 async def mobile_config(
     refresh:bool=False,

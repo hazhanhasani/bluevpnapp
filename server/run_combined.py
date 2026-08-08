@@ -31,7 +31,7 @@ try:
     from server.version import VERSION
     from server.time_locale import TEHRAN_ZONE_NAME, format_jalali
 except Exception:
-    VERSION = os.getenv("BLUEVPN_VERSION", "3.0.32")
+    VERSION = os.getenv("BLUEVPN_VERSION", "3.0.33")
     TEHRAN_ZONE_NAME = "Asia/Tehran"
     def format_jalali(value: Any, **_: Any) -> str:
         return str(value)

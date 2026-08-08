@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>{{ title }} | {{ site_name }}</title>
+  <meta name="description" content="{{ description }}">
+  <meta name="robots" content="index,follow">
+  <link rel="canonical" href="{{ canonical_url }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='landing.css') }}">
+</head>
+<body class="legal-page">
+  <header class="site-header">
+    <a class="brand" href="/"><span class="brand-mark">B</span><span><strong>{{ site_name }}</strong><small>سامانه مدیریت خدمات دیجیتال</small></span></a>
+    <a class="header-action" href="/">بازگشت به صفحه اصلی</a>
+  </header>
+  <main class="legal-shell">
+    <article class="legal-card">
+      <span class="eyebrow">{{ label }}</span>
+      <h1>{{ title }}</h1>
+      <p class="legal-lead">{{ description }}</p>
+      {% for section in sections %}
+      <section><h2>{{ section.title }}</h2>{% for paragraph in section.paragraphs %}<p>{{ paragraph }}</p>{% endfor %}</section>
+      {% endfor %}
+      <div class="legal-note">آخرین بازبینی: {{ updated_at }}</div>
+    </article>
+  </main>
+  <footer class="site-footer compact"><div class="footer-links"><a href="/terms">قوانین</a><a href="/privacy">حریم خصوصی</a><a href="/refund-policy">بازگشت وجه</a><a href="/contact">تماس با ما</a></div></footer>
+</body>
+</html>

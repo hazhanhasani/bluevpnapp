@@ -1,17 +1,17 @@
 {
-  "release": "3.0.32-auto",
-  "version_name": "3.0.32",
-  "version_code": 30032,
+  "release": "3.0.33",
+  "version_name": "3.0.33",
+  "version_code": 30033,
   "changes": [
-    "Add all 38 BluePanel FarazSMS patterns and variable contracts",
-    "Add event queue, retry, dedupe and delivery audit logs",
-    "Add automatic payment, subscription, device, phone and security notifications",
-    "Add hourly expiry, reminder and low-volume scanner",
-    "Add admin pattern center, test console, broadcast console and internal event API"
+    "Replace root redirect with a public BluePanel service landing page",
+    "Add public terms, privacy, refund and contact pages",
+    "Add configurable e-trust badge, public business information and support details",
+    "Add robots.txt and sitemap.xml for public indexing",
+    "Keep administration available at /admin and /admin/login"
   ],
-  "generated_at_unix": 1786039800,
-  "purpose": "ارتقای کامل پروژه بر اساس ۳۸ پترن پیامکی بلوپنل",
-  "updated_at": "2026-08-07T19:30:00Z",
-  "built_at": "2026-08-07T19:30:00Z",
-  "build_id": "20260807-bluepanel-sms-center-v3032"
+  "generated_at_unix": 1786197850,
+  "purpose": "صفحه عمومی شفاف بلوپنل بر اساس قابلیت‌های واقعی مدیریت حساب، صورتحساب، اعلان و پشتیبانی",
+  "updated_at": "2026-08-08T14:30:00Z",
+  "built_at": "2026-08-08T14:30:00Z",
+  "build_id": "20260808-bluepanel-public-website-v3033"
 }

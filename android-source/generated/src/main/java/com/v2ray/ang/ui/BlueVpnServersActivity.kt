@@ -3,7 +3,6 @@ package com.v2ray.ang.ui
 import android.app.Activity
 import android.content.Intent
 import android.content.res.ColorStateList
-import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -11,6 +10,7 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -20,134 +20,117 @@ import android.widget.Toast
 import androidx.activity.viewModels
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
-import com.v2ray.ang.bluevpn.BlueVpnConnectionMode
+import com.v2ray.ang.bluevpn.BlueVpnDynamicBackgroundView
 import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnLocation
 import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
+import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
+import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.viewmodel.MainViewModel
 
 class BlueVpnServersActivity : HelperBaseActivity() {
 
     companion object {
-        const val EXTRA_LOCATION_CHANGED =
-            "bluevpn.extra.LOCATION_CHANGED"
-        const val EXTRA_LOCATION_KEY =
-            "bluevpn.extra.LOCATION_KEY"
-        const val EXTRA_LOCATION_TITLE =
-            "bluevpn.extra.LOCATION_TITLE"
+        const val EXTRA_LOCATION_CHANGED = "bluevpn.extra.LOCATION_CHANGED"
+        const val EXTRA_LOCATION_KEY = "bluevpn.extra.LOCATION_KEY"
+        const val EXTRA_LOCATION_TITLE = "bluevpn.extra.LOCATION_TITLE"
     }
 
-    private enum class LocationTab {
-        ALL,
-        FAVORITES,
-        RECENT,
-    }
+    private enum class LocationTab { ALL, FAVORITES, RECENT }
+
+    private data class LocationGroup(
+        val location: BlueVpnLocation,
+        val servers: List<BlueVpnLocationUtil.Candidate>,
+        val usableRoutes: Int,
+        val healthScore: Int,
+        val favorite: Boolean,
+    )
 
     private val mainViewModel: MainViewModel by viewModels()
+    private lateinit var palette: BlueVpnPalette
+    private var themeDarkAtCreate = true
     private lateinit var listContainer: LinearLayout
     private lateinit var emptyText: TextView
     private lateinit var refreshButton: MaterialButton
     private lateinit var allTabButton: MaterialButton
     private lateinit var favoritesTabButton: MaterialButton
     private lateinit var recentTabButton: MaterialButton
-    private val modeButtons =
-        mutableMapOf<BlueVpnConnectionMode, MaterialButton>()
     private var selectedTab = LocationTab.ALL
     private var query = ""
     private var firstResume = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.parseColor("#09090D")
-        window.navigationBarColor = Color.parseColor("#09090D")
+        palette = BlueVpnTheme.palette(this)
+        themeDarkAtCreate = palette.dark
+        window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(palette.background))
+        BlueVpnTheme.applySystemBars(this)
         setContentView(createScreen())
         updateTabs()
 
         mainViewModel.startListenBroadcast()
         mainViewModel.updateListAction.observe(this) {
             BlueVpnLocationUtil.invalidateCache()
-            refreshButton.isEnabled = true
-            refreshButton.text = "↻"
+            stopRefreshing()
             renderLocations()
         }
         mainViewModel.updateTestResultAction.observe(this) {
             BlueVpnLocationUtil.invalidateCache()
             if (BlueVpnPreferences.smartBalance(this)) {
-                BlueVpnLocationUtil
-                    .orderedCandidates(this)
+                BlueVpnLocationUtil.instantCandidates(this)
                     .firstOrNull()
                     ?.let { MmkvManager.setSelectServer(it.guid) }
             }
-            refreshButton.isEnabled = true
-            refreshButton.text = "↻"
+            stopRefreshing()
             renderLocations()
         }
-
         renderLocations()
     }
 
     override fun onResume() {
         super.onResume()
-        if (firstResume) {
-            firstResume = false
-        } else {
-            renderLocations()
+        BlueVpnTheme.applySystemBars(this)
+        if (BlueVpnTheme.isDark(this) != themeDarkAtCreate) {
+            recreate()
+            return
         }
+        if (firstResume) firstResume = false else renderLocations()
     }
 
     private fun createScreen(): View {
+        palette = BlueVpnTheme.palette(this)
+        val frame = FrameLayout(this).apply {
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setBackgroundColor(palette.background)
+        }
+        frame.addView(BlueVpnDynamicBackgroundView(this), FrameLayout.LayoutParams(-1, -1))
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(10), dp(16), dp(12))
-            setBackgroundColor(Color.parseColor("#09090D"))
+            setPadding(dp(18), dp(10), dp(18), dp(14))
             layoutDirection = View.LAYOUT_DIRECTION_RTL
         }
+        frame.addView(root, FrameLayout.LayoutParams(-1, -1))
 
-        root.addView(
-            createHeader(),
-            LinearLayout.LayoutParams(-1, dp(58)),
-        )
-        root.addView(
-            createTabs(),
-            LinearLayout.LayoutParams(-1, dp(48)).apply {
-                topMargin = dp(8)
-            },
-        )
-        root.addView(
-            createSearchField(),
-            LinearLayout.LayoutParams(-1, dp(50)).apply {
-                topMargin = dp(10)
-            },
-        )
-        root.addView(
-            createCompactModeSelector(),
-            LinearLayout.LayoutParams(-1, dp(42)).apply {
-                topMargin = dp(8)
-            },
-        )
-        root.addView(
-            automaticServerCard(),
-            LinearLayout.LayoutParams(-1, dp(78)).apply {
-                topMargin = dp(10)
-                bottomMargin = dp(8)
-            },
-        )
+        root.addView(createHeader(), LinearLayout.LayoutParams(-1, dp(60)))
+        root.addView(createTabs(), LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
+        root.addView(createSearchField(), LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(10) })
+        root.addView(automaticServerCard(), LinearLayout.LayoutParams(-1, dp(82)).apply {
+            topMargin = dp(10)
+            bottomMargin = dp(9)
+        })
 
-        emptyText = TextView(this).apply {
-            text = "مکانی برای نمایش وجود ندارد."
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setTextColor(Color.parseColor("#858791"))
+        emptyText = textView("مکانی برای نمایش وجود ندارد", 13f, palette.textMuted, Gravity.CENTER).apply {
             visibility = View.GONE
-            setPadding(0, dp(34), 0, dp(34))
+            setPadding(0, dp(30), 0, dp(30))
         }
         root.addView(emptyText)
 
         listContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, dp(12))
+            setPadding(0, 0, 0, dp(16))
         }
         val scroll = ScrollView(this).apply {
             isFillViewport = true
@@ -155,7 +138,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             addView(listContainer)
         }
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        return root
+        return frame
     }
 
     private fun createHeader(): View {
@@ -164,380 +147,131 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        val titleBox = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL or Gravity.END
-        }
-        titleBox.addView(TextView(this).apply {
-            text = "مکان  ◉"
-            textSize = 25f
-            setTextColor(Color.WHITE)
-            setTypeface(typeface, Typeface.BOLD)
-            gravity = Gravity.END
-        })
-        titleBox.addView(TextView(this).apply {
-            text = "انتخاب هوشمند یا دستی مسیر اتصال"
-            textSize = 10.5f
-            setTextColor(Color.parseColor("#777A85"))
-            gravity = Gravity.END
-            setPadding(0, dp(3), 0, 0)
-        })
-        row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
-
-        refreshButton = MaterialButton(this).apply {
-            text = "↻"
-            textSize = 21f
-            minWidth = 0
-            minimumWidth = 0
-            insetTop = 0
-            insetBottom = 0
-            setPadding(0, 0, 0, 0)
-            cornerRadius = dp(16)
-            backgroundTintList =
-                ColorStateList.valueOf(Color.parseColor("#1B1B21"))
-            strokeWidth = dp(1)
-            strokeColor =
-                ColorStateList.valueOf(Color.parseColor("#2C2D35"))
-            setTextColor(Color.parseColor("#A4A6AF"))
+        refreshButton = smallButton("تازه‌سازی").apply {
             contentDescription = "بررسی دوباره سرورها"
             setOnClickListener {
                 isEnabled = false
-                text = "…"
+                text = "در حال بررسی"
                 mainViewModel.reloadServerList()
                 mainViewModel.testAllRealPing()
             }
         }
-        row.addView(
-            refreshButton,
-            LinearLayout.LayoutParams(dp(46), dp(46)).apply {
-                marginStart = dp(8)
-            },
-        )
+        row.addView(refreshButton, LinearLayout.LayoutParams(dp(104), dp(44)))
 
-        row.addView(
-            TextView(this).apply {
-                text = "×"
-                textSize = 34f
-                gravity = Gravity.CENTER
-                setTextColor(Color.WHITE)
-                isClickable = true
-                isFocusable = true
-                contentDescription = "بستن"
-                background = rounded(
-                    Color.parseColor("#24242A"),
-                    23,
-                    Color.parseColor("#303139"),
-                )
-                setOnClickListener { finish() }
-            },
-            LinearLayout.LayoutParams(dp(46), dp(46)).apply {
-                marginStart = dp(8)
-            },
-        )
+        val titleBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL or Gravity.END
+            setPadding(dp(12), 0, dp(12), 0)
+        }
+        titleBox.addView(textView("مکان‌ها", 25f, palette.textPrimary, Gravity.END).apply {
+            setTypeface(typeface, Typeface.BOLD)
+        })
+        titleBox.addView(textView("انتخاب خودکار یا دستی", 10.5f, palette.textMuted, Gravity.END).apply {
+            setPadding(0, dp(3), 0, 0)
+        })
+        row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
+
+        row.addView(smallButton("بستن").apply { setOnClickListener { finish() } }, LinearLayout.LayoutParams(dp(76), dp(44)))
         return row
     }
 
     private fun createTabs(): View {
-        val container = MaterialCardView(this).apply {
-            radius = dp(23).toFloat()
-            cardElevation = 0f
-            setCardBackgroundColor(Color.parseColor("#15151A"))
-            strokeWidth = dp(1)
-            strokeColor = Color.parseColor("#25262D")
-        }
+        val card = card(radius = 24, fill = palette.surface, stroke = palette.stroke)
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
-        container.addView(row)
-
-        allTabButton = tabButton("مکان‌ها", LocationTab.ALL)
-        favoritesTabButton = tabButton("مورد علاقه", LocationTab.FAVORITES)
-        recentTabButton = tabButton("اخیر", LocationTab.RECENT)
+        card.addView(row)
+        allTabButton = tabButton("همه") { selectedTab = LocationTab.ALL; updateTabs(); renderLocations() }
+        favoritesTabButton = tabButton("علاقه‌مندی") { selectedTab = LocationTab.FAVORITES; updateTabs(); renderLocations() }
+        recentTabButton = tabButton("اخیر") { selectedTab = LocationTab.RECENT; updateTabs(); renderLocations() }
         row.addView(allTabButton, LinearLayout.LayoutParams(0, -1, 1f))
-        row.addView(
-            favoritesTabButton,
-            LinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = dp(4) },
-        )
-        row.addView(
-            recentTabButton,
-            LinearLayout.LayoutParams(0, -1, 0.72f).apply { marginStart = dp(4) },
-        )
-        return container
-    }
-
-    private fun tabButton(
-        label: String,
-        tab: LocationTab,
-    ): MaterialButton = MaterialButton(this).apply {
-        text = label
-        textSize = 11.5f
-        isAllCaps = false
-        minWidth = 0
-        minimumWidth = 0
-        insetTop = 0
-        insetBottom = 0
-        cornerRadius = dp(19)
-        setOnClickListener {
-            selectedTab = tab
-            updateTabs()
-            renderLocations()
-        }
-    }
-
-    private fun updateTabs() {
-        if (!::allTabButton.isInitialized) return
-        val favoriteCount = BlueVpnExperience.favoritesCount(this)
-        val recentCount = BlueVpnExperience.history(this)
-            .map { it.locationKey }
-            .distinct()
-            .size
-        allTabButton.text = "مکان‌ها"
-        favoritesTabButton.text = "مورد علاقه $favoriteCount"
-        recentTabButton.text = "اخیر $recentCount"
-
-        listOf(
-            LocationTab.ALL to allTabButton,
-            LocationTab.FAVORITES to favoritesTabButton,
-            LocationTab.RECENT to recentTabButton,
-        ).forEach { (tab, button) ->
-            val active = tab == selectedTab
-            button.backgroundTintList = ColorStateList.valueOf(
-                Color.parseColor(if (active) "#E7E7EA" else "#202027")
-            )
-            button.setTextColor(
-                Color.parseColor(if (active) "#101014" else "#A3A5AE")
-            )
-            button.strokeWidth = if (active) 0 else dp(1)
-            button.strokeColor = ColorStateList.valueOf(Color.parseColor("#2C2D35"))
-        }
+        row.addView(favoritesTabButton, LinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
+        row.addView(recentTabButton, LinearLayout.LayoutParams(0, -1, 1f))
+        return card
     }
 
     private fun createSearchField(): View = EditText(this).apply {
-        hint = "جست‌وجو در مکان‌ها"
-        setHintTextColor(Color.parseColor("#656873"))
-        setTextColor(Color.WHITE)
+        hint = "جست‌وجوی کشور"
         textSize = 13f
-        setSingleLine(true)
+        setTextColor(palette.textPrimary)
+        setHintTextColor(palette.textMuted)
+        singleLine = true
         gravity = Gravity.CENTER_VERTICAL or Gravity.END
-        background = rounded(
-            Color.parseColor("#121217"),
-            18,
-            Color.parseColor("#282932"),
-        )
         setPadding(dp(16), 0, dp(16), 0)
+        background = rounded(palette.surface, 18, palette.stroke)
         addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(
-                s: CharSequence?,
-                start: Int,
-                count: Int,
-                after: Int,
-            ) = Unit
-
-            override fun onTextChanged(
-                s: CharSequence?,
-                start: Int,
-                before: Int,
-                count: Int,
-            ) {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 query = BlueVpnLocationUtil.normalizeForSearch(s?.toString())
                 renderLocations()
             }
-
             override fun afterTextChanged(s: Editable?) = Unit
         })
     }
 
-    private fun createCompactModeSelector(): View {
-        val row = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        listOf(
-            BlueVpnConnectionMode.BALANCED,
-            BlueVpnConnectionMode.GAMING,
-            BlueVpnConnectionMode.STREAMING,
-        ).forEachIndexed { index, mode ->
-            val button = MaterialButton(this).apply {
-                text = when (mode) {
-                    BlueVpnConnectionMode.BALANCED -> "متعادل"
-                    BlueVpnConnectionMode.GAMING -> "بازی"
-                    BlueVpnConnectionMode.STREAMING -> "پخش"
-                }
-                textSize = 10.5f
-                isAllCaps = false
-                minWidth = 0
-                minimumWidth = 0
-                insetTop = 0
-                insetBottom = 0
-                cornerRadius = dp(16)
-                setOnClickListener {
-                    BlueVpnExperience.setMode(this@BlueVpnServersActivity, mode)
-                    updateModeButtons()
-                    renderLocations()
-                    if (BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity)) {
-                        mainViewModel.testAllRealPing()
-                    }
-                }
-            }
-            modeButtons[mode] = button
-            row.addView(
-                button,
-                LinearLayout.LayoutParams(0, -1, 1f).apply {
-                    if (index > 0) marginStart = dp(5)
-                },
-            )
-        }
-        updateModeButtons()
-        return row
-    }
-
-    private fun updateModeButtons() {
-        val selected = BlueVpnExperience.mode(this)
-        modeButtons.forEach { (mode, button) ->
-            val active = mode == selected
-            button.backgroundTintList = ColorStateList.valueOf(
-                Color.parseColor(if (active) "#315FD9" else "#19191F")
-            )
-            button.strokeWidth = dp(1)
-            button.strokeColor = ColorStateList.valueOf(
-                Color.parseColor(if (active) "#5D88F0" else "#2B2C34")
-            )
-            button.setTextColor(
-                Color.parseColor(if (active) "#FFFFFF" else "#8C8F9A")
-            )
-        }
-    }
-
     private fun automaticServerCard(): View {
-        val automatic = BlueVpnPreferences.smartBalance(this)
-        val card = MaterialCardView(this).apply {
-            radius = dp(22).toFloat()
-            cardElevation = 0f
-            setCardBackgroundColor(
-                Color.parseColor(if (automatic) "#151C31" else "#121217")
-            )
-            strokeWidth = dp(if (automatic) 2 else 1)
-            strokeColor = Color.parseColor(if (automatic) "#4C80FF" else "#292A32")
+        val card = card(radius = 22, fill = palette.surface, stroke = palette.stroke).apply {
             isClickable = true
             isFocusable = true
-            setOnClickListener { selectAutomaticLocation() }
+            setOnClickListener { selectAutomatic() }
         }
-
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(10), dp(14), dp(10))
+            setPadding(dp(16), dp(10), dp(16), dp(10))
         }
         card.addView(row)
-
-        row.addView(
-            TextView(this).apply {
-                text = "◉"
-                textSize = 25f
-                gravity = Gravity.CENTER
-                setTextColor(Color.WHITE)
-                background = rounded(Color.parseColor("#3474E8"), 22)
-            },
-            LinearLayout.LayoutParams(dp(46), dp(46)),
-        )
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), 0, dp(12), 0)
-        }
-        content.addView(TextView(this).apply {
-            text = "پیش‌فرض"
-            textSize = 16f
-            setTextColor(Color.WHITE)
+        val dot = View(this).apply { background = circle(palette.accent) }
+        row.addView(dot, LinearLayout.LayoutParams(dp(13), dp(13)).apply { marginEnd = dp(12) })
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
+        box.addView(textView("انتخاب خودکار", 16f, palette.textPrimary, Gravity.END).apply { setTypeface(typeface, Typeface.BOLD) })
+        box.addView(textView("بهترین مسیر در همان لحظه انتخاب می‌شود", 10.5f, palette.textMuted, Gravity.END).apply { setPadding(0, dp(4), 0, 0) })
+        row.addView(box, LinearLayout.LayoutParams(0, -1, 1f))
+        row.addView(textView(if (BlueVpnPreferences.smartBalance(this)) "فعال" else "انتخاب", 11f, palette.accent, Gravity.CENTER).apply {
             setTypeface(typeface, Typeface.BOLD)
-        })
-        content.addView(TextView(this).apply {
-            text = if (automatic) {
-                "انتخاب خودکار از تمام مکان‌ها • فعال"
-            } else {
-                "بهترین سرور به‌صورت خودکار انتخاب شود"
-            }
-            textSize = 10.5f
-            setTextColor(Color.parseColor("#7F828D"))
-            setPadding(0, dp(4), 0, 0)
-        })
-        row.addView(content, LinearLayout.LayoutParams(0, -1, 1f))
-        row.addView(TextView(this).apply {
-            text = if (automatic) "✓" else "‹"
-            textSize = if (automatic) 17f else 27f
-            gravity = Gravity.CENTER
-            setTextColor(
-                Color.parseColor(if (automatic) "#6B98FF" else "#6C6F7A")
-            )
-        }, LinearLayout.LayoutParams(dp(36), dp(42)))
+        }, LinearLayout.LayoutParams(dp(62), dp(38)))
         return card
     }
 
-    private fun selectAutomaticLocation() {
-        val changed = !BlueVpnPreferences.smartBalance(this)
-        BlueVpnPreferences.setSmartBalance(this, true)
-        BlueVpnPreferences.setPreferredLocation(this, "")
-        BlueVpnLocationUtil
-            .orderedCandidates(this)
-            .firstOrNull()
-            ?.let { MmkvManager.setSelectServer(it.guid) }
-        mainViewModel.testAllRealPing()
-        setResult(
-            Activity.RESULT_OK,
-            Intent()
-                .putExtra(EXTRA_LOCATION_CHANGED, changed)
-                .putExtra(EXTRA_LOCATION_KEY, "")
-                .putExtra(EXTRA_LOCATION_TITLE, "انتخاب خودکار"),
-        )
-        Toast.makeText(this, "انتخاب خودکار فعال شد", Toast.LENGTH_SHORT).show()
-        finish()
+    private fun updateTabs() {
+        applyTab(allTabButton, selectedTab == LocationTab.ALL)
+        applyTab(favoritesTabButton, selectedTab == LocationTab.FAVORITES)
+        applyTab(recentTabButton, selectedTab == LocationTab.RECENT)
+    }
+
+    private fun applyTab(button: MaterialButton, active: Boolean) {
+        button.backgroundTintList = ColorStateList.valueOf(if (active) palette.accent else android.graphics.Color.TRANSPARENT)
+        button.setTextColor(if (active) android.graphics.Color.WHITE else palette.textSecondary)
     }
 
     private fun renderLocations() {
         if (!::listContainer.isInitialized) return
         listContainer.removeAllViews()
-        updateTabs()
 
-        val selectedGuid = MmkvManager.getSelectServer()
-        val selectedLocation = selectedGuid
-            ?.let { MmkvManager.decodeServerConfig(it) }
-            ?.let { BlueVpnLocationUtil.detect(it.remarks, it.server).key }
         val automatic = BlueVpnPreferences.smartBalance(this)
         val preferred = BlueVpnPreferences.preferredLocation(this)
-        val recentKeys = BlueVpnExperience.history(this)
-            .map { it.locationKey }
-            .distinct()
+        val selected = MmkvManager.getSelectServer()
+        val selectedLocation = BlueVpnLocationUtil.allCandidates(this).firstOrNull { it.guid == selected }?.location?.key
+        val recentKeys = BlueVpnExperience.history(this).map { it.locationKey }.distinct()
         val recentIndex = recentKeys.withIndex().associate { it.value to it.index }
 
-        val groups = BlueVpnLocationUtil
-            .allCandidates()
+        val groups = BlueVpnLocationUtil.allCandidates(this)
             .groupBy { it.location.key }
-            .values
-            .map { servers ->
-                val location = servers.first().location
-                val successful = servers.filter {
-                    it.delay > 0L &&
-                        !BlueVpnPreferences.isSessionInactive(this, it.guid)
-                }
-                val inactive = servers.count {
-                    BlueVpnPreferences.isSessionInactive(this, it.guid)
-                }
+            .mapNotNull { (_, servers) ->
+                val location = servers.firstOrNull()?.location ?: return@mapNotNull null
+                val usable = servers.count { !BlueVpnPreferences.isSessionInactive(this, it.guid) }
                 LocationGroup(
                     location = location,
                     servers = servers,
-                    bestDelay = successful.minOfOrNull { it.delay } ?: 0L,
-                    successfulRoutes = successful.size,
-                    inactiveRoutes = inactive,
+                    usableRoutes = usable,
                     healthScore = BlueVpnLocationUtil.locationHealthScore(this, servers),
                     favorite = BlueVpnExperience.isFavorite(this, location.key),
                 )
             }
             .filter { group ->
-                val searchable = BlueVpnLocationUtil.normalizeForSearch(
-                    "${group.location.title} ${group.location.key}"
-                )
+                val searchable = BlueVpnLocationUtil.normalizeForSearch("${group.location.title} ${group.location.key}")
                 val matchesQuery = query.isBlank() || searchable.contains(query)
                 val matchesTab = when (selectedTab) {
                     LocationTab.ALL -> true
@@ -548,39 +282,27 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             }
             .sortedWith(
                 when (selectedTab) {
-                    LocationTab.RECENT -> compareBy<LocationGroup> {
-                        recentIndex[it.location.key] ?: Int.MAX_VALUE
-                    }
+                    LocationTab.RECENT -> compareBy<LocationGroup> { recentIndex[it.location.key] ?: Int.MAX_VALUE }
                     else -> compareByDescending<LocationGroup> {
                         it.location.key == preferred || it.location.key == selectedLocation
-                    }.thenByDescending {
-                        it.favorite
-                    }.thenByDescending {
-                        it.healthScore
-                    }.thenBy {
-                        if (it.bestDelay > 0L) it.bestDelay else Long.MAX_VALUE
-                    }.thenBy { it.location.title }
+                    }.thenByDescending { it.favorite }
+                        .thenByDescending { it.healthScore }
+                        .thenBy { it.location.title }
                 }
             )
 
         emptyText.text = when (selectedTab) {
-            LocationTab.ALL -> "مکانی پیدا نشد."
-            LocationTab.FAVORITES -> "هنوز مکانی را به علاقه‌مندی‌ها اضافه نکرده‌اید."
-            LocationTab.RECENT -> "هنوز اتصال موفقی در تاریخچه ثبت نشده است."
+            LocationTab.ALL -> "مکانی پیدا نشد"
+            LocationTab.FAVORITES -> "هنوز مکانی را به علاقه‌مندی اضافه نکرده‌اید"
+            LocationTab.RECENT -> "هنوز اتصال موفقی ثبت نشده است"
         }
         emptyText.visibility = if (groups.isEmpty()) View.VISIBLE else View.GONE
 
         groups.forEach { group ->
-            val active = !automatic && (
-                group.location.key == preferred ||
-                    (preferred.isBlank() && group.location.key == selectedLocation)
-                )
-            listContainer.addView(
-                createLocationRow(group, active, automatic, selectedLocation),
-                LinearLayout.LayoutParams(-1, dp(76)).apply {
-                    bottomMargin = dp(7)
-                },
-            )
+            val active = !automatic && (group.location.key == preferred || (preferred.isBlank() && group.location.key == selectedLocation))
+            listContainer.addView(createLocationRow(group, active, automatic, selectedLocation), LinearLayout.LayoutParams(-1, dp(78)).apply {
+                bottomMargin = dp(8)
+            })
         }
     }
 
@@ -590,33 +312,22 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         automatic: Boolean,
         selectedLocation: String?,
     ): View {
-        val card = MaterialCardView(this).apply {
-            radius = dp(20).toFloat()
-            cardElevation = 0f
-            setCardBackgroundColor(
-                Color.parseColor(
-                    when {
-                        active -> "#151C31"
-                        group.favorite -> "#181621"
-                        else -> "#121217"
-                    }
-                )
-            )
+        val fill = when {
+            active -> if (palette.dark) 0xFF151D31.toInt() else 0xFFEAF0FF.toInt()
+            group.favorite -> if (palette.dark) 0xFF181621.toInt() else 0xFFF4F0FF.toInt()
+            else -> palette.surface
+        }
+        val stroke = when {
+            active -> palette.accent
+            group.favorite -> if (palette.dark) 0xFF44395F.toInt() else 0xFFD9CDF7.toInt()
+            else -> palette.stroke
+        }
+        val card = card(radius = 21, fill = fill, stroke = stroke).apply {
             strokeWidth = dp(if (active) 2 else 1)
-            strokeColor = Color.parseColor(
-                when {
-                    active -> "#4C80FF"
-                    group.favorite -> "#44395F"
-                    else -> "#282932"
-                }
-            )
             isClickable = true
             isFocusable = true
-            setOnClickListener {
-                selectGroup(group, automatic, selectedLocation)
-            }
+            setOnClickListener { selectGroup(group, automatic, selectedLocation) }
         }
-
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -624,54 +335,33 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
         card.addView(row)
 
-        row.addView(
-            TextView(this).apply {
-                text = group.location.flag
-                textSize = 27f
-                gravity = Gravity.CENTER
-                background = rounded(Color.parseColor("#24242A"), 24)
-            },
-            LinearLayout.LayoutParams(dp(50), dp(50)),
-        )
+        row.addView(textView(group.location.flag, 27f, palette.textPrimary, Gravity.CENTER).apply {
+            background = rounded(palette.surfaceStrong, 24)
+        }, LinearLayout.LayoutParams(dp(50), dp(50)))
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), 0, dp(12), 0)
         }
-        content.addView(TextView(this).apply {
-            text = group.location.title
-            textSize = 16f
-            setTextColor(Color.WHITE)
+        content.addView(textView(group.location.title, 16f, palette.textPrimary, Gravity.END).apply {
             setTypeface(typeface, Typeface.BOLD)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         })
-        content.addView(TextView(this).apply {
-            val ping = if (group.bestDelay > 0L) {
-                "${group.bestDelay} ms"
-            } else {
-                "تست هنگام اتصال"
-            }
-            val healthy = if (group.successfulRoutes > 0) {
-                "${group.successfulRoutes} فعال"
-            } else {
-                "در انتظار بررسی"
-            }
-            text = "${group.servers.size} مکان • $healthy • $ping"
-            textSize = 10.5f
-            setTextColor(Color.parseColor("#777A85"))
+        val availability = when {
+            group.usableRoutes <= 0 -> "در انتظار بررسی"
+            group.usableRoutes == group.servers.size -> "همه مسیرها آماده"
+            else -> "${group.usableRoutes} مسیر آماده"
+        }
+        content.addView(textView("${group.servers.size} سرور • $availability", 10.5f, palette.textMuted, Gravity.END).apply {
             setPadding(0, dp(5), 0, 0)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         })
         row.addView(content, LinearLayout.LayoutParams(0, -1, 1f))
 
-        val actions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-        actions.addView(MaterialButton(this).apply {
+        val favoriteButton = MaterialButton(this).apply {
             text = if (group.favorite) "★" else "☆"
             textSize = 18f
             minWidth = 0
@@ -683,89 +373,102 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             setPadding(0, 0, 0, 0)
             isAllCaps = false
             cornerRadius = dp(15)
-            backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
-            setTextColor(
-                Color.parseColor(if (group.favorite) "#B39BFF" else "#656873")
-            )
+            backgroundTintList = ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
+            setTextColor(if (group.favorite) palette.accent else palette.textMuted)
+            contentDescription = if (group.favorite) "حذف از علاقه‌مندی" else "افزودن به علاقه‌مندی"
             setOnClickListener {
-                BlueVpnExperience.toggleFavorite(
-                    this@BlueVpnServersActivity,
-                    group.location.key,
-                )
+                BlueVpnExperience.toggleFavorite(this@BlueVpnServersActivity, group.location.key)
                 renderLocations()
             }
-        }, LinearLayout.LayoutParams(dp(38), dp(38)))
-        actions.addView(TextView(this).apply {
-            text = if (active) "✓" else "⌄"
-            textSize = if (active) 16f else 22f
-            gravity = Gravity.CENTER
-            setTextColor(
-                Color.parseColor(if (active) "#6B98FF" else "#666974")
-            )
-        }, LinearLayout.LayoutParams(dp(30), dp(38)))
-        row.addView(actions)
+        }
+        row.addView(favoriteButton, LinearLayout.LayoutParams(dp(40), dp(40)))
+        row.addView(textView(if (active) "انتخاب‌شده" else "انتخاب", 9.5f, if (active) palette.accent else palette.textMuted, Gravity.CENTER), LinearLayout.LayoutParams(dp(62), dp(40)))
         return card
     }
 
-    private fun selectGroup(
-        group: LocationGroup,
-        automatic: Boolean,
-        selectedLocation: String?,
-    ) {
-        val currentPreferred = BlueVpnPreferences
-            .preferredLocation(this)
-            .ifBlank { selectedLocation.orEmpty() }
-        val changed = automatic || currentPreferred != group.location.key
-
-        BlueVpnPreferences.setSmartBalance(this, false)
-        BlueVpnPreferences.setPreferredLocation(this, group.location.key)
-        BlueVpnLocationUtil
-            .orderedCandidates(this, group.location.key)
-            .firstOrNull()
-            ?.let { MmkvManager.setSelectServer(it.guid) }
-
-        setResult(
-            Activity.RESULT_OK,
-            Intent()
-                .putExtra(EXTRA_LOCATION_CHANGED, changed)
-                .putExtra(EXTRA_LOCATION_KEY, group.location.key)
-                .putExtra(
-                    EXTRA_LOCATION_TITLE,
-                    "${group.location.flag} ${group.location.title}",
-                ),
-        )
-        Toast.makeText(
-            this,
-            if (changed) {
-                "${group.location.title} انتخاب شد"
-            } else {
-                "${group.location.title} از قبل فعال است"
-            },
-            Toast.LENGTH_SHORT,
-        ).show()
+    private fun selectAutomatic() {
+        val changed = !BlueVpnPreferences.smartBalance(this)
+        BlueVpnPreferences.setSmartBalance(this, true)
+        BlueVpnPreferences.setPreferredLocation(this, "")
+        BlueVpnLocationUtil.instantCandidates(this).firstOrNull()?.let { MmkvManager.setSelectServer(it.guid) }
+        setResult(Activity.RESULT_OK, Intent()
+            .putExtra(EXTRA_LOCATION_CHANGED, changed)
+            .putExtra(EXTRA_LOCATION_KEY, "")
+            .putExtra(EXTRA_LOCATION_TITLE, "انتخاب خودکار"))
+        Toast.makeText(this, "انتخاب خودکار فعال شد", Toast.LENGTH_SHORT).show()
         finish()
     }
 
-    private fun rounded(
-        fill: Int,
-        radiusDp: Int,
-        stroke: Int? = null,
-    ): GradientDrawable = GradientDrawable().apply {
+    private fun selectGroup(group: LocationGroup, automatic: Boolean, selectedLocation: String?) {
+        val currentPreferred = BlueVpnPreferences.preferredLocation(this).ifBlank { selectedLocation.orEmpty() }
+        val changed = automatic || currentPreferred != group.location.key
+        BlueVpnPreferences.setSmartBalance(this, false)
+        BlueVpnPreferences.setPreferredLocation(this, group.location.key)
+        BlueVpnLocationUtil.instantCandidates(this, group.location.key).firstOrNull()?.let { MmkvManager.setSelectServer(it.guid) }
+        setResult(Activity.RESULT_OK, Intent()
+            .putExtra(EXTRA_LOCATION_CHANGED, changed)
+            .putExtra(EXTRA_LOCATION_KEY, group.location.key)
+            .putExtra(EXTRA_LOCATION_TITLE, "${group.location.flag} ${group.location.title}"))
+        Toast.makeText(this, if (changed) "${group.location.title} انتخاب شد" else "${group.location.title} فعال است", Toast.LENGTH_SHORT).show()
+        finish()
+    }
+
+    private fun stopRefreshing() {
+        refreshButton.isEnabled = true
+        refreshButton.text = "تازه‌سازی"
+    }
+
+    private fun tabButton(label: String, action: () -> Unit): MaterialButton = MaterialButton(this).apply {
+        text = label
+        textSize = 11f
+        isAllCaps = false
+        insetTop = 0
+        insetBottom = 0
+        cornerRadius = dp(18)
+        setOnClickListener { action() }
+    }
+
+    private fun smallButton(label: String): MaterialButton = MaterialButton(this).apply {
+        text = label
+        textSize = 11f
+        isAllCaps = false
+        insetTop = 0
+        insetBottom = 0
+        minWidth = 0
+        minimumWidth = 0
+        cornerRadius = dp(16)
+        setTextColor(palette.textSecondary)
+        backgroundTintList = ColorStateList.valueOf(palette.surfaceStrong)
+        strokeColor = ColorStateList.valueOf(palette.stroke)
+        strokeWidth = dp(1)
+    }
+
+    private fun card(radius: Int, fill: Int, stroke: Int): MaterialCardView = MaterialCardView(this).apply {
+        this.radius = dp(radius).toFloat()
+        cardElevation = 0f
+        setCardBackgroundColor(fill)
+        strokeColor = stroke
+        strokeWidth = dp(1)
+    }
+
+    private fun textView(value: String, size: Float, color: Int, gravityValue: Int): TextView = TextView(this).apply {
+        text = value
+        textSize = size
+        setTextColor(color)
+        gravity = gravityValue
+        includeFontPadding = false
+    }
+
+    private fun rounded(fill: Int, radiusDp: Int, stroke: Int? = null): GradientDrawable = GradientDrawable().apply {
         setColor(fill)
         cornerRadius = dp(radiusDp).toFloat()
         if (stroke != null) setStroke(dp(1), stroke)
     }
 
-    private fun dp(value: Int): Int =
-        (value * resources.displayMetrics.density).toInt()
+    private fun circle(fill: Int): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(fill)
+    }
 
-    data class LocationGroup(
-        val location: BlueVpnLocation,
-        val servers: List<BlueVpnLocationUtil.Candidate>,
-        val bestDelay: Long,
-        val successfulRoutes: Int,
-        val inactiveRoutes: Int,
-        val healthScore: Int,
-        val favorite: Boolean,
-    )
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }

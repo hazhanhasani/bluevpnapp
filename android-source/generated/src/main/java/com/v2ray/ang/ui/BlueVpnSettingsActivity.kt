@@ -4,23 +4,28 @@ import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.BuildConfig
-import com.v2ray.ang.bluevpn.BlueVpnAi
-import com.v2ray.ang.bluevpn.BlueVpnConnectionMode
-import com.v2ray.ang.bluevpn.BlueVpnExperience
+import com.v2ray.ang.bluevpn.BlueVpnAccountManager
+import com.v2ray.ang.bluevpn.BlueVpnDynamicBackgroundView
+import com.v2ray.ang.bluevpn.BlueVpnPalette
+import com.v2ray.ang.bluevpn.BlueVpnTheme
+import com.v2ray.ang.bluevpn.BlueVpnThemeMode
 import com.v2ray.ang.bluevpn.BlueVpnUpdateManager
-import com.v2ray.ang.handler.SettingsManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -30,31 +35,42 @@ import java.net.URL
 
 class BlueVpnSettingsActivity : HelperBaseActivity() {
 
-    private var firstResume = true
+    private lateinit var palette: BlueVpnPalette
+    private var themeDarkAtCreate = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.parseColor("#07152F")
-        window.navigationBarColor = Color.parseColor("#07152F")
+        palette = BlueVpnTheme.palette(this)
+        themeDarkAtCreate = palette.dark
+        window.setBackgroundDrawable(ColorDrawable(palette.background))
+        BlueVpnTheme.applySystemBars(this)
         setContentView(createScreen())
     }
 
     override fun onResume() {
         super.onResume()
-        if (firstResume) {
-            firstResume = false
-            return
+        BlueVpnTheme.applySystemBars(this)
+        if (BlueVpnTheme.isDark(this) != themeDarkAtCreate) {
+            recreate()
         }
-        setContentView(createScreen())
     }
 
     private fun createScreen(): View {
+        palette = BlueVpnTheme.palette(this)
+        val frame = FrameLayout(this).apply {
+            setBackgroundColor(palette.background)
+        }
+        frame.addView(
+            BlueVpnDynamicBackgroundView(this),
+            FrameLayout.LayoutParams(-1, -1),
+        )
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(18), dp(20), dp(22))
-            setBackgroundColor(Color.parseColor("#071A39"))
+            setPadding(dp(18), dp(12), dp(18), dp(18))
             layoutDirection = View.LAYOUT_DIRECTION_RTL
         }
+        frame.addView(root, FrameLayout.LayoutParams(-1, -1))
 
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -62,204 +78,247 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
         }
         val back = MaterialButton(this).apply {
             text = "بازگشت"
-            textSize = 13f
-            setTextColor(Color.WHITE)
-            backgroundTintList = ColorStateList.valueOf(Color.parseColor("#173B70"))
-            cornerRadius = dp(14)
+            textSize = 12f
+            isAllCaps = false
+            insetTop = 0
+            insetBottom = 0
+            setTextColor(palette.textPrimary)
+            backgroundTintList = ColorStateList.valueOf(palette.surfaceStrong)
+            strokeColor = ColorStateList.valueOf(palette.stroke)
+            strokeWidth = dp(1)
+            cornerRadius = dp(16)
             setOnClickListener { finish() }
         }
         val title = TextView(this).apply {
-            text = "تنظیمات BlueVPN"
-            textSize = 24f
-            gravity = Gravity.END
-            setTextColor(Color.WHITE)
+            text = "تنظیمات"
+            textSize = 25f
+            gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            setTextColor(palette.textPrimary)
             setTypeface(typeface, Typeface.BOLD)
+            includeFontPadding = false
         }
-        header.addView(back, LinearLayout.LayoutParams(dp(92), dp(48)))
-        header.addView(title, LinearLayout.LayoutParams(0, dp(52), 1f))
+        header.addView(back, LinearLayout.LayoutParams(dp(90), dp(46)))
+        header.addView(title, LinearLayout.LayoutParams(0, dp(50), 1f))
         root.addView(header)
-
-        val subtitle = TextView(this).apply {
-            text = "شخصی‌سازی اتصال، کیفیت و تجربه BlueVPN ${BuildConfig.VERSION_NAME}"
-            textSize = 13f
-            setTextColor(Color.parseColor("#9FB7D9"))
-            setPadding(0, dp(8), 0, dp(16))
-        }
-        root.addView(subtitle)
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(10), 0, dp(24))
         }
-        content.addView(actionCard(
-            "BlueAI Intelligence",
-            "${BlueVpnAi.localSummary(this)}\n\nیادگیری از اپراتور، پایداری، مدت اتصال و تجربه کاربران مشابه",
-            "بازکردن"
-        ) {
-            startActivity(Intent(this, BlueVpnAiActivity::class.java))
-        })
-        content.addView(actionCard(
-            "لوکیشن‌ها و انتخاب خودکار",
-            "انتخاب دستی کشور یا بهترین سرور از میان همه لوکیشن‌ها",
-            "بازکردن"
-        ) {
-            startActivity(Intent(this, BlueVpnServersActivity::class.java))
-        })
-        content.addView(infoCard(
-            "حالت اتصال",
-            if (SettingsManager.isVpnMode()) "VPN تمام دستگاه" else "حالت پروکسی",
-            "اتصال توسط موتور امن Xray انجام می‌شود."
-        ))
-        val selectedMode = BlueVpnExperience.mode(this)
-        content.addView(infoCard(
-            "پروفایل هوشمند",
-            selectedMode.title,
-            selectedMode.description
-        ))
-        content.addView(infoCard(
-            "لوکیشن‌های مورد علاقه",
-            "${BlueVpnExperience.favoritesCount(this)} لوکیشن",
-            "لوکیشن‌های ستاره‌دار در انتخاب هوشمند اولویت بیشتری دارند."
-        ))
-        content.addView(infoCard(
-            "آخرین اتصال",
-            BlueVpnExperience.recentSummary(this),
-            BlueVpnExperience.historyDescription(this)
-        ))
-        content.addView(actionCard(
-            "پاک‌کردن تاریخچه",
-            "فقط سوابق اتصال ذخیره‌شده روی همین دستگاه حذف می‌شود.",
-            "پاک‌کردن"
-        ) {
-            BlueVpnExperience.clearHistory(this)
-            Toast.makeText(
-                this,
-                "تاریخچه اتصال پاک شد",
-                Toast.LENGTH_SHORT,
-            ).show()
-            setContentView(createScreen())
-        })
-        content.addView(infoCard(
-            "همگام‌سازی اشتراک",
-            "هنگام اجرای تازه برنامه",
-            "اشتراک و سرورها فقط بعد از بسته‌شدن کامل و اجرای دوباره برنامه همگام می‌شوند."
-        ))
-        content.addView(actionCard(
-            "پشتیبانی",
-            "ارتباط مستقیم با پشتیبانی BlueVPN",
-            "بازکردن"
-        ) { openRemoteLink("support_url") })
-        content.addView(actionCard(
-            "تمدید اشتراک",
-            "خرید یا تمدید سرویس",
-            "تمدید"
-        ) { openRemoteLink("renew_url") })
-        content.addView(actionCard(
-            "بررسی بروزرسانی",
-            "نسخه نصب‌شده: ${BuildConfig.VERSION_NAME}",
-            "بررسی"
-        ) {
-            BlueVpnUpdateManager.check(
-                this,
-                force = true,
-                showStatus = true,
-            )
-        })
-        content.addView(infoCard(
-            "نسخه برنامه",
-            BuildConfig.VERSION_NAME,
-            "نسخه‌های جدید مستقیماً از GitHub Releases دریافت می‌شوند."
-        ))
+
+        sectionLabel(content, "حساب کاربری")
+        val snapshot = BlueVpnAccountManager.snapshot(this)
+        content.addView(
+            settingRow(
+                title = "حساب BlueVPN",
+                value = snapshot.email.ifBlank { "ورود یا ثبت‌نام" },
+                description = if (snapshot.subscriptionActive) "اشتراک فعال" else "مدیریت حساب و اشتراک",
+            ) {
+                startActivity(Intent(this, BlueVpnSubscriptionsActivity::class.java))
+            },
+        )
+
+        sectionLabel(content, "ظاهر")
+        content.addView(
+            settingRow(
+                title = "تم برنامه",
+                value = BlueVpnTheme.mode(this).title,
+                description = "تیره، روشن یا هماهنگ با دستگاه",
+            ) { showThemeChooser() },
+        )
+
+        sectionLabel(content, "اتصال")
+        content.addView(
+            settingRow(
+                title = "انتخاب خودکار بهترین سرور",
+                value = "فعال",
+                description = "کیفیت مسیرها در پس‌زمینه و به‌صورت لحظه‌ای بررسی می‌شود",
+                showArrow = false,
+            ),
+        )
+        content.addView(
+            settingRow(
+                title = "مکان اتصال",
+                value = "انتخاب خودکار یا دستی",
+                description = "کشورها و سرورهای در دسترس",
+            ) {
+                startActivity(Intent(this, BlueVpnServersActivity::class.java))
+            },
+        )
+        content.addView(
+            settingRow(
+                title = "تشخیص شبکه",
+                value = "خودکار",
+                description = "شبکه فعال بدون نمایش جزئیات فنی شناسایی می‌شود",
+                showArrow = false,
+            ),
+        )
+
+        sectionLabel(content, "برنامه")
+        content.addView(
+            settingRow(
+                title = "بررسی بروزرسانی",
+                value = BuildConfig.VERSION_NAME,
+                description = "دریافت آخرین نسخه BlueVPN",
+            ) {
+                BlueVpnUpdateManager.check(this, force = true, showStatus = true)
+            },
+        )
+        content.addView(
+            settingRow(
+                title = "تماس با پشتیبانی",
+                value = "پاسخ‌گویی مستقیم",
+                description = "ارسال سؤال یا گزارش مشکل",
+            ) { openRemoteLink("support_url") },
+        )
+        content.addView(
+            settingRow(
+                title = "سیاست حفظ حریم خصوصی",
+                value = "مشاهده",
+                description = "محتوای ترافیک شما ثبت یا خوانده نمی‌شود",
+            ) { showPrivacy() },
+        )
+        content.addView(
+            settingRow(
+                title = "شرایط استفاده",
+                value = "مشاهده",
+                description = "قوانین استفاده از سرویس",
+            ) { showTerms() },
+        )
+        content.addView(
+            settingRow(
+                title = "نسخه برنامه",
+                value = BuildConfig.VERSION_NAME,
+                description = "BlueVPN",
+                showArrow = false,
+            ),
+        )
 
         val scroll = ScrollView(this).apply {
             isFillViewport = true
+            overScrollMode = View.OVER_SCROLL_NEVER
             addView(content)
         }
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        return root
+        return frame
     }
 
-
-    private fun infoCard(title: String, value: String, description: String): View {
-        val card = baseCard()
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(17), dp(18), dp(17))
-        }
-        box.addView(TextView(this).apply {
-            text = title
-            textSize = 13f
-            setTextColor(Color.parseColor("#90A8CC"))
-        })
-        box.addView(TextView(this).apply {
-            text = value
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            setTypeface(typeface, Typeface.BOLD)
-            setPadding(0, dp(6), 0, 0)
-        })
-        box.addView(TextView(this).apply {
-            text = description
-            textSize = 12f
-            setTextColor(Color.parseColor("#9FB7D9"))
-            setPadding(0, dp(7), 0, 0)
-        })
-        card.addView(box)
-        return card
+    private fun sectionLabel(parent: LinearLayout, value: String) {
+        parent.addView(
+            TextView(this).apply {
+                text = value
+                textSize = 11f
+                setTextColor(palette.textMuted)
+                setPadding(dp(7), dp(14), dp(7), dp(7))
+            },
+        )
     }
 
-    private fun actionCard(
+    private fun settingRow(
         title: String,
+        value: String,
         description: String,
-        buttonText: String,
-        action: () -> Unit
+        showArrow: Boolean = true,
+        action: (() -> Unit)? = null,
     ): View {
-        val card = baseCard()
+        val card = MaterialCardView(this).apply {
+            radius = dp(20).toFloat()
+            cardElevation = 0f
+            setCardBackgroundColor(palette.surface)
+            strokeColor = palette.stroke
+            strokeWidth = dp(1)
+            isClickable = action != null
+            isFocusable = action != null
+            if (action != null) setOnClickListener { action() }
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
+                bottomMargin = dp(9)
+            }
+        }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(18), dp(16), dp(18), dp(16))
+            setPadding(dp(16), dp(14), dp(16), dp(14))
         }
         val textBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
         textBox.addView(TextView(this).apply {
             text = title
-            textSize = 17f
-            setTextColor(Color.WHITE)
+            textSize = 16f
+            setTextColor(palette.textPrimary)
             setTypeface(typeface, Typeface.BOLD)
+            includeFontPadding = false
         })
         textBox.addView(TextView(this).apply {
             text = description
-            textSize = 12f
-            setTextColor(Color.parseColor("#9FB7D9"))
-            setPadding(0, dp(6), 0, 0)
+            textSize = 11f
+            setTextColor(palette.textMuted)
+            setPadding(0, dp(5), 0, 0)
         })
-        val button = MaterialButton(this).apply {
-            text = buttonText
-            textSize = 12f
-            setTextColor(Color.WHITE)
-            backgroundTintList = ColorStateList.valueOf(Color.parseColor("#1676FF"))
-            cornerRadius = dp(13)
-            setOnClickListener { action() }
-        }
         row.addView(textBox, LinearLayout.LayoutParams(0, -2, 1f))
-        row.addView(button, LinearLayout.LayoutParams(dp(104), dp(44)))
+
+        val valueText = TextView(this).apply {
+            text = value
+            textSize = 11.5f
+            gravity = Gravity.CENTER
+            setTextColor(if (value == "فعال") palette.success else palette.textSecondary)
+            maxLines = 1
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat()
+                setColor(palette.surfaceStrong)
+                setStroke(dp(1), palette.stroke)
+            }
+            setPadding(dp(10), 0, dp(10), 0)
+        }
+        row.addView(valueText, LinearLayout.LayoutParams(-2, dp(36)).apply {
+            marginStart = dp(8)
+        })
+        if (showArrow && action != null) {
+            row.addView(TextView(this).apply {
+                text = "‹"
+                textSize = 24f
+                gravity = Gravity.CENTER
+                setTextColor(palette.textMuted)
+            }, LinearLayout.LayoutParams(dp(28), dp(38)))
+        }
         card.addView(row)
         return card
     }
 
-    private fun baseCard(): MaterialCardView =
-        MaterialCardView(this).apply {
-            radius = dp(20).toFloat()
-            cardElevation = 0f
-            setCardBackgroundColor(Color.parseColor("#102A55"))
-            strokeColor = Color.parseColor("#214A83")
-            strokeWidth = dp(1)
-            layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
-                bottomMargin = dp(12)
+    private fun showThemeChooser() {
+        val values = BlueVpnThemeMode.values()
+        val labels = values.map { it.title }.toTypedArray()
+        val selected = values.indexOf(BlueVpnTheme.mode(this)).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("تم برنامه")
+            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                BlueVpnTheme.setMode(this, values[which])
+                dialog.dismiss()
+                recreate()
             }
-        }
+            .setNegativeButton("انصراف", null)
+            .show()
+    }
 
+    private fun showPrivacy() {
+        AlertDialog.Builder(this)
+            .setTitle("حریم خصوصی")
+            .setMessage(
+                "BlueVPN برای انتخاب مسیر بهتر فقط شاخص‌های فنی کوتاه‌مدت مانند موفق یا ناموفق بودن اتصال را پردازش می‌کند. محتوای وب‌گردی، پیام‌ها و فایل‌های شما خوانده یا ذخیره نمی‌شود."
+            )
+            .setPositiveButton("متوجه شدم", null)
+            .show()
+    }
+
+    private fun showTerms() {
+        AlertDialog.Builder(this)
+            .setTitle("شرایط استفاده")
+            .setMessage(
+                "استفاده از BlueVPN باید مطابق قوانین محل زندگی شما و قوانین سرویس باشد. اطلاعات حساب را در اختیار دیگران قرار ندهید و برنامه را فقط از منبع رسمی دریافت کنید."
+            )
+            .setPositiveButton("بستن", null)
+            .show()
+    }
 
     private fun openRemoteLink(field: String) {
         lifecycleScope.launch(Dispatchers.IO) {
@@ -268,8 +327,8 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
                 if (base.isBlank()) return@runCatching ""
                 val connection = URL("$base/api/v1/mobile/config").openConnection()
                     as HttpURLConnection
-                connection.connectTimeout = 8000
-                connection.readTimeout = 8000
+                connection.connectTimeout = 6_000
+                connection.readTimeout = 6_000
                 connection.requestMethod = "GET"
                 connection.inputStream.bufferedReader().use {
                     JSONObject(it.readText()).optString(field, "")
@@ -282,8 +341,8 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
                 } else {
                     Toast.makeText(
                         this@BlueVpnSettingsActivity,
-                        "این لینک هنوز از پنل مدیریت تنظیم نشده است",
-                        Toast.LENGTH_SHORT
+                        "لینک پشتیبانی هنوز از پنل مدیریت تنظیم نشده است",
+                        Toast.LENGTH_SHORT,
                     ).show()
                 }
             }

@@ -90,11 +90,6 @@
             android:name=".ui.BlueVpnSettingsActivity"
             android:exported="false"
             android:theme="@style/BlueVpnHomeTheme" />
-
-        <activity
-            android:name=".ui.BlueVpnAiActivity"
-            android:exported="false"
-            android:theme="@style/BlueVpnHomeTheme" />
         <activity
             android:name=".ui.ServerActivity"
             android:exported="false"

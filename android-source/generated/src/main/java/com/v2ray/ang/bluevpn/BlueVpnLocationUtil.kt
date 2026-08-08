@@ -21,6 +21,12 @@ object BlueVpnPreferences {
     private const val SESSION_INACTIVE_PREFIX = "session_inactive_"
     private const val KEY_HEALTH_SESSION_AT = "health_session_at"
     private const val FAILURE_COOLDOWN_MS = 10 * 60 * 1000L
+    private const val SUCCESS_PREFIX = "successful_server_"
+    private const val SUCCESS_LATENCY_PREFIX = "successful_latency_"
+    private const val SUCCESS_FRESH_MS = 20 * 60 * 1000L
+    private const val VERIFIED_COUNTRY_PREFIX = "verified_country_"
+    private const val VERIFIED_COUNTRY_AT_PREFIX = "verified_country_at_"
+    private const val VERIFIED_COUNTRY_TTL_MS = 7 * 24 * 60 * 60 * 1000L
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -78,6 +84,68 @@ object BlueVpnPreferences {
         prefs(context).edit()
             .remove(FAILED_PREFIX + guid)
             .apply()
+    }
+
+    fun markServerSuccess(
+        context: Context,
+        guid: String,
+        latencyMs: Long = 0L,
+    ) {
+        if (guid.isBlank()) return
+        prefs(context).edit()
+            .putLong(SUCCESS_PREFIX + guid, System.currentTimeMillis())
+            .putLong(SUCCESS_LATENCY_PREFIX + guid, latencyMs.coerceAtLeast(0L))
+            .remove(FAILED_PREFIX + guid)
+            .remove(SESSION_INACTIVE_PREFIX + guid)
+            .apply()
+    }
+
+    fun successFreshnessScore(context: Context, guid: String): Int {
+        if (guid.isBlank()) return 0
+        val storage = prefs(context)
+        val successfulAt = storage.getLong(SUCCESS_PREFIX + guid, 0L)
+        if (successfulAt <= 0L) return 0
+        val age = (System.currentTimeMillis() - successfulAt).coerceAtLeast(0L)
+        if (age >= SUCCESS_FRESH_MS) return 0
+        val freshness = ((SUCCESS_FRESH_MS - age) * 24L / SUCCESS_FRESH_MS).toInt()
+        val latency = storage.getLong(SUCCESS_LATENCY_PREFIX + guid, 0L)
+        val latencyBonus = when {
+            latency in 1..80 -> 10
+            latency in 81..160 -> 6
+            latency in 161..260 -> 2
+            else -> 0
+        }
+        return freshness + latencyBonus
+    }
+
+    fun markVerifiedCountry(
+        context: Context,
+        guid: String,
+        countryCode: String,
+    ) {
+        val normalized = countryCode.trim().lowercase(Locale.ROOT)
+        if (guid.isBlank() || normalized.length != 2) return
+        prefs(context).edit()
+            .putString(VERIFIED_COUNTRY_PREFIX + guid, normalized)
+            .putLong(VERIFIED_COUNTRY_AT_PREFIX + guid, System.currentTimeMillis())
+            .apply()
+    }
+
+    fun verifiedCountry(context: Context, guid: String): String {
+        if (guid.isBlank()) return ""
+        val storage = prefs(context)
+        val verifiedAt = storage.getLong(VERIFIED_COUNTRY_AT_PREFIX + guid, 0L)
+        if (
+            verifiedAt <= 0L ||
+            System.currentTimeMillis() - verifiedAt > VERIFIED_COUNTRY_TTL_MS
+        ) {
+            storage.edit()
+                .remove(VERIFIED_COUNTRY_PREFIX + guid)
+                .remove(VERIFIED_COUNTRY_AT_PREFIX + guid)
+                .apply()
+            return ""
+        }
+        return storage.getString(VERIFIED_COUNTRY_PREFIX + guid, "").orEmpty()
     }
 
     fun failedRecently(context: Context, guid: String): Boolean {
@@ -147,7 +215,7 @@ object BlueVpnPreferences {
 
 object BlueVpnLocationUtil {
 
-    private const val CANDIDATE_CACHE_TTL_MS = 1_200L
+    private const val CANDIDATE_CACHE_TTL_MS = 450L
 
     @Volatile
     private var candidateCacheAt = 0L
@@ -202,6 +270,15 @@ object BlueVpnLocationUtil {
         rule("qa", "قطر", "🇶🇦", "qa", "qat", "qatar", "قطر", "doha"),
         rule("om", "عمان", "🇴🇲", "om", "omn", "oman", "عمان", "muscat"),
     )
+
+    fun locationForCountryCode(countryCode: String?): BlueVpnLocation? {
+        val normalized = countryCode.orEmpty().trim().lowercase(Locale.ROOT)
+        if (normalized.length != 2) return null
+        return rules.firstOrNull { rule ->
+            rule.location.key == normalized ||
+                rule.codes.any { it.equals(normalized, ignoreCase = true) }
+        }?.location
+    }
 
     private val technicalTokens = setOf(
         "vless", "vmess", "trojan", "ss", "shadowsocks", "reality",
@@ -426,11 +503,20 @@ private fun unknownLocation(): BlueVpnLocation =
         return loaded
     }
 
+    fun allCandidates(
+        context: Context,
+        forceRefresh: Boolean = false,
+    ): List<Candidate> = allCandidates(forceRefresh).map { candidate ->
+        val verified = BlueVpnPreferences.verifiedCountry(context, candidate.guid)
+        val location = locationForCountryCode(verified) ?: candidate.location
+        if (location == candidate.location) candidate else candidate.copy(location = location)
+    }
+
     fun orderedCandidates(
         context: Context,
         preferredKey: String? = null,
     ): List<Candidate> {
-        val candidates = allCandidates()
+        val candidates = allCandidates(context)
         if (candidates.isEmpty()) return emptyList()
 
         val wanted = preferredKey
@@ -494,7 +580,10 @@ private fun unknownLocation(): BlueVpnLocation =
                 priority = BlueVpnExperience.candidatePriority(
                     context,
                     candidate,
-                ),
+                ) + BlueVpnPreferences.successFreshnessScore(
+                    context,
+                    candidate.guid,
+                ) * 100,
             )
         }
 
@@ -510,6 +599,34 @@ private fun unknownLocation(): BlueVpnLocation =
                 }
                 .thenBy { it.candidate.location.title }
         ).map { it.candidate }
+    }
+
+    /**
+     * Returns a small, continuously re-ranked foreground shortlist. The full
+     * route set remains available as fallback, while first connection attempts
+     * stay fast and prefer recently verified routes on the current network.
+     */
+    fun instantCandidates(
+        context: Context,
+        preferredKey: String? = null,
+        maxCandidates: Int = 18,
+    ): List<Candidate> {
+        val ordered = orderedCandidates(context, preferredKey)
+        if (ordered.size <= maxCandidates) return ordered
+
+        val selectedGuid = MmkvManager.getSelectServer().orEmpty()
+        val head = ordered.take(maxCandidates).toMutableList()
+        val selected = ordered.firstOrNull { it.guid == selectedGuid }
+        if (
+            selected != null &&
+            !BlueVpnPreferences.failedRecently(context, selected.guid) &&
+            !BlueVpnPreferences.isSessionInactive(context, selected.guid) &&
+            head.none { it.guid == selected.guid }
+        ) {
+            head.add(0, selected)
+            if (head.size > maxCandidates) head.removeAt(head.lastIndex)
+        }
+        return head
     }
 
     fun healthScore(
@@ -548,7 +665,7 @@ private fun unknownLocation(): BlueVpnLocation =
     fun activeCandidateCount(
         context: Context,
     ): Int =
-        allCandidates().count {
+        allCandidates(context).count {
             it.delay >= 0L &&
                 !BlueVpnPreferences.isSessionInactive(
                     context,

@@ -61,20 +61,24 @@ object BlueVpnExperience {
             Context.MODE_PRIVATE,
         )
 
-    fun mode(context: Context): BlueVpnConnectionMode =
-        BlueVpnConnectionMode.fromKey(
-            prefs(context).getString(
-                KEY_MODE,
-                BlueVpnConnectionMode.BALANCED.key,
-            )
-        )
+    fun mode(context: Context): BlueVpnConnectionMode {
+        // Legacy builds exposed gaming/streaming presets. The simplified app
+        // has one adaptive mode, so migrate every old preference to automatic.
+        val storage = prefs(context)
+        if (storage.getString(KEY_MODE, "") != BlueVpnConnectionMode.BALANCED.key) {
+            storage.edit()
+                .putString(KEY_MODE, BlueVpnConnectionMode.BALANCED.key)
+                .apply()
+        }
+        return BlueVpnConnectionMode.BALANCED
+    }
 
     fun setMode(
         context: Context,
-        mode: BlueVpnConnectionMode,
+        @Suppress("UNUSED_PARAMETER") mode: BlueVpnConnectionMode,
     ) {
         prefs(context).edit()
-            .putString(KEY_MODE, mode.key)
+            .putString(KEY_MODE, BlueVpnConnectionMode.BALANCED.key)
             .apply()
     }
 

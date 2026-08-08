@@ -29,7 +29,7 @@ import org.json.JSONObject
 import java.text.NumberFormat
 import java.util.Locale
 class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
- private lateinit var content:LinearLayout;private lateinit var status:TextView;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true;private var otpChallengeId="";private var otpPhone="";private var otpBinding=false
+ private lateinit var content:LinearLayout;private lateinit var status:TextView;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true;private var otpChallengeId="";private var otpPhone="";private var otpBinding=false;private var authMode="sms";private var emailRegister=false
  private val poll=object:Runnable{override fun run(){val id=BlueVpnAccountManager.pendingOrder(this@BlueVpnSubscriptionsActivity);if(id.isNotBlank()){checkOrder(id);handler.postDelayed(this,4000)}}}
  override fun onCreate(b:Bundle?){super.onCreate(b);window.statusBarColor=Color.parseColor("#07152F");window.navigationBarColor=Color.parseColor("#07152F");setContentView(screen());render()}
  override fun onResume(){
@@ -49,124 +49,66 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
  private fun screen():View{val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(16),dp(18),dp(22));setBackgroundColor(Color.parseColor("#071A39"));layoutDirection=View.LAYOUT_DIRECTION_RTL};val h=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL};val back=button("بازگشت","#173B70").apply{setOnClickListener{finish()}};val title=TextView(this).apply{text="حساب و اشتراک";textSize=24f;setTextColor(Color.WHITE);setTypeface(typeface,Typeface.BOLD);gravity=Gravity.END};h.addView(back,LinearLayout.LayoutParams(dp(92),dp(48)));h.addView(title,LinearLayout.LayoutParams(0,dp(52),1f));root.addView(h);status=TextView(this).apply{textSize=12.5f;setTextColor(Color.parseColor("#9FB7D9"));gravity=Gravity.CENTER;setPadding(0,dp(7),0,dp(10))};root.addView(status);content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL};root.addView(ScrollView(this).apply{isFillViewport=true;addView(content)},LinearLayout.LayoutParams(-1,0,1f));return root}
  private fun render(){content.removeAllViews();if(BlueVpnAccountManager.hasSession(this))account() else auth()}
  private fun auth(){
-  status.text="ورود امن با شماره تماس و کد یک‌بارمصرف"
+  status.text=if(authMode=="sms")"ورود امن با شماره تماس و کد یک‌بارمصرف" else "ورود یا ثبت‌نام با ایمیل و رمز عبور"
 
   val hero=MaterialCardView(this).apply{
-   radius=dp(28).toFloat()
-   cardElevation=0f
-   strokeWidth=dp(1)
-   strokeColor=Color.parseColor("#397FD8")
-   setCardBackgroundColor(Color.TRANSPARENT)
+   radius=dp(28).toFloat();cardElevation=0f;strokeWidth=dp(1);strokeColor=Color.parseColor("#397FD8");setCardBackgroundColor(Color.TRANSPARENT)
   }
   val heroBox=LinearLayout(this).apply{
-   orientation=LinearLayout.VERTICAL
-   gravity=Gravity.CENTER
-   setPadding(dp(20),dp(20),dp(20),dp(20))
-   background=GradientDrawable(
-    GradientDrawable.Orientation.TL_BR,
-    intArrayOf(
-     Color.parseColor("#123B7A"),
-     Color.parseColor("#0A2148"),
-     Color.parseColor("#071A39")
-    )
-   ).apply{cornerRadius=dp(28).toFloat()}
+   orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;setPadding(dp(20),dp(20),dp(20),dp(20))
+   background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(Color.parseColor("#123B7A"),Color.parseColor("#0A2148"),Color.parseColor("#071A39"))).apply{cornerRadius=dp(28).toFloat()}
   }
   heroBox.addView(TextView(this).apply{
-   text="B"
-   textSize=30f
-   gravity=Gravity.CENTER
-   setTextColor(Color.WHITE)
-   setTypeface(typeface,Typeface.BOLD)
-   background=GradientDrawable(
-    GradientDrawable.Orientation.TL_BR,
-    intArrayOf(Color.parseColor("#5A9DFF"),Color.parseColor("#176DFF"))
-   ).apply{shape=GradientDrawable.OVAL;setStroke(dp(2),Color.parseColor("#89BCFF"))}
+   text="B";textSize=30f;gravity=Gravity.CENTER;setTextColor(Color.WHITE);setTypeface(typeface,Typeface.BOLD)
+   background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(Color.parseColor("#5A9DFF"),Color.parseColor("#176DFF"))).apply{shape=GradientDrawable.OVAL;setStroke(dp(2),Color.parseColor("#89BCFF"))}
   },LinearLayout.LayoutParams(dp(64),dp(64)))
+  heroBox.addView(TextView(this).apply{text="به BlueVPN خوش آمدید";textSize=23f;gravity=Gravity.CENTER;setTextColor(Color.WHITE);setTypeface(typeface,Typeface.BOLD);setPadding(0,dp(16),0,0)})
   heroBox.addView(TextView(this).apply{
-   text="به BlueVPN خوش آمدید"
-   textSize=23f
-   gravity=Gravity.CENTER
-   setTextColor(Color.WHITE)
-   setTypeface(typeface,Typeface.BOLD)
-   setPadding(0,dp(16),0,0)
-  })
-  heroBox.addView(TextView(this).apply{
-   text="بدون رمز عبور؛ شماره تماس خود را وارد کنید و کد پیامکی را تأیید کنید."
-   textSize=12.5f
-   gravity=Gravity.CENTER
-   setTextColor(Color.parseColor("#BBD3F5"))
-   setPadding(dp(8),dp(7),dp(8),dp(15))
+   text="با شماره و کد پیامکی یا ایمیل و رمز عبور وارد شوید. هر دو روش در کنار هم فعال‌اند."
+   textSize=12.5f;gravity=Gravity.CENTER;setTextColor(Color.parseColor("#BBD3F5"));setPadding(dp(8),dp(7),dp(8),dp(15))
   })
   val benefits=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER}
-  benefits.addView(authBadge("OTP","ورود سریع"),LinearLayout.LayoutParams(0,dp(42),1f).apply{marginEnd=dp(5)})
-  benefits.addView(authBadge("SMS","تأیید شماره"),LinearLayout.LayoutParams(0,dp(42),1f).apply{marginStart=dp(5)})
+  benefits.addView(authBadge("SMS","ورود پیامکی"),LinearLayout.LayoutParams(0,dp(42),1f).apply{marginEnd=dp(5)})
+  benefits.addView(authBadge("EMAIL","ورود ایمیلی"),LinearLayout.LayoutParams(0,dp(42),1f).apply{marginStart=dp(5)})
   heroBox.addView(benefits,LinearLayout.LayoutParams(-1,dp(42)))
   hero.addView(heroBox)
   content.addView(hero,LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(14)})
 
+  val modeRow=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER}
+  modeRow.addView(button("پیامک",if(authMode=="sms")"#1676FF" else "#173B70").apply{setOnClickListener{authMode="sms";emailRegister=false;render()}},LinearLayout.LayoutParams(0,dp(48),1f).apply{marginEnd=dp(5)})
+  modeRow.addView(button("ایمیل",if(authMode=="email")"#1676FF" else "#173B70").apply{setOnClickListener{authMode="email";otpChallengeId="";otpBinding=false;render()}},LinearLayout.LayoutParams(0,dp(48),1f).apply{marginStart=dp(5)})
+  content.addView(modeRow,LinearLayout.LayoutParams(-1,dp(48)).apply{bottomMargin=dp(12)})
+
   val form=card()
   val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(18),dp(18),dp(18))}
-  box.addView(TextView(this).apply{
-   text=if(otpChallengeId.isBlank())"ورود یا ساخت حساب" else "کد تأیید را وارد کنید"
-   textSize=18f
-   setTextColor(Color.WHITE)
-   setTypeface(typeface,Typeface.BOLD)
-   gravity=Gravity.END
-  })
-  box.addView(TextView(this).apply{
-   text=if(otpChallengeId.isBlank()){
-    "برای ورود و ثبت‌نام فقط شماره موبایل ایران لازم است."
+  if(authMode=="sms"){
+   box.addView(TextView(this).apply{text=if(otpChallengeId.isBlank())"ورود یا ساخت حساب با پیامک" else "کد تأیید را وارد کنید";textSize=18f;setTextColor(Color.WHITE);setTypeface(typeface,Typeface.BOLD);gravity=Gravity.END})
+   box.addView(TextView(this).apply{
+    text=if(otpChallengeId.isBlank())"شماره موبایل ایران را وارد کنید؛ ورود و ثبت‌نام خودکار است." else "کد ارسال‌شده به ${otpPhone.ifBlank{"شماره شما"}} را وارد کنید."
+    textSize=11.5f;setTextColor(Color.parseColor("#8FAAD0"));gravity=Gravity.END;setPadding(0,dp(5),0,dp(14))
+   })
+   val phone=authField("شماره تماس؛ مثال 09123456789").apply{inputType=InputType.TYPE_CLASS_PHONE;imeOptions=if(otpChallengeId.isBlank())EditorInfo.IME_ACTION_DONE else EditorInfo.IME_ACTION_NEXT;setText(otpPhone)}
+   box.addView(phone,LinearLayout.LayoutParams(-1,dp(58)))
+   if(otpChallengeId.isBlank()){
+    box.addView(button("ارسال کد تأیید","#1676FF").apply{textSize=14f;setTypeface(typeface,Typeface.BOLD);setOnClickListener{requestOtp(phone.text.toString(),false)}},LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)})
    }else{
-    "کد ارسال‌شده به ${otpPhone.ifBlank{"شماره شما"}} را وارد کنید."
+    val code=authField("کد پیامکی").apply{inputType=InputType.TYPE_CLASS_NUMBER;imeOptions=EditorInfo.IME_ACTION_DONE;setOnEditorActionListener{_,actionId,_->if(actionId==EditorInfo.IME_ACTION_DONE){verifyOtp(phone.text.toString(),text.toString(),false);true}else false}}
+    box.addView(code,LinearLayout.LayoutParams(-1,dp(58)).apply{topMargin=dp(10)})
+    box.addView(button("تأیید و ورود","#1676FF").apply{textSize=14f;setTypeface(typeface,Typeface.BOLD);setOnClickListener{verifyOtp(phone.text.toString(),code.text.toString(),false)}},LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)})
+    box.addView(button("ارسال دوباره کد","#173B70").apply{strokeWidth=dp(1);strokeColor=ColorStateList.valueOf(Color.parseColor("#4B8EE5"));setOnClickListener{otpChallengeId="";otpPhone=phone.text.toString();render()}},LinearLayout.LayoutParams(-1,dp(48)).apply{topMargin=dp(10)})
    }
-   textSize=11.5f
-   setTextColor(Color.parseColor("#8FAAD0"))
-   gravity=Gravity.END
-   setPadding(0,dp(5),0,dp(14))
-  })
-
-  val phone=authField("شماره تماس؛ مثال 09123456789").apply{
-   inputType=InputType.TYPE_CLASS_PHONE
-   imeOptions=if(otpChallengeId.isBlank())EditorInfo.IME_ACTION_DONE else EditorInfo.IME_ACTION_NEXT
-   setText(otpPhone)
-  }
-  box.addView(phone,LinearLayout.LayoutParams(-1,dp(58)))
-
-  if(otpChallengeId.isBlank()){
-   box.addView(button("ارسال کد تأیید","#1676FF").apply{
-    textSize=14f
-    setTypeface(typeface,Typeface.BOLD)
-    setOnClickListener{requestOtp(phone.text.toString(),false)}
-   },LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)})
   }else{
-   val code=authField("کد پیامکی").apply{
-    inputType=InputType.TYPE_CLASS_NUMBER
-    imeOptions=EditorInfo.IME_ACTION_DONE
-    setOnEditorActionListener{_,actionId,_->
-     if(actionId==EditorInfo.IME_ACTION_DONE){verifyOtp(phone.text.toString(),text.toString(),false);true}else false
-    }
-   }
-   box.addView(code,LinearLayout.LayoutParams(-1,dp(58)).apply{topMargin=dp(10)})
-   box.addView(button("تأیید و ورود","#1676FF").apply{
-    textSize=14f
-    setTypeface(typeface,Typeface.BOLD)
-    setOnClickListener{verifyOtp(phone.text.toString(),code.text.toString(),false)}
-   },LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)})
-   box.addView(button("ارسال دوباره کد","#173B70").apply{
-    strokeWidth=dp(1)
-    strokeColor=ColorStateList.valueOf(Color.parseColor("#4B8EE5"))
-    setOnClickListener{otpChallengeId="";otpPhone=phone.text.toString();render()}
-   },LinearLayout.LayoutParams(-1,dp(48)).apply{topMargin=dp(10)})
+   box.addView(TextView(this).apply{text=if(emailRegister)"ساخت حساب با ایمیل" else "ورود با ایمیل";textSize=18f;setTextColor(Color.WHITE);setTypeface(typeface,Typeface.BOLD);gravity=Gravity.END})
+   box.addView(TextView(this).apply{text=if(emailRegister)"ایمیل و یک رمز حداقل ۸ کاراکتری تعیین کنید." else "ایمیل و رمز عبور حساب خود را وارد کنید.";textSize=11.5f;setTextColor(Color.parseColor("#8FAAD0"));gravity=Gravity.END;setPadding(0,dp(5),0,dp(14))})
+   val email=authField("ایمیل؛ example@email.com").apply{inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS;imeOptions=EditorInfo.IME_ACTION_NEXT;layoutDirection=View.LAYOUT_DIRECTION_LTR;gravity=Gravity.CENTER_VERTICAL or Gravity.START}
+   val password=authField("رمز عبور؛ حداقل ۸ کاراکتر").apply{inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD;imeOptions=EditorInfo.IME_ACTION_DONE;layoutDirection=View.LAYOUT_DIRECTION_LTR;gravity=Gravity.CENTER_VERTICAL or Gravity.START;setOnEditorActionListener{_,actionId,_->if(actionId==EditorInfo.IME_ACTION_DONE){emailAuth(email.text.toString(),password.text.toString(),emailRegister);true}else false}}
+   box.addView(email,LinearLayout.LayoutParams(-1,dp(58)))
+   box.addView(password,LinearLayout.LayoutParams(-1,dp(58)).apply{topMargin=dp(10)})
+   box.addView(button(if(emailRegister)"ثبت‌نام و ورود" else "ورود به حساب","#1676FF").apply{textSize=14f;setTypeface(typeface,Typeface.BOLD);setOnClickListener{emailAuth(email.text.toString(),password.text.toString(),emailRegister)}},LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)})
+   box.addView(button(if(emailRegister)"حساب دارم؛ ورود" else "حساب ندارم؛ ثبت‌نام","#173B70").apply{strokeWidth=dp(1);strokeColor=ColorStateList.valueOf(Color.parseColor("#4B8EE5"));setOnClickListener{emailRegister=!emailRegister;render()}},LinearLayout.LayoutParams(-1,dp(48)).apply{topMargin=dp(10)})
   }
-  box.addView(TextView(this).apply{
-   text="ورود و ثبت‌نام به‌صورت خودکار انجام می‌شود؛ نیازی به ساخت رمز عبور نیست."
-   textSize=10.5f
-   gravity=Gravity.CENTER
-   setTextColor(Color.parseColor("#6F8EB8"))
-   setPadding(0,dp(13),0,0)
-  })
-  form.addView(box)
-  content.addView(form)
+  box.addView(TextView(this).apply{text="پس از ورود، نشست شما روی همین دستگاه ذخیره می‌شود و اشتراک به‌صورت خودکار همگام خواهد شد.";textSize=10.5f;gravity=Gravity.CENTER;setTextColor(Color.parseColor("#6F8EB8"));setPadding(0,dp(13),0,0)})
+  form.addView(box);content.addView(form)
  }
  private fun account(){
   val account=BlueVpnAccountManager.snapshot(this)
@@ -311,14 +253,14 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   val card=card()
   val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(18),dp(18),dp(18))}
   box.addView(TextView(this).apply{
-   text="تکمیل ورود با شماره تماس"
+   text="افزودن شماره تماس (اختیاری)"
    textSize=17f
    setTextColor(Color.WHITE)
    setTypeface(typeface,Typeface.BOLD)
    gravity=Gravity.END
   })
   box.addView(TextView(this).apply{
-   text="این حساب قدیمی هنوز شماره تأییدشده ندارد. شماره خود را ثبت کنید تا ورود بعدی فقط با کد پیامکی انجام شود."
+   text="می‌توانید شماره خود را هم تأیید کنید تا علاوه بر ایمیل، ورود پیامکی نیز برای همین حساب در دسترس باشد."
    textSize=11.5f
    setTextColor(Color.parseColor("#9FB7D9"))
    gravity=Gravity.END
@@ -471,6 +413,19 @@ private fun loadPlans(){
   content.addView(card,LinearLayout.LayoutParams(-1,-2).apply{
    topMargin=dp(11)
   })
+ }
+ private fun emailAuth(email:String,password:String,register:Boolean){
+  if(busy)return
+  if(!email.contains("@")){Toast.makeText(this,"ایمیل معتبر وارد کنید",Toast.LENGTH_SHORT).show();return}
+  if(password.length<8){Toast.makeText(this,"رمز عبور باید حداقل ۸ کاراکتر باشد",Toast.LENGTH_SHORT).show();return}
+  busy=true;status.text=if(register)"در حال ساخت حساب..." else "در حال ورود..."
+  lifecycleScope.launch(Dispatchers.IO){
+   val result=BlueVpnAccountManager.authenticateWithEmail(this@BlueVpnSubscriptionsActivity,email,password,register)
+   withContext(Dispatchers.Main){
+    busy=false
+    result.onSuccess{setResult(RESULT_OK);render()}.onFailure{status.text=it.message?:if(register)"ثبت‌نام ناموفق بود" else "ورود ناموفق بود"}
+   }
+  }
  }
  private fun requestOtp(phone:String,bind:Boolean){
   if(busy)return

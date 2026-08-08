@@ -527,6 +527,37 @@ object BlueVpnAccountManager {
         applyAccount(c, response.getJSONObject("account"))
     }
 
+    fun authenticateWithEmail(
+        c: Context,
+        email: String,
+        password: String,
+        register: Boolean,
+    ): Result<BlueVpnAccountSnapshot> = runCatching {
+        val normalizedEmail = email.trim().lowercase(Locale.US)
+        if (normalizedEmail.isBlank() || !normalizedEmail.contains("@")) {
+            error("ایمیل معتبر وارد کنید")
+        }
+        if (password.length < 8) {
+            error("رمز عبور باید حداقل ۸ کاراکتر باشد")
+        }
+        val response = request(
+            c,
+            "POST",
+            if (register) "/api/v1/auth/register" else "/api/v1/auth/login",
+            JSONObject()
+                .put("email", normalizedEmail)
+                .put("password", password)
+                .put("device_id", deviceId(c))
+                .put("device_name", deviceName()),
+            false,
+        )
+        val access = response.optString("token")
+        val refresh = response.optString("refresh_token")
+        if (access.isBlank()) error(message(response))
+        persistAuth(c, access, refresh, normalizedEmail)
+        applyAccount(c, response.getJSONObject("account"))
+    }
+
     private fun refreshSession(
         c: Context,
         failedAccessToken: String,

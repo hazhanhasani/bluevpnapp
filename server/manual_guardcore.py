@@ -67,15 +67,31 @@ def parse_target_expire(order: Order) -> datetime | None:
     return aware(value)
 
 
-def manual_snapshot(customer: Customer) -> dict[str, Any] | None:
-    if not customer.guardcore_subscription_url:
+def panel_global_subscription_url(panel: GuardCorePanel | None) -> str:
+    return str(getattr(panel, "global_subscription_url", "") or "").strip()
+
+
+def manual_snapshot(
+    customer: Customer,
+    panel: GuardCorePanel | None = None,
+) -> dict[str, Any] | None:
+    subscription_url = (
+        panel_global_subscription_url(panel)
+        or str(customer.guardcore_subscription_url or "").strip()
+    )
+    if not subscription_url:
         return None
+    status = (
+        customer.subscription_status
+        if panel_global_subscription_url(panel)
+        else customer.guardcore_status
+    ) or "inactive"
     return {
         "id": customer.guardcore_subscription_id,
         "username": customer.guardcore_username,
-        "subscription_url": customer.guardcore_subscription_url,
-        "status": customer.guardcore_status or "active",
-        "expire": aware(customer.guardcore_expire),
+        "subscription_url": subscription_url,
+        "status": status,
+        "expire": aware(customer.guardcore_expire or customer.subscription_expire),
         "data_limit": int(customer.guardcore_data_limit_bytes or 0),
         "used_traffic": int(customer.guardcore_used_traffic_bytes or 0),
     }
@@ -101,15 +117,20 @@ def resolve_manual_panel(
             return panel
         return None
 
-    # When no GuardCore is selected on the plan, the first active manual
-    # panel acts as the optional fallback and the admin receives Yes/No.
-    return db.scalar(
+    # Prefer a manual panel with one global subscription URL. This is the
+    # zero-touch third source for every old and new customer. Legacy manual
+    # panels remain a fallback only when no global URL has been configured.
+    panels = db.scalars(
         select(GuardCorePanel)
         .where(
             GuardCorePanel.active.is_(True),
             GuardCorePanel.auth_mode == "manual",
         )
         .order_by(GuardCorePanel.id.asc())
+    ).all()
+    return next(
+        (item for item in panels if panel_global_subscription_url(item)),
+        panels[0] if panels else None,
     )
 
 
@@ -128,6 +149,21 @@ def ensure_manual_request_for_order(
 
     panel = resolve_manual_panel(db, plan)
     if not panel:
+        return {}
+
+    global_url = panel_global_subscription_url(panel)
+    if global_url:
+        target_expire = parse_target_expire(order) or aware(customer.subscription_expire)
+        customer.guardcore_panel_id = panel.id
+        customer.guardcore_username = _generated_username(customer)
+        customer.guardcore_subscription_url = global_url
+        customer.guardcore_status = "active"
+        customer.guardcore_expire = target_expire
+        customer.guardcore_data_limit_bytes = 0
+        customer.guardcore_used_traffic_bytes = 0
+        customer.guardcore_last_error = ""
+        db.add(customer)
+        db.commit()
         return {}
 
     target_expire = parse_target_expire(order)

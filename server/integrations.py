@@ -40,7 +40,9 @@ from .guardcore import (
 from .manual_guardcore import (
     is_manual_guardcore,
     manual_snapshot,
+    panel_global_subscription_url,
     prepare_manual_request,
+    resolve_manual_panel,
 )
 
 
@@ -1329,22 +1331,35 @@ async def ensure_guardcore_for_existing_customer(
     customer: Customer,
     plan: Plan,
 ) -> tuple[dict | None, str]:
-    if not plan.guardcore_panel_id:
-        return None, ""
-    panel = db.get(GuardCorePanel, plan.guardcore_panel_id)
+    panel = (
+        db.get(GuardCorePanel, plan.guardcore_panel_id)
+        if plan.guardcore_panel_id
+        else resolve_manual_panel(db, plan)
+    )
     if not panel or not panel.active:
-        return None, "پنل GuardCore پلن فعال نیست"
+        return None, (
+            "پنل GuardCore پلن فعال نیست"
+            if plan.guardcore_panel_id
+            else ""
+        )
     username = guardcore_username(customer)
     if is_manual_guardcore(panel):
+        global_url = panel_global_subscription_url(panel)
         customer.guardcore_panel_id = panel.id
         customer.guardcore_username = username
-        if customer.guardcore_subscription_url:
+        customer.guardcore_expire = customer.subscription_expire
+        customer.guardcore_data_limit_bytes = 0
+        if global_url:
+            customer.guardcore_subscription_url = global_url
+            customer.guardcore_status = customer.subscription_status or "inactive"
+            customer.guardcore_last_error = ""
+        elif customer.guardcore_subscription_url:
             customer.guardcore_status = "active"
         elif customer.guardcore_status != "skipped":
             customer.guardcore_status = "manual_pending"
         db.add(customer)
         db.commit()
-        return manual_snapshot(customer), ""
+        return manual_snapshot(customer, panel), ""
 
     try:
         remote = await get_guardcore_subscription(panel, username)
@@ -1392,7 +1407,8 @@ async def provision(
     )
     guard = (
         db.get(GuardCorePanel, plan.guardcore_panel_id)
-        if plan.guardcore_panel_id else None
+        if plan.guardcore_panel_id
+        else resolve_manual_panel(db, plan)
     )
     if secondary and not secondary.active:
         raise IntegrationError("پنل دوم Marzban این پلن غیرفعال است")
@@ -1410,7 +1426,7 @@ async def provision(
     gc_remote = None
     if guard:
         if is_manual_guardcore(guard):
-            gc_remote = manual_snapshot(customer)
+            gc_remote = manual_snapshot(customer, guard)
         else:
             gc_remote = await get_guardcore_subscription(guard, gc_name)
 
@@ -1429,7 +1445,10 @@ async def provision(
     providers = ["pasarguard"]
     if secondary:
         providers.append("marzban")
-    if guard:
+    if guard and not (
+        is_manual_guardcore(guard)
+        and panel_global_subscription_url(guard)
+    ):
         providers.append("guardcore")
     limits = provider_quota_limits(plan, providers)
 
@@ -1476,29 +1495,35 @@ async def provision(
 
     if guard:
         if is_manual_guardcore(guard):
+            global_url = panel_global_subscription_url(guard)
             customer.guardcore_panel_id = guard.id
             customer.guardcore_username = gc_name
             customer.guardcore_expire = target_expire
-            customer.guardcore_data_limit_bytes = limits.get("guardcore", 0)
+            customer.guardcore_data_limit_bytes = 0 if global_url else limits.get("guardcore", 0)
             customer.guardcore_used_traffic_bytes = 0
             customer.guardcore_last_error = ""
-            if customer.guardcore_subscription_url:
+            if global_url:
+                customer.guardcore_subscription_url = global_url
+                customer.guardcore_status = customer.subscription_status or "inactive"
+                gc_data = manual_snapshot(customer, guard)
+            elif customer.guardcore_subscription_url:
                 customer.guardcore_status = "active"
-                gc_data = manual_snapshot(customer)
+                gc_data = manual_snapshot(customer, guard)
             else:
                 customer.guardcore_status = "manual_pending"
             db.add(customer)
             db.commit()
-            prepare_manual_request(
-                db,
-                order,
-                customer,
-                plan,
-                guard,
-                username=gc_name,
-                target_expire=target_expire,
-                data_limit_bytes=limits.get("guardcore", 0),
-            )
+            if not global_url:
+                prepare_manual_request(
+                    db,
+                    order,
+                    customer,
+                    plan,
+                    guard,
+                    username=gc_name,
+                    target_expire=target_expire,
+                    data_limit_bytes=limits.get("guardcore", 0),
+                )
         else:
             try:
                 gc_data = await provision_guardcore_subscription(
@@ -1608,7 +1633,13 @@ async def sync_customer(
             panel = db.get(GuardCorePanel, customer.guardcore_panel_id)
             if panel:
                 if is_manual_guardcore(panel):
-                    gc_data = manual_snapshot(customer)
+                    global_url = panel_global_subscription_url(panel)
+                    if global_url:
+                        customer.guardcore_subscription_url = global_url
+                        customer.guardcore_status = customer.subscription_status or "inactive"
+                        customer.guardcore_expire = customer.subscription_expire
+                        customer.guardcore_data_limit_bytes = 0
+                    gc_data = manual_snapshot(customer, panel)
                 else:
                     try:
                         gc_data = await get_guardcore_subscription(
@@ -2219,7 +2250,11 @@ async def combined_subscription(
             hidden_names.append(source_name)
             try:
                 if is_manual_guardcore(panel):
-                    remote_url = customer.guardcore_subscription_url or ""
+                    remote_url = (
+                        panel_global_subscription_url(panel)
+                        or customer.guardcore_subscription_url
+                        or ""
+                    )
                 else:
                     remote = await get_guardcore_subscription(
                         panel,

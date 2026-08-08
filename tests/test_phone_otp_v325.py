@@ -185,7 +185,7 @@ def test_schema_contains_phone_otp_tables_and_columns():
     assert inspector.has_table("sms_settings")
 
 
-def test_android_login_screen_has_phone_otp_only():
+def test_android_login_screen_has_phone_otp_and_email():
     root = Path(__file__).resolve().parents[1]
     manager = (root / "android-source" / "BlueVpnAccountManager.kt").read_text()
     screen = (root / "android-source" / "BlueVpnSubscriptionsActivity.kt").read_text()
@@ -194,8 +194,11 @@ def test_android_login_screen_has_phone_otp_only():
     assert "/api/v1/account/phone/otp/request" in manager
     assert "شماره تماس" in screen
     assert "کد پیامکی" in screen
-    assert "TYPE_TEXT_VARIATION_EMAIL_ADDRESS" not in screen
-    assert "TYPE_TEXT_VARIATION_PASSWORD" not in screen
+    assert "TYPE_TEXT_VARIATION_EMAIL_ADDRESS" in screen
+    assert "TYPE_TEXT_VARIATION_PASSWORD" in screen
+    assert "/api/v1/auth/register" in manager
+    assert "/api/v1/auth/login" in manager
+    assert "authenticateWithEmail" in manager
 
 
 def test_admin_contains_faraz_sms_configuration():
@@ -260,7 +263,7 @@ assert {'phone','phone_verified_at','auth_method'} <= columns
 assert inspect(ENGINE).has_table('otp_challenges')
 assert inspect(ENGINE).has_table('sms_settings')
 with ENGINE.connect() as c:
-    assert c.scalar(text("SELECT value FROM bluevpn_schema_meta WHERE key='schema_version'")) == '13'
+    assert c.scalar(text("SELECT value FROM bluevpn_schema_meta WHERE key='schema_version'")) == '14'
     assert c.scalar(text("SELECT email FROM customers WHERE id=1")) == 'legacy@example.com'
 """
     result = subprocess.run(

@@ -96,6 +96,10 @@ class GuardCorePanel(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
     base_url: Mapped[str] = mapped_column(String(500))
+    global_subscription_url: Mapped[str] = mapped_column(
+        Text,
+        default="",
+    )
     auth_mode: Mapped[str] = mapped_column(
         String(20),
         default="manual",

@@ -1,8 +1,8 @@
 {
-  "project_version": "3.0.34",
-  "version_code": 30034,
-  "schema_version": 13,
-  "release": "3.0.34",
+  "project_version": "3.0.35",
+  "version_code": 30035,
+  "schema_version": 14,
+  "release": "3.0.35",
   "python_compileall": "passed",
   "jinja_template_parse": "passed",
   "android_xml_parse": "passed",
@@ -25,7 +25,7 @@
   "flash_auto_dismiss_and_query_cleanup": "implemented",
   "pasarguard": "automatic retained",
   "marzban": "automatic retained",
-  "guardcore": "manual optional retained",
+  "guardcore": "global shared subscription source with per-customer entitlement gate",
   "zip_integrity": "passed",
   "final_android_compile": "pending_github_actions",
   "in_app_downloader": "included",
@@ -41,7 +41,7 @@
   "native_stream_downloader": "included",
   "live_download_progress": "included",
   "speed_patch": true,
-  "version_consistency": "passed (release/branding/backend 3.0.32/30032)",
+  "version_consistency": "passed (release/branding/backend 3.0.35/30035)",
   "kotlin_executor_completion_submit_fix": "passed",
   "generated_source_regression_guard": "passed",
   "programmatic_home_screen": "passed",
@@ -96,7 +96,7 @@
   "updater_default_route_retry": "included",
   "updater_friendly_error_mapping": "included",
   "admin_security_tests": "passed (3 unit tests + endpoint smoke)",
-  "all_pytest": "passed (83 tests)",
+  "all_pytest": "passed (107/107)",
   "admin_dark_glass_dashboard": "implemented",
   "admin_vazirmatn_font": "implemented with local fallback stack",
   "admin_inline_svg_icons": "implemented",
@@ -158,7 +158,7 @@
     "invalid_rows_hard_deleted": true
   },
   "schema_8_to_9_migration": "passed (SQLite old schema -> expires_at column + schema 9)",
-  "generated_at": "2026-08-07T00:30:00Z",
+  "generated_at": "2026-08-08T19:21:45Z",
   "schema_9_to_10_migration": "automatic (creates dedicated ai_live_connections table)",
   "live_connection_detection": {
     "counting_rule": "Android VPN transport + running Xray session + fresh remote HTTP proof through local Xray proxy",
@@ -225,14 +225,8 @@
   },
   "jalali_tehran": "passed",
   "tests": "88 passed",
-  "android_validation": {
-    "status": "passed",
-    "version": "3.0.31",
-    "version_code": 30031,
-    "embedded_sources": 22,
-    "home_ids": 29
-  },
-  "database_migration": "passed (schema 11 -> 12: phone columns + otp_challenges + sms_settings)",
+  "android_validation": "passed (3.0.35/30035, 22 embedded sources, 29 home IDs)",
+  "database_migration": "passed (legacy SQLite GuardCore table upgraded to schema 14; global_subscription_url added; data retained)",
   "subscription_state_recovery": {
     "last_known_good_preserved": true,
     "provider_error_no_false_inactive": true,
@@ -257,7 +251,7 @@
   },
   "subscription_expiry_regression": "passed",
   "pasarguard_expiry_verification": "passed",
-  "test_count": 88,
+  "test_count": 107,
   "subscription_entitlement_detection_v324": {
     "activated_order_authority": "passed",
     "explicit_terminal_state_protection": "passed",
@@ -269,7 +263,7 @@
     "api_entitlement_active": "included",
     "api_remaining_seconds": "included"
   },
-  "pytest": "passed (98 tests)",
+  "pytest": "passed (107 tests)",
   "json_yaml_jinja_xml": "passed",
   "schema_11_to_12_migration": "passed (legacy customer retained; phone auth tables and indexes created)",
   "phone_otp_farazsms_v325": {
@@ -308,7 +302,7 @@
     "source": "exact workflow structure restored from 3.0.25",
     "dedicated_tests": "passed (3)"
   },
-  "test_summary": "92 passed; repository_dispatch primary trigger, workflow_dispatch fallback, stale-lock recovery, Android source validation passed",
+  "test_summary": "107 passed, 10 deprecation warnings",
   "workflow_concurrency": "passed (cancel-in-progress=true, queue:max removed)",
   "deploy_bot_stale_lock_recovery": "passed (tokenized lock, manual unlock, watchdog, queue timeout, safe replacement)",
   "deploy_bot_explicit_workflow_dispatch": {
@@ -345,5 +339,9 @@
       "sms_templates",
       "sms_deliveries"
     ]
-  }
+  },
+  "email_password_auth": "passed (registration, login, invalid credentials, device-bound session)",
+  "dual_email_sms_auth_ui": "passed",
+  "global_third_panel_subscription": "passed (old-user backfill and new-user automatic assignment)",
+  "shared_subscription_entitlement_gate": "passed (inactive/expired account receives HTTP 410)"
 }

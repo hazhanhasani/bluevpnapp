@@ -1,7 +1,7 @@
 {
-  "release": "3.0.34-auto",
-  "version_name": "3.0.34",
-  "version_code": 30034,
+  "release": "3.0.35",
+  "version_name": "3.0.35",
+  "version_code": 30035,
   "changes": [
     "Embed the official eNamad id and code supplied for bot.blluepanel.ir",
     "Build verification and logo URLs automatically with no Railway variables",
@@ -12,5 +12,5 @@
   "purpose": "فعال‌سازی خودکار نشان رسمی اینماد بلوپنل بدون تنظیم دستی Railway",
   "updated_at": "2026-08-08T16:20:00Z",
   "built_at": "2026-08-08T16:20:00Z",
-  "build_id": "20260808-bluepanel-enamad-autoconfig-v3034"
+  "build_id": "20260808-email-auth-global-third-panel-v3035"
 }

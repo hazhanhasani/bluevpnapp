@@ -1,11 +1,11 @@
 {
-  "version": "3.0.34",
-  "channel": "bluepanel-enamad-autoconfig",
-  "build_id": "20260808-bluepanel-enamad-autoconfig-v3034",
-  "built_at": "2026-08-08T16:20:00Z",
-  "android_version": "3.0.34",
-  "android_version_code": 30034,
-  "description": "BlueVPN 3.0.34 نشان رسمی اینماد دامنه bot.blluepanel.ir را با شناسه و کد ارائه‌شده به‌صورت خودکار روی صفحه عمومی بلوپنل فعال می‌کند و دیگر نیازی به تنظیم متغیر Railway ندارد.",
+  "version": "3.0.35",
+  "channel": "email-auth-global-third-panel",
+  "build_id": "20260808-email-auth-global-third-panel-v3035",
+  "built_at": "2026-08-08T19:30:00Z",
+  "android_version": "3.0.35",
+  "android_version_code": 30035,
+  "description": "BlueVPN 3.0.35 ورود و ثبت‌نام ایمیلی را در کنار ورود پیامکی فعال می‌کند و پنل سوم را با یک لینک ساب سراسری برای همه کاربران قدیمی و جدید، همراه با قطع دسترسی پس از پایان اشتراک، ارائه می‌دهد.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -257,8 +257,14 @@
     "embedded-official-enamad-seal",
     "automatic-enamad-url-construction",
     "enamad-origin-referrer-policy",
-    "zero-config-public-trust-badge"
+    "zero-config-public-trust-badge",
+    "email-password-auth",
+    "dual-email-sms-auth-ui",
+    "global-third-panel-subscription",
+    "global-subscription-old-user-backfill",
+    "entitlement-gated-shared-subscription",
+    "database-schema-14-global-third-panel"
   ],
-  "version_code": 30034,
-  "notes": "Automatic official eNamad seal configuration for bot.blluepanel.ir. The supplied id/code are embedded as public defaults while optional environment overrides remain supported."
+  "version_code": 30035,
+  "notes": "Email/password authentication alongside SMS OTP, plus one global third-panel subscription source protected by each customer BlueVPN entitlement."
 }

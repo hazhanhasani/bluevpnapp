@@ -20,6 +20,7 @@ from .manual_guardcore import (
     attach_manual_subscription,
     ensure_manual_request_for_order,
     is_manual_guardcore,
+    panel_global_subscription_url,
     manual_request,
     notify_manual_request,
     pending_manual_requests,
@@ -2020,16 +2021,87 @@ async def verify_bind_phone_otp(
     return {'success':True,'account':account_json(customer,db)}
 
 
-@app.post('/api/v1/auth/register')
-@app.post('/api/v1/auth/login')
-async def legacy_password_auth_disabled():
-    raise HTTPException(
-        410,
-        detail={
-            'code':'PASSWORD_AUTH_DISABLED',
-            'message':'ورود با ایمیل و رمز حذف شده است؛ با شماره تماس و کد پیامکی وارد شوید.',
-        },
+def password_input(raw:str)->str:
+    value=str(raw or '')
+    if len(value)<8:
+        raise HTTPException(422,detail={'code':'WEAK_PASSWORD','message':'رمز عبور باید حداقل ۸ کاراکتر باشد.'})
+    if len(value)>128:
+        raise HTTPException(422,detail={'code':'PASSWORD_TOO_LONG','message':'رمز عبور بیش از حد طولانی است.'})
+    return value
+
+
+def _password_auth_rate_limit(request:Request,email:str)->None:
+    email_key=hashlib.sha256(email.encode('utf-8')).hexdigest()[:24]
+    retry=max(
+        AUTH_LIMITER.hit(f'email-auth-ip:{client_ip(request)}',12,600),
+        AUTH_LIMITER.hit(f'email-auth-account:{email_key}',8,600),
     )
+    if retry:
+        raise rate_limit_exception(retry)
+
+
+@app.post('/api/v1/auth/register')
+async def register_with_email(request:Request,db:Session=Depends(get_db)):
+    body=await request.json()
+    email=email_ok(str(body.get('email','')))
+    password=password_input(str(body.get('password','')))
+    device_id=str(body.get('device_id','')).strip()[:180]
+    if not device_id:
+        raise HTTPException(422,detail={'code':'DEVICE_ID_REQUIRED','message':'شناسه دستگاه لازم است'})
+    _password_auth_rate_limit(request,email)
+    if db.scalar(select(Customer.id).where(Customer.email==email)):
+        raise HTTPException(409,detail={'code':'EMAIL_ALREADY_USED','message':'این ایمیل قبلاً ثبت شده است؛ وارد حساب شوید.'})
+    customer=Customer(
+        email=email,
+        password_hash=password_hash(password),
+        auth_method='email_password',
+        device_limit=1,
+    )
+    db.add(customer)
+    db.commit()
+    db.refresh(customer)
+    token,refresh_token=issue_session(
+        db,customer,
+        device_id,
+        str(body.get('device_name','')),
+    )
+    return {
+        'success':True,
+        'is_new_account':True,
+        'token':token,
+        'refresh_token':refresh_token,
+        'account':account_json(customer,db),
+    }
+
+
+@app.post('/api/v1/auth/login')
+async def login_with_email(request:Request,db:Session=Depends(get_db)):
+    body=await request.json()
+    email=email_ok(str(body.get('email','')))
+    password=str(body.get('password',''))
+    device_id=str(body.get('device_id','')).strip()[:180]
+    if not device_id:
+        raise HTTPException(422,detail={'code':'DEVICE_ID_REQUIRED','message':'شناسه دستگاه لازم است'})
+    _password_auth_rate_limit(request,email)
+    customer=db.scalar(select(Customer).where(Customer.email==email))
+    if not customer or not password_ok(password,customer.password_hash):
+        raise HTTPException(401,detail={'code':'INVALID_CREDENTIALS','message':'ایمیل یا رمز عبور نادرست است.'})
+    if not customer.active:
+        raise HTTPException(401,detail={'code':'ACCOUNT_DISABLED','message':'این حساب غیرفعال شده است.'})
+    customer.auth_method='email_password'
+    db.commit()
+    token,refresh_token=issue_session(
+        db,customer,
+        device_id,
+        str(body.get('device_name','')),
+    )
+    return {
+        'success':True,
+        'is_new_account':False,
+        'token':token,
+        'refresh_token':refresh_token,
+        'account':account_json(customer,db),
+    }
 
 
 @app.post('/api/v1/auth/refresh')
@@ -2700,6 +2772,10 @@ async def public_subscription(
     except Exception as exc:
         repair_error=str(exc)
 
+    access=account_json(customer,db).get('subscription',{})
+    if not access.get('active'):
+        raise HTTPException(410,'Subscription inactive or expired')
+
     expiry=aware(customer.subscription_expire)
     if expiry and expiry<=utcnow()-timedelta(seconds=EXPIRY_CLOCK_SKEW_SECONDS):
         raise HTTPException(410,'Subscription expired')
@@ -3244,6 +3320,7 @@ def add_guardcore_panel(
     request:Request,
     name:str=Form(...),
     base_url:str=Form(...),
+    global_subscription_url:str=Form(''),
     auth_mode:str=Form('manual'),
     api_key:str=Form(''),
     username:str=Form(''),
@@ -3260,9 +3337,13 @@ def add_guardcore_panel(
         usage_unit='bytes'
     if expire_mode not in {'days','seconds','timestamp'}:
         expire_mode='days'
+    global_url=str(global_subscription_url or '').strip()
+    if global_url and not global_url.startswith(('http://','https://')):
+        return RedirectResponse('/admin?error=لینک+ساب+سراسری+نامعتبر+است#guardcore',303)
     panel=GuardCorePanel(
         name=name.strip(),
         base_url=base_url.rstrip('/'),
+        global_subscription_url=global_url,
         auth_mode=auth_mode,
         api_key_enc=encrypt(api_key.strip()),
         username_enc=encrypt(username.strip()),
@@ -3272,6 +3353,59 @@ def add_guardcore_panel(
         verify_tls=verify_tls=='on',
     )
     db.add(panel)
+    db.flush()
+    if global_url:
+        _apply_global_guardcore_to_customers(db,panel)
+    db.commit()
+    return RedirectResponse('/admin?saved=1#guardcore',303)
+
+
+def _apply_global_guardcore_to_customers(
+    db:Session,
+    panel:GuardCorePanel,
+)->int:
+    global_url=panel_global_subscription_url(panel)
+    updated=0
+    for customer in db.scalars(select(Customer)).all():
+        customer.guardcore_panel_id=panel.id
+        customer.guardcore_username=customer.guardcore_username or f'global_{customer.id}'
+        customer.guardcore_subscription_url=global_url
+        customer.guardcore_expire=customer.subscription_expire
+        customer.guardcore_data_limit_bytes=0
+        customer.guardcore_used_traffic_bytes=0
+        customer.guardcore_last_error=''
+        normalized=normalize_provider_status(customer.subscription_status,default='inactive')
+        customer.guardcore_status=(
+            'active' if global_url and normalized=='active' else normalized
+        )
+        db.add(customer)
+        updated+=1
+    return updated
+
+
+@app.post('/admin/guardcore-panels/{panel_id}/global-link')
+def guardcore_global_link(
+    request:Request,
+    panel_id:int,
+    global_subscription_url:str=Form(''),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    panel=db.get(GuardCorePanel,panel_id)
+    if not panel:
+        raise HTTPException(404)
+    global_url=str(global_subscription_url or '').strip()
+    if global_url and not global_url.startswith(('http://','https://')):
+        return RedirectResponse('/admin?error=لینک+ساب+سراسری+نامعتبر+است#guardcore',303)
+    panel.auth_mode='manual'
+    panel.global_subscription_url=global_url
+    panel.last_test_ok=bool(global_url)
+    panel.last_test_message=(
+        'لینک سراسری برای همه کاربران اعمال شد'
+        if global_url else 'لینک سراسری حذف شد'
+    )
+    panel.last_test_at=utcnow()
+    _apply_global_guardcore_to_customers(db,panel)
     db.commit()
     return RedirectResponse('/admin?saved=1#guardcore',303)
 
@@ -3287,8 +3421,13 @@ async def guardcore_panel_test(
     if not panel:
         raise HTTPException(404)
     if is_manual_guardcore(panel):
-        ok=True
-        message='حالت دستی فعال است؛ لینک ساب از طریق ربات ثبت می‌شود'
+        global_url=panel_global_subscription_url(panel)
+        ok=bool(global_url)
+        message=(
+            'لینک ساب سراسری ثبت است و برای همه کاربران اعمال می‌شود'
+            if global_url
+            else 'لینک ساب سراسری هنوز ثبت نشده است'
+        )
         services=[]
     else:
         ok,message,services=await test_guardcore_panel(panel)

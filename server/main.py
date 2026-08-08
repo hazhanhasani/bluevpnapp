@@ -356,6 +356,27 @@ def save_settings(db:Session,data:dict):
     data['updated_at']=iso_z(utcnow());row=db.get(AppSetting,1) or AppSetting(id=1,payload='{}');row.payload=json.dumps(data,ensure_ascii=False);row.updated_at=utcnow();db.add(row);db.commit()
 
 
+DEFAULT_ENAMAD_ID='748781'
+DEFAULT_ENAMAD_CODE='HuvEauyphrDRR17dhwoisDFNoMFMkDC0'
+
+def _public_enamad_context()->dict:
+    """Return a ready-to-render eNamad badge without requiring Railway variables.
+
+    The public id/code are part of the official trust-seal HTML and are therefore
+    safe to ship in the web template. Environment variables remain optional so a
+    future seal can replace the defaults without a code release.
+    """
+    enamad_id=(os.getenv('ENAMAD_ID') or DEFAULT_ENAMAD_ID).strip()
+    enamad_code=(os.getenv('ENAMAD_CODE') or DEFAULT_ENAMAD_CODE).strip()
+    default_verify=f'https://trustseal.enamad.ir/?id={enamad_id}&Code={enamad_code}'
+    default_logo=f'https://trustseal.enamad.ir/logo.aspx?id={enamad_id}&Code={enamad_code}'
+    return {
+        'enamad_id':enamad_id,
+        'enamad_code':enamad_code,
+        'enamad_url':(os.getenv('ENAMAD_VERIFY_URL') or default_verify).strip(),
+        'enamad_logo_url':(os.getenv('ENAMAD_LOGO_URL') or default_logo).strip(),
+    }
+
 def public_site_context(request:Request,db:Session)->dict:
     current=settings(db)
     canonical_base=(os.getenv('PUBLIC_SITE_URL') or str(request.base_url)).strip().rstrip('/')
@@ -374,8 +395,7 @@ def public_site_context(request:Request,db:Session)->dict:
         'business_owner':os.getenv('PUBLIC_BUSINESS_OWNER','').strip(),
         'business_address':os.getenv('PUBLIC_BUSINESS_ADDRESS','').strip(),
         'business_hours':os.getenv('PUBLIC_BUSINESS_HOURS','شنبه تا پنجشنبه، ساعت ۹ تا ۱۸').strip(),
-        'enamad_url':os.getenv('ENAMAD_VERIFY_URL','').strip(),
-        'enamad_logo_url':os.getenv('ENAMAD_LOGO_URL','').strip(),
+        **_public_enamad_context(),
         'current_year':datetime.now().year,
         'updated_at':format_jalali(utcnow(),fallback=''),
     }

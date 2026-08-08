@@ -1,11 +1,11 @@
 {
-  "version": "3.0.33",
-  "channel": "bluepanel-public-website",
-  "build_id": "20260808-bluepanel-public-website-v3033",
-  "built_at": "2026-08-08T14:30:00Z",
-  "android_version": "3.0.33",
-  "android_version_code": 30033,
-  "description": "BlueVPN 3.0.33 صفحه عمومی و شفاف بلوپنل را برای معرفی مدیریت حساب، سفارش، صورتحساب، اعلان پیامکی و پشتیبانی، همراه با قوانین، حریم خصوصی، بازگشت وجه، تماس، نشان اعتماد قابل تنظیم، robots و sitemap اضافه می‌کند.",
+  "version": "3.0.34",
+  "channel": "bluepanel-enamad-autoconfig",
+  "build_id": "20260808-bluepanel-enamad-autoconfig-v3034",
+  "built_at": "2026-08-08T16:20:00Z",
+  "android_version": "3.0.34",
+  "android_version_code": 30034,
+  "description": "BlueVPN 3.0.34 نشان رسمی اینماد دامنه bot.blluepanel.ir را با شناسه و کد ارائه‌شده به‌صورت خودکار روی صفحه عمومی بلوپنل فعال می‌کند و دیگر نیازی به تنظیم متغیر Railway ندارد.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -253,8 +253,12 @@
     "public-refund-and-contact-pages",
     "configurable-enamad-badge",
     "public-robots-and-sitemap",
-    "production-api-docs-disabled"
+    "production-api-docs-disabled",
+    "embedded-official-enamad-seal",
+    "automatic-enamad-url-construction",
+    "enamad-origin-referrer-policy",
+    "zero-config-public-trust-badge"
   ],
-  "version_code": 30033,
-  "notes": "Complete BluePanel SMS notification center with 38 FarazSMS/IPPanel patterns, event-driven delivery, retries, dedupe, scheduled scans, broadcast console and delivery audit."
+  "version_code": 30034,
+  "notes": "Automatic official eNamad seal configuration for bot.blluepanel.ir. The supplied id/code are embedded as public defaults while optional environment overrides remain supported."
 }

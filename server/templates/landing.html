@@ -102,7 +102,7 @@
       {% if enamad_url and enamad_logo_url %}
       <div class="enamad-card">
         <div><strong>نماد اعتماد الکترونیکی</strong><span>برای مشاهده اطلاعات اعتبار، روی نشان کلیک کنید.</span></div>
-        <a href="{{ enamad_url }}" target="_blank" rel="noopener noreferrer nofollow"><img src="{{ enamad_logo_url }}" alt="نماد اعتماد الکترونیکی {{ site_name }}"></a>
+        <a referrerpolicy="origin" target="_blank" href="{{ enamad_url }}" rel="noopener noreferrer"><img referrerpolicy="origin" src="{{ enamad_logo_url }}" alt="نماد اعتماد الکترونیکی {{ site_name }}" style="cursor:pointer" code="{{ enamad_code }}"></a>
       </div>
       {% endif %}
     </section>

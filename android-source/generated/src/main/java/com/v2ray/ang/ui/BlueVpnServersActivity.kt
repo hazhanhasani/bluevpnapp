@@ -197,7 +197,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         textSize = 13f
         setTextColor(palette.textPrimary)
         setHintTextColor(palette.textMuted)
-        singleLine = true
+        isSingleLine = true
         gravity = Gravity.CENTER_VERTICAL or Gravity.END
         setPadding(dp(16), 0, dp(16), 0)
         background = rounded(palette.surface, 18, palette.stroke)

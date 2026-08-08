@@ -13,5 +13,5 @@
     "arm64-v8a",
     "armeabi-v7a"
   ],
-  "version_source": "jump-polish-theme-fast-connect-v3038"
+  "version_source": "project_release_or_latest_github_release_increment"
 }

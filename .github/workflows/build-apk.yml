@@ -363,6 +363,8 @@ jobs:
               "src/main/java/com/v2ray/ang/ui/BlueVpnSettingsActivity.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAccountManager.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateManager.kt",
+              "src/main/java/com/v2ray/ang/ui/BlueVpnUpdateInstallActivity.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateFileProvider.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLocationUtil.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnExperience.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAi.kt",

@@ -15,7 +15,7 @@ def test_only_latest_branch_build_is_kept():
 def test_release_version_current():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.40"
-    assert release["version_code"] == 30040
-    assert app["version_name"] == "3.0.40"
-    assert app["version_code"] == 30040
+    assert release["version"] == "3.0.41"
+    assert release["version_code"] == 30041
+    assert app["version_name"] == "3.0.41"
+    assert app["version_code"] == 30041

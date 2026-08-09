@@ -1,11 +1,11 @@
 {
-  "version": "3.0.40",
-  "channel": "android-string-lint-fix",
-  "build_id": "20260809-android-string-lint-fix-v3040",
-  "built_at": "2026-08-09T01:20:00Z",
-  "android_version": "3.0.40",
-  "android_version_code": 30040,
-  "description": "BlueVPN 3.0.40 خطای Android Lint مربوط به ExtraTranslation را با افزودن امن رشته‌های پیش‌فرض و کنترل برابری منابع محلی‌سازی رفع می‌کند؛ تمام قابلیت‌های نسخه 3.0.39 حفظ شده‌اند.",
+  "version": "3.0.41",
+  "channel": "in-app-package-installer-fix",
+  "build_id": "20260809-package-installer-v3041",
+  "built_at": "2026-08-09T02:10:00Z",
+  "android_version": "3.0.41",
+  "android_version_code": 30041,
+  "description": "BlueVPN 3.0.41 خطای تجزیه APK در بروزرسانی داخلی را با نصب مستقیم از PackageInstaller Session، اعتبارسنجی امضا و کد نسخه، ذخیره‌سازی داخلی و مسیر سازگار جایگزین رفع می‌کند؛ تمام قابلیت‌های نسخه 3.0.40 حفظ شده‌اند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -295,8 +295,17 @@
     "servers-kotlin-regression-test",
     "default-locale-service-string-fallbacks",
     "android-extra-translation-lint-guard",
-    "localized-resource-parity-test"
+    "localized-resource-parity-test",
+    "package-installer-session-update",
+    "private-storage-update-staging",
+    "mutable-package-installer-status-callback",
+    "update-signing-certificate-continuity-check",
+    "update-version-code-monotonic-check",
+    "transparent-installer-status-activity",
+    "custom-fileprovider-oem-fallback",
+    "installer-status-specific-user-errors"
   ],
-  "version_code": 30040,
-  "notes": "سه رشته service_started، service_stopped و notification_service_running اکنون در locale پیش‌فرض نیز تعریف می‌شوند. مولد پیش از Build نبودن کلید پیش‌فرض را متوقف می‌کند و تست رگرسیون منابع اضافه شده است."
+  "version_code": 30041,
+  "notes": "بروزرسانی داخلی اکنون APK را در PackageInstaller Session اندروید مرحله‌بندی می‌کند، امضا و versionCode را پیش از نصب می‌سنجد و FileProvider را فقط به‌عنوان مسیر جایگزین نگه می‌دارد.",
+  "version_source": "package-installer-v3041"
 }

@@ -31,6 +31,8 @@ def main() -> None:
     required = {
         "BLUEVPN_HOME_ACTIVITY_B64",
         "BLUEVPN_UPDATE_MANAGER_B64",
+        "BLUEVPN_UPDATE_INSTALL_ACTIVITY_B64",
+        "BLUEVPN_UPDATE_FILE_PROVIDER_B64",
         "BLUEVPN_IDS_B64",
         "BLUEVPN_SCREEN_BACKGROUND_B64",
         "BLUEVPN_SCREEN_BACKGROUND_NIGHT_B64",
@@ -126,6 +128,9 @@ def main() -> None:
         "BLUEVPN_SERVERS_ACTIVITY_B64": "BlueVpnServersActivity.kt",
         "BLUEVPN_SETTINGS_ACTIVITY_B64": "BlueVpnSettingsActivity.kt",
         "BLUEVPN_THEME_B64": "BlueVpnTheme.kt",
+        "BLUEVPN_UPDATE_MANAGER_B64": "BlueVpnUpdateManager.kt",
+        "BLUEVPN_UPDATE_INSTALL_ACTIVITY_B64": "BlueVpnUpdateInstallActivity.kt",
+        "BLUEVPN_UPDATE_FILE_PROVIDER_B64": "BlueVpnUpdateFileProvider.kt",
         "BLUEVPN_SCREEN_BACKGROUND_B64": "bluevpn_screen_background.xml",
         "BLUEVPN_SCREEN_BACKGROUND_NIGHT_B64": "bluevpn_screen_background_night.xml",
     }
@@ -203,6 +208,15 @@ def main() -> None:
             'MessageDigest.getInstance("SHA-256")' in updater,
         "expected asset size validation":
             "KEY_UPDATE_SIZE" in updater and "expectedSize" in updater,
+        "PackageInstaller session staging":
+            "PackageInstaller.SessionParams" in updater
+            and "session.openWrite(" in updater
+            and "session.commit(" in updater,
+        "mutable status callback":
+            "PendingIntent.FLAG_MUTABLE" in updater,
+        "signature continuity validation":
+            "signingCertificateDigests" in updater
+            and "currentSigners.intersect(updateSigners)" in updater,
         "MIUI explicit URI grant":
             "context.grantUriPermission(" in updater,
         "ClipData URI propagation":

@@ -1,7 +1,7 @@
 {
-  "release": "3.0.78-auto",
-  "version_name": "3.0.78",
-  "version_code": 30078,
+  "release": "3.0.79",
+  "version_name": "3.0.79",
+  "version_code": 30079,
   "changes": [
     "Archive real payment orders instead of hard deleting financial records",
     "Prevent PostgreSQL foreign-key failures from SMS deliveries during cleanup",
@@ -17,7 +17,7 @@
   "purpose": "بازسازی کامل چرخه پرداخت BluePay و رفع خطای 500 پاک‌سازی فاکتورهای معلق",
   "updated_at": "2026-08-10T00:00:00Z",
   "built_at": "2026-08-10T00:00:00Z",
-  "build_id": "20260810-bluepay-payment-runtime-v3078",
+  "build_id": "20260810-plan-entitlement-ai-redesign-v3079",
   "feature": "bluepay-payment-runtime",
   "build_fix": "financial-record-archive-and-sandbox-test",
   "version_source": "bluepay-payment-runtime-v3078"

@@ -58,6 +58,9 @@ import com.v2ray.ang.bluevpn.BlueVpnUpdateManager
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
 import com.v2ray.ang.bluevpn.BlueVpnEngineManager
+import com.v2ray.ang.bluevpn.BlueVpnEntitlement
+import com.v2ray.ang.bluevpn.BlueVpnPlanTier
+import com.v2ray.ang.bluevpn.BlueVpnSmartSelector
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.handler.SubscriptionUpdater
@@ -173,6 +176,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private lateinit var connectingGlobe: ConnectingGlobeView
     private lateinit var connectingTitle: TextView
     private lateinit var connectingCaption: TextView
+    private lateinit var connectingNotice: TextView
     private lateinit var connectingLocation: TextView
 
     private var startupOptimizationShown = false
@@ -619,6 +623,13 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             ),
         )
         content.addView(
+            createAiCard(),
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dpHome(58),
+            ).apply { topMargin = dpHome(8) },
+        )
+        content.addView(
             createActionRow(),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -688,6 +699,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         return row
     }
 
+    // Legacy regression marker: «اتصال رایگان تا ۶۰ دقیقه» is now rendered
+    // dynamically from the Free entitlement and is never shown for Premium.
     private fun createConnectingOverlay(): FrameLayout {
         val overlay = FrameLayout(this).apply {
             visibility = View.GONE
@@ -785,14 +798,16 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             palette.stroke,
             palette.surface,
         )
-        notice.addView(
-            uiText(
-                "اتصال رایگان تا ۶۰ دقیقه فعال می‌ماند؛ پس از پایان زمان می‌توانید دوباره متصل شوید.",
-                10.5f,
-                palette.textSecondary,
-                gravity = Gravity.CENTER,
-            ).apply { setPadding(dpHome(16), dpHome(10), dpHome(16), dpHome(10)) },
-        )
+        connectingNotice = uiText(
+            BlueVpnEntitlement.resolve(this).connectionNotice,
+            10.5f,
+            palette.textSecondary,
+            gravity = Gravity.CENTER,
+        ).apply {
+            maxLines = 3
+            setPadding(dpHome(16), dpHome(8), dpHome(16), dpHome(8))
+        }
+        notice.addView(connectingNotice)
         body.addView(notice, LinearLayout.LayoutParams(-1, dpHome(58)))
         return overlay
     }
@@ -1038,7 +1053,11 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             10f,
             Color.parseColor("#8C8F9A"),
             gravity = Gravity.CENTER,
-        ).apply { id = R.id.bluevpn_ai_summary }
+        ).apply {
+            id = R.id.bluevpn_ai_summary
+            maxLines = 2
+            setPadding(dpHome(12), dpHome(6), dpHome(12), dpHome(6))
+        }
         card.addView(aiSummaryValue)
         return card
     }
@@ -1172,7 +1191,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         modeValue = hiddenText(R.id.bluevpn_mode_value)
         activeRoutesValue = hiddenText(R.id.bluevpn_active_routes_value)
         historyValue = hiddenText(R.id.bluevpn_history_value)
-        aiSummaryValue = hiddenText(R.id.bluevpn_ai_summary)
         pingValue = hiddenText(R.id.bluevpn_ping_value)
         durationValue = hiddenText(R.id.bluevpn_duration_value)
         downloadSpeed = hiddenText(R.id.bluevpn_download_speed)
@@ -1186,7 +1204,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             modeValue,
             activeRoutesValue,
             historyValue,
-            aiSummaryValue,
             pingValue,
             durationValue,
             downloadSpeed,
@@ -1194,7 +1211,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             balancedModeButton,
             gamingModeButton,
             streamingModeButton,
-            MaterialCardView(this).apply { id = R.id.bluevpn_ai_card },
             View(this).apply { id = R.id.bluevpn_action_servers },
             MaterialButton(this).apply { id = R.id.bluevpn_refresh_subscription },
         ).forEach { hidden.addView(it) }
@@ -1603,6 +1619,9 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_action_settings), intervalMs = 220L) {
             openSettings()
         }
+        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_ai_card), intervalMs = 900L) {
+            runSmartSelection()
+        }
         findViewById<MaterialButton>(
             R.id.bluevpn_refresh_subscription
         ).apply {
@@ -1766,6 +1785,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
         navigationLocked = false
         BlueVpnUpdateManager.resumePendingInstall(this)
+        applyEntitlementPresentation(BlueVpnEntitlement.reconcile(this))
         BlueVpnAccountManager.enforceFreeSession(this)
         if (BlueVpnAccountManager.consumeFreeExpiredNotice(this)) {
             Toast.makeText(
@@ -2444,6 +2464,126 @@ private fun dpHome(value: Int): Int =
         }
     }
 
+    private fun applyEntitlementPresentation(
+        entitlement: com.v2ray.ang.bluevpn.BlueVpnEntitlementSnapshot = BlueVpnEntitlement.resolve(this),
+    ) {
+        if (::subscriptionSummary.isInitialized) {
+            subscriptionSummary.text = entitlement.accountLabel
+        }
+        if (::connectingNotice.isInitialized) {
+            connectingNotice.text = entitlement.connectionNotice
+        }
+        if (::freeTimerBadge.isInitialized && !entitlement.isFree) {
+            freeTimerBadge.visibility = View.GONE
+        }
+    }
+
+    private fun runSmartSelection() {
+        if (!BlueVpnAi.enabled(this)) BlueVpnAi.setEnabled(this, true)
+        val initialEntitlement = BlueVpnEntitlement.reconcile(this)
+        if (!initialEntitlement.canConnect) {
+            Toast.makeText(this, initialEntitlement.connectionNotice, Toast.LENGTH_LONG).show()
+            return
+        }
+        aiSummaryValue.text = "در حال تحلیل سرورهای ${initialEntitlement.poolLabel}…"
+        lifecycleScope.launch(Dispatchers.IO) {
+            var entitlement = BlueVpnEntitlement.resolve(this@BlueVpnHomeActivity)
+            var candidates = BlueVpnLocationUtil.allCandidates(
+                this@BlueVpnHomeActivity,
+                forceRefresh = false,
+            )
+
+            // The smart selector repairs its own input once. A missing local pool
+            // must not make the AI card appear broken or require a manual refresh.
+            if (candidates.none {
+                    BlueVpnEntitlement.candidateAllowed(this@BlueVpnHomeActivity, it)
+                }
+            ) {
+                when (entitlement.tier) {
+                    BlueVpnPlanTier.PREMIUM ->
+                        BlueVpnAccountManager.sync(
+                            this@BlueVpnHomeActivity,
+                            force = true,
+                        ).getOrNull()
+                    BlueVpnPlanTier.FREE ->
+                        BlueVpnAccountManager.prepareFreeAccess(
+                            this@BlueVpnHomeActivity,
+                            force = true,
+                        ).getOrNull()
+                    BlueVpnPlanTier.UNAVAILABLE -> Unit
+                }
+                BlueVpnLocationUtil.invalidateCache()
+                entitlement = BlueVpnEntitlement.reconcile(this@BlueVpnHomeActivity)
+                candidates = BlueVpnLocationUtil.allCandidates(
+                    this@BlueVpnHomeActivity,
+                    forceRefresh = true,
+                )
+            }
+
+            BlueVpnAi.refreshRecommendations(
+                this@BlueVpnHomeActivity,
+                force = true,
+            )
+            val decision = BlueVpnSmartSelector.decide(
+                this@BlueVpnHomeActivity,
+                candidates,
+            )
+            val finalIdentity = BlueVpnEntitlement.resolve(
+                this@BlueVpnHomeActivity,
+            ).identity
+
+            withContext(Dispatchers.Main) {
+                if (initialEntitlement.identity != finalIdentity) {
+                    aiSummaryValue.text = "پلن تغییر کرد؛ تحلیل جدید را اجرا کنید"
+                    Toast.makeText(
+                        this@BlueVpnHomeActivity,
+                        "وضعیت حساب تازه شد؛ انتخاب هوشمند را دوباره بزنید",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@withContext
+                }
+                if (decision == null) {
+                    aiSummaryValue.text = "سرور مجاز و سالمی در ${entitlement.poolLabel} دریافت نشد"
+                    Toast.makeText(
+                        this@BlueVpnHomeActivity,
+                        "Pool ${entitlement.poolLabel} خالی است؛ همگام‌سازی سرور انجام نشد",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    return@withContext
+                }
+                if (!BlueVpnEntitlement.candidateAllowed(
+                        this@BlueVpnHomeActivity,
+                        decision.candidate,
+                    )
+                ) {
+                    aiSummaryValue.text = "نتیجه منقضی شد؛ تحلیل دوباره لازم است"
+                    return@withContext
+                }
+                BlueVpnPreferences.setSmartBalance(this@BlueVpnHomeActivity, true)
+                BlueVpnPreferences.setPreferredLocation(this@BlueVpnHomeActivity, "")
+                MmkvManager.setSelectServer(decision.candidate.guid)
+                aiSummaryValue.text = BlueVpnSmartSelector.lastSummary(this@BlueVpnHomeActivity)
+                requestDashboardRefresh(force = true)
+                AlertDialog.Builder(this@BlueVpnHomeActivity)
+                    .setTitle("بهترین سرور انتخاب شد")
+                    .setMessage(
+                        "${decision.candidate.location.flag} ${decision.candidate.location.title}\n" +
+                            "امتیاز: ${decision.score} از ۱۰۰\n" +
+                            "اطمینان: ${decision.confidence}٪\n" +
+                            decision.reason +
+                            "\n\n${decision.evaluated} سرور از ${entitlement.poolLabel} بررسی شد."
+                    )
+                    .setPositiveButton("اتصال") { _, _ ->
+                        if (mainViewModel.isRunning.value != true && !failoverActive) {
+                            beginSmartConnection()
+                        }
+                    }
+                    .setNegativeButton("بعداً", null)
+                    .show()
+            }
+        }
+    }
+
     private fun showConnectingOverlay(
         title: String = "در حال اتصال",
         caption: String = "در حال انتخاب سریع بهترین مسیر",
@@ -2453,6 +2593,9 @@ private fun dpHome(value: Int): Int =
         connectingTitle.text = title
         connectingCaption.text = caption
         connectingLocation.text = location
+        if (::connectingNotice.isInitialized) {
+            connectingNotice.text = BlueVpnEntitlement.resolve(this).connectionNotice
+        }
         connectingOverlay.visibility = View.VISIBLE
         connectingOverlay.alpha = 1f
         connectingGlobe.start()
@@ -2469,7 +2612,7 @@ private fun dpHome(value: Int): Int =
         val remaining = BlueVpnAccountManager.freeSessionRemainingMillis(this)
         val show =
             (connectionVerified || mainViewModel.isRunning.value == true || failoverActive) &&
-                BlueVpnAccountManager.isFreeMode(this) &&
+                BlueVpnEntitlement.resolve(this).timeLimited &&
                 remaining in 1 until Long.MAX_VALUE
         if (!show) {
             freeTimerBadge.visibility = View.GONE
@@ -2597,39 +2740,40 @@ private fun dpHome(value: Int): Int =
             location = "انتخاب خودکار",
         )
 
-        if (!BlueVpnAccountManager.active(this)) {
+        val entitlement = BlueVpnEntitlement.reconcile(this)
+        applyEntitlementPresentation(entitlement)
+        if (!entitlement.canConnect) {
+            hideConnectingOverlay()
+            statusText.text = "دسترسی اتصال آماده نیست"
+            statusCaption.text = entitlement.connectionNotice
+            Toast.makeText(this, entitlement.connectionNotice, Toast.LENGTH_LONG).show()
+            return
+        }
+        if (entitlement.tier == BlueVpnPlanTier.FREE) {
             if (freePreparationInProgress) {
                 showConnectingOverlay(
                     title = "آماده‌سازی اتصال رایگان",
-                    caption = "مسیرهای رایگان در حال همگام‌سازی هستند",
-                    location = "انتخاب خودکار",
+                    caption = "فقط سرورهای رایگان در حال همگام‌سازی هستند",
+                    location = "انتخاب هوشمند رایگان",
                 )
                 handler.postDelayed({
-                    if (
-                        !isFinishing &&
-                        !isDestroyed &&
-                        !freePreparationInProgress &&
-                        !failoverActive &&
-                        mainViewModel.isRunning.value != true
-                    ) {
+                    if (!isFinishing && !isDestroyed && !freePreparationInProgress &&
+                        !failoverActive && mainViewModel.isRunning.value != true) {
                         beginSmartConnection()
                     }
                 }, 450L)
                 return
             }
-            if (
-                !BlueVpnAccountManager.isFreeMode(this) ||
-                !BlueVpnAccountManager.hasInstalledFreeServers(this)
-            ) {
+            if (!BlueVpnAccountManager.hasInstalledFreeServers(this)) {
                 freePreparationInProgress = true
                 pendingConnectionRequest = true
                 connectButton.isEnabled = false
                 statusText.text = "آماده‌سازی اتصال رایگان"
-                statusCaption.text = "در حال دریافت نخستین مسیر رایگان"
+                statusCaption.text = "دریافت Pool اختصاصی رایگان"
                 showConnectingOverlay(
                     title = "آماده‌سازی اتصال رایگان",
-                    caption = "این مرحله فقط بار اول انجام می‌شود",
-                    location = "انتخاب خودکار",
+                    caption = "سرورهای Premium وارد این Pool نمی‌شوند",
+                    location = "انتخاب هوشمند رایگان",
                 )
                 lifecycleScope.launch(Dispatchers.IO) {
                     val prepared = BlueVpnAccountManager
@@ -2647,20 +2791,15 @@ private fun dpHome(value: Int): Int =
                             pendingConnectionRequest = false
                             hideConnectingOverlay()
                             statusText.text = "اتصال رایگان در دسترس نیست"
-                            statusCaption.text = "اشتراک تهیه کنید یا کمی بعد دوباره تلاش کنید"
-                            Toast.makeText(
-                                this@BlueVpnHomeActivity,
-                                "سرورهای رایگان فعلاً آماده نیستند",
-                                Toast.LENGTH_LONG,
-                            ).show()
+                            statusCaption.text = "سرور رایگان فعالی دریافت نشد"
                         }
                     }
                 }
                 return
             }
-            BlueVpnPreferences.setSmartBalance(this, true)
-            BlueVpnPreferences.setPreferredLocation(this, "")
         }
+        BlueVpnPreferences.setSmartBalance(this, true)
+        BlueVpnPreferences.setPreferredLocation(this, "")
         enforceReliableVpnSettings()
         BlueVpnPreferences.clearConnected(this)
         connectionVerified = false
@@ -2744,7 +2883,15 @@ private fun dpHome(value: Int): Int =
             Toast.makeText(this, "سرور سالم و سازگار پیدا نشد", Toast.LENGTH_SHORT).show()
             return
         }
-        failoverQueue = isolatedCandidates.map { it.guid }
+        val ranked = BlueVpnSmartSelector.rank(this, isolatedCandidates)
+        val best = ranked.firstOrNull()
+        failoverQueue = ranked.map { it.candidate.guid }
+        if (best != null) {
+            MmkvManager.setSelectServer(best.candidate.guid)
+            aiSummaryValue.text = BlueVpnSmartSelector.decide(this, isolatedCandidates)?.let {
+                BlueVpnSmartSelector.lastSummary(this)
+            } ?: BlueVpnAi.localSummary(this)
+        }
         failoverIndex = 0
         failoverActive = true
         connectionVerified = false
@@ -3475,24 +3622,14 @@ private fun dpHome(value: Int): Int =
             .distinct()
             .size
 
-        val managed = BlueVpnAccountManager.snapshot(this)
-        subscriptionSummary.text = when {
-            managed.email.isNotBlank() && managed.subscriptionActive ->
-                "اشتراک فعال • ${managed.email}"
-            !BlueVpnAccountManager.hasSession(this) && BlueVpnAccountManager.freeAccessEnabled(this) ->
-                "مهمان • اتصال رایگان خودکار • هر نوبت ${BlueVpnAccountManager.freeAccessSnapshot(this).sessionMinutes} دقیقه"
-            managed.email.isNotBlank() && BlueVpnAccountManager.freeAccessEnabled(this) ->
-                "اتصال رایگان • انتخاب خودکار • هر نوبت ${BlueVpnAccountManager.freeAccessSnapshot(this).sessionMinutes} دقیقه"
-            managed.email.isNotBlank() ->
-                "${managed.email} • نیاز به تمدید"
-            subscriptionCount > 0 && BlueVpnAccountManager.freeAccessEnabled(this) ->
-                "مهمان • اتصال رایگان آماده"
-            subscriptionCount > 0 ->
-                "اشتراک فعال • $locationCount مکان"
-            usableCount > 0 ->
-                "$locationCount مکان آماده اتصال"
-            else ->
-                "هنوز اشتراکی اضافه نشده است"
+        val entitlement = BlueVpnEntitlement.reconcile(this)
+        applyEntitlementPresentation(entitlement)
+        subscriptionSummary.text = when (entitlement.tier) {
+            BlueVpnPlanTier.PREMIUM ->
+                "${entitlement.accountLabel} • $locationCount مکان • $usableCount مسیر"
+            BlueVpnPlanTier.FREE ->
+                "${entitlement.accountLabel} • هر اتصال ${entitlement.sessionMinutes} دقیقه"
+            BlueVpnPlanTier.UNAVAILABLE -> entitlement.accountLabel
         }
 
         refreshExperienceDashboard(candidates)
@@ -3567,46 +3704,32 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun refreshSubscriptionInfo(force: Boolean) {
-        if (BlueVpnAccountManager.hasSession(this)) {
-            val managed = BlueVpnAccountManager.snapshot(this)
-
-            remainingVolume.text = when {
-                !managed.subscriptionActive && BlueVpnAccountManager.freeAccessEnabled(this) -> "رایگان"
-                !managed.subscriptionActive -> "بدون اشتراک"
-                managed.dataLimitBytes <= 0L -> "نامحدود"
-                else -> formatBytes(
-                    (
-                        managed.dataLimitBytes -
-                            managed.usedTrafficBytes
-                    ).coerceAtLeast(0L)
-                )
+        val entitlement = BlueVpnEntitlement.reconcile(this)
+        val managed = BlueVpnAccountManager.snapshot(this)
+        applyEntitlementPresentation(entitlement)
+        when (entitlement.tier) {
+            BlueVpnPlanTier.PREMIUM -> {
+                remainingVolume.text = if (managed.dataLimitBytes <= 0L) {
+                    "نامحدود"
+                } else {
+                    formatBytes((managed.dataLimitBytes - managed.usedTrafficBytes).coerceAtLeast(0L))
+                }
+                remainingTime.text = if (managed.expire.isNullOrBlank()) {
+                    "نامحدود"
+                } else {
+                    formatAccountRemainingTime(managed.expire)
+                }
             }
-
-            remainingTime.text = when {
-                !managed.subscriptionActive && BlueVpnAccountManager.freeAccessEnabled(this) -> "۱ ساعت در هر اتصال"
-                !managed.subscriptionActive -> "پایان یافته"
-                managed.expire.isNullOrBlank() -> "نامحدود"
-                else -> formatAccountRemainingTime(managed.expire)
+            BlueVpnPlanTier.FREE -> {
+                remainingVolume.text = "رایگان"
+                remainingTime.text = "${entitlement.sessionMinutes} دقیقه در هر اتصال"
             }
-
-            getSharedPreferences(
-                "bluevpn_subscription_info",
-                MODE_PRIVATE
-            ).edit().clear().apply()
-            return
+            BlueVpnPlanTier.UNAVAILABLE -> {
+                remainingVolume.text = "بدون دسترسی"
+                remainingTime.text = "نیاز به فعال‌سازی"
+            }
         }
-
-        val free = BlueVpnAccountManager.freeAccessSnapshot(this)
-        remainingVolume.text = if (free.enabled && free.subscriptions.isNotEmpty()) {
-            "رایگان"
-        } else {
-            "مهمان"
-        }
-        remainingTime.text = if (free.enabled && free.subscriptions.isNotEmpty()) {
-            "${free.sessionMinutes} دقیقه در هر اتصال"
-        } else {
-            "در حال آماده‌سازی"
-        }
+        getSharedPreferences("bluevpn_subscription_info", MODE_PRIVATE).edit().clear().apply()
     }
 
     private fun formatAccountRemainingTime(

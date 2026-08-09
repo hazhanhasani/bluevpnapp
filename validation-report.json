@@ -1,7 +1,7 @@
 {
-  "version": "3.0.74",
-  "version_code": 30078,
-  "feature": "bluepay-official-contract",
+  "version": "3.0.79",
+  "version_code": 30079,
+  "feature": "plan-entitlement-ai-runtime-redesign",
   "tests": {
     "passed": 35,
     "failed": 0,
@@ -71,16 +71,15 @@
   },
   "validation_commands": {
     "project_suite": "python -m pytest -q",
-    "project_suite_result": "281 passed, 0 failed, 40 deprecation warnings",
+    "project_suite_result": "307 passed, 0 failed, 40 deprecation warnings",
     "runtime_validator": "python scripts/validate_dual_engine.py",
     "runtime_validator_result": "35 passed, 0 failed, 1 environment warning",
-    "workflow_yaml_parse": "passed",
-    "sing_box_shell_syntax": "passed",
-    "build_118_regression": "passed",
-    "generated_android_validator": "passed (3.0.74 / 30074, 27 embedded sources)",
-    "bluepay_contract_regression": "passed"
+    "generated_android_validator": "passed (3.0.79 / 30079, 27 embedded sources)",
+    "json_validation": "passed",
+    "python_compileall": "passed",
+    "full_gradle_build": "not run in offline container"
   },
-  "build_fix": "bluepay-canonical-v1-single-idempotent-request",
+  "build_fix": "plan-entitlement-ai-redesign-v3079",
   "bluepay": {
     "endpoint": "POST /api/v1/invoices",
     "auth_header": "X-API-Key",
@@ -92,6 +91,22 @@
     "request_id_diagnostics": true,
     "settings_api_key_guard": true
   },
-  "project_version": "3.0.78",
-  "release": "3.0.78"
+  "plan_entitlement_ai": {
+    "status": "passed",
+    "single_source_of_truth": true,
+    "tiers": [
+      "PREMIUM",
+      "FREE",
+      "UNAVAILABLE"
+    ],
+    "free_premium_pool_isolation": true,
+    "legacy_global_mmkv_fallback": false,
+    "premium_free_timer": false,
+    "local_selector": true,
+    "cloud_optional": true,
+    "missing_pool_self_heal": true,
+    "stale_decision_guard": true,
+    "explainable_score": true,
+    "manual_selection_premium_only": true
+  }
 }

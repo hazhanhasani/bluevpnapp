@@ -879,57 +879,8 @@ private fun unknownLocation(): BlueVpnLocation =
         }
         val effective = sessionHealthy.ifEmpty { scoped }
 
-        data class RankedCandidate(
-            val candidate: Candidate,
-            val state: Int,
-            val priority: Int,
-        )
-
-        val ranked = effective.map { candidate ->
-            val inactive = BlueVpnPreferences.isSessionInactive(
-                context,
-                candidate.guid,
-            )
-            val failed = if (inactive) {
-                false
-            } else {
-                BlueVpnPreferences.failedRecently(
-                    context,
-                    candidate.guid,
-                )
-            }
-
-            RankedCandidate(
-                candidate = candidate,
-                state = when {
-                    inactive -> 4
-                    failed -> 3
-                    candidate.delay > 0L -> 0
-                    candidate.delay == 0L -> 1
-                    else -> 2
-                },
-                priority = BlueVpnExperience.candidatePriority(
-                    context,
-                    candidate,
-                ) + BlueVpnPreferences.successFreshnessScore(
-                    context,
-                    candidate.guid,
-                ) * 100,
-            )
-        }
-
-        return ranked.sortedWith(
-            compareBy<RankedCandidate> { it.state }
-                .thenByDescending { it.priority }
-                .thenBy {
-                    if (it.candidate.delay > 0L) {
-                        it.candidate.delay
-                    } else {
-                        Long.MAX_VALUE
-                    }
-                }
-                .thenBy { it.candidate.location.title }
-        ).map { it.candidate }
+        return BlueVpnSmartSelector.rank(context, effective)
+            .map { it.candidate }
     }
 
     /**
@@ -1000,13 +951,8 @@ private fun unknownLocation(): BlueVpnLocation =
         val result = scan(skipSessionInactive = true).ifEmpty {
             scan(skipSessionInactive = false)
         }
-        return result.sortedWith(
-            compareByDescending<Candidate> {
-                BlueVpnPreferences.successFreshnessScore(context, it.guid)
-            }.thenBy {
-                if (it.delay > 0L) it.delay else Long.MAX_VALUE
-            }
-        )
+        return BlueVpnSmartSelector.rank(context, result)
+            .map { it.candidate }
     }
 
     /**
@@ -1084,10 +1030,10 @@ private fun unknownLocation(): BlueVpnLocation =
     fun selectBest(
         context: Context,
         preferredKey: String? = null,
-    ): String? =
-        orderedCandidates(context, preferredKey)
-            .firstOrNull()
-            ?.guid
+    ): String? = BlueVpnSmartSelector
+        .decide(context, orderedCandidates(context, preferredKey))
+        ?.candidate
+        ?.guid
 
     data class Candidate(
         val guid: String,

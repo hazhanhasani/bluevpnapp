@@ -1,11 +1,11 @@
 {
-  "version": "3.0.78",
+  "version": "3.0.79",
   "channel": "stable",
-  "build_id": "20260810-bluepay-payment-runtime-v3078",
+  "build_id": "20260810-plan-entitlement-ai-redesign-v3079",
   "built_at": "2026-08-10T00:00:00Z",
-  "android_version": "3.0.78",
-  "android_version_code": 30078,
-  "description": "BlueVPN 3.0.78 کل چرخه پرداخت BluePay را پایدار می‌کند: پاک‌سازی بدون حذف سوابق مالی، بازیابی پرداخت دیرهنگام، تست Sandbox، نگهداری امن کلیدها و خطای JSON قابل‌پیگیری.",
+  "android_version": "3.0.79",
+  "android_version_code": 30079,
+  "description": "BlueVPN 3.0.79 بازطراحی کامل دسترسی رایگان و Premium را با منبع واحد Entitlement، جداسازی قطعی Poolها و انتخاب‌گر هوشمند محلی/ابری ارائه می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -498,9 +498,19 @@
     "bluepay-masked-secret-preservation",
     "bluepay-structured-admin-errors",
     "bluepay-per-invoice-cleanup-isolation",
-    "bluepay-remote-cancel-and-late-paid-recovery"
+    "bluepay-remote-cancel-and-late-paid-recovery",
+    "single-entitlement-source-of-truth",
+    "strict-free-premium-runtime-separation",
+    "plan-aware-connecting-ui",
+    "premium-no-trial-timer",
+    "local-ai-server-selector",
+    "cloud-ai-optional-enrichment",
+    "explainable-server-ranking",
+    "visible-ai-action-card",
+    "entitlement-transition-state-reset",
+    "ai-selection-without-login"
   ],
-  "version_code": 30078,
+  "version_code": 30079,
   "notes": "فاکتورهای واقعی دیگر Hard Delete نمی‌شوند؛ بنابراین خطای 500 ناشی از Foreign Key پیامک، گم‌شدن Callback دیرهنگام و حذف سابقه مالی برطرف شده است. تست Sandbox و پاک‌سازی مقاوم نیز به پنل افزوده شد.",
   "version_source": "bluepay-payment-runtime-v3078"
 }

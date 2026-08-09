@@ -21,6 +21,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
+import com.v2ray.ang.bluevpn.BlueVpnEntitlement
 import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnThemeMode
@@ -111,11 +112,12 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
 
         sectionLabel(content, "حساب کاربری")
         val snapshot = BlueVpnAccountManager.snapshot(this)
+        val entitlement = BlueVpnEntitlement.resolve(this)
         content.addView(
             settingRow(
                 title = "حساب BlueVPN",
                 value = snapshot.email.ifBlank { "ورود یا ثبت‌نام" },
-                description = if (snapshot.subscriptionActive) "اشتراک فعال" else "مدیریت حساب و اشتراک",
+                description = entitlement.accountLabel,
             ) {
                 BlueVpnUiGuard.start(
                     this,

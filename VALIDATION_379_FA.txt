@@ -1,0 +1,9 @@
+BlueVPN 3.0.79 — نتیجه اعتبارسنجی
+
+- Project tests: 307 passed / 0 failed
+- Generated Android validator: passed
+- Dual-engine architecture validator: 35 passed / 0 failed / 1 environment warning
+- JSON validation: passed
+- Python compileall: passed
+- ZIP integrity: passed for complete and changed-files archives
+- Full Gradle/Android SDK/NDK build: not run in this offline container; GitHub Actions must confirm APK compilation.

@@ -26,5 +26,7 @@
   "full_gradle_build": {
     "status": "not_run",
     "reason": "Android upstream/SDK build is performed by GitHub Actions"
-  }
+  },
+  "project_version": "3.0.42",
+  "release": "3.0.42"
 }

@@ -1,35 +1,937 @@
-name: Build BlueVPN APK
+name: Build Signed BlueVPN APK
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
   repository_dispatch:
     types:
       - bluevpn_build
 
+
+# Keep only the newest build for each branch. This prevents old queued
+# workflow runs from blocking a newly uploaded release.
 concurrency:
   group: bluevpn-release-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  BLUEVPN_TARGET_SHA: ${{ github.event.client_payload.target_sha }}
-  BLUEVPN_TARGET_BRANCH: ${{ github.event.client_payload.target_branch || github.ref_name }}
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      BLUEVPN_TARGET_BRANCH: ${{ github.event.client_payload.ref || github.ref_name }}
+      BLUEVPN_TARGET_SHA: ${{ github.event.client_payload.target_sha || github.sha }}
+
     steps:
-      - name: Synchronize checkout with latest branch
+      - name: Checkout BlueVPN project
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-      - name: Align requested commit
+
+      - name: Synchronize checkout with latest branch
         shell: bash
         run: |
-          echo "Prepare repository_dispatch payload"
+          set -euo pipefail
+          git fetch origin "${BLUEVPN_TARGET_BRANCH}" --prune
           git checkout -B "${BLUEVPN_TARGET_BRANCH}" "${BLUEVPN_TARGET_SHA}"
-          echo "rebasing attempt avoided by explicit checkout"
-      - name: Upload build artifact
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          if [ "$ACTUAL_SHA" != "$BLUEVPN_TARGET_SHA" ]; then
+            echo "::error::Requested source SHA was not checked out. Expected=$BLUEVPN_TARGET_SHA Actual=$ACTUAL_SHA"
+            exit 1
+          fi
+          echo "BUILD_STAGE=source-synchronized" >> "$GITHUB_ENV"
+          echo "Building requested commit: ${ACTUAL_SHA}"
+
+      - name: Check permanent signing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in \
+            ANDROID_KEYSTORE_BASE64 \
+            ANDROID_KEYSTORE_PASSWORD \
+            ANDROID_KEY_ALIAS \
+            ANDROID_KEY_PASSWORD
+          do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not configured in GitHub Actions secrets."
+              exit 1
+            fi
+          done
+
+      - name: Resolve next BlueVPN version
+        id: config
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          LATEST_TAG="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/releases/latest" \
+              --jq '.tag_name' \
+              2>/dev/null || true
+          )"
+
+          export LATEST_TAG
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          app_path = Path("branding/app.json")
+          release_path = Path("release.json")
+          app = json.loads(app_path.read_text(encoding="utf-8"))
+          release = json.loads(release_path.read_text(encoding="utf-8"))
+
+          def patch(value: object) -> int:
+              match = re.fullmatch(
+                  r"v?3\.0\.(\d+)",
+                  str(value or "").strip(),
+              )
+              return int(match.group(1)) if match else -1
+
+          project_patch = max(
+              patch(app.get("version_name")),
+              patch(release.get("version")),
+          )
+          published_patch = patch(os.environ.get("LATEST_TAG"))
+
+          # A newly uploaded source package already declares its intended
+          # version. Build it once as-is. Later pushes increment from the
+          # latest published GitHub Release.
+          if project_patch > published_patch:
+              next_patch = project_patch
+          else:
+              next_patch = max(project_patch, published_patch, 0) + 1
+
+          version = f"3.0.{next_patch}"
+          version_code = 30000 + next_patch
+
+          app["version_name"] = version
+          app["version_code"] = version_code
+          app["version_source"] = (
+              "project_release_or_latest_github_release_increment"
+          )
+          app_path.write_text(
+              json.dumps(app, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          release["version"] = version
+          release["version_code"] = version_code
+          release["android_version"] = version
+          release["android_version_code"] = version_code
+          release_path.write_text(
+              json.dumps(release, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          for metadata_path in (
+              Path("deployment-marker.json"),
+              Path("validation-report.json"),
+          ):
+              if not metadata_path.exists():
+                  continue
+              metadata = json.loads(
+                  metadata_path.read_text(encoding="utf-8")
+              )
+              if metadata_path.name == "deployment-marker.json":
+                  metadata["release"] = f"{version}-auto"
+                  metadata["version_name"] = version
+              else:
+                  metadata["project_version"] = version
+                  metadata["release"] = version
+              metadata["version_code"] = version_code
+              metadata_path.write_text(
+                  json.dumps(
+                      metadata,
+                      ensure_ascii=False,
+                      indent=2,
+                  ) + "\n",
+                  encoding="utf-8",
+              )
+
+          output = Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as stream:
+              stream.write(f"version={version}\n")
+              stream.write(f"version_code={version_code}\n")
+              stream.write(f"previous_tag={os.environ.get('LATEST_TAG', '')}\n")
+              stream.write(f"next_patch={next_patch}\n")
+
+          print(f"Project version: 3.0.{project_patch}")
+          print(f"Latest GitHub Release: {os.environ.get('LATEST_TAG') or 'none'}")
+          print(f"Android build version: {version} ({version_code})")
+          PY
+
+          echo "upstream_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["upstream_ref"])')" >> "$GITHUB_OUTPUT"
+
+      - name: Persist resolved version in repository
+        id: persist_metadata
+        shell: bash
+        env:
+          TARGET_BRANCH: ${{ github.event.client_payload.ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          echo "BUILD_STAGE=persist-version-metadata" >> "$GITHUB_ENV"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            branding/app.json \
+            release.json \
+            deployment-marker.json \
+            validation-report.json
+
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: persist BlueVPN ${{ steps.config.outputs.version }} metadata [skip ci]"
+          else
+            echo "Version metadata is already synchronized."
+          fi
+
+          PUSHED=0
+          for attempt in 1 2 3 4 5; do
+            if git push --porcelain origin "HEAD:${TARGET_BRANCH}"; then
+              PUSHED=1
+              break
+            fi
+
+            echo "Push raced with another commit; rebasing attempt ${attempt}/5"
+            git fetch origin "${TARGET_BRANCH}" --prune
+            git rebase "origin/${TARGET_BRANCH}"
+            sleep $((attempt * 2))
+          done
+
+          if [ "$PUSHED" != "1" ]; then
+            echo "::error::Version metadata could not be persisted after five synchronized retries."
+            exit 1
+          fi
+
+          LOCAL_SHA="$(git rev-parse HEAD)"
+          REMOTE_AFTER=""
+          for attempt in 1 2 3 4 5 6 7 8; do
+            REMOTE_AFTER="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+            if [ "$REMOTE_AFTER" = "$LOCAL_SHA" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$REMOTE_AFTER" != "$LOCAL_SHA" ]; then
+            echo "::error::Version metadata was not verifiably persisted to GitHub. Local=$LOCAL_SHA Remote=$REMOTE_AFTER"
+            exit 1
+          fi
+
+          echo "source_sha=$LOCAL_SHA" >> "$GITHUB_OUTPUT"
+          echo "repository_commit_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${LOCAL_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Verified GitHub metadata commit: $LOCAL_SHA"
+
+      - name: Checkout official v2rayNG source
+        uses: actions/checkout@v6
+        with:
+          repository: 2dust/v2rayNG
+          ref: ${{ steps.config.outputs.upstream_ref }}
+          path: upstream
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup Android SDK 37
+        uses: android-actions/setup-android@v4
+        with:
+          log-accepted-android-sdk-licenses: false
+          cmdline-tools-version: '14742923'
+          packages: 'platforms;android-37.0 build-tools;37.0.0 platform-tools'
+
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "y" | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            --channel=0 \
+            --install "ndk;29.0.14206865"
+
+          echo "NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> "$GITHUB_ENV"
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("upstream/V2rayNG/app/build.gradle.kts")
+          text = path.read_text(encoding="utf-8")
+          marker = "android {"
+
+          if 'ndkVersion = "29.0.14206865"' not in text:
+              if marker not in text:
+                  raise SystemExit("android block not found")
+              text = text.replace(
+                  marker,
+                  marker + '\n    ndkVersion = "29.0.14206865"',
+                  1,
+              )
+              path.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Build libhevtun
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash compile-hevtun.sh
+          cp -r libs V2rayNG/app/
+
+      - name: Fetch AndroidLibXrayLite release tag
+        id: xray
+        working-directory: upstream/AndroidLibXrayLite
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch origin \
+            --force \
+            --prune \
+            --tags \
+            "+refs/tags/*:refs/tags/*"
+
+          CURRENT_TAG="$(git tag --points-at HEAD | sort -V | tail -n 1)"
+          if [ -z "$CURRENT_TAG" ]; then
+            CURRENT_TAG="$(git describe --tags --abbrev=0)"
+          fi
+          if [ -z "$CURRENT_TAG" ]; then
+            echo "Could not determine AndroidLibXrayLite release tag."
+            exit 1
+          fi
+
+          echo "AndroidLibXrayLite commit: $(git rev-parse --short HEAD)"
+          echo "AndroidLibXrayLite tag: $CURRENT_TAG"
+          echo "tag=$CURRENT_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download libv2ray
+        uses: robinraju/release-downloader@v1.13
+        with:
+          repository: 2dust/AndroidLibXrayLite
+          tag: ${{ steps.xray.outputs.tag }}
+          fileName: libv2ray.aar
+          out-file-path: upstream/V2rayNG/app/libs/
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install branding tools
+        run: pip install pillow
+
+      - name: Apply BlueVPN custom UI and features
+        run: python scripts/prepare_android.py
+
+      - name: Persist generated Android source snapshot in GitHub
+        id: persist_generated
+        shell: bash
+        env:
+          TARGET_BRANCH: ${{ github.event.client_payload.ref || github.ref_name }}
+          VERSION: ${{ steps.config.outputs.version }}
+          VERSION_CODE: ${{ steps.config.outputs.version_code }}
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          app = Path("upstream/V2rayNG/app")
+          snapshot = Path("android-source/generated")
+          if snapshot.exists():
+              shutil.rmtree(snapshot)
+
+          selected = [
+              "src/main/java/com/v2ray/ang/ui/BlueVpnHomeActivity.kt",
+              "src/main/java/com/v2ray/ang/ui/BlueVpnAiActivity.kt",
+              "src/main/java/com/v2ray/ang/ui/BlueVpnServersActivity.kt",
+              "src/main/java/com/v2ray/ang/ui/BlueVpnSubscriptionsActivity.kt",
+              "src/main/java/com/v2ray/ang/ui/BlueVpnSettingsActivity.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAccountManager.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAdsCarouselView.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnTheme.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLiveReporter.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnBootstrap.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateManager.kt",
+              "src/main/java/com/v2ray/ang/ui/BlueVpnUpdateInstallActivity.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateFileProvider.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLocationUtil.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnExperience.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAi.kt",
+              "src/main/res/drawable/bluevpn_screen_background.xml",
+              "src/main/res/drawable-night/bluevpn_screen_background.xml",
+              "src/main/res/drawable/bluevpn_logo_background.xml",
+              "src/main/res/drawable/bluevpn_connect_ring.xml",
+              "src/main/res/drawable/bluevpn_status_dot.xml",
+              "src/main/res/drawable/bluevpn_icon_chip.xml",
+              "src/main/res/values/bluevpn_home_theme.xml",
+              "src/main/res/values/bluevpn_ids.xml",
+              "src/main/res/anim/bluevpn_fade_in.xml",
+              "src/main/res/anim/bluevpn_fade_out.xml",
+              "src/main/res/xml/bluevpn_update_paths.xml",
+              "src/main/AndroidManifest.xml",
+              "src/main/java/com/v2ray/ang/AngApplication.kt",
+              "build.gradle.kts",
+          ]
+
+          hashes = {}
+          for relative in selected:
+              source = app / relative
+              if not source.exists():
+                  raise SystemExit(f"Generated Android file missing: {source}")
+              destination = snapshot / relative
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(source, destination)
+              hashes[relative] = hashlib.sha256(source.read_bytes()).hexdigest()
+
+          manifest = {
+              "app": "BlueVPN",
+              "version": os.environ["VERSION"],
+              "version_code": int(os.environ["VERSION_CODE"]),
+              "workflow_source_commit": os.environ["GITHUB_SHA"],
+              "upstream_ref": json.loads(
+                  Path("branding/app.json").read_text(encoding="utf-8")
+              )["upstream_ref"],
+              "files": hashes,
+          }
+          snapshot.mkdir(parents=True, exist_ok=True)
+          (snapshot / "snapshot-manifest.json").write_text(
+              json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          print(f"Prepared {len(hashes)} generated Android source files")
+          PY
+
+          git add android-source/generated
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: persist generated Android source for ${VERSION} [skip ci]"
+          else
+            echo "Generated Android source snapshot is already synchronized."
+          fi
+
+          echo "BUILD_STAGE=persist-generated-android-source" >> "$GITHUB_ENV"
+          PUSHED=0
+          for attempt in 1 2 3 4 5; do
+            if git push --porcelain origin "HEAD:${TARGET_BRANCH}"; then
+              PUSHED=1
+              break
+            fi
+            echo "Generated-source push raced with another commit; rebasing attempt ${attempt}/5"
+            git fetch origin "${TARGET_BRANCH}" --prune
+            git rebase "origin/${TARGET_BRANCH}"
+            sleep $((attempt * 2))
+          done
+
+          if [ "$PUSHED" != "1" ]; then
+            echo "::error::Generated Android source could not be persisted after five synchronized retries."
+            exit 1
+          fi
+
+          LOCAL_SHA="$(git rev-parse HEAD)"
+          REMOTE_AFTER=""
+          for attempt in 1 2 3 4 5 6 7 8; do
+            REMOTE_AFTER="$(git ls-remote origin "refs/heads/${TARGET_BRANCH}" | awk '{print $1}')"
+            if [ "$REMOTE_AFTER" = "$LOCAL_SHA" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$REMOTE_AFTER" != "$LOCAL_SHA" ]; then
+            echo "::error::Generated Android source was not verifiably persisted to GitHub. Local=$LOCAL_SHA Remote=$REMOTE_AFTER"
+            exit 1
+          fi
+
+          echo "source_sha=$LOCAL_SHA" >> "$GITHUB_OUTPUT"
+          echo "repository_commit_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${LOCAL_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Verified generated-source commit: $LOCAL_SHA"
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: upstream/V2rayNG/**/*.gradle*
+
+      - name: Validate generated Android manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+
+          path = Path(
+              "upstream/V2rayNG/app/src/main/AndroidManifest.xml"
+          )
+          text = path.read_text(encoding="utf-8")
+          ET.parse(path)
+
+          permission = (
+              "android.permission.REQUEST_INSTALL_PACKAGES"
+          )
+
+          if text.count(permission) != 1:
+              raise SystemExit(
+                  "REQUEST_INSTALL_PACKAGES must exist exactly once"
+              )
+
+          xml_declaration = text.find("<?xml")
+          manifest_opening = text.find("<manifest")
+          permission_position = text.find(
+              "android.permission.REQUEST_INSTALL_PACKAGES"
+          )
+
+          if not (
+              xml_declaration >= 0
+              and manifest_opening > xml_declaration
+              and permission_position > manifest_opening
+          ):
+              raise SystemExit(
+                  "Install permission is outside the manifest root"
+              )
+
+          print("AndroidManifest.xml validation passed")
+          PY
+
+      - name: Build unsigned release APKs
+        working-directory: upstream/V2rayNG
+        env:
+          BUILD_STAGE: gradle-compile
+        shell: bash
+        run: |
+          set -o pipefail
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          chmod +x gradlew
+
+          ./gradlew :app:assemblePlaystoreRelease \
+            "-PABI_FILTERS=arm64-v8a;armeabi-v7a" \
+            --stacktrace \
+            --no-daemon \
+            2>&1 | tee "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Show Android compiler errors
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          echo "========== Android build errors =========="
+          if [ -f android-build.log ]; then
+            grep -E -i               "e: |error:|unresolved reference|cannot access|compilation error|failed"               android-build.log               | tail -n 120               || tail -n 160 android-build.log
+          else
+            echo "android-build.log was not created."
+          fi
+
+      - name: Upload failed Android build log
+        if: failure()
         uses: actions/upload-artifact@v6
         with:
-          name: bluevpn-apk
-          path: app/build/outputs/
+          name: BlueVPN-android-build-log
+          path: android-build.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Decode permanent signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/bluevpn-signing"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" \
+            | base64 --decode \
+            > "$RUNNER_TEMP/bluevpn-signing/BlueVPN-release.jks"
+
+          keytool -list \
+            -keystore "$RUNNER_TEMP/bluevpn-signing/BlueVPN-release.jks" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" \
+            >/dev/null
+
+      - name: Align and sign APKs permanently
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/37.0.0"
+          KEYSTORE="$RUNNER_TEMP/bluevpn-signing/BlueVPN-release.jks"
+          mkdir -p dist "$RUNNER_TEMP/bluevpn-aligned"
+
+          mapfile -t APKS < <(
+            find upstream/V2rayNG/app/build/outputs/apk \
+              -type f \
+              -name "*.apk" \
+              | sort
+          )
+
+          if [ "${#APKS[@]}" -eq 0 ]; then
+            echo "No release APK was generated."
+            exit 1
+          fi
+
+          for apk in "${APKS[@]}"; do
+            filename="$(basename "$apk")"
+
+            # Normalize exactly one APK extension. Some Gradle outputs are
+            # already named *.apk while older outputs end in -unsigned.apk.
+            base_name="${filename%.apk}"
+            base_name="${base_name%-unsigned}"
+            base_name="${base_name%-release}"
+            clean_name="${base_name}.apk"
+
+            aligned="$RUNNER_TEMP/bluevpn-aligned/${base_name}-aligned.apk"
+            signed="dist/$clean_name"
+
+            "$BUILD_TOOLS/zipalign" -p -f 4 "$apk" "$aligned"
+
+            "$BUILD_TOOLS/apksigner" sign \
+              --ks "$KEYSTORE" \
+              --ks-key-alias "$ANDROID_KEY_ALIAS" \
+              --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+              --key-pass env:ANDROID_KEY_PASSWORD \
+              --out "$signed" \
+              "$aligned"
+
+            "$BUILD_TOOLS/apksigner" verify \
+              --verbose \
+              --print-certs \
+              "$signed"
+
+            echo "Signed: $signed"
+          done
+
+          echo "Generated signed APKs:"
+          ls -lah dist
+
+      - name: Create GitHub Release metadata and checksums
+        env:
+          VERSION: ${{ steps.config.outputs.version }}
+          VERSION_CODE: ${{ steps.config.outputs.version_code }}
+          BUILD_PUBLISHED_AT: ${{ github.event.head_commit.timestamp }}
+          SOURCE_COMMIT: ${{ steps.persist_generated.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          cd dist
+          sha256sum *.apk > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          cd ..
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          release = json.loads(
+              Path("release.json").read_text(
+                  encoding="utf-8"
+              )
+          )
+
+          version = os.environ["VERSION"]
+          version_code = int(os.environ["VERSION_CODE"])
+          build_number = int(os.environ["GITHUB_RUN_NUMBER"])
+          commit = os.environ.get("SOURCE_COMMIT") or os.environ["GITHUB_SHA"]
+
+          apks = sorted(
+              path.name
+              for path in Path("dist").glob("*.apk")
+          )
+
+          description = str(
+              release.get("description")
+              or "نسخه جدید BlueVPN آماده است."
+          )
+
+          manifest = {
+              "app_name": "BlueVPN",
+              "version": version,
+              "version_code": version_code,
+              "build_number": build_number,
+              "commit": commit,
+              "published_at": os.environ.get(
+                  "BUILD_PUBLISHED_AT",
+                  "",
+              ),
+              "update_title": f"BlueVPN {version}",
+              "update_message": description,
+              "apk_assets": apks,
+              "source": "github_actions",
+          }
+
+          Path("dist/release-manifest.json").write_text(
+              json.dumps(
+                  manifest,
+                  ensure_ascii=False,
+                  indent=2,
+              ) + "\n",
+              encoding="utf-8",
+          )
+
+          notes = (
+              f"# BlueVPN {version}\n\n"
+              f"{description}\n\n"
+              f"- Build: #{build_number}\n"
+              f"- Version Code: {version_code}\n"
+              f"- Commit: `{commit[:8]}`\n"
+              f"- Signed APKs: {len(apks)}\n"
+          )
+
+          Path("dist/RELEASE_NOTES.md").write_text(
+              notes,
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload signed BlueVPN APK artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: BlueVPN-${{ steps.config.outputs.version }}-signed
+          path: |
+            dist/*.apk
+            dist/SHA256SUMS.txt
+            dist/release-manifest.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish signed APKs to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.config.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.persist_generated.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="v${VERSION}"
+
+          if gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            >/dev/null 2>&1
+          then
+            gh release delete "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --yes \
+              --cleanup-tag
+          fi
+
+          gh release create "$TAG" \
+            dist/*.apk \
+            dist/SHA256SUMS.txt \
+            dist/release-manifest.json \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_COMMIT" \
+            --title "BlueVPN ${VERSION}" \
+            --notes-file dist/RELEASE_NOTES.md
+
+          echo "GitHub Release published from persisted source: ${TAG} @ ${SOURCE_COMMIT}"
+
+      - name: Send signed APK files to Telegram
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          VERSION: ${{ steps.config.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "Telegram secrets are not configured; skipping Telegram delivery."
+            exit 0
+          fi
+
+          SOURCE_COMMIT="${{ steps.persist_generated.outputs.source_sha }}"
+          SOURCE_URL="${{ steps.persist_generated.outputs.repository_commit_url }}"
+
+          curl --fail --show-error --silent \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=🚀 Build جدید BlueVPN آماده شد%0Aنسخه: ${VERSION}%0ABuild: #${GITHUB_RUN_NUMBER}%0ACommit سورس: ${SOURCE_COMMIT:0:8}%0Aفایل‌های پروژه و سورس تولیدشده روی GitHub تأیید شدند.%0A${SOURCE_URL}%0Aدو فایل مخصوص arm64-v8a و armeabi-v7a در ادامه ارسال می‌شوند."
+
+          for apk in dist/*.apk; do
+            ARCH="$(basename "$apk" .apk | sed -E 's/^BlueVPN_[^_]+_//')"
+            CAPTION="$(printf '✅ APK جدید BlueVPN %s\n🏗 Build #%s\n📦 %s\n📱 معماری: %s\n🔐 امضای دائمی فعال است؛ بدون حذف نسخه قبلی نصب می‌شود.' \
+              "$VERSION" "$GITHUB_RUN_NUMBER" "$(basename "$apk")" "$ARCH")"
+
+            curl --fail --show-error --silent \
+              --request POST \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              --form "chat_id=${TELEGRAM_CHAT_ID}" \
+              --form "document=@${apk}" \
+              --form-string "caption=${CAPTION}"
+          done
+      - name: Send build failure and full log to Telegram
+        if: ${{ failure() }}
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          VERSION: ${{ steps.config.outputs.version }}
+        shell: bash
+        run: |
+          set +e
+
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          SHORT_SHA="${GITHUB_SHA:0:8}"
+
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import re
+
+          log_path = Path("android-build.log")
+          report_path = Path("telegram-build-error.txt")
+
+          header = [
+              "❌ Build اپلیکیشن BlueVPN ناموفق بود",
+              "",
+              f"نسخه: {os.getenv('VERSION') or 'نامشخص'}",
+              f"Build: #{os.getenv('GITHUB_RUN_NUMBER', 'نامشخص')}",
+              f"Commit: {os.getenv('GITHUB_SHA', '')[:8]}",
+              f"Branch: {os.getenv('GITHUB_REF_NAME', 'نامشخص')}",
+              f"Actor: {os.getenv('GITHUB_ACTOR', 'نامشخص')}",
+              f"Stage: {os.getenv('BUILD_STAGE', 'pre-gradle')}",
+              f"Run: {os.getenv('GITHUB_SERVER_URL', '')}/"
+              f"{os.getenv('GITHUB_REPOSITORY', '')}/actions/runs/"
+              f"{os.getenv('GITHUB_RUN_ID', '')}",
+              "",
+              "خلاصه خطا:",
+          ]
+
+          if log_path.exists():
+              raw = log_path.read_text(
+                  encoding="utf-8",
+                  errors="replace",
+              )
+              lines = [
+                  line.replace("\x00", "").rstrip()
+                  for line in raw.splitlines()
+              ]
+
+              pattern = re.compile(
+                  r"(^|\s)(e:|error:|fatal:)|"
+                  r"unresolved reference|cannot access|"
+                  r"compilation error|execution failed for task|"
+                  r"what went wrong|build failed",
+                  re.IGNORECASE,
+              )
+              matches = [line for line in lines if pattern.search(line)]
+
+              # Remove repeated adjacent Gradle stack lines and keep the
+              # most useful compiler messages near the end.
+              compact = []
+              seen = set()
+              for line in matches:
+                  normalized = line.strip()
+                  if not normalized or normalized in seen:
+                      continue
+                  seen.add(normalized)
+                  compact.append(normalized)
+
+              selected = compact[-55:]
+              if not selected:
+                  selected = [
+                      line for line in lines[-120:] if line.strip()
+                  ]
+          else:
+              selected = [
+                  "فایل android-build.log ساخته نشده است.",
+                  "احتمالاً خطا پیش از شروع مرحله Gradle رخ داده است.",
+              ]
+
+          report = "\n".join(header + selected)
+          report_path.write_text(report + "\n", encoding="utf-8")
+
+          # Telegram text messages are limited. Keep the readable summary
+          # short; the complete log is sent as a document afterward.
+          message = report
+          if len(message) > 3700:
+              message = (
+                  "\n".join(header)
+                  + "\n"
+                  + "\n".join(selected[-28:])
+              )
+          if len(message) > 3900:
+              message = message[:3850] + "\n… ادامه در فایل کامل لاگ"
+
+          Path("telegram-build-message.txt").write_text(
+              message,
+              encoding="utf-8",
+          )
+          PY
+
+          echo "========== Telegram failure report =========="
+          cat telegram-build-error.txt
+          cat telegram-build-error.txt >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "Telegram secrets are not configured; failure report was not sent."
+            exit 0
+          fi
+
+          MESSAGE="$(cat telegram-build-message.txt)"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --connect-timeout 15 \
+            --max-time 90 \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${MESSAGE}" \
+            --data-urlencode "disable_web_page_preview=true"
+
+          if [ -f android-build.log ]; then
+            LOG_FILE="android-build.log"
+            LOG_CAPTION="📎 لاگ کامل خطای BlueVPN | Build #${GITHUB_RUN_NUMBER} | ${SHORT_SHA}"
+          else
+            LOG_FILE="telegram-build-error.txt"
+            LOG_CAPTION="📎 گزارش خطای BlueVPN | Build #${GITHUB_RUN_NUMBER} | ${SHORT_SHA}"
+          fi
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --connect-timeout 15 \
+            --max-time 120 \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+            --form "chat_id=${TELEGRAM_CHAT_ID}" \
+            --form "document=@${LOG_FILE}" \
+            --form-string "caption=${LOG_CAPTION}"
+
+          # Also send the compact report as a separate file so it is easy
+          # to forward back for diagnosis.
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --retry 3 \
+            --connect-timeout 15 \
+            --max-time 90 \
+            --request POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+            --form "chat_id=${TELEGRAM_CHAT_ID}" \
+            --form "document=@telegram-build-error.txt" \
+            --form-string "caption=🧾 خلاصه قابل ارسال خطای Build"

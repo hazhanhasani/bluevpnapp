@@ -1,10 +1,10 @@
 {
-  "version": "3.0.48",
+  "version": "3.0.49",
   "channel": "stable",
   "build_id": "20260809-safe-ad-render-v3048",
   "built_at": "2026-08-09T07:33:55Z",
-  "android_version": "3.0.48",
-  "android_version_code": 30048,
+  "android_version": "3.0.49",
+  "android_version_code": 30049,
   "description": "BlueVPN 3.0.48 نمایش تبلیغات را فقط پس از دانلود و Decode موفق تصویر فعال می‌کند، ارتفاع بنر را روی نسبت ۲۰:۹ قفل می‌کند و برای جلوگیری از خراب‌شدن صفحه، تبلیغات را روی نسخه‌های قدیمی ناسازگار غیرفعال نگه می‌دارد.",
   "features": [
     "premium-ui-v3",
@@ -333,9 +333,12 @@
     "safe-ad-client-gating",
     "image-ready-only-ad-render",
     "fixed-ad-layout-height",
-    "old-client-ad-ui-protection"
+    "old-client-ad-ui-protection",
+    "real-gradle-apk-build-workflow-restored",
+    "signed-apk-artifact-and-github-release",
+    "build-output-hard-fail-when-apk-missing"
   ],
-  "version_code": 30048,
+  "version_code": 30049,
   "notes": "تبلیغات صفحه اصلی اکنون از پنل مدیریت می‌شوند و بدون تبلیغ فعال هیچ فضای خالی در اپ نمایش داده نمی‌شود.",
   "version_source": "in-app-ad-carousel-v3042"
 }

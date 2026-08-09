@@ -9,10 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_346():
     release=json.loads((ROOT/'release.json').read_text(encoding='utf-8'))
     app=json.loads((ROOT/'branding/app.json').read_text(encoding='utf-8'))
-    assert release['version']=='3.0.48'
-    assert release['version_code']==30048
-    assert app['version_name']=='3.0.48'
-    assert app['version_code']==30048
+    assert release['version']=='3.0.49'
+    assert release['version_code']==30049
+    assert app['version_name']=='3.0.49'
+    assert app['version_code']==30049
 
 
 def test_admin_post_refresh_is_recovered_without_raw_405():

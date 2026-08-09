@@ -1,6 +1,6 @@
 {
   "version": "3.0.70",
-  "version_code": 30070,
+  "version_code": 30071,
   "feature": "dual-engine-runtime-boundary",
   "tests": {
     "passed": 35,
@@ -78,5 +78,7 @@
     "sing_box_shell_syntax": "passed",
     "build_118_regression": "passed"
   },
-  "build_fix": "119-singbox-arm64-xray-armv7-fallback"
+  "build_fix": "119-singbox-arm64-xray-armv7-fallback",
+  "project_version": "3.0.71",
+  "release": "3.0.71"
 }

@@ -782,6 +782,39 @@ object BlueVpnAccountManager {
         )
     }
 
+
+    fun resolveServerLocations(
+        c: Context,
+        keys: List<String>,
+    ): Result<JSONObject> = runCatching {
+        val array = org.json.JSONArray()
+        keys.distinct().take(600).forEach { key ->
+            if (key.matches(Regex("[a-f0-9]{40}"))) array.put(key)
+        }
+        authenticatedRequest(
+            c,
+            "POST",
+            "/api/v1/server-locations/resolve",
+            JSONObject().put("keys", array),
+        )
+    }
+
+    fun reportServerLocation(
+        c: Context,
+        configKey: String,
+        countryCode: String,
+    ): Result<JSONObject> = runCatching {
+        authenticatedRequest(
+            c,
+            "POST",
+            "/api/v1/server-locations/verify",
+            JSONObject()
+                .put("config_key", configKey)
+                .put("country_code", countryCode)
+                .put("source", "client_trace"),
+        )
+    }
+
     fun aiRecommendations(
         c: Context,
         operator: String,

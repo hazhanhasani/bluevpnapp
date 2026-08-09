@@ -1,18 +1,18 @@
 {
-  "release": "3.0.68-auto",
-  "version_name": "3.0.68",
-  "version_code": 30068,
+  "release": "3.0.70",
+  "version_name": "3.0.70",
+  "version_code": 30070,
   "changes": [
-    "Add a searchable mobile navigation drawer for all admin sections",
-    "Render wide admin tables as labeled cards on phone screens",
-    "Make forms, actions, advertising controls and diagnostics touch friendly",
-    "Respect Android and iOS safe areas without horizontal page overflow",
-    "Keep the existing desktop dashboard layout unchanged above tablet width"
+    "Route Android connect and disconnect commands through BlueVpnEngineManager",
+    "Remove direct UI and account dependencies on v2rayNG CoreServiceManager",
+    "Build pinned sing-box native PIE runtimes for arm64-v8a and armeabi-v7a",
+    "Validate sing-box profiles natively without loading a second gomobile runtime",
+    "Keep Xray as the only TUN owner until the atomic engine-switch service is complete"
   ],
   "generated_at_unix": 1786231800,
-  "purpose": "بازطراحی کامل پنل مدیریت برای استفاده مستقیم روی گوشی بدون حالت دسکتاپ",
-  "updated_at": "2026-08-09T07:30:00Z",
-  "built_at": "2026-08-09T07:30:00Z",
-  "build_id": "20260809-mobile-admin-v3043",
-  "feature": "mobile-first-admin"
+  "purpose": "مرحله نخست مهاجرت امن BlueVPN به معماری دو هسته مستقل Xray و sing-box",
+  "updated_at": "2026-08-09T17:30:00Z",
+  "built_at": "2026-08-09T17:30:00Z",
+  "build_id": "20260809-dual-engine-boundary-source-v3070",
+  "feature": "dual-engine-runtime-boundary"
 }

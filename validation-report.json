@@ -1,38 +1,80 @@
 {
-  "version": "3.0.43",
-  "version_code": 30068,
-  "feature": "mobile-first-admin",
+  "version": "3.0.70",
+  "version_code": 30070,
+  "feature": "dual-engine-runtime-boundary",
   "tests": {
-    "passed": 135,
+    "passed": 261,
     "failed": 0,
-    "warnings": 10
+    "warnings": 40
   },
-  "generated_android": {
+  "dual_engine": {
     "status": "passed",
-    "embedded_sources": 27,
-    "home_ids": 29
-  },
-  "admin_mobile": {
-    "status": "passed",
-    "navigation_drawer": "passed",
-    "searchable_sections": "passed",
-    "responsive_table_cards": "passed",
-    "touch_forms": "passed",
-    "horizontal_overflow_guard": "passed",
-    "safe_area_support": "passed",
-    "desktop_layout_preserved": "passed",
-    "css_parse_errors": 0,
-    "admin_tables": 6,
-    "admin_sections": 18
+    "ui_core_decoupling": "passed",
+    "xray_compatibility_bridge": "present",
+    "sing_box_ref": "v1.13.16",
+    "sing_box_native_abis": [
+      "arm64-v8a",
+      "armeabi-v7a"
+    ],
+    "sing_box_profile_validation": "present",
+    "single_tun_owner": "xray-phase-1"
   },
   "archive": {
-    "status": "pending-packaging",
-    "source_file_count": 224
+    "status": "pending-packaging"
   },
   "full_gradle_build": {
     "status": "not_run",
-    "reason": "Android upstream/SDK build is performed by GitHub Actions"
+    "reason": "v2rayNG, Go modules, Android SDK/NDK and libv2ray are fetched by GitHub Actions; outbound build-network access was unavailable in this container"
   },
-  "project_version": "3.0.68",
-  "release": "3.0.68"
+  "static_validation": {
+    "passed": [
+      "file:android-source/BlueVpnHomeActivity.kt",
+      "file:android-source/BlueVpnAccountManager.kt",
+      "file:android-source/BlueVpnEngineManager.kt",
+      "file:android-source/BlueVpnSingBoxProcess.kt",
+      "file:scripts/prepare_android.py",
+      "file:.github/workflows/build-apk.yml",
+      "file:docs/DUAL_ENGINE_RUNTIME_3070_FA.md",
+      "ui-no-direct-core-service",
+      "account-no-direct-core-service",
+      "engine-is-only-compatibility-boundary",
+      "home-routes-start-through-engine",
+      "home-routes-stop-through-engine",
+      "sing-box-native-profile-check",
+      "sing-box-full-json-guard",
+      "sing-box-api24-process-compatibility",
+      "single-tun-owner-guard",
+      "plain-source-overrides-enabled",
+      "engine-in-generated-sources",
+      "sing-box-in-generated-sources",
+      "workflow-pins-sing-box",
+      "workflow-builds-arm64",
+      "workflow-builds-armv7",
+      "workflow-avoids-second-gomobile-aar",
+      "migration-documented",
+      "json:branding/app.json",
+      "json:release.json",
+      "json:deployment-marker.json",
+      "json:validation-report.json",
+      "metadata-version-consistent",
+      "metadata-version-code-consistent",
+      "sing-box-reference-declared",
+      "python:prepare_android",
+      "workflow-has-build-job",
+      "workflow-sing-box-step-ordered",
+      "workflow-android-build-still-present"
+    ],
+    "failed": [],
+    "warnings": [
+      "Full Gradle/NDK/Go dependency build is delegated to GitHub Actions and was not executable in this offline container."
+    ]
+  },
+  "validation_commands": {
+    "project_suite": "python -m pytest -q",
+    "project_suite_result": "261 passed, 0 failed, 40 deprecation warnings",
+    "runtime_validator": "python scripts/validate_dual_engine.py",
+    "runtime_validator_result": "35 passed, 0 failed, 1 environment warning",
+    "workflow_yaml_parse": "passed",
+    "sing_box_shell_syntax": "passed"
+  }
 }

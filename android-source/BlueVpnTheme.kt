@@ -56,13 +56,22 @@ object BlueVpnPerformance {
     }
 
     fun statsIntervalMs(context: Context): Long =
-        if (isLowEnd(context)) 5_000L else 2_000L
+        if (isLowEnd(context)) 6_000L else 3_500L
 
     fun locationSyncIntervalMs(context: Context): Long =
-        if (isLowEnd(context)) 60_000L else 30_000L
+        if (isLowEnd(context)) 120_000L else 60_000L
 
     fun updateCheckDelayMs(context: Context): Long =
-        if (isLowEnd(context)) 6_000L else 2_500L
+        if (isLowEnd(context)) 12_000L else 7_000L
+
+    fun startupWarmupDelayMs(context: Context): Long =
+        if (isLowEnd(context)) 60_000L else 40_000L
+
+    fun accountSyncDelayMs(context: Context): Long =
+        if (isLowEnd(context)) 14_000L else 8_000L
+
+    fun adsDelayMs(context: Context): Long =
+        if (isLowEnd(context)) 9_000L else 5_500L
 
     fun adCacheKb(context: Context): Int =
         if (isLowEnd(context)) 4 * 1024 else 10 * 1024
@@ -191,23 +200,14 @@ class BlueVpnDynamicBackgroundView(context: Context) : View(context) {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        if (BlueVpnPerformance.isLowEnd(context)) {
-            phase = 0.5f
-            invalidate()
-            return
-        }
-        if (animator?.isRunning == true) return
-        animator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 18_000L
-            repeatCount = ValueAnimator.INFINITE
-            repeatMode = ValueAnimator.REVERSE
-            interpolator = LinearInterpolator()
-            addUpdateListener {
-                phase = it.animatedValue as Float
-                invalidate()
-            }
-            start()
-        }
+        // A continuously invalidating full-screen background consumed one UI
+        // frame on almost every display refresh. Keep the same visual identity
+        // as a static composition so navigation, typing and connection work get
+        // the main thread first on every device, not only low-RAM phones.
+        animator?.cancel()
+        animator = null
+        phase = 0.42f
+        invalidate()
     }
 
     override fun onDetachedFromWindow() {

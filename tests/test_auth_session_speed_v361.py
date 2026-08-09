@@ -5,10 +5,10 @@ ROOT=Path(__file__).resolve().parents[1]
 def test_release_361():
     release=json.loads((ROOT/'release.json').read_text())
     app=json.loads((ROOT/'branding/app.json').read_text())
-    assert release['version']=='3.0.68'
-    assert release['version_code']==30068
-    assert app['version_name']=='3.0.68'
-    assert app['version_code']==30068
+    assert release['version']=='3.0.70'
+    assert release['version_code']==30070
+    assert app['version_name']=='3.0.70'
+    assert app['version_code']==30070
 
 def test_logout_stops_tunnel_and_is_non_blocking():
     source=(ROOT/'android-source/BlueVpnAccountManager.kt').read_text()
@@ -25,7 +25,7 @@ def test_auth_forms_preserve_drafts_and_avoid_resume_rerender():
     assert 'remember(this){draftEmail=it}' in source
     assert 'remember(this){draftBindingPhone=it}' in source
     assert 'else if(BlueVpnAccountManager.hasSession(this)!=renderedSessionState){render()}' in source
-    assert 'if(currentFocus !is EditText)render()' in source
+    assert 'if(materiallyChanged&&currentFocus !is EditText)render()' in source
 
 def test_auth_returns_before_subscription_import():
     source=(ROOT/'android-source/BlueVpnAccountManager.kt').read_text()

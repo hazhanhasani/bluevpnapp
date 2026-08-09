@@ -31,10 +31,10 @@ def test_embedded_servers_source_matches_snapshot():
 def test_release_is_3039():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.68"
-    assert release["version_code"] == 30068
-    assert app["version_name"] == "3.0.68"
-    assert app["version_code"] == 30068
+    assert release["version"] == "3.0.70"
+    assert release["version_code"] == 30070
+    assert app["version_name"] == "3.0.70"
+    assert app["version_code"] == 30070
 
 
 def test_prepare_android_rejects_invalid_singleline_regression():

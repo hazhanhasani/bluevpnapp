@@ -37,7 +37,7 @@ import org.json.JSONObject
 import java.text.NumberFormat
 import java.util.Locale
 class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
- private lateinit var content:LinearLayout;private lateinit var status:TextView;private lateinit var palette:BlueVpnPalette;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true;private var otpChallengeId="";private var otpPhone="";private var otpBinding=false;private var authMode="sms";private var emailRegister=false;private var themeDarkAtCreate=true;private var renderedSessionState=false;private var draftPhone="";private var draftOtpCode="";private var draftEmail="";private var draftPassword="";private var draftBindingPhone="";private var draftBindingCode="";private var renderPosted=false;private var renderGeneration=0
+ private lateinit var content:LinearLayout;private lateinit var status:TextView;private lateinit var palette:BlueVpnPalette;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true;private var otpChallengeId="";private var otpPhone="";private var otpBinding=false;private var authMode="sms";private var emailRegister=false;private var themeDarkAtCreate=true;private var renderedSessionState=false;private var draftPhone="";private var draftOtpCode="";private var draftEmail="";private var draftPassword="";private var draftBindingPhone="";private var draftBindingCode="";private var renderPosted=false;private var renderGeneration=0;private var syncInProgress=false
  private val poll=object:Runnable{override fun run(){val id=BlueVpnAccountManager.pendingOrder(this@BlueVpnSubscriptionsActivity);if(id.isNotBlank()){checkOrder(id);handler.postDelayed(this,4000)}}}
  override fun onCreate(b:Bundle?){super.onCreate(b);window.setWindowAnimations(0);palette=BlueVpnTheme.palette(this);themeDarkAtCreate=palette.dark;window.setBackgroundDrawable(ColorDrawable(palette.background));BlueVpnTheme.applySystemBars(this);setContentView(screen());render()}
  override fun onResume(){
@@ -49,7 +49,7 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   if(firstResume){
    firstResume=false
    if(returnedOrder.isBlank()&&BlueVpnAccountManager.hasSession(this)){
-    sync(true)
+    handler.postDelayed({if(!isFinishing&&!isDestroyed)sync(false)},450L)
    }
   }else if(BlueVpnAccountManager.hasSession(this)!=renderedSessionState){render()}
   handler.removeCallbacks(poll)
@@ -508,7 +508,25 @@ private fun loadPlans(generation:Int){
    }
   }
  }
- private fun sync(force:Boolean){if(busy)return;busy=true;lifecycleScope.launch(Dispatchers.IO){val r=BlueVpnAccountManager.sync(this@BlueVpnSubscriptionsActivity,force);withContext(Dispatchers.Main){busy=false;r.onFailure{if(!BlueVpnAccountManager.hasSession(this@BlueVpnSubscriptionsActivity))render() else status.text=it.message?:"خطای همگام‌سازی"};if(currentFocus !is EditText)render()}}}
+ private fun sync(force:Boolean){
+  if(syncInProgress)return
+  syncInProgress=true
+  val before=BlueVpnAccountManager.snapshot(this)
+  lifecycleScope.launch(Dispatchers.IO){
+   val r=BlueVpnAccountManager.sync(this@BlueVpnSubscriptionsActivity,force)
+   withContext(Dispatchers.Main){
+    syncInProgress=false
+    if(isFinishing||isDestroyed)return@withContext
+    r.onSuccess{after->
+     val materiallyChanged=before!=after
+     if(materiallyChanged&&currentFocus !is EditText)render()
+    }.onFailure{
+     if(!BlueVpnAccountManager.hasSession(this@BlueVpnSubscriptionsActivity))render()
+     else if(force)status.text=it.message?:"خطای همگام‌سازی"
+    }
+   }
+  }
+ }
  private fun buy(planId:Int){
   if(busy)return
   BlueVpnAccountManager.clearPendingOrder(this)

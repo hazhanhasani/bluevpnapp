@@ -57,7 +57,7 @@ import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
 import com.v2ray.ang.bluevpn.BlueVpnUpdateManager
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
-import com.v2ray.ang.core.CoreServiceManager
+import com.v2ray.ang.bluevpn.BlueVpnEngineManager
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.handler.SubscriptionUpdater
@@ -155,7 +155,16 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         accountLaunchInProgress = false
     }
     private var candidateWarmupInProgress = false
+    private var candidateWarmupForcePending = false
     private var freePreparationInProgress = false
+    private var startupPipelineStarted = false
+    private var dashboardRefreshPosted = false
+    private var dashboardForcePending = false
+    private var lastGuestPreparationAt = 0L
+    private var startupWarmupPosted = false
+    private var candidateLoadInProgress = false
+    private var pendingConnectionRequest = false
+    private var userInteractedAt = 0L
 
     private lateinit var freeTimerBadge: TextView
     private lateinit var connectingOverlay: FrameLayout
@@ -191,7 +200,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             if (!userDisconnecting) return
 
             if (mainViewModel.isRunning.value == true) {
-                CoreServiceManager.stopVService(
+                BlueVpnEngineManager.stop(
                     this@BlueVpnHomeActivity
                 )
             }
@@ -219,6 +228,16 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
         waitingForPingResult = true
         mainViewModel.testCurrentServerRealPing()
+    }
+
+    private val delayedAdsStart = Runnable {
+        if (
+            !isFinishing && !isDestroyed &&
+            ::adsCarousel.isInitialized &&
+            !failoverActive && !userDisconnecting
+        ) {
+            adsCarousel.start()
+        }
     }
 
     private val statsTicker = object : Runnable {
@@ -306,7 +325,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                     BlueVpnServersActivity.EXTRA_LOCATION_TITLE
                 ).orEmpty()
 
-            refreshDashboard()
+            requestDashboardRefresh(force = true)
 
             if (changed && serversOpenedWhileActive) {
                 startLiveLocationSwitch(selectedTitle)
@@ -334,7 +353,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 syncManagedAccount(force = true)
             } else {
                 prepareGuestFreeAccess(force = false)
-                refreshDashboard()
+                requestDashboardRefresh(force = true)
                 refreshSubscriptionInfo(force = false)
             }
         }
@@ -1422,6 +1441,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         if (!connectButton.isEnabled) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                userInteractedAt = SystemClock.elapsedRealtime()
                 dragStartRawX = event.rawX
                 dragStartTranslation = connectButton.translationX
                 dragMoved = false
@@ -1595,7 +1615,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
             if (userDisconnecting) {
                 if (active) {
-                    CoreServiceManager.stopVService(this)
+                    BlueVpnEngineManager.stop(this)
                 } else {
                     userDisconnecting = false
                     disconnectRetry.reset()
@@ -1621,7 +1641,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 }
 
                 active && failoverActive -> {
-                    beginFreeTimerOnCoreStart()
+                    // Core start is not a successful connection. The free
+                    // allowance starts only after a real tunnel probe passes.
                     renderVerifyingState()
                     scheduleConnectionVerification()
                 }
@@ -1668,57 +1689,12 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
         enforceReliableVpnSettings()
 
-        // Render the first frame immediately. Expensive MMKV scans, location
-        // hashing and remote sync are staged so low-memory phones never block
-        // the UI thread long enough to trigger Android's ANR dialog.
-        window.decorView.post {
-            mainViewModel.startListenBroadcast()
-
-            handler.postDelayed({
-                if (!isFinishing && !isDestroyed) {
-                    mainViewModel.initAssets(assets)
-                }
-            }, if (BlueVpnPerformance.isLowEnd(this)) 220L else 80L)
-
-            handler.postDelayed({
-                if (!isFinishing && !isDestroyed) {
-                    mainViewModel.reloadServerList()
-                }
-            }, if (BlueVpnPerformance.isLowEnd(this)) 650L else 220L)
-
-            lifecycleScope.launch(Dispatchers.Default) {
-                // Warm the candidate cache away from the main thread. The UI
-                // refresh below then performs only lightweight TextView work.
-                BlueVpnLocationUtil.allCandidates(this@BlueVpnHomeActivity)
-                withContext(Dispatchers.Main) {
-                    if (isFinishing || isDestroyed) return@withContext
-                    refreshDashboard(force = true)
-                    refreshSubscriptionInfo(force = false)
-                    BlueVpnLocationUtil.syncCloudLocations(
-                        this@BlueVpnHomeActivity,
-                        force = false,
-                    ) {
-                        if (!isFinishing && !isDestroyed) {
-                            warmCandidatesThenRefresh(force = false)
-                        }
-                    }
-                }
-            }
-
-            if (!BlueVpnAccountManager.hasSession(this)) {
-                handler.postDelayed({
-                    if (!isFinishing && !isDestroyed) {
-                        prepareGuestFreeAccess(force = false)
-                    }
-                }, 180L)
-            }
-
-            handler.postDelayed({
-                if (!isFinishing && !isDestroyed) {
-                    showWelcomeIfNeeded()
-                }
-            }, if (BlueVpnPerformance.isLowEnd(this)) 1_200L else 500L)
-        }
+        // First frame is always local-only. One coordinated background pipeline
+        // owns account/free config, MMKV decoding and cloud location sync so
+        // onCreate/onResume can never start the same work twice.
+        refreshSubscriptionInfo(force = false)
+        requestDashboardRefresh(force = true)
+        scheduleStartupPipeline()
     }
 
     override fun onStart() {
@@ -1734,10 +1710,15 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         if (::connectingOverlay.isInitialized && connectingOverlay.visibility == View.VISIBLE) {
             connectingGlobe.start()
         }
-        if (::adsCarousel.isInitialized) adsCarousel.start()
+        handler.removeCallbacks(delayedAdsStart)
+        handler.postDelayed(
+            delayedAdsStart,
+            BlueVpnPerformance.adsDelayMs(this),
+        )
     }
 
     override fun onStop() {
+        handler.removeCallbacks(delayedAdsStart)
         if (::adsCarousel.isInitialized) adsCarousel.stop()
         handler.removeCallbacks(statsTicker)
         handler.removeCallbacks(freeSessionTicker)
@@ -1762,6 +1743,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         handler.removeCallbacks(startupOptimizationTimeout)
         handler.removeCallbacks(disconnectRetry)
         handler.removeCallbacks(freeSessionTicker)
+        handler.removeCallbacks(delayedAdsStart)
         handler.removeCallbacks(navigationUnlock)
         startupDialog?.dismiss()
         startupDialog = null
@@ -1801,21 +1783,105 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             }, BlueVpnPerformance.updateCheckDelayMs(this))
         }
 
-        if (!BlueVpnAccountManager.hasSession(this)) {
-            prepareGuestFreeAccess(force = false)
-        } else if (!startupOptimizationShown) {
-            startStartupOptimization()
-        } else if (!BlueVpnAccountManager.snapshot(this).subscriptionActive) {
-            // An inactive local badge is never allowed to stay cached. This is
-            // especially important immediately after an admin/manual renewal.
-            syncManagedAccount(force = true)
+        scheduleStartupPipeline()
+        if (
+            BlueVpnAccountManager.hasSession(this) &&
+            startupOptimizationShown &&
+            !BlueVpnAccountManager.snapshot(this).subscriptionActive
+        ) {
+            handler.postDelayed({
+                if (!isFinishing && !isDestroyed) syncManagedAccount(force = false)
+            }, BlueVpnPerformance.accountSyncDelayMs(this))
         }
 
         handler.post {
-            refreshDashboard()
+            requestDashboardRefresh(force = false)
             refreshSubscriptionInfo(force = false)
         }
     }
+
+private fun scheduleStartupPipeline() {
+    if (startupPipelineStarted || isFinishing || isDestroyed) return
+    startupPipelineStarted = true
+    window.decorView.post {
+        if (isFinishing || isDestroyed) return@post
+        mainViewModel.startListenBroadcast()
+
+        // The core assets are needed only before a connection starts. Let the
+        // first frame, taps and navigation finish before touching them.
+        lifecycleScope.launch(Dispatchers.IO) {
+            // Asset extraction is disk I/O and must never block first paint or taps.
+            runCatching { mainViewModel.initAssets(assets) }
+        }
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val hadSession = BlueVpnAccountManager.hasSession(this@BlueVpnHomeActivity)
+            val hasFreeServer = BlueVpnAccountManager
+                .hasInstalledFreeServers(this@BlueVpnHomeActivity)
+            val needsGuestBootstrap = !hadSession &&
+                (!BlueVpnAccountManager.freeAccessEnabled(this@BlueVpnHomeActivity) || !hasFreeServer)
+            val preparedGuest = if (needsGuestBootstrap) {
+                BlueVpnAccountManager.prepareFreeAccess(
+                    this@BlueVpnHomeActivity,
+                    force = false,
+                ).getOrDefault(false)
+            } else false
+
+            withContext(Dispatchers.Main) {
+                if (isFinishing || isDestroyed) return@withContext
+                if (preparedGuest) {
+                    BlueVpnLocationUtil.invalidateCache()
+                    mainViewModel.reloadServerList()
+                }
+                requestDashboardRefresh(force = true)
+                refreshSubscriptionInfo(force = true)
+                showWelcomeIfNeeded()
+                scheduleIdleCandidateWarmup()
+                if (hadSession && !startupOptimizationShown) {
+                    handler.postDelayed({
+                        if (!isFinishing && !isDestroyed) startStartupOptimization()
+                    }, BlueVpnPerformance.accountSyncDelayMs(this@BlueVpnHomeActivity))
+                }
+            }
+        }
+    }
+}
+
+private fun scheduleIdleCandidateWarmup() {
+    if (startupWarmupPosted || isFinishing || isDestroyed) return
+    startupWarmupPosted = true
+    handler.postDelayed({
+        startupWarmupPosted = false
+        if (isFinishing || isDestroyed || failoverActive || userDisconnecting) return@postDelayed
+        val recentlyTouched = SystemClock.elapsedRealtime() - userInteractedAt < 4_000L
+        if (recentlyTouched) {
+            scheduleIdleCandidateWarmup()
+            return@postDelayed
+        }
+        warmCandidatesThenRefresh(force = false)
+        if (BlueVpnAccountManager.hasSession(this)) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                BlueVpnLocationUtil.syncCloudLocations(
+                    this@BlueVpnHomeActivity,
+                    force = false,
+                )
+            }
+        }
+    }, BlueVpnPerformance.startupWarmupDelayMs(this))
+}
+
+private fun requestDashboardRefresh(force: Boolean = false) {
+    dashboardForcePending = dashboardForcePending || force
+    if (dashboardRefreshPosted || isFinishing || isDestroyed) return
+    dashboardRefreshPosted = true
+    handler.post {
+        dashboardRefreshPosted = false
+        if (isFinishing || isDestroyed) return@post
+        val requestedForce = dashboardForcePending
+        dashboardForcePending = false
+        refreshDashboard(force = requestedForce)
+    }
+}
 
 private fun setConnectionMode(
     mode: BlueVpnConnectionMode,
@@ -1874,7 +1940,7 @@ private fun refreshExperienceDashboard(
 
     refreshModeButtons()
 
-    val all = cachedCandidates ?: BlueVpnLocationUtil.allCandidates(this)
+    val all = cachedCandidates ?: BlueVpnLocationUtil.cachedCandidates(this)
     val active = all.count {
         it.delay >= 0L &&
             !BlueVpnPreferences.isSessionInactive(
@@ -1933,8 +1999,17 @@ private fun recordCurrentConnection(
     if (lastHistoryGuid == guid) return
 
     val candidate = BlueVpnLocationUtil
-        .allCandidates(this)
+        .cachedCandidates(this)
         .firstOrNull { it.guid == guid }
+        ?: MmkvManager.decodeServerConfig(guid)?.let { profile ->
+            if (!BlueVpnLocationUtil.isUsable(profile)) null else
+                BlueVpnLocationUtil.Candidate(
+                    guid = guid,
+                    profile = profile,
+                    location = BlueVpnLocationUtil.detect(profile.remarks, profile.server),
+                    delay = MmkvManager.decodeServerAffiliationInfo(guid)?.testDelayMillis ?: 0L,
+                )
+        }
         ?: return
 
     val effectiveDelay =
@@ -1959,7 +2034,7 @@ private fun recordCurrentConnection(
         score,
     )
     lastHistoryGuid = guid
-    refreshExperienceDashboard()
+    refreshExperienceDashboard(BlueVpnLocationUtil.cachedCandidates(this))
 }
 
 private fun showWelcomeIfNeeded() {
@@ -1984,11 +2059,8 @@ private fun startStartupOptimization() {
     // an all-server ping storm on every launch.
     startupServerTestStarted = true
 
-    if (mainViewModel.isRunning.value != true) {
-        statusCaption.text = "در حال آماده‌سازی هوشمند"
-    }
-
-    val launchDelay = if (BlueVpnPerformance.isLowEnd(this)) 1_100L else 180L
+    // Account refresh is non-critical and remains invisible to the user.
+    val launchDelay = BlueVpnPerformance.accountSyncDelayMs(this)
     handler.postDelayed({
         if (isFinishing || isDestroyed || !startupOptimizationActive) {
             return@postDelayed
@@ -2003,21 +2075,14 @@ private fun startStartupOptimization() {
             )
             withContext(Dispatchers.Main) {
                 startupOptimizationActive = false
-                warmCandidatesThenRefresh(force = false)
-                if (
-                    mainViewModel.isRunning.value != true &&
-                    !failoverActive
-                ) {
-                    statusCaption.text =
-                        "بهترین مسیر هنگام اتصال انتخاب می‌شود"
-                }
+                requestDashboardRefresh(force = false)
             }
         }
     }, launchDelay)
 
     handler.postDelayed({
         startupOptimizationActive = false
-    }, if (BlueVpnPerformance.isLowEnd(this)) 6_000L else 4_000L)
+    }, if (BlueVpnPerformance.isLowEnd(this)) 22_000L else 14_000L)
 }
 
 private fun startStartupServerTest() {
@@ -2030,7 +2095,7 @@ private fun startStartupServerTest() {
 
     startupServerTestStarted = true
     val count = BlueVpnLocationUtil
-        .allCandidates(this)
+        .cachedCandidates(this)
         .size
 
     updateStartupProgress(
@@ -2232,7 +2297,7 @@ private fun finishStartupOptimization(
     handler.removeCallbacks(startupProgressTicker)
     handler.removeCallbacks(startupOptimizationTimeout)
 
-    val all = BlueVpnLocationUtil.allCandidates(this)
+    val all = BlueVpnLocationUtil.cachedCandidates(this)
 
     all.forEach { candidate ->
         when {
@@ -2302,7 +2367,7 @@ private fun finishStartupOptimization(
         }
     )
 
-    refreshDashboard()
+    requestDashboardRefresh(force = true)
 
     handler.postDelayed({
         startupDialog?.dismiss()
@@ -2415,13 +2480,6 @@ private fun dpHome(value: Int): Int =
         freeTimerBadge.visibility = View.VISIBLE
     }
 
-    private fun beginFreeTimerOnCoreStart() {
-        if (!BlueVpnAccountManager.isFreeMode(this)) return
-        if (BlueVpnAccountManager.freeSessionRemainingMillis(this) <= 0L) {
-            BlueVpnAccountManager.startFreeSession(this)
-        }
-        updateFreeTimerBadge()
-    }
 
     private fun toggleConnection() {
         val now = SystemClock.elapsedRealtime()
@@ -2459,13 +2517,14 @@ private fun dpHome(value: Int): Int =
             )
         }
         userDisconnecting = true
+        pendingConnectionRequest = false
         cancelFailover()
         handler.removeCallbacks(attemptTimeout)
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(disconnectRetry)
         disconnectRetry.reset()
 
-        CoreServiceManager.stopVService(this)
+        BlueVpnEngineManager.stop(this)
         BlueVpnPreferences.clearConnected(this)
         BlueVpnAccountManager.stopFreeSession(this, expired = false)
         connectionVerified = false
@@ -2487,6 +2546,9 @@ private fun dpHome(value: Int): Int =
 
     private fun prepareGuestFreeAccess(force: Boolean) {
         if (BlueVpnAccountManager.hasSession(this) || freePreparationInProgress) return
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastGuestPreparationAt < 15_000L) return
+        lastGuestPreparationAt = now
         freePreparationInProgress = true
         lifecycleScope.launch(Dispatchers.IO) {
             val prepared = BlueVpnAccountManager
@@ -2498,7 +2560,7 @@ private fun dpHome(value: Int): Int =
                     BlueVpnLocationUtil.invalidateCache()
                     mainViewModel.reloadServerList()
                 }
-                refreshDashboard(force = true)
+                requestDashboardRefresh(force = true)
                 refreshSubscriptionInfo(force = true)
             }
         }
@@ -2543,28 +2605,34 @@ private fun dpHome(value: Int): Int =
                 }, 450L)
                 return
             }
-            if (!BlueVpnAccountManager.isFreeMode(this)) {
+            if (
+                !BlueVpnAccountManager.isFreeMode(this) ||
+                !BlueVpnAccountManager.hasInstalledFreeServers(this)
+            ) {
                 freePreparationInProgress = true
+                pendingConnectionRequest = true
                 connectButton.isEnabled = false
                 statusText.text = "آماده‌سازی اتصال رایگان"
-                statusCaption.text = "در حال دریافت مسیرهای رایگان"
+                statusCaption.text = "در حال دریافت نخستین مسیر رایگان"
                 showConnectingOverlay(
                     title = "آماده‌سازی اتصال رایگان",
-                    caption = "در حال دریافت مسیرهای رایگان",
+                    caption = "این مرحله فقط بار اول انجام می‌شود",
                     location = "انتخاب خودکار",
                 )
                 lifecycleScope.launch(Dispatchers.IO) {
                     val prepared = BlueVpnAccountManager
-                        .prepareFreeAccess(this@BlueVpnHomeActivity, force = true)
+                        .prepareFreeAccess(this@BlueVpnHomeActivity, force = false)
                         .getOrDefault(false)
                     withContext(Dispatchers.Main) {
                         freePreparationInProgress = false
                         connectButton.isEnabled = true
                         BlueVpnLocationUtil.invalidateCache()
-                        if (prepared) {
-                            refreshDashboard(force = true)
+                        mainViewModel.reloadServerList()
+                        if (prepared && pendingConnectionRequest) {
+                            pendingConnectionRequest = false
                             beginSmartConnection()
-                        } else {
+                        } else if (!prepared) {
+                            pendingConnectionRequest = false
                             hideConnectingOverlay()
                             statusText.text = "اتصال رایگان در دسترس نیست"
                             statusCaption.text = "اشتراک تهیه کنید یا کمی بعد دوباره تلاش کنید"
@@ -2606,39 +2674,55 @@ private fun dpHome(value: Int): Int =
                     .ifBlank { selectedLocation }
             }
 
-        val candidates = BlueVpnLocationUtil.instantCandidates(
-            this,
-            preferredLocation
-        )
+        if (!BlueVpnLocationUtil.hasCandidateCache(this)) {
+            if (candidateLoadInProgress) {
+                pendingConnectionRequest = true
+                return
+            }
+            candidateLoadInProgress = true
+            pendingConnectionRequest = true
+            showConnectingOverlay(
+                title = "در حال اتصال",
+                caption = "آماده‌سازی سریع چند مسیر منتخب",
+                location = "انتخاب خودکار",
+            )
+            lifecycleScope.launch(Dispatchers.Default) {
+                val fast = BlueVpnLocationUtil.fastCandidates(
+                    this@BlueVpnHomeActivity,
+                    preferredLocation,
+                    maxCandidates = 8,
+                )
+                withContext(Dispatchers.Main) {
+                    candidateLoadInProgress = false
+                    if (isFinishing || isDestroyed || !pendingConnectionRequest) return@withContext
+                    pendingConnectionRequest = false
+                    startSmartConnectionWithCandidates(fast, automaticSelection)
+                    scheduleIdleCandidateWarmup()
+                }
+            }
+            return
+        }
 
+        startSmartConnectionWithCandidates(
+            BlueVpnLocationUtil.instantCandidates(this, preferredLocation, maxCandidates = 10),
+            automaticSelection,
+        )
+    }
+
+    private fun startSmartConnectionWithCandidates(
+        candidates: List<BlueVpnLocationUtil.Candidate>,
+        automaticSelection: Boolean,
+    ) {
         if (candidates.isEmpty()) {
             hideConnectingOverlay()
             liveLocationSwitch = false
             switchTargetTitle = ""
-
-            Toast.makeText(
-                this,
-                if (automaticSelection) {
-                    "در هیچ‌یک از لوکیشن‌ها سرور قابل استفاده‌ای وجود ندارد"
-                } else {
-                    "برای این لوکیشن هیچ مسیر قابل استفاده‌ای وجود ندارد"
-                },
-                Toast.LENGTH_SHORT
-            ).show()
-
-            statusText.text =
-                if (automaticSelection) "سرور قابل اتصال نیست"
-                else "لوکیشن قابل اتصال نیست"
-            statusCaption.text =
-                if (automaticSelection) {
-                    "همه لوکیشن‌ها و سرورها بررسی شدند"
-                } else {
-                    "برای این لوکیشن مسیر سالمی پیدا نشد"
-                }
+            statusText.text = if (automaticSelection) "سرور قابل اتصال نیست" else "لوکیشن قابل اتصال نیست"
+            statusCaption.text = "مسیرهای قدیمی یا ناسازگار کنار گذاشته شدند؛ ساب را بروزرسانی کنید"
             connectButton.isEnabled = true
+            Toast.makeText(this, "سرور سالم و سازگار پیدا نشد", Toast.LENGTH_SHORT).show()
             return
         }
-
         failoverQueue = candidates.map { it.guid }
         failoverIndex = 0
         failoverActive = true
@@ -2646,30 +2730,19 @@ private fun dpHome(value: Int): Int =
         attemptedGuid = ""
         waitingForPingResult = false
         healthProbeInProgress = false
-
         connectButton.isEnabled = false
-        statusText.text =
-            if (liveLocationSwitch) {
-                "در حال تغییر لوکیشن"
-            } else {
-                "یافتن مسیر سالم"
-            }
-        statusCaption.text =
-            if (liveLocationSwitch) {
-                "اتصال خودکار به ${switchTargetTitle.ifBlank { "لوکیشن جدید" }}"
-            } else if (automaticSelection) {
-                "در حال انتخاب سریع بهترین مسیر"
-            } else {
-                "در حال آماده‌سازی اتصال"
-            }
-
+        statusText.text = if (liveLocationSwitch) "در حال تغییر لوکیشن" else "یافتن مسیر سالم"
+        statusCaption.text = if (liveLocationSwitch) {
+            "اتصال خودکار به ${switchTargetTitle.ifBlank { "لوکیشن جدید" }}"
+        } else if (automaticSelection) {
+            "در حال انتخاب سریع بهترین مسیر"
+        } else {
+            "در حال آماده‌سازی اتصال"
+        }
         if (SettingsManager.isVpnMode()) {
             val permissionIntent = VpnService.prepare(this)
-            if (permissionIntent == null) {
-                startCurrentCandidate()
-            } else {
-                requestVpnPermission.launch(permissionIntent)
-            }
+            if (permissionIntent == null) startCurrentCandidate()
+            else requestVpnPermission.launch(permissionIntent)
         } else {
             startCurrentCandidate()
         }
@@ -2693,9 +2766,13 @@ private fun dpHome(value: Int): Int =
         MmkvManager.setSelectServer(guid)
 
         val profile = MmkvManager.decodeServerConfig(guid)
-        val location = profile?.let {
-            BlueVpnLocationUtil.detect(it.remarks, it.server)
+        if (profile == null || BlueVpnLocationUtil.compatibilityIssue(profile) != null) {
+            BlueVpnPreferences.markSessionInactive(this, guid)
+            failoverIndex += 1
+            handler.post { if (failoverActive) startCurrentCandidate() }
+            return
         }
+        val location = BlueVpnLocationUtil.detect(profile.remarks, profile.server)
         val locationName = location?.let { "${it.flag} ${it.title}" } ?: "انتخاب خودکار"
 
         showConnectingOverlay(
@@ -2716,16 +2793,16 @@ private fun dpHome(value: Int): Int =
                 userDisconnecting ||
                 attemptedGuid != guid
             ) return@Runnable
-            CoreServiceManager.startVService(this)
+            BlueVpnEngineManager.start(this)
             handler.postDelayed({
-                if (!isFinishing && !isDestroyed) refreshDashboard()
+                if (!isFinishing && !isDestroyed) requestDashboardRefresh()
             }, 60L)
-            handler.postDelayed(attemptTimeout, 3_200L)
+            handler.postDelayed(attemptTimeout, 2_100L)
         }
 
         if (mainViewModel.isRunning.value == true) {
-            CoreServiceManager.stopVService(this)
-            handler.postDelayed(startCore, 140L)
+            BlueVpnEngineManager.stop(this)
+            handler.postDelayed(startCore, 90L)
         } else {
             startCore.run()
         }
@@ -2744,13 +2821,13 @@ private fun dpHome(value: Int): Int =
                     "این مسیر پاسخ مناسب نداد"
                 )
             }
-        }, 120L)
+        }, 80L)
     }
 
     private fun handlePingResult() {
         // Ping updates are informational only. Connection failover no longer
         // waits for a full ping test, which keeps switching fast.
-        refreshDashboard()
+        requestDashboardRefresh()
     }
 
     private fun enforceReliableVpnSettings() {
@@ -2860,7 +2937,7 @@ private fun dpHome(value: Int): Int =
                     BlueVpnPreferences.clearConnected(
                         this@BlueVpnHomeActivity
                     )
-                    CoreServiceManager.stopVService(
+                    BlueVpnEngineManager.stop(
                         this@BlueVpnHomeActivity
                     )
                     renderConnectionState(false)
@@ -2940,7 +3017,7 @@ private fun dpHome(value: Int): Int =
 
             try {
                 val deadline =
-                    SystemClock.elapsedRealtime() + 1_350L
+                    SystemClock.elapsedRealtime() + 1_050L
 
                 repeat(futures.size) {
                     val remaining = (
@@ -2983,8 +3060,8 @@ private fun dpHome(value: Int): Int =
 
             try {
                 connection.instanceFollowRedirects = false
-                connection.connectTimeout = 850
-                connection.readTimeout = 850
+                connection.connectTimeout = 650
+                connection.readTimeout = 650
                 connection.requestMethod = "GET"
                 connection.useCaches = false
                 connection.setRequestProperty("Connection", "close")
@@ -3069,7 +3146,7 @@ private fun dpHome(value: Int): Int =
         switchTargetTitle = ""
         connectButton.isEnabled = true
         resetTrafficBaseline()
-        refreshDashboard()
+        requestDashboardRefresh()
         hideConnectingOverlay()
         renderConnectionState(true)
         updateFreeTimerBadge()
@@ -3108,7 +3185,7 @@ private fun dpHome(value: Int): Int =
             }
             withContext(Dispatchers.Main) {
                 if (!isFinishing && !isDestroyed) {
-                    refreshDashboard(force = true)
+                    requestDashboardRefresh(force = true)
                 }
             }
         }
@@ -3134,7 +3211,7 @@ private fun dpHome(value: Int): Int =
             MmkvManager.encodeServerTestDelayMillis(failedGuid, -1L)
         }
 
-        CoreServiceManager.stopVService(this)
+        BlueVpnEngineManager.stop(this)
         failoverIndex += 1
         waitingForPingResult = false
         healthProbeInProgress = false
@@ -3162,7 +3239,7 @@ private fun dpHome(value: Int): Int =
         hideConnectingOverlay()
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
-        CoreServiceManager.stopVService(this)
+        BlueVpnEngineManager.stop(this)
 
         failoverActive = false
         waitingForPingResult = false
@@ -3193,6 +3270,7 @@ private fun dpHome(value: Int): Int =
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
         failoverActive = false
+        pendingConnectionRequest = false
         failoverQueue = emptyList()
         failoverIndex = -1
         attemptedGuid = ""
@@ -3259,17 +3337,23 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun warmCandidatesThenRefresh(force: Boolean) {
+        candidateWarmupForcePending = candidateWarmupForcePending || force
         if (candidateWarmupInProgress) return
         candidateWarmupInProgress = true
+        val requestedForce = candidateWarmupForcePending
+        candidateWarmupForcePending = false
         lifecycleScope.launch(Dispatchers.Default) {
             BlueVpnLocationUtil.allCandidates(
                 this@BlueVpnHomeActivity,
-                forceRefresh = force,
+                forceRefresh = requestedForce,
             )
             withContext(Dispatchers.Main) {
                 candidateWarmupInProgress = false
                 if (!isFinishing && !isDestroyed) {
-                    refreshDashboard(force = true)
+                    requestDashboardRefresh(force = true)
+                    if (candidateWarmupForcePending) {
+                        warmCandidatesThenRefresh(force = candidateWarmupForcePending)
+                    }
                 }
             }
         }
@@ -3284,12 +3368,14 @@ private fun dpHome(value: Int): Int =
         }
         lastDashboardRefreshAt = now
 
-        val candidates = BlueVpnLocationUtil.allCandidates(this)
+        val candidates = BlueVpnLocationUtil.cachedCandidates(this)
         val selectedGuid = MmkvManager.getSelectServer()
         val selected = candidates.firstOrNull {
             it.guid == selectedGuid
         }
-        val profile = selected?.profile
+        val profile = selected?.profile ?: selectedGuid
+            ?.takeIf { it.isNotBlank() }
+            ?.let { MmkvManager.decodeServerConfig(it) }
         val automaticSelection =
             BlueVpnPreferences.smartBalance(this)
 
@@ -3309,8 +3395,9 @@ private fun dpHome(value: Int): Int =
             locationValue.text = "—"
             pingValue.text = "—"
         } else {
-            val location = selected.location
-            val delay = selected.delay
+            val location = selected?.location
+                ?: BlueVpnLocationUtil.detect(profile.remarks, profile.server)
+            val delay = selected?.delay ?: 0L
             val routeCount = if (automaticSelection) {
                 candidates.size
             } else {
@@ -3353,8 +3440,10 @@ private fun dpHome(value: Int): Int =
             .map { it.location.key }
             .distinct()
             .size
-        val subscriptionCount =
-            MmkvManager.decodeSubscriptions().size
+        val subscriptionCount = candidates
+            .mapNotNull { it.profile.subscriptionId }
+            .distinct()
+            .size
 
         val managed = BlueVpnAccountManager.snapshot(this)
         subscriptionSummary.text = when {
@@ -3684,7 +3773,7 @@ private fun dpHome(value: Int): Int =
 
                 result.onSuccess {
                     mainViewModel.reloadServerList()
-                    refreshDashboard()
+                    requestDashboardRefresh()
                     refreshSubscriptionInfo(force = true)
                 }.onFailure {
                     refreshSubscriptionInfo(force = true)
@@ -3706,7 +3795,7 @@ private fun dpHome(value: Int): Int =
         navigationLocked = true
         accountLaunchInProgress = account
         handler.removeCallbacks(navigationUnlock)
-        handler.postDelayed(navigationUnlock, 1_200L)
+        handler.postDelayed(navigationUnlock, 520L)
         return true
     }
 

@@ -176,6 +176,7 @@ jobs:
           PY
 
           echo "upstream_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["upstream_ref"])')" >> "$GITHUB_OUTPUT"
+          echo "sing_box_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["sing_box_ref"])')" >> "$GITHUB_OUTPUT"
 
       - name: Persist resolved version in repository
         id: persist_metadata
@@ -244,6 +245,20 @@ jobs:
           path: upstream
           submodules: recursive
           fetch-depth: 0
+
+      - name: Checkout pinned sing-box core
+        uses: actions/checkout@v6
+        with:
+          repository: SagerNet/sing-box
+          ref: ${{ steps.config.outputs.sing_box_ref }}
+          path: sing-box-core
+          fetch-depth: 1
+
+      - name: Setup Go for sing-box
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: sing-box-core/go.mod
+          cache-dependency-path: sing-box-core/go.sum
 
       - name: Setup Android SDK 37
         uses: android-actions/setup-android@v4
@@ -322,6 +337,33 @@ jobs:
           fileName: libv2ray.aar
           out-file-path: upstream/V2rayNG/app/libs/
 
+      - name: Build isolated sing-box Android runtimes
+        working-directory: sing-box-core
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAGS="$(tr '\n' ' ' < release/DEFAULT_BUILD_TAGS_OTHERS | xargs)"
+          LDFLAGS="$(cat release/LDFLAGS) -s -w -buildid="
+          mkdir -p \
+            "$GITHUB_WORKSPACE/upstream/V2rayNG/app/libs/arm64-v8a" \
+            "$GITHUB_WORKSPACE/upstream/V2rayNG/app/libs/armeabi-v7a"
+
+          CGO_ENABLED=0 GOOS=android GOARCH=arm64 \
+            go build -buildmode=pie -trimpath \
+            -tags "$TAGS" -ldflags "$LDFLAGS" \
+            -o "$GITHUB_WORKSPACE/upstream/V2rayNG/app/libs/arm64-v8a/libbluevpn_singbox.so" \
+            ./cmd/sing-box
+
+          CGO_ENABLED=0 GOOS=android GOARCH=arm GOARM=7 \
+            go build -buildmode=pie -trimpath \
+            -tags "$TAGS" -ldflags "$LDFLAGS" \
+            -o "$GITHUB_WORKSPACE/upstream/V2rayNG/app/libs/armeabi-v7a/libbluevpn_singbox.so" \
+            ./cmd/sing-box
+
+          test -s "$GITHUB_WORKSPACE/upstream/V2rayNG/app/libs/arm64-v8a/libbluevpn_singbox.so"
+          test -s "$GITHUB_WORKSPACE/upstream/V2rayNG/app/libs/armeabi-v7a/libbluevpn_singbox.so"
+          echo "Pinned sing-box ${{ steps.config.outputs.sing_box_ref }} native runtimes built successfully."
+
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
@@ -366,6 +408,8 @@ jobs:
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnTheme.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLiveReporter.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnBootstrap.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnEngineManager.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnSingBoxProcess.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateManager.kt",
               "src/main/java/com/v2ray/ang/ui/BlueVpnUpdateInstallActivity.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateFileProvider.kt",

@@ -337,22 +337,10 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
         if (remoteLinkInProgress || isFinishing || isDestroyed) return
         remoteLinkInProgress = true
         lifecycleScope.launch(Dispatchers.IO) {
-            val link = runCatching {
-                val base = BuildConfig.BLUEVPN_API_BASE_URL.trimEnd('/')
-                if (base.isBlank()) return@runCatching ""
-                val connection = URL("$base/api/v1/mobile/config").openConnection()
-                    as HttpURLConnection
-                try {
-                    connection.connectTimeout = 6_000
-                    connection.readTimeout = 6_000
-                    connection.requestMethod = "GET"
-                    connection.inputStream.bufferedReader().use {
-                        JSONObject(it.readText()).optString(field, "")
-                    }
-                } finally {
-                    connection.disconnect()
-                }
-            }.getOrDefault("")
+            val link = BlueVpnAccountManager.mobileConfig(
+                this@BlueVpnSettingsActivity,
+                force = false,
+            ).getOrNull()?.optString(field, "").orEmpty()
 
             withContext(Dispatchers.Main) {
                 remoteLinkInProgress = false

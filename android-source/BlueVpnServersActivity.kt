@@ -20,6 +20,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
@@ -33,6 +34,9 @@ import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.viewmodel.MainViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class BlueVpnServersActivity : HelperBaseActivity() {
 
@@ -69,6 +73,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private val searchHandler = Handler(Looper.getMainLooper())
     private val renderHandler = Handler(Looper.getMainLooper())
     private var renderGeneration = 0
+    private var candidateLoadInProgress = false
+    private var candidateReloadPending = false
     private val searchRunnable = Runnable { renderLocations() }
     private val renderRunnable = Runnable {
         renderLocationsNow(renderGeneration)
@@ -98,19 +104,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         mainViewModel.updateListAction.observe(this) {
             BlueVpnLocationUtil.invalidateCache()
             stopRefreshing()
-            renderLocations()
+            loadCandidates(force = true)
         }
         mainViewModel.updateTestResultAction.observe(this) {
             BlueVpnLocationUtil.invalidateCache()
-            if (BlueVpnPreferences.smartBalance(this)) {
-                BlueVpnLocationUtil.instantCandidates(this)
-                    .firstOrNull()
-                    ?.let { MmkvManager.setSelectServer(it.guid) }
-            }
             stopRefreshing()
-            renderLocations()
+            loadCandidates(force = true, selectAutomaticAfterLoad = true)
         }
         renderLocations()
+        loadCandidates(force = false)
         syncDetectedLocations(force = false)
     }
 
@@ -143,6 +145,32 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         searchHandler.removeCallbacks(searchRunnable)
         renderHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
+    }
+
+    private fun loadCandidates(
+        force: Boolean,
+        selectAutomaticAfterLoad: Boolean = false,
+    ) {
+        candidateReloadPending = candidateReloadPending || force
+        if (candidateLoadInProgress || isFinishing || isDestroyed) return
+        candidateLoadInProgress = true
+        val requestedForce = candidateReloadPending
+        candidateReloadPending = false
+        lifecycleScope.launch(Dispatchers.Default) {
+            val loaded = BlueVpnLocationUtil.allCandidates(
+                this@BlueVpnServersActivity,
+                forceRefresh = requestedForce,
+            )
+            withContext(Dispatchers.Main) {
+                candidateLoadInProgress = false
+                if (isFinishing || isDestroyed) return@withContext
+                if (selectAutomaticAfterLoad && BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity)) {
+                    loaded.firstOrNull()?.let { MmkvManager.setSelectServer(it.guid) }
+                }
+                renderLocations()
+                if (candidateReloadPending) loadCandidates(force = candidateReloadPending)
+            }
+        }
     }
 
     private fun syncDetectedLocations(force: Boolean) {
@@ -336,7 +364,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val automatic = BlueVpnPreferences.smartBalance(this)
         val preferred = BlueVpnPreferences.preferredLocation(this)
         val selected = MmkvManager.getSelectServer()
-        val candidates = BlueVpnLocationUtil.allCandidates(this)
+        val candidates = BlueVpnLocationUtil.cachedCandidates(this)
+        if (candidates.isEmpty()) {
+            emptyText.text = if (candidateLoadInProgress) "در حال آماده‌سازی مکان‌ها…" else "مکانی برای نمایش وجود ندارد"
+            emptyText.visibility = View.VISIBLE
+            if (!candidateLoadInProgress) loadCandidates(force = false)
+            return
+        }
         val selectedLocation = candidates.firstOrNull { it.guid == selected }?.location?.key
         val recentKeys = BlueVpnExperience.history(this).map { it.locationKey }.distinct()
         val recentIndex = recentKeys.withIndex().associate { it.value to it.index }

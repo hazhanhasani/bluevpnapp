@@ -246,7 +246,7 @@ object BlueVpnPreferences {
 
 object BlueVpnLocationUtil {
 
-    private const val CANDIDATE_CACHE_TTL_MS = 10_000L
+    private const val CANDIDATE_CACHE_TTL_MS = 60_000L
 
     @Volatile
     private var candidateCacheAt = 0L
@@ -261,6 +261,7 @@ object BlueVpnLocationUtil {
     private var contextCandidateCache: List<Candidate> = emptyList()
 
     private val identityCache = ConcurrentHashMap<String, String>()
+    private val compatibilityCache = ConcurrentHashMap<String, String>()
 
     private val cloudExecutor = Executors.newSingleThreadExecutor {
         Thread(it, "bluevpn-location-sync").apply { isDaemon = true }
@@ -609,7 +610,57 @@ private fun unknownLocation(): BlueVpnLocation =
         }
     }
 
-    fun isUsable(profile: ProfileItem): Boolean {
+    /**
+     * New Xray cores reject legacy TLS profiles that still request
+     * allowInsecure/insecure=1. Detect them before starting the core so one
+     * stale route cannot show a raw engine error or hold the UI for seconds.
+     * The provider must replace these profiles with a valid certificate,
+     * pinnedPeerCertSha256 or verifyPeerCertByName configuration.
+     */
+    private fun containsRemovedTlsOption(value: String?): Boolean {
+        val compact = value.orEmpty()
+            .lowercase(Locale.ROOT)
+            .replace(Regex("\\s+"), "")
+        return compact.contains("\"allowinsecure\":true") ||
+            compact.contains("allowinsecure=true") ||
+            compact.contains("allowinsecure%3dtrue") ||
+            compact.contains("insecure=1") ||
+            compact.contains("insecure%3d1")
+    }
+
+    fun compatibilityIssue(
+        profile: ProfileItem,
+        rawConfig: String? = null,
+    ): String? {
+        val key = serverIdentity(profile).ifBlank {
+            (profile.server.orEmpty() + "|" + profile.remarks.orEmpty())
+                .lowercase(Locale.ROOT)
+        }
+        compatibilityCache[key]?.let { cached ->
+            return cached.takeIf { it.isNotBlank() }
+        }
+        val explicitInsecure = runCatching {
+            profile.javaClass.methods
+                .firstOrNull { method ->
+                    method.parameterTypes.isEmpty() &&
+                        (method.name.equals("getInsecure", ignoreCase = true) ||
+                            method.name.equals("isInsecure", ignoreCase = true))
+                }
+                ?.invoke(profile) == true
+        }.getOrDefault(false)
+        val serialized = runCatching { profile.toString() }.getOrDefault("")
+        val legacyTls = explicitInsecure ||
+            containsRemovedTlsOption(rawConfig) ||
+            containsRemovedTlsOption(serialized)
+        val issue = if (legacyTls) "LEGACY_TLS_ALLOW_INSECURE" else ""
+        compatibilityCache[key] = issue
+        return issue.takeIf { it.isNotBlank() }
+    }
+
+    fun isUsable(
+        profile: ProfileItem,
+        rawConfig: String? = null,
+    ): Boolean {
         val server = profile.server
             .orEmpty()
             .trim()
@@ -620,6 +671,7 @@ private fun unknownLocation(): BlueVpnLocation =
         if (server == "::1") return false
         if (server == "localhost") return false
         if (server.startsWith("127.")) return false
+        if (compatibilityIssue(profile, rawConfig) != null) return false
 
         return true
     }
@@ -630,6 +682,7 @@ private fun unknownLocation(): BlueVpnLocation =
             candidateCache = emptyList()
             contextCandidateCacheAt = 0L
             contextCandidateCache = emptyList()
+            compatibilityCache.clear()
         }
     }
 
@@ -660,7 +713,7 @@ private fun unknownLocation(): BlueVpnLocation =
                     MmkvManager.decodeServerConfig(guid)
                         ?: return@mapNotNull null
 
-                if (!isUsable(profile)) {
+                if (!isUsable(profile, MmkvManager.decodeServerRaw(guid))) {
                     return@mapNotNull null
                 }
 
@@ -680,6 +733,23 @@ private fun unknownLocation(): BlueVpnLocation =
         }
         return loaded
     }
+
+    /**
+     * Returns only the already prepared context-aware cache. UI rendering must
+     * use this method so a screen never decodes hundreds of MMKV profiles on
+     * the main thread. Call allCandidates(context) from Dispatchers.Default to
+     * warm or refresh the cache.
+     */
+    fun cachedCandidates(context: Context): List<Candidate> {
+        val now = SystemClock.elapsedRealtime()
+        val cached = contextCandidateCache
+        return if (
+            contextCandidateCacheAt > 0L &&
+            now - contextCandidateCacheAt < CANDIDATE_CACHE_TTL_MS
+        ) cached else emptyList()
+    }
+
+    fun hasCandidateCache(context: Context): Boolean = cachedCandidates(context).isNotEmpty()
 
     fun allCandidates(
         context: Context,
@@ -821,6 +891,61 @@ private fun unknownLocation(): BlueVpnLocation =
                 }
                 .thenBy { it.candidate.location.title }
         ).map { it.candidate }
+    }
+
+    /**
+     * Builds a first-connect shortlist without decoding the entire server
+     * database. On a cold launch only the selected profile and a handful of
+     * following profiles are decoded; the complete candidate cache is warmed
+     * later on a background dispatcher.
+     */
+    fun fastCandidates(
+        context: Context,
+        preferredKey: String? = null,
+        maxCandidates: Int = 8,
+    ): List<Candidate> {
+        val cached = cachedCandidates(context)
+        if (cached.isNotEmpty()) {
+            return orderedCandidates(context, preferredKey).take(maxCandidates)
+        }
+
+        val selected = MmkvManager.getSelectServer().orEmpty()
+        val guids = MmkvManager.decodeAllServerList()
+        if (guids.isEmpty()) return emptyList()
+        val orderedGuids = buildList {
+            if (selected.isNotBlank() && selected in guids) add(selected)
+            guids.asSequence()
+                .filter { it != selected }
+                .take(48)
+                .forEach { add(it) }
+        }
+        val wanted = preferredKey.orEmpty().ifBlank {
+            BlueVpnPreferences.preferredLocation(context)
+        }
+        val automatic = BlueVpnPreferences.smartBalance(context)
+        val result = ArrayList<Candidate>(maxCandidates)
+        for (guid in orderedGuids) {
+            if (result.size >= maxCandidates) break
+            if (BlueVpnPreferences.isSessionInactive(context, guid)) continue
+            val profile = MmkvManager.decodeServerConfig(guid) ?: continue
+            if (!isUsable(profile, MmkvManager.decodeServerRaw(guid))) continue
+            if (!BlueVpnAccountManager.candidateAllowed(context, profile.subscriptionId)) continue
+            val location = detect(profile.remarks, profile.server)
+            if (!automatic && wanted.isNotBlank() && location.key != wanted) continue
+            result += Candidate(
+                guid = guid,
+                profile = profile,
+                location = location,
+                delay = MmkvManager.decodeServerAffiliationInfo(guid)?.testDelayMillis ?: 0L,
+            )
+        }
+        return result.sortedWith(
+            compareByDescending<Candidate> {
+                BlueVpnPreferences.successFreshnessScore(context, it.guid)
+            }.thenBy {
+                if (it.delay > 0L) it.delay else Long.MAX_VALUE
+            }
+        )
     }
 
     /**

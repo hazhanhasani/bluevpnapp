@@ -13,10 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_348():
     release=json.loads((ROOT/'release.json').read_text(encoding='utf-8'))
     app=json.loads((ROOT/'branding/app.json').read_text(encoding='utf-8'))
-    assert release['version']=='3.0.68'
-    assert release['version_code']==30068
-    assert app['version_name']=='3.0.68'
-    assert app['version_code']==30068
+    assert release['version']=='3.0.70'
+    assert release['version_code']==30070
+    assert app['version_name']=='3.0.70'
+    assert app['version_code']==30070
 
 
 def test_broken_old_ad_layout_is_disabled_server_side():

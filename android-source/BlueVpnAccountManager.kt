@@ -11,7 +11,6 @@ import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.dto.entities.SubscriptionItem
 import com.v2ray.ang.handler.AngConfigManager
 import com.v2ray.ang.handler.MmkvManager
-import com.v2ray.ang.core.CoreServiceManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -23,6 +22,7 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class BlueVpnAccountSnapshot(
     val email: String,
@@ -146,6 +146,20 @@ object BlueVpnAccountManager {
     }
     @Volatile private var lastScheduledSubscriptionUrl = ""
     @Volatile private var lastScheduledSubscriptionAt = 0L
+    private val primaryRestored = AtomicBoolean(false)
+    private val primaryRestoreLock = Any()
+    private val freePrepareLock = Any()
+    private val mobileConfigLock = Any()
+    private val plansLock = Any()
+    @Volatile private var freePrepareRunning = false
+    @Volatile private var freeSnapshotCacheAt = 0L
+    @Volatile private var freeSnapshotCache: BlueVpnFreeAccessSnapshot? = null
+    @Volatile private var accountSnapshotCacheAt = 0L
+    @Volatile private var accountSnapshotCache: BlueVpnAccountSnapshot? = null
+    @Volatile private var mobileConfigCacheAt = 0L
+    @Volatile private var mobileConfigCacheRaw = ""
+    @Volatile private var plansCacheAt = 0L
+    @Volatile private var plansCacheRaw = ""
 
     private const val P = "bluevpn_account"
     private const val BACKUP = "bluevpn_auth_backup"
@@ -154,7 +168,12 @@ object BlueVpnAccountManager {
     private const val FREE_PREFS = "bluevpn_free_access"
     private const val FREE_ALARM_ACTION = "com.v2ray.ang.bluevpn.FREE_SESSION_EXPIRED"
     private const val AUTO_SYNC_INTERVAL_MS = 5 * 60_000L
+    private const val FREE_SUB_REFRESH_INTERVAL_MS = 60 * 60_000L
     private const val FREE_CONFIG_TTL_MS = 5 * 60_000L
+    private const val FREE_SNAPSHOT_CACHE_MS = 30_000L
+    private const val ACCOUNT_SNAPSHOT_CACHE_MS = 5_000L
+    private const val MOBILE_CONFIG_CACHE_MS = 60_000L
+    private const val PLANS_CACHE_MS = 2 * 60_000L
 
     private fun prefs(c: Context) =
         c.getSharedPreferences(P, Context.MODE_PRIVATE)
@@ -171,43 +190,60 @@ object BlueVpnAccountManager {
     fun apiBaseUrl() =
         BuildConfig.BLUEVPN_API_BASE_URL.trimEnd('/')
 
+    fun mobileConfig(c: Context, force: Boolean = false): Result<JSONObject> = runCatching {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val cached = mobileConfigCacheRaw
+        if (!force && cached.isNotBlank() && now - mobileConfigCacheAt < MOBILE_CONFIG_CACHE_MS) {
+            return@runCatching JSONObject(cached)
+        }
+        synchronized(mobileConfigLock) {
+            val lockedNow = android.os.SystemClock.elapsedRealtime()
+            val lockedCached = mobileConfigCacheRaw
+            if (!force && lockedCached.isNotBlank() && lockedNow - mobileConfigCacheAt < MOBILE_CONFIG_CACHE_MS) {
+                return@synchronized JSONObject(lockedCached)
+            }
+            val response = request(c.applicationContext, "GET", "/api/v1/mobile/config", null, false)
+            mobileConfigCacheRaw = response.toString()
+            mobileConfigCacheAt = lockedNow
+            JSONObject(mobileConfigCacheRaw)
+        }
+    }
+
     private fun restorePrimary(c: Context) {
-        val primary = prefs(c)
-        val secondary = backup(c)
+        if (primaryRestored.get()) return
+        synchronized(primaryRestoreLock) {
+            if (primaryRestored.get()) return
+            val primary = prefs(c)
+            val secondary = backup(c)
+            val editor = primary.edit()
+            var changed = false
 
-        if (primary.getString("token", "").orEmpty().isBlank()) {
-            val saved = secondary.getString("token", "").orEmpty()
-            if (saved.isNotBlank()) {
-                primary.edit().putString("token", saved).commit()
+            fun restoreString(key: String) {
+                if (primary.getString(key, "").orEmpty().isNotBlank()) return
+                val saved = secondary.getString(key, "").orEmpty()
+                if (saved.isNotBlank()) {
+                    editor.putString(key, saved)
+                    changed = true
+                }
             }
-        }
 
-        if (primary.getString("refresh_token", "").orEmpty().isBlank()) {
-            val saved =
-                secondary.getString("refresh_token", "").orEmpty()
-            if (saved.isNotBlank()) {
-                primary.edit()
-                    .putString("refresh_token", saved)
-                    .commit()
-            }
+            restoreString("token")
+            restoreString("refresh_token")
+            restoreString("email")
+            restoreString("device_id")
+            if (changed) editor.apply()
+            primaryRestored.set(true)
         }
+    }
 
-        if (primary.getString("email", "").orEmpty().isBlank()) {
-            val saved = secondary.getString("email", "").orEmpty()
-            if (saved.isNotBlank()) {
-                primary.edit().putString("email", saved).commit()
-            }
-        }
+    private fun invalidateAccountSnapshot() {
+        accountSnapshotCacheAt = 0L
+        accountSnapshotCache = null
+    }
 
-        if (primary.getString("device_id", "").orEmpty().isBlank()) {
-            val saved =
-                secondary.getString("device_id", "").orEmpty()
-            if (saved.isNotBlank()) {
-                primary.edit()
-                    .putString("device_id", saved)
-                    .commit()
-            }
-        }
+    private fun invalidateFreeSnapshot() {
+        freeSnapshotCacheAt = 0L
+        freeSnapshotCache = null
     }
 
     private fun persistAuth(
@@ -224,7 +260,7 @@ object BlueVpnAccountManager {
             .putString("email", email)
             .putString("device_id", device)
             .remove("auth_error")
-            .commit()
+            .apply()
 
         backup(c).edit()
             .putString("token", token)
@@ -232,7 +268,8 @@ object BlueVpnAccountManager {
             .putString("email", email)
             .putString("device_id", device)
             .putLong("saved_at", System.currentTimeMillis())
-            .commit()
+            .apply()
+        invalidateAccountSnapshot()
     }
 
     fun token(c: Context): String {
@@ -258,6 +295,11 @@ object BlueVpnAccountManager {
         c.getSharedPreferences(FREE_PREFS, Context.MODE_PRIVATE)
 
     fun freeAccessSnapshot(c: Context): BlueVpnFreeAccessSnapshot {
+        val now = android.os.SystemClock.elapsedRealtime()
+        freeSnapshotCache?.takeIf {
+            freeSnapshotCacheAt > 0L && now - freeSnapshotCacheAt < FREE_SNAPSHOT_CACHE_MS
+        }?.let { return it }
+
         val storage = freePrefs(c)
         val parsed = mutableListOf<BlueVpnFreeSubscription>()
         val raw = storage.getString("subscriptions_json", "").orEmpty()
@@ -286,12 +328,15 @@ object BlueVpnAccountManager {
             )
         }
         val ordered = parsed.distinctBy { it.id }.sortedBy { it.priority }
-        return BlueVpnFreeAccessSnapshot(
+        val snapshot = BlueVpnFreeAccessSnapshot(
             enabled = storage.getBoolean("enabled", false),
             subscriptionUrl = ordered.firstOrNull()?.url.orEmpty(),
             subscriptions = ordered,
             sessionMinutes = storage.getInt("session_minutes", 60).coerceIn(15, 180),
         )
+        freeSnapshotCache = snapshot
+        freeSnapshotCacheAt = now
+        return snapshot
     }
 
     fun freeAccessEnabled(c: Context): Boolean {
@@ -302,66 +347,102 @@ object BlueVpnAccountManager {
     fun isFreeMode(c: Context): Boolean =
         !active(c) && freeAccessEnabled(c)
 
+    fun hasInstalledFreeServers(c: Context): Boolean {
+        val storage = freePrefs(c.applicationContext)
+        val guids = storage.getStringSet("subscription_guids", emptySet()).orEmpty()
+            .ifEmpty {
+                storage.getString("subscription_guid", "").orEmpty()
+                    .takeIf { it.isNotBlank() }
+                    ?.let { setOf(it) }
+                    .orEmpty()
+            }
+        return guids.any { guid ->
+            runCatching { MmkvManager.decodeServerList(guid).isNotEmpty() }
+                .getOrDefault(false)
+        }
+    }
+
     fun prepareFreeAccess(c: Context, force: Boolean = false): Result<Boolean> = runCatching {
         val appContext = c.applicationContext
-        val storage = freePrefs(appContext)
-        val now = System.currentTimeMillis()
-        val lastConfigAt = storage.getLong("config_at", 0L)
-        val shouldFetch = force || now - lastConfigAt > FREE_CONFIG_TTL_MS ||
-            freeAccessSnapshot(appContext).subscriptions.isEmpty()
-
-        if (shouldFetch) {
-            val config = request(
-                appContext,
-                "GET",
-                "/api/v1/mobile/config",
-                null,
-                false,
-            )
-            val free = config.optJSONObject("free_access") ?: JSONObject()
-            val sources = free.optJSONArray("subscriptions") ?: JSONArray()
-            val storedSources = JSONArray()
-            for (index in 0 until sources.length()) {
-                val row = sources.optJSONObject(index) ?: continue
-                val url = row.optString("subscription_url").trim()
-                if (!url.startsWith("http")) continue
-                storedSources.put(JSONObject()
-                    .put("id", row.optString("id").trim().ifBlank { "source-$index" })
-                    .put("name", row.optString("name").trim().ifBlank { "سرور رایگان ${index + 1}" })
-                    .put("url", url)
-                    .put("priority", row.optInt("priority", index)))
+        val ownsPreparation = synchronized(freePrepareLock) {
+            if (freePrepareRunning) false else {
+                freePrepareRunning = true
+                true
             }
-            val legacyUrl = free.optString("subscription_url").trim()
-            if (storedSources.length() == 0 && legacyUrl.startsWith("http")) {
-                storedSources.put(JSONObject()
-                    .put("id", "legacy-default")
-                    .put("name", "سرور رایگان")
-                    .put("url", legacyUrl)
-                    .put("priority", 0))
+        }
+        if (!ownsPreparation) return@runCatching freeAccessEnabled(appContext)
+        try {
+
+            val storage = freePrefs(appContext)
+            val now = System.currentTimeMillis()
+            val lastConfigAt = storage.getLong("config_at", 0L)
+            val shouldFetch = force || now - lastConfigAt > FREE_CONFIG_TTL_MS ||
+                freeAccessSnapshot(appContext).subscriptions.isEmpty()
+
+            if (shouldFetch) {
+                val config = mobileConfig(appContext, force = force).getOrThrow()
+                val free = config.optJSONObject("free_access") ?: JSONObject()
+                val sources = free.optJSONArray("subscriptions") ?: JSONArray()
+                val storedSources = JSONArray()
+                for (index in 0 until sources.length()) {
+                    val row = sources.optJSONObject(index) ?: continue
+                    val url = row.optString("subscription_url").trim()
+                    if (!url.startsWith("http")) continue
+                    storedSources.put(JSONObject()
+                        .put("id", row.optString("id").trim().ifBlank { "source-$index" })
+                        .put("name", row.optString("name").trim().ifBlank { "سرور رایگان ${index + 1}" })
+                        .put("url", url)
+                        .put("priority", row.optInt("priority", index)))
+                }
+                val legacyUrl = free.optString("subscription_url").trim()
+                if (storedSources.length() == 0 && legacyUrl.startsWith("http")) {
+                    storedSources.put(JSONObject()
+                        .put("id", "legacy-default")
+                        .put("name", "سرور رایگان")
+                        .put("url", legacyUrl)
+                        .put("priority", 0))
+                }
+                storage.edit()
+                    .putBoolean("enabled", free.optBoolean("enabled", false))
+                    .putString("subscription_url", legacyUrl)
+                    .putString("subscriptions_json", storedSources.toString())
+                    .putInt("session_minutes", free.optInt("session_minutes", 60).coerceIn(15, 180))
+                    .putLong("config_at", now)
+                    .apply()
+                invalidateFreeSnapshot()
             }
-            storage.edit()
-                .putBoolean("enabled", free.optBoolean("enabled", false))
-                .putString("subscription_url", legacyUrl)
-                .putString("subscriptions_json", storedSources.toString())
-                .putInt("session_minutes", free.optInt("session_minutes", 60).coerceIn(15, 180))
-                .putLong("config_at", now)
-                .commit()
-        }
 
-        if (active(appContext)) {
-            stopFreeSession(appContext, expired = false)
-            return@runCatching false
-        }
+            if (active(appContext)) {
+                stopFreeSession(appContext, expired = false)
+                return@runCatching false
+            }
 
-        val snapshot = freeAccessSnapshot(appContext)
-        if (!snapshot.enabled || snapshot.subscriptions.isEmpty()) {
-            return@runCatching false
-        }
+            val snapshot = freeAccessSnapshot(appContext)
+            if (!snapshot.enabled || snapshot.subscriptions.isEmpty()) {
+                return@runCatching false
+            }
 
-        installFreeSubscriptions(appContext, snapshot.subscriptions, force)
-        BlueVpnPreferences.setSmartBalance(appContext, true)
-        BlueVpnPreferences.setPreferredLocation(appContext, "")
-        true
+            val fingerprint = snapshot.subscriptions
+                .joinToString("|") { "${it.id}:${it.url}:${it.priority}" }
+                .hashCode().toString()
+            val installedFingerprint = storage
+                .getString("installed_sources_fingerprint", "")
+                .orEmpty()
+            val localReady = hasInstalledFreeServers(appContext)
+            if (force || !localReady || installedFingerprint != fingerprint) {
+                installFreeSubscriptions(appContext, snapshot.subscriptions, force)
+                storage.edit()
+                    .putString("installed_sources_fingerprint", fingerprint)
+                    .apply()
+            }
+            BlueVpnPreferences.setSmartBalance(appContext, true)
+            BlueVpnPreferences.setPreferredLocation(appContext, "")
+            true
+        } finally {
+            synchronized(freePrepareLock) {
+                freePrepareRunning = false
+            }
+        }
     }
 
     private fun installFreeSubscriptions(
@@ -375,7 +456,8 @@ object BlueVpnAccountManager {
         val desiredIds = sources.map { it.id }.toSet()
         val installedGuids = linkedSetOf<String>()
         val lastInstallAt = storage.getLong("installed_at", 0L)
-        val recent = !force && System.currentTimeMillis() - lastInstallAt < AUTO_SYNC_INTERVAL_MS
+        val recent = !force &&
+            System.currentTimeMillis() - lastInstallAt < FREE_SUB_REFRESH_INTERVAL_MS
 
         sources.forEach { source ->
             val remark = "$FREE_SUB • ${source.id}"
@@ -482,7 +564,8 @@ object BlueVpnAccountManager {
         val storage = freePrefs(appContext)
         if (!storage.getBoolean("session_active", false)) return false
         if (freeSessionRemainingMillis(appContext) > 0L) return false
-        runCatching { CoreServiceManager.stopVService(appContext) }
+        // Legacy direct call replaced: CoreServiceManager.stopVService(appContext)
+        runCatching { BlueVpnEngineManager.stop(appContext) }
         runCatching { BlueVpnPreferences.clearConnected(appContext) }
         stopFreeSession(appContext, expired = false)
         stopFreeSession(appContext, expired = true)
@@ -570,7 +653,7 @@ object BlueVpnAccountManager {
         if (backupId.isNotBlank()) {
             primary.edit()
                 .putString("device_id", backupId)
-                .commit()
+                .apply()
             return backupId
         }
 
@@ -590,8 +673,8 @@ object BlueVpnAccountManager {
             .joinToString("") { "%02x".format(it) }
             .take(40)
 
-        primary.edit().putString("device_id", id).commit()
-        backup(c).edit().putString("device_id", id).commit()
+        primary.edit().putString("device_id", id).apply()
+        backup(c).edit().putString("device_id", id).apply()
         return id
     }
 
@@ -675,9 +758,12 @@ object BlueVpnAccountManager {
 
     fun snapshot(c: Context): BlueVpnAccountSnapshot {
         restorePrimary(c)
+        val now = android.os.SystemClock.elapsedRealtime()
+        accountSnapshotCache?.takeIf {
+            accountSnapshotCacheAt > 0L && now - accountSnapshotCacheAt < ACCOUNT_SNAPSHOT_CACHE_MS
+        }?.let { return it }
         val p = prefs(c)
-
-        return BlueVpnAccountSnapshot(
+        val snapshot = BlueVpnAccountSnapshot(
             p.getString("email", "").orEmpty(),
             active(c),
             p.getString("url", "").orEmpty(),
@@ -691,6 +777,9 @@ object BlueVpnAccountManager {
             p.getBoolean("phone_verified", false),
             p.getString("auth_method", "legacy_email").orEmpty(),
         )
+        accountSnapshotCache = snapshot
+        accountSnapshotCacheAt = now
+        return snapshot
     }
 
     fun logout(c: Context) {
@@ -701,18 +790,20 @@ object BlueVpnAccountManager {
         // Logout must be immediate from the user's perspective. Stop the tunnel
         // before deleting credentials so an authenticated VPN session can never
         // remain active after the account has been left.
-        runCatching { CoreServiceManager.stopVService(appContext) }
+        // Legacy direct call replaced: CoreServiceManager.stopVService(appContext)
+        runCatching { BlueVpnEngineManager.stop(appContext) }
         runCatching { BlueVpnPreferences.clearConnected(appContext) }
 
         prefs(appContext).edit()
             .clear()
             .putString("device_id", id)
-            .commit()
+            .apply()
 
         backup(appContext).edit()
             .clear()
             .putString("device_id", id)
-            .commit()
+            .apply()
+        invalidateAccountSnapshot()
 
         appContext.getSharedPreferences(
             "bluevpn_subscription_info",
@@ -750,14 +841,15 @@ object BlueVpnAccountManager {
             .putString("email", email)
             .putString("device_id", id)
             .putString("auth_error", code)
-            .commit()
+            .apply()
 
         backup(c).edit()
             .remove("token")
             .remove("refresh_token")
             .putString("email", email)
             .putString("device_id", id)
-            .commit()
+            .apply()
+        invalidateAccountSnapshot()
     }
 
     fun requestOtp(
@@ -1043,19 +1135,26 @@ object BlueVpnAccountManager {
         )
     }
 
-    fun plans(c: Context): Result<JSONArray> =
-        runCatching {
-            if (!hasSession(c)) {
-                error("AUTH_REQUIRED")
-            }
-
-            authenticatedRequest(
-                c,
-                "GET",
-                "/api/v1/plans",
-                null,
-            ).getJSONArray("plans")
+    fun plans(c: Context): Result<JSONArray> = runCatching {
+        if (!hasSession(c)) error("AUTH_REQUIRED")
+        val now = android.os.SystemClock.elapsedRealtime()
+        val cached = plansCacheRaw
+        if (cached.isNotBlank() && now - plansCacheAt < PLANS_CACHE_MS) {
+            return@runCatching JSONArray(cached)
         }
+        synchronized(plansLock) {
+            val lockedNow = android.os.SystemClock.elapsedRealtime()
+            val lockedCached = plansCacheRaw
+            if (lockedCached.isNotBlank() && lockedNow - plansCacheAt < PLANS_CACHE_MS) {
+                return@synchronized JSONArray(lockedCached)
+            }
+            val rows = authenticatedRequest(c, "GET", "/api/v1/plans", null)
+                .getJSONArray("plans")
+            plansCacheRaw = rows.toString()
+            plansCacheAt = lockedNow
+            JSONArray(plansCacheRaw)
+        }
+    }
 
     fun createOrder(
         c: Context,
@@ -1251,12 +1350,13 @@ object BlueVpnAccountManager {
                 "account_app_version",
                 currentAppVersion()
             )
-            .commit()
+            .apply()
+        invalidateAccountSnapshot()
 
         if (identity.isNotBlank()) {
             backup(c).edit()
                 .putString("email", identity)
-                .commit()
+                .apply()
         }
 
         if (effectiveActive) {

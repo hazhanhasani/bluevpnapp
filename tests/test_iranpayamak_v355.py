@@ -26,10 +26,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_355_and_schema_18():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.60"
-    assert release["version_code"] == 30060
-    assert app["version_name"] == "3.0.60"
-    assert app["version_code"] == 30060
+    assert release["version"] == "3.0.63"
+    assert release["version_code"] == 30063
+    assert app["version_name"] == "3.0.63"
+    assert app["version_code"] == 30063
     assert SCHEMA_VERSION == "18"
 
 

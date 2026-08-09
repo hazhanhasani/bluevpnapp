@@ -81,6 +81,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var palette: BlueVpnPalette
     private var themeDarkAtCreate = true
+    private var themeConnectionGraceUntil = 0L
+    private var themeHealthRetryCount = 0
     private var dragStartRawX = 0f
     private var dragStartTranslation = 0f
     private var dragMoved = false
@@ -145,6 +147,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var updateCheckScheduled = false
     private var accountLaunchInProgress = false
     private var candidateWarmupInProgress = false
+    private var freePreparationInProgress = false
 
     private var startupOptimizationShown = false
     private var startupOptimizationActive = false
@@ -211,6 +214,24 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 this,
                 BlueVpnPerformance.statsIntervalMs(this@BlueVpnHomeActivity),
             )
+        }
+    }
+
+    private val freeSessionTicker = object : Runnable {
+        override fun run() {
+            if (BlueVpnAccountManager.enforceFreeSession(this@BlueVpnHomeActivity)) {
+                connectionVerified = false
+                cancelFailover()
+                renderConnectionState(false)
+                statusText.text = "زمان اتصال رایگان پایان یافت"
+                statusCaption.text = "برای اتصال یک‌ساعته بعدی دوباره دکمه اتصال را بزنید"
+                Toast.makeText(
+                    this@BlueVpnHomeActivity,
+                    "اتصال رایگان پس از یک ساعت قطع شد",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            handler.postDelayed(this, 15_000L)
         }
     }
 
@@ -1242,6 +1263,13 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         super.onCreate(savedInstanceState)
         palette = BlueVpnTheme.palette(this)
         themeDarkAtCreate = palette.dark
+        if (BlueVpnTheme.isTransitionRecent(this)) {
+            themeConnectionGraceUntil = SystemClock.elapsedRealtime() + 12_000L
+            connectionVerified = BlueVpnPreferences.connectedAt(this) > 0L
+            // A visual-only restart must not repeat startup optimization or
+            // touch the already running VPN service.
+            startupOptimizationShown = true
+        }
         window.setBackgroundDrawable(ColorDrawable(palette.background))
         BlueVpnTheme.applySystemBars(this)
         setContentView(createScreen())
@@ -1336,6 +1364,18 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             }
 
             when {
+                active && isThemeConnectionGraceActive() -> {
+                    // Theme changes recreate only the screen. Keep the core
+                    // untouched and restore the verified UI immediately.
+                    if (connectionVerified || BlueVpnPreferences.connectedAt(this) > 0L) {
+                        connectionVerified = true
+                        renderConnectionState(true)
+                    } else {
+                        renderVerifyingState()
+                        verifyExistingRunningSession(preserveServiceOnFailure = true)
+                    }
+                }
+
                 active && failoverActive -> {
                     renderVerifyingState()
                     scheduleConnectionVerification()
@@ -1439,6 +1479,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         navigationLocked = false
         handler.removeCallbacks(statsTicker)
         handler.post(statsTicker)
+        handler.removeCallbacks(freeSessionTicker)
+        handler.post(freeSessionTicker)
         if (::connectButton.isInitialized) {
             applyOrbVisual(orbVisualState)
         }
@@ -1448,6 +1490,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     override fun onStop() {
         if (::adsCarousel.isInitialized) adsCarousel.stop()
         handler.removeCallbacks(statsTicker)
+        handler.removeCallbacks(freeSessionTicker)
         setOrbPulseEnabled(false)
         super.onStop()
     }
@@ -1467,6 +1510,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         handler.removeCallbacks(startupProgressTicker)
         handler.removeCallbacks(startupOptimizationTimeout)
         handler.removeCallbacks(disconnectRetry)
+        handler.removeCallbacks(freeSessionTicker)
         startupDialog?.dismiss()
         startupDialog = null
         setOrbPulseEnabled(false)
@@ -1478,11 +1522,21 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         super.onResume()
         BlueVpnTheme.applySystemBars(this)
         if (BlueVpnTheme.isDark(this) != themeDarkAtCreate) {
+            window.setWindowAnimations(0)
             recreate()
+            overridePendingTransition(0, 0)
             return
         }
         navigationLocked = false
         BlueVpnUpdateManager.resumePendingInstall(this)
+        BlueVpnAccountManager.enforceFreeSession(this)
+        if (BlueVpnAccountManager.consumeFreeExpiredNotice(this)) {
+            Toast.makeText(
+                this,
+                "زمان اتصال رایگان پایان یافت؛ برای اتصال مجدد دکمه اتصال را بزنید",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
 
         if (!updateCheckScheduled) {
             updateCheckScheduled = true
@@ -2116,6 +2170,7 @@ private fun dpHome(value: Int): Int =
 
         CoreServiceManager.stopVService(this)
         BlueVpnPreferences.clearConnected(this)
+        BlueVpnAccountManager.stopFreeSession(this, expired = false)
         connectionVerified = false
         existingSessionCheckInProgress = false
 
@@ -2150,9 +2205,38 @@ private fun dpHome(value: Int): Int =
             return
         }
         if (!BlueVpnAccountManager.active(this)) {
-            Toast.makeText(this, "ابتدا اشتراک تهیه یا تمدید کنید", Toast.LENGTH_SHORT).show()
-            openAccount()
-            return
+            if (freePreparationInProgress) return
+            if (!BlueVpnAccountManager.isFreeMode(this)) {
+                freePreparationInProgress = true
+                connectButton.isEnabled = false
+                statusText.text = "آماده‌سازی اتصال رایگان"
+                statusCaption.text = "در حال دریافت مسیرهای رایگان"
+                lifecycleScope.launch(Dispatchers.IO) {
+                    val prepared = BlueVpnAccountManager
+                        .prepareFreeAccess(this@BlueVpnHomeActivity, force = true)
+                        .getOrDefault(false)
+                    withContext(Dispatchers.Main) {
+                        freePreparationInProgress = false
+                        connectButton.isEnabled = true
+                        BlueVpnLocationUtil.invalidateCache()
+                        if (prepared) {
+                            refreshDashboard(force = true)
+                            beginSmartConnection()
+                        } else {
+                            statusText.text = "اتصال رایگان در دسترس نیست"
+                            statusCaption.text = "اشتراک تهیه کنید یا کمی بعد دوباره تلاش کنید"
+                            Toast.makeText(
+                                this@BlueVpnHomeActivity,
+                                "سرورهای رایگان فعلاً آماده نیستند",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }
+                }
+                return
+            }
+            BlueVpnPreferences.setSmartBalance(this, true)
+            BlueVpnPreferences.setPreferredLocation(this, "")
         }
         enforceReliableVpnSettings()
         BlueVpnPreferences.clearConnected(this)
@@ -2348,7 +2432,12 @@ private fun dpHome(value: Int): Int =
         uploadSpeed.text = "۰ B/s"
     }
 
-    private fun verifyExistingRunningSession() {
+    private fun isThemeConnectionGraceActive(): Boolean =
+        SystemClock.elapsedRealtime() < themeConnectionGraceUntil
+
+    private fun verifyExistingRunningSession(
+        preserveServiceOnFailure: Boolean = false,
+    ) {
         if (existingSessionCheckInProgress || connectionVerified) return
 
         existingSessionCheckInProgress = true
@@ -2374,12 +2463,38 @@ private fun dpHome(value: Int): Int =
                         this@BlueVpnHomeActivity,
                         resetTimer = false
                     )
+                    BlueVpnAccountManager.startFreeSession(this@BlueVpnHomeActivity)
                     resetTrafficBaseline()
                     renderConnectionState(true)
                     statusCaption.text =
                         "اتصال امن با موفقیت برقرار شد"
                     recordCurrentConnection(latency)
                     refreshVerifiedExitLocation()
+                } else if (preserveServiceOnFailure || isThemeConnectionGraceActive()) {
+                    // A theme switch is visual-only. A transient probe failure
+                    // during Activity recreation must never stop/restart VPN.
+                    if (BlueVpnPreferences.connectedAt(this@BlueVpnHomeActivity) > 0L) {
+                        connectionVerified = true
+                        renderConnectionState(true)
+                    } else {
+                        renderVerifyingState()
+                    }
+                    statusCaption.text =
+                        "اتصال فعلی حفظ شد؛ بررسی در پس‌زمینه ادامه دارد"
+                    if (themeHealthRetryCount < 2) {
+                        themeHealthRetryCount += 1
+                        handler.postDelayed({
+                            if (
+                                mainViewModel.isRunning.value == true &&
+                                !isFinishing &&
+                                !isDestroyed
+                            ) {
+                                verifyExistingRunningSession(
+                                    preserveServiceOnFailure = true
+                                )
+                            }
+                        }, 1_800L)
+                    }
                 } else {
                     // A running core is not proof of a working VPN. Do not
                     // expose a false connected state or send a live heartbeat.
@@ -2586,6 +2701,7 @@ private fun dpHome(value: Int): Int =
             delay ?: lastVerifiedLatency,
         )
         BlueVpnPreferences.markConnected(this, resetTimer = true)
+        BlueVpnAccountManager.startFreeSession(this)
 
         failoverActive = false
         waitingForPingResult = false
@@ -2869,6 +2985,8 @@ private fun dpHome(value: Int): Int =
         subscriptionSummary.text = when {
             managed.email.isNotBlank() && managed.subscriptionActive ->
                 "اشتراک فعال • ${managed.email}"
+            managed.email.isNotBlank() && BlueVpnAccountManager.freeAccessEnabled(this) ->
+                "اتصال رایگان • انتخاب خودکار • هر نوبت ${BlueVpnAccountManager.freeAccessSnapshot(this).sessionMinutes} دقیقه"
             managed.email.isNotBlank() ->
                 "${managed.email} • نیاز به تمدید"
             subscriptionCount > 0 ->
@@ -2955,6 +3073,7 @@ private fun dpHome(value: Int): Int =
             val managed = BlueVpnAccountManager.snapshot(this)
 
             remainingVolume.text = when {
+                !managed.subscriptionActive && BlueVpnAccountManager.freeAccessEnabled(this) -> "رایگان"
                 !managed.subscriptionActive -> "بدون اشتراک"
                 managed.dataLimitBytes <= 0L -> "نامحدود"
                 else -> formatBytes(
@@ -2966,6 +3085,7 @@ private fun dpHome(value: Int): Int =
             }
 
             remainingTime.text = when {
+                !managed.subscriptionActive && BlueVpnAccountManager.freeAccessEnabled(this) -> "۱ ساعت در هر اتصال"
                 !managed.subscriptionActive -> "پایان یافته"
                 managed.expire.isNullOrBlank() -> "نامحدود"
                 else -> formatAccountRemainingTime(managed.expire)

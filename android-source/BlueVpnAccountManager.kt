@@ -1,12 +1,17 @@
 package com.v2ray.ang.bluevpn
 
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.dto.entities.SubscriptionItem
 import com.v2ray.ang.handler.AngConfigManager
 import com.v2ray.ang.handler.MmkvManager
+import com.v2ray.ang.core.CoreServiceManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -17,6 +22,7 @@ import java.util.Calendar
 import java.util.Locale
 import java.util.TimeZone
 import java.util.UUID
+import java.util.concurrent.Executors
 
 data class BlueVpnAccountSnapshot(
     val email: String,
@@ -38,6 +44,12 @@ data class BlueVpnOtpRequest(
     val phone: String,
     val expiresInSeconds: Int,
     val resendAfterSeconds: Int,
+)
+
+data class BlueVpnFreeAccessSnapshot(
+    val enabled: Boolean,
+    val subscriptionUrl: String,
+    val sessionMinutes: Int,
 )
 
 object BlueVpnPersianDate {
@@ -118,11 +130,23 @@ object BlueVpnPersianDate {
 
 object BlueVpnAccountManager {
     private val refreshLock = Any()
+    private val backgroundExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "bluevpn-account-background").apply { isDaemon = true }
+    }
+    private val subscriptionInstallExecutor = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "bluevpn-subscription-install").apply { isDaemon = true }
+    }
+    @Volatile private var lastScheduledSubscriptionUrl = ""
+    @Volatile private var lastScheduledSubscriptionAt = 0L
 
     private const val P = "bluevpn_account"
     private const val BACKUP = "bluevpn_auth_backup"
     private const val SUB = "BlueVPN Account"
+    private const val FREE_SUB = "BlueVPN Free"
+    private const val FREE_PREFS = "bluevpn_free_access"
+    private const val FREE_ALARM_ACTION = "com.v2ray.ang.bluevpn.FREE_SESSION_EXPIRED"
     private const val AUTO_SYNC_INTERVAL_MS = 5 * 60_000L
+    private const val FREE_CONFIG_TTL_MS = 5 * 60_000L
 
     private fun prefs(c: Context) =
         c.getSharedPreferences(P, Context.MODE_PRIVATE)
@@ -221,6 +245,182 @@ object BlueVpnAccountManager {
 
     fun active(c: Context) =
         prefs(c).getBoolean("active", false)
+
+    private fun freePrefs(c: Context) =
+        c.getSharedPreferences(FREE_PREFS, Context.MODE_PRIVATE)
+
+    fun freeAccessSnapshot(c: Context): BlueVpnFreeAccessSnapshot {
+        val storage = freePrefs(c)
+        return BlueVpnFreeAccessSnapshot(
+            enabled = storage.getBoolean("enabled", false),
+            subscriptionUrl = storage.getString("subscription_url", "").orEmpty(),
+            sessionMinutes = storage.getInt("session_minutes", 60).coerceIn(15, 180),
+        )
+    }
+
+    fun freeAccessEnabled(c: Context): Boolean {
+        val snapshot = freeAccessSnapshot(c)
+        return snapshot.enabled && snapshot.subscriptionUrl.startsWith("http")
+    }
+
+    fun isFreeMode(c: Context): Boolean =
+        hasSession(c) && !active(c) && freeAccessEnabled(c)
+
+    fun prepareFreeAccess(c: Context, force: Boolean = false): Result<Boolean> = runCatching {
+        val appContext = c.applicationContext
+        val storage = freePrefs(appContext)
+        val now = System.currentTimeMillis()
+        val lastConfigAt = storage.getLong("config_at", 0L)
+        val shouldFetch = force || now - lastConfigAt > FREE_CONFIG_TTL_MS ||
+            storage.getString("subscription_url", "").orEmpty().isBlank()
+
+        if (shouldFetch) {
+            val config = request(
+                appContext,
+                "GET",
+                "/api/v1/mobile/config",
+                null,
+                false,
+            )
+            val free = config.optJSONObject("free_access") ?: JSONObject()
+            storage.edit()
+                .putBoolean("enabled", free.optBoolean("enabled", false))
+                .putString("subscription_url", free.optString("subscription_url").trim())
+                .putInt("session_minutes", free.optInt("session_minutes", 60).coerceIn(15, 180))
+                .putLong("config_at", now)
+                .commit()
+        }
+
+        if (active(appContext)) {
+            stopFreeSession(appContext, expired = false)
+            return@runCatching false
+        }
+
+        val snapshot = freeAccessSnapshot(appContext)
+        if (!snapshot.enabled || !snapshot.subscriptionUrl.startsWith("http")) {
+            return@runCatching false
+        }
+
+        installFreeSubscription(appContext, snapshot.subscriptionUrl, force)
+        BlueVpnPreferences.setSmartBalance(appContext, true)
+        BlueVpnPreferences.setPreferredLocation(appContext, "")
+        true
+    }
+
+    private fun installFreeSubscription(c: Context, url: String, force: Boolean) {
+        val storage = freePrefs(c)
+        val old = MmkvManager.decodeSubscriptions()
+            .firstOrNull { it.subscription.remarks == FREE_SUB }
+        val unchanged = old?.subscription?.url == url
+        val lastInstallAt = storage.getLong("installed_at", 0L)
+        if (!force && unchanged && System.currentTimeMillis() - lastInstallAt < AUTO_SYNC_INTERVAL_MS) {
+            storage.edit().putString("subscription_guid", old?.guid.orEmpty()).apply()
+            return
+        }
+        val item = SubscriptionItem(
+            remarks = FREE_SUB,
+            url = url,
+            enabled = true,
+            autoUpdate = true,
+        )
+        MmkvManager.encodeSubscription(old?.guid.orEmpty(), item)
+        AngConfigManager.updateConfigViaSubAll()
+        val installed = MmkvManager.decodeSubscriptions()
+            .firstOrNull { it.subscription.remarks == FREE_SUB }
+        storage.edit()
+            .putString("subscription_guid", installed?.guid.orEmpty())
+            .putLong("installed_at", System.currentTimeMillis())
+            .commit()
+        BlueVpnLocationUtil.invalidateCache()
+    }
+
+    fun candidateAllowed(c: Context, subscriptionId: String?): Boolean {
+        val freeGuid = freePrefs(c).getString("subscription_guid", "").orEmpty()
+        return when {
+            active(c) -> freeGuid.isBlank() || subscriptionId.orEmpty() != freeGuid
+            isFreeMode(c) -> freeGuid.isNotBlank() && subscriptionId.orEmpty() == freeGuid
+            else -> false
+        }
+    }
+
+    fun startFreeSession(c: Context) {
+        val appContext = c.applicationContext
+        if (!isFreeMode(appContext)) {
+            stopFreeSession(appContext, expired = false)
+            return
+        }
+        val storage = freePrefs(appContext)
+        val currentEnd = storage.getLong("session_ends_at", 0L)
+        val now = System.currentTimeMillis()
+        val end = if (currentEnd > now) currentEnd else
+            now + freeAccessSnapshot(appContext).sessionMinutes * 60_000L
+        storage.edit()
+            .putLong("session_started_at", if (currentEnd > now) storage.getLong("session_started_at", now) else now)
+            .putLong("session_ends_at", end)
+            .putBoolean("session_active", true)
+            .remove("expired_notice")
+            .commit()
+        scheduleFreeAlarm(appContext, end)
+    }
+
+    fun stopFreeSession(c: Context, expired: Boolean) {
+        val appContext = c.applicationContext
+        cancelFreeAlarm(appContext)
+        freePrefs(appContext).edit()
+            .remove("session_started_at")
+            .remove("session_ends_at")
+            .putBoolean("session_active", false)
+            .apply { if (expired) putBoolean("expired_notice", true) else remove("expired_notice") }
+            .commit()
+    }
+
+    fun freeSessionRemainingMillis(c: Context): Long {
+        if (!isFreeMode(c)) return Long.MAX_VALUE
+        val end = freePrefs(c).getLong("session_ends_at", 0L)
+        return if (end <= 0L) 0L else (end - System.currentTimeMillis()).coerceAtLeast(0L)
+    }
+
+    fun enforceFreeSession(c: Context): Boolean {
+        val appContext = c.applicationContext
+        if (!isFreeMode(appContext)) return false
+        val storage = freePrefs(appContext)
+        if (!storage.getBoolean("session_active", false)) return false
+        if (freeSessionRemainingMillis(appContext) > 0L) return false
+        runCatching { CoreServiceManager.stopVService(appContext) }
+        runCatching { BlueVpnPreferences.clearConnected(appContext) }
+        stopFreeSession(appContext, expired = false)
+        stopFreeSession(appContext, expired = true)
+        return true
+    }
+
+    fun consumeFreeExpiredNotice(c: Context): Boolean {
+        val storage = freePrefs(c)
+        val value = storage.getBoolean("expired_notice", false)
+        if (value) storage.edit().remove("expired_notice").apply()
+        return value
+    }
+
+    private fun freeAlarmIntent(c: Context): PendingIntent =
+        PendingIntent.getBroadcast(
+            c,
+            6301,
+            Intent(c, BlueVpnFreeSessionReceiver::class.java).setAction(FREE_ALARM_ACTION),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+    private fun scheduleFreeAlarm(c: Context, triggerAt: Long) {
+        val alarm = c.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, freeAlarmIntent(c))
+        } else {
+            alarm.set(AlarmManager.RTC_WAKEUP, triggerAt, freeAlarmIntent(c))
+        }
+    }
+
+    private fun cancelFreeAlarm(c: Context) {
+        val alarm = c.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarm.cancel(freeAlarmIntent(c))
+    }
 
     fun pendingOrder(c: Context) =
         prefs(c).getString("pending_order", "").orEmpty()
@@ -398,32 +598,47 @@ object BlueVpnAccountManager {
     }
 
     fun logout(c: Context) {
-        val id = deviceId(c)
+        val appContext = c.applicationContext
+        val id = deviceId(appContext)
+        val access = token(appContext)
 
-        runCatching {
-            request(
-                c,
-                "POST",
-                "/api/v1/auth/logout",
-                JSONObject(),
-                true,
-            )
-        }
+        // Logout must be immediate from the user's perspective. Stop the tunnel
+        // before deleting credentials so an authenticated VPN session can never
+        // remain active after the account has been left.
+        runCatching { CoreServiceManager.stopVService(appContext) }
+        runCatching { BlueVpnPreferences.clearConnected(appContext) }
 
-        prefs(c).edit()
+        prefs(appContext).edit()
             .clear()
             .putString("device_id", id)
             .commit()
 
-        backup(c).edit()
+        backup(appContext).edit()
             .clear()
             .putString("device_id", id)
             .commit()
 
-        c.getSharedPreferences(
+        appContext.getSharedPreferences(
             "bluevpn_subscription_info",
             Context.MODE_PRIVATE
         ).edit().clear().apply()
+
+        // Remote session revocation is best-effort and never blocks the UI. The
+        // captured access token is used because local credentials are already gone.
+        if (access.isNotBlank()) {
+            backgroundExecutor.execute {
+                runCatching {
+                    request(
+                        appContext,
+                        "POST",
+                        "/api/v1/auth/logout",
+                        JSONObject(),
+                        true,
+                        accessOverride = access,
+                    )
+                }
+            }
+        }
     }
 
     private fun invalidateSession(
@@ -948,8 +1163,25 @@ object BlueVpnAccountManager {
                 .commit()
         }
 
-        if (url.startsWith("http")) install(url)
+        if (effectiveActive) {
+            stopFreeSession(c, expired = false)
+            if (url.startsWith("http")) scheduleInstall(url)
+        } else {
+            backgroundExecutor.execute { prepareFreeAccess(c, force = false) }
+        }
         return snapshot(c)
+    }
+
+    private fun scheduleInstall(url: String) {
+        val now = System.currentTimeMillis()
+        if (url == lastScheduledSubscriptionUrl && now - lastScheduledSubscriptionAt < 5_000L) {
+            return
+        }
+        lastScheduledSubscriptionUrl = url
+        lastScheduledSubscriptionAt = now
+        subscriptionInstallExecutor.execute {
+            runCatching { install(url) }
+        }
     }
 
     private fun install(url: String) {
@@ -978,6 +1210,7 @@ object BlueVpnAccountManager {
         path: String,
         body: JSONObject?,
         auth: Boolean,
+        accessOverride: String? = null,
     ): JSONObject {
         val connection =
             URL(apiBaseUrl() + path)
@@ -1005,7 +1238,7 @@ object BlueVpnAccountManager {
             )
 
             if (auth) {
-                val access = token(c)
+                val access = accessOverride ?: token(c)
                 if (access.isBlank()) {
                     throw ApiException(
                         401,
@@ -1120,5 +1353,13 @@ object BlueVpnAccountManager {
                 )
         }
         return safeApiMessage(raw, "خطای ارتباط با سرور")
+    }
+}
+
+
+class BlueVpnFreeSessionReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        if (intent?.action != "com.v2ray.ang.bluevpn.FREE_SESSION_EXPIRED") return
+        BlueVpnAccountManager.enforceFreeSession(context.applicationContext)
     }
 }

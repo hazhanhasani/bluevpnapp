@@ -759,6 +759,18 @@
     </p>
     <button class="save">ذخیره تنظیمات عمومی</button>
   
+<div class="ai-settings-panel free-access-panel">
+  <div><strong>🆓 اتصال رایگان خودکار</strong><span>کاربر بدون اشتراک فقط به انتخاب خودکار دسترسی دارد؛ انتخاب کشور و مسیرها قفل می‌ماند.</span></div>
+  <div class="checks">
+    <label class="check"><input type="checkbox" name="free_access_enabled" {% if settings.get('free_access_enabled',False) %}checked{% endif %}> فعال‌سازی اتصال رایگان</label>
+  </div>
+  <div class="form-grid">
+    <label class="wide">لینک اشتراک مخصوص سرورهای رایگان<input name="free_subscription_url" inputmode="url" placeholder="https://..." value="{{ settings.get('free_subscription_url','') }}"></label>
+    <label>مدت هر اتصال رایگان؛ دقیقه<input type="number" name="free_session_minutes" min="15" max="180" value="{{ settings.get('free_session_minutes',60) }}"></label>
+  </div>
+  <p class="hint">پیشنهاد: لینک جداگانه‌ای شامل فقط سرورهای رایگان ثبت کن. لینک اصلی از اپ مخفی می‌ماند و از مسیر امن BlueVPN تحویل داده می‌شود. پس از پایان زمان، اتصال قطع می‌شود و کاربر می‌تواند دوباره دستی متصل شود.</p>
+</div>
+
 <div class="ai-settings-panel">
   <div><strong>🧠 BlueAI Engine</strong><span>یادگیری شخصی، رتبه‌بندی جمعی و ترمیم هوشمند اتصال</span></div>
   <div class="checks">

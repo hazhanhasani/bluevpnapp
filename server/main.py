@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio,hashlib,ipaddress,json,logging,os,re,secrets,shutil,sqlite3,subprocess,tempfile,threading,time,uuid,zipfile
+import asyncio,hashlib,hmac,ipaddress,json,logging,os,re,secrets,shutil,sqlite3,subprocess,tempfile,threading,time,uuid,zipfile
 from collections import deque
 from urllib.parse import quote_plus,urlparse
 from datetime import datetime,timedelta,timezone
@@ -7,6 +7,7 @@ from pathlib import Path
 from io import BytesIO
 from zoneinfo import ZoneInfo
 from PIL import Image,ImageOps
+import httpx
 from typing import Any
 from fastapi import Depends,FastAPI,File,Form,Header,HTTPException,Request,UploadFile
 from fastapi.responses import FileResponse,HTMLResponse,JSONResponse,RedirectResponse,Response
@@ -42,7 +43,7 @@ BASE=Path(__file__).resolve().parent
 logger=logging.getLogger('bluevpn.main')
 templates=Jinja2Templates(directory=BASE/'templates')
 templates.env.filters['jalali']=format_jalali
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','ads_enabled':False,'ads_autoplay':True,'ads_loop':True,'ads_interval_seconds':6,'ads_height_dp':146,'ads_items':[],'updated_at':iso_z(utcnow())}
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','ads_enabled':False,'ads_autoplay':True,'ads_loop':True,'ads_interval_seconds':6,'ads_height_dp':146,'ads_items':[],'free_access_enabled':False,'free_subscription_url':'','free_session_minutes':60,'updated_at':iso_z(utcnow())}
 
 
 def env_bool(name:str,default:bool=False)->bool:
@@ -1957,6 +1958,80 @@ def sitemap_xml(request:Request):
     base=(os.getenv('PUBLIC_SITE_URL') or str(request.base_url)).strip().rstrip('/')
     urls=''.join(f'<url><loc>{base}{path}</loc></url>' for path in ('/','/terms','/privacy','/refund-policy','/contact'))
     return Response(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>',media_type='application/xml')
+_FREE_SUB_CACHE:dict[str,Any]={"url":"","body":b"","content_type":"text/plain; charset=utf-8","fetched_at":0.0}
+_FREE_SUB_CACHE_LOCK=asyncio.Lock()
+
+
+def _free_access_payload(request:Request,s:dict[str,Any])->dict[str,Any]:
+    source=str(s.get('free_subscription_url') or '').strip()
+    valid=False
+    try:
+        valid=bool(_http_url(source,'لینک اشتراک رایگان'))
+    except ValueError:
+        valid=False
+    enabled=bool(s.get('free_access_enabled',False)) and valid
+    minutes=max(15,min(180,int(s.get('free_session_minutes',60) or 60)))
+    base=_public_origin(request,s)
+    return {
+        'enabled':enabled,
+        'session_minutes':minutes,
+        'auto_only':True,
+        'manual_selection_requires_subscription':True,
+        'subscription_url':f"{base}/api/v1/free/subscription" if enabled and base else '',
+        'label':'اتصال رایگان',
+    }
+
+
+async def _free_subscription_body(source_url:str)->tuple[bytes,str]:
+    now=time.monotonic()
+    async with _FREE_SUB_CACHE_LOCK:
+        if (
+            _FREE_SUB_CACHE.get('url')==source_url
+            and _FREE_SUB_CACHE.get('body')
+            and now-float(_FREE_SUB_CACHE.get('fetched_at') or 0.0)<60.0
+        ):
+            return bytes(_FREE_SUB_CACHE['body']),str(_FREE_SUB_CACHE.get('content_type') or 'text/plain; charset=utf-8')
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(18.0,connect=8.0),
+                follow_redirects=True,
+                headers={'Accept':'text/plain, application/octet-stream;q=0.9, */*;q=0.1','User-Agent':'BlueVPN-Free-Relay/1.0'},
+            ) as client:
+                response=await client.get(source_url)
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise HTTPException(503,detail={'code':'FREE_SOURCE_UNAVAILABLE','message':'سرورهای رایگان موقتاً در دسترس نیستند'}) from exc
+        body=response.content
+        if not body or len(body)>4*1024*1024:
+            raise HTTPException(503,detail={'code':'FREE_SOURCE_INVALID','message':'پاسخ اشتراک رایگان معتبر نیست'})
+        content_type=str(response.headers.get('content-type') or 'text/plain; charset=utf-8').split(';')[0].strip()
+        if content_type not in {'text/plain','application/octet-stream','application/json'}:
+            content_type='text/plain'
+        _FREE_SUB_CACHE.update({'url':source_url,'body':body,'content_type':content_type,'fetched_at':now})
+        return body,content_type
+
+
+@app.get('/api/v1/free/subscription')
+async def free_subscription(db:Session=Depends(get_db)):
+    s=settings(db)
+    source=str(s.get('free_subscription_url') or '').strip()
+    try:
+        source=_http_url(source,'لینک اشتراک رایگان',required=True)
+    except ValueError:
+        raise HTTPException(404,detail={'code':'FREE_ACCESS_DISABLED','message':'اتصال رایگان فعال نیست'})
+    if not bool(s.get('free_access_enabled',False)):
+        raise HTTPException(404,detail={'code':'FREE_ACCESS_DISABLED','message':'اتصال رایگان فعال نیست'})
+    body,content_type=await _free_subscription_body(source)
+    return Response(
+        content=body,
+        media_type=content_type,
+        headers={
+            'Cache-Control':'public, max-age=60, stale-if-error=300',
+            'X-BlueVPN-Access':'free-auto-only',
+        },
+    )
+
+
 @app.get('/api/v1/mobile/config')
 async def mobile_config(
     request:Request,
@@ -2018,6 +2093,7 @@ async def mobile_config(
                 'message':s['announcement_message'],
             },
             'advertising':advertising_payload(s,_public_origin(request,s),_bluevpn_client_version(request)),
+            'free_access':_free_access_payload(request,s),
             'updated_at':s['updated_at'],
             'updated_at_fa':format_jalali(s['updated_at'],fallback=''),
             'calendar':'jalali',
@@ -2033,6 +2109,22 @@ OTP_MAX_ATTEMPTS=max(3,min(10,int(os.getenv('AUTH_OTP_MAX_ATTEMPTS','5'))))
 
 def _otp_digest_input(challenge_id:str,phone:str,code:str)->str:
     return f'{challenge_id}:{phone}:{code}'
+
+
+def _otp_fast_hash(challenge_id:str,phone:str,code:str)->str:
+    secret=(os.getenv('SESSION_SECRET') or os.getenv('DATA_ENCRYPTION_KEY') or 'change-me-bluevpn').encode('utf-8')
+    digest=hmac.new(secret,_otp_digest_input(challenge_id,phone,code).encode('utf-8'),hashlib.sha256).hexdigest()
+    return f'otp_hmac_sha256${digest}'
+
+
+def _otp_code_matches(challenge:OtpChallenge,phone:str,code:str)->bool:
+    stored=str(challenge.code_hash or '')
+    if stored.startswith('otp_hmac_sha256$'):
+        expected=_otp_fast_hash(challenge.id,phone,code)
+        return hmac.compare_digest(stored,expected)
+    # Backward compatibility for challenges created before schema-free OTP
+    # hashing was introduced. These expire quickly and disappear naturally.
+    return password_ok(_otp_digest_input(challenge.id,phone,code),stored)
 
 
 def _otp_code(length:int)->str:
@@ -2132,7 +2224,7 @@ async def _create_otp_challenge(
         purpose=purpose,
         customer_id=customer_id,
         device_id=device_id,
-        code_hash=password_hash(_otp_digest_input(challenge_id,phone,code)),
+        code_hash=_otp_fast_hash(challenge_id,phone,code),
         attempts=0,
         max_attempts=OTP_MAX_ATTEMPTS,
         expires_at=now+timedelta(seconds=ttl),
@@ -2214,7 +2306,7 @@ def _consume_otp(
         raise HTTPException(429,detail={'code':'OTP_LOCKED','message':'تعداد تلاش‌های ناموفق زیاد بود؛ کد جدید بگیرید.'})
     clean_code=re.sub(r'\D','',str(code or '').translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹','0123456789')))
     challenge.attempts+=1
-    if not password_ok(_otp_digest_input(challenge.id,phone,clean_code),challenge.code_hash):
+    if not _otp_code_matches(challenge,phone,clean_code):
         locked_out=challenge.attempts>=challenge.max_attempts
         if locked_out:
             challenge.consumed_at=now
@@ -2270,7 +2362,7 @@ async def verify_auth_otp(request:Request,db:Session=Depends(get_db)):
     if customer is None:
         customer=Customer(
             email=phone_internal_email(phone),
-            password_hash=password_hash(secrets.token_urlsafe(48)),
+            password_hash='phone_otp_only$'+secrets.token_hex(32),
             phone=phone,
             phone_verified_at=utcnow(),
             auth_method='phone_otp',
@@ -2392,9 +2484,10 @@ async def register_with_email(request:Request,db:Session=Depends(get_db)):
     _password_auth_rate_limit(request,email)
     if db.scalar(select(Customer.id).where(Customer.email==email)):
         raise HTTPException(409,detail={'code':'EMAIL_ALREADY_USED','message':'این ایمیل قبلاً ثبت شده است؛ وارد حساب شوید.'})
+    hashed_password=await asyncio.to_thread(password_hash,password)
     customer=Customer(
         email=email,
-        password_hash=password_hash(password),
+        password_hash=hashed_password,
         auth_method='email_password',
         device_limit=1,
     )
@@ -2425,7 +2518,8 @@ async def login_with_email(request:Request,db:Session=Depends(get_db)):
         raise HTTPException(422,detail={'code':'DEVICE_ID_REQUIRED','message':'شناسه دستگاه لازم است'})
     _password_auth_rate_limit(request,email)
     customer=db.scalar(select(Customer).where(Customer.email==email))
-    if not customer or not password_ok(password,customer.password_hash):
+    password_valid=bool(customer) and await asyncio.to_thread(password_ok,password,customer.password_hash)
+    if not customer or not password_valid:
         raise HTTPException(401,detail={'code':'INVALID_CREDENTIALS','message':'ایمیل یا رمز عبور نادرست است.'})
     if not customer.active:
         raise HTTPException(401,detail={'code':'ACCOUNT_DISABLED','message':'این حساب غیرفعال شده است.'})
@@ -3593,7 +3687,7 @@ def admin_ads_delete(ad_id:str,request:Request,csrf:str=Form(...),db:Session=Dep
 
 
 @app.post('/admin/app-settings')
-def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),minimum_version:str=Form(...),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),auto_update:str|None=Form(None),announcement_enabled:str|None=Form(None),blueai_enabled:str|None=Form(None),blueai_collective:str|None=Form(None),blueai_auto_heal:str|None=Form(None),blueai_min_samples:int=Form(3),blueai_privacy_message:str=Form(''),db:Session=Depends(get_db)):
+def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),minimum_version:str=Form(...),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),auto_update:str|None=Form(None),announcement_enabled:str|None=Form(None),blueai_enabled:str|None=Form(None),blueai_collective:str|None=Form(None),blueai_auto_heal:str|None=Form(None),blueai_min_samples:int=Form(3),blueai_privacy_message:str=Form(''),free_access_enabled:str|None=Form(None),free_subscription_url:str=Form(''),free_session_minutes:int=Form(60),db:Session=Depends(get_db)):
     admin_required(request)
     s=settings(db)
     s.update({
@@ -3613,6 +3707,9 @@ def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form
         'blueai_auto_heal':blueai_auto_heal=='on',
         'blueai_min_samples':max(1,min(100,int(blueai_min_samples or 3))),
         'blueai_privacy_message':blueai_privacy_message.strip()[:500],
+        'free_access_enabled':free_access_enabled=='on',
+        'free_subscription_url':free_subscription_url.strip()[:1200],
+        'free_session_minutes':max(15,min(180,int(free_session_minutes or 60))),
     })
     save_settings(db,s)
     return RedirectResponse('/admin?saved=1#app',303)

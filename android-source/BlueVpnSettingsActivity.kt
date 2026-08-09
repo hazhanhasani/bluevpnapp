@@ -40,19 +40,24 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyThemeInPlace()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (BlueVpnTheme.isDark(this) != themeDarkAtCreate) {
+            applyThemeInPlace()
+        } else {
+            BlueVpnTheme.applySystemBars(this)
+        }
+    }
+
+    private fun applyThemeInPlace() {
         palette = BlueVpnTheme.palette(this)
         themeDarkAtCreate = palette.dark
         window.setBackgroundDrawable(ColorDrawable(palette.background))
         BlueVpnTheme.applySystemBars(this)
         setContentView(createScreen())
-    }
-
-    override fun onResume() {
-        super.onResume()
-        BlueVpnTheme.applySystemBars(this)
-        if (BlueVpnTheme.isDark(this) != themeDarkAtCreate) {
-            recreate()
-        }
     }
 
     private fun createScreen(): View {
@@ -294,7 +299,7 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
             .setSingleChoiceItems(labels, selected) { dialog, which ->
                 BlueVpnTheme.setMode(this, values[which])
                 dialog.dismiss()
-                recreate()
+                applyThemeInPlace()
             }
             .setNegativeButton("انصراف", null)
             .show()

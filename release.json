@@ -1,11 +1,11 @@
 {
-  "version": "3.0.60",
+  "version": "3.0.63",
   "channel": "stable",
-  "build_id": "20260809-farazsms-all-pattern-pages-v3060",
-  "built_at": "2026-08-09T15:10:00Z",
-  "android_version": "3.0.60",
-  "android_version_code": 30060,
-  "description": "BlueVPN 3.0.60 تمام صفحات فهرست پترن‌های فراز اس‌ام‌اس را دریافت می‌کند و محدودیت نمایش ۱۵ پترن اول را برطرف می‌سازد.",
+  "build_id": "20260809-free-auto-access-v3063",
+  "built_at": "2026-08-09T17:35:00Z",
+  "android_version": "3.0.63",
+  "android_version_code": 30063,
+  "description": "BlueVPN 3.0.63 اتصال رایگان خودکار با محدودیت یک‌ساعته، قفل انتخاب دستی برای کاربران بدون اشتراک و نمایش تمام ورودی‌های هر لوکیشن را اضافه می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -381,9 +381,26 @@
     "farazsms-catalog-empty-safe-render",
     "farazsms-complete-pattern-pagination",
     "farazsms-pattern-deduplication",
-    "farazsms-pagination-loop-guard"
+    "farazsms-pagination-loop-guard",
+    "logout-stops-vpn-before-session-clear",
+    "non-blocking-remote-logout",
+    "auth-form-draft-preservation",
+    "auth-screen-no-unwanted-rerender",
+    "async-subscription-install-after-auth",
+    "fast-otp-hmac",
+    "password-work-off-main-event-loop",
+    "synchronous-theme-palette-commit",
+    "instant-settings-theme-refresh",
+    "theme-change-vpn-service-preservation",
+    "non-destructive-theme-health-check",
+    "theme-recreation-startup-skip",
+    "free-auto-connect",
+    "one-hour-free-session-alarm",
+    "premium-manual-location-lock",
+    "expandable-location-entry-list",
+    "dedicated-free-subscription-relay"
   ],
-  "version_code": 30060,
-  "notes": "رفع محدودیت ۱۵تایی همگام‌سازی پترن‌ها با صفحه‌بندی کامل، حذف موارد تکراری و محافظ حلقه بی‌نهایت.",
-  "version_source": "farazsms-pattern-pagination-v3060"
+  "version_code": 30063,
+  "notes": "رفع تغییر مرحله‌ای رنگ‌ها، اعمال هم‌زمان تم در صفحه تنظیمات و جلوگیری از توقف یا اتصال مجدد VPN هنگام بازسازی رابط.",
+  "version_source": "theme-connection-stability-v3062"
 }

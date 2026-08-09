@@ -3265,6 +3265,7 @@ def admin(request:Request,db:Session=Depends(get_db)):
     s=settings(db)
     if _repair_legacy_ad_assets(db,s):
         s=settings(db)
+    sms_provider_lines,sms_provider_patterns=_sms_provider_cache(s)
     pay=db.get(PaymentSetting,1) or PaymentSetting(id=1)
     sms=db.get(SmsSetting,1) or SmsSetting(id=1)
     seed_sms_templates(db)

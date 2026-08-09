@@ -1,11 +1,11 @@
 {
-  "version": "3.0.58",
+  "version": "3.0.59",
   "channel": "stable",
-  "build_id": "20260809-farazsms-catalog-sync-v3058",
-  "built_at": "2026-08-09T13:10:00Z",
-  "android_version": "3.0.58",
-  "android_version_code": 30058,
-  "description": "BlueVPN 3.0.58 خطوط مجاز و پترن‌های فعال فراز اس‌ام‌اس را مستقیماً از API رسمی دریافت می‌کند؛ ورود دستی UID و شماره خط حذف شده و انتخاب‌ها فقط از فهرست همان API Key انجام می‌شوند.",
+  "build_id": "20260809-admin-sms-catalog-context-v3059",
+  "built_at": "2026-08-09T14:30:00Z",
+  "android_version": "3.0.59",
+  "android_version_code": 30059,
+  "description": "BlueVPN 3.0.59 خطای 500 پنل مدیریت پس از افزودن همگام‌سازی خطوط و پترن‌های فراز اس‌ام‌اس را رفع می‌کند؛ داده‌های کاتالوگ پیش از رندر قالب مقداردهی می‌شوند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -375,9 +375,12 @@
     "farazsms-active-patterns-sync",
     "farazsms-provider-dropdowns",
     "farazsms-safe-auto-mapping",
-    "farazsms-selection-validation"
+    "farazsms-selection-validation",
+    "admin-sms-catalog-context-initialization",
+    "admin-dashboard-render-regression-test",
+    "farazsms-catalog-empty-safe-render"
   ],
-  "version_code": 30058,
-  "notes": "حالت کم‌مصرف خودکار برای دستگاه‌های کم‌رم فعال می‌شود؛ رابط سریع‌تر باز می‌شود و احتمال ANR و خروج ناگهانی کاهش می‌یابد.",
-  "version_source": "low-end-anr-fix-v3056"
+  "version_code": 30059,
+  "notes": "رفع Internal Server Error پنل مدیریت و افزودن تست واقعی بازشدن داشبورد پس از ورود.",
+  "version_source": "admin-sms-catalog-context-fix-v3059"
 }

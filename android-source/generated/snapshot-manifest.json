@@ -1,8 +1,8 @@
 {
   "app": "BlueVPN",
-  "version": "3.0.50",
-  "version_code": 30050,
-  "workflow_source_commit": "d3504629b972adffe0de6b339cd93cbc29d50ca8",
+  "version": "3.0.51",
+  "version_code": 30051,
+  "workflow_source_commit": "21e97e9e939cf8c3d6c9d4945d2d2031c19eba32",
   "upstream_ref": "2.2.6",
   "files": {
     "src/main/java/com/v2ray/ang/ui/BlueVpnHomeActivity.kt": "327cb07dfb651dff1019307301aba7cca65222889f71ee750b0bdf68a0938eae",
@@ -11,7 +11,7 @@
     "src/main/java/com/v2ray/ang/ui/BlueVpnSubscriptionsActivity.kt": "cf2d38ae99e60182506d46cfe2835bcc711252afb1c81884099f64a4821821ec",
     "src/main/java/com/v2ray/ang/ui/BlueVpnSettingsActivity.kt": "0bebfca164c3f9d103d1b3294cffb8aa1bb3e97fc622a49cb0df2050f80985c6",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAccountManager.kt": "19a97a5dc293e50e814339422eea02cb65ad16555b0ba7d2da50d73d081c022e",
-    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAdsCarouselView.kt": "5d3ee27a506871db20cf2be2742f4ba8ce6c274c1770acf7934f51b36f5f9637",
+    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAdsCarouselView.kt": "e059b1c474ca7215654a01f8757324f88bf05bfd55f5516399d04c81106c53f7",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnTheme.kt": "2dc5b65d55bc9d2a5bef151d7471d04c5646a9289047d210468cf2e49f2c2a08",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLiveReporter.kt": "8a6a5a3d774901ab94efb7a51e61514b70a0d254f5383e5680224020e698af7c",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnBootstrap.kt": "616958a256210c5655a930643e3542c40433c3583a77552b1deba3990566c6d4",
@@ -34,6 +34,6 @@
     "src/main/res/xml/bluevpn_update_paths.xml": "fd8e1c44efe522971fd3a97bd770da887ca9eabe498c97edb633e6940bd0fd98",
     "src/main/AndroidManifest.xml": "35c21953f625a76d528f4a723468faf188015ba581623cd3a15401c949531a81",
     "src/main/java/com/v2ray/ang/AngApplication.kt": "cac7ce1054f235f7561fc75fad15bec65654529175482bb63ecf53456a38f459",
-    "build.gradle.kts": "1e6f221ed67a0107118a45b1b5fa375f7b52a66d9936b9de94b469f5742bcad7"
+    "build.gradle.kts": "fadb139e09d11b4f1251e158ccb14550294f2908c9f869a826c05a47c440d1dc"
   }
 }

@@ -1,11 +1,11 @@
 {
-  "version": "3.0.65",
+  "version": "3.0.66",
   "channel": "stable",
-  "build_id": "20260809-guest-free-subscriptions-v3065",
-  "built_at": "2026-08-09T18:05:00Z",
-  "android_version": "3.0.65",
-  "android_version_code": 30065,
-  "description": "BlueVPN 3.0.65 حالت مهمان بدون حساب، ورود مستقیم به صفحه اتصال و مدیریت چند ساب مستقل برای پلن رایگان را اضافه می‌کند.",
+  "build_id": "20260809-free-connect-screen-location-detection-v3066",
+  "built_at": "2026-08-09T18:40:00Z",
+  "android_version": "3.0.66",
+  "android_version_code": 30066,
+  "description": "BlueVPN 3.0.66 صفحه اتصال تمام‌صفحه برای پلن رایگان، شمارش معکوس یک‌ساعته و تشخیص فوری کشور از پرچم و نام شهر را اضافه می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -411,9 +411,17 @@
     "hidden-free-relay-per-source",
     "guest-auto-selection-only",
     "premium-lock-opens-subscription",
-    "legacy-free-subscription-migration"
+    "legacy-free-subscription-migration",
+    "full-screen-free-connecting-stage",
+    "lightweight-animated-connection-globe",
+    "free-session-header-countdown",
+    "one-second-free-session-enforcement-ui",
+    "unicode-flag-country-inference",
+    "city-alias-country-inference",
+    "deterministic-location-persistence",
+    "known-route-no-identifying-group"
   ],
-  "version_code": 30065,
-  "notes": "کاربر پس از نصب مستقیماً وارد صفحه اتصال می‌شود؛ حساب فقط در بخش اشتراک/خرید لازم است. ساب‌های رایگان به‌صورت چندمنبعی از پنل مدیریت می‌شوند.",
-  "version_source": "guest-free-subscriptions-v3065"
+  "version_code": 30066,
+  "notes": "هنگام اتصال رایگان صفحه در حال اتصال نمایش داده می‌شود و پس از اتصال تایمر باقی‌مانده در سربرگ دیده می‌شود. مسیرهای دارای پرچم یا نام شناخته‌شده دیگر زیر در حال شناسایی نمی‌مانند.",
+  "version_source": "free-connect-screen-location-detection-v3066"
 }

@@ -12,10 +12,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_364():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.65"
-    assert release["version_code"] == 30065
-    assert app["version_name"] == "3.0.65"
-    assert app["version_code"] == 30065
+    assert release["version"] == "3.0.66"
+    assert release["version_code"] == 30066
+    assert app["version_name"] == "3.0.66"
+    assert app["version_code"] == 30066
 
 
 def test_optional_otp_customer_foreign_key_has_no_synthetic_default(tmp_path):

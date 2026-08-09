@@ -1,5 +1,5 @@
 {
-  "release": "3.0.70-auto",
+  "release": "3.0.70",
   "version_name": "3.0.70",
   "version_code": 30070,
   "changes": [
@@ -7,12 +7,14 @@
     "Remove direct UI and account dependencies on v2rayNG CoreServiceManager",
     "Build pinned sing-box native PIE runtimes for arm64-v8a and armeabi-v7a",
     "Validate sing-box profiles natively without loading a second gomobile runtime",
-    "Keep Xray as the only TUN owner until the atomic engine-switch service is complete"
+    "Keep Xray as the only TUN owner until the atomic engine-switch service is complete",
+    "Fix Android ARMv7 sing-box build with the pinned NDK external linker",
+    "Capture and report the real sing-box build stage and native build log"
   ],
   "generated_at_unix": 1786231800,
   "purpose": "مرحله نخست مهاجرت امن BlueVPN به معماری دو هسته مستقل Xray و sing-box",
   "updated_at": "2026-08-09T17:30:00Z",
   "built_at": "2026-08-09T17:30:00Z",
-  "build_id": "20260809-dual-engine-boundary-source-v3070",
+  "build_id": "20260809-dual-engine-v3070-build118-fix",
   "feature": "dual-engine-runtime-boundary"
 }

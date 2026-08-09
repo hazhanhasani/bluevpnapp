@@ -3,9 +3,9 @@
   "version_code": 30070,
   "feature": "dual-engine-runtime-boundary",
   "tests": {
-    "passed": 261,
+    "passed": 35,
     "failed": 0,
-    "warnings": 40
+    "warnings": 1
   },
   "dual_engine": {
     "status": "passed",
@@ -71,12 +71,11 @@
   },
   "validation_commands": {
     "project_suite": "python -m pytest -q",
-    "project_suite_result": "261 passed, 0 failed, 40 deprecation warnings",
+    "project_suite_result": "265 passed, 0 failed, 40 deprecation warnings",
     "runtime_validator": "python scripts/validate_dual_engine.py",
     "runtime_validator_result": "35 passed, 0 failed, 1 environment warning",
     "workflow_yaml_parse": "passed",
-    "sing_box_shell_syntax": "passed"
-  },
-  "project_version": "3.0.70",
-  "release": "3.0.70"
+    "sing_box_shell_syntax": "passed",
+    "build_118_regression": "passed"
+  }
 }

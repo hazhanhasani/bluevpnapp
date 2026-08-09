@@ -1,6 +1,27 @@
-<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07101f"><title>BlueVPN Platform</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/style.css"></head><body>
-<header class="topbar"><div class="brand"><div class="brand-logo-wrap"><img src="/static/logo.png"><span class="brand-live-dot" aria-label="online"></span></div><div><b>BlueVPN Platform</b><span>مرکز مدیریت سرویس و هوش شبکه</span></div></div><div class="topbar-actions"><span class="secure-session"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4.5 5v6c0 5.1 3.2 9.7 7.5 11 4.3-1.3 7.5-5.9 7.5-11V5L12 2Zm0 3.1 4.5 1.8V11c0 3.6-2 7-4.5 8.1C9.5 18 7.5 14.6 7.5 11V6.9L12 5.1Zm-1 3.4v3H8.8v2.2H11v2.2h2v-2.2h2.2v-2.2H13v-3h-2Z"/></svg>نشست امن</span><span class="secure-session" id="tehran-clock">{{ now_fa }} • تهران</span><form method="post" action="/admin/logout"><button class="secondary icon-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H4v16h6v-2H6V6h4V4Zm4.6 3.4-1.4 1.4 2.2 2.2H9v2h6.4l-2.2 2.2 1.4 1.4L19.2 12l-4.6-4.6Z"/></svg>خروج</button></form></div></header>
-<nav class="tabs"><a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">پنل سوم</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف قدیمی پنل سوم</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#sms" data-tab="sms">تنظیمات پیامک</a><a href="#sms-templates" data-tab="sms-templates">پترن‌ها</a><a href="#sms-broadcast" data-tab="sms-broadcast">ارسال عمومی</a><a href="#sms-deliveries" data-tab="sms-deliveries">گزارش پیامک</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#ads" data-tab="ads">تبلیغات</a><a href="#app" data-tab="app">اپ و آپدیت</a></nav>
+<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07101f"><title>BlueVPN Platform</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/style.css"></head><body>
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-logo-wrap"><img src="/static/logo.png" alt="BlueVPN"><span class="brand-live-dot" aria-label="آنلاین"></span></div>
+    <div><b>BlueVPN Platform</b><span>مرکز مدیریت سرویس و هوش شبکه</span></div>
+  </div>
+  <div class="topbar-actions">
+    <button type="button" class="secondary icon-button mobile-nav-toggle" aria-controls="admin-tabs" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v2H4V6Zm0 5h16v2H4v-2Zm0 5h16v2H4v-2Z"/></svg><span>منو</span>
+    </button>
+    <span class="secure-session"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4.5 5v6c0 5.1 3.2 9.7 7.5 11 4.3-1.3 7.5-5.9 7.5-11V5L12 2Zm0 3.1 4.5 1.8V11c0 3.6-2 7-4.5 8.1C9.5 18 7.5 14.6 7.5 11V6.9L12 5.1Zm-1 3.4v3H8.8v2.2H11v2.2h2v-2.2h2.2v-2.2H13v-3h-2Z"/></svg>نشست امن</span>
+    <span class="secure-session" id="tehran-clock">{{ now_fa }} • تهران</span>
+    <form method="post" action="/admin/logout"><button class="secondary icon-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H4v16h6v-2H6V6h4V4Zm4.6 3.4-1.4 1.4 2.2 2.2H9v2h6.4l-2.2 2.2 1.4 1.4L19.2 12l-4.6-4.6Z"/></svg><span>خروج</span></button></form>
+  </div>
+</header>
+<div class="mobile-nav-overlay" data-nav-close hidden></div>
+<nav class="tabs" id="admin-tabs" aria-label="بخش‌های مدیریت">
+  <div class="mobile-nav-head">
+    <div><small>منوی مدیریت</small><strong id="mobile-current-section">نمای کلی</strong></div>
+    <button type="button" class="mobile-nav-close" aria-label="بستن منو" data-nav-close>×</button>
+  </div>
+  <label class="mobile-nav-search"><span>جستجوی بخش‌ها</span><input type="search" inputmode="search" autocomplete="off" placeholder="مثلاً کاربران یا تبلیغات"></label>
+  <a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">پنل سوم</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف قدیمی پنل سوم</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#sms" data-tab="sms">تنظیمات پیامک</a><a href="#sms-templates" data-tab="sms-templates">پترن‌ها</a><a href="#sms-broadcast" data-tab="sms-broadcast">ارسال عمومی</a><a href="#sms-deliveries" data-tab="sms-deliveries">گزارش پیامک</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#ads" data-tab="ads">تبلیغات</a><a href="#app" data-tab="app">اپ و آپدیت</a>
+</nav>
 <main class="container">{% if not database_info.persistent %}<div class="alert danger flash-alert" data-sticky="1"><span>هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if saved %}<div class="alert success flash-alert"><span>تغییرات ذخیره شد.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if manual_message %}<div class="alert success flash-alert"><span>{{ manual_message }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if error %}<div class="alert danger flash-alert"><span>{{ error }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}
 <section id="overview" class="dashboard-overview">
   <div class="overview-hero card">
@@ -738,11 +759,49 @@
 (() => {
   const sections = [...document.querySelectorAll('main.container > section[id]')];
   const links = [...document.querySelectorAll('.tabs a[data-tab]')];
+  const nav = document.getElementById('admin-tabs');
+  const navToggle = document.querySelector('.mobile-nav-toggle');
+  const navOverlay = document.querySelector('.mobile-nav-overlay');
+  const navSearch = document.querySelector('.mobile-nav-search input');
+  const currentSection = document.getElementById('mobile-current-section');
+
+  function setNavOpen(open) {
+    if (!nav || !navToggle || !navOverlay) return;
+    nav.classList.toggle('open', open);
+    navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    navOverlay.hidden = !open;
+    document.body.classList.toggle('nav-open', open);
+    if (open) window.setTimeout(() => navSearch?.focus(), 120);
+  }
+
+  navToggle?.addEventListener('click', () => setNavOpen(!nav?.classList.contains('open')));
+  document.querySelectorAll('[data-nav-close]').forEach(element => element.addEventListener('click', () => setNavOpen(false)));
+  document.addEventListener('keydown', event => { if (event.key === 'Escape') setNavOpen(false); });
+  navSearch?.addEventListener('input', () => {
+    const query = (navSearch.value || '').trim().toLocaleLowerCase('fa');
+    links.forEach(link => { link.hidden = Boolean(query) && !link.textContent.toLocaleLowerCase('fa').includes(query); });
+  });
+
+  function enhanceResponsiveTables(root = document) {
+    root.querySelectorAll('table').forEach(table => {
+      const labels = [...table.querySelectorAll('thead th')].map(cell => cell.textContent.trim());
+      table.querySelectorAll('tbody tr').forEach(row => {
+        [...row.children].forEach((cell, index) => {
+          if (cell.tagName === 'TD' && !cell.hasAttribute('colspan')) cell.dataset.label = labels[index] || '';
+        });
+      });
+      table.classList.add('responsive-table');
+    });
+  }
+  enhanceResponsiveTables();
 
   function activateTab(id, updateHash = true) {
     const target = document.getElementById(id) || document.getElementById('overview');
     sections.forEach(section => { section.hidden = section !== target; });
     links.forEach(link => link.classList.toggle('active', link.dataset.tab === target.id));
+    const activeLink = links.find(link => link.dataset.tab === target.id);
+    if (currentSection && activeLink) currentSection.textContent = activeLink.textContent.trim();
+    if (window.matchMedia('(max-width: 860px)').matches) setNavOpen(false);
     if (updateHash && location.hash !== `#${target.id}`) {
       history.replaceState(null, '', `${location.pathname}#${target.id}`);
     }

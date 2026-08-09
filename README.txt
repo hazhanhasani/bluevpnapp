@@ -1,1 +1,1 @@
-BlueVPN 3.0.42 - Admin-managed automatic in-app advertising carousel with uploads, remote images, links and scheduling.
+BlueVPN 3.0.43 - Mobile-first responsive administration dashboard with drawer navigation, card tables and touch-friendly forms.

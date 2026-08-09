@@ -1,18 +1,18 @@
 {
-  "release": "3.0.42-auto",
-  "version_name": "3.0.42",
-  "version_code": 30042,
+  "release": "3.0.43",
+  "version_name": "3.0.43",
+  "version_code": 30043,
   "changes": [
-    "Stage downloaded APK bytes through Android PackageInstaller Session",
-    "Validate update package signature continuity and monotonically higher versionCode",
-    "Store update APK in app-private storage before installation",
-    "Add transparent PackageInstaller status callback activity",
-    "Keep a custom FileProvider only as an OEM compatibility fallback"
+    "Add a searchable mobile navigation drawer for all admin sections",
+    "Render wide admin tables as labeled cards on phone screens",
+    "Make forms, actions, advertising controls and diagnostics touch friendly",
+    "Respect Android and iOS safe areas without horizontal page overflow",
+    "Keep the existing desktop dashboard layout unchanged above tablet width"
   ],
   "generated_at_unix": 1786231800,
-  "purpose": "رفع خطای تجزیه بسته در بروزرسانی داخلی و ارائه خطای دقیق نصب",
-  "updated_at": "2026-08-09T02:10:00Z",
-  "built_at": "2026-08-09T02:10:00Z",
-  "build_id": "20260809-package-installer-v3041",
-  "feature": "in-app-ad-carousel"
+  "purpose": "بازطراحی کامل پنل مدیریت برای استفاده مستقیم روی گوشی بدون حالت دسکتاپ",
+  "updated_at": "2026-08-09T07:30:00Z",
+  "built_at": "2026-08-09T07:30:00Z",
+  "build_id": "20260809-mobile-admin-v3043",
+  "feature": "mobile-first-admin"
 }

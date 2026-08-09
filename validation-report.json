@@ -1,9 +1,9 @@
 {
-  "version": "3.0.42",
-  "version_code": 30042,
-  "feature": "in-app-ad-carousel",
+  "version": "3.0.43",
+  "version_code": 30043,
+  "feature": "mobile-first-admin",
   "tests": {
-    "passed": 130,
+    "passed": 135,
     "failed": 0,
     "warnings": 10
   },
@@ -12,21 +12,25 @@
     "embedded_sources": 27,
     "home_ids": 29
   },
-  "backend": {
-    "admin_ads": "passed",
-    "mobile_config_advertising": "passed",
-    "image_processing": "passed"
+  "admin_mobile": {
+    "status": "passed",
+    "navigation_drawer": "passed",
+    "searchable_sections": "passed",
+    "responsive_table_cards": "passed",
+    "touch_forms": "passed",
+    "horizontal_overflow_guard": "passed",
+    "safe_area_support": "passed",
+    "desktop_layout_preserved": "passed",
+    "css_parse_errors": 0,
+    "admin_tables": 6,
+    "admin_sections": 18
   },
   "archive": {
-    "status": "passed",
-    "file_count": 231,
-    "size_bytes": 1505310,
-    "sha256": "9d041921d0c79069b8b036b18a8652719c52dec74fc7f809858dbd9806c629f8"
+    "status": "pending-packaging",
+    "source_file_count": 224
   },
   "full_gradle_build": {
     "status": "not_run",
     "reason": "Android upstream/SDK build is performed by GitHub Actions"
-  },
-  "project_version": "3.0.42",
-  "release": "3.0.42"
+  }
 }

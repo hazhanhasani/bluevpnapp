@@ -9,10 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_350():
     release=json.loads((ROOT/'release.json').read_text(encoding='utf-8'))
     app=json.loads((ROOT/'branding/app.json').read_text(encoding='utf-8'))
-    assert release['version']=='3.0.54'
-    assert release['version_code']==30054
-    assert app['version_name']=='3.0.54'
-    assert app['version_code']==30054
+    assert release['version']=='3.0.55'
+    assert release['version_code']==30055
+    assert app['version_name']=='3.0.55'
+    assert app['version_code']==30055
 
 
 def test_ad_uploads_are_persisted_in_database_not_ephemeral_disk():
@@ -22,7 +22,7 @@ def test_ad_uploads_are_persisted_in_database_not_ephemeral_disk():
     assert 'class AdAsset(Base):' in models
     assert '__tablename__ = "ad_assets"' in models
     assert 'payload: Mapped[bytes] = mapped_column(LargeBinary)' in models
-    assert 'SCHEMA_VERSION = "17"' in database
+    assert 'SCHEMA_VERSION = "18"' in database
     assert 'def _store_ad_asset' in main
     assert "@app.get('/api/v1/ad-assets/{asset_id}')" in main
     assert 'return _store_ad_asset(db,encoded' in main

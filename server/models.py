@@ -441,10 +441,10 @@ class CustomerDevice(Base):
 class SmsSetting(Base):
     __tablename__ = "sms_settings"
     id: Mapped[int] = mapped_column(primary_key=True, default=1)
-    provider: Mapped[str] = mapped_column(String(40), default="ippanel")
+    provider: Mapped[str] = mapped_column(String(40), default="iranpayamak")
     base_url: Mapped[str] = mapped_column(
         String(500),
-        default="https://edge.ippanel.com/v1",
+        default="https://api.iranpayamak.com/ws/v1",
     )
     api_key_enc: Mapped[str] = mapped_column(Text, default="")
     from_number: Mapped[str] = mapped_column(String(32), default="")

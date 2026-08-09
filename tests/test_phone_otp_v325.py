@@ -122,18 +122,17 @@ def test_wrong_otp_increments_attempts():
         assert saved.consumed_at is None
 
 
-def test_faraz_pattern_payload_matches_ippanel_edge_contract(monkeypatch):
+def test_iranpayamak_pattern_payload_matches_official_contract(monkeypatch):
     captured = {}
 
     class FakeResponse:
-        status_code = 200
+        status_code = 201
         text = ""
+        content = b'{}'
+        headers = {"content-type": "application/json"}
 
         def json(self):
-            return {
-                "data": {"message_outbox_ids": [123]},
-                "meta": {"status": True, "message": "انجام شد"},
-            }
+            return {"success": True, "data": {"message_id": "sms-123"}}
 
     class FakeClient:
         def __init__(self, **kwargs):
@@ -154,24 +153,25 @@ def test_faraz_pattern_payload_matches_ippanel_edge_contract(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", FakeClient)
     setting = SmsSetting(
         id=1,
+        provider="iranpayamak",
         active=True,
-        base_url="https://edge.ippanel.com/v1",
+        base_url="https://api.iranpayamak.com/ws/v1",
         api_key_enc=encrypt("test-api-key"),
-        from_number="983000505",
-        pattern_code="pattern-code-v325",
-        parameter_name="verification-code",
+        from_number="",
+        pattern_code="pattern-code-v355",
+        parameter_name="code",
         verify_tls=True,
     )
     result = asyncio.run(send_pattern_otp(setting, "09123456789", "54321"))
-    assert result["meta"]["status"] is True
-    assert captured["endpoint"] == "https://edge.ippanel.com/v1/api/send"
-    assert captured["headers"]["Authorization"] == "test-api-key"
+    assert result["success"] is True
+    assert captured["endpoint"] == "https://api.iranpayamak.com/ws/v1/sms/pattern"
+    assert captured["headers"]["Api-Key"] == "test-api-key"
+    assert "Authorization" not in captured["headers"]
     assert captured["json"] == {
-        "sending_type": "pattern",
-        "from_number": "+983000505",
-        "code": "pattern-code-v325",
-        "recipients": ["+989123456789"],
-        "params": {"verification-code": "54321"},
+        "code": "pattern-code-v355",
+        "attributes": {"code": "54321"},
+        "recipient": "09123456789",
+        "number_format": "english",
     }
 
 
@@ -201,7 +201,7 @@ def test_android_login_screen_has_phone_otp_and_email():
     assert "authenticateWithEmail" in manager
 
 
-def test_admin_contains_faraz_sms_configuration():
+def test_admin_contains_iranpayamak_sms_configuration():
     root = Path(__file__).resolve().parents[1]
     template = (root / "server" / "templates" / "admin.html").read_text()
     assert 'id="sms"' in template
@@ -210,7 +210,8 @@ def test_admin_contains_faraz_sms_configuration():
     assert 'name="pattern_code"' not in template
     assert 'name="parameter_name"' not in template
     assert 'id="sms-templates"' in template
-    assert "فراز اس‌ام‌اس" in template
+    assert "ایران‌پیامک" in template
+    assert "edge.ippanel.com" not in template
 
 
 def test_existing_sqlite_schema_is_upgraded_to_v12(tmp_path):
@@ -265,7 +266,7 @@ assert {'phone','phone_verified_at','auth_method'} <= columns
 assert inspect(ENGINE).has_table('otp_challenges')
 assert inspect(ENGINE).has_table('sms_settings')
 with ENGINE.connect() as c:
-    assert c.scalar(text("SELECT value FROM bluevpn_schema_meta WHERE key='schema_version'")) == '17'
+    assert c.scalar(text("SELECT value FROM bluevpn_schema_meta WHERE key='schema_version'")) == '18'
     assert c.scalar(text("SELECT email FROM customers WHERE id=1")) == 'legacy@example.com'
 """
     result = subprocess.run(

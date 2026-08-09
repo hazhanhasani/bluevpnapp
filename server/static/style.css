@@ -171,5 +171,5 @@ input,textarea,select{background:rgba(2,10,23,.66);border-color:rgba(112,159,232
 }
 @media(min-width:861px){.tabs a[hidden]{display:none!important}}
 
-/* BlueVPN 3.0.53 — FarazSMS shared-line cleanup */
+/* BlueVPN 3.0.55 — IranPayamak API migration */
 .sms-config-note{display:flex;flex-direction:column;gap:7px;padding:14px 16px;border:1px solid rgba(56,189,248,.22);border-radius:16px;background:linear-gradient(145deg,rgba(8,47,73,.28),rgba(15,23,42,.42))}.sms-config-note strong{font-size:.9rem}.sms-config-note span{color:var(--muted);font-size:.78rem;line-height:1.9}.sms-config-note a{width:max-content;color:#67e8f9;font-weight:700;font-size:.78rem;text-decoration:none}.sms-config-note a:hover{text-decoration:underline}#sms-dedicated-sender small{display:block;margin-top:7px;color:var(--muted);font-size:.72rem;line-height:1.8}

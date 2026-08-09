@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from server.models import SmsSetting
@@ -10,17 +9,7 @@ from server.sms import _sender, sms_notification_ready, sms_setting_ready
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_release_version_353():
-    release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
-    app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.54"
-    assert release["version_code"] == 30054
-    assert app["version_name"] == "3.0.54"
-    assert app["version_code"] == 30054
-
-
-def test_shared_sender_is_automatic(monkeypatch):
-    monkeypatch.setenv("FARAZSMS_SHARED_FROM_NUMBER", "+983000505")
+def test_shared_sender_is_provider_managed():
     setting = SmsSetting(
         id=1,
         active=True,
@@ -30,7 +19,7 @@ def test_shared_sender_is_automatic(monkeypatch):
         pattern_code="auth-pattern",
         parameter_name="code",
     )
-    assert _sender(setting) == "+983000505"
+    assert _sender(setting) == ""
     assert sms_setting_ready(setting) is True
     assert sms_notification_ready(setting) is True
 
@@ -39,7 +28,7 @@ def test_sms_settings_do_not_duplicate_login_pattern_fields():
     html = (ROOT / "server/templates/admin.html").read_text(encoding="utf-8")
     main = (ROOT / "server/main.py").read_text(encoding="utf-8")
     assert 'name="sender_mode"' in html
-    assert "خط اشتراکی فراز اساماس؛ خودکار".replace("\u001f", "‌") in html
+    assert "خط اشتراکی ایران‌پیامک؛ خودکار" in html
     assert 'name="pattern_code"' not in html
     assert 'name="parameter_name"' not in html
     assert "پترن ورود از بخش «پترن‌های پیامکی» خوانده می‌شود" in html
@@ -48,8 +37,8 @@ def test_sms_settings_do_not_duplicate_login_pattern_fields():
     assert "setting.pattern_code=auth_template.pattern_code" in main
 
 
-def test_send_payload_keeps_api_required_from_number():
+def test_send_payload_uses_optional_line_number():
     source = (ROOT / "server/sms.py").read_text(encoding="utf-8")
-    assert 'sender = _sender(setting)' in source
-    assert '"from_number": sender' in source
-    assert 'FARAZSMS_SHARED_FROM_NUMBER' in source
+    assert 'payload["line_number"] = line_number' in source
+    assert 'if line_number:' in source
+    assert 'FARAZSMS_SHARED_FROM_NUMBER' not in source

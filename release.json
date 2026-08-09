@@ -1,11 +1,11 @@
 {
-  "version": "3.0.54",
+  "version": "3.0.55",
   "channel": "stable",
-  "build_id": "20260809-db-persistent-ad-assets-v3050",
-  "built_at": "2026-08-09T08:10:00Z",
-  "android_version": "3.0.54",
-  "android_version_code": 30054,
-  "description": "BlueVPN 3.0.50 تصاویر تبلیغات آپلودی را در دیتابیس پایدار ذخیره می‌کند، تصاویر مفقودشده پس از Redeploy را بازیابی می‌کند و از حذف تبلیغ به‌دلیل حافظه موقت Railway جلوگیری می‌کند.",
+  "build_id": "20260809-iranpayamak-api-v3055",
+  "built_at": "2026-08-09T10:45:00Z",
+  "android_version": "3.0.55",
+  "android_version_code": 30055,
+  "description": "BlueVPN 3.0.55 اتصال قدیمی IPPanel را حذف و API رسمی ایران‌پیامک را برای ارسال پترن، خط اشتراکی خودکار و خط اختصاصی جایگزین می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -188,7 +188,6 @@
     "account-return-immediate-entitlement-sync",
     "home-resume-inactive-force-sync",
     "phone-number-passwordless-auth",
-    "farazsms-ippanel-pattern-otp",
     "admin-managed-sms-provider-settings",
     "legacy-account-phone-binding",
     "automatic-phone-account-registration",
@@ -348,14 +347,18 @@
     "identifying-location-group",
     "automatic-country-regrouping",
     "cloud-server-location-sync",
-    "farazsms-shared-sender-mode",
     "single-source-sms-patterns",
     "sms-settings-cleanup",
-    "farazsms-transient-retry",
     "provider-html-error-redaction",
-    "otp-friendly-error-ui"
+    "otp-friendly-error-ui",
+    "iranpayamak-pattern-api",
+    "iranpayamak-api-key-header",
+    "iranpayamak-shared-line-auto",
+    "iranpayamak-dedicated-line-optional",
+    "legacy-ippanel-settings-migration",
+    "database-schema-18-sms-provider"
   ],
-  "version_code": 30054,
-  "notes": "تبلیغات صفحه اصلی اکنون از پنل مدیریت می‌شوند و بدون تبلیغ فعال هیچ فضای خالی در اپ نمایش داده نمی‌شود.",
-  "version_source": "ad-asset-path-compat-v3051"
+  "version_code": 30055,
+  "notes": "ارسال پیامک اکنون از API رسمی ایران‌پیامک با هدر Api-Key و مسیر /sms/pattern انجام می‌شود.",
+  "version_source": "iranpayamak-api-v3055"
 }

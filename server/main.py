@@ -33,7 +33,7 @@ from .github_release import github_repository,latest_github_release
 from .models import AdAsset,AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,OtpChallenge,PasarGuardPanel,PaymentSetting,Plan,SmsDelivery,SmsSetting,SmsTemplate,WebhookDelivery,AiConnectionEvent,AiRouteAggregate,AiFeedback,ServerLocation
 from .blueai import admin_overview as blueai_admin_overview, customer_dashboard as blueai_customer_dashboard, recommendations as blueai_recommendations, submit_event as blueai_submit_event, submit_feedback as blueai_submit_feedback
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
-from .sms import SmsError,customer_name,delivery_params,jalali_date,jalali_datetime_short,local_phone,normalize_iran_phone,process_pending_sms,queue_sms_event,seed_sms_templates,send_pattern,send_pattern_otp,sms_notification_ready,sms_setting_ready
+from .sms import IRANPAYAMAK_DEFAULT_BASE_URL,SmsError,customer_name,delivery_params,jalali_date,jalali_datetime_short,local_phone,migrate_iranpayamak_settings,normalize_iran_phone,process_pending_sms,queue_sms_event,seed_sms_templates,send_pattern,send_pattern_otp,sms_notification_ready,sms_setting_ready
 from .sms_catalog import SMS_TEMPLATE_MAP, SMS_TEMPLATE_SPECS
 from .sms_runtime import queue_broadcast,scan_subscription_notifications,start_sms_runtime,stop_sms_runtime
 from .version import VERSION, VERSION_CODE
@@ -345,6 +345,7 @@ async def startup():
         if not db.get(PaymentSetting,1):db.add(PaymentSetting(id=1))
         if not db.get(SmsSetting,1):db.add(SmsSetting(id=1))
         db.commit()
+        migrate_iranpayamak_settings(db)
         seed_sms_templates(db)
         try:
             repair=repair_subscription_states(db)
@@ -1998,7 +1999,7 @@ async def mobile_config(
             'auth':{
                 'mode':'phone_otp',
                 'password_login':False,
-                'sms_provider':'farazsms_ippanel',
+                'sms_provider':'iranpayamak',
                 'sms_ready':sms_setting_ready(db.get(SmsSetting,1)),
             },
             'blueai':{
@@ -2045,7 +2046,7 @@ def _otp_setting(db:Session)->SmsSetting:
             503,
             detail={
                 'code':'SMS_NOT_CONFIGURED',
-                'message':'سامانه پیامکی فراز اس‌ام‌اس هنوز در پنل مدیریت تنظیم یا فعال نشده است.',
+                'message':'سامانه ایران‌پیامک هنوز در پنل مدیریت تنظیم یا فعال نشده است.',
             },
         )
     return setting
@@ -2145,7 +2146,7 @@ async def _create_otp_challenge(
     except SmsError as exc:
         db.rollback()
         logger.warning(
-            'Faraz SMS OTP send failed phone_hash=%s transient=%s provider_status=%s: %s',
+            'IranPayamak OTP send failed phone_hash=%s transient=%s provider_status=%s: %s',
             phone_key,
             bool(getattr(exc,'transient',False)),
             getattr(exc,'provider_status',None),
@@ -3614,7 +3615,6 @@ def payment_settings(request:Request,base_url:str=Form(...),api_key:str=Form('')
 @app.post('/admin/sms-settings')
 def sms_settings(
     request:Request,
-    base_url:str=Form('https://edge.ippanel.com/v1'),
     api_key:str=Form(''),
     sender_mode:str=Form('shared'),
     from_number:str=Form(''),
@@ -3631,17 +3631,18 @@ def sms_settings(
 ):
     admin_required(request)
     setting=db.get(SmsSetting,1) or SmsSetting(id=1)
-    setting.base_url=base_url.rstrip('/') or 'https://edge.ippanel.com/v1'
+    setting.provider='iranpayamak'
+    setting.base_url=IRANPAYAMAK_DEFAULT_BASE_URL
     if api_key.strip():setting.api_key_enc=encrypt(api_key.strip())
     mode=str(sender_mode or 'shared').strip().lower()
     if mode=='dedicated':
         dedicated=str(from_number or '').strip()
         if not re.fullmatch(r'(?:\+|00)?[0-9]{5,24}',dedicated):
-            return RedirectResponse('/admin?error='+quote_plus('شماره خط اختصاصی معتبر نیست')+'#sms',303)
+            return RedirectResponse('/admin?error='+quote_plus('شماره خط ایران‌پیامک معتبر نیست')+'#sms',303)
         setting.from_number=dedicated
     else:
-        # Empty means shared FarazSMS sender; the API-required from_number is
-        # supplied centrally by FARAZSMS_SHARED_FROM_NUMBER.
+        # Shared-line accounts let IranPayamak choose the account's available
+        # shared sender; no fake or global line number is injected.
         setting.from_number=''
     setting.parameter_name='code'
     setting.otp_length=max(4,min(8,int(otp_length or 5)))
@@ -3692,7 +3693,7 @@ async def sms_settings_test(
             setting.last_test_message=str(exc)[:500]
             setting.last_test_at=utcnow()
             db.commit()
-        return RedirectResponse('/admin?error='+quote_plus('تست فراز اس‌ام‌اس ناموفق بود: '+str(exc)[:350])+'#sms',303)
+        return RedirectResponse('/admin?error='+quote_plus('تست ایران‌پیامک ناموفق بود: '+str(exc)[:350])+'#sms',303)
 @app.post('/admin/sms-templates')
 async def sms_templates_update(request:Request,db:Session=Depends(get_db)):
     admin_required(request)

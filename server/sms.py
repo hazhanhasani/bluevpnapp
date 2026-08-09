@@ -4,7 +4,6 @@ import asyncio
 import hashlib
 import json
 import logging
-import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -20,6 +19,8 @@ from .sms_catalog import SMS_TEMPLATE_MAP, SMS_TEMPLATE_SPECS, SmsTemplateSpec
 from .time_locale import format_jalali
 
 logger = logging.getLogger("bluevpn.sms")
+
+IRANPAYAMAK_DEFAULT_BASE_URL = "https://api.iranpayamak.com/ws/v1"
 
 
 class SmsError(RuntimeError):
@@ -71,7 +72,6 @@ def sms_setting_ready(setting: SmsSetting | None) -> bool:
         setting
         and setting.active
         and decrypt(setting.api_key_enc).strip()
-        and _sender(setting)
         and setting.pattern_code.strip()
     )
 
@@ -81,7 +81,6 @@ def sms_notification_ready(setting: SmsSetting | None) -> bool:
         setting
         and setting.notification_active
         and decrypt(setting.api_key_enc).strip()
-        and _sender(setting)
     )
 
 
@@ -174,22 +173,55 @@ def _error_message(response: httpx.Response) -> str:
     return _clean_provider_text(payload, fallback)
 
 
-def _sender(setting: SmsSetting) -> str:
-    # An empty database value means the account uses FarazSMS/IPPanel's
-    # shared sender. The API still requires from_number, so the shared line is
-    # supplied centrally and can be overridden through Railway variables.
-    sender = str(setting.from_number or "").strip()
-    if not sender:
-        sender = os.getenv("FARAZSMS_SHARED_FROM_NUMBER", "+983000505").strip()
-    if sender.startswith("00"):
-        sender = "+" + sender[2:]
-    elif sender.startswith("98"):
-        sender = "+" + sender
-    elif sender.startswith("0") and sender[1:].isdigit():
-        sender = "+98" + sender[1:]
-    if not re.fullmatch(r"\+98[0-9A-Za-z]{4,20}", sender):
+def _line_number(setting: SmsSetting) -> str:
+    """Return an optional IranPayamak line number.
+
+    Shared-line accounts leave this value blank and IranPayamak selects the
+    account's shared line. Dedicated lines are sent exactly as configured,
+    after removing harmless whitespace and normalizing Persian digits.
+    """
+    value = str(setting.from_number or "").translate(_PERSIAN_DIGITS).strip()
+    value = re.sub(r"\s+", "", value)
+    if not value:
         return ""
-    return sender
+    if not re.fullmatch(r"[+0-9A-Za-z_-]{3,32}", value):
+        return ""
+    return value
+
+
+def _sender(setting: SmsSetting) -> str:
+    # Backward-compatible alias used by older tests/extensions.
+    return _line_number(setting)
+
+
+def migrate_iranpayamak_settings(db: Session) -> bool:
+    """Migrate an existing IPPanel/FarazSMS row without losing the API key.
+
+    The historical shared sender +983000505 was an application-side default,
+    not an account-owned IranPayamak line, so it is cleared during migration.
+    Dedicated line values are preserved.
+    """
+    setting = db.get(SmsSetting, 1)
+    if setting is None:
+        return False
+    changed = False
+    provider = str(setting.provider or "").strip().lower()
+    base_url = str(setting.base_url or "").strip().rstrip("/")
+    legacy_provider = provider != "iranpayamak" or "edge.ippanel.com" in base_url.lower()
+    if provider != "iranpayamak":
+        setting.provider = "iranpayamak"
+        changed = True
+    if base_url != IRANPAYAMAK_DEFAULT_BASE_URL:
+        setting.base_url = IRANPAYAMAK_DEFAULT_BASE_URL
+        changed = True
+    legacy_line = str(setting.from_number or "").replace(" ", "")
+    if legacy_provider and legacy_line in {"+983000505", "983000505", "00983000505"}:
+        setting.from_number = ""
+        changed = True
+    if changed:
+        db.add(setting)
+        db.commit()
+    return changed
 
 
 def _sanitize_params(spec: SmsTemplateSpec, params: dict[str, Any]) -> dict[str, str]:
@@ -215,25 +247,31 @@ async def send_pattern(
     pattern_code: str,
     params: dict[str, str],
 ) -> dict[str, Any]:
-    sender = _sender(setting)
-    if not decrypt(setting.api_key_enc).strip() or not sender:
-        raise SmsError("تنظیمات فراز اس‌ام‌اس کامل نیست")
+    api_key = decrypt(setting.api_key_enc).strip()
+    if not api_key:
+        raise SmsError("کلید API ایران‌پیامک ثبت نشده است")
     if not pattern_code.strip():
         raise SmsError("کد پترن پیامک ثبت نشده است")
 
-    payload = {
-        "sending_type": "pattern",
-        "from_number": sender,
+    payload: dict[str, Any] = {
         "code": pattern_code.strip(),
-        "recipients": [normalize_iran_phone(phone)],
-        "params": {str(k): str(v) for k, v in params.items()},
+        "attributes": {str(k): str(v) for k, v in params.items()},
+        "recipient": local_phone(phone),
+        "number_format": "english",
     }
-    endpoint = setting.base_url.rstrip("/") + "/api/send"
+    line_number = _line_number(setting)
+    if line_number:
+        payload["line_number"] = line_number
+
+    base_url = str(setting.base_url or IRANPAYAMAK_DEFAULT_BASE_URL).strip().rstrip("/")
+    if not base_url or "edge.ippanel.com" in base_url.lower():
+        base_url = IRANPAYAMAK_DEFAULT_BASE_URL
+    endpoint = base_url + "/sms/pattern"
     headers = {
-        "Authorization": decrypt(setting.api_key_enc).strip(),
+        "Api-Key": api_key,
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "User-Agent": "BluePanel-SMS/3",
+        "User-Agent": "BluePanel-SMS/4",
     }
 
     attempts = len(_PROVIDER_RETRY_DELAYS) + 1
@@ -249,9 +287,9 @@ async def send_pattern(
                 if attempt < attempts - 1:
                     await asyncio.sleep(_PROVIDER_RETRY_DELAYS[attempt])
                     continue
-                logger.warning("FarazSMS transport failed after retries: %s", exc.__class__.__name__)
+                logger.warning("IranPayamak transport failed after retries: %s", exc.__class__.__name__)
                 raise SmsError(
-                    "ارتباط با سامانه پیامک موقتاً برقرار نشد؛ چند لحظه دیگر دوباره تلاش کنید.",
+                    "ارتباط با ایران‌پیامک موقتاً برقرار نشد؛ چند لحظه دیگر دوباره تلاش کنید.",
                     transient=True,
                 ) from exc
 
@@ -260,41 +298,53 @@ async def send_pattern(
                     await asyncio.sleep(_PROVIDER_RETRY_DELAYS[attempt])
                     continue
                 logger.warning(
-                    "FarazSMS transient HTTP failure status=%s content_type=%s",
+                    "IranPayamak transient HTTP failure status=%s content_type=%s",
                     response.status_code,
                     response.headers.get("content-type", ""),
                 )
                 raise SmsError(
-                    "سامانه پیامک موقتاً پاسخ‌گو نیست؛ چند لحظه دیگر دوباره تلاش کنید.",
+                    "سامانه ایران‌پیامک موقتاً پاسخ‌گو نیست؛ چند لحظه دیگر دوباره تلاش کنید.",
                     transient=True,
                     provider_status=response.status_code,
                 )
 
             if not 200 <= response.status_code < 300:
                 if response.status_code in {401, 403}:
-                    public_message = "کلید API فراز اس‌ام‌اس معتبر نیست یا دسترسی ارسال پیامک ندارد."
+                    public_message = "کلید API ایران‌پیامک معتبر نیست یا مجوز ارسال پترن ندارد."
+                elif response.status_code in {400, 422}:
+                    public_message = _error_message(response)
+                    if not line_number and "line" in public_message.lower():
+                        public_message = "خط اشتراکی خودکار برای این حساب در دسترس نیست؛ یک خط مجاز ایران‌پیامک انتخاب کنید."
                 else:
                     public_message = _error_message(response)
                 raise SmsError(public_message, provider_status=response.status_code)
 
+            if not response.content:
+                return {"success": True, "status_code": response.status_code}
             try:
                 data = response.json()
             except Exception as exc:
-                raise SmsError("پاسخ معتبر از سامانه پیامک دریافت نشد.") from exc
-            meta = data.get("meta") if isinstance(data, dict) else None
-            if isinstance(meta, dict) and meta.get("status") is False:
-                raise SmsError(_error_message(response))
-            return data if isinstance(data, dict) else {"data": data}
+                raise SmsError("پاسخ معتبر از ایران‌پیامک دریافت نشد.") from exc
+
+            if isinstance(data, dict):
+                meta = data.get("meta")
+                explicit_failure = data.get("success") is False or data.get("status") is False
+                if isinstance(meta, dict) and meta.get("status") is False:
+                    explicit_failure = True
+                if explicit_failure:
+                    raise SmsError(_error_message(response), provider_status=response.status_code)
+                return data
+            return {"success": True, "data": data, "status_code": response.status_code}
 
     raise SmsError(
-        "سامانه پیامک موقتاً پاسخ‌گو نیست؛ چند لحظه دیگر دوباره تلاش کنید.",
+        "سامانه ایران‌پیامک موقتاً پاسخ‌گو نیست؛ چند لحظه دیگر دوباره تلاش کنید.",
         transient=True,
     )
 
 
 async def send_pattern_otp(setting: SmsSetting, phone: str, code: str) -> dict[str, Any]:
     if not sms_setting_ready(setting):
-        raise SmsError("تنظیمات فراز اس‌ام‌اس کامل یا فعال نیست")
+        raise SmsError("تنظیمات ایران‌پیامک کامل یا فعال نیست")
     return await send_pattern(
         setting,
         phone,

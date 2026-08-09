@@ -12,13 +12,13 @@ from server.sms import SmsError, _error_message
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_release_version_354():
+def test_release_version_355_compat():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.54"
-    assert release["version_code"] == 30054
-    assert app["version_name"] == "3.0.54"
-    assert app["version_code"] == 30054
+    assert release["version"] == "3.0.55"
+    assert release["version_code"] == 30055
+    assert app["version_name"] == "3.0.55"
+    assert app["version_code"] == 30055
 
 
 def test_html_provider_error_is_never_exposed():
@@ -35,7 +35,7 @@ def test_html_provider_error_is_never_exposed():
 
 def test_transient_provider_error_has_safe_metadata():
     error = SmsError(
-        "سامانه پیامک موقتاً پاسخ‌گو نیست؛ چند لحظه دیگر دوباره تلاش کنید.",
+        "سامانه ایران‌پیامک موقتاً پاسخ‌گو نیست؛ چند لحظه دیگر دوباره تلاش کنید.",
         transient=True,
         provider_status=502,
     )

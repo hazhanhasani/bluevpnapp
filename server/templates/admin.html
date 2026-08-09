@@ -385,7 +385,7 @@
 </section>
 <section id="sms" class="card">
   <div class="section-heading">
-    <div><span class="eyebrow">BLUEPANEL SMS CENTER</span><h2>مرکز پیامک بلوپنل</h2><p>ورود پیامکی، اعلان‌های خودکار، یادآوری اشتراک، امنیت، پرداخت و ارسال عمومی از یک مرکز واحد.</p></div>
+    <div><span class="eyebrow">IRANPAYAMAK SMS CENTER</span><h2>مرکز پیامک بلوپنل</h2><p>ورود پیامکی، اعلان‌های خودکار، یادآوری اشتراک، امنیت، پرداخت و ارسال عمومی از یک مرکز واحد.</p></div>
   </div>
   <div class="stat-grid">
     <article class="stat"><strong>{{ 'آماده' if sms_ready else 'ناقص' }}</strong><span>ورود با کد پیامکی</span></article>
@@ -395,10 +395,10 @@
   </div>
   <form method="post" action="/admin/sms-settings">
     <div class="form-grid">
-      <div><label>Base URL فراز اس‌ام‌اس</label><input name="base_url" value="{{ sms.base_url }}" required></div>
-      <div><label>API Key جدید</label><input name="api_key" type="password" placeholder="{{ sms_api_mask }}"></div>
-      <div><label>نوع خط ارسال</label><select name="sender_mode" id="sms-sender-mode"><option value="shared" {% if not sms.from_number %}selected{% endif %}>خط اشتراکی فراز اس‌ام‌اس؛ خودکار</option><option value="dedicated" {% if sms.from_number %}selected{% endif %}>خط اختصاصی</option></select></div>
-      <div id="sms-dedicated-sender" {% if not sms.from_number %}hidden{% endif %}><label>شماره خط اختصاصی</label><input name="from_number" value="{{ sms.from_number }}" placeholder="+983000505" inputmode="tel"><small>فقط زمانی لازم است که خط اختصاصی به حساب شما تخصیص داده شده باشد.</small></div>
+      <div><label>درگاه ایران‌پیامک</label><input value="https://api.iranpayamak.com/ws/v1" readonly aria-readonly="true"><small>مسیر رسمی به‌صورت خودکار مدیریت می‌شود.</small></div>
+      <div><label>API Key ایران‌پیامک</label><input name="api_key" type="password" placeholder="{{ sms_api_mask }}" autocomplete="new-password"></div>
+      <div><label>نوع خط ارسال</label><select name="sender_mode" id="sms-sender-mode"><option value="shared" {% if not sms.from_number %}selected{% endif %}>خط اشتراکی ایران‌پیامک؛ خودکار</option><option value="dedicated" {% if sms.from_number %}selected{% endif %}>خط اختصاصی</option></select></div>
+      <div id="sms-dedicated-sender" {% if not sms.from_number %}hidden{% endif %}><label>شماره خط اختصاصی</label><input name="from_number" value="{{ sms.from_number }}" placeholder="شماره خط موجود در پنل ایران‌پیامک" inputmode="numeric"><small>در حالت خط اشتراکی این فیلد خالی می‌ماند و ایران‌پیامک خط مناسب حساب را انتخاب می‌کند.</small></div>
       <div class="wide sms-config-note"><strong>پترن ورود از بخش «پترن‌های پیامکی» خوانده می‌شود.</strong><span>کد پترن را فقط در ردیف «ورود با کد پیامکی» ثبت کنید؛ متغیر ورود به‌صورت ثابت <b>%code%</b> است.</span><a href="#sms-templates">رفتن به پترن ورود</a></div>
       <div><label>تعداد رقم کد</label><input name="otp_length" type="number" min="4" max="8" value="{{ sms.otp_length or 5 }}"></div>
       <div><label>اعتبار کد؛ ثانیه</label><input name="otp_ttl_seconds" type="number" min="60" max="600" value="{{ sms.otp_ttl_seconds or 120 }}"></div>
@@ -421,7 +421,7 @@
 </section>
 
 <section id="sms-templates" class="card">
-  <div class="section-heading"><div><span class="eyebrow">38 PATTERNS</span><h2>پترن‌های پیامکی بلوپنل</h2><p>کد پترن ثبت‌شده در فراز اس‌ام‌اس را مقابل هر پیام وارد کن. متن و قرارداد متغیرها ثابت و با همان مقادیری است که تعریف کردی.</p></div></div>
+  <div class="section-heading"><div><span class="eyebrow">38 PATTERNS</span><h2>پترن‌های پیامکی بلوپنل</h2><p>کد پترن ثبت‌شده در ایران‌پیامک را مقابل هر پیام وارد کن. متن و قرارداد متغیرها ثابت و با همان مقادیری است که تعریف کردی.</p></div></div>
   <form method="post" action="/admin/sms-templates">
     <div class="sms-template-grid">
       {% for row in sms_templates %}
@@ -432,7 +432,7 @@
         <div class="sms-vars">
           {% for var in spec.variables %}<span><b>%{{ var.name }}%</b> • {{ var.kind }} • {{ var.length }} کاراکتر</span>{% else %}<span>بدون متغیر</span>{% endfor %}
         </div>
-        <label>کد پترن فراز اس‌ام‌اس<input name="pattern_{{ row.key }}" value="{{ row.pattern_code }}" placeholder="Pattern code"></label>
+        <label>کد پترن ایران‌پیامک<input name="pattern_{{ row.key }}" value="{{ row.pattern_code }}" placeholder="Pattern code"></label>
       </article>
       {% endfor %}
     </div>

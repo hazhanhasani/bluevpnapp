@@ -1,6 +1,6 @@
 {
   "version": "3.0.43",
-  "version_code": 30054,
+  "version_code": 30043,
   "feature": "mobile-first-admin",
   "tests": {
     "passed": 135,
@@ -32,7 +32,5 @@
   "full_gradle_build": {
     "status": "not_run",
     "reason": "Android upstream/SDK build is performed by GitHub Actions"
-  },
-  "project_version": "3.0.54",
-  "release": "3.0.54"
+  }
 }

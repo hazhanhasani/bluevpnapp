@@ -11,10 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_352():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.54"
-    assert release["version_code"] == 30054
-    assert app["version_name"] == "3.0.54"
-    assert app["version_code"] == 30054
+    assert release["version"] == "3.0.55"
+    assert release["version_code"] == 30055
+    assert app["version_name"] == "3.0.55"
+    assert app["version_code"] == 30055
 
 
 def test_server_location_database_and_api_exist():
@@ -25,7 +25,7 @@ def test_server_location_database_and_api_exist():
     assert '__tablename__ = "server_locations"' in models
     assert "@app.post('/api/v1/server-locations/resolve')" in main
     assert "@app.post('/api/v1/server-locations/verify')" in main
-    assert 'SCHEMA_VERSION = "17"' in database
+    assert 'SCHEMA_VERSION = "18"' in database
 
 
 def test_android_persists_and_syncs_detected_country():

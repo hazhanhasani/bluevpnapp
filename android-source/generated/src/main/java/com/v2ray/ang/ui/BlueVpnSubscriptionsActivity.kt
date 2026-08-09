@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.view.inputmethod.EditorInfo
@@ -64,7 +65,7 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   h.addView(back,LinearLayout.LayoutParams(dp(92),dp(46)))
   h.addView(title,LinearLayout.LayoutParams(0,dp(50),1f))
   root.addView(h)
-  status=TextView(this).apply{textSize=12f;setTextColor(palette.textMuted);gravity=Gravity.CENTER;setPadding(0,dp(6),0,dp(8));includeFontPadding=false}
+  status=TextView(this).apply{textSize=12f;setTextColor(palette.textMuted);gravity=Gravity.CENTER;setPadding(0,dp(6),0,dp(8));includeFontPadding=false;maxLines=3;ellipsize=TextUtils.TruncateAt.END}
   root.addView(status)
   content=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL}
   root.addView(ScrollView(this).apply{isFillViewport=true;overScrollMode=View.OVER_SCROLL_NEVER;addView(content)},LinearLayout.LayoutParams(-1,0,1f))

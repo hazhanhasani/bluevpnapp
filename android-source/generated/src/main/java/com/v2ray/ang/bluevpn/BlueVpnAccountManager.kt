@@ -1041,7 +1041,19 @@ object BlueVpnAccountManager {
             val response = if (raw.isBlank()) {
                 JSONObject()
             } else {
-                JSONObject(raw)
+                runCatching { JSONObject(raw) }.getOrElse {
+                    val fallback = if (status in listOf(502, 503, 504)) {
+                        "سرویس موردنیاز موقتاً در دسترس نیست؛ چند لحظه دیگر دوباره تلاش کنید."
+                    } else {
+                        "پاسخ معتبر از سرور دریافت نشد."
+                    }
+                    JSONObject().put(
+                        "detail",
+                        JSONObject()
+                            .put("code", "HTTP_$status")
+                            .put("message", fallback),
+                    )
+                }
             }
 
             if (status !in 200..299) {
@@ -1055,7 +1067,14 @@ object BlueVpnAccountManager {
                 throw ApiException(
                     status,
                     code,
-                    message(response),
+                    if (status in listOf(502, 503, 504)) {
+                        safeApiMessage(
+                            message(response),
+                            "سرویس موردنیاز موقتاً در دسترس نیست؛ چند لحظه دیگر دوباره تلاش کنید.",
+                        )
+                    } else {
+                        message(response)
+                    },
                 )
             }
 
@@ -1065,9 +1084,29 @@ object BlueVpnAccountManager {
         }
     }
 
+    private fun safeApiMessage(value: String, fallback: String): String {
+        val raw = value.trim()
+        if (raw.isBlank()) return fallback
+        val lowered = raw.lowercase(Locale.ROOT)
+        if (
+            lowered.contains("<!doctype") ||
+            lowered.contains("<html") ||
+            lowered.contains("<body") ||
+            lowered.contains("cdn-cgi") ||
+            lowered.contains("error-section__")
+        ) {
+            return fallback
+        }
+        val cleaned = raw
+            .replace(Regex("<[^>]+>"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return cleaned.take(180).ifBlank { fallback }
+    }
+
     private fun message(response: JSONObject): String {
         val detail = response.opt("detail")
-        return if (detail is JSONObject) {
+        val raw = if (detail is JSONObject) {
             detail.optString(
                 "message",
                 detail.optString("code", "خطای سرور")
@@ -1080,5 +1119,6 @@ object BlueVpnAccountManager {
                     "خطای ارتباط با سرور"
                 )
         }
+        return safeApiMessage(raw, "خطای ارتباط با سرور")
     }
 }

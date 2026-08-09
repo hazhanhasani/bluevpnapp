@@ -9,10 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_343():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.46"
-    assert release["version_code"] == 30046
-    assert app["version_name"] == "3.0.46"
-    assert app["version_code"] == 30046
+    assert release["version"] == "3.0.47"
+    assert release["version_code"] == 30047
+    assert app["version_name"] == "3.0.47"
+    assert app["version_code"] == 30047
     assert "mobile-first-admin-dashboard" in release["features"]
 
 
@@ -36,7 +36,7 @@ def test_admin_tables_receive_accessible_mobile_labels():
 def test_mobile_styles_remove_desktop_mode_requirement():
     css = (ROOT / "server/static/style.css").read_text(encoding="utf-8")
     required = [
-        "/* BlueVPN 3.0.46 — mobile-first responsive admin */",
+        "/* BlueVPN 3.0.47 — mobile-first responsive admin */",
         "@media(max-width:860px)",
         ".tabs.open{transform:translateX(0)}",
         "table.responsive-table thead{display:none}",

@@ -11,15 +11,15 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_342():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.46"
-    assert release["version_code"] == 30046
-    assert app["version_name"] == "3.0.46"
-    assert app["version_code"] == 30046
+    assert release["version"] == "3.0.47"
+    assert release["version_code"] == 30047
+    assert app["version_name"] == "3.0.47"
+    assert app["version_code"] == 30047
 
 
 def test_backend_exposes_and_manages_advertising():
     main = (ROOT / "server/main.py").read_text(encoding="utf-8")
-    assert "'advertising':advertising_payload(s)" in main
+    assert "'advertising':advertising_payload(s,_public_origin(request,s))" in main
     assert "@app.post('/admin/ads')" in main
     assert "@app.post('/admin/ads/{ad_id}/edit')" in main
     assert "@app.post('/admin/ads/{ad_id}/delete')" in main

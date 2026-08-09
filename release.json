@@ -1,5 +1,5 @@
 {
-  "version": "3.0.46",
+  "version": "3.0.47",
   "channel": "mobile-first-admin",
   "build_id": "20260809-mobile-admin-v3043",
   "built_at": "2026-08-09T07:30:00Z",
@@ -326,9 +326,12 @@
     "ad-image-size-guidance",
     "admin-post-refresh-recovery",
     "admin-no-store-cache-headers",
-    "mobile-refresh-405-fix"
+    "mobile-refresh-405-fix",
+    "backward-compatible-ad-image-urls",
+    "minute-ad-config-refresh",
+    "absolute-and-relative-ad-assets"
   ],
-  "version_code": 30046,
+  "version_code": 30047,
   "notes": "تبلیغات صفحه اصلی اکنون از پنل مدیریت می‌شوند و بدون تبلیغ فعال هیچ فضای خالی در اپ نمایش داده نمی‌شود.",
   "version_source": "in-app-ad-carousel-v3042"
 }

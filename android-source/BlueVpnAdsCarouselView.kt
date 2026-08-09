@@ -53,6 +53,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     private var autoplay = true
     private var loop = true
     private var running = false
+    private var fetchInFlight = false
     private var desiredHeightPx = 0
     private var hasRenderedContent = false
     private var lastFetchAt = 0L
@@ -63,6 +64,10 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     private val bitmapCache = object : LruCache<String, Bitmap>(12 * 1024) {
         override fun sizeOf(key: String, value: Bitmap): Int =
             (value.byteCount / 1024).coerceAtLeast(1)
+    }
+
+    private val refreshRunnable = Runnable {
+        if (running) fetchConfig()
     }
 
     private val slideRunnable = Runnable {
@@ -96,16 +101,18 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
 
     fun start() {
         running = true
-        if (System.currentTimeMillis() - lastFetchAt > 5 * 60 * 1000L || items.isEmpty()) {
+        if (System.currentTimeMillis() - lastFetchAt > 60_000L || items.isEmpty()) {
             fetchConfig()
         } else {
             scheduleNext()
+            scheduleRefresh()
         }
     }
 
     fun stop() {
         running = false
         handler.removeCallbacks(slideRunnable)
+        handler.removeCallbacks(refreshRunnable)
     }
 
     fun release() {
@@ -175,6 +182,11 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     }
 
     private fun fetchConfig() {
+        if (fetchInFlight) {
+            scheduleRefresh()
+            return
+        }
+        fetchInFlight = true
         worker.execute {
             val result = runCatching {
                 val connection = URL(
@@ -193,10 +205,12 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
                 }
             }
             handler.post {
+                fetchInFlight = false
                 if (!running) return@post
                 result.onSuccess { applyConfig(it) }.onFailure {
                     if (items.isEmpty()) visibility = View.GONE
                 }
+                scheduleRefresh()
             }
         }
     }
@@ -223,7 +237,9 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
                 val row = array.optJSONObject(index) ?: continue
                 val id = row.optString("id").trim()
                 val title = row.optString("title").trim()
-                val imageUrl = imageAssetUrl(row.optString("image_url"))
+                val imageUrl = imageAssetUrl(
+                    row.optString("image_url").ifBlank { row.optString("image_path") }
+                )
                 if (id.isBlank() || (title.isBlank() && imageUrl.isBlank())) continue
                 parsed += AdItem(
                     id = id,
@@ -385,6 +401,11 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             return if ((scheme == "http" || scheme == "https") && authority.isNotBlank()) "$scheme://$authority$trimmed" else ""
         }
         return safeUrl(trimmed)
+    }
+
+    private fun scheduleRefresh() {
+        handler.removeCallbacks(refreshRunnable)
+        if (running) handler.postDelayed(refreshRunnable, 60_000L)
     }
 
     private fun scheduleNext() {

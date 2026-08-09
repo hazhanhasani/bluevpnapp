@@ -446,19 +446,38 @@ def _ad_is_current(item:dict[str,Any],now:datetime|None=None)->bool:
     return True
 
 
-def _public_ad_image_url(value:str,s:dict[str,Any])->str:
+def _public_origin(request:Request|None,s:dict[str,Any])->str:
+    candidates=[]
+    if request is not None:
+        forwarded_proto=str(request.headers.get('x-forwarded-proto') or '').split(',')[0].strip().lower()
+        forwarded_host=str(request.headers.get('x-forwarded-host') or request.headers.get('host') or '').split(',')[0].strip()
+        if forwarded_proto in {'http','https'} and forwarded_host:
+            candidates.append(f'{forwarded_proto}://{forwarded_host}')
+        candidates.append(str(request.base_url or '').strip().rstrip('/'))
+    candidates.append(str(s.get('public_base_url') or '').strip().rstrip('/'))
+    for candidate in candidates:
+        if not candidate:
+            continue
+        parsed=urlparse(candidate)
+        if parsed.scheme.lower() in {'http','https'} and parsed.netloc:
+            return f'{parsed.scheme.lower()}://{parsed.netloc}'
+    return ''
+
+
+def _public_ad_image_url(value:str,s:dict[str,Any],public_origin:str='')->str:
     value=str(value or '').strip()
     if not value:
         return ''
     if value.startswith('/media/ads/'):
-        return value
+        base=public_origin or _public_origin(None,s)
+        return f'{base}{value}' if base else value
     try:
         return _http_url(value,'لینک تصویر')
     except ValueError:
         return ''
 
 
-def advertising_payload(s:dict[str,Any])->dict[str,Any]:
+def advertising_payload(s:dict[str,Any],public_origin:str='')->dict[str,Any]:
     rows=[]
     for item in sorted(
         _ad_items(s.get('ads_items')),
@@ -466,7 +485,8 @@ def advertising_payload(s:dict[str,Any])->dict[str,Any]:
     ):
         if not _ad_is_current(item):
             continue
-        image_url=_public_ad_image_url(item.get('image_url',''),s)
+        raw_image=str(item.get('image_url') or '').strip()
+        image_url=_public_ad_image_url(raw_image,s,public_origin)
         title=str(item.get('title') or '').strip()
         if not image_url and not title:
             continue
@@ -480,6 +500,7 @@ def advertising_payload(s:dict[str,Any])->dict[str,Any]:
             'title':title,
             'subtitle':str(item.get('subtitle') or ''),
             'image_url':image_url,
+            'image_path':raw_image if raw_image.startswith('/media/ads/') else '',
             'target_url':target_url,
             'button_text':str(item.get('button_text') or ''),
         })
@@ -1814,6 +1835,7 @@ def sitemap_xml(request:Request):
     return Response(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>',media_type='application/xml')
 @app.get('/api/v1/mobile/config')
 async def mobile_config(
+    request:Request,
     refresh:bool=False,
     db:Session=Depends(get_db),
 ):
@@ -1867,7 +1889,7 @@ async def mobile_config(
                 'title':s['announcement_title'],
                 'message':s['announcement_message'],
             },
-            'advertising':advertising_payload(s),
+            'advertising':advertising_payload(s,_public_origin(request,s)),
             'updated_at':s['updated_at'],
             'updated_at_fa':format_jalali(s['updated_at'],fallback=''),
             'calendar':'jalali',

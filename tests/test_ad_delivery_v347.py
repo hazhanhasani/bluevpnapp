@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_release_version_344():
+def test_release_version_347():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
     assert release["version"] == "3.0.47"
@@ -17,17 +17,22 @@ def test_release_version_344():
     assert app["version_code"] == 30047
 
 
-def test_local_media_paths_and_blank_fallback_are_hardened():
+def test_server_emits_backward_compatible_ad_assets():
+    source = (ROOT / "server/main.py").read_text(encoding="utf-8")
+    assert "def _public_origin(request:Request|None" in source
+    assert "'image_path':raw_image if raw_image.startswith('/media/ads/') else ''" in source
+    assert "advertising_payload(s,_public_origin(request,s))" in source
+
+
+def test_android_refreshes_ads_and_supports_both_url_forms():
     source = (ROOT / "android-source/BlueVpnAdsCarouselView.kt").read_text(encoding="utf-8")
-    main = (ROOT / "server/main.py").read_text(encoding="utf-8")
-    assert "private fun imageAssetUrl" in source
-    assert 'trimmed.startsWith("/media/")' in source
-    assert "dropBrokenCurrentItem" in source
-    assert "override fun onMeasure" in source
-    assert "return value" in main.split("def _public_ad_image_url", 1)[1]
+    assert "private val refreshRunnable" in source
+    assert "handler.postDelayed(refreshRunnable, 60_000L)" in source
+    assert 'row.optString("image_url").ifBlank { row.optString("image_path") }' in source
+    assert "fetchInFlight" in source
 
 
-def test_generated_carousel_source_matches_snapshot_v344():
+def test_generated_source_matches_snapshot_v347():
     script = (ROOT / "scripts/prepare_android.py").read_text(encoding="utf-8")
     match = re.search(r'BLUEVPN_ADS_CAROUSEL_B64 = "([^"]+)"', script)
     assert match

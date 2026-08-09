@@ -11,10 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_347():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.56"
-    assert release["version_code"] == 30056
-    assert app["version_name"] == "3.0.56"
-    assert app["version_code"] == 30056
+    assert release["version"] == "3.0.57"
+    assert release["version_code"] == 30057
+    assert app["version_name"] == "3.0.57"
+    assert app["version_code"] == 30057
 
 
 def test_server_emits_backward_compatible_ad_assets():

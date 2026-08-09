@@ -33,7 +33,7 @@ from .github_release import github_repository,latest_github_release
 from .models import AdAsset,AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,OtpChallenge,PasarGuardPanel,PaymentSetting,Plan,SmsDelivery,SmsSetting,SmsTemplate,WebhookDelivery,AiConnectionEvent,AiRouteAggregate,AiFeedback,ServerLocation
 from .blueai import admin_overview as blueai_admin_overview, customer_dashboard as blueai_customer_dashboard, recommendations as blueai_recommendations, submit_event as blueai_submit_event, submit_feedback as blueai_submit_feedback
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
-from .sms import IRANPAYAMAK_DEFAULT_BASE_URL,SmsError,customer_name,delivery_params,jalali_date,jalali_datetime_short,local_phone,migrate_iranpayamak_settings,normalize_iran_phone,process_pending_sms,queue_sms_event,seed_sms_templates,send_pattern,send_pattern_otp,sms_notification_ready,sms_setting_ready
+from .sms import IRANPAYAMAK_DEFAULT_BASE_URL,SmsError,customer_name,delivery_params,jalali_date,jalali_datetime_short,local_phone,migrate_iranpayamak_settings,normalize_iran_phone,process_pending_sms,queue_sms_event,seed_sms_templates,send_pattern,send_pattern_otp,validate_pattern_code,sms_notification_ready,sms_setting_ready
 from .sms_catalog import SMS_TEMPLATE_MAP, SMS_TEMPLATE_SPECS
 from .sms_runtime import queue_broadcast,scan_subscription_notifications,start_sms_runtime,stop_sms_runtime
 from .version import VERSION, VERSION_CODE
@@ -3634,16 +3634,14 @@ def sms_settings(
     setting.provider='iranpayamak'
     setting.base_url=IRANPAYAMAK_DEFAULT_BASE_URL
     if api_key.strip():setting.api_key_enc=encrypt(api_key.strip())
-    mode=str(sender_mode or 'shared').strip().lower()
-    if mode=='dedicated':
-        dedicated=str(from_number or '').strip()
-        if not re.fullmatch(r'(?:\+|00)?[0-9]{5,24}',dedicated):
-            return RedirectResponse('/admin?error='+quote_plus('شماره خط ایران‌پیامک معتبر نیست')+'#sms',303)
-        setting.from_number=dedicated
-    else:
-        # Shared-line accounts let IranPayamak choose the account's available
-        # shared sender; no fake or global line number is injected.
-        setting.from_number=''
+    line_number=str(from_number or '').translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩','01234567890123456789')).strip()
+    line_number=re.sub(r'\s+','',line_number)
+    if not re.fullmatch(r'[+0-9A-Za-z_-]{3,32}',line_number):
+        return RedirectResponse(
+            '/admin?error='+quote_plus('شماره خط ارسال ایران‌پیامک الزامی است؛ برای خط اشتراکی هم line_number واقعی حساب را وارد کنید.')+'#sms',
+            303,
+        )
+    setting.from_number=line_number
     setting.parameter_name='code'
     setting.otp_length=max(4,min(8,int(otp_length or 5)))
     setting.otp_ttl_seconds=max(60,min(600,int(otp_ttl_seconds or 120)))
@@ -3680,7 +3678,8 @@ async def sms_settings_test(
     try:
         phone=phone_ok(test_phone)
         if not sms_setting_ready(setting):
-            raise SmsError('تنظیمات پیامک کامل یا فعال نیست')
+            raise SmsError('تنظیمات پیامک کامل نیست؛ API Key، شماره خط ارسال و پترن ورود را بررسی کنید.')
+        await validate_pattern_code(setting,setting.pattern_code)
         await send_pattern_otp(setting,phone,'12345')
         setting.last_test_ok=True
         setting.last_test_message=f'پیام آزمایشی برای {local_phone(phone)} ارسال شد'

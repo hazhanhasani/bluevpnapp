@@ -1,11 +1,11 @@
 {
-  "version": "3.0.56",
+  "version": "3.0.57",
   "channel": "stable",
   "build_id": "20260809-low-end-anr-fix-v3056",
   "built_at": "2026-08-09T11:10:00Z",
-  "android_version": "3.0.56",
-  "android_version_code": 30056,
-  "description": "BlueVPN 3.0.56 برای گوشی‌های ضعیف بهینه شده و فشار ترد اصلی، انیمیشن‌های دائمی، پردازش فهرست سرورها و حافظه تصاویر تبلیغ را کاهش می‌دهد.",
+  "android_version": "3.0.57",
+  "android_version_code": 30057,
+  "description": "BlueVPN 3.0.57 اعتبارسنجی پترن و شماره خط ایران‌پیامک را اصلاح می‌کند؛ API جدید برای خط اشتراکی نیز line_number واقعی می‌خواهد و خطاهای code/line_number اکنون دقیق و فارسی نمایش داده می‌شوند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -367,9 +367,12 @@
     "server-location-candidate-cache-10s",
     "background-cloud-location-key-generation",
     "debounced-location-search",
-    "adaptive-network-probe-workers"
+    "adaptive-network-probe-workers",
+    "iranpayamak-pattern-uid-validation",
+    "iranpayamak-required-line-number",
+    "iranpayamak-readable-validation-errors"
   ],
-  "version_code": 30056,
+  "version_code": 30057,
   "notes": "حالت کم‌مصرف خودکار برای دستگاه‌های کم‌رم فعال می‌شود؛ رابط سریع‌تر باز می‌شود و احتمال ANR و خروج ناگهانی کاهش می‌یابد.",
   "version_source": "low-end-anr-fix-v3056"
 }

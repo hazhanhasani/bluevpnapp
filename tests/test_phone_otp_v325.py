@@ -157,7 +157,7 @@ def test_iranpayamak_pattern_payload_matches_official_contract(monkeypatch):
         active=True,
         base_url="https://api.iranpayamak.com/ws/v1",
         api_key_enc=encrypt("test-api-key"),
-        from_number="",
+        from_number="50001234",
         pattern_code="pattern-code-v355",
         parameter_name="code",
         verify_tls=True,
@@ -171,6 +171,7 @@ def test_iranpayamak_pattern_payload_matches_official_contract(monkeypatch):
         "code": "pattern-code-v355",
         "attributes": {"code": "54321"},
         "recipient": "09123456789",
+        "line_number": "50001234",
         "number_format": "english",
     }
 
@@ -205,7 +206,7 @@ def test_admin_contains_iranpayamak_sms_configuration():
     root = Path(__file__).resolve().parents[1]
     template = (root / "server" / "templates" / "admin.html").read_text()
     assert 'id="sms"' in template
-    assert 'name="sender_mode"' in template
+    assert 'name="from_number"' in template
     assert 'name="from_number"' in template
     assert 'name="pattern_code"' not in template
     assert 'name="parameter_name"' not in template

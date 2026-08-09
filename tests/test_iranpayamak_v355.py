@@ -26,14 +26,14 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_355_and_schema_18():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.56"
-    assert release["version_code"] == 30056
-    assert app["version_name"] == "3.0.56"
-    assert app["version_code"] == 30056
+    assert release["version"] == "3.0.57"
+    assert release["version_code"] == 30057
+    assert app["version_name"] == "3.0.57"
+    assert app["version_code"] == 30057
     assert SCHEMA_VERSION == "18"
 
 
-def test_shared_line_needs_no_fake_sender():
+def test_shared_line_requires_real_line_number():
     setting = SmsSetting(
         id=1,
         provider="iranpayamak",
@@ -44,8 +44,8 @@ def test_shared_line_needs_no_fake_sender():
         pattern_code="auth-pattern",
     )
     assert _line_number(setting) == ""
-    assert sms_setting_ready(setting) is True
-    assert sms_notification_ready(setting) is True
+    assert sms_setting_ready(setting) is False
+    assert sms_notification_ready(setting) is False
 
 
 def test_dedicated_line_is_sent_only_when_configured(monkeypatch):

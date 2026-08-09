@@ -7,6 +7,7 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import select
@@ -73,6 +74,7 @@ def sms_setting_ready(setting: SmsSetting | None) -> bool:
         and setting.active
         and decrypt(setting.api_key_enc).strip()
         and setting.pattern_code.strip()
+        and _line_number(setting)
     )
 
 
@@ -81,6 +83,7 @@ def sms_notification_ready(setting: SmsSetting | None) -> bool:
         setting
         and setting.notification_active
         and decrypt(setting.api_key_enc).strip()
+        and _line_number(setting)
     )
 
 
@@ -150,6 +153,44 @@ def _clean_provider_text(value: Any, fallback: str) -> str:
     return text[:240] or fallback
 
 
+def _provider_validation_message(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    meta = payload.get("meta")
+    errors = payload.get("errors")
+    if not isinstance(errors, dict) and isinstance(meta, dict):
+        errors = meta.get("errors")
+    if not isinstance(errors, dict):
+        return ""
+
+    messages: list[str] = []
+    if errors.get("code"):
+        messages.append(
+            "کد پترن در حساب این API Key معتبر نیست؛ UID دقیق پترن فعال ایران‌پیامک را با همان حروف بزرگ و کوچک ثبت کنید."
+        )
+    if errors.get("line_number"):
+        messages.append(
+            "شماره خط ارسال در حساب ایران‌پیامک معتبر نیست؛ API جدید برای خط اشتراکی هم line_number واقعی و مجاز می‌خواهد."
+        )
+    if errors.get("attributes"):
+        messages.append("نام یا مقدار متغیرهای پترن با قرارداد ثبت‌شده در ایران‌پیامک یکسان نیست.")
+    if errors.get("recipient"):
+        messages.append("شماره گیرنده برای ایران‌پیامک معتبر نیست.")
+
+    known = {"code", "line_number", "attributes", "recipient"}
+    for key, value in errors.items():
+        if key in known:
+            continue
+        if isinstance(value, list):
+            raw = " ".join(str(item) for item in value)
+        else:
+            raw = str(value)
+        clean = _clean_provider_text(raw, "")
+        if clean:
+            messages.append(clean)
+    return " ".join(dict.fromkeys(messages))[:500]
+
+
 def _error_message(response: httpx.Response) -> str:
     fallback = "پاسخ نامعتبر از سرویس پیامک دریافت شد"
     content_type = str(response.headers.get("content-type") or "").lower()
@@ -159,26 +200,30 @@ def _error_message(response: httpx.Response) -> str:
         payload = response.json()
     except Exception:
         return _clean_provider_text(response.text, fallback)
+
+    validation = _provider_validation_message(payload)
+    if validation:
+        return validation
+
     meta = payload.get("meta") if isinstance(payload, dict) else None
     if isinstance(meta, dict):
         message = _clean_provider_text(meta.get("message"), "")
-        errors = meta.get("errors")
-        if message and errors:
-            clean_errors = _clean_provider_text(errors, "")
-            return f"{message}: {clean_errors}"[:240] if clean_errors else message
         if message:
             return message
     if isinstance(payload, dict):
-        return _clean_provider_text(payload.get("message") or payload.get("error"), fallback)
+        return _clean_provider_text(
+            payload.get("message") or payload.get("messages") or payload.get("error"),
+            fallback,
+        )
     return _clean_provider_text(payload, fallback)
 
 
 def _line_number(setting: SmsSetting) -> str:
-    """Return an optional IranPayamak line number.
+    """Return the exact IranPayamak line_number used by the API.
 
-    Shared-line accounts leave this value blank and IranPayamak selects the
-    account's shared line. Dedicated lines are sent exactly as configured,
-    after removing harmless whitespace and normalizing Persian digits.
+    The current IranPayamak pattern endpoint validates line_number even when
+    the account uses a shared sender. Therefore the actual shared or dedicated
+    line assigned to the account must be stored here.
     """
     value = str(setting.from_number or "").translate(_PERSIAN_DIGITS).strip()
     value = re.sub(r"\s+", "", value)
@@ -241,6 +286,57 @@ def _sanitize_params(spec: SmsTemplateSpec, params: dict[str, Any]) -> dict[str,
     return result
 
 
+async def validate_pattern_code(setting: SmsSetting, pattern_code: str) -> dict[str, Any]:
+    api_key = decrypt(setting.api_key_enc).strip()
+    code = str(pattern_code or "").strip()
+    if not api_key:
+        raise SmsError("کلید API ایران‌پیامک ثبت نشده است")
+    if not code:
+        raise SmsError("کد پترن پیامک ثبت نشده است")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{4,160}", code):
+        raise SmsError("فرمت UID پترن ایران‌پیامک صحیح نیست")
+
+    base_url = str(setting.base_url or IRANPAYAMAK_DEFAULT_BASE_URL).strip().rstrip("/")
+    if not base_url or "edge.ippanel.com" in base_url.lower():
+        base_url = IRANPAYAMAK_DEFAULT_BASE_URL
+    endpoint = base_url + "/patterns/" + quote(code, safe="")
+    headers = {
+        "Api-Key": api_key,
+        "Accept": "application/json",
+        "User-Agent": "BluePanel-SMS/5",
+    }
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(12.0, connect=7.0),
+        verify=bool(setting.verify_tls),
+        follow_redirects=True,
+    ) as client:
+        try:
+            response = await client.get(endpoint, headers=headers)
+        except httpx.HTTPError as exc:
+            raise SmsError(
+                "بررسی پترن با ایران‌پیامک موقتاً ممکن نشد؛ دوباره تلاش کنید.",
+                transient=True,
+            ) from exc
+    if response.status_code in _TRANSIENT_PROVIDER_STATUSES:
+        raise SmsError(
+            "بررسی پترن با ایران‌پیامک موقتاً ممکن نشد؛ دوباره تلاش کنید.",
+            transient=True,
+            provider_status=response.status_code,
+        )
+    if response.status_code in {401, 403}:
+        raise SmsError("کلید API ایران‌پیامک معتبر نیست یا دسترسی مشاهده پترن‌ها را ندارد.")
+    if not 200 <= response.status_code < 300:
+        raise SmsError(
+            "کد پترن در حساب این API Key پیدا نشد؛ UID را از پترن فعال ایران‌پیامک دوباره کپی کنید.",
+            provider_status=response.status_code,
+        )
+    try:
+        data = response.json() if response.content else {}
+    except Exception as exc:
+        raise SmsError("پاسخ بررسی پترن ایران‌پیامک معتبر نبود.") from exc
+    return data if isinstance(data, dict) else {"data": data}
+
+
 async def send_pattern(
     setting: SmsSetting,
     phone: str,
@@ -260,8 +356,11 @@ async def send_pattern(
         "number_format": "english",
     }
     line_number = _line_number(setting)
-    if line_number:
-        payload["line_number"] = line_number
+    if not line_number:
+        raise SmsError(
+            "شماره خط ارسال ایران‌پیامک ثبت نشده است؛ برای خط اشتراکی هم line_number واقعی حساب الزامی است."
+        )
+    payload["line_number"] = line_number
 
     base_url = str(setting.base_url or IRANPAYAMAK_DEFAULT_BASE_URL).strip().rstrip("/")
     if not base_url or "edge.ippanel.com" in base_url.lower():
@@ -313,8 +412,6 @@ async def send_pattern(
                     public_message = "کلید API ایران‌پیامک معتبر نیست یا مجوز ارسال پترن ندارد."
                 elif response.status_code in {400, 422}:
                     public_message = _error_message(response)
-                    if not line_number and "line" in public_message.lower():
-                        public_message = "خط اشتراکی خودکار برای این حساب در دسترس نیست؛ یک خط مجاز ایران‌پیامک انتخاب کنید."
                 else:
                     public_message = _error_message(response)
                 raise SmsError(public_message, provider_status=response.status_code)

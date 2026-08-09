@@ -78,6 +78,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var renderGeneration = 0
     private var candidateLoadInProgress = false
     private var candidateReloadPending = false
+    private var candidateLoadError = ""
     private var entitlementRepairAttempted = false
     private var accountSyncInProgress = false
     private var accountSyncPending = false
@@ -88,6 +89,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         renderLocationsNow(renderGeneration)
     }
     private val refreshTimeoutRunnable = Runnable { stopRefreshing() }
+    private val candidateReloadRunnable = Runnable {
+        val force = candidateReloadPending
+        candidateReloadPending = false
+        loadCandidates(force = force)
+    }
     private val locationSyncRunnable = object : Runnable {
         override fun run() {
             syncDetectedLocations(force = false)
@@ -112,14 +118,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
         mainViewModel.startListenBroadcast()
         mainViewModel.updateListAction.observe(this) {
-            BlueVpnLocationUtil.invalidateCache()
+            BlueVpnLocationUtil.invalidateResolvedCache()
             stopRefreshing()
-            loadCandidates(force = true)
+            scheduleCandidateReload(force = true)
         }
         mainViewModel.updateTestResultAction.observe(this) {
-            BlueVpnLocationUtil.invalidateCache()
+            BlueVpnLocationUtil.invalidateResolvedCache()
             stopRefreshing()
-            loadCandidates(force = true, selectAutomaticAfterLoad = true)
+            scheduleCandidateReload(force = true)
         }
         renderLocations()
         loadCandidates(force = false)
@@ -166,53 +172,86 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         super.onDestroy()
     }
 
+    private fun scheduleCandidateReload(force: Boolean) {
+        candidateReloadPending = candidateReloadPending || force
+        renderHandler.removeCallbacks(candidateReloadRunnable)
+        renderHandler.postDelayed(candidateReloadRunnable, 350L)
+    }
+
     private fun loadCandidates(
         force: Boolean,
         selectAutomaticAfterLoad: Boolean = false,
     ) {
-        candidateReloadPending = candidateReloadPending || force
-        if (candidateLoadInProgress || isFinishing || isDestroyed) return
-        candidateLoadInProgress = true
-        val requestedForce = candidateReloadPending
-        candidateReloadPending = false
-        lifecycleScope.launch(Dispatchers.Default) {
-            var loaded = BlueVpnLocationUtil.allCandidates(
-                this@BlueVpnServersActivity,
-                forceRefresh = requestedForce,
-            )
+        if (isFinishing || isDestroyed) return
+        if (candidateLoadInProgress) {
+            candidateReloadPending = candidateReloadPending || force
+            return
+        }
 
-            // Subscription import in v2rayNG is asynchronous. An active account
-            // can therefore open this screen after the entitlement response is
-            // saved but before the imported server GUIDs are visible in MMKV.
-            // Repair once in the same background load instead of leaving the UI
-            // in an endless «preparing locations» reload loop.
-            if (
-                loaded.isEmpty() &&
-                BlueVpnAccountManager.active(this@BlueVpnServersActivity) &&
-                !accountSyncInProgress &&
-                !entitlementRepairAttempted
-            ) {
-                entitlementRepairAttempted = true
-                BlueVpnAccountManager.awaitEntitlementServers(
+        candidateLoadInProgress = true
+        candidateLoadError = ""
+        val requestedForce = force || candidateReloadPending
+        candidateReloadPending = false
+        renderLocations()
+
+        lifecycleScope.launch(Dispatchers.Default) {
+            val result = runCatching {
+                var loaded = BlueVpnLocationUtil.allCandidates(
                     this@BlueVpnServersActivity,
+                    forceRefresh = requestedForce,
                 )
-                loaded = BlueVpnLocationUtil.allCandidates(
-                    this@BlueVpnServersActivity,
-                    forceRefresh = true,
-                )
+
+                // Subscription import in v2rayNG is asynchronous. Repair once,
+                // but never allow an exception or repeated MMKV broadcasts to
+                // leave the screen permanently in a loading state.
+                if (
+                    loaded.isEmpty() &&
+                    BlueVpnAccountManager.active(this@BlueVpnServersActivity) &&
+                    !accountSyncInProgress &&
+                    !entitlementRepairAttempted
+                ) {
+                    entitlementRepairAttempted = true
+                    BlueVpnAccountManager.awaitEntitlementServers(
+                        this@BlueVpnServersActivity,
+                    )
+                    loaded = BlueVpnLocationUtil.allCandidates(
+                        this@BlueVpnServersActivity,
+                        forceRefresh = true,
+                    )
+                }
+                loaded
             }
 
             withContext(Dispatchers.Main) {
                 candidateLoadInProgress = false
                 stopRefreshing()
                 if (isFinishing || isDestroyed) return@withContext
-                if (loaded.isNotEmpty()) entitlementRepairAttempted = false
+
+                val loaded = result.getOrDefault(emptyList())
+                candidateLoadError = result.exceptionOrNull()?.let {
+                    "دریافت سرورها ناموفق بود؛ تازه‌سازی را بزنید"
+                }.orEmpty()
+                if (loaded.isNotEmpty()) {
+                    entitlementRepairAttempted = false
+                    candidateLoadError = ""
+                }
                 updateEntitlementUi()
-                if (selectAutomaticAfterLoad && BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity)) {
+                if (
+                    selectAutomaticAfterLoad &&
+                    BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity)
+                ) {
                     loaded.firstOrNull()?.let { MmkvManager.setSelectServer(it.guid) }
                 }
                 renderLocations()
-                if (candidateReloadPending) loadCandidates(force = candidateReloadPending)
+
+                // Coalesce the importer's burst of broadcasts into at most one
+                // trailing retry, and retry only while the pool is still empty.
+                val retry = candidateReloadPending && loaded.isEmpty()
+                candidateReloadPending = retry
+                if (retry) {
+                    renderHandler.removeCallbacks(candidateReloadRunnable)
+                    renderHandler.postDelayed(candidateReloadRunnable, 500L)
+                }
             }
         }
     }
@@ -503,7 +542,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val candidates = BlueVpnLocationUtil.cachedCandidates(this)
         if (candidates.isEmpty()) {
             emptyText.text = when {
-                candidateLoadInProgress -> "در حال دریافت سرورهای حساب…"
+                candidateLoadError.isNotBlank() -> candidateLoadError
+                candidateLoadInProgress && BlueVpnAccountManager.active(this) ->
+                    "در حال همگام‌سازی سرورهای اشتراک…"
+                candidateLoadInProgress -> "در حال دریافت سرورهای رایگان…"
                 BlueVpnAccountManager.active(this) ->
                     "سرورهای اشتراک هنوز دریافت نشده‌اند؛ تازه‌سازی را بزنید"
                 else -> "سرور رایگان فعالی برای نمایش پیدا نشد"

@@ -260,6 +260,9 @@ object BlueVpnLocationUtil {
     @Volatile
     private var contextCandidateCache: List<Candidate> = emptyList()
 
+    @Volatile
+    private var contextCandidateCacheKey: String = ""
+
     private val identityCache = ConcurrentHashMap<String, String>()
     private val compatibilityCache = ConcurrentHashMap<String, String>()
 
@@ -682,6 +685,7 @@ private fun unknownLocation(): BlueVpnLocation =
             candidateCache = emptyList()
             contextCandidateCacheAt = 0L
             contextCandidateCache = emptyList()
+            contextCandidateCacheKey = ""
             compatibilityCache.clear()
         }
     }
@@ -690,6 +694,7 @@ private fun unknownLocation(): BlueVpnLocation =
         synchronized(this) {
             contextCandidateCacheAt = 0L
             contextCandidateCache = emptyList()
+            contextCandidateCacheKey = ""
         }
     }
 
@@ -741,11 +746,14 @@ private fun unknownLocation(): BlueVpnLocation =
      * warm or refresh the cache.
      */
     fun cachedCandidates(context: Context): List<Candidate> {
-        val now = SystemClock.elapsedRealtime()
+        val cacheKey = BlueVpnAccountManager.entitlementPoolFingerprint(context)
         val cached = contextCandidateCache
+        // Stale-while-revalidate: keep rendering the last pool while a background
+        // refresh runs, but only when the entitlement fingerprint is unchanged.
+        // A free→Premium transition immediately invalidates the old free pool.
         return if (
             contextCandidateCacheAt > 0L &&
-            now - contextCandidateCacheAt < CANDIDATE_CACHE_TTL_MS
+            contextCandidateCacheKey == cacheKey
         ) cached else emptyList()
     }
 
@@ -756,9 +764,11 @@ private fun unknownLocation(): BlueVpnLocation =
         forceRefresh: Boolean = false,
     ): List<Candidate> {
         val now = SystemClock.elapsedRealtime()
+        val cacheKey = BlueVpnAccountManager.entitlementPoolFingerprint(context)
         if (
             !forceRefresh &&
             contextCandidateCacheAt > 0L &&
+            contextCandidateCacheKey == cacheKey &&
             now - contextCandidateCacheAt < CANDIDATE_CACHE_TTL_MS
         ) {
             return contextCandidateCache
@@ -805,6 +815,7 @@ private fun unknownLocation(): BlueVpnLocation =
         synchronized(this) {
             contextCandidateCache = resolved
             contextCandidateCacheAt = SystemClock.elapsedRealtime()
+            contextCandidateCacheKey = cacheKey
         }
         return resolved
     }
@@ -916,16 +927,16 @@ private fun unknownLocation(): BlueVpnLocation =
 
         val selected = MmkvManager.getSelectServer().orEmpty()
         val entitlementGuids = BlueVpnAccountManager.preferredServerGuids(context)
-        val allGuids = MmkvManager.decodeAllServerList()
-        if (entitlementGuids.isEmpty() && allGuids.isEmpty()) return emptyList()
+        if (entitlementGuids.isEmpty()) return emptyList()
 
-        // Subscription-owned routes must be inspected first. The old first-48
-        // scan could completely miss free servers when many premium or legacy
-        // profiles were stored before them.
+        // Automatic selection is entitlement-isolated. Never append the global
+        // MMKV list: it contains free, expired Premium and manually imported
+        // profiles together. The selected profile is retained only if it belongs
+        // to the exact current pool.
+        val entitlementGuidSet = entitlementGuids.toSet()
         val orderedGuids = buildList {
+            if (selected.isNotBlank() && selected in entitlementGuidSet) add(selected)
             entitlementGuids.forEach { add(it) }
-            if (selected.isNotBlank()) add(selected)
-            allGuids.forEach { add(it) }
         }.distinct()
 
         val wanted = preferredKey.orEmpty().ifBlank {
@@ -933,7 +944,7 @@ private fun unknownLocation(): BlueVpnLocation =
         }
         val automatic = BlueVpnPreferences.smartBalance(context)
 
-        val entitlementServerGuidSet = entitlementGuids.toSet()
+        val entitlementServerGuidSet = entitlementGuidSet
 
         fun scan(skipSessionInactive: Boolean): List<Candidate> {
             val result = ArrayList<Candidate>(maxCandidates)

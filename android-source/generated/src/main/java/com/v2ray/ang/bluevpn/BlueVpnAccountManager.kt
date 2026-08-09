@@ -511,51 +511,98 @@ object BlueVpnAccountManager {
 
     private fun configuredFreeSubscriptionGuids(c: Context): Set<String> {
         val storage = freePrefs(c)
-        return storage.getStringSet("subscription_guids", emptySet()).orEmpty()
+        val stored = storage.getStringSet("subscription_guids", emptySet()).orEmpty()
             .ifEmpty {
                 storage.getString("subscription_guid", "").orEmpty()
                     .takeIf { it.isNotBlank() }
                     ?.let { setOf(it) }
                     .orEmpty()
             }
-    }
-
-    private fun allFreeSubscriptionGuids(): Set<String> =
-        MmkvManager.decodeSubscriptions()
+        val configuredUrls = freeAccessSnapshot(c).subscriptions
+            .map { it.url.trim() }
+            .filter { it.startsWith("http") }
+            .toSet()
+        val installed = MmkvManager.decodeSubscriptions()
             .asSequence()
-            .filter { it.subscription.remarks.startsWith(FREE_SUB) }
+            .filter {
+                it.subscription.remarks.startsWith(FREE_SUB) &&
+                    (configuredUrls.isEmpty() || it.subscription.url.trim() in configuredUrls)
+            }
             .map { it.guid }
             .filter { it.isNotBlank() }
             .toSet()
+        return when {
+            stored.isEmpty() -> installed
+            installed.isEmpty() -> emptySet()
+            else -> stored intersect installed
+        }
+    }
 
-    private fun managedSubscriptionGuid(): String =
-        MmkvManager.decodeSubscriptions()
-            .firstOrNull { it.subscription.remarks == SUB }
-            ?.guid
-            .orEmpty()
+    private fun enabledFreeSubscriptionGuids(c: Context): Set<String> {
+        val configured = configuredFreeSubscriptionGuids(c)
+        if (configured.isEmpty()) return emptySet()
+        val enabled = MmkvManager.decodeSubscriptions()
+            .asSequence()
+            .filter {
+                it.subscription.enabled &&
+                    it.subscription.remarks.startsWith(FREE_SUB)
+            }
+            .map { it.guid }
+            .filter { it.isNotBlank() }
+            .toSet()
+        return configured intersect enabled
+    }
 
     /**
-     * Returns server GUIDs belonging to the current entitlement before the
-     * global MMKV list is scanned. This prevents a free account from missing
-     * its servers merely because premium/legacy profiles occupy the first
-     * entries in the database.
+     * Return every enabled subscription row that belongs to the exact current
+     * Premium URL. Older BlueVPN Account rows can remain in MMKV after renewal
+     * or provider migration; they must never be merged into the active pool.
      */
-    fun preferredServerGuids(c: Context): List<String> {
-        val subscriptionGuids = when {
-            active(c) -> managedSubscriptionGuid()
-                .takeIf { it.isNotBlank() }
-                ?.let { listOf(it) }
-                .orEmpty()
-            isFreeMode(c) -> configuredFreeSubscriptionGuids(c).toList()
-            else -> emptyList()
-        }
-        return subscriptionGuids
+    private fun managedSubscriptionGuids(c: Context): Set<String> {
+        val expectedUrl = snapshot(c).subscriptionUrl.trim()
+        if (!expectedUrl.startsWith("http")) return emptySet()
+        return MmkvManager.decodeSubscriptions()
+            .asSequence()
+            .filter {
+                it.subscription.remarks == SUB &&
+                    it.subscription.enabled &&
+                    it.subscription.url.trim() == expectedUrl
+            }
+            .map { it.guid }
+            .filter { it.isNotBlank() }
+            .toSet()
+    }
+
+    fun entitlementSubscriptionGuids(c: Context): Set<String> = when {
+        active(c) -> managedSubscriptionGuids(c)
+        isFreeMode(c) -> enabledFreeSubscriptionGuids(c)
+        else -> emptySet()
+    }
+
+    /**
+     * Returns server GUIDs belonging strictly to the current entitlement.
+     * The global MMKV server list is never used as a fallback because it can
+     * contain free, expired Premium and manually imported profiles together.
+     */
+    fun preferredServerGuids(c: Context): List<String> =
+        entitlementSubscriptionGuids(c)
             .flatMap { guid ->
                 runCatching { MmkvManager.decodeServerList(guid) }
                     .getOrDefault(emptyList())
             }
+            .map { it.trim() }
             .filter { it.isNotBlank() }
             .distinct()
+
+    fun entitlementPoolFingerprint(c: Context): String {
+        val mode = when {
+            active(c) -> "premium"
+            isFreeMode(c) -> "free"
+            else -> "none"
+        }
+        val subscriptions = entitlementSubscriptionGuids(c).sorted().joinToString(",")
+        val servers = preferredServerGuids(c).sorted().joinToString(",")
+        return "$mode|$subscriptions|$servers"
     }
 
     fun candidateAllowed(c: Context, subscriptionId: String?): Boolean =
@@ -576,19 +623,17 @@ object BlueVpnAccountManager {
         entitlementServerGuids: Set<String> = preferredServerGuids(c).toSet(),
     ): Boolean {
         val guid = serverGuid.trim()
-        if (guid.isNotBlank() && guid in entitlementServerGuids) return true
-
-        val id = subscriptionId.orEmpty()
-        val allFreeGuids = allFreeSubscriptionGuids()
-        return when {
-            active(c) -> {
-                val managedGuid = managedSubscriptionGuid()
-                if (managedGuid.isNotBlank()) id == managedGuid
-                else id.isNotBlank() && id !in allFreeGuids
-            }
-            isFreeMode(c) -> id in configuredFreeSubscriptionGuids(c)
-            else -> false
+        if (guid.isNotBlank()) {
+            // Membership in the subscription-owned server list is authoritative.
+            // Never fall back to the global profile database for a known GUID.
+            return guid in entitlementServerGuids
         }
+
+        // This branch only covers the short import window where a ProfileItem
+        // exists without a published server GUID. Restrict it to the exact
+        // active subscription rows; do not accept arbitrary non-free profiles.
+        val id = subscriptionId.orEmpty().trim()
+        return id.isNotBlank() && id in entitlementSubscriptionGuids(c)
     }
 
     /**
@@ -650,17 +695,38 @@ object BlueVpnAccountManager {
             }
         }
 
-        val managed = existing.firstOrNull { it.subscription.remarks == SUB }
-        if (premiumActive && premiumUrl.startsWith("http")) {
-            val needsManagedWrite = managed == null ||
-                managed.subscription.url != premiumUrl ||
-                !managed.subscription.enabled
+        val managedRows = existing.filter { it.subscription.remarks == SUB }
+        val normalizedPremiumUrl = premiumUrl.trim()
+        if (premiumActive && normalizedPremiumUrl.startsWith("http")) {
+            val managed = managedRows.firstOrNull {
+                it.subscription.url.trim() == normalizedPremiumUrl
+            }
+
+            // Disable stale Premium rows from an older panel, renewal or URL.
+            // Keeping several enabled "BlueVPN Account" rows is what caused the
+            // automatic selector to combine free/old/premium routes in MMKV.
+            managedRows.filter {
+                it.guid != managed?.guid && it.subscription.enabled
+            }.forEach { row ->
+                MmkvManager.encodeSubscription(
+                    row.guid,
+                    SubscriptionItem(
+                        remarks = row.subscription.remarks,
+                        url = row.subscription.url,
+                        enabled = false,
+                        autoUpdate = row.subscription.autoUpdate,
+                    ),
+                )
+                changed = true
+            }
+
+            val needsManagedWrite = managed == null || !managed.subscription.enabled
             if (needsManagedWrite) {
                 MmkvManager.encodeSubscription(
                     managed?.guid.orEmpty(),
                     SubscriptionItem(
                         remarks = SUB,
-                        url = premiumUrl,
+                        url = normalizedPremiumUrl,
                         enabled = true,
                         autoUpdate = true,
                     ),
@@ -668,23 +734,34 @@ object BlueVpnAccountManager {
                 changed = true
                 mustRefresh = true
             }
-            val currentGuid = managedSubscriptionGuid()
-            if (currentGuid.isBlank() ||
-                runCatching { MmkvManager.decodeServerList(currentGuid).isEmpty() }
-                    .getOrDefault(true)) {
+
+            val currentGuids = MmkvManager.decodeSubscriptions()
+                .filter {
+                    it.subscription.remarks == SUB &&
+                        it.subscription.enabled &&
+                        it.subscription.url.trim() == normalizedPremiumUrl
+                }
+                .map { it.guid }
+                .filter { it.isNotBlank() }
+            if (currentGuids.isEmpty() || currentGuids.all { guid ->
+                    runCatching { MmkvManager.decodeServerList(guid).isEmpty() }
+                        .getOrDefault(true)
+                }) {
                 mustRefresh = true
             }
-        } else if (managed != null && managed.subscription.enabled) {
-            MmkvManager.encodeSubscription(
-                managed.guid,
-                SubscriptionItem(
-                    remarks = managed.subscription.remarks,
-                    url = managed.subscription.url,
-                    enabled = false,
-                    autoUpdate = managed.subscription.autoUpdate,
-                ),
-            )
-            changed = true
+        } else {
+            managedRows.filter { it.subscription.enabled }.forEach { row ->
+                MmkvManager.encodeSubscription(
+                    row.guid,
+                    SubscriptionItem(
+                        remarks = row.subscription.remarks,
+                        url = row.subscription.url,
+                        enabled = false,
+                        autoUpdate = row.subscription.autoUpdate,
+                    ),
+                )
+                changed = true
+            }
         }
 
         if (mustRefresh) {

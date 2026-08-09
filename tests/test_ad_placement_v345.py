@@ -11,19 +11,19 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_345():
     release=json.loads((ROOT/'release.json').read_text(encoding='utf-8'))
     app=json.loads((ROOT/'branding/app.json').read_text(encoding='utf-8'))
-    assert release['version']=='3.0.47'
-    assert release['version_code']==30047
-    assert app['version_name']=='3.0.47'
-    assert app['version_code']==30047
+    assert release['version']=='3.0.48'
+    assert release['version_code']==30048
+    assert app['version_name']=='3.0.48'
+    assert app['version_code']==30048
 
 
 def test_ad_is_compact_and_placed_above_server_selection():
     home=(ROOT/'android-source/BlueVpnHomeActivity.kt').read_text(encoding='utf-8')
     carousel=(ROOT/'android-source/BlueVpnAdsCarouselView.kt').read_text(encoding='utf-8')
     assert home.index('BlueVpnAdsCarouselView(this)') < home.index('createServerCard()')
-    assert 'availableWidth / 2.222f' in carousel
+    assert '/ 2.222f' in carousel
     assert 'coerceIn(dp(116), dp(160))' in carousel
-    assert 'if (!hasRenderedContent) visibility = View.GONE' in carousel
+    assert 'private fun hideBanner()' in carousel
 
 
 def test_admin_documents_recommended_ad_size():

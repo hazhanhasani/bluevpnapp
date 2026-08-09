@@ -1,11 +1,11 @@
 {
-  "version": "3.0.47",
-  "channel": "mobile-first-admin",
-  "build_id": "20260809-mobile-admin-v3043",
-  "built_at": "2026-08-09T07:30:00Z",
-  "android_version": "3.0.43",
-  "android_version_code": 30043,
-  "description": "BlueVPN 3.0.43 پنل مدیریت را به‌صورت Mobile-First بازطراحی می‌کند؛ منوی کشویی، جدول‌های کارتی، فرم‌های تک‌ستونه و مدیریت کامل روی نمایشگر گوشی بدون نیاز به حالت دسکتاپ.",
+  "version": "3.0.48",
+  "channel": "stable",
+  "build_id": "20260809-safe-ad-render-v3048",
+  "built_at": "2026-08-09T07:33:55Z",
+  "android_version": "3.0.48",
+  "android_version_code": 30048,
+  "description": "BlueVPN 3.0.48 نمایش تبلیغات را فقط پس از دانلود و Decode موفق تصویر فعال می‌کند، ارتفاع بنر را روی نسبت ۲۰:۹ قفل می‌کند و برای جلوگیری از خراب‌شدن صفحه، تبلیغات را روی نسخه‌های قدیمی ناسازگار غیرفعال نگه می‌دارد.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -329,9 +329,13 @@
     "mobile-refresh-405-fix",
     "backward-compatible-ad-image-urls",
     "minute-ad-config-refresh",
-    "absolute-and-relative-ad-assets"
+    "absolute-and-relative-ad-assets",
+    "safe-ad-client-gating",
+    "image-ready-only-ad-render",
+    "fixed-ad-layout-height",
+    "old-client-ad-ui-protection"
   ],
-  "version_code": 30047,
+  "version_code": 30048,
   "notes": "تبلیغات صفحه اصلی اکنون از پنل مدیریت می‌شوند و بدون تبلیغ فعال هیچ فضای خالی در اپ نمایش داده نمی‌شود.",
   "version_source": "in-app-ad-carousel-v3042"
 }

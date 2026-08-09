@@ -1,4 +1,4 @@
-/* BlueVPN 3.0.47 — mobile-first responsive admin */
+/* BlueVPN 3.0.48 — mobile-first responsive admin */
 
 :root{--bg:#050a17;--bg2:#08162f;--surface:rgba(13,28,57,.72);--surface-strong:#10264d;--line:rgba(116,166,255,.19);--line-strong:rgba(94,165,255,.42);--text:#f7f9ff;--muted:#91a7c9;--blue:#4b8dff;--cyan:#28d7e5;--violet:#8a6cff;--green:#36e6a7;--amber:#ffbd59;--red:#ff7085;--shadow:0 26px 80px rgba(0,0,0,.32)}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;min-height:100vh;color:var(--text);font-family:Inter,Vazirmatn,Tahoma,Arial,sans-serif;background:radial-gradient(circle at 12% 8%,rgba(66,121,255,.18),transparent 27%),radial-gradient(circle at 88% 20%,rgba(138,108,255,.16),transparent 25%),linear-gradient(160deg,var(--bg),var(--bg2) 58%,#071125);background-attachment:fixed}body:before{content:"";position:fixed;inset:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,.016) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.016) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(to bottom,black,transparent 80%)}

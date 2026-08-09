@@ -91,7 +91,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         elevation = dp(3).toFloat()
         clipToOutline = true
         desiredHeightPx = dp(146)
-        minimumHeight = desiredHeightPx
+        minimumHeight = 0
         buildUi()
         isClickable = true
         isFocusable = true
@@ -208,7 +208,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
                 fetchInFlight = false
                 if (!running) return@post
                 result.onSuccess { applyConfig(it) }.onFailure {
-                    if (items.isEmpty()) visibility = View.GONE
+                    if (items.isEmpty()) hideBanner()
                 }
                 scheduleRefresh()
             }
@@ -220,7 +220,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         val config = root.optJSONObject("advertising")
         if (config == null || !config.optBoolean("enabled", false)) {
             items = emptyList()
-            visibility = View.GONE
+            hideBanner()
             handler.removeCallbacks(slideRunnable)
             return
         }
@@ -228,8 +228,6 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         loop = config.optBoolean("loop", true)
         intervalMs = config.optLong("interval_ms", 6_000L).coerceIn(3_000L, 30_000L)
         desiredHeightPx = dp(config.optInt("height_dp", 146).coerceIn(116, 160))
-        minimumHeight = desiredHeightPx
-        requestLayout()
         val parsed = mutableListOf<AdItem>()
         val array = config.optJSONArray("items")
         if (array != null) {
@@ -238,9 +236,9 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
                 val id = row.optString("id").trim()
                 val title = row.optString("title").trim()
                 val imageUrl = imageAssetUrl(
-                    row.optString("image_url").ifBlank { row.optString("image_path") }
+                    row.optString("image_path").ifBlank { row.optString("image_url") }
                 )
-                if (id.isBlank() || (title.isBlank() && imageUrl.isBlank())) continue
+                if (id.isBlank() || imageUrl.isBlank()) continue
                 parsed += AdItem(
                     id = id,
                     title = title,
@@ -253,7 +251,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         }
         items = parsed
         if (items.isEmpty()) {
-            visibility = View.GONE
+            hideBanner()
             return
         }
         currentIndex = currentIndex.coerceIn(0, items.lastIndex)
@@ -273,17 +271,11 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         actionView.visibility = if (item.targetUrl.isBlank()) View.GONE else View.VISIBLE
         renderDots()
         if (item.imageUrl.isBlank()) {
-            imageView.setImageDrawable(null)
-            imageView.background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.parseColor("#244FC2"), Color.parseColor("#091126")),
-            )
-            hasRenderedContent = true
-            visibility = View.VISIBLE
-        } else {
-            if (!hasRenderedContent) visibility = View.GONE
-            loadImage(item.imageUrl)
+            dropBrokenCurrentItem(item.id)
+            return
         }
+        if (!hasRenderedContent) hideBanner()
+        loadImage(item.imageUrl)
         if (animate) {
             alpha = 0.72f
             scaleX = 0.985f
@@ -294,17 +286,16 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     private fun loadImage(url: String) {
         val cached = bitmapCache.get(url)
         if (cached != null) {
-            imageView.background = null
-            imageView.setImageBitmap(cached)
-            hasRenderedContent = true
-            visibility = View.VISIBLE
+            revealBitmap(cached)
             return
         }
-        imageView.setImageDrawable(null)
-        imageView.background = GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,
-            intArrayOf(Color.parseColor("#1D2A4D"), Color.parseColor("#090D18")),
-        )
+        if (!hasRenderedContent) {
+            imageView.setImageDrawable(null)
+            imageView.background = GradientDrawable(
+                GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.parseColor("#1D2A4D"), Color.parseColor("#090D18")),
+            )
+        }
         val expectedId = items.getOrNull(currentIndex)?.id ?: return
         worker.execute {
             val bitmap = runCatching {
@@ -313,6 +304,9 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
                     connection.connectTimeout = 8_000
                     connection.readTimeout = 10_000
                     connection.instanceFollowRedirects = true
+                    connection.useCaches = false
+                    connection.setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
+                    connection.setRequestProperty("Cache-Control", "no-cache")
                     connection.setRequestProperty("User-Agent", "BlueVPN/${BuildConfig.VERSION_NAME}")
                     if (connection.responseCode !in 200..299) error("HTTP ${connection.responseCode}")
                     val contentType = connection.contentType.orEmpty().lowercase()
@@ -327,20 +321,9 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
                 val current = items.getOrNull(currentIndex)
                 if (current?.id == expectedId && current.imageUrl == url) {
                     if (bitmap != null) {
-                        imageView.background = null
-                        imageView.setImageBitmap(bitmap)
-                        hasRenderedContent = true
-                        visibility = View.VISIBLE
-                    } else if (current.title.isBlank() && current.subtitle.isBlank()) {
-                        dropBrokenCurrentItem(expectedId)
+                        revealBitmap(bitmap)
                     } else {
-                        imageView.setImageDrawable(null)
-                        imageView.background = GradientDrawable(
-                            GradientDrawable.Orientation.TL_BR,
-                            intArrayOf(Color.parseColor("#244FC2"), Color.parseColor("#091126")),
-                        )
-                        hasRenderedContent = true
-                        visibility = View.VISIBLE
+                        dropBrokenCurrentItem(expectedId)
                     }
                 }
             }
@@ -349,13 +332,56 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
 
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val availableWidth = MeasureSpec.getSize(widthMeasureSpec).coerceAtLeast(dp(240))
-        val ratioHeight = (availableWidth / 2.222f).roundToInt()
-        val configuredHeight = desiredHeightPx.coerceIn(dp(116), dp(160))
-        val responsiveHeight = ratioHeight.coerceIn(dp(116), dp(160))
-        val finalHeight = minOf(configuredHeight, responsiveHeight)
-        val exactHeightSpec = MeasureSpec.makeMeasureSpec(finalHeight, MeasureSpec.EXACTLY)
-        super.onMeasure(widthMeasureSpec, exactHeightSpec)
+        if (!hasRenderedContent) {
+            super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.EXACTLY))
+            return
+        }
+        val finalHeight = calculateBannerHeight(MeasureSpec.getSize(widthMeasureSpec))
+        super.onMeasure(
+            widthMeasureSpec,
+            MeasureSpec.makeMeasureSpec(finalHeight, MeasureSpec.EXACTLY),
+        )
+    }
+
+    private fun calculateBannerHeight(widthHint: Int = 0): Int {
+        val fallbackWidth = resources.displayMetrics.widthPixels - dp(40)
+        val availableWidth = widthHint.takeIf { it > 0 }
+            ?: measuredWidth.takeIf { it > 0 }
+            ?: (parent as? View)?.width?.takeIf { it > 0 }
+            ?: fallbackWidth
+        val ratioHeight = (availableWidth.coerceAtLeast(dp(240)) / 2.222f).roundToInt()
+        return minOf(
+            desiredHeightPx.coerceIn(dp(116), dp(160)),
+            ratioHeight.coerceIn(dp(116), dp(160)),
+        )
+    }
+
+    private fun revealBitmap(bitmap: Bitmap) {
+        imageView.background = null
+        imageView.setImageBitmap(bitmap)
+        hasRenderedContent = true
+        val targetHeight = calculateBannerHeight()
+        layoutParams?.let { params ->
+            if (params.height != targetHeight) {
+                params.height = targetHeight
+                layoutParams = params
+            }
+        }
+        visibility = View.VISIBLE
+        requestLayout()
+    }
+
+    private fun hideBanner() {
+        hasRenderedContent = false
+        visibility = View.GONE
+        minimumHeight = 0
+        layoutParams?.let { params ->
+            if (params.height != 0) {
+                params.height = 0
+                layoutParams = params
+            }
+        }
+        requestLayout()
     }
 
     private fun renderDots() {
@@ -381,7 +407,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         val remaining = items.filterNot { it.id == expectedId }
         items = remaining
         if (remaining.isEmpty()) {
-            visibility = View.GONE
+            hideBanner()
             handler.removeCallbacks(slideRunnable)
             return
         }

@@ -11,24 +11,24 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_347():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.47"
-    assert release["version_code"] == 30047
-    assert app["version_name"] == "3.0.47"
-    assert app["version_code"] == 30047
+    assert release["version"] == "3.0.48"
+    assert release["version_code"] == 30048
+    assert app["version_name"] == "3.0.48"
+    assert app["version_code"] == 30048
 
 
 def test_server_emits_backward_compatible_ad_assets():
     source = (ROOT / "server/main.py").read_text(encoding="utf-8")
     assert "def _public_origin(request:Request|None" in source
     assert "'image_path':raw_image if raw_image.startswith('/media/ads/') else ''" in source
-    assert "advertising_payload(s,_public_origin(request,s))" in source
+    assert "advertising_payload(s,_public_origin(request,s),_bluevpn_client_version(request))" in source
 
 
 def test_android_refreshes_ads_and_supports_both_url_forms():
     source = (ROOT / "android-source/BlueVpnAdsCarouselView.kt").read_text(encoding="utf-8")
     assert "private val refreshRunnable" in source
     assert "handler.postDelayed(refreshRunnable, 60_000L)" in source
-    assert 'row.optString("image_url").ifBlank { row.optString("image_path") }' in source
+    assert 'row.optString("image_path").ifBlank { row.optString("image_url") }' in source
     assert "fetchInFlight" in source
 
 

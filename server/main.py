@@ -464,11 +464,40 @@ def _public_origin(request:Request|None,s:dict[str,Any])->str:
     return ''
 
 
+
+MIN_SAFE_AD_CLIENT_VERSION = "3.0.48"
+
+
+def _version_key(value:str)->tuple[int,int,int,int]:
+    parts=[]
+    for chunk in re.findall(r"\d+",str(value or ''))[:4]:
+        try:parts.append(int(chunk))
+        except ValueError:parts.append(0)
+    return tuple((parts+[0,0,0,0])[:4])
+
+
+def _bluevpn_client_version(request:Request|None)->str:
+    if request is None:
+        return ''
+    user_agent=str(request.headers.get('user-agent') or '')
+    match=re.search(r"(?:^|\s)BlueVPN/([0-9]+(?:\.[0-9]+){1,3})",user_agent,re.IGNORECASE)
+    return match.group(1) if match else ''
+
+
+def _client_supports_safe_ads(version:str)->bool:
+    version=str(version or '').strip()
+    return not version or _version_key(version)>=_version_key(MIN_SAFE_AD_CLIENT_VERSION)
+
 def _public_ad_image_url(value:str,s:dict[str,Any],public_origin:str='')->str:
     value=str(value or '').strip()
     if not value:
         return ''
     if value.startswith('/media/ads/'):
+        filename=Path(value).name
+        if not re.fullmatch(r'[a-zA-Z0-9._-]{1,160}',filename):
+            return ''
+        if not (ADS_DIR/filename).is_file():
+            return ''
         base=public_origin or _public_origin(None,s)
         return f'{base}{value}' if base else value
     try:
@@ -477,7 +506,7 @@ def _public_ad_image_url(value:str,s:dict[str,Any],public_origin:str='')->str:
         return ''
 
 
-def advertising_payload(s:dict[str,Any],public_origin:str='')->dict[str,Any]:
+def advertising_payload(s:dict[str,Any],public_origin:str='',client_version:str='')->dict[str,Any]:
     rows=[]
     for item in sorted(
         _ad_items(s.get('ads_items')),
@@ -488,7 +517,7 @@ def advertising_payload(s:dict[str,Any],public_origin:str='')->dict[str,Any]:
         raw_image=str(item.get('image_url') or '').strip()
         image_url=_public_ad_image_url(raw_image,s,public_origin)
         title=str(item.get('title') or '').strip()
-        if not image_url and not title:
+        if not image_url:
             continue
         target_url=''
         try:
@@ -504,13 +533,18 @@ def advertising_payload(s:dict[str,Any],public_origin:str='')->dict[str,Any]:
             'target_url':target_url,
             'button_text':str(item.get('button_text') or ''),
         })
-    enabled=bool(s.get('ads_enabled',False)) and bool(rows)
+    configured=bool(s.get('ads_enabled',False)) and bool(rows)
+    supported=_client_supports_safe_ads(client_version)
+    enabled=configured and supported
     return {
         'enabled':enabled,
         'autoplay':bool(s.get('ads_autoplay',True)),
         'loop':bool(s.get('ads_loop',True)),
         'interval_ms':max(3000,min(30000,int(s.get('ads_interval_seconds',6) or 6)*1000)),
         'height_dp':max(116,min(160,int(s.get('ads_height_dp',146) or 146))),
+        'aspect_ratio':'20:9',
+        'required_client_version':MIN_SAFE_AD_CLIENT_VERSION,
+        'disabled_reason':'old_client_layout' if configured and not supported else '',
         'items':rows if enabled else [],
     }
 
@@ -1889,7 +1923,7 @@ async def mobile_config(
                 'title':s['announcement_title'],
                 'message':s['announcement_message'],
             },
-            'advertising':advertising_payload(s,_public_origin(request,s)),
+            'advertising':advertising_payload(s,_public_origin(request,s),_bluevpn_client_version(request)),
             'updated_at':s['updated_at'],
             'updated_at_fa':format_jalali(s['updated_at'],fallback=''),
             'calendar':'jalali',

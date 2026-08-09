@@ -452,7 +452,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             adsCarousel,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
+                0,
             ).apply {
                 marginStart = dpHome(4)
                 marginEnd = dpHome(4)

@@ -1,11 +1,11 @@
 {
-  "version": "3.0.71",
+  "version": "3.0.73",
   "channel": "stable",
-  "build_id": "20260809-entitlement-hot-swap-bluepay-v3071",
-  "built_at": "2026-08-09T22:30:00Z",
-  "android_version": "3.0.71",
-  "android_version_code": 30071,
-  "description": "BlueVPN 3.0.71 انتخاب خودکار پلن رایگان، تعویض فوری سرورهای رایگان و اشتراکی، سازگاری فاکتور BluePay و تازه‌سازی حساب بدون خروج را اصلاح می‌کند.",
+  "build_id": "20260809-premium-location-entitlement-ui-v3073",
+  "built_at": "2026-08-09T20:00:22Z",
+  "android_version": "3.0.73",
+  "android_version_code": 30073,
+  "description": "BlueVPN 3.0.73 برچسب ثابت «خودکار رایگان» را حذف می‌کند و صفحه مکان‌ها را مستقیماً به وضعیت تازه اشتراک Premium متصل می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -457,9 +457,18 @@
     "bluepay-bearer-and-api-key-compatibility",
     "bluepay-wrapped-response-normalization",
     "bluepay-webhook-header-compatibility",
-    "bluepay-prefixed-hmac-support"
+    "bluepay-prefixed-hmac-support",
+    "entitlement-guid-location-recovery",
+    "premium-location-import-wait",
+    "bluepay-50s-android-timeout",
+    "bluepay-developer-url-normalization",
+    "bluepay-json-error-contract",
+    "dynamic-location-entitlement-copy",
+    "premium-location-entry-force-sync",
+    "location-screen-no-stale-free-label",
+    "location-refresh-entitlement-reconciliation"
   ],
-  "version_code": 30071,
-  "notes": "سرورهای رایگان بر اساس مالکیت اشتراک اولویت‌بندی می‌شوند، تغییر پلن به‌صورت اتمی Cache و سرورها را جایگزین می‌کند، پاسخ‌ها و هدرهای سازگار BluePay پشتیبانی می‌شوند و فعال‌سازی دستی یا پرداخت بدون Logout در اولین بازگشت برنامه اعمال می‌شود.",
-  "version_source": "entitlement-hot-swap-bluepay-v3071"
+  "version_code": 30073,
+  "notes": "صفحه مکان‌ها وضعیت رایگان یا Premium را از Snapshot مشترک حساب می‌خواند، هنگام ورود و تازه‌سازی حساب را اجباری همگام می‌کند و متن، فیلتر و Cache سرورها بدون خروج از حساب به‌روزرسانی می‌شوند.",
+  "version_source": "premium-location-entitlement-ui-v3073"
 }

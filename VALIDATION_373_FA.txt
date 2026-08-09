@@ -1,0 +1,11 @@
+اعتبارسنجی BlueVPN 3.0.73
+========================
+
+- pytest: 277 موفق، 0 ناموفق
+- validate_dual_engine.py: 35 موفق، 0 ناموفق، 1 هشدار محیط آفلاین
+- validate_generated_android.py: موفق
+- نسخه Android: 3.0.73
+- Version Code: 30073
+
+هشدار:
+Build کامل Gradle/Android SDK/NDK/Go در این محیط آفلاین اجرا نشده و باید در GitHub Actions تأیید شود.

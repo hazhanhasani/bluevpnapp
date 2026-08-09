@@ -763,11 +763,16 @@ private fun unknownLocation(): BlueVpnLocation =
         ) {
             return contextCandidateCache
         }
+        val entitlementServerGuids = BlueVpnAccountManager
+            .preferredServerGuids(context)
+            .toSet()
         val resolved = allCandidates(forceRefresh)
             .filter { candidate ->
                 BlueVpnAccountManager.candidateAllowed(
                     context,
+                    candidate.guid,
                     candidate.profile.subscriptionId,
+                    entitlementServerGuids,
                 )
             }
             .map { candidate ->
@@ -928,6 +933,8 @@ private fun unknownLocation(): BlueVpnLocation =
         }
         val automatic = BlueVpnPreferences.smartBalance(context)
 
+        val entitlementServerGuidSet = entitlementGuids.toSet()
+
         fun scan(skipSessionInactive: Boolean): List<Candidate> {
             val result = ArrayList<Candidate>(maxCandidates)
             for (guid in orderedGuids) {
@@ -936,7 +943,12 @@ private fun unknownLocation(): BlueVpnLocation =
                     BlueVpnPreferences.isSessionInactive(context, guid)) continue
                 val profile = MmkvManager.decodeServerConfig(guid) ?: continue
                 if (!isUsable(profile, MmkvManager.decodeServerRaw(guid))) continue
-                if (!BlueVpnAccountManager.candidateAllowed(context, profile.subscriptionId)) continue
+                if (!BlueVpnAccountManager.candidateAllowed(
+                        context,
+                        guid,
+                        profile.subscriptionId,
+                        entitlementServerGuidSet,
+                    )) continue
                 val location = detect(profile.remarks, profile.server)
                 if (!automatic && wanted.isNotBlank() && location.key != wanted) continue
                 result += Candidate(

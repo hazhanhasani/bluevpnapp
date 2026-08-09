@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, unquote, urljoin
+from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 
 import httpx
 from sqlalchemy import select
@@ -2500,12 +2500,49 @@ def merge_order_metadata(
     return metadata
 
 
+def normalize_bluepay_base_url(raw: str) -> tuple[str, str]:
+    """Return (API origin/base, API key optionally embedded in a developer URL).
+
+    BluePay's merchant screen is commonly copied as
+    ``/developers/{merchant_id}/{api_key}``. That URL is documentation, not the
+    invoice API root. Older BlueVPN settings accepted it verbatim and then
+    appended ``/api/v1/invoices``, producing a guaranteed 404/HTML response.
+    """
+    value = str(raw or "").strip()
+    if not value:
+        return "", ""
+    if "://" not in value:
+        value = "https://" + value.lstrip("/")
+    parsed = urlsplit(value)
+    segments = [unquote(item) for item in parsed.path.split("/") if item]
+    embedded_key = ""
+
+    lowered = [item.lower() for item in segments]
+    if "developers" in lowered:
+        index = lowered.index("developers")
+        tail = segments[index + 1 :]
+        if len(tail) >= 2 and len(tail[-1]) >= 16:
+            embedded_key = tail[-1].strip()
+        segments = segments[:index]
+
+    while segments and segments[-1].lower() in {
+        "api", "v1", "docs", "swagger", "redoc", "developer", "developers",
+    }:
+        segments.pop()
+
+    path = "/" + "/".join(segments) if segments else ""
+    base = urlunsplit((parsed.scheme or "https", parsed.netloc, path, "", "")).rstrip("/")
+    return base, embedded_key
+
+
 def payment_secret(
     setting: PaymentSetting,
 ) -> tuple[str, str, str]:
+    base, embedded_key = normalize_bluepay_base_url(setting.base_url)
+    stored_key = decrypt(setting.api_key_enc).strip()
     return (
-        setting.base_url.rstrip("/"),
-        decrypt(setting.api_key_enc),
+        base,
+        stored_key or embedded_key,
         decrypt(setting.callback_secret_enc),
     )
 
@@ -2523,6 +2560,8 @@ def _bluepay_headers(
     }
     if auth_mode == "bearer":
         headers["Authorization"] = f"Bearer {key}"
+    elif auth_mode == "api_key_alt":
+        headers["Api-Key"] = key
     else:
         headers["X-API-Key"] = key
     if idempotency_key:
@@ -2587,10 +2626,10 @@ async def create_invoice(
     callback_url: str,
 ) -> dict:
     base, key, _ = payment_secret(setting)
-    if not setting.active or not key:
+    if not setting.active or not base or not key:
         raise IntegrationError("درگاه BluePay فعال یا کامل نیست")
 
-    ttl = max(5, min(30, setting.ttl_minutes))
+    ttl = max(5, min(30, int(setting.ttl_minutes or 30)))
     common = {
         "description": f"خرید {order.plan.title} برای {customer_label(order.customer)}",
         "callback_url": callback_url,
@@ -2620,13 +2659,21 @@ async def create_invoice(
     last_body: Any = None
 
     try:
+        deadline = time.monotonic() + 38.0
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(30.0, connect=15.0),
+            timeout=httpx.Timeout(14.0, connect=8.0),
             follow_redirects=False,
         ) as client:
             for endpoint in endpoints:
                 for variant, payload in enumerate(payloads, start=1):
-                    for auth_mode in ("api_key", "bearer"):
+                    for auth_mode in ("api_key", "api_key_alt", "bearer"):
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 1.0:
+                            raise httpx.TimeoutException("BluePay total request budget exceeded")
+                        request_timeout = httpx.Timeout(
+                            min(14.0, remaining),
+                            connect=min(8.0, remaining),
+                        )
                         response = await client.post(
                             base + endpoint,
                             headers=_bluepay_headers(
@@ -2635,6 +2682,7 @@ async def create_invoice(
                                 auth_mode=auth_mode,
                             ),
                             json=payload,
+                            timeout=request_timeout,
                         )
                         try:
                             body: Any = response.json()
@@ -2644,6 +2692,13 @@ async def create_invoice(
                         last_body = body
                         if response.status_code < 400:
                             normalized = normalize_bluepay_invoice(body)
+                            location_header = str(response.headers.get("location") or "").strip()
+                            if location_header and not normalized.get("payment_url"):
+                                normalized["payment_url"] = urljoin(base + "/", location_header)
+                                normalized.setdefault(
+                                    "payment_id",
+                                    location_header.rstrip("/").rsplit("/", 1)[-1],
+                                )
                             amount_toman, source_currency = normalize_gateway_amount_toman(
                                 normalized, order.amount_toman
                             )
@@ -2656,12 +2711,12 @@ async def create_invoice(
                             return normalized
                         if response.status_code not in {401, 403}:
                             break
-                    # Validation/route mismatch means no payable invoice was
-                    # created, so a compatibility request is safe. Other
-                    # provider failures stop immediately.
-                    if last_status not in {404, 405, 415, 422}:
+                    # 400/422 are often schema mismatches between BluePay
+                    # releases. Idempotency headers make the compatibility
+                    # payload safe, while other provider failures stop early.
+                    if last_status not in {400, 404, 405, 415, 422}:
                         break
-                if last_status not in {404, 405, 415, 422}:
+                if last_status not in {400, 404, 405, 415, 422}:
                     break
     except httpx.HTTPError as exc:
         log_bluepay_error(

@@ -1,7 +1,7 @@
 {
-  "release": "3.0.71-auto",
-  "version_name": "3.0.71",
-  "version_code": 30071,
+  "release": "3.0.73",
+  "version_name": "3.0.73",
+  "version_code": 30073,
   "changes": [
     "Route Android connect and disconnect commands through BlueVpnEngineManager",
     "Remove direct UI and account dependencies on v2rayNG CoreServiceManager",
@@ -14,13 +14,22 @@
     "Atomically disable free sources and refresh premium sources after activation",
     "Force account entitlement refresh on foreground without requiring logout",
     "Normalize wrapped BluePay invoice responses and compatible auth headers",
-    "Accept compatible BluePay webhook signature and delivery header names"
+    "Accept compatible BluePay webhook signature and delivery header names",
+    "Match imported routes by entitlement-owned server GUID when subscriptionId is temporarily blank",
+    "Remove the empty-location auto-reload loop and perform one bounded entitlement repair",
+    "Wait for asynchronous Premium subscription import before rendering locations",
+    "Increase Android invoice creation timeout to cover the backend-to-BluePay request",
+    "Normalize BluePay developers URLs and embedded API keys to the invoice API root",
+    "Return structured JSON for unexpected BluePay provider errors",
+    "Replace the hard-coded free label on the locations screen with entitlement-aware copy",
+    "Force account entitlement refresh when the locations screen opens or is manually refreshed",
+    "Refresh Premium server filters and cached candidates without logout/login"
   ],
-  "generated_at_unix": 1786231800,
-  "purpose": "رفع انتخاب خودکار رایگان، تعویض فوری پلن، پرداخت BluePay و فعال‌سازی بدون خروج",
-  "updated_at": "2026-08-09T19:30:00Z",
-  "built_at": "2026-08-09T19:30:00Z",
-  "build_id": "20260809-entitlement-hot-swap-bluepay-v3071",
-  "feature": "entitlement-hot-swap-bluepay-compat",
-  "build_fix": "free-premium-bluepay-account-refresh"
+  "generated_at_unix": 1786305622,
+  "purpose": "رفع نمایش اشتباه پلن رایگان در صفحه مکان‌ها",
+  "updated_at": "2026-08-09T20:00:22Z",
+  "built_at": "2026-08-09T20:00:22Z",
+  "build_id": "20260809-premium-location-entitlement-ui-v3073",
+  "feature": "premium-location-entitlement-ui",
+  "build_fix": "dynamic-entitlement-copy-and-entry-sync"
 }

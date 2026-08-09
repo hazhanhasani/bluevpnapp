@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session,selectinload
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 from .database import DATA_DIR,DATABASE_ERROR,DATABASE_MODE,ENGINE,SQLITE_PATH,SessionLocal,database_status,database_table_counts,initialize_database,get_db
-from .integrations import IntegrationError,combined_subscription,create_invoice,delete_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,normalize_bluepay_invoice,normalize_provider_status,parse_remote_date,provision,recent_bluepay_errors,repair_subscription_states,sync_customer,test_marzban_panel,test_panel,verify_webhook
+from .integrations import IntegrationError,combined_subscription,create_invoice,delete_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,normalize_bluepay_base_url,normalize_bluepay_invoice,normalize_provider_status,parse_remote_date,provision,recent_bluepay_errors,repair_subscription_states,sync_customer,test_marzban_panel,test_panel,verify_webhook
 from .guardcore import service_ids_from_json,test_guardcore_panel
 from .manual_guardcore import (
     attach_manual_subscription,
@@ -2924,9 +2924,27 @@ async def create_order(request:Request,c:Customer=Depends(current_customer),db:S
             last_error=str(exc)
             _delete_invalid_order(db,order,last_error,event='invoice_create_attempt_deleted')
             db.commit()
-            if attempt<FRESH_INVOICE_RETRY_COUNT:
-                continue
+            # create_invoice already tries all compatible endpoints, payloads
+            # and auth headers under one bounded deadline. Repeating the whole
+            # network sequence would exceed Android's checkout timeout and can
+            # only delay the same provider error.
             raise HTTPException(502,detail={'code':'INVOICE_CREATE_FAILED','message':last_error})
+        except Exception as exc:
+            # Never leak a Railway/HTML 500 page to Android. Persist a redacted
+            # diagnostic and return a stable JSON error that the app can show.
+            last_error='خطای داخلی هنگام ارتباط با BluePay؛ تنظیمات درگاه و لاگ BluePay را بررسی کنید.'
+            log_bluepay_error(
+                'create_invoice_unexpected',
+                order_code=order.order_code,
+                error=f'{type(exc).__name__}: {exc}',
+            )
+            logger.exception('Unexpected BluePay invoice error for %s',order.order_code)
+            _delete_invalid_order(db,order,last_error,event='invoice_create_unexpected_deleted')
+            db.commit()
+            raise HTTPException(
+                502,
+                detail={'code':'BLUEPAY_INTERNAL_ERROR','message':last_error},
+            ) from exc
 
         invoice_amount,currency=normalize_gateway_amount_toman(invoice,order.amount_toman)
         payment_id=str(invoice.get('payment_id') or invoice.get('id') or '').strip()
@@ -3867,7 +3885,22 @@ def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form
     return RedirectResponse('/admin?saved=1#app',303)
 @app.post('/admin/payment-settings')
 def payment_settings(request:Request,base_url:str=Form(...),api_key:str=Form(''),callback_secret:str=Form(''),fee_mode:str=Form('default'),ttl_minutes:int=Form(30),active:str|None=Form(None),db:Session=Depends(get_db)):
-    admin_required(request);p=db.get(PaymentSetting,1) or PaymentSetting(id=1);p.base_url=base_url.rstrip('/');p.api_key_enc=encrypt(api_key.strip()) if api_key.strip() else p.api_key_enc;p.callback_secret_enc=encrypt(callback_secret.strip()) if callback_secret.strip() else p.callback_secret_enc;p.fee_mode=fee_mode;p.ttl_minutes=max(5,min(30,ttl_minutes));p.active=active=='on';db.add(p);db.commit();return RedirectResponse('/admin?saved=1#bluepay',303)
+    admin_required(request)
+    p=db.get(PaymentSetting,1) or PaymentSetting(id=1)
+    normalized_base,embedded_key=normalize_bluepay_base_url(base_url)
+    if not normalized_base:
+        raise HTTPException(400,detail='Base URL بلوپی معتبر نیست')
+    p.base_url=normalized_base
+    submitted_key=api_key.strip() or embedded_key
+    if submitted_key:
+        p.api_key_enc=encrypt(submitted_key)
+    if callback_secret.strip():
+        p.callback_secret_enc=encrypt(callback_secret.strip())
+    p.fee_mode=fee_mode
+    p.ttl_minutes=max(5,min(30,ttl_minutes))
+    p.active=active=='on'
+    db.add(p);db.commit()
+    return RedirectResponse('/admin?saved=1#bluepay',303)
 
 def _sms_provider_cache(payload:dict[str,Any])->tuple[list[dict[str,Any]],list[dict[str,Any]]]:
     raw_lines=payload.get('sms_provider_lines')

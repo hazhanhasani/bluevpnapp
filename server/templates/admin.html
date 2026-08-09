@@ -510,7 +510,7 @@
 
   <form method="post" action="/admin/payment-settings">
     <div class="form-grid">
-      <div><label>Base URL</label><input name="base_url" value="{{ payment.base_url }}" required></div>
+      <div><label>Base URL</label><input name="base_url" value="{{ payment.base_url }}" placeholder="https://bluepay-production.up.railway.app" required><small class="hint">آدرس اصلی BluePay را وارد کنید. اگر لینک developers را بچسبانید، سامانه آن را خودکار به API Root تبدیل می‌کند.</small></div>
       <div><label>API Key جدید</label><input name="api_key" type="password" placeholder="{{ payment_api_mask }}"></div>
       <div><label>Callback Secret جدید</label><input name="callback_secret" type="password" placeholder="{{ payment_callback_mask }}"></div>
       <div><label>Fee Mode</label><select name="fee_mode">{% for m in ['default','merchant','customer','split'] %}<option value="{{ m }}" {% if payment.fee_mode==m %}selected{% endif %}>{{ m }}</option>{% endfor %}</select></div>

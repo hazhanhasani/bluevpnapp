@@ -76,5 +76,7 @@
     "runtime_validator_result": "35 passed, 0 failed, 1 environment warning",
     "workflow_yaml_parse": "passed",
     "sing_box_shell_syntax": "passed"
-  }
+  },
+  "project_version": "3.0.70",
+  "release": "3.0.70"
 }

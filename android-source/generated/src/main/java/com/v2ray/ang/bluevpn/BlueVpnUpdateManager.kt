@@ -2,9 +2,12 @@ package com.v2ray.ang.bluevpn
 
 import android.app.Activity
 import android.app.Dialog
+import android.app.PendingIntent
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -16,6 +19,8 @@ import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.Gravity
 import android.view.View
@@ -64,6 +69,7 @@ object BlueVpnUpdateManager {
     private const val KEY_INSTALLED_VERSION = "installed_version"
     private const val KEY_INSTALLED_CODE = "installed_code"
     private const val KEY_INSTALL_PROMPTED_VERSION = "install_prompted_version"
+    private const val KEY_INSTALL_SESSION_ID = "install_session_id"
     private const val KEY_AUTO_DIALOG_VERSION = "auto_dialog_version"
     private const val KEY_OPTIONAL_SNOOZE_VERSION = "optional_snooze_version"
     private const val KEY_OPTIONAL_SNOOZE_UNTIL = "optional_snooze_until"
@@ -1151,9 +1157,10 @@ private fun startAutomaticDownload(
             "_",
         )
 
-    val directory = activity.getExternalFilesDir(
-        Environment.DIRECTORY_DOWNLOADS
-    ) ?: File(
+    // Keep the staged APK in app-private storage. The package installer
+    // receives the bytes through a PackageInstaller session, so OEM file URI
+    // parsers never need to read an APK from external storage.
+    val directory = File(
         activity.filesDir,
         "updates",
     )
@@ -1839,17 +1846,229 @@ private fun installDownloadedFile(
         .remove(KEY_PENDING_INSTALL_URI)
         .apply()
 
-    val uri = FileProvider.getUriForFile(
+    installWithPackageInstaller(
         context,
-        context.packageName +
-            ".bluevpn.updateprovider",
         file,
+        targetVersion,
+    )
+}
+
+private fun installWithPackageInstaller(
+    context: Context,
+    file: File,
+    targetVersion: String,
+) {
+    Thread {
+        var sessionId = -1
+        runCatching {
+            val packageInstaller =
+                context.packageManager.packageInstaller
+            val params = PackageInstaller.SessionParams(
+                PackageInstaller.SessionParams.MODE_FULL_INSTALL,
+            ).apply {
+                setAppPackageName(context.packageName)
+                setSize(file.length())
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setRequireUserAction(
+                        PackageInstaller.SessionParams.USER_ACTION_REQUIRED,
+                    )
+                }
+            }
+
+            sessionId = packageInstaller.createSession(params)
+            packageInstaller.openSession(sessionId).use { session ->
+                session.openWrite(
+                    "base.apk",
+                    0L,
+                    file.length(),
+                ).use { output ->
+                    file.inputStream().buffered(128 * 1024).use { input ->
+                        input.copyTo(output, 128 * 1024)
+                    }
+                    session.fsync(output)
+                }
+
+                val callback = Intent(
+                    context,
+                    com.v2ray.ang.ui.BlueVpnUpdateInstallActivity::class.java,
+                ).apply {
+                    action =
+                        "com.v2ray.ang.bluevpn.UPDATE_INSTALL_STATUS"
+                    putExtra(
+                        PackageInstaller.EXTRA_SESSION_ID,
+                        sessionId,
+                    )
+                    putExtra(
+                        KEY_DOWNLOAD_VERSION,
+                        targetVersion,
+                    )
+                    addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                    )
+                }
+                val pendingFlags =
+                    PendingIntent.FLAG_UPDATE_CURRENT or
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            PendingIntent.FLAG_MUTABLE
+                        } else {
+                            0
+                        }
+                val statusReceiver = PendingIntent.getActivity(
+                    context,
+                    sessionId,
+                    callback,
+                    pendingFlags,
+                )
+
+                context.getSharedPreferences(
+                    PREFS,
+                    Context.MODE_PRIVATE,
+                ).edit()
+                    .putInt(KEY_INSTALL_SESSION_ID, sessionId)
+                    .apply()
+
+                session.commit(statusReceiver.intentSender)
+            }
+        }.onFailure { error ->
+            if (sessionId > 0) {
+                runCatching {
+                    context.packageManager.packageInstaller
+                        .abandonSession(sessionId)
+                }
+            }
+            Handler(Looper.getMainLooper()).post {
+                // Last-resort compatibility path for heavily customized OEM
+                // installers. The primary path above never exposes the APK as
+                // a URI and therefore avoids package parser read failures.
+                launchLegacyInstaller(context, file)
+                Toast.makeText(
+                    context,
+                    "روش نصب سازگار اندروید باز شد: " +
+                        (error.message ?: "خطای آماده‌سازی نصب"),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
+    }.apply {
+        name = "BlueVPN-PackageInstaller"
+        isDaemon = true
+        start()
+    }
+}
+
+fun handlePackageInstallerStatus(
+    activity: Activity,
+    intent: Intent,
+) {
+    val status = intent.getIntExtra(
+        PackageInstaller.EXTRA_STATUS,
+        PackageInstaller.STATUS_FAILURE,
+    )
+    val preferences = activity.getSharedPreferences(
+        PREFS,
+        Context.MODE_PRIVATE,
     )
 
-    launchInstaller(
+    when (status) {
+        PackageInstaller.STATUS_PENDING_USER_ACTION -> {
+            val confirmation = if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+            ) {
+                intent.getParcelableExtra(
+                    Intent.EXTRA_INTENT,
+                    Intent::class.java,
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra<Intent>(
+                    Intent.EXTRA_INTENT,
+                )
+            }
+
+            if (confirmation != null) {
+                runCatching {
+                    activity.startActivity(confirmation)
+                }.onFailure { error ->
+                    Toast.makeText(
+                        activity,
+                        "صفحه تأیید نصب باز نشد: " +
+                            (error.message ?: "خطای اندروید"),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            } else {
+                Toast.makeText(
+                    activity,
+                    "اندروید صفحه تأیید نصب را برنگرداند",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            activity.finish()
+        }
+
+        PackageInstaller.STATUS_SUCCESS -> {
+            clearDownloadState(
+                activity,
+                preferences,
+                removeDownload = true,
+            )
+            preferences.edit()
+                .remove(KEY_INSTALL_SESSION_ID)
+                .apply()
+            Toast.makeText(
+                activity,
+                "بروزرسانی BlueVPN با موفقیت نصب شد",
+                Toast.LENGTH_LONG,
+            ).show()
+            activity.finish()
+        }
+
+        else -> {
+            val detail = intent.getStringExtra(
+                PackageInstaller.EXTRA_STATUS_MESSAGE,
+            ).orEmpty()
+            val userMessage = when (status) {
+                PackageInstaller.STATUS_FAILURE_INVALID ->
+                    "فایل بروزرسانی توسط اندروید نامعتبر تشخیص داده شد"
+                PackageInstaller.STATUS_FAILURE_INCOMPATIBLE ->
+                    "این نسخه با دستگاه شما سازگار نیست"
+                PackageInstaller.STATUS_FAILURE_CONFLICT ->
+                    "امضا یا نسخه نصب‌شده با بروزرسانی سازگار نیست"
+                PackageInstaller.STATUS_FAILURE_STORAGE ->
+                    "فضای کافی برای نصب بروزرسانی وجود ندارد"
+                PackageInstaller.STATUS_FAILURE_ABORTED ->
+                    "نصب بروزرسانی لغو شد"
+                PackageInstaller.STATUS_FAILURE_BLOCKED ->
+                    "اندروید نصب بروزرسانی را مسدود کرد"
+                else -> "نصب بروزرسانی انجام نشد"
+            }
+            preferences.edit()
+                .remove(KEY_INSTALL_PROMPTED_VERSION)
+                .remove(KEY_INSTALL_SESSION_ID)
+                .apply()
+            Toast.makeText(
+                activity,
+                if (detail.isBlank()) userMessage
+                else "$userMessage: $detail",
+                Toast.LENGTH_LONG,
+            ).show()
+            activity.finish()
+        }
+    }
+}
+
+private fun launchLegacyInstaller(
+    context: Context,
+    file: File,
+) {
+    val uri = FileProvider.getUriForFile(
         context,
-        uri,
+        context.packageName + ".bluevpn.updateprovider",
+        file,
     )
+    launchInstaller(context, uri)
 }
 
 private fun launchInstaller(
@@ -1858,6 +2077,7 @@ private fun launchInstaller(
 ) {
     val flags =
         Intent.FLAG_GRANT_READ_URI_PERMISSION or
+            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
             Intent.FLAG_ACTIVITY_NEW_TASK
 
     fun installerIntent(action: String): Intent =
@@ -1895,7 +2115,8 @@ private fun launchInstaller(
             context.grantUriPermission(
                 installerPackage,
                 uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
         }
     }
@@ -1960,23 +2181,15 @@ private fun validateDownloadedApk(
         }
     }
 
-    val packageInfo = if (Build.VERSION.SDK_INT >= 33) {
-        context.packageManager.getPackageArchiveInfo(
-            file.absolutePath,
-            PackageManager.PackageInfoFlags.of(0L),
-        )
-    } else {
-        @Suppress("DEPRECATION")
-        context.packageManager.getPackageArchiveInfo(
-            file.absolutePath,
-            0,
-        )
-    } ?: return "اندروید نتوانست اطلاعات بسته را بخواند"
+    val archiveInfo = packageArchiveInfoWithSignatures(
+        context,
+        file,
+    ) ?: return "اندروید نتوانست اطلاعات بسته را بخواند"
 
-    if (packageInfo.packageName != context.packageName) {
+    if (archiveInfo.packageName != context.packageName) {
         return "نام بسته با BlueVPN نصب‌شده مطابقت ندارد"
     }
-    val archiveVersion = packageInfo.versionName.orEmpty()
+    val archiveVersion = archiveInfo.versionName.orEmpty()
     if (
         expectedVersion.isNotBlank() &&
         archiveVersion.isNotBlank() &&
@@ -1984,7 +2197,102 @@ private fun validateDownloadedApk(
     ) {
         return "نسخه داخل فایل ($archiveVersion) با نسخه اعلام‌شده ($expectedVersion) متفاوت است"
     }
+
+    val installedInfo = installedPackageInfoWithSignatures(context)
+        ?: return "اطلاعات نسخه نصب‌شده قابل بررسی نیست"
+    val archiveCode = packageVersionCode(archiveInfo)
+    val installedCode = packageVersionCode(installedInfo)
+    if (archiveCode <= installedCode) {
+        return "کد نسخه بروزرسانی باید از نسخه نصب‌شده بالاتر باشد"
+    }
+
+    val currentSigners = signingCertificateDigests(installedInfo)
+    val updateSigners = signingCertificateDigests(archiveInfo)
+    if (
+        currentSigners.isNotEmpty() &&
+        updateSigners.isNotEmpty() &&
+        currentSigners.intersect(updateSigners).isEmpty()
+    ) {
+        return "امضای بروزرسانی با نسخه نصب‌شده یکسان نیست"
+    }
     return null
+}
+
+private fun packageArchiveInfoWithSignatures(
+    context: Context,
+    file: File,
+): PackageInfo? {
+    val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        PackageManager.GET_SIGNING_CERTIFICATES
+    } else {
+        @Suppress("DEPRECATION")
+        PackageManager.GET_SIGNATURES
+    }
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        context.packageManager.getPackageArchiveInfo(
+            file.absolutePath,
+            PackageManager.PackageInfoFlags.of(flags.toLong()),
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        context.packageManager.getPackageArchiveInfo(
+            file.absolutePath,
+            flags,
+        )
+    }
+}
+
+private fun installedPackageInfoWithSignatures(
+    context: Context,
+): PackageInfo? = runCatching {
+    val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        PackageManager.GET_SIGNING_CERTIFICATES
+    } else {
+        @Suppress("DEPRECATION")
+        PackageManager.GET_SIGNATURES
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        context.packageManager.getPackageInfo(
+            context.packageName,
+            PackageManager.PackageInfoFlags.of(flags.toLong()),
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        context.packageManager.getPackageInfo(
+            context.packageName,
+            flags,
+        )
+    }
+}.getOrNull()
+
+private fun packageVersionCode(info: PackageInfo): Long =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        info.longVersionCode
+    } else {
+        @Suppress("DEPRECATION")
+        info.versionCode.toLong()
+    }
+
+private fun signingCertificateDigests(
+    info: PackageInfo,
+): Set<String> {
+    val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        val signing = info.signingInfo ?: return emptySet()
+        if (signing.hasMultipleSigners()) {
+            signing.apkContentsSigners
+        } else {
+            signing.signingCertificateHistory
+        }
+    } else {
+        @Suppress("DEPRECATION")
+        info.signatures.orEmpty()
+    }
+
+    return signatures.map { signature ->
+        MessageDigest.getInstance("SHA-256")
+            .digest(signature.toByteArray())
+            .joinToString("") { byte -> "%02x".format(byte) }
+    }.toSet()
 }
 
 private fun clearDownloadState(
@@ -2021,6 +2329,7 @@ private fun clearDownloadState(
         .remove(KEY_DOWNLOADED_FILE)
         .remove(KEY_PENDING_INSTALL_URI)
         .remove(KEY_INSTALL_PROMPTED_VERSION)
+        .remove(KEY_INSTALL_SESSION_ID)
         .apply()
 }
 

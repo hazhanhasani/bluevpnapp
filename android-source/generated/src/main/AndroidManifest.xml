@@ -319,7 +319,7 @@
             android:process=":bg" />
 
         <provider
-            android:name="androidx.core.content.FileProvider"
+            android:name="com.v2ray.ang.bluevpn.BlueVpnUpdateFileProvider"
             android:authorities="${applicationId}.cache"
             android:exported="false"
             android:grantUriPermissions="true">
@@ -329,8 +329,16 @@
         </provider>
 
     
+        <activity
+            android:name=".ui.BlueVpnUpdateInstallActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+    
         <provider
-            android:name="androidx.core.content.FileProvider"
+            android:name="com.v2ray.ang.bluevpn.BlueVpnUpdateFileProvider"
             android:authorities="${applicationId}.bluevpn.updateprovider"
             android:exported="false"
             android:grantUriPermissions="true">

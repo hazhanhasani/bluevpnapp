@@ -205,9 +205,11 @@ def test_admin_contains_faraz_sms_configuration():
     root = Path(__file__).resolve().parents[1]
     template = (root / "server" / "templates" / "admin.html").read_text()
     assert 'id="sms"' in template
-    assert 'name="pattern_code"' in template
+    assert 'name="sender_mode"' in template
     assert 'name="from_number"' in template
-    assert 'name="parameter_name"' in template
+    assert 'name="pattern_code"' not in template
+    assert 'name="parameter_name"' not in template
+    assert 'id="sms-templates"' in template
     assert "فراز اس‌ام‌اس" in template
 
 

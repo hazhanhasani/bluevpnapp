@@ -1,5 +1,5 @@
 {
-  "version": "3.0.52",
+  "version": "3.0.53",
   "channel": "stable",
   "build_id": "20260809-db-persistent-ad-assets-v3050",
   "built_at": "2026-08-09T08:10:00Z",
@@ -347,9 +347,12 @@
     "persistent-server-country-database",
     "identifying-location-group",
     "automatic-country-regrouping",
-    "cloud-server-location-sync"
+    "cloud-server-location-sync",
+    "farazsms-shared-sender-mode",
+    "single-source-sms-patterns",
+    "sms-settings-cleanup"
   ],
-  "version_code": 30052,
+  "version_code": 30053,
   "notes": "تبلیغات صفحه اصلی اکنون از پنل مدیریت می‌شوند و بدون تبلیغ فعال هیچ فضای خالی در اپ نمایش داده نمی‌شود.",
   "version_source": "ad-asset-path-compat-v3051"
 }

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -58,9 +59,8 @@ def sms_setting_ready(setting: SmsSetting | None) -> bool:
         setting
         and setting.active
         and decrypt(setting.api_key_enc).strip()
-        and setting.from_number.strip()
+        and _sender(setting)
         and setting.pattern_code.strip()
-        and setting.parameter_name.strip()
     )
 
 
@@ -69,7 +69,7 @@ def sms_notification_ready(setting: SmsSetting | None) -> bool:
         setting
         and setting.notification_active
         and decrypt(setting.api_key_enc).strip()
-        and setting.from_number.strip()
+        and _sender(setting)
     )
 
 
@@ -111,10 +111,17 @@ def seed_sms_templates(db: Session) -> int:
             changed += int(dirty)
     setting = db.get(SmsSetting, 1)
     auth = existing.get("auth_otp") or db.get(SmsTemplate, "auth_otp")
-    if setting and auth and setting.pattern_code and not auth.pattern_code:
-        auth.pattern_code = setting.pattern_code
-        auth.enabled = bool(setting.active)
-        changed += 1
+    if setting and auth:
+        if setting.pattern_code and not auth.pattern_code:
+            auth.pattern_code = setting.pattern_code
+            auth.enabled = bool(setting.active)
+            changed += 1
+        elif auth.pattern_code and not setting.pattern_code:
+            # The patterns section is the source of truth. Keep the legacy
+            # setting mirror populated for older app/server paths.
+            setting.pattern_code = auth.pattern_code
+            setting.parameter_name = "code"
+            changed += 1
     if changed:
         db.commit()
     return changed
@@ -139,13 +146,20 @@ def _error_message(response: httpx.Response) -> str:
 
 
 def _sender(setting: SmsSetting) -> str:
+    # An empty database value means the account uses FarazSMS/IPPanel's
+    # shared sender. The API still requires from_number, so the shared line is
+    # supplied centrally and can be overridden through Railway variables.
     sender = str(setting.from_number or "").strip()
+    if not sender:
+        sender = os.getenv("FARAZSMS_SHARED_FROM_NUMBER", "+983000505").strip()
     if sender.startswith("00"):
         sender = "+" + sender[2:]
     elif sender.startswith("98"):
         sender = "+" + sender
     elif sender.startswith("0") and sender[1:].isdigit():
         sender = "+98" + sender[1:]
+    if not re.fullmatch(r"\+98[0-9A-Za-z]{4,20}", sender):
+        return ""
     return sender
 
 
@@ -172,14 +186,15 @@ async def send_pattern(
     pattern_code: str,
     params: dict[str, str],
 ) -> dict[str, Any]:
-    if not decrypt(setting.api_key_enc).strip() or not setting.from_number.strip():
+    sender = _sender(setting)
+    if not decrypt(setting.api_key_enc).strip() or not sender:
         raise SmsError("تنظیمات فراز اس‌ام‌اس کامل نیست")
     if not pattern_code.strip():
         raise SmsError("کد پترن پیامک ثبت نشده است")
 
     payload = {
         "sending_type": "pattern",
-        "from_number": _sender(setting),
+        "from_number": sender,
         "code": pattern_code.strip(),
         "recipients": [normalize_iran_phone(phone)],
         "params": {str(k): str(v) for k, v in params.items()},

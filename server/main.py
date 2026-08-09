@@ -3604,9 +3604,8 @@ def sms_settings(
     request:Request,
     base_url:str=Form('https://edge.ippanel.com/v1'),
     api_key:str=Form(''),
+    sender_mode:str=Form('shared'),
     from_number:str=Form(''),
-    pattern_code:str=Form(''),
-    parameter_name:str=Form('code'),
     otp_length:int=Form(5),
     otp_ttl_seconds:int=Form(120),
     resend_seconds:int=Form(60),
@@ -3622,9 +3621,17 @@ def sms_settings(
     setting=db.get(SmsSetting,1) or SmsSetting(id=1)
     setting.base_url=base_url.rstrip('/') or 'https://edge.ippanel.com/v1'
     if api_key.strip():setting.api_key_enc=encrypt(api_key.strip())
-    setting.from_number=from_number.strip()
-    setting.pattern_code=pattern_code.strip()
-    setting.parameter_name=parameter_name.strip() or 'code'
+    mode=str(sender_mode or 'shared').strip().lower()
+    if mode=='dedicated':
+        dedicated=str(from_number or '').strip()
+        if not re.fullmatch(r'(?:\+|00)?[0-9]{5,24}',dedicated):
+            return RedirectResponse('/admin?error='+quote_plus('شماره خط اختصاصی معتبر نیست')+'#sms',303)
+        setting.from_number=dedicated
+    else:
+        # Empty means shared FarazSMS sender; the API-required from_number is
+        # supplied centrally by FARAZSMS_SHARED_FROM_NUMBER.
+        setting.from_number=''
+    setting.parameter_name='code'
     setting.otp_length=max(4,min(8,int(otp_length or 5)))
     setting.otp_ttl_seconds=max(60,min(600,int(otp_ttl_seconds or 120)))
     setting.resend_seconds=max(30,min(600,int(resend_seconds or 60)))
@@ -3640,12 +3647,13 @@ def sms_settings(
     setting.active=active=='on'
     setting.notification_active=notification_active=='on'
     setting.verify_tls=verify_tls=='on'
-    db.add(setting);db.commit()
     auth_template=db.get(SmsTemplate,'auth_otp')
     if auth_template:
-        auth_template.pattern_code=setting.pattern_code
+        # The patterns section is the only place where the login pattern code
+        # is edited. SmsSetting keeps a mirror for backward compatibility.
+        setting.pattern_code=auth_template.pattern_code
         auth_template.enabled=setting.active
-        db.commit()
+    db.add(setting);db.commit()
     return RedirectResponse('/admin?saved=1#sms',303)
 
 @app.post('/admin/sms-settings/test')

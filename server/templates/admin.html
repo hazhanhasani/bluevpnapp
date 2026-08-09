@@ -397,9 +397,9 @@
     <div class="form-grid">
       <div><label>Base URL فراز اس‌ام‌اس</label><input name="base_url" value="{{ sms.base_url }}" required></div>
       <div><label>API Key جدید</label><input name="api_key" type="password" placeholder="{{ sms_api_mask }}"></div>
-      <div><label>شماره فرستنده</label><input name="from_number" value="{{ sms.from_number }}" placeholder="+983000505" required></div>
-      <div><label>کد پترن ورود</label><input name="pattern_code" value="{{ sms.pattern_code }}" required></div>
-      <div><label>نام پارامتر کد ورود</label><input name="parameter_name" value="{{ sms.parameter_name or 'code' }}" required></div>
+      <div><label>نوع خط ارسال</label><select name="sender_mode" id="sms-sender-mode"><option value="shared" {% if not sms.from_number %}selected{% endif %}>خط اشتراکی فراز اس‌ام‌اس؛ خودکار</option><option value="dedicated" {% if sms.from_number %}selected{% endif %}>خط اختصاصی</option></select></div>
+      <div id="sms-dedicated-sender" {% if not sms.from_number %}hidden{% endif %}><label>شماره خط اختصاصی</label><input name="from_number" value="{{ sms.from_number }}" placeholder="+983000505" inputmode="tel"><small>فقط زمانی لازم است که خط اختصاصی به حساب شما تخصیص داده شده باشد.</small></div>
+      <div class="wide sms-config-note"><strong>پترن ورود از بخش «پترن‌های پیامکی» خوانده می‌شود.</strong><span>کد پترن را فقط در ردیف «ورود با کد پیامکی» ثبت کنید؛ متغیر ورود به‌صورت ثابت <b>%code%</b> است.</span><a href="#sms-templates">رفتن به پترن ورود</a></div>
       <div><label>تعداد رقم کد</label><input name="otp_length" type="number" min="4" max="8" value="{{ sms.otp_length or 5 }}"></div>
       <div><label>اعتبار کد؛ ثانیه</label><input name="otp_ttl_seconds" type="number" min="60" max="600" value="{{ sms.otp_ttl_seconds or 120 }}"></div>
       <div><label>فاصله ارسال مجدد؛ ثانیه</label><input name="resend_seconds" type="number" min="30" max="600" value="{{ sms.resend_seconds or 60 }}"></div>
@@ -964,6 +964,18 @@
       liveBusy = false;
     }
   }
+  const smsSenderMode = document.getElementById('sms-sender-mode');
+  const smsDedicatedSender = document.getElementById('sms-dedicated-sender');
+  function syncSmsSenderMode() {
+    if (!smsSenderMode || !smsDedicatedSender) return;
+    const dedicated = smsSenderMode.value === 'dedicated';
+    smsDedicatedSender.hidden = !dedicated;
+    const input = smsDedicatedSender.querySelector('input[name="from_number"]');
+    if (input) input.required = dedicated;
+  }
+  smsSenderMode?.addEventListener('change', syncSmsSenderMode);
+  syncSmsSenderMode();
+
   initializeDonuts();
   document.querySelectorAll('form[data-confirm]').forEach(form => {
     form.addEventListener('submit', event => {

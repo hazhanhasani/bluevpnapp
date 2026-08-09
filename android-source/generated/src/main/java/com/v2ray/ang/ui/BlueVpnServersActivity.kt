@@ -27,6 +27,7 @@ import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnLocation
 import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
 import com.v2ray.ang.bluevpn.BlueVpnPalette
+import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.handler.MmkvManager
@@ -63,10 +64,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var query = ""
     private var firstResume = true
     private val locationSyncHandler = Handler(Looper.getMainLooper())
+    private val searchHandler = Handler(Looper.getMainLooper())
+    private val searchRunnable = Runnable { renderLocations() }
     private val locationSyncRunnable = object : Runnable {
         override fun run() {
-            syncDetectedLocations(force = true)
-            locationSyncHandler.postDelayed(this, 15_000L)
+            syncDetectedLocations(force = false)
+            locationSyncHandler.postDelayed(
+                this,
+                BlueVpnPerformance.locationSyncIntervalMs(this@BlueVpnServersActivity),
+            )
         }
     }
 
@@ -96,7 +102,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             renderLocations()
         }
         renderLocations()
-        syncDetectedLocations(force = true)
+        syncDetectedLocations(force = false)
     }
 
     override fun onResume() {
@@ -108,16 +114,21 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
         if (firstResume) firstResume = false else renderLocations()
         locationSyncHandler.removeCallbacks(locationSyncRunnable)
-        locationSyncHandler.postDelayed(locationSyncRunnable, 2_000L)
+        locationSyncHandler.postDelayed(
+            locationSyncRunnable,
+            if (BlueVpnPerformance.isLowEnd(this)) 8_000L else 3_000L,
+        )
     }
 
     override fun onPause() {
         locationSyncHandler.removeCallbacks(locationSyncRunnable)
+        searchHandler.removeCallbacks(searchRunnable)
         super.onPause()
     }
 
     override fun onDestroy() {
         locationSyncHandler.removeCallbacks(locationSyncRunnable)
+        searchHandler.removeCallbacks(searchRunnable)
         super.onDestroy()
     }
 
@@ -239,7 +250,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                 query = BlueVpnLocationUtil.normalizeForSearch(s?.toString())
-                renderLocations()
+                searchHandler.removeCallbacks(searchRunnable)
+                searchHandler.postDelayed(
+                    searchRunnable,
+                    if (BlueVpnPerformance.isLowEnd(this@BlueVpnServersActivity)) 320L else 160L,
+                )
             }
             override fun afterTextChanged(s: Editable?) = Unit
         })
@@ -287,11 +302,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val automatic = BlueVpnPreferences.smartBalance(this)
         val preferred = BlueVpnPreferences.preferredLocation(this)
         val selected = MmkvManager.getSelectServer()
-        val selectedLocation = BlueVpnLocationUtil.allCandidates(this).firstOrNull { it.guid == selected }?.location?.key
+        val candidates = BlueVpnLocationUtil.allCandidates(this)
+        val selectedLocation = candidates.firstOrNull { it.guid == selected }?.location?.key
         val recentKeys = BlueVpnExperience.history(this).map { it.locationKey }.distinct()
         val recentIndex = recentKeys.withIndex().associate { it.value to it.index }
 
-        val groups = BlueVpnLocationUtil.allCandidates(this)
+        val groups = candidates
             .groupBy { it.location.key }
             .mapNotNull { (_, servers) ->
                 val location = servers.firstOrNull()?.location ?: return@mapNotNull null

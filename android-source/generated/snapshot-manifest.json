@@ -1,24 +1,24 @@
 {
   "app": "BlueVPN",
-  "version": "3.0.55",
-  "version_code": 30055,
-  "workflow_source_commit": "4d9d365b91dc523b3d654a5b86f987b646bb4351",
+  "version": "3.0.56",
+  "version_code": 30056,
+  "workflow_source_commit": "2b16a65409d150078a0e24b14f781cb895d38483",
   "upstream_ref": "2.2.6",
   "files": {
-    "src/main/java/com/v2ray/ang/ui/BlueVpnHomeActivity.kt": "420e2a434733ccb696743933230797d7c08c06a7c87bbe3f1e86eb00aee36a9d",
+    "src/main/java/com/v2ray/ang/ui/BlueVpnHomeActivity.kt": "b8737bf0fb01fd1ed63781a97a887af7354822b76eb6aec66c3cad5b1035af34",
     "src/main/java/com/v2ray/ang/ui/BlueVpnAiActivity.kt": "19d5f96874480ec47e33fa3e554d2952c78146ec6659307929d7e53954ce175c",
-    "src/main/java/com/v2ray/ang/ui/BlueVpnServersActivity.kt": "6d3898bc48fc55a5fc70a32a3f4cdab6b33b05c9b9c7879a4c5c7ba420d811b7",
+    "src/main/java/com/v2ray/ang/ui/BlueVpnServersActivity.kt": "9b99a9331a83b549259c986cc5b1f42ae8bda07a616ed8c2a22094a4d9f773da",
     "src/main/java/com/v2ray/ang/ui/BlueVpnSubscriptionsActivity.kt": "ea78246d2eaf9db93b299937f22abece367633561cfa668acfa99ac59dcec029",
     "src/main/java/com/v2ray/ang/ui/BlueVpnSettingsActivity.kt": "0bebfca164c3f9d103d1b3294cffb8aa1bb3e97fc622a49cb0df2050f80985c6",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAccountManager.kt": "96af66e7d013a549e83d609df3dc4bc4da9e5a0e65d4c72d27aedeb833b76448",
-    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAdsCarouselView.kt": "e059b1c474ca7215654a01f8757324f88bf05bfd55f5516399d04c81106c53f7",
-    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnTheme.kt": "2dc5b65d55bc9d2a5bef151d7471d04c5646a9289047d210468cf2e49f2c2a08",
-    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLiveReporter.kt": "8a6a5a3d774901ab94efb7a51e61514b70a0d254f5383e5680224020e698af7c",
+    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAdsCarouselView.kt": "300e22304498f009870f985bbb8a9770cebebfac767cc2b33f084e67e2aad168",
+    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnTheme.kt": "4549f853942edb702d351efe8435f61ac451bea2780c775b41ba5c6dc45ec2ff",
+    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLiveReporter.kt": "dd0c8282cc5084ca25ea99e6bbf7d920fddfcf0d2571fe225cc97866aa90bfc0",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnBootstrap.kt": "616958a256210c5655a930643e3542c40433c3583a77552b1deba3990566c6d4",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateManager.kt": "41d67cdf410541d7fef1ad7a5f9a3e845a00cdfb0efd841df4d5494700f08b7f",
     "src/main/java/com/v2ray/ang/ui/BlueVpnUpdateInstallActivity.kt": "0f0a6f9d9e8c28acdaede703696b424842d2e5fcc56018130b1421db9cb422c2",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateFileProvider.kt": "cd29a3c5de334fbd5fc21ac798f443f702951c707ae5e8d59aec16f8c76cbb4f",
-    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLocationUtil.kt": "e504b59a59011a99532016fd78fb15932aa7fa3958004ad1553b97e297ddf1af",
+    "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLocationUtil.kt": "2ad953525faffdd72382c0d2f9b6e38c638dd2402bdbd083f764ae43f5acc09b",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnExperience.kt": "1c717bb000d1ee5b982435d0a6b1649c60119f8775df8ebeee039290a6b1a5b4",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAi.kt": "1255c01f96187a6e0bf52f4c191569f240340bdf22423ac2f7a00e16e03a16e7",
     "src/main/res/drawable/bluevpn_screen_background.xml": "12333523c8855be8cdfd2452ae632fbc31b22002b12c9c98993fc025cdfa58fc",
@@ -34,6 +34,6 @@
     "src/main/res/xml/bluevpn_update_paths.xml": "fd8e1c44efe522971fd3a97bd770da887ca9eabe498c97edb633e6940bd0fd98",
     "src/main/AndroidManifest.xml": "35c21953f625a76d528f4a723468faf188015ba581623cd3a15401c949531a81",
     "src/main/java/com/v2ray/ang/AngApplication.kt": "cac7ce1054f235f7561fc75fad15bec65654529175482bb63ecf53456a38f459",
-    "build.gradle.kts": "0b23f39f9b06ca940cb4f5f91539e88690395e60dec94b3a495b9bc3e56fd959"
+    "build.gradle.kts": "180ab744e4a0365b286d8cc804f80143afe876af1ef3efd4b61ccaccebbe45e7"
   }
 }

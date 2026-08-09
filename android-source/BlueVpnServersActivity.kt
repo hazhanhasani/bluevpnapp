@@ -31,6 +31,7 @@ import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
 import com.v2ray.ang.bluevpn.BlueVpnTheme
+import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.viewmodel.MainViewModel
 
@@ -67,7 +68,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var firstResume = true
     private val locationSyncHandler = Handler(Looper.getMainLooper())
     private val searchHandler = Handler(Looper.getMainLooper())
+    private val renderHandler = Handler(Looper.getMainLooper())
+    private var renderGeneration = 0
     private val searchRunnable = Runnable { renderLocations() }
+    private val renderRunnable = Runnable {
+        renderLocationsNow(renderGeneration)
+    }
+    private val refreshTimeoutRunnable = Runnable { stopRefreshing() }
     private val locationSyncRunnable = object : Runnable {
         override fun run() {
             syncDetectedLocations(force = false)
@@ -123,14 +130,18 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     override fun onPause() {
+        renderGeneration++
         locationSyncHandler.removeCallbacks(locationSyncRunnable)
         searchHandler.removeCallbacks(searchRunnable)
+        renderHandler.removeCallbacksAndMessages(null)
         super.onPause()
     }
 
     override fun onDestroy() {
+        renderGeneration++
         locationSyncHandler.removeCallbacks(locationSyncRunnable)
         searchHandler.removeCallbacks(searchRunnable)
+        renderHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 
@@ -195,12 +206,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
         refreshButton = smallButton("تازه‌سازی").apply {
             contentDescription = "بررسی دوباره سرورها"
-            setOnClickListener {
+            BlueVpnUiGuard.bind(this, intervalMs = 1_200L) {
                 isEnabled = false
                 text = "در حال بررسی"
                 mainViewModel.reloadServerList()
                 mainViewModel.testAllRealPing()
                 syncDetectedLocations(force = true)
+                renderHandler.removeCallbacks(refreshTimeoutRunnable)
+                renderHandler.postDelayed(refreshTimeoutRunnable, 12_000L)
             }
         }
         row.addView(refreshButton, LinearLayout.LayoutParams(dp(104), dp(44)))
@@ -218,7 +231,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         })
         row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
 
-        row.addView(smallButton("بستن").apply { setOnClickListener { finish() } }, LinearLayout.LayoutParams(dp(76), dp(44)))
+        row.addView(smallButton("بستن").apply { BlueVpnUiGuard.bind(this) { finish() } }, LinearLayout.LayoutParams(dp(76), dp(44)))
         return row
     }
 
@@ -268,7 +281,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             isClickable = true
             isFocusable = true
             strokeWidth = dp(if (BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity)) 2 else 1)
-            setOnClickListener { selectAutomatic() }
+            BlueVpnUiGuard.bind(this) { selectAutomatic() }
         }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -304,7 +317,22 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun renderLocations() {
-        if (!::listContainer.isInitialized) return
+        if (!::listContainer.isInitialized || isFinishing || isDestroyed) return
+        renderGeneration++
+        renderHandler.removeCallbacks(renderRunnable)
+        renderHandler.postDelayed(
+            renderRunnable,
+            BlueVpnPerformance.uiRenderDelayMs(this),
+        )
+    }
+
+    private fun renderLocationsNow(generation: Int) {
+        if (
+            generation != renderGeneration ||
+            !::listContainer.isInitialized ||
+            isFinishing ||
+            isDestroyed
+        ) return
         listContainer.removeAllViews()
 
         val automatic = BlueVpnPreferences.smartBalance(this)
@@ -356,13 +384,36 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
         emptyText.visibility = if (groups.isEmpty()) View.VISIBLE else View.GONE
 
-        groups.forEach { group ->
-            val active = !automatic && (group.location.key == preferred || (preferred.isBlank() && group.location.key == selectedLocation))
-            listContainer.addView(
-                createLocationSection(group, active),
-                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) },
-            )
+        var groupIndex = 0
+        val chunkSize = BlueVpnPerformance.uiChunkSize(this)
+        val appendChunk = object : Runnable {
+            override fun run() {
+                if (
+                    generation != renderGeneration ||
+                    isFinishing ||
+                    isDestroyed ||
+                    !::listContainer.isInitialized
+                ) return
+                val end = (groupIndex + chunkSize).coerceAtMost(groups.size)
+                while (groupIndex < end) {
+                    val group = groups[groupIndex++]
+                    val active = !automatic && (
+                        group.location.key == preferred ||
+                            (preferred.isBlank() && group.location.key == selectedLocation)
+                        )
+                    listContainer.addView(
+                        createLocationSection(group, active),
+                        LinearLayout.LayoutParams(-1, -2).apply {
+                            bottomMargin = dp(8)
+                        },
+                    )
+                }
+                if (groupIndex < groups.size) {
+                    renderHandler.post(this)
+                }
+            }
         }
+        renderHandler.post(appendChunk)
     }
 
     private fun createLocationSection(
@@ -388,9 +439,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             strokeWidth = dp(if (active) 2 else 1)
             isClickable = true
             isFocusable = true
-            setOnClickListener {
-                if (expanded) expandedLocations.remove(group.location.key)
-                else expandedLocations.add(group.location.key)
+            BlueVpnUiGuard.bind(this) {
+                if (expanded) {
+                    expandedLocations.remove(group.location.key)
+                } else {
+                    expandedLocations.clear()
+                    expandedLocations.add(group.location.key)
+                }
                 renderLocations()
             }
         }
@@ -438,8 +493,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             backgroundTintList = ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
             setTextColor(if (group.favorite) palette.accent else palette.textMuted)
             contentDescription = if (group.favorite) "حذف از علاقه‌مندی" else "افزودن به علاقه‌مندی"
-            setOnClickListener {
-                BlueVpnExperience.toggleFavorite(this@BlueVpnServersActivity, group.location.key)
+            BlueVpnUiGuard.bind(this) {
+                BlueVpnExperience.toggleFavorite(
+                    this@BlueVpnServersActivity,
+                    group.location.key,
+                )
                 renderLocations()
             }
         }
@@ -486,7 +544,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             strokeWidth = dp(if (selected) 2 else 1)
             isClickable = true
             isFocusable = true
-            setOnClickListener {
+            BlueVpnUiGuard.bind(this) {
                 if (!premium) {
                     openSubscriptionForPremium()
                 } else {
@@ -542,7 +600,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             "برای انتخاب دستی لوکیشن ابتدا اشتراک تهیه کنید",
             Toast.LENGTH_LONG,
         ).show()
-        startActivity(Intent(this, BlueVpnSubscriptionsActivity::class.java))
+        BlueVpnUiGuard.start(
+            this,
+            Intent(this, BlueVpnSubscriptionsActivity::class.java),
+        )
     }
 
     private fun selectServer(
@@ -593,6 +654,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun stopRefreshing() {
+        renderHandler.removeCallbacks(refreshTimeoutRunnable)
+        if (!::refreshButton.isInitialized) return
         refreshButton.isEnabled = true
         refreshButton.text = "تازه‌سازی"
     }
@@ -604,7 +667,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         insetTop = 0
         insetBottom = 0
         cornerRadius = dp(18)
-        setOnClickListener { action() }
+        BlueVpnUiGuard.bind(this) { action() }
     }
 
     private fun smallButton(label: String): MaterialButton = MaterialButton(this).apply {

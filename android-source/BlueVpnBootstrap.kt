@@ -4,6 +4,8 @@ import android.content.Context
 
 object BlueVpnBootstrap {
     fun start(context: Context) {
-        BlueVpnLiveReporter.start(context.applicationContext)
+        val app = context.applicationContext
+        BlueVpnUiGuard.installCrashLogger(app)
+        BlueVpnLiveReporter.start(app)
     }
 }

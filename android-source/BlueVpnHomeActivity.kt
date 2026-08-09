@@ -55,6 +55,7 @@ import com.v2ray.ang.bluevpn.BlueVpnConnectionMode
 import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
 import com.v2ray.ang.bluevpn.BlueVpnUpdateManager
+import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
 import com.v2ray.ang.core.CoreServiceManager
 import com.v2ray.ang.handler.MmkvManager
@@ -88,6 +89,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var dragStartRawX = 0f
     private var dragStartTranslation = 0f
     private var dragMoved = false
+    private var lastConnectionToggleAt = 0L
 
     private lateinit var adsCarousel: BlueVpnAdsCarouselView
     private lateinit var connectButton: AppCompatTextView
@@ -706,7 +708,9 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 backgroundTintList = ColorStateList.valueOf(palette.surfaceStrong)
                 strokeColor = ColorStateList.valueOf(palette.stroke)
                 strokeWidth = dpHome(1)
-                setOnClickListener { stopConnectionImmediately() }
+                BlueVpnUiGuard.bind(this, intervalMs = 700L) {
+                    stopConnectionImmediately()
+                }
             },
             LinearLayout.LayoutParams(dpHome(82), dpHome(44)),
         )
@@ -1516,6 +1520,13 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         window.setBackgroundDrawable(ColorDrawable(palette.background))
         BlueVpnTheme.applySystemBars(this)
         setContentView(createScreen())
+        if (BlueVpnUiGuard.consumeRecoveryNotice(this)) {
+            Toast.makeText(
+                this,
+                "برنامه پس از خطای قبلی در حالت سبک اجرا شد",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
 
         connectButton = findViewById(R.id.bluevpn_connect_button)
         statusText = findViewById(R.id.bluevpn_status_text)
@@ -1558,26 +1569,20 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         connectButton.setOnTouchListener { _, event ->
             handleConnectionGesture(event)
         }
-        connectButton.setOnClickListener { toggleConnection() }
+        BlueVpnUiGuard.bind(connectButton, intervalMs = 700L) {
+            toggleConnection()
+        }
 
-        findViewById<View>(
-            R.id.bluevpn_server_card
-        ).setOnClickListener {
+        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_server_card)) {
             openServers()
         }
-        findViewById<View>(
-            R.id.bluevpn_action_servers
-        ).setOnClickListener {
+        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_action_servers)) {
             openServers()
         }
-        findViewById<View>(
-            R.id.bluevpn_action_subscription
-        ).setOnClickListener {
+        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_action_subscription)) {
             openAccount()
         }
-        findViewById<View>(
-            R.id.bluevpn_action_settings
-        ).setOnClickListener {
+        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_action_settings)) {
             openSettings()
         }
         findViewById<MaterialButton>(
@@ -2413,6 +2418,9 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun toggleConnection() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastConnectionToggleAt < 700L) return
+        lastConnectionToggleAt = now
         if (
             userDisconnecting ||
             mainViewModel.isRunning.value == true ||
@@ -3685,38 +3693,46 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun openAccount() {
-        if (navigationLocked || accountLaunchInProgress) return
+        if (navigationLocked || accountLaunchInProgress || isFinishing || isDestroyed) return
         navigationLocked = true
         accountLaunchInProgress = true
-        accountLauncher.launch(
-            Intent(
-                this,
-                BlueVpnSubscriptionsActivity::class.java,
+        val launched = BlueVpnUiGuard.run(this, "open-account") {
+            accountLauncher.launch(
+                Intent(
+                    this,
+                    BlueVpnSubscriptionsActivity::class.java,
+                )
             )
-        )
-        overridePendingTransition(
-            R.anim.bluevpn_fade_in,
-            R.anim.bluevpn_fade_out,
-        )
+            overridePendingTransition(
+                R.anim.bluevpn_fade_in,
+                R.anim.bluevpn_fade_out,
+            )
+        }
+        if (!launched) {
+            navigationLocked = false
+            accountLaunchInProgress = false
+        }
     }
 
     private fun openSettings() {
-        if (navigationLocked) return
+        if (navigationLocked || isFinishing || isDestroyed) return
         navigationLocked = true
-        startActivity(
-            Intent(
-                this,
-                BlueVpnSettingsActivity::class.java,
+        val launched = BlueVpnUiGuard.start(
+            this,
+            Intent(this, BlueVpnSettingsActivity::class.java),
+        )
+        if (launched) {
+            overridePendingTransition(
+                R.anim.bluevpn_fade_in,
+                R.anim.bluevpn_fade_out,
             )
-        )
-        overridePendingTransition(
-            R.anim.bluevpn_fade_in,
-            R.anim.bluevpn_fade_out,
-        )
+        } else {
+            navigationLocked = false
+        }
     }
 
     private fun openServers() {
-        if (navigationLocked) return
+        if (navigationLocked || isFinishing || isDestroyed) return
         navigationLocked = true
 
         serversOpenedWhileActive =
@@ -3724,12 +3740,18 @@ private fun dpHome(value: Int): Int =
                 connectionVerified ||
                 failoverActive
 
-        selectLocationLauncher.launch(
-            Intent(this, BlueVpnServersActivity::class.java)
-        )
-        overridePendingTransition(
-            R.anim.bluevpn_fade_in,
-            R.anim.bluevpn_fade_out,
-        )
+        val launched = BlueVpnUiGuard.run(this, "open-servers") {
+            selectLocationLauncher.launch(
+                Intent(this, BlueVpnServersActivity::class.java)
+            )
+            overridePendingTransition(
+                R.anim.bluevpn_fade_in,
+                R.anim.bluevpn_fade_out,
+            )
+        }
+        if (!launched) {
+            navigationLocked = false
+            serversOpenedWhileActive = false
+        }
     }
 }

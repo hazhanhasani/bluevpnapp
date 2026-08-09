@@ -26,7 +26,6 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
-import com.v2ray.ang.bluevpn.BlueVpnDynamicBackgroundView
 import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnPersianDate
@@ -40,7 +39,7 @@ import java.util.Locale
 class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
  private lateinit var content:LinearLayout;private lateinit var status:TextView;private lateinit var palette:BlueVpnPalette;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true;private var otpChallengeId="";private var otpPhone="";private var otpBinding=false;private var authMode="sms";private var emailRegister=false;private var themeDarkAtCreate=true;private var renderedSessionState=false;private var draftPhone="";private var draftOtpCode="";private var draftEmail="";private var draftPassword="";private var draftBindingPhone="";private var draftBindingCode="";private var renderPosted=false;private var renderGeneration=0
  private val poll=object:Runnable{override fun run(){val id=BlueVpnAccountManager.pendingOrder(this@BlueVpnSubscriptionsActivity);if(id.isNotBlank()){checkOrder(id);handler.postDelayed(this,4000)}}}
- override fun onCreate(b:Bundle?){super.onCreate(b);palette=BlueVpnTheme.palette(this);themeDarkAtCreate=palette.dark;window.setBackgroundDrawable(ColorDrawable(palette.background));BlueVpnTheme.applySystemBars(this);setContentView(screen());render()}
+ override fun onCreate(b:Bundle?){super.onCreate(b);window.setWindowAnimations(0);palette=BlueVpnTheme.palette(this);themeDarkAtCreate=palette.dark;window.setBackgroundDrawable(ColorDrawable(palette.background));BlueVpnTheme.applySystemBars(this);setContentView(screen());render()}
  override fun onResume(){
   super.onResume()
   BlueVpnTheme.applySystemBars(this)
@@ -61,8 +60,7 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
  private fun screen():View{
   palette=BlueVpnTheme.palette(this)
   val frame=FrameLayout(this).apply{setBackgroundColor(palette.background)}
-  frame.addView(BlueVpnDynamicBackgroundView(this),FrameLayout.LayoutParams(-1,-1))
-  val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(12),dp(18),dp(20));layoutDirection=View.LAYOUT_DIRECTION_RTL}
+    val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(12),dp(18),dp(20));layoutDirection=View.LAYOUT_DIRECTION_RTL}
   val h=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
   val back=button("بازگشت",palette.surfaceStrong).apply{setTextColor(palette.textPrimary);BlueVpnUiGuard.bind(this){finish()}}
   val title=TextView(this).apply{text="حساب BlueVPN";textSize=23f;setTextColor(palette.textPrimary);setTypeface(typeface,Typeface.BOLD);gravity=Gravity.END;includeFontPadding=false}

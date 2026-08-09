@@ -23,7 +23,6 @@ import androidx.activity.viewModels
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
-import com.v2ray.ang.bluevpn.BlueVpnDynamicBackgroundView
 import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnLocation
 import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
@@ -87,6 +86,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setWindowAnimations(0)
         palette = BlueVpnTheme.palette(this)
         themeDarkAtCreate = palette.dark
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(palette.background))
@@ -162,8 +162,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             layoutDirection = View.LAYOUT_DIRECTION_RTL
             setBackgroundColor(palette.background)
         }
-        frame.addView(BlueVpnDynamicBackgroundView(this), FrameLayout.LayoutParams(-1, -1))
-
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(10), dp(18), dp(14))

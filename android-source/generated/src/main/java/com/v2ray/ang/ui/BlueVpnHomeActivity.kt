@@ -150,6 +150,10 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var lastDashboardRefreshAt = 0L
     private var updateCheckScheduled = false
     private var accountLaunchInProgress = false
+    private val navigationUnlock = Runnable {
+        navigationLocked = false
+        accountLaunchInProgress = false
+    }
     private var candidateWarmupInProgress = false
     private var freePreparationInProgress = false
 
@@ -622,7 +626,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
         row.addView(
             headerIcon("menu", R.id.bluevpn_action_settings, "تنظیمات"),
-            LinearLayout.LayoutParams(dpHome(48), dpHome(48)),
+            LinearLayout.LayoutParams(dpHome(56), dpHome(56)),
         )
         row.addView(
             uiText("", 10f, palette.textMuted, bold = true, gravity = Gravity.CENTER).apply {
@@ -658,7 +662,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         row.addView(
             headerIcon("account", R.id.bluevpn_action_subscription, "حساب و اشتراک"),
-            LinearLayout.LayoutParams(dpHome(48), dpHome(48)),
+            LinearLayout.LayoutParams(dpHome(56), dpHome(56)),
         )
         return row
     }
@@ -670,14 +674,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             isFocusable = true
             setBackgroundColor(palette.background)
         }
-        overlay.addView(
-            BlueVpnDynamicBackgroundView(this),
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-            ),
-        )
-
         val body = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -1573,16 +1569,16 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             toggleConnection()
         }
 
-        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_server_card)) {
+        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_server_card), intervalMs = 260L) {
             openServers()
         }
-        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_action_servers)) {
+        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_action_servers), intervalMs = 260L) {
             openServers()
         }
-        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_action_subscription)) {
+        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_action_subscription), intervalMs = 260L) {
             openAccount()
         }
-        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_action_settings)) {
+        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_action_settings), intervalMs = 220L) {
             openSettings()
         }
         findViewById<MaterialButton>(
@@ -1625,6 +1621,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 }
 
                 active && failoverActive -> {
+                    beginFreeTimerOnCoreStart()
                     renderVerifyingState()
                     scheduleConnectionVerification()
                 }
@@ -1765,6 +1762,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         handler.removeCallbacks(startupOptimizationTimeout)
         handler.removeCallbacks(disconnectRetry)
         handler.removeCallbacks(freeSessionTicker)
+        handler.removeCallbacks(navigationUnlock)
         startupDialog?.dismiss()
         startupDialog = null
         setOrbPulseEnabled(false)
@@ -2398,7 +2396,7 @@ private fun dpHome(value: Int): Int =
         if (!::freeTimerBadge.isInitialized) return
         val remaining = BlueVpnAccountManager.freeSessionRemainingMillis(this)
         val show =
-            connectionVerified &&
+            (connectionVerified || mainViewModel.isRunning.value == true || failoverActive) &&
                 BlueVpnAccountManager.isFreeMode(this) &&
                 remaining in 1 until Long.MAX_VALUE
         if (!show) {
@@ -2415,6 +2413,14 @@ private fun dpHome(value: Int): Int =
             seconds,
         )
         freeTimerBadge.visibility = View.VISIBLE
+    }
+
+    private fun beginFreeTimerOnCoreStart() {
+        if (!BlueVpnAccountManager.isFreeMode(this)) return
+        if (BlueVpnAccountManager.freeSessionRemainingMillis(this) <= 0L) {
+            BlueVpnAccountManager.startFreeSession(this)
+        }
+        updateFreeTimerBadge()
     }
 
     private fun toggleConnection() {
@@ -2685,7 +2691,6 @@ private fun dpHome(value: Int): Int =
         handler.removeCallbacks(attemptTimeout)
 
         MmkvManager.setSelectServer(guid)
-        refreshDashboard()
 
         val profile = MmkvManager.decodeServerConfig(guid)
         val location = profile?.let {
@@ -2712,12 +2717,15 @@ private fun dpHome(value: Int): Int =
                 attemptedGuid != guid
             ) return@Runnable
             CoreServiceManager.startVService(this)
-            handler.postDelayed(attemptTimeout, 5_000L)
+            handler.postDelayed({
+                if (!isFinishing && !isDestroyed) refreshDashboard()
+            }, 60L)
+            handler.postDelayed(attemptTimeout, 3_200L)
         }
 
         if (mainViewModel.isRunning.value == true) {
             CoreServiceManager.stopVService(this)
-            handler.postDelayed(startCore, 320L)
+            handler.postDelayed(startCore, 140L)
         } else {
             startCore.run()
         }
@@ -2736,7 +2744,7 @@ private fun dpHome(value: Int): Int =
                     "این مسیر پاسخ مناسب نداد"
                 )
             }
-        }, 450L)
+        }, 120L)
     }
 
     private fun handlePingResult() {
@@ -2932,7 +2940,7 @@ private fun dpHome(value: Int): Int =
 
             try {
                 val deadline =
-                    SystemClock.elapsedRealtime() + 2_400L
+                    SystemClock.elapsedRealtime() + 1_350L
 
                 repeat(futures.size) {
                     val remaining = (
@@ -2975,8 +2983,8 @@ private fun dpHome(value: Int): Int =
 
             try {
                 connection.instanceFollowRedirects = false
-                connection.connectTimeout = 1_600
-                connection.readTimeout = 1_600
+                connection.connectTimeout = 850
+                connection.readTimeout = 850
                 connection.requestMethod = "GET"
                 connection.useCaches = false
                 connection.setRequestProperty("Connection", "close")
@@ -3692,65 +3700,54 @@ private fun dpHome(value: Int): Int =
         }
     }
 
-    private fun openAccount() {
-        if (navigationLocked || accountLaunchInProgress || isFinishing || isDestroyed) return
+    private fun acquireNavigationLock(account: Boolean = false): Boolean {
+        if (isFinishing || isDestroyed) return false
+        if (navigationLocked) return false
         navigationLocked = true
-        accountLaunchInProgress = true
+        accountLaunchInProgress = account
+        handler.removeCallbacks(navigationUnlock)
+        handler.postDelayed(navigationUnlock, 1_200L)
+        return true
+    }
+
+    private fun openAccount() {
+        if (!acquireNavigationLock(account = true)) return
+        val intent = Intent(this, BlueVpnSubscriptionsActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
         val launched = BlueVpnUiGuard.run(this, "open-account") {
-            accountLauncher.launch(
-                Intent(
-                    this,
-                    BlueVpnSubscriptionsActivity::class.java,
-                )
-            )
-            overridePendingTransition(
-                R.anim.bluevpn_fade_in,
-                R.anim.bluevpn_fade_out,
-            )
+            accountLauncher.launch(intent)
+            overridePendingTransition(0, 0)
         }
-        if (!launched) {
-            navigationLocked = false
-            accountLaunchInProgress = false
-        }
+        if (!launched) navigationUnlock.run()
     }
 
     private fun openSettings() {
-        if (navigationLocked || isFinishing || isDestroyed) return
-        navigationLocked = true
-        val launched = BlueVpnUiGuard.start(
-            this,
-            Intent(this, BlueVpnSettingsActivity::class.java),
-        )
+        if (!acquireNavigationLock()) return
+        val intent = Intent(this, BlueVpnSettingsActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        val launched = BlueVpnUiGuard.start(this, intent, intervalMs = 220L)
         if (launched) {
-            overridePendingTransition(
-                R.anim.bluevpn_fade_in,
-                R.anim.bluevpn_fade_out,
-            )
+            overridePendingTransition(0, 0)
         } else {
-            navigationLocked = false
+            navigationUnlock.run()
         }
     }
 
     private fun openServers() {
-        if (navigationLocked || isFinishing || isDestroyed) return
-        navigationLocked = true
-
+        if (!acquireNavigationLock()) return
         serversOpenedWhileActive =
-            mainViewModel.isRunning.value == true ||
-                connectionVerified ||
-                failoverActive
-
+            mainViewModel.isRunning.value == true || connectionVerified || failoverActive
+        val intent = Intent(this, BlueVpnServersActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
         val launched = BlueVpnUiGuard.run(this, "open-servers") {
-            selectLocationLauncher.launch(
-                Intent(this, BlueVpnServersActivity::class.java)
-            )
-            overridePendingTransition(
-                R.anim.bluevpn_fade_in,
-                R.anim.bluevpn_fade_out,
-            )
+            selectLocationLauncher.launch(intent)
+            overridePendingTransition(0, 0)
         }
         if (!launched) {
-            navigationLocked = false
+            navigationUnlock.run()
             serversOpenedWhileActive = false
         }
     }

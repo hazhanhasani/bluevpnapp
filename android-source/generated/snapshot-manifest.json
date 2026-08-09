@@ -1,8 +1,8 @@
 {
   "app": "BlueVPN",
-  "version": "3.0.42",
-  "version_code": 30042,
-  "workflow_source_commit": "cbd20b1d67a1c02fb4dc17dcc6180781a13c3dda",
+  "version": "3.0.43",
+  "version_code": 30043,
+  "workflow_source_commit": "5e4e0040a4cf2d2cc8c2b89d97067206c56d8af9",
   "upstream_ref": "2.2.6",
   "files": {
     "src/main/java/com/v2ray/ang/ui/BlueVpnHomeActivity.kt": "3f19b09cfaef6b4f59a0671da65361d94f46b484044991ed300dece3d5be6ff7",
@@ -29,6 +29,6 @@
     "src/main/res/xml/bluevpn_update_paths.xml": "fd8e1c44efe522971fd3a97bd770da887ca9eabe498c97edb633e6940bd0fd98",
     "src/main/AndroidManifest.xml": "35c21953f625a76d528f4a723468faf188015ba581623cd3a15401c949531a81",
     "src/main/java/com/v2ray/ang/AngApplication.kt": "cac7ce1054f235f7561fc75fad15bec65654529175482bb63ecf53456a38f459",
-    "build.gradle.kts": "da18380641354136417b0f6e3a2bc37a7c088053c3fd3e66a1e01acb1487bd4d"
+    "build.gradle.kts": "c7c16ea649f8380656edbadc032dcbeabf45dc425f7cabf94a80b88c308cdafd"
   }
 }

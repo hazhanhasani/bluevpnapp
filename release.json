@@ -1,10 +1,10 @@
 {
-  "version": "3.0.67",
+  "version": "3.0.68",
   "channel": "stable",
   "build_id": "20260809-ui-stability-navigation-crash-guard-v3067",
   "built_at": "2026-08-09T19:20:00Z",
-  "android_version": "3.0.67",
-  "android_version_code": 30067,
+  "android_version": "3.0.68",
+  "android_version_code": 30068,
   "description": "BlueVPN 3.0.67 گیرکردن هنگام انتخاب گزینه‌ها، لمس‌های تکراری، بازسازی سنگین فهرست سرورها و خروج ناگهانی برنامه را با محافظ رابط، رندر مرحله‌ای و حالت بازیابی سبک اصلاح می‌کند.",
   "features": [
     "premium-ui-v3",
@@ -426,9 +426,13 @@
     "single-expanded-location",
     "crash-recovery-safe-mode",
     "account-render-generation-guard",
-    "stuck-refresh-timeout"
+    "stuck-refresh-timeout",
+    "instant-navigation",
+    "fast-secondary-screen-first-frame",
+    "free-timer-starts-on-core",
+    "fast-tunnel-verification"
   ],
-  "version_code": 30067,
+  "version_code": 30068,
   "notes": "هنگام اتصال رایگان صفحه در حال اتصال نمایش داده می‌شود و پس از اتصال تایمر باقی‌مانده در سربرگ دیده می‌شود. مسیرهای دارای پرچم یا نام شناخته‌شده دیگر زیر در حال شناسایی نمی‌مانند.",
   "version_source": "free-connect-screen-location-detection-v3066"
 }

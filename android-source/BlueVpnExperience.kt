@@ -391,8 +391,8 @@ object BlueVpnExperience {
  */
 object BlueVpnUiGuard {
     private const val PREFS = "bluevpn_stability"
-    private const val DEFAULT_CLICK_WINDOW_MS = 650L
-    private const val DEFAULT_NAVIGATION_WINDOW_MS = 900L
+    private const val DEFAULT_CLICK_WINDOW_MS = 280L
+    private const val DEFAULT_NAVIGATION_WINDOW_MS = 360L
     private const val SAFE_MODE_DURATION_MS = 24 * 60 * 60 * 1000L
 
     private val clickTimes = WeakHashMap<View, Long>()

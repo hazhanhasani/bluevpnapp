@@ -21,10 +21,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_358():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.67"
-    assert release["android_version_code"] == 30067
-    assert app["version_name"] == "3.0.67"
-    assert app["version_code"] == 30067
+    assert release["version"] == "3.0.68"
+    assert release["android_version_code"] == 30068
+    assert app["version_name"] == "3.0.68"
+    assert app["version_code"] == 30068
 
 
 def test_accessible_lines_parser_prefers_shared_active_line():

@@ -667,12 +667,19 @@ private fun unknownLocation(): BlueVpnLocation =
         ) {
             return contextCandidateCache
         }
-        val resolved = allCandidates(forceRefresh).map { candidate ->
-            val configKey = serverIdentity(candidate.profile)
-            val verified = BlueVpnPreferences.verifiedCountryKey(context, configKey)
-            val location = locationForCountryCode(verified) ?: candidate.location
-            if (location == candidate.location) candidate else candidate.copy(location = location)
-        }
+        val resolved = allCandidates(forceRefresh)
+            .filter { candidate ->
+                BlueVpnAccountManager.candidateAllowed(
+                    context,
+                    candidate.profile.subscriptionId,
+                )
+            }
+            .map { candidate ->
+                val configKey = serverIdentity(candidate.profile)
+                val verified = BlueVpnPreferences.verifiedCountryKey(context, configKey)
+                val location = locationForCountryCode(verified) ?: candidate.location
+                if (location == candidate.location) candidate else candidate.copy(location = location)
+            }
         synchronized(this) {
             contextCandidateCache = resolved
             contextCandidateCacheAt = SystemClock.elapsedRealtime()

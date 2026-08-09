@@ -9,7 +9,9 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
@@ -35,7 +37,7 @@ import org.json.JSONObject
 import java.text.NumberFormat
 import java.util.Locale
 class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
- private lateinit var content:LinearLayout;private lateinit var status:TextView;private lateinit var palette:BlueVpnPalette;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true;private var otpChallengeId="";private var otpPhone="";private var otpBinding=false;private var authMode="sms";private var emailRegister=false;private var themeDarkAtCreate=true
+ private lateinit var content:LinearLayout;private lateinit var status:TextView;private lateinit var palette:BlueVpnPalette;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true;private var otpChallengeId="";private var otpPhone="";private var otpBinding=false;private var authMode="sms";private var emailRegister=false;private var themeDarkAtCreate=true;private var renderedSessionState=false;private var draftPhone="";private var draftOtpCode="";private var draftEmail="";private var draftPassword="";private var draftBindingPhone="";private var draftBindingCode=""
  private val poll=object:Runnable{override fun run(){val id=BlueVpnAccountManager.pendingOrder(this@BlueVpnSubscriptionsActivity);if(id.isNotBlank()){checkOrder(id);handler.postDelayed(this,4000)}}}
  override fun onCreate(b:Bundle?){super.onCreate(b);palette=BlueVpnTheme.palette(this);themeDarkAtCreate=palette.dark;window.setBackgroundDrawable(ColorDrawable(palette.background));BlueVpnTheme.applySystemBars(this);setContentView(screen());render()}
  override fun onResume(){
@@ -49,7 +51,7 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
    if(returnedOrder.isBlank()&&BlueVpnAccountManager.hasSession(this)){
     sync(true)
    }
-  }else{render()}
+  }else if(BlueVpnAccountManager.hasSession(this)!=renderedSessionState){render()}
   handler.removeCallbacks(poll)
   handler.post(poll)
  }
@@ -72,7 +74,19 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   frame.addView(root,FrameLayout.LayoutParams(-1,-1))
   return frame
  }
- private fun render(){content.removeAllViews();if(BlueVpnAccountManager.hasSession(this))account() else auth()}
+ private fun render(){
+  val hasSession=BlueVpnAccountManager.hasSession(this)
+  renderedSessionState=hasSession
+  content.removeAllViews()
+  if(hasSession)account() else auth()
+ }
+ private fun remember(field:EditText,onValue:(String)->Unit){
+  field.addTextChangedListener(object:TextWatcher{
+   override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){}
+   override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){onValue(s?.toString().orEmpty())}
+   override fun afterTextChanged(s:Editable?){}
+  })
+ }
  private fun auth(){
   status.text=if(authMode=="sms")"ورود سریع با کد یک‌بارمصرف" else "ورود یا ثبت‌نام با ایمیل"
 
@@ -100,12 +114,12 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   if(authMode=="sms"){
    box.addView(TextView(this).apply{text=if(otpChallengeId.isBlank())"ورود با شماره تماس" else "کد تأیید";textSize=19f;setTextColor(palette.textPrimary);setTypeface(typeface,Typeface.BOLD);gravity=Gravity.END})
    box.addView(TextView(this).apply{text=if(otpChallengeId.isBlank())"شماره موبایل خود را وارد کنید؛ اگر حساب نداشته باشید خودکار ساخته می‌شود." else "کد ارسال‌شده به ${otpPhone.ifBlank{"شماره شما"}} را وارد کنید.";textSize=11.5f;setTextColor(palette.textMuted);gravity=Gravity.END;setPadding(0,dp(6),0,dp(14))})
-   val phone=authField("شماره تماس؛ مثال 09123456789").apply{inputType=InputType.TYPE_CLASS_PHONE;imeOptions=if(otpChallengeId.isBlank())EditorInfo.IME_ACTION_DONE else EditorInfo.IME_ACTION_NEXT;setText(otpPhone)}
+   val phone=authField("شماره تماس؛ مثال 09123456789").apply{inputType=InputType.TYPE_CLASS_PHONE;imeOptions=if(otpChallengeId.isBlank())EditorInfo.IME_ACTION_DONE else EditorInfo.IME_ACTION_NEXT;setText(draftPhone.ifBlank{otpPhone});remember(this){draftPhone=it}}
    box.addView(phone,LinearLayout.LayoutParams(-1,dp(58)))
    if(otpChallengeId.isBlank()){
     box.addView(button("ارسال کد تأیید",palette.accent).apply{textSize=14f;setTypeface(typeface,Typeface.BOLD);setOnClickListener{requestOtp(phone.text.toString(),false)}},LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)})
    }else{
-    val code=authField("کد پیامکی").apply{inputType=InputType.TYPE_CLASS_NUMBER;imeOptions=EditorInfo.IME_ACTION_DONE;setOnEditorActionListener{_,actionId,_->if(actionId==EditorInfo.IME_ACTION_DONE){verifyOtp(phone.text.toString(),text.toString(),false);true}else false}}
+    val code=authField("کد پیامکی").apply{inputType=InputType.TYPE_CLASS_NUMBER;imeOptions=EditorInfo.IME_ACTION_DONE;setText(draftOtpCode);remember(this){draftOtpCode=it};setOnEditorActionListener{_,actionId,_->if(actionId==EditorInfo.IME_ACTION_DONE){verifyOtp(phone.text.toString(),text.toString(),false);true}else false}}
     box.addView(code,LinearLayout.LayoutParams(-1,dp(58)).apply{topMargin=dp(10)})
     box.addView(button("تأیید و ورود",palette.accent).apply{textSize=14f;setTypeface(typeface,Typeface.BOLD);setOnClickListener{verifyOtp(phone.text.toString(),code.text.toString(),false)}},LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)})
     box.addView(button("ارسال دوباره",palette.surfaceStrong).apply{setTextColor(palette.textPrimary);strokeWidth=dp(1);strokeColor=ColorStateList.valueOf(palette.stroke);setOnClickListener{otpChallengeId="";otpPhone=phone.text.toString();render()}},LinearLayout.LayoutParams(-1,dp(48)).apply{topMargin=dp(10)})
@@ -113,8 +127,8 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   }else{
    box.addView(TextView(this).apply{text=if(emailRegister)"ساخت حساب" else "ورود با ایمیل";textSize=19f;setTextColor(palette.textPrimary);setTypeface(typeface,Typeface.BOLD);gravity=Gravity.END})
    box.addView(TextView(this).apply{text=if(emailRegister)"ایمیل و یک رمز حداقل ۸ کاراکتری تعیین کنید." else "ایمیل و رمز عبور حساب خود را وارد کنید.";textSize=11.5f;setTextColor(palette.textMuted);gravity=Gravity.END;setPadding(0,dp(6),0,dp(14))})
-   val email=authField("ایمیل؛ example@email.com").apply{inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS;imeOptions=EditorInfo.IME_ACTION_NEXT;layoutDirection=View.LAYOUT_DIRECTION_LTR;gravity=Gravity.CENTER_VERTICAL or Gravity.START}
-   val password=authField("رمز عبور؛ حداقل ۸ کاراکتر").apply{inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD;imeOptions=EditorInfo.IME_ACTION_DONE;layoutDirection=View.LAYOUT_DIRECTION_LTR;gravity=Gravity.CENTER_VERTICAL or Gravity.START}
+   val email=authField("ایمیل؛ example@email.com").apply{inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS;imeOptions=EditorInfo.IME_ACTION_NEXT;layoutDirection=View.LAYOUT_DIRECTION_LTR;gravity=Gravity.CENTER_VERTICAL or Gravity.START;setText(draftEmail);remember(this){draftEmail=it}}
+   val password=authField("رمز عبور؛ حداقل ۸ کاراکتر").apply{inputType=InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD;imeOptions=EditorInfo.IME_ACTION_DONE;layoutDirection=View.LAYOUT_DIRECTION_LTR;gravity=Gravity.CENTER_VERTICAL or Gravity.START;setText(draftPassword);remember(this){draftPassword=it}}
    password.setOnEditorActionListener{_,actionId,_->if(actionId==EditorInfo.IME_ACTION_DONE){emailAuth(email.text.toString(),password.text.toString(),emailRegister);true}else false}
    box.addView(email,LinearLayout.LayoutParams(-1,dp(58)))
    box.addView(password,LinearLayout.LayoutParams(-1,dp(58)).apply{topMargin=dp(10)})
@@ -282,11 +296,12 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   })
   val phone=authField("شماره تماس؛ مثال 09123456789").apply{
    inputType=InputType.TYPE_CLASS_PHONE
-   setText(if(otpBinding)otpPhone else "")
+   setText(draftBindingPhone.ifBlank{if(otpBinding)otpPhone else ""})
+   remember(this){draftBindingPhone=it}
   }
   box.addView(phone,LinearLayout.LayoutParams(-1,dp(56)))
   if(otpBinding&&otpChallengeId.isNotBlank()){
-   val code=authField("کد پیامکی").apply{inputType=InputType.TYPE_CLASS_NUMBER}
+   val code=authField("کد پیامکی").apply{inputType=InputType.TYPE_CLASS_NUMBER;setText(draftBindingCode);remember(this){draftBindingCode=it}}
    box.addView(code,LinearLayout.LayoutParams(-1,dp(56)).apply{topMargin=dp(8)})
    box.addView(button("تأیید و ثبت شماره","#18A873").apply{
     setOnClickListener{verifyOtp(phone.text.toString(),code.text.toString(),true)}
@@ -430,6 +445,7 @@ private fun loadPlans(){
  }
  private fun emailAuth(email:String,password:String,register:Boolean){
   if(busy)return
+  draftEmail=email;draftPassword=password
   if(!email.contains("@")){Toast.makeText(this,"ایمیل معتبر وارد کنید",Toast.LENGTH_SHORT).show();return}
   if(password.length<8){Toast.makeText(this,"رمز عبور باید حداقل ۸ کاراکتر باشد",Toast.LENGTH_SHORT).show();return}
   busy=true;status.text=if(register)"در حال ساخت حساب..." else "در حال ورود..."
@@ -437,12 +453,13 @@ private fun loadPlans(){
    val result=BlueVpnAccountManager.authenticateWithEmail(this@BlueVpnSubscriptionsActivity,email,password,register)
    withContext(Dispatchers.Main){
     busy=false
-    result.onSuccess{setResult(RESULT_OK);render()}.onFailure{status.text=it.message?:if(register)"ثبت‌نام ناموفق بود" else "ورود ناموفق بود"}
+    result.onSuccess{draftPassword="";setResult(RESULT_OK);render()}.onFailure{status.text=it.message?:if(register)"ثبت‌نام ناموفق بود" else "ورود ناموفق بود"}
    }
   }
  }
  private fun requestOtp(phone:String,bind:Boolean){
   if(busy)return
+  if(bind)draftBindingPhone=phone else draftPhone=phone
   if(phone.trim().length<10){Toast.makeText(this,"شماره تماس معتبر وارد کنید",Toast.LENGTH_SHORT).show();return}
   busy=true;status.text="در حال ارسال کد تأیید..."
   lifecycleScope.launch(Dispatchers.IO){
@@ -451,6 +468,7 @@ private fun loadPlans(){
     busy=false
     result.onSuccess{
      otpChallengeId=it.challengeId;otpPhone=it.phone;otpBinding=bind
+     if(bind)draftBindingPhone=it.phone else draftPhone=it.phone
      status.text="کد تأیید ارسال شد"
      render()
     }.onFailure{status.text=it.message?:"ارسال کد ناموفق بود"}
@@ -459,6 +477,7 @@ private fun loadPlans(){
  }
  private fun verifyOtp(phone:String,code:String,bind:Boolean){
   if(busy)return
+  if(bind){draftBindingPhone=phone;draftBindingCode=code}else{draftPhone=phone;draftOtpCode=code}
   if(otpChallengeId.isBlank()){requestOtp(phone,bind);return}
   if(code.trim().length<4){Toast.makeText(this,"کد تأیید را کامل وارد کنید",Toast.LENGTH_SHORT).show();return}
   busy=true;status.text="در حال تأیید شماره تماس..."
@@ -468,12 +487,13 @@ private fun loadPlans(){
     busy=false
     result.onSuccess{
      otpChallengeId="";otpPhone="";otpBinding=false
+     draftOtpCode="";draftBindingCode=""
      setResult(RESULT_OK);render()
     }.onFailure{status.text=it.message?:"کد تأیید معتبر نیست"}
    }
   }
  }
- private fun sync(force:Boolean){if(busy)return;busy=true;lifecycleScope.launch(Dispatchers.IO){val r=BlueVpnAccountManager.sync(this@BlueVpnSubscriptionsActivity,force);withContext(Dispatchers.Main){busy=false;r.onFailure{if(!BlueVpnAccountManager.hasSession(this@BlueVpnSubscriptionsActivity))render() else status.text=it.message?:"خطای همگام‌سازی"};render()}}}
+ private fun sync(force:Boolean){if(busy)return;busy=true;lifecycleScope.launch(Dispatchers.IO){val r=BlueVpnAccountManager.sync(this@BlueVpnSubscriptionsActivity,force);withContext(Dispatchers.Main){busy=false;r.onFailure{if(!BlueVpnAccountManager.hasSession(this@BlueVpnSubscriptionsActivity))render() else status.text=it.message?:"خطای همگام‌سازی"};if(currentFocus !is EditText)render()}}}
  private fun buy(planId:Int){
   if(busy)return
   BlueVpnAccountManager.clearPendingOrder(this)

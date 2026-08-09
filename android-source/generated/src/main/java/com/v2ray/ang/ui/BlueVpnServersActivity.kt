@@ -22,6 +22,7 @@ import android.widget.Toast
 import androidx.activity.viewModels
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import com.v2ray.ang.bluevpn.BlueVpnAccountManager
 import com.v2ray.ang.bluevpn.BlueVpnDynamicBackgroundView
 import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnLocation
@@ -62,6 +63,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private lateinit var recentTabButton: MaterialButton
     private var selectedTab = LocationTab.ALL
     private var query = ""
+    private val expandedLocations = mutableSetOf<String>()
     private var firstResume = true
     private val locationSyncHandler = Handler(Looper.getMainLooper())
     private val searchHandler = Handler(Looper.getMainLooper())
@@ -211,7 +213,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         titleBox.addView(textView("مکان‌ها", 25f, palette.textPrimary, Gravity.END).apply {
             setTypeface(typeface, Typeface.BOLD)
         })
-        titleBox.addView(textView("انتخاب خودکار یا دستی", 10.5f, palette.textMuted, Gravity.END).apply {
+        titleBox.addView(textView("خودکار رایگان • انتخاب دستی برای مشترکین", 10.5f, palette.textMuted, Gravity.END).apply {
             setPadding(0, dp(3), 0, 0)
         })
         row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
@@ -261,9 +263,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun automaticServerCard(): View {
-        val card = card(radius = 22, fill = palette.surface, stroke = palette.stroke).apply {
+        val freeMode = !BlueVpnAccountManager.active(this)
+        val card = card(radius = 22, fill = palette.surface, stroke = palette.accent).apply {
             isClickable = true
             isFocusable = true
+            strokeWidth = dp(if (BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity)) 2 else 1)
             setOnClickListener { selectAutomatic() }
         }
         val row = LinearLayout(this).apply {
@@ -276,7 +280,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         row.addView(dot, LinearLayout.LayoutParams(dp(13), dp(13)).apply { marginEnd = dp(12) })
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
         box.addView(textView("انتخاب خودکار", 16f, palette.textPrimary, Gravity.END).apply { setTypeface(typeface, Typeface.BOLD) })
-        box.addView(textView("بهترین مسیر در همان لحظه انتخاب می‌شود", 10.5f, palette.textMuted, Gravity.END).apply { setPadding(0, dp(4), 0, 0) })
+        box.addView(textView(
+            if (freeMode) "رایگان • بهترین مسیر • هر اتصال تا ${BlueVpnAccountManager.freeAccessSnapshot(this).sessionMinutes} دقیقه"
+            else "بهترین مسیر در همان لحظه انتخاب می‌شود",
+            10.5f, palette.textMuted, Gravity.END
+        ).apply { setPadding(0, dp(4), 0, 0) })
         row.addView(box, LinearLayout.LayoutParams(0, -1, 1f))
         row.addView(textView(if (BlueVpnPreferences.smartBalance(this)) "فعال" else "انتخاب", 11f, palette.accent, Gravity.CENTER).apply {
             setTypeface(typeface, Typeface.BOLD)
@@ -350,18 +358,22 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
         groups.forEach { group ->
             val active = !automatic && (group.location.key == preferred || (preferred.isBlank() && group.location.key == selectedLocation))
-            listContainer.addView(createLocationRow(group, active, automatic, selectedLocation), LinearLayout.LayoutParams(-1, dp(78)).apply {
-                bottomMargin = dp(8)
-            })
+            listContainer.addView(
+                createLocationSection(group, active),
+                LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(8) },
+            )
         }
     }
 
-    private fun createLocationRow(
+    private fun createLocationSection(
         group: LocationGroup,
         active: Boolean,
-        automatic: Boolean,
-        selectedLocation: String?,
     ): View {
+        val premium = BlueVpnAccountManager.active(this)
+        val expanded = group.location.key in expandedLocations
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
         val fill = when {
             active -> if (palette.dark) 0xFF151D31.toInt() else 0xFFEAF0FF.toInt()
             group.favorite -> if (palette.dark) 0xFF181621.toInt() else 0xFFF4F0FF.toInt()
@@ -372,19 +384,22 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             group.favorite -> if (palette.dark) 0xFF44395F.toInt() else 0xFFD9CDF7.toInt()
             else -> palette.stroke
         }
-        val card = card(radius = 21, fill = fill, stroke = stroke).apply {
+        val header = card(radius = 21, fill = fill, stroke = stroke).apply {
             strokeWidth = dp(if (active) 2 else 1)
             isClickable = true
             isFocusable = true
-            setOnClickListener { selectGroup(group, automatic, selectedLocation) }
+            setOnClickListener {
+                if (expanded) expandedLocations.remove(group.location.key)
+                else expandedLocations.add(group.location.key)
+                renderLocations()
+            }
         }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(13), dp(9), dp(13), dp(9))
         }
-        card.addView(row)
-
+        header.addView(row)
         row.addView(textView(group.location.flag, 27f, palette.textPrimary, Gravity.CENTER).apply {
             background = rounded(palette.surfaceStrong, 24)
         }, LinearLayout.LayoutParams(dp(50), dp(50)))
@@ -405,7 +420,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             group.usableRoutes == group.servers.size -> "همه مسیرها آماده"
             else -> "${group.usableRoutes} مسیر آماده"
         }
-        content.addView(textView("${group.servers.size} سرور • $availability", 10.5f, palette.textMuted, Gravity.END).apply {
+        content.addView(textView("${group.servers.size} ورودی • $availability", 10.5f, palette.textMuted, Gravity.END).apply {
             setPadding(0, dp(5), 0, 0)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -415,12 +430,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val favoriteButton = MaterialButton(this).apply {
             text = if (group.favorite) "★" else "☆"
             textSize = 18f
-            minWidth = 0
-            minimumWidth = 0
-            minHeight = 0
-            minimumHeight = 0
-            insetTop = 0
-            insetBottom = 0
+            minWidth = 0; minimumWidth = 0; minHeight = 0; minimumHeight = 0
+            insetTop = 0; insetBottom = 0
             setPadding(0, 0, 0, 0)
             isAllCaps = false
             cornerRadius = dp(15)
@@ -433,8 +444,116 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             }
         }
         row.addView(favoriteButton, LinearLayout.LayoutParams(dp(40), dp(40)))
-        row.addView(textView(if (active) "انتخاب‌شده" else "انتخاب", 9.5f, if (active) palette.accent else palette.textMuted, Gravity.CENTER), LinearLayout.LayoutParams(dp(62), dp(40)))
-        return card
+        row.addView(textView(
+            if (!premium) "🔒" else if (expanded) "⌃" else "⌄",
+            if (!premium) 16f else 18f,
+            if (!premium) palette.textMuted else palette.accent,
+            Gravity.CENTER,
+        ), LinearLayout.LayoutParams(dp(48), dp(40)))
+        outer.addView(header, LinearLayout.LayoutParams(-1, dp(78)))
+
+        if (expanded) {
+            group.servers
+                .sortedWith(compareByDescending<BlueVpnLocationUtil.Candidate> {
+                    BlueVpnLocationUtil.healthScore(this, it)
+                }.thenBy { if (it.delay > 0L) it.delay else Long.MAX_VALUE })
+                .forEachIndexed { index, candidate ->
+                    outer.addView(
+                        createServerEntry(group, candidate, index, premium),
+                        LinearLayout.LayoutParams(-1, dp(62)).apply {
+                            topMargin = dp(5)
+                            marginStart = dp(12)
+                            marginEnd = dp(12)
+                        },
+                    )
+                }
+        }
+        return outer
+    }
+
+    private fun createServerEntry(
+        group: LocationGroup,
+        candidate: BlueVpnLocationUtil.Candidate,
+        index: Int,
+        premium: Boolean,
+    ): View {
+        val selected = MmkvManager.getSelectServer() == candidate.guid
+        val entry = card(
+            radius = 17,
+            fill = if (selected) palette.surfaceStrong else palette.surface,
+            stroke = if (selected) palette.accent else palette.stroke,
+        ).apply {
+            strokeWidth = dp(if (selected) 2 else 1)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener {
+                if (!premium) {
+                    Toast.makeText(
+                        this@BlueVpnServersActivity,
+                        "انتخاب دستی کشور و مسیر فقط برای کاربران دارای اشتراک است",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                } else {
+                    selectServer(group, candidate)
+                }
+            }
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(7), dp(14), dp(7))
+        }
+        entry.addView(row)
+        val stateColor = when {
+            BlueVpnPreferences.isSessionInactive(this, candidate.guid) -> 0xFFFF5364.toInt()
+            candidate.delay > 0L -> 0xFF24C7A5.toInt()
+            candidate.delay < 0L -> 0xFFFF5364.toInt()
+            else -> palette.textMuted
+        }
+        row.addView(View(this).apply { background = circle(stateColor) }, LinearLayout.LayoutParams(dp(9), dp(9)).apply { marginEnd = dp(11) })
+        val labelBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
+        labelBox.addView(textView(routeLabel(candidate, index), 14f, palette.textPrimary, Gravity.END).apply {
+            setTypeface(typeface, Typeface.BOLD)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        })
+        labelBox.addView(textView(
+            when {
+                !premium -> "ویژه مشترکین"
+                selected -> "مسیر انتخاب‌شده"
+                candidate.delay > 0L -> "آماده اتصال"
+                else -> "مسیر ${index + 1}"
+            },
+            9.5f, palette.textMuted, Gravity.END,
+        ).apply { setPadding(0, dp(3), 0, 0) })
+        row.addView(labelBox, LinearLayout.LayoutParams(0, -1, 1f))
+        row.addView(textView(if (premium) "انتخاب" else "🔒", 11f, if (premium) palette.accent else palette.textMuted, Gravity.CENTER), LinearLayout.LayoutParams(dp(58), dp(38)))
+        return entry
+    }
+
+    private fun routeLabel(candidate: BlueVpnLocationUtil.Candidate, index: Int): String {
+        val raw = candidate.profile.remarks.orEmpty()
+            .replace(Regex("(?i)\\b(vless|vmess|trojan|reality|grpc|websocket|ws|tcp|udp|tls|xray|v2rayng|vpn|proxy)\\b"), " ")
+            .replace(Regex("[_|/\\-]+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return raw.takeIf { it.length in 2..36 } ?: "${candidate.location.title} • مسیر ${index + 1}"
+    }
+
+    private fun selectServer(
+        group: LocationGroup,
+        candidate: BlueVpnLocationUtil.Candidate,
+    ) {
+        val changed = MmkvManager.getSelectServer() != candidate.guid || BlueVpnPreferences.smartBalance(this)
+        BlueVpnPreferences.setSmartBalance(this, false)
+        BlueVpnPreferences.setPreferredLocation(this, group.location.key)
+        MmkvManager.setSelectServer(candidate.guid)
+        setResult(Activity.RESULT_OK, Intent()
+            .putExtra(EXTRA_LOCATION_CHANGED, changed)
+            .putExtra(EXTRA_LOCATION_KEY, group.location.key)
+            .putExtra(EXTRA_LOCATION_TITLE, "${group.location.flag} ${group.location.title}"))
+        Toast.makeText(this, "${routeLabel(candidate, 0)} انتخاب شد", Toast.LENGTH_SHORT).show()
+        finish()
     }
 
     private fun selectAutomatic() {
@@ -451,6 +570,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun selectGroup(group: LocationGroup, automatic: Boolean, selectedLocation: String?) {
+        if (!BlueVpnAccountManager.active(this)) {
+            Toast.makeText(this, "انتخاب دستی فقط با اشتراک فعال است", Toast.LENGTH_LONG).show()
+            return
+        }
         val currentPreferred = BlueVpnPreferences.preferredLocation(this).ifBlank { selectedLocation.orEmpty() }
         val changed = automatic || currentPreferred != group.location.key
         BlueVpnPreferences.setSmartBalance(this, false)

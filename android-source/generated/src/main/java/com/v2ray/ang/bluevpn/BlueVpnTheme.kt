@@ -73,6 +73,8 @@ object BlueVpnPerformance {
 object BlueVpnTheme {
     private const val PREFS = "bluevpn_ui"
     private const val KEY_MODE = "theme_mode"
+    private const val KEY_CHANGED_AT = "theme_changed_at"
+    private const val TRANSITION_GRACE_MS = 12_000L
 
     fun mode(context: Context): BlueVpnThemeMode {
         val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -82,10 +84,29 @@ object BlueVpnTheme {
     }
 
     fun setMode(context: Context, mode: BlueVpnThemeMode) {
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
+        val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (preferences.getString(KEY_MODE, BlueVpnThemeMode.SYSTEM.key) == mode.key) {
+            return
+        }
+        // Commit synchronously so every view rebuilt in this frame reads the
+        // same palette. The payload is tiny and avoids mixed old/new colors.
+        preferences.edit()
             .putString(KEY_MODE, mode.key)
-            .apply()
+            .putLong(KEY_CHANGED_AT, System.currentTimeMillis())
+            .commit()
+    }
+
+    fun changedAt(context: Context): Long =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getLong(KEY_CHANGED_AT, 0L)
+
+    fun isTransitionRecent(
+        context: Context,
+        windowMs: Long = TRANSITION_GRACE_MS,
+    ): Boolean {
+        val changedAt = changedAt(context)
+        return changedAt > 0L &&
+            System.currentTimeMillis() - changedAt in 0L..windowMs
     }
 
     fun isDark(context: Context): Boolean = when (mode(context)) {

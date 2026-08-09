@@ -48,7 +48,10 @@ check("engine-in-generated-sources", 'BlueVpnEngineManager.kt"' in prepare)
 check("sing-box-in-generated-sources", 'BlueVpnSingBoxProcess.kt"' in prepare)
 check("workflow-pins-sing-box", "steps.config.outputs.sing_box_ref" in workflow)
 check("workflow-builds-arm64", "arm64-v8a/libbluevpn_singbox.so" in workflow)
-check("workflow-builds-armv7", "armeabi-v7a/libbluevpn_singbox.so" in workflow)
+check(
+    "workflow-armv7-safe-fallback",
+    "armeabi-v7a intentionally uses the Xray fallback" in workflow,
+)
 check("workflow-avoids-second-gomobile-aar", "libbox.aar" not in workflow)
 check("migration-documented", "Xray" in doc and "sing-box" in doc and "TUN" in doc)
 
@@ -76,7 +79,7 @@ except Exception as exc:  # noqa: BLE001
 # steps without depending on a particular YAML parser's treatment of the `on` key.
 step_names = re.findall(r"(?m)^\s{6}- name:\s+(.+)$", workflow)
 check("workflow-has-build-job", "jobs:" in workflow and "build:" in workflow)
-check("workflow-sing-box-step-ordered", "Build isolated sing-box Android runtimes" in step_names)
+check("workflow-sing-box-step-ordered", "Build isolated sing-box Android runtime" in step_names)
 check("workflow-android-build-still-present", any("Build" in name and "APK" in name for name in step_names))
 
 warnings.append("Full Gradle/NDK/Go dependency build is delegated to GitHub Actions and was not executable in this offline container.")

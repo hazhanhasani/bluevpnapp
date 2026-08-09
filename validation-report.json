@@ -49,7 +49,7 @@
       "sing-box-in-generated-sources",
       "workflow-pins-sing-box",
       "workflow-builds-arm64",
-      "workflow-builds-armv7",
+      "workflow-armv7-safe-fallback",
       "workflow-avoids-second-gomobile-aar",
       "migration-documented",
       "json:branding/app.json",
@@ -78,6 +78,5 @@
     "sing_box_shell_syntax": "passed",
     "build_118_regression": "passed"
   },
-  "project_version": "3.0.70",
-  "release": "3.0.70"
+  "build_fix": "119-singbox-arm64-xray-armv7-fallback"
 }

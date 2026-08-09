@@ -1,5 +1,5 @@
 {
-  "release": "3.0.70-auto",
+  "release": "3.0.70",
   "version_name": "3.0.70",
   "version_code": 30070,
   "changes": [
@@ -16,5 +16,6 @@
   "updated_at": "2026-08-09T17:30:00Z",
   "built_at": "2026-08-09T17:30:00Z",
   "build_id": "20260809-dual-engine-v3070-build118-fix",
-  "feature": "dual-engine-runtime-boundary"
+  "feature": "dual-engine-runtime-boundary",
+  "build_fix": "119-singbox-arm64-xray-armv7-fallback"
 }

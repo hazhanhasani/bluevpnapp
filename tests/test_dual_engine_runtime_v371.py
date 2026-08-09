@@ -31,7 +31,7 @@ def test_sing_box_is_pinned_and_built_for_supported_abis():
     assert app["sing_box_ref"] == "v1.13.16"
     assert "steps.config.outputs.sing_box_ref" in workflow
     assert "arm64-v8a/libbluevpn_singbox.so" in workflow
-    assert "armeabi-v7a/libbluevpn_singbox.so" in workflow
+    assert "armeabi-v7a intentionally uses the Xray fallback" in workflow
 
 
 def test_second_gomobile_aar_is_not_packaged():

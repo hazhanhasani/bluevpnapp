@@ -1,11 +1,11 @@
 {
   "version": "3.0.64",
   "channel": "stable",
-  "build_id": "20260809-free-auto-access-v3063",
+  "build_id": "20260809-postgres-nullable-fk-migration-fix-v3064",
   "built_at": "2026-08-09T17:35:00Z",
   "android_version": "3.0.64",
   "android_version_code": 30064,
-  "description": "BlueVPN 3.0.63 اتصال رایگان خودکار با محدودیت یک‌ساعته، قفل انتخاب دستی برای کاربران بدون اشتراک و نمایش تمام ورودی‌های هر لوکیشن را اضافه می‌کند.",
+  "description": "BlueVPN 3.0.64 خطای راه‌اندازی PostgreSQL در Migration رکوردهای OTP قدیمی را رفع می‌کند و از مقداردهی جعلی Foreign Keyهای اختیاری جلوگیری می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -398,9 +398,13 @@
     "one-hour-free-session-alarm",
     "premium-manual-location-lock",
     "expandable-location-entry-list",
-    "dedicated-free-subscription-relay"
+    "dedicated-free-subscription-relay",
+    "postgres-nullable-foreign-key-migration-safety",
+    "otp-customer-id-null-preservation",
+    "no-synthetic-foreign-key-defaults",
+    "startup-migration-regression-guard"
   ],
   "version_code": 30064,
-  "notes": "رفع تغییر مرحله‌ای رنگ‌ها، اعمال هم‌زمان تم در صفحه تنظیمات و جلوگیری از توقف یا اتصال مجدد VPN هنگام بازسازی رابط.",
-  "version_source": "theme-connection-stability-v3062"
+  "notes": "رفع ForeignKeyViolation در otp_challenges.customer_id؛ ستون‌های nullable و Foreign Key دیگر با مقدار صفر یا مقدار ساختگی پر نمی‌شوند.",
+  "version_source": "postgres-nullable-fk-migration-fix-v3064"
 }

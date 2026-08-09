@@ -317,6 +317,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 // keep showing «نیاز به تمدید» after a successful activation.
                 syncManagedAccount(force = true)
             } else {
+                prepareGuestFreeAccess(force = false)
                 refreshDashboard()
                 refreshSubscriptionInfo(force = false)
             }
@@ -1462,8 +1463,10 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
             if (!BlueVpnAccountManager.hasSession(this)) {
                 handler.postDelayed({
-                    if (!isFinishing && !isDestroyed) openAccount()
-                }, 300L)
+                    if (!isFinishing && !isDestroyed) {
+                        prepareGuestFreeAccess(force = false)
+                    }
+                }, 180L)
             }
 
             handler.postDelayed({
@@ -1549,7 +1552,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
 
         if (!BlueVpnAccountManager.hasSession(this)) {
-            openAccount()
+            prepareGuestFreeAccess(force = false)
         } else if (!startupOptimizationShown) {
             startStartupOptimization()
         } else if (!BlueVpnAccountManager.snapshot(this).subscriptionActive) {
@@ -1710,20 +1713,10 @@ private fun recordCurrentConnection(
 }
 
 private fun showWelcomeIfNeeded() {
-    if (!BlueVpnExperience.shouldShowWelcome(this)) {
-        return
-    }
-
-    AlertDialog.Builder(this)
-        .setTitle("به BlueVPN ${BuildConfig.VERSION_NAME} خوش آمدید")
-        .setMessage(
-            "طراحی جدید، انتخاب خودکار مسیر، اتصال سریع‌تر و پایش هوشمند در پس‌زمینه آماده است."
-        )
-        .setPositiveButton("شروع") { _, _ ->
-            BlueVpnExperience.markWelcomeShown(this)
-        }
-        .setCancelable(false)
-        .show()
+    if (!BlueVpnExperience.shouldShowWelcome(this)) return
+    // First install must land directly on the connection screen.
+    // A blocking account/welcome dialog would defeat guest access.
+    BlueVpnExperience.markWelcomeShown(this)
 }
 
 private fun startStartupOptimization() {
@@ -2187,6 +2180,25 @@ private fun dpHome(value: Int): Int =
         handler.post(disconnectRetry)
     }
 
+    private fun prepareGuestFreeAccess(force: Boolean) {
+        if (BlueVpnAccountManager.hasSession(this) || freePreparationInProgress) return
+        freePreparationInProgress = true
+        lifecycleScope.launch(Dispatchers.IO) {
+            val prepared = BlueVpnAccountManager
+                .prepareFreeAccess(this@BlueVpnHomeActivity, force)
+                .getOrDefault(false)
+            withContext(Dispatchers.Main) {
+                freePreparationInProgress = false
+                if (prepared) {
+                    BlueVpnLocationUtil.invalidateCache()
+                    mainViewModel.reloadServerList()
+                }
+                refreshDashboard(force = true)
+                refreshSubscriptionInfo(force = true)
+            }
+        }
+    }
+
     private fun beginSmartConnection() {
         userDisconnecting = false
         disconnectRetry.reset()
@@ -2200,10 +2212,6 @@ private fun dpHome(value: Int): Int =
             return
         }
 
-        if (!BlueVpnAccountManager.hasSession(this)) {
-            openAccount()
-            return
-        }
         if (!BlueVpnAccountManager.active(this)) {
             if (freePreparationInProgress) return
             if (!BlueVpnAccountManager.isFreeMode(this)) {
@@ -2985,10 +2993,14 @@ private fun dpHome(value: Int): Int =
         subscriptionSummary.text = when {
             managed.email.isNotBlank() && managed.subscriptionActive ->
                 "اشتراک فعال • ${managed.email}"
+            !BlueVpnAccountManager.hasSession(this) && BlueVpnAccountManager.freeAccessEnabled(this) ->
+                "مهمان • اتصال رایگان خودکار • هر نوبت ${BlueVpnAccountManager.freeAccessSnapshot(this).sessionMinutes} دقیقه"
             managed.email.isNotBlank() && BlueVpnAccountManager.freeAccessEnabled(this) ->
                 "اتصال رایگان • انتخاب خودکار • هر نوبت ${BlueVpnAccountManager.freeAccessSnapshot(this).sessionMinutes} دقیقه"
             managed.email.isNotBlank() ->
                 "${managed.email} • نیاز به تمدید"
+            subscriptionCount > 0 && BlueVpnAccountManager.freeAccessEnabled(this) ->
+                "مهمان • اتصال رایگان آماده"
             subscriptionCount > 0 ->
                 "اشتراک فعال • $locationCount مکان"
             usableCount > 0 ->
@@ -3098,63 +3110,16 @@ private fun dpHome(value: Int): Int =
             return
         }
 
-        val prefs = getSharedPreferences(
-            "bluevpn_subscription_info",
-            MODE_PRIVATE
-        )
-        val cacheAt = prefs.getLong("updated_at", 0L)
-
-        if (!force &&
-            System.currentTimeMillis() - cacheAt < 60_000L
-        ) {
-            remainingVolume.text =
-                prefs.getString("volume", "نامشخص")
-            remainingTime.text = cleanRemainingTime(
-                prefs.getString("time", "نامشخص").orEmpty()
-            )
-            return
+        val free = BlueVpnAccountManager.freeAccessSnapshot(this)
+        remainingVolume.text = if (free.enabled && free.subscriptions.isNotEmpty()) {
+            "رایگان"
+        } else {
+            "مهمان"
         }
-
-        val subscription =
-            MmkvManager.decodeSubscriptions()
-                .firstOrNull {
-                    it.subscription.remarks == "BlueVPN Account"
-                }
-                ?.subscription
-                ?: MmkvManager.getSelectServer()
-                    ?.let { MmkvManager.decodeServerConfig(it) }
-                    ?.subscriptionId
-                    ?.takeIf { it.isNotBlank() }
-                    ?.let { MmkvManager.decodeSubscription(it) }
-
-        val url = subscription?.url.orEmpty()
-        if (!url.startsWith("http://") &&
-            !url.startsWith("https://")
-        ) {
-            remainingVolume.text = "نامشخص"
-            remainingTime.text = "نامشخص"
-            prefs.edit().clear().apply()
-            return
-        }
-
-        lifecycleScope.launch(Dispatchers.IO) {
-            val info = fetchSubscriptionUserInfo(url)
-            withContext(Dispatchers.Main) {
-                val volume = info?.first ?: "نامشخص"
-                val time = info?.second ?: "نامشخص"
-
-                remainingVolume.text = volume
-                remainingTime.text = time
-
-                prefs.edit()
-                    .putLong(
-                        "updated_at",
-                        System.currentTimeMillis()
-                    )
-                    .putString("volume", volume)
-                    .putString("time", time)
-                    .apply()
-            }
+        remainingTime.text = if (free.enabled && free.subscriptions.isNotEmpty()) {
+            "${free.sessionMinutes} دقیقه در هر اتصال"
+        } else {
+            "در حال آماده‌سازی"
         }
     }
 

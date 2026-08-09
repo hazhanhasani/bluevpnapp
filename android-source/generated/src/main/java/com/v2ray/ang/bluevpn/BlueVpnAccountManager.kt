@@ -46,9 +46,17 @@ data class BlueVpnOtpRequest(
     val resendAfterSeconds: Int,
 )
 
+data class BlueVpnFreeSubscription(
+    val id: String,
+    val name: String,
+    val url: String,
+    val priority: Int,
+)
+
 data class BlueVpnFreeAccessSnapshot(
     val enabled: Boolean,
     val subscriptionUrl: String,
+    val subscriptions: List<BlueVpnFreeSubscription>,
     val sessionMinutes: Int,
 )
 
@@ -251,20 +259,48 @@ object BlueVpnAccountManager {
 
     fun freeAccessSnapshot(c: Context): BlueVpnFreeAccessSnapshot {
         val storage = freePrefs(c)
+        val parsed = mutableListOf<BlueVpnFreeSubscription>()
+        val raw = storage.getString("subscriptions_json", "").orEmpty()
+        if (raw.isNotBlank()) {
+            runCatching { JSONArray(raw) }.getOrNull()?.let { array ->
+                for (index in 0 until array.length()) {
+                    val row = array.optJSONObject(index) ?: continue
+                    val url = row.optString("url").trim()
+                    if (!url.startsWith("http")) continue
+                    parsed += BlueVpnFreeSubscription(
+                        id = row.optString("id").trim().ifBlank { "source-$index" },
+                        name = row.optString("name").trim().ifBlank { "سرور رایگان ${index + 1}" },
+                        url = url,
+                        priority = row.optInt("priority", index),
+                    )
+                }
+            }
+        }
+        val legacyUrl = storage.getString("subscription_url", "").orEmpty().trim()
+        if (parsed.isEmpty() && legacyUrl.startsWith("http")) {
+            parsed += BlueVpnFreeSubscription(
+                id = "legacy-default",
+                name = "سرور رایگان",
+                url = legacyUrl,
+                priority = 0,
+            )
+        }
+        val ordered = parsed.distinctBy { it.id }.sortedBy { it.priority }
         return BlueVpnFreeAccessSnapshot(
             enabled = storage.getBoolean("enabled", false),
-            subscriptionUrl = storage.getString("subscription_url", "").orEmpty(),
+            subscriptionUrl = ordered.firstOrNull()?.url.orEmpty(),
+            subscriptions = ordered,
             sessionMinutes = storage.getInt("session_minutes", 60).coerceIn(15, 180),
         )
     }
 
     fun freeAccessEnabled(c: Context): Boolean {
         val snapshot = freeAccessSnapshot(c)
-        return snapshot.enabled && snapshot.subscriptionUrl.startsWith("http")
+        return snapshot.enabled && snapshot.subscriptions.isNotEmpty()
     }
 
     fun isFreeMode(c: Context): Boolean =
-        hasSession(c) && !active(c) && freeAccessEnabled(c)
+        !active(c) && freeAccessEnabled(c)
 
     fun prepareFreeAccess(c: Context, force: Boolean = false): Result<Boolean> = runCatching {
         val appContext = c.applicationContext
@@ -272,7 +308,7 @@ object BlueVpnAccountManager {
         val now = System.currentTimeMillis()
         val lastConfigAt = storage.getLong("config_at", 0L)
         val shouldFetch = force || now - lastConfigAt > FREE_CONFIG_TTL_MS ||
-            storage.getString("subscription_url", "").orEmpty().isBlank()
+            freeAccessSnapshot(appContext).subscriptions.isEmpty()
 
         if (shouldFetch) {
             val config = request(
@@ -283,9 +319,30 @@ object BlueVpnAccountManager {
                 false,
             )
             val free = config.optJSONObject("free_access") ?: JSONObject()
+            val sources = free.optJSONArray("subscriptions") ?: JSONArray()
+            val storedSources = JSONArray()
+            for (index in 0 until sources.length()) {
+                val row = sources.optJSONObject(index) ?: continue
+                val url = row.optString("subscription_url").trim()
+                if (!url.startsWith("http")) continue
+                storedSources.put(JSONObject()
+                    .put("id", row.optString("id").trim().ifBlank { "source-$index" })
+                    .put("name", row.optString("name").trim().ifBlank { "سرور رایگان ${index + 1}" })
+                    .put("url", url)
+                    .put("priority", row.optInt("priority", index)))
+            }
+            val legacyUrl = free.optString("subscription_url").trim()
+            if (storedSources.length() == 0 && legacyUrl.startsWith("http")) {
+                storedSources.put(JSONObject()
+                    .put("id", "legacy-default")
+                    .put("name", "سرور رایگان")
+                    .put("url", legacyUrl)
+                    .put("priority", 0))
+            }
             storage.edit()
                 .putBoolean("enabled", free.optBoolean("enabled", false))
-                .putString("subscription_url", free.optString("subscription_url").trim())
+                .putString("subscription_url", legacyUrl)
+                .putString("subscriptions_json", storedSources.toString())
                 .putInt("session_minutes", free.optInt("session_minutes", 60).coerceIn(15, 180))
                 .putLong("config_at", now)
                 .commit()
@@ -297,48 +354,87 @@ object BlueVpnAccountManager {
         }
 
         val snapshot = freeAccessSnapshot(appContext)
-        if (!snapshot.enabled || !snapshot.subscriptionUrl.startsWith("http")) {
+        if (!snapshot.enabled || snapshot.subscriptions.isEmpty()) {
             return@runCatching false
         }
 
-        installFreeSubscription(appContext, snapshot.subscriptionUrl, force)
+        installFreeSubscriptions(appContext, snapshot.subscriptions, force)
         BlueVpnPreferences.setSmartBalance(appContext, true)
         BlueVpnPreferences.setPreferredLocation(appContext, "")
         true
     }
 
-    private fun installFreeSubscription(c: Context, url: String, force: Boolean) {
+    private fun installFreeSubscriptions(
+        c: Context,
+        sources: List<BlueVpnFreeSubscription>,
+        force: Boolean,
+    ) {
         val storage = freePrefs(c)
-        val old = MmkvManager.decodeSubscriptions()
-            .firstOrNull { it.subscription.remarks == FREE_SUB }
-        val unchanged = old?.subscription?.url == url
+        val existing = MmkvManager.decodeSubscriptions()
+            .filter { it.subscription.remarks.startsWith(FREE_SUB) }
+        val desiredIds = sources.map { it.id }.toSet()
+        val installedGuids = linkedSetOf<String>()
         val lastInstallAt = storage.getLong("installed_at", 0L)
-        if (!force && unchanged && System.currentTimeMillis() - lastInstallAt < AUTO_SYNC_INTERVAL_MS) {
-            storage.edit().putString("subscription_guid", old?.guid.orEmpty()).apply()
-            return
+        val recent = !force && System.currentTimeMillis() - lastInstallAt < AUTO_SYNC_INTERVAL_MS
+
+        sources.forEach { source ->
+            val remark = "$FREE_SUB • ${source.id}"
+            val old = existing.firstOrNull {
+                it.subscription.remarks == remark || it.subscription.url == source.url
+            }
+            val unchanged = old?.subscription?.url == source.url && old.subscription.enabled
+            val item = SubscriptionItem(
+                remarks = remark,
+                url = source.url,
+                enabled = true,
+                autoUpdate = true,
+            )
+            if (!recent || !unchanged) {
+                MmkvManager.encodeSubscription(old?.guid.orEmpty(), item)
+            }
         }
-        val item = SubscriptionItem(
-            remarks = FREE_SUB,
-            url = url,
-            enabled = true,
-            autoUpdate = true,
-        )
-        MmkvManager.encodeSubscription(old?.guid.orEmpty(), item)
-        AngConfigManager.updateConfigViaSubAll()
-        val installed = MmkvManager.decodeSubscriptions()
-            .firstOrNull { it.subscription.remarks == FREE_SUB }
+
+        existing.filter { old ->
+            val id = old.subscription.remarks.substringAfter("•", "").trim()
+            id.isNotBlank() && id !in desiredIds
+        }.forEach { old ->
+            MmkvManager.encodeSubscription(
+                old.guid,
+                SubscriptionItem(
+                    remarks = old.subscription.remarks,
+                    url = old.subscription.url,
+                    enabled = false,
+                    autoUpdate = old.subscription.autoUpdate,
+                ),
+            )
+        }
+
+        if (!recent || existing.isEmpty()) {
+            AngConfigManager.updateConfigViaSubAll()
+        }
+        MmkvManager.decodeSubscriptions()
+            .filter { it.subscription.enabled && it.subscription.remarks.startsWith(FREE_SUB) }
+            .forEach { installedGuids += it.guid }
         storage.edit()
-            .putString("subscription_guid", installed?.guid.orEmpty())
+            .putStringSet("subscription_guids", installedGuids)
+            .putString("subscription_guid", installedGuids.firstOrNull().orEmpty())
             .putLong("installed_at", System.currentTimeMillis())
             .commit()
         BlueVpnLocationUtil.invalidateCache()
     }
 
     fun candidateAllowed(c: Context, subscriptionId: String?): Boolean {
-        val freeGuid = freePrefs(c).getString("subscription_guid", "").orEmpty()
+        val storage = freePrefs(c)
+        val freeGuids = storage.getStringSet("subscription_guids", emptySet()).orEmpty()
+            .ifEmpty {
+                storage.getString("subscription_guid", "").orEmpty()
+                    .takeIf { it.isNotBlank() }
+                    ?.let { setOf(it) }
+                    .orEmpty()
+            }
         return when {
-            active(c) -> freeGuid.isBlank() || subscriptionId.orEmpty() != freeGuid
-            isFreeMode(c) -> freeGuid.isNotBlank() && subscriptionId.orEmpty() == freeGuid
+            active(c) -> subscriptionId.orEmpty() !in freeGuids
+            isFreeMode(c) -> subscriptionId.orEmpty() in freeGuids
             else -> false
         }
     }

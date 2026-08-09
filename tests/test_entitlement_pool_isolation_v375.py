@@ -7,12 +7,12 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_metadata_is_v375():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.76"
-    assert release["version_code"] == 30076
-    assert release["android_version"] == "3.0.76"
-    assert release["android_version_code"] == 30076
-    assert app["version_name"] == "3.0.76"
-    assert app["version_code"] == 30076
+    assert release["version"] == "3.0.77"
+    assert release["version_code"] == 30077
+    assert release["android_version"] == "3.0.77"
+    assert release["android_version_code"] == 30077
+    assert app["version_name"] == "3.0.77"
+    assert app["version_code"] == 30077
 
 
 def test_entitlement_pool_is_strict_and_has_no_global_fallback():

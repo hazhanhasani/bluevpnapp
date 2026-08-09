@@ -142,6 +142,8 @@ object BlueVpnPersianDate {
 
 object BlueVpnAccountManager {
     private val refreshLock = Any()
+    private val subscriptionReconcileLock = Any()
+    @Volatile private var subscriptionRefreshRunning = false
     private val backgroundExecutor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "bluevpn-account-background").apply { isDaemon = true }
     }
@@ -660,6 +662,26 @@ object BlueVpnAccountManager {
         return "$mode|$subscriptions|$servers"
     }
 
+    /**
+     * Stable identity of the user's current entitlement. Unlike
+     * entitlementPoolFingerprint this deliberately excludes imported server GUIDs,
+     * because v2rayNG temporarily clears and repopulates those GUIDs during a
+     * subscription refresh. Using the server list as a UI cache key made the
+     * locations appear for a moment and then disappear.
+     */
+    fun entitlementIdentityFingerprint(c: Context): String = when {
+        active(c) -> "premium|${snapshot(c).subscriptionUrl.trim()}"
+        isFreeMode(c) -> {
+            val sources = freeAccessSnapshot(c).subscriptions
+                .sortedWith(compareBy<BlueVpnFreeSubscription> { it.priority }.thenBy { it.id })
+                .joinToString("|") { "${it.id}:${it.url.trim()}" }
+            "free|$sources"
+        }
+        else -> "none"
+    }
+
+    fun isSubscriptionRefreshRunning(): Boolean = subscriptionRefreshRunning
+
     fun candidateAllowed(c: Context, subscriptionId: String?): Boolean =
         candidateAllowed(c, "", subscriptionId)
 
@@ -708,7 +730,7 @@ object BlueVpnAccountManager {
                     c = appContext,
                     premiumActive = true,
                     premiumUrl = current.subscriptionUrl,
-                    forceRefresh = true,
+                    forceRefresh = preferredServerGuids(appContext).isEmpty(),
                 )
             } else {
                 sync(appContext, force = true).getOrThrow()
@@ -740,7 +762,7 @@ object BlueVpnAccountManager {
         premiumActive: Boolean,
         premiumUrl: String,
         forceRefresh: Boolean,
-    ) {
+    ) = synchronized(subscriptionReconcileLock) {
         val existing = MmkvManager.decodeSubscriptions()
         var changed = false
         var mustRefresh = forceRefresh
@@ -836,7 +858,12 @@ object BlueVpnAccountManager {
         // after refresh so neither the UI nor the legacy core can mix pools.
         pruneInactiveManagedPools(c)
         if (mustRefresh) {
-            AngConfigManager.updateConfigViaSubAll()
+            subscriptionRefreshRunning = true
+            try {
+                AngConfigManager.updateConfigViaSubAll()
+            } finally {
+                subscriptionRefreshRunning = false
+            }
         }
         if (changed || mustRefresh) {
             pruneInactiveManagedPools(c)
@@ -1639,6 +1666,9 @@ object BlueVpnAccountManager {
             }
         }
         val effectiveActive = effectiveSubscriptionActive(subscription)
+        val entitlementChanged =
+            previous.subscriptionActive != effectiveActive ||
+                previous.subscriptionUrl.trim() != url.trim()
         prefs(c).edit()
             .putString("email", identity)
             .putBoolean("phone_verified", account.optBoolean("phone_verified", false))
@@ -1709,11 +1739,15 @@ object BlueVpnAccountManager {
         if (effectiveActive) {
             stopFreeSession(c, expired = false)
             if (forceSubscriptions) {
+                // A forced account refresh must not re-import a healthy unchanged
+                // subscription. Re-importing on every screen entry clears MMKV for
+                // a short window and makes locations flash in and out.
+                val poolMissing = preferredServerGuids(c).isEmpty()
                 reconcileSubscriptionMode(
                     c = c.applicationContext,
                     premiumActive = true,
                     premiumUrl = url,
-                    forceRefresh = true,
+                    forceRefresh = entitlementChanged || poolMissing,
                 )
             } else if (url.startsWith("http")) {
                 // Login/registration returns immediately; foreground/order
@@ -1745,12 +1779,16 @@ object BlueVpnAccountManager {
         }
     }
 
-    private fun install(url: String) {
+    private fun install(url: String) = synchronized(subscriptionReconcileLock) {
         val subscriptions = MmkvManager.decodeSubscriptions()
         val old = subscriptions.firstOrNull {
-            it.subscription.remarks == SUB
+            it.subscription.remarks == SUB &&
+                it.subscription.url.trim() == url.trim()
         }
-
+        val currentReady = old != null &&
+            old.subscription.enabled &&
+            runCatching { MmkvManager.decodeServerList(old.guid).isNotEmpty() }
+                .getOrDefault(false)
         subscriptions
             .filter { it.subscription.remarks.startsWith(FREE_SUB) }
             .forEach { row ->
@@ -1788,11 +1826,18 @@ object BlueVpnAccountManager {
             autoUpdate = true,
         )
 
-        MmkvManager.encodeSubscription(
-            old?.guid.orEmpty(),
-            item,
-        )
-        AngConfigManager.updateConfigViaSubAll()
+        if (!currentReady) {
+            MmkvManager.encodeSubscription(
+                old?.guid.orEmpty(),
+                item,
+            )
+            subscriptionRefreshRunning = true
+            try {
+                AngConfigManager.updateConfigViaSubAll()
+            } finally {
+                subscriptionRefreshRunning = false
+            }
+        }
         BlueVpnLocationUtil.invalidateCache()
     }
 

@@ -1,6 +1,6 @@
 {
   "version": "3.0.74",
-  "version_code": 30076,
+  "version_code": 30074,
   "feature": "bluepay-official-contract",
   "tests": {
     "passed": 35,
@@ -91,7 +91,5 @@
     ],
     "request_id_diagnostics": true,
     "settings_api_key_guard": true
-  },
-  "project_version": "3.0.76",
-  "release": "3.0.76"
+  }
 }

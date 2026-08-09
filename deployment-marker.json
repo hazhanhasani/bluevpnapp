@@ -1,7 +1,7 @@
 {
-  "release": "3.0.76-auto",
-  "version_name": "3.0.76",
-  "version_code": 30076,
+  "release": "3.0.77",
+  "version_name": "3.0.77",
+  "version_code": 30077,
   "changes": [
     "Route Android connect and disconnect commands through BlueVpnEngineManager",
     "Remove direct UI and account dependencies on v2rayNG CoreServiceManager",
@@ -35,14 +35,19 @@
     "Bind candidate cache to an entitlement fingerprint",
     "Disable stale Premium subscription rows with mismatched URLs",
     "Keep last matching location list visible while refreshing",
-    "Coalesce subscription import broadcasts and recover loading state after exceptions"
+    "Coalesce subscription import broadcasts and recover loading state after exceptions",
+    "Keep the last non-empty location snapshot visible during subscription refresh",
+    "Use a stable entitlement identity that excludes transient imported server GUIDs",
+    "Do not re-import an unchanged healthy Premium subscription on screen entry",
+    "Serialize subscription reconciliation and native MMKV imports",
+    "Run one manual refresh pipeline instead of overlapping sync, decode and ping jobs"
   ],
   "generated_at_unix": 1786307912,
   "purpose": "جداسازی قطعی سرورهای رایگان و Premium و رفع گیرکردن صفحه مکان‌ها",
   "updated_at": "2026-08-09T20:38:32Z",
   "built_at": "2026-08-09T20:38:32Z",
-  "build_id": "20260809-entitlement-pool-isolation-v3075",
-  "feature": "entitlement-pool-isolation",
-  "build_fix": "strict-server-pool-and-location-loading-recovery",
-  "version_source": "runtime-pool-bluepay-recovery-v3076"
+  "build_id": "20260810-stable-location-snapshot-v3077",
+  "feature": "stable-location-snapshot",
+  "build_fix": "atomic-non-empty-location-cache",
+  "version_source": "stable-location-snapshot-v3077"
 }

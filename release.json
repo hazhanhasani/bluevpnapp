@@ -1,11 +1,11 @@
 {
-  "version": "3.0.76",
+  "version": "3.0.77",
   "channel": "stable",
-  "build_id": "20260810-runtime-pool-bluepay-recovery-v3076",
+  "build_id": "20260810-stable-location-snapshot-v3077",
   "built_at": "2026-08-10T00:00:00Z",
-  "android_version": "3.0.76",
-  "android_version_code": 30076,
-  "description": "BlueVPN 3.0.76 پروفایل‌های فیزیکی پلن‌های غیرفعال را از Runtime حذف می‌کند، انتخاب خودکار را در مرز اشتراک قفل می‌کند و ساخت فاکتور BluePay را با Retry امن و Callback معتبر بازیابی می‌کند.",
+  "android_version": "3.0.77",
+  "android_version_code": 30077,
+  "description": "BlueVPN 3.0.77 همگام‌سازی لوکیشن‌ها را تک‌مسیره می‌کند، از Import دوباره اشتراک سالم جلوگیری می‌کند و آخرین Snapshot معتبر سرورها را تا آماده‌شدن Snapshot جدید حفظ می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -486,9 +486,15 @@
     "bluepay-idempotent-transport-retry",
     "bluepay-request-origin-callback",
     "bluepay-encryption-key-fallback",
-    "bluepay-invalid-callback-omission"
+    "bluepay-invalid-callback-omission",
+    "stable-entitlement-identity-cache",
+    "non-empty-candidate-cache-commit",
+    "single-owner-location-refresh",
+    "subscription-refresh-single-flight",
+    "no-healthy-pool-reimport",
+    "location-render-atomic-snapshot"
   ],
-  "version_code": 30076,
-  "notes": "سرورهای رایگان و اشتراک‌های قدیمی دیگر فقط غیرفعال نمی‌شوند و از MMKV نیز حذف می‌شوند؛ شروع Core خارج از Pool فعال ممنوع است. منابع پاسارگارد، مرزبان و پنل سوم به‌صورت Round-robin ادغام می‌شوند. BluePay با همان Idempotency-Key و بدنه ثابت یک Retry امن دارد، Callback نامعتبر حذف می‌شود و کلیدهای رمزگذاری قدیمی قابل بازیابی‌اند.",
-  "version_source": "runtime-pool-bluepay-recovery-v3076"
+  "version_code": 30077,
+  "notes": "لیست مکان‌ها دیگر هنگام Refresh یا Import موقت خالی نمی‌شود. Cache بر اساس هویت پایدار اشتراک نگهداری می‌شود، پاسخ خالی موقت جای Snapshot سالم را نمی‌گیرد و ورود به صفحه مکان‌ها اشتراک سالم را دوباره Import نمی‌کند.",
+  "version_source": "stable-location-snapshot-v3077"
 }

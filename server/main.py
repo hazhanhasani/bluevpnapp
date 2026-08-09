@@ -30,7 +30,7 @@ from .manual_guardcore import (
     set_manual_decision,
 )
 from .github_release import github_repository,latest_github_release
-from .models import AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,OtpChallenge,PasarGuardPanel,PaymentSetting,Plan,SmsDelivery,SmsSetting,SmsTemplate,WebhookDelivery,AiConnectionEvent,AiRouteAggregate,AiFeedback
+from .models import AdAsset,AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,OtpChallenge,PasarGuardPanel,PaymentSetting,Plan,SmsDelivery,SmsSetting,SmsTemplate,WebhookDelivery,AiConnectionEvent,AiRouteAggregate,AiFeedback
 from .blueai import admin_overview as blueai_admin_overview, customer_dashboard as blueai_customer_dashboard, recommendations as blueai_recommendations, submit_event as blueai_submit_event, submit_feedback as blueai_submit_feedback
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 from .sms import SmsError,customer_name,delivery_params,jalali_date,jalali_datetime_short,local_phone,normalize_iran_phone,process_pending_sms,queue_sms_event,seed_sms_templates,send_pattern,send_pattern_otp,sms_notification_ready,sms_setting_ready
@@ -492,6 +492,12 @@ def _public_ad_image_url(value:str,s:dict[str,Any],public_origin:str='')->str:
     value=str(value or '').strip()
     if not value:
         return ''
+    if value.startswith('/api/v1/ad-assets/'):
+        asset_id=value.rsplit('/',1)[-1].strip()
+        if not re.fullmatch(r'[a-f0-9]{32}',asset_id):
+            return ''
+        base=public_origin or _public_origin(None,s)
+        return f'{base}{value}' if base else value
     if value.startswith('/media/ads/'):
         filename=Path(value).name
         if not re.fullmatch(r'[a-zA-Z0-9._-]{1,160}',filename):
@@ -529,7 +535,7 @@ def advertising_payload(s:dict[str,Any],public_origin:str='',client_version:str=
             'title':title,
             'subtitle':str(item.get('subtitle') or ''),
             'image_url':image_url,
-            'image_path':raw_image if raw_image.startswith('/media/ads/') else '',
+            'image_path':raw_image if raw_image.startswith(('/media/ads/','/api/v1/ad-assets/')) else '',
             'target_url':target_url,
             'button_text':str(item.get('button_text') or ''),
         })
@@ -549,8 +555,35 @@ def advertising_payload(s:dict[str,Any],public_origin:str='',client_version:str=
     }
 
 
-def _remove_local_ad_image(value:str)->None:
+def _ad_asset_path(asset_id:str)->str:
+    return f'/api/v1/ad-assets/{asset_id}'
+
+
+def _store_ad_asset(db:Session,payload:bytes,filename:str='ad.webp')->str:
+    if not payload:
+        raise ValueError('تصویر تبلیغ خالی است')
+    asset_id=uuid.uuid4().hex
+    row=AdAsset(
+        id=asset_id,
+        filename=Path(filename or 'ad.webp').name[:180],
+        content_type='image/webp',
+        payload=payload,
+        sha256=hashlib.sha256(payload).hexdigest(),
+        byte_size=len(payload),
+    )
+    db.add(row);db.commit()
+    return _ad_asset_path(asset_id)
+
+
+def _remove_local_ad_image(value:str,db:Session|None=None)->None:
     value=str(value or '').strip()
+    if value.startswith('/api/v1/ad-assets/'):
+        asset_id=value.rsplit('/',1)[-1].strip()
+        if db is not None and re.fullmatch(r'[a-f0-9]{32}',asset_id):
+            row=db.get(AdAsset,asset_id)
+            if row is not None:
+                db.delete(row);db.commit()
+        return
     if not value.startswith('/media/ads/'):
         return
     name=Path(value).name
@@ -562,7 +595,7 @@ def _remove_local_ad_image(value:str)->None:
         logger.warning('Could not delete local ad image %s',name)
 
 
-async def _save_ad_upload(upload:UploadFile|None)->str:
+async def _save_ad_upload(upload:UploadFile|None,db:Session)->str:
     if upload is None or not str(upload.filename or '').strip():
         return ''
     payload=await upload.read(MAX_AD_IMAGE_BYTES+1)
@@ -580,14 +613,70 @@ async def _save_ad_upload(upload:UploadFile|None)->str:
             image.thumbnail((1600,900),Image.Resampling.LANCZOS)
             if image.mode not in {'RGB','RGBA'}:
                 image=image.convert('RGBA' if 'A' in image.getbands() else 'RGB')
-            filename=f'ad-{uuid.uuid4().hex}.webp'
-            destination=ADS_DIR/filename
-            image.save(destination,'WEBP',quality=86,method=6)
+            output=BytesIO()
+            image.save(output,'WEBP',quality=86,method=6)
+            encoded=output.getvalue()
     except ValueError:
         raise
     except Exception as exc:
         raise ValueError('فایل انتخاب‌شده تصویر معتبر نیست') from exc
-    return f'/media/ads/{filename}'
+    return _store_ad_asset(db,encoded,str(upload.filename or 'ad.webp'))
+
+
+def _repair_legacy_ad_assets(db:Session,s:dict[str,Any])->bool:
+    items=_ad_items(s.get('ads_items'))
+    if not items:
+        return False
+    changed=False
+    recovery_used=False
+    recovery_path=BASE/'static'/'ads'/'bluevpn-vip-upgraded-recovery.webp'
+    for item in items:
+        image_value=str(item.get('image_url') or '').strip()
+        if image_value.startswith('/api/v1/ad-assets/'):
+            asset_id=image_value.rsplit('/',1)[-1].strip()
+            if re.fullmatch(r'[a-f0-9]{32}',asset_id) and db.get(AdAsset,asset_id):
+                continue
+        if not image_value.startswith(('/media/ads/','/api/v1/ad-assets/')):
+            continue
+        payload=b''
+        filename='recovered-ad.webp'
+        if image_value.startswith('/media/ads/'):
+            local_path=ADS_DIR/Path(image_value).name
+            if local_path.is_file():
+                payload=local_path.read_bytes();filename=local_path.name
+        if not payload and not recovery_used and recovery_path.is_file():
+            payload=recovery_path.read_bytes();filename=recovery_path.name;recovery_used=True
+        if not payload:
+            continue
+        item['image_url']=_store_ad_asset(db,payload,filename)
+        item['image_recovered_at']=iso_z(utcnow())
+        changed=True
+    if changed:
+        s['ads_items']=items
+        save_settings(db,s)
+    return changed
+
+
+@app.get('/api/v1/ad-assets/{asset_id}')
+def public_ad_asset(asset_id:str,request:Request,db:Session=Depends(get_db)):
+    if not re.fullmatch(r'[a-f0-9]{32}',asset_id):
+        raise HTTPException(404,'تصویر پیدا نشد')
+    row=db.get(AdAsset,asset_id)
+    if row is None or not row.payload:
+        raise HTTPException(404,'تصویر پیدا نشد')
+    etag='"'+str(row.sha256 or hashlib.sha256(row.payload).hexdigest())+'"'
+    if str(request.headers.get('if-none-match') or '').strip()==etag:
+        return Response(status_code=304,headers={'ETag':etag,'Cache-Control':'public, max-age=86400, immutable'})
+    return Response(
+        content=bytes(row.payload),
+        media_type=row.content_type or 'image/webp',
+        headers={
+            'Cache-Control':'public, max-age=86400, immutable',
+            'ETag':etag,
+            'X-Content-Type-Options':'nosniff',
+            'Content-Length':str(int(row.byte_size or len(row.payload))),
+        },
+    )
 
 
 DEFAULT_ENAMAD_ID='748781'
@@ -1874,6 +1963,8 @@ async def mobile_config(
     db:Session=Depends(get_db),
 ):
     s=settings(db)
+    if _repair_legacy_ad_assets(db,s):
+        s=settings(db)
     release,github_error=await latest_github_release(
         force=refresh,
     )
@@ -3077,6 +3168,8 @@ def admin(request:Request,db:Session=Depends(get_db)):
     if not request.session.get('admin'):
         return RedirectResponse('/admin/login',302)
     s=settings(db)
+    if _repair_legacy_ad_assets(db,s):
+        s=settings(db)
     pay=db.get(PaymentSetting,1) or PaymentSetting(id=1)
     sms=db.get(SmsSetting,1) or SmsSetting(id=1)
     seed_sms_templates(db)
@@ -3284,7 +3377,7 @@ async def admin_ads_create(
 ):
     require_admin_csrf(request,csrf)
     try:
-        uploaded=await _save_ad_upload(image_file)
+        uploaded=await _save_ad_upload(image_file,db)
         remote=_http_url(image_url,'لینک تصویر') if image_url.strip() else ''
         target=_http_url(target_url,'لینک مقصد') if target_url.strip() else ''
         selected_image=uploaded or remote
@@ -3340,7 +3433,7 @@ async def admin_ads_edit(
         raise HTTPException(404,'تبلیغ پیدا نشد')
     previous_image=item.get('image_url','')
     try:
-        uploaded=await _save_ad_upload(image_file)
+        uploaded=await _save_ad_upload(image_file,db)
         remote=_http_url(image_url,'لینک تصویر') if image_url.strip() else ''
         target=_http_url(target_url,'لینک مقصد') if target_url.strip() else ''
         next_image=previous_image
@@ -3368,7 +3461,7 @@ async def admin_ads_edit(
             'end_at':end_at.strip()[:40],
         })
         if previous_image!=next_image:
-            _remove_local_ad_image(previous_image)
+            _remove_local_ad_image(previous_image,db)
         s['ads_items']=items;save_settings(db,s)
         return RedirectResponse('/admin?saved=1#ads',303)
     except ValueError as exc:
@@ -3394,7 +3487,7 @@ def admin_ads_delete(ad_id:str,request:Request,csrf:str=Form(...),db:Session=Dep
     if not removed:raise HTTPException(404,'تبلیغ پیدا نشد')
     s['ads_items']=[row for row in items if row['id']!=ad_id]
     save_settings(db,s)
-    _remove_local_ad_image(removed.get('image_url',''))
+    _remove_local_ad_image(removed.get('image_url',''),db)
     return RedirectResponse('/admin?saved=1#ads',303)
 
 

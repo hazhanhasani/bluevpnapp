@@ -25,7 +25,7 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 logger = logging.getLogger("bluevpn.database")
 
-SCHEMA_VERSION = "15"
+SCHEMA_VERSION = "16"
 DATA_DIR = Path(os.getenv("DATA_DIR", "/app/data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 SQLITE_PATH = DATA_DIR / "bluevpn.db"

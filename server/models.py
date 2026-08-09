@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -39,6 +40,21 @@ class AppSetting(Base):
         onupdate=utcnow,
     )
 
+
+
+
+class AdAsset(Base):
+    __tablename__ = "ad_assets"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    filename: Mapped[str] = mapped_column(String(180), default="")
+    content_type: Mapped[str] = mapped_column(String(80), default="image/webp")
+    payload: Mapped[bytes] = mapped_column(LargeBinary)
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    byte_size: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
 
 class PasarGuardPanel(Base):
     __tablename__ = "pasarguard_panels"

@@ -8,6 +8,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
@@ -62,6 +63,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private lateinit var listContainer: LinearLayout
     private lateinit var emptyText: TextView
     private lateinit var refreshButton: MaterialButton
+    private lateinit var entitlementSubtitle: TextView
+    private lateinit var automaticSubtitle: TextView
     private lateinit var allTabButton: MaterialButton
     private lateinit var favoritesTabButton: MaterialButton
     private lateinit var recentTabButton: MaterialButton
@@ -75,6 +78,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var renderGeneration = 0
     private var candidateLoadInProgress = false
     private var candidateReloadPending = false
+    private var entitlementRepairAttempted = false
+    private var accountSyncInProgress = false
+    private var accountSyncPending = false
+    private var lastAccountSyncAt = 0L
+    private var renderedPremiumMode: Boolean? = null
     private val searchRunnable = Runnable { renderLocations() }
     private val renderRunnable = Runnable {
         renderLocationsNow(renderGeneration)
@@ -99,6 +107,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         BlueVpnTheme.applySystemBars(this)
         setContentView(createScreen())
         updateTabs()
+        updateEntitlementUi()
+        refreshEntitlementState(force = true)
 
         mainViewModel.startListenBroadcast()
         mainViewModel.updateListAction.observe(this) {
@@ -123,7 +133,16 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             recreate()
             return
         }
-        if (firstResume) firstResume = false else renderLocations()
+        if (firstResume) {
+            firstResume = false
+        } else {
+            renderLocations()
+            if (BlueVpnLocationUtil.cachedCandidates(this).isEmpty()) {
+                loadCandidates(force = false)
+            }
+        }
+        updateEntitlementUi()
+        refreshEntitlementState(force = false)
         locationSyncHandler.removeCallbacks(locationSyncRunnable)
         locationSyncHandler.postDelayed(
             locationSyncRunnable,
@@ -157,13 +176,38 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val requestedForce = candidateReloadPending
         candidateReloadPending = false
         lifecycleScope.launch(Dispatchers.Default) {
-            val loaded = BlueVpnLocationUtil.allCandidates(
+            var loaded = BlueVpnLocationUtil.allCandidates(
                 this@BlueVpnServersActivity,
                 forceRefresh = requestedForce,
             )
+
+            // Subscription import in v2rayNG is asynchronous. An active account
+            // can therefore open this screen after the entitlement response is
+            // saved but before the imported server GUIDs are visible in MMKV.
+            // Repair once in the same background load instead of leaving the UI
+            // in an endless «preparing locations» reload loop.
+            if (
+                loaded.isEmpty() &&
+                BlueVpnAccountManager.active(this@BlueVpnServersActivity) &&
+                !accountSyncInProgress &&
+                !entitlementRepairAttempted
+            ) {
+                entitlementRepairAttempted = true
+                BlueVpnAccountManager.awaitEntitlementServers(
+                    this@BlueVpnServersActivity,
+                )
+                loaded = BlueVpnLocationUtil.allCandidates(
+                    this@BlueVpnServersActivity,
+                    forceRefresh = true,
+                )
+            }
+
             withContext(Dispatchers.Main) {
                 candidateLoadInProgress = false
+                stopRefreshing()
                 if (isFinishing || isDestroyed) return@withContext
+                if (loaded.isNotEmpty()) entitlementRepairAttempted = false
+                updateEntitlementUi()
                 if (selectAutomaticAfterLoad && BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity)) {
                     loaded.firstOrNull()?.let { MmkvManager.setSelectServer(it.guid) }
                 }
@@ -235,6 +279,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             BlueVpnUiGuard.bind(this, intervalMs = 1_200L) {
                 isEnabled = false
                 text = "در حال بررسی"
+                entitlementRepairAttempted = false
+                refreshEntitlementState(force = true)
+                loadCandidates(force = true, selectAutomaticAfterLoad = true)
                 mainViewModel.reloadServerList()
                 mainViewModel.testAllRealPing()
                 syncDetectedLocations(force = true)
@@ -252,9 +299,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         titleBox.addView(textView("مکان‌ها", 25f, palette.textPrimary, Gravity.END).apply {
             setTypeface(typeface, Typeface.BOLD)
         })
-        titleBox.addView(textView("خودکار رایگان • انتخاب دستی برای مشترکین", 10.5f, palette.textMuted, Gravity.END).apply {
+        entitlementSubtitle = textView("", 10.5f, palette.textMuted, Gravity.END).apply {
             setPadding(0, dp(3), 0, 0)
-        })
+        }
+        titleBox.addView(entitlementSubtitle)
         row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
 
         row.addView(smallButton("بستن").apply { BlueVpnUiGuard.bind(this) { finish() } }, LinearLayout.LayoutParams(dp(76), dp(44)))
@@ -302,7 +350,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun automaticServerCard(): View {
-        val freeMode = !BlueVpnAccountManager.active(this)
         val card = card(radius = 22, fill = palette.surface, stroke = palette.accent).apply {
             isClickable = true
             isFocusable = true
@@ -319,16 +366,105 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         row.addView(dot, LinearLayout.LayoutParams(dp(13), dp(13)).apply { marginEnd = dp(12) })
         val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
         box.addView(textView("انتخاب خودکار", 16f, palette.textPrimary, Gravity.END).apply { setTypeface(typeface, Typeface.BOLD) })
-        box.addView(textView(
-            if (freeMode) "رایگان • بهترین مسیر • هر اتصال تا ${BlueVpnAccountManager.freeAccessSnapshot(this).sessionMinutes} دقیقه"
-            else "بهترین مسیر در همان لحظه انتخاب می‌شود",
-            10.5f, palette.textMuted, Gravity.END
-        ).apply { setPadding(0, dp(4), 0, 0) })
+        automaticSubtitle = textView("", 10.5f, palette.textMuted, Gravity.END).apply {
+            setPadding(0, dp(4), 0, 0)
+        }
+        box.addView(automaticSubtitle)
         row.addView(box, LinearLayout.LayoutParams(0, -1, 1f))
         row.addView(textView(if (BlueVpnPreferences.smartBalance(this)) "فعال" else "انتخاب", 11f, palette.accent, Gravity.CENTER).apply {
             setTypeface(typeface, Typeface.BOLD)
         }, LinearLayout.LayoutParams(dp(62), dp(38)))
         return card
+    }
+
+    private fun premiumMode(): Boolean =
+        BlueVpnAccountManager.snapshot(this).subscriptionActive
+
+    /**
+     * The locations screen used to contain a hard-coded «free automatic» label.
+     * Account activation could therefore be visible on the account screen while
+     * this screen continued to advertise free mode until the Activity was rebuilt.
+     * Keep all entitlement-dependent copy bound to the same account snapshot.
+     */
+    private fun updateEntitlementUi() {
+        val premium = premiumMode()
+        if (::entitlementSubtitle.isInitialized) {
+            entitlementSubtitle.text = if (premium) {
+                "انتخاب خودکار هوشمند • انتخاب دستی همه مکان‌ها"
+            } else {
+                "انتخاب خودکار رایگان • انتخاب دستی ویژه مشترکین"
+            }
+        }
+        if (::automaticSubtitle.isInitialized) {
+            automaticSubtitle.text = if (premium) {
+                "بهترین سرور اشتراک شما در همان لحظه انتخاب می‌شود"
+            } else {
+                "رایگان • بهترین مسیر • هر اتصال تا ${BlueVpnAccountManager.freeAccessSnapshot(this).sessionMinutes} دقیقه"
+            }
+        }
+
+        val previous = renderedPremiumMode
+        renderedPremiumMode = premium
+        if (previous != null && previous != premium) {
+            entitlementRepairAttempted = false
+            BlueVpnLocationUtil.invalidateCache()
+        }
+    }
+
+    /**
+     * Refresh entitlement on entry and after returning from payment/admin
+     * activation. The UI is updated immediately from local state, then again
+     * from the authoritative server response without requiring logout/login.
+     */
+    private fun refreshEntitlementState(force: Boolean) {
+        updateEntitlementUi()
+        if (!BlueVpnAccountManager.hasSession(this)) return
+
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - lastAccountSyncAt < 15_000L) return
+        if (accountSyncInProgress) {
+            accountSyncPending = accountSyncPending || force
+            return
+        }
+
+        accountSyncInProgress = true
+        lastAccountSyncAt = now
+        val before = BlueVpnAccountManager.snapshot(this)
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = BlueVpnAccountManager.sync(
+                this@BlueVpnServersActivity,
+                force = true,
+            )
+            withContext(Dispatchers.Main) {
+                accountSyncInProgress = false
+                if (isFinishing || isDestroyed) return@withContext
+
+                val after = result.getOrElse {
+                    BlueVpnAccountManager.snapshot(this@BlueVpnServersActivity)
+                }
+                val entitlementChanged =
+                    before.subscriptionActive != after.subscriptionActive ||
+                        before.subscriptionUrl != after.subscriptionUrl ||
+                        before.status != after.status ||
+                        before.expire != after.expire
+
+                updateEntitlementUi()
+                if (result.isSuccess) {
+                    BlueVpnLocationUtil.invalidateCache()
+                    if (entitlementChanged) {
+                        entitlementRepairAttempted = false
+                        mainViewModel.reloadServerList()
+                    }
+                    loadCandidates(force = true)
+                }
+
+                if (accountSyncPending) {
+                    val pendingForce = accountSyncPending
+                    accountSyncPending = false
+                    refreshEntitlementState(force = pendingForce)
+                }
+            }
+        }
     }
 
     private fun updateTabs() {
@@ -366,9 +502,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val selected = MmkvManager.getSelectServer()
         val candidates = BlueVpnLocationUtil.cachedCandidates(this)
         if (candidates.isEmpty()) {
-            emptyText.text = if (candidateLoadInProgress) "در حال آماده‌سازی مکان‌ها…" else "مکانی برای نمایش وجود ندارد"
+            emptyText.text = when {
+                candidateLoadInProgress -> "در حال دریافت سرورهای حساب…"
+                BlueVpnAccountManager.active(this) ->
+                    "سرورهای اشتراک هنوز دریافت نشده‌اند؛ تازه‌سازی را بزنید"
+                else -> "سرور رایگان فعالی برای نمایش پیدا نشد"
+            }
             emptyText.visibility = View.VISIBLE
-            if (!candidateLoadInProgress) loadCandidates(force = false)
             return
         }
         val selectedLocation = candidates.firstOrNull { it.guid == selected }?.location?.key

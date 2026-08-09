@@ -13,7 +13,11 @@ import com.v2ray.ang.handler.AngConfigManager
 import com.v2ray.ang.handler.MmkvManager
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
+import java.net.ConnectException
 import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.net.URL
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
@@ -554,7 +558,26 @@ object BlueVpnAccountManager {
             .distinct()
     }
 
-    fun candidateAllowed(c: Context, subscriptionId: String?): Boolean {
+    fun candidateAllowed(c: Context, subscriptionId: String?): Boolean =
+        candidateAllowed(c, "", subscriptionId)
+
+    /**
+     * Entitlement checks must prefer the server list owned by the active
+     * subscription. Some v2rayNG imports temporarily leave ProfileItem.subscriptionId
+     * blank while the subscription database already owns the server GUID. Matching
+     * by server GUID prevents an active Premium account from seeing an empty
+     * location screen during that transition without exposing another account's
+     * stored routes.
+     */
+    fun candidateAllowed(
+        c: Context,
+        serverGuid: String,
+        subscriptionId: String?,
+        entitlementServerGuids: Set<String> = preferredServerGuids(c).toSet(),
+    ): Boolean {
+        val guid = serverGuid.trim()
+        if (guid.isNotBlank() && guid in entitlementServerGuids) return true
+
         val id = subscriptionId.orEmpty()
         val allFreeGuids = allFreeSubscriptionGuids()
         return when {
@@ -566,6 +589,38 @@ object BlueVpnAccountManager {
             isFreeMode(c) -> id in configuredFreeSubscriptionGuids(c)
             else -> false
         }
+    }
+
+    /**
+     * Force account/subscription reconciliation and wait briefly for v2rayNG's
+     * asynchronous subscription importer to publish its server GUIDs. Must be
+     * called from a background dispatcher.
+     */
+    fun awaitEntitlementServers(
+        c: Context,
+        timeoutMs: Long = 14_000L,
+    ): Result<Int> = runCatching {
+        val appContext = c.applicationContext
+        if (hasSession(appContext)) {
+            sync(appContext, force = true).getOrThrow()
+        } else {
+            prepareFreeAccess(appContext, force = true).getOrThrow()
+        }
+
+        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs.coerceIn(2_000L, 30_000L)
+        var lastCount = 0
+        do {
+            val guids = preferredServerGuids(appContext)
+            lastCount = guids.size
+            if (lastCount > 0) {
+                BlueVpnLocationUtil.invalidateCache()
+                return@runCatching lastCount
+            }
+            Thread.sleep(350L)
+        } while (android.os.SystemClock.elapsedRealtime() < deadline)
+
+        BlueVpnLocationUtil.invalidateCache()
+        lastCount
     }
 
     private fun reconcileSubscriptionMode(
@@ -642,7 +697,7 @@ object BlueVpnAccountManager {
                 .takeIf { it.isNotBlank() }
                 ?.let { MmkvManager.decodeServerConfig(it) }
             if (selectedProfile == null ||
-                !candidateAllowed(c, selectedProfile.subscriptionId)) {
+                !candidateAllowed(c, selectedGuid, selectedProfile.subscriptionId)) {
                 preferredServerGuids(c).firstOrNull()?.let {
                     MmkvManager.setSelectServer(it)
                 }
@@ -1290,12 +1345,32 @@ object BlueVpnAccountManager {
         c: Context,
         planId: Int,
     ): Result<JSONObject> = runCatching {
-        authenticatedRequest(
+        val response = authenticatedRequest(
             c,
             "POST",
             "/api/v1/orders",
             JSONObject().put("plan_id", planId),
-        ).getJSONObject("order")
+        )
+        val data = response.optJSONObject("data")
+        val order = response.optJSONObject("order")
+            ?: data?.optJSONObject("order")
+            ?: data?.takeIf {
+                it.has("payment_url") || it.has("checkout_url") || it.has("id")
+            }
+            ?: response.takeIf {
+                it.has("payment_url") || it.has("checkout_url") || it.has("id")
+            }
+            ?: error(message(response))
+
+        if (order.optString("payment_url").isBlank()) {
+            val compatibleUrl = sequenceOf(
+                "checkout_url", "redirect_url", "pay_url", "url", "payment_link",
+            ).map { order.optString(it).trim() }
+                .firstOrNull { it.startsWith("http://") || it.startsWith("https://") }
+                .orEmpty()
+            if (compatibleUrl.isNotBlank()) order.put("payment_url", compatibleUrl)
+        }
+        order
     }
 
     fun closeCheckout(
@@ -1579,8 +1654,15 @@ object BlueVpnAccountManager {
 
         try {
             connection.requestMethod = method
-            connection.connectTimeout = 7_000
-            connection.readTimeout = 12_000
+            val invoiceRequest = method == "POST" && path == "/api/v1/orders"
+            connection.connectTimeout = if (invoiceRequest) 12_000 else 7_000
+            // Invoice creation includes one outbound call from the BlueVPN backend
+            // to BluePay. Twelve seconds was shorter than the backend/provider
+            // timeout and made Android report «no server response» while the
+            // invoice was still being created.
+            connection.readTimeout = if (invoiceRequest) 50_000 else 12_000
+            connection.useCaches = false
+            connection.setRequestProperty("Cache-Control", "no-cache")
             connection.setRequestProperty(
                 "Accept",
                 "application/json"
@@ -1673,6 +1755,36 @@ object BlueVpnAccountManager {
             }
 
             return response
+        } catch (error: SocketTimeoutException) {
+            val invoiceRequest = method == "POST" && path == "/api/v1/orders"
+            throw ApiException(
+                0,
+                if (invoiceRequest) "BLUEPAY_TIMEOUT" else "NETWORK_TIMEOUT",
+                if (invoiceRequest) {
+                    "ساخت فاکتور بیش از حد طول کشید؛ اتصال اینترنت را بررسی کرده و دوباره تلاش کنید. فاکتور تکراری ساخته نمی‌شود."
+                } else {
+                    "پاسخ سرور دیر دریافت شد؛ اتصال اینترنت را بررسی و دوباره تلاش کنید."
+                },
+            )
+        } catch (error: UnknownHostException) {
+            throw ApiException(
+                0,
+                "DNS_UNAVAILABLE",
+                "آدرس سرور پیدا نشد؛ اینترنت یا DNS دستگاه را بررسی کنید.",
+            )
+        } catch (error: ConnectException) {
+            throw ApiException(
+                0,
+                "CONNECTION_FAILED",
+                "اتصال به سرور برقرار نشد؛ چند لحظه دیگر دوباره تلاش کنید.",
+            )
+        } catch (error: IOException) {
+            throw ApiException(
+                0,
+                "NETWORK_IO",
+                error.message?.takeIf { it.isNotBlank() }
+                    ?: "ارتباط شبکه با سرور قطع شد؛ دوباره تلاش کنید.",
+            )
         } finally {
             connection.disconnect()
         }

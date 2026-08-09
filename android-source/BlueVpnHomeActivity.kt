@@ -2,6 +2,7 @@ package com.v2ray.ang.ui
 
 import android.animation.ValueAnimator
 import android.app.Dialog
+import android.content.ComponentCallbacks2
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Canvas
@@ -46,6 +47,7 @@ import com.v2ray.ang.bluevpn.BlueVpnAdsCarouselView
 import com.v2ray.ang.bluevpn.BlueVpnAi
 import com.v2ray.ang.bluevpn.BlueVpnDynamicBackgroundView
 import com.v2ray.ang.bluevpn.BlueVpnPalette
+import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnConnectionMode
 import com.v2ray.ang.bluevpn.BlueVpnExperience
@@ -142,6 +144,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var lastDashboardRefreshAt = 0L
     private var updateCheckScheduled = false
     private var accountLaunchInProgress = false
+    private var candidateWarmupInProgress = false
 
     private var startupOptimizationShown = false
     private var startupOptimizationActive = false
@@ -204,7 +207,10 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         override fun run() {
             updateLiveStats()
             monitorBlueAiHealth()
-            handler.postDelayed(this, 2_000L)
+            handler.postDelayed(
+                this,
+                BlueVpnPerformance.statsIntervalMs(this@BlueVpnHomeActivity),
+            )
         }
     }
 
@@ -962,7 +968,10 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     }
 
     private fun applyOptionalFrostBlur(view: View) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            !BlueVpnPerformance.isLowEnd(this)
+        ) {
             val radius = dpHome(7).toFloat()
             view.setRenderEffect(
                 RenderEffect.createBlurEffect(
@@ -1192,7 +1201,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     }
 
     private fun setOrbPulseEnabled(enabled: Boolean) {
-        if (!enabled) {
+        if (!enabled || BlueVpnPerformance.isLowEnd(this)) {
             orbPulseAnimator?.cancel()
             orbPulseAnimator = null
             if (::orbHaloOuter.isInitialized) {
@@ -1351,7 +1360,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
         mainViewModel.updateTestResultAction.observe(this) {
             BlueVpnLocationUtil.invalidateCache()
-            refreshDashboard(force = true)
+            warmCandidatesThenRefresh(force = true)
 
             if (startupOptimizationActive) {
                 finishStartupOptimization()
@@ -1362,7 +1371,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
         mainViewModel.updateListAction.observe(this) {
             BlueVpnLocationUtil.invalidateCache()
-            refreshDashboard(force = true)
+            warmCandidatesThenRefresh(force = true)
 
             if (
                 startupOptimizationActive &&
@@ -1374,50 +1383,54 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
         enforceReliableVpnSettings()
 
-        // Let Android draw the home screen before MMKV scans, asset setup,
-        // account sync and remote checks begin. This removes the black cold
-        // start seen on slower phones.
+        // Render the first frame immediately. Expensive MMKV scans, location
+        // hashing and remote sync are staged so low-memory phones never block
+        // the UI thread long enough to trigger Android's ANR dialog.
         window.decorView.post {
             mainViewModel.startListenBroadcast()
-            mainViewModel.initAssets(assets)
-            mainViewModel.reloadServerList()
-            BlueVpnLocationUtil.syncCloudLocations(
-                this@BlueVpnHomeActivity,
-                force = true,
-            ) {
+
+            handler.postDelayed({
                 if (!isFinishing && !isDestroyed) {
+                    mainViewModel.initAssets(assets)
+                }
+            }, if (BlueVpnPerformance.isLowEnd(this)) 220L else 80L)
+
+            handler.postDelayed({
+                if (!isFinishing && !isDestroyed) {
+                    mainViewModel.reloadServerList()
+                }
+            }, if (BlueVpnPerformance.isLowEnd(this)) 650L else 220L)
+
+            lifecycleScope.launch(Dispatchers.Default) {
+                // Warm the candidate cache away from the main thread. The UI
+                // refresh below then performs only lightweight TextView work.
+                BlueVpnLocationUtil.allCandidates(this@BlueVpnHomeActivity)
+                withContext(Dispatchers.Main) {
+                    if (isFinishing || isDestroyed) return@withContext
                     refreshDashboard(force = true)
+                    refreshSubscriptionInfo(force = false)
+                    BlueVpnLocationUtil.syncCloudLocations(
+                        this@BlueVpnHomeActivity,
+                        force = false,
+                    ) {
+                        if (!isFinishing && !isDestroyed) {
+                            warmCandidatesThenRefresh(force = false)
+                        }
+                    }
                 }
             }
-            refreshDashboard(force = true)
-            refreshSubscriptionInfo(force = false)
 
             if (!BlueVpnAccountManager.hasSession(this)) {
-                openAccount()
+                handler.postDelayed({
+                    if (!isFinishing && !isDestroyed) openAccount()
+                }, 300L)
             }
 
             handler.postDelayed({
                 if (!isFinishing && !isDestroyed) {
                     showWelcomeIfNeeded()
                 }
-            }, 350L)
-
-            handler.postDelayed({
-                lifecycleScope.launch(Dispatchers.IO) {
-                    BlueVpnAi.refreshRecommendations(
-                        this@BlueVpnHomeActivity,
-                        force = false,
-                    )
-                    withContext(Dispatchers.Main) {
-                        if (::aiSummaryValue.isInitialized) {
-                            aiSummaryValue.text = BlueVpnAi.localSummary(
-                                this@BlueVpnHomeActivity
-                            )
-                        }
-                        refreshExperienceDashboard()
-                    }
-                }
-            }, 1_200L)
+            }, if (BlueVpnPerformance.isLowEnd(this)) 1_200L else 500L)
         }
     }
 
@@ -1437,6 +1450,15 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         handler.removeCallbacks(statsTicker)
         setOrbPulseEnabled(false)
         super.onStop()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            if (::adsCarousel.isInitialized) adsCarousel.trimMemory()
+            setOrbPulseEnabled(false)
+            BlueVpnLocationUtil.invalidateResolvedCache()
+        }
+        super.onTrimMemory(level)
     }
 
     override fun onDestroy() {
@@ -1469,7 +1491,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 if (!isFinishing && !isDestroyed) {
                     BlueVpnUpdateManager.check(this)
                 }
-            }, 1_800L)
+            }, BlueVpnPerformance.updateCheckDelayMs(this))
         }
 
         if (!BlueVpnAccountManager.hasSession(this)) {
@@ -1669,30 +1691,36 @@ private fun startStartupOptimization() {
         statusCaption.text = "در حال آماده‌سازی هوشمند"
     }
 
-    syncManagedAccount(
-        force = !BlueVpnAccountManager.snapshot(this).subscriptionActive
-    )
-    lifecycleScope.launch(Dispatchers.IO) {
-        BlueVpnAi.refreshRecommendations(
-            this@BlueVpnHomeActivity,
-            force = false,
+    val launchDelay = if (BlueVpnPerformance.isLowEnd(this)) 1_100L else 180L
+    handler.postDelayed({
+        if (isFinishing || isDestroyed || !startupOptimizationActive) {
+            return@postDelayed
+        }
+        syncManagedAccount(
+            force = !BlueVpnAccountManager.snapshot(this).subscriptionActive
         )
-        withContext(Dispatchers.Main) {
-            startupOptimizationActive = false
-            refreshDashboard()
-            if (
-                mainViewModel.isRunning.value != true &&
-                !failoverActive
-            ) {
-                statusCaption.text =
-                    "بهترین مسیر هنگام اتصال انتخاب می‌شود"
+        lifecycleScope.launch(Dispatchers.IO) {
+            BlueVpnAi.refreshRecommendations(
+                this@BlueVpnHomeActivity,
+                force = false,
+            )
+            withContext(Dispatchers.Main) {
+                startupOptimizationActive = false
+                warmCandidatesThenRefresh(force = false)
+                if (
+                    mainViewModel.isRunning.value != true &&
+                    !failoverActive
+                ) {
+                    statusCaption.text =
+                        "بهترین مسیر هنگام اتصال انتخاب می‌شود"
+                }
             }
         }
-    }
+    }, launchDelay)
 
     handler.postDelayed({
         startupOptimizationActive = false
-    }, 4_000L)
+    }, if (BlueVpnPerformance.isLowEnd(this)) 6_000L else 4_000L)
 }
 
 private fun startStartupServerTest() {
@@ -2412,15 +2440,21 @@ private fun dpHome(value: Int): Int =
             // V2Box/Npv-style fast connect: race a small mixed endpoint set
             // and finish as soon as the first real response arrives. The old
             // implementation waited for every slow/blocked endpoint.
-            val endpoints = listOf(
-                "${BuildConfig.BLUEVPN_API_BASE_URL.trimEnd('/')}/health",
-                "http://cp.cloudflare.com/generate_204",
-                "http://connectivitycheck.gstatic.com/generate_204",
-                "https://check-host.net/cdn-cgi/trace",
-                "http://1.1.1.1/cdn-cgi/trace",
-            )
+            val endpoints = buildList {
+                add("${BuildConfig.BLUEVPN_API_BASE_URL.trimEnd('/')}/health")
+                add("http://cp.cloudflare.com/generate_204")
+                add("http://connectivitycheck.gstatic.com/generate_204")
+                if (!BlueVpnPerformance.isLowEnd(this@BlueVpnHomeActivity)) {
+                    add("https://check-host.net/cdn-cgi/trace")
+                    add("http://1.1.1.1/cdn-cgi/trace")
+                }
+            }
 
-            val executor = Executors.newFixedThreadPool(endpoints.size)
+            val executor = Executors.newFixedThreadPool(
+                BlueVpnPerformance.maxProbeWorkers(this@BlueVpnHomeActivity)
+                    .coerceAtMost(endpoints.size)
+                    .coerceAtLeast(1)
+            )
             val completion = ExecutorCompletionService<Long?>(executor)
             val futures = endpoints.map { endpoint ->
                 completion.submit {
@@ -2731,6 +2765,23 @@ private fun dpHome(value: Int): Int =
         }
 
         updateLiveStats()
+    }
+
+    private fun warmCandidatesThenRefresh(force: Boolean) {
+        if (candidateWarmupInProgress) return
+        candidateWarmupInProgress = true
+        lifecycleScope.launch(Dispatchers.Default) {
+            BlueVpnLocationUtil.allCandidates(
+                this@BlueVpnHomeActivity,
+                forceRefresh = force,
+            )
+            withContext(Dispatchers.Main) {
+                candidateWarmupInProgress = false
+                if (!isFinishing && !isDestroyed) {
+                    refreshDashboard(force = true)
+                }
+            }
+        }
     }
 
     private fun refreshDashboard(

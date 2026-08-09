@@ -9,10 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_343():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.55"
-    assert release["version_code"] == 30055
-    assert app["version_name"] == "3.0.55"
-    assert app["version_code"] == 30055
+    assert release["version"] == "3.0.56"
+    assert release["version_code"] == 30056
+    assert app["version_name"] == "3.0.56"
+    assert app["version_code"] == 30056
     assert "mobile-first-admin-dashboard" in release["features"]
 
 

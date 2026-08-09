@@ -24,7 +24,7 @@ def test_only_background_reporter_owns_periodic_heartbeat():
 def test_ui_and_backend_use_low_power_live_windows():
     home = (ROOT / "android-source/BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
     backend = (ROOT / "server/blueai.py").read_text(encoding="utf-8")
-    assert "handler.postDelayed(this, 2_000L)" in home
+    assert "BlueVpnPerformance.statsIntervalMs" in home
     assert "setOrbPulseEnabled(state == OrbVisualState.CONNECTING)" in home
     assert "aiHealthCheckAt < 180_000L" in home
     assert "LIVE_TTL_SECONDS = 180" in backend

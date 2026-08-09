@@ -2,6 +2,7 @@ package com.v2ray.ang.bluevpn
 
 import android.animation.ValueAnimator
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Canvas
@@ -35,6 +36,39 @@ data class BlueVpnPalette(
     val warning: Int,
     val danger: Int,
 )
+
+object BlueVpnPerformance {
+    @Volatile
+    private var cachedLowEnd: Boolean? = null
+
+    fun isLowEnd(context: Context): Boolean {
+        cachedLowEnd?.let { return it }
+        val app = context.applicationContext
+        val manager = app.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val maxHeapMb = (Runtime.getRuntime().maxMemory() / (1024L * 1024L)).toInt()
+        val lowEnd = manager?.isLowRamDevice == true ||
+            (manager?.memoryClass ?: 256) <= 128 ||
+            maxHeapMb <= 192 ||
+            Build.VERSION.SDK_INT <= Build.VERSION_CODES.N_MR1
+        cachedLowEnd = lowEnd
+        return lowEnd
+    }
+
+    fun statsIntervalMs(context: Context): Long =
+        if (isLowEnd(context)) 5_000L else 2_000L
+
+    fun locationSyncIntervalMs(context: Context): Long =
+        if (isLowEnd(context)) 60_000L else 30_000L
+
+    fun updateCheckDelayMs(context: Context): Long =
+        if (isLowEnd(context)) 6_000L else 2_500L
+
+    fun adCacheKb(context: Context): Int =
+        if (isLowEnd(context)) 4 * 1024 else 10 * 1024
+
+    fun maxProbeWorkers(context: Context): Int =
+        if (isLowEnd(context)) 2 else 3
+}
 
 object BlueVpnTheme {
     private const val PREFS = "bluevpn_ui"
@@ -129,6 +163,11 @@ class BlueVpnDynamicBackgroundView(context: Context) : View(context) {
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        if (BlueVpnPerformance.isLowEnd(context)) {
+            phase = 0.5f
+            invalidate()
+            return
+        }
         if (animator?.isRunning == true) return
         animator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 18_000L

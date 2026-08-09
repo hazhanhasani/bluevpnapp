@@ -69,6 +69,7 @@ object BlueVpnLiveReporter {
 
     private fun nextDelaySeconds(app: Context): Long {
         if (!BlueVpnAi.hasActiveSession(app)) return IDLE_DELAY_SECONDS
+        if (BlueVpnPerformance.isLowEnd(app)) return 150L
         val power = app.getSystemService(Context.POWER_SERVICE) as PowerManager
         return when {
             power.isPowerSaveMode -> POWER_SAVE_DELAY_SECONDS

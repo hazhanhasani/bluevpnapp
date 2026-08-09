@@ -1,11 +1,11 @@
 {
-  "version": "3.0.55",
+  "version": "3.0.56",
   "channel": "stable",
-  "build_id": "20260809-iranpayamak-api-v3055",
-  "built_at": "2026-08-09T10:45:00Z",
-  "android_version": "3.0.55",
-  "android_version_code": 30055,
-  "description": "BlueVPN 3.0.55 اتصال قدیمی IPPanel را حذف و API رسمی ایران‌پیامک را برای ارسال پترن، خط اشتراکی خودکار و خط اختصاصی جایگزین می‌کند.",
+  "build_id": "20260809-low-end-anr-fix-v3056",
+  "built_at": "2026-08-09T11:10:00Z",
+  "android_version": "3.0.56",
+  "android_version_code": 30056,
+  "description": "BlueVPN 3.0.56 برای گوشی‌های ضعیف بهینه شده و فشار ترد اصلی، انیمیشن‌های دائمی، پردازش فهرست سرورها و حافظه تصاویر تبلیغ را کاهش می‌دهد.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -356,9 +356,20 @@
     "iranpayamak-shared-line-auto",
     "iranpayamak-dedicated-line-optional",
     "legacy-ippanel-settings-migration",
-    "database-schema-18-sms-provider"
+    "database-schema-18-sms-provider",
+    "automatic-low-ram-performance-profile",
+    "staged-cold-start-work",
+    "background-server-candidate-warmup",
+    "static-dynamic-background-on-low-end",
+    "disabled-orb-pulse-on-low-end",
+    "sampled-ad-bitmap-decoding",
+    "low-memory-cache-trimming",
+    "server-location-candidate-cache-10s",
+    "background-cloud-location-key-generation",
+    "debounced-location-search",
+    "adaptive-network-probe-workers"
   ],
-  "version_code": 30055,
-  "notes": "ارسال پیامک اکنون از API رسمی ایران‌پیامک با هدر Api-Key و مسیر /sms/pattern انجام می‌شود.",
-  "version_source": "iranpayamak-api-v3055"
+  "version_code": 30056,
+  "notes": "حالت کم‌مصرف خودکار برای دستگاه‌های کم‌رم فعال می‌شود؛ رابط سریع‌تر باز می‌شود و احتمال ANR و خروج ناگهانی کاهش می‌یابد.",
+  "version_source": "low-end-anr-fix-v3056"
 }

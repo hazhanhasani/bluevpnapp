@@ -22,6 +22,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.v2ray.ang.BuildConfig
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
@@ -61,7 +62,9 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     private var touchDownY = 0f
     private var touchMoved = false
 
-    private val bitmapCache = object : LruCache<String, Bitmap>(12 * 1024) {
+    private val bitmapCache = object : LruCache<String, Bitmap>(
+        BlueVpnPerformance.adCacheKb(context)
+    ) {
         override fun sizeOf(key: String, value: Bitmap): Int =
             (value.byteCount / 1024).coerceAtLeast(1)
     }
@@ -119,6 +122,13 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         stop()
         worker.shutdownNow()
         bitmapCache.evictAll()
+    }
+
+    fun trimMemory() {
+        bitmapCache.evictAll()
+        if (BlueVpnPerformance.isLowEnd(context) && !hasRenderedContent) {
+            visibility = View.GONE
+        }
     }
 
     private fun buildUi() {
@@ -310,7 +320,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
                     if (connection.responseCode !in 200..299) error("HTTP ${connection.responseCode}")
                     val contentType = connection.contentType.orEmpty().lowercase()
                     if (!contentType.startsWith("image/") && contentType.isNotBlank()) error("Invalid image")
-                    connection.inputStream.use { BitmapFactory.decodeStream(it) ?: error("Invalid bitmap") }
+                    decodeAdBitmap(connection) ?: error("Invalid bitmap")
                 } finally {
                     connection.disconnect()
                 }
@@ -381,6 +391,46 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             }
         }
         requestLayout()
+    }
+
+    private fun decodeAdBitmap(connection: HttpURLConnection): Bitmap? {
+        val lowEnd = BlueVpnPerformance.isLowEnd(context)
+        val maxBytes = if (lowEnd) 3 * 1024 * 1024 else 6 * 1024 * 1024
+        val declared = connection.contentLength
+        if (declared > maxBytes) return null
+
+        val output = ByteArrayOutputStream(
+            declared.takeIf { it in 1..maxBytes } ?: 64 * 1024
+        )
+        connection.inputStream.use { input ->
+            val buffer = ByteArray(16 * 1024)
+            var total = 0
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                total += read
+                if (total > maxBytes) return null
+                output.write(buffer, 0, read)
+            }
+        }
+        val bytes = output.toByteArray()
+        if (bytes.isEmpty()) return null
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        val targetWidth = resources.displayMetrics.widthPixels
+            .coerceAtLeast(320)
+            .coerceAtMost(if (lowEnd) 720 else 1280)
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= targetWidth) sample *= 2
+
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample.coerceAtLeast(1)
+            inPreferredConfig = if (lowEnd) Bitmap.Config.RGB_565 else Bitmap.Config.ARGB_8888
+        }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
     }
 
     private fun renderDots() {

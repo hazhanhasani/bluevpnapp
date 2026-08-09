@@ -9,6 +9,7 @@ import com.v2ray.ang.handler.MmkvManager
 import org.json.JSONArray
 import java.security.MessageDigest
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -152,6 +153,7 @@ object BlueVpnPreferences {
             .putString(VERIFIED_COUNTRY_PREFIX + configKey, normalized)
             .putLong(VERIFIED_COUNTRY_AT_PREFIX + configKey, System.currentTimeMillis())
             .apply()
+        BlueVpnLocationUtil.invalidateResolvedCache()
     }
 
     fun verifiedCountry(context: Context, guid: String): String {
@@ -244,13 +246,21 @@ object BlueVpnPreferences {
 
 object BlueVpnLocationUtil {
 
-    private const val CANDIDATE_CACHE_TTL_MS = 450L
+    private const val CANDIDATE_CACHE_TTL_MS = 10_000L
 
     @Volatile
     private var candidateCacheAt = 0L
 
     @Volatile
     private var candidateCache: List<Candidate> = emptyList()
+
+    @Volatile
+    private var contextCandidateCacheAt = 0L
+
+    @Volatile
+    private var contextCandidateCache: List<Candidate> = emptyList()
+
+    private val identityCache = ConcurrentHashMap<String, String>()
 
     private val cloudExecutor = Executors.newSingleThreadExecutor {
         Thread(it, "bluevpn-location-sync").apply { isDaemon = true }
@@ -485,10 +495,14 @@ private fun unknownLocation(): BlueVpnLocation =
             profile.server.orEmpty().trim().lowercase(Locale.ROOT),
             profile.remarks.orEmpty().trim().lowercase(Locale.ROOT),
         ).joinToString("|")
-        return MessageDigest.getInstance("SHA-256")
+        identityCache[stableSource]?.let { return it }
+        val computed = MessageDigest.getInstance("SHA-256")
             .digest(stableSource.toByteArray())
             .joinToString("") { "%02x".format(it) }
             .take(40)
+        if (identityCache.size > 2_048) identityCache.clear()
+        identityCache[stableSource] = computed
+        return computed
     }
 
     fun reportVerifiedCountry(
@@ -530,17 +544,21 @@ private fun unknownLocation(): BlueVpnLocation =
             onComplete?.let { mainHandler.postDelayed(it, 350L) }
             return
         }
-        val keys = allCandidates(forceRefresh = true)
-            .map { serverIdentity(it.profile) }
-            .filter { it.matches(Regex("[a-f0-9]{40}")) }
-            .distinct()
-        if (keys.isEmpty()) {
-            cloudSyncing.set(false)
-            lastCloudSyncAt = now
-            onComplete?.let { mainHandler.post(it) }
-            return
-        }
+
+        // Candidate decoding and SHA-256 identity generation can touch hundreds
+        // of MMKV entries. Keep the entire preparation off the UI thread.
         cloudExecutor.execute {
+            val keys = allCandidates(forceRefresh = false)
+                .map { serverIdentity(it.profile) }
+                .filter { it.matches(Regex("[a-f0-9]{40}")) }
+                .distinct()
+            if (keys.isEmpty()) {
+                cloudSyncing.set(false)
+                lastCloudSyncAt = System.currentTimeMillis()
+                onComplete?.let { mainHandler.post(it) }
+                return@execute
+            }
+
             var changed = false
             runCatching {
                 val response = BlueVpnAccountManager.resolveServerLocations(
@@ -560,7 +578,7 @@ private fun unknownLocation(): BlueVpnLocation =
             }
             lastCloudSyncAt = System.currentTimeMillis()
             cloudSyncing.set(false)
-            if (changed) invalidateCache()
+            if (changed) invalidateResolvedCache()
             onComplete?.let { mainHandler.post(it) }
         }
     }
@@ -584,6 +602,15 @@ private fun unknownLocation(): BlueVpnLocation =
         synchronized(this) {
             candidateCacheAt = 0L
             candidateCache = emptyList()
+            contextCandidateCacheAt = 0L
+            contextCandidateCache = emptyList()
+        }
+    }
+
+    fun invalidateResolvedCache() {
+        synchronized(this) {
+            contextCandidateCacheAt = 0L
+            contextCandidateCache = emptyList()
         }
     }
 
@@ -631,11 +658,26 @@ private fun unknownLocation(): BlueVpnLocation =
     fun allCandidates(
         context: Context,
         forceRefresh: Boolean = false,
-    ): List<Candidate> = allCandidates(forceRefresh).map { candidate ->
-        val configKey = serverIdentity(candidate.profile)
-        val verified = BlueVpnPreferences.verifiedCountryKey(context, configKey)
-        val location = locationForCountryCode(verified) ?: candidate.location
-        if (location == candidate.location) candidate else candidate.copy(location = location)
+    ): List<Candidate> {
+        val now = SystemClock.elapsedRealtime()
+        if (
+            !forceRefresh &&
+            contextCandidateCacheAt > 0L &&
+            now - contextCandidateCacheAt < CANDIDATE_CACHE_TTL_MS
+        ) {
+            return contextCandidateCache
+        }
+        val resolved = allCandidates(forceRefresh).map { candidate ->
+            val configKey = serverIdentity(candidate.profile)
+            val verified = BlueVpnPreferences.verifiedCountryKey(context, configKey)
+            val location = locationForCountryCode(verified) ?: candidate.location
+            if (location == candidate.location) candidate else candidate.copy(location = location)
+        }
+        synchronized(this) {
+            contextCandidateCache = resolved
+            contextCandidateCacheAt = SystemClock.elapsedRealtime()
+        }
+        return resolved
     }
 
     fun orderedCandidates(

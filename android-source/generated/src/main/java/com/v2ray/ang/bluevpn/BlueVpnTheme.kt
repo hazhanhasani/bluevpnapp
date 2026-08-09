@@ -46,7 +46,8 @@ object BlueVpnPerformance {
         val app = context.applicationContext
         val manager = app.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         val maxHeapMb = (Runtime.getRuntime().maxMemory() / (1024L * 1024L)).toInt()
-        val lowEnd = manager?.isLowRamDevice == true ||
+        val lowEnd = BlueVpnUiGuard.safeMode(app) ||
+            manager?.isLowRamDevice == true ||
             (manager?.memoryClass ?: 256) <= 128 ||
             maxHeapMb <= 192 ||
             Build.VERSION.SDK_INT <= Build.VERSION_CODES.N_MR1
@@ -68,6 +69,12 @@ object BlueVpnPerformance {
 
     fun maxProbeWorkers(context: Context): Int =
         if (isLowEnd(context)) 2 else 3
+
+    fun uiChunkSize(context: Context): Int =
+        if (isLowEnd(context)) 3 else 7
+
+    fun uiRenderDelayMs(context: Context): Long =
+        if (isLowEnd(context)) 120L else 45L
 }
 
 object BlueVpnTheme {

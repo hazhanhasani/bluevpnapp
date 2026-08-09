@@ -269,6 +269,278 @@ def migrate_iranpayamak_settings(db: Session) -> bool:
     return changed
 
 
+
+def _provider_base_url(setting: SmsSetting) -> str:
+    base_url = str(setting.base_url or IRANPAYAMAK_DEFAULT_BASE_URL).strip().rstrip("/")
+    if not base_url or "edge.ippanel.com" in base_url.lower():
+        return IRANPAYAMAK_DEFAULT_BASE_URL
+    return base_url
+
+
+def _provider_headers(setting: SmsSetting) -> dict[str, str]:
+    api_key = decrypt(setting.api_key_enc).strip()
+    if not api_key:
+        raise SmsError("کلید API فراز اس‌ام‌اس ثبت نشده است")
+    return {
+        "Api-Key": api_key,
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "BluePanel-SMS/6",
+    }
+
+
+def _walk_provider_objects(value: Any):
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_provider_objects(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_provider_objects(child)
+    elif isinstance(value, str):
+        stripped=value.strip()
+        if stripped[:1] in {'{','['}:
+            try:
+                decoded=json.loads(stripped)
+            except Exception:
+                return
+            yield from _walk_provider_objects(decoded)
+
+
+def _first_text(row: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value = row.get(key)
+        if value is None or isinstance(value, (dict, list)):
+            continue
+        text = str(value).translate(_PERSIAN_DIGITS).strip()
+        if text:
+            return text
+    return ""
+
+
+def _bool_or_none(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on", "dedicated", "اختصاصی"}:
+        return True
+    if text in {"0", "false", "no", "off", "shared", "اشتراکی"}:
+        return False
+    return None
+
+
+def parse_accessible_lines(payload: Any) -> list[dict[str, Any]]:
+    """Extract provider lines from any documented/wrapped response shape.
+
+    FarazSMS currently leaves the exact response schema for /lines/accessible
+    open-ended in its OpenAPI file, so the parser intentionally accepts common
+    envelope and field variants while only retaining plausible line records.
+    """
+    found: dict[str, dict[str, Any]] = {}
+    for row in _walk_provider_objects(payload):
+        number = _first_text(
+            row,
+            "line_number",
+            "lineNumber",
+            "number",
+            "line",
+            "sender",
+            "from",
+        )
+        number = re.sub(r"\s+", "", number)
+        if not number or not re.fullmatch(r"[+0-9A-Za-z_-]{3,32}", number):
+            continue
+        if not any(key in row for key in (
+            "line_number", "lineNumber", "number", "line", "sender", "from",
+            "is_dedicated", "isDedicated", "dedicated", "line_id", "lineId",
+        )):
+            continue
+        dedicated = _bool_or_none(
+            row.get("is_dedicated", row.get("isDedicated", row.get("dedicated")))
+        )
+        item = {
+            "number": number,
+            "id": _first_text(row, "id", "line_id", "lineId"),
+            "title": _first_text(row, "title", "name", "label", "description"),
+            "is_dedicated": dedicated,
+            "active": _bool_or_none(row.get("active", row.get("is_active"))),
+        }
+        current = found.get(number)
+        if current is None or sum(v not in (None, "") for v in item.values()) > sum(
+            v not in (None, "") for v in current.values()
+        ):
+            found[number] = item
+    return sorted(
+        found.values(),
+        key=lambda item: (
+            item.get("active") is False,
+            item.get("is_dedicated") is True,
+            str(item.get("number") or ""),
+        ),
+    )
+
+
+def _pattern_variables(row: dict[str, Any], text: str) -> list[str]:
+    values = row.get("vars", row.get("variables", row.get("attributes")))
+    names: list[str] = []
+    if isinstance(values, dict):
+        names.extend(str(key).strip("% ") for key in values if str(key).strip("% "))
+    elif isinstance(values, list):
+        for item in values:
+            if isinstance(item, dict):
+                name = _first_text(item, "var", "name", "key", "attribute")
+            else:
+                name = str(item or "")
+            name = name.strip("% ")
+            if name:
+                names.append(name)
+    names.extend(re.findall(r"%([A-Za-z0-9_]+)%", text or ""))
+    return list(dict.fromkeys(names))
+
+
+def parse_provider_patterns(payload: Any) -> list[dict[str, Any]]:
+    found: dict[str, dict[str, Any]] = {}
+    for row in _walk_provider_objects(payload):
+        code = _first_text(row, "code", "uid", "pattern_uid", "patternCode", "pattern_code")
+        if not code or not re.fullmatch(r"[A-Za-z0-9_-]{4,160}", code):
+            continue
+        text = _first_text(row, "text", "body", "pattern", "message")
+        status = _first_text(row, "status", "state").lower()
+        variables = _pattern_variables(row, text)
+        if not text and not variables and not status and not any(
+            key in row for key in ("category", "description", "title", "name")
+        ):
+            continue
+        active = status in {"active", "approved", "accepted", "enabled", "1", "true"} or not status
+        item = {
+            "code": code,
+            "text": text,
+            "title": _first_text(row, "title", "name", "description"),
+            "status": status or "active",
+            "active": active,
+            "shared": _bool_or_none(row.get("share", row.get("shared"))),
+            "variables": variables,
+            "category": _first_text(row, "category", "category_id"),
+        }
+        current = found.get(code)
+        if current is None or len(item.get("text") or "") > len(current.get("text") or ""):
+            found[code] = item
+    return sorted(
+        [item for item in found.values() if item.get("active")],
+        key=lambda item: (str(item.get("title") or item.get("text") or ""), item["code"]),
+    )
+
+
+async def _provider_catalog_request(
+    setting: SmsSetting,
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+    json_body: dict[str, Any] | None = None,
+) -> Any:
+    endpoint = _provider_base_url(setting) + path
+    headers = _provider_headers(setting)
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(15.0, connect=8.0),
+        verify=bool(setting.verify_tls),
+        follow_redirects=True,
+    ) as client:
+        try:
+            response = await client.request(
+                "GET",
+                endpoint,
+                params=params,
+                json=json_body,
+                headers=headers,
+            )
+        except httpx.HTTPError as exc:
+            raise SmsError(
+                "دریافت اطلاعات حساب فراز اس‌ام‌اس موقتاً ممکن نشد؛ دوباره تلاش کنید.",
+                transient=True,
+            ) from exc
+    if response.status_code in _TRANSIENT_PROVIDER_STATUSES:
+        raise SmsError(
+            "فراز اس‌ام‌اس موقتاً پاسخ‌گو نیست؛ چند لحظه دیگر دوباره تلاش کنید.",
+            transient=True,
+            provider_status=response.status_code,
+        )
+    if response.status_code in {401, 403}:
+        raise SmsError("کلید API فراز اس‌ام‌اس معتبر نیست یا دسترسی لازم را ندارد.")
+    if not 200 <= response.status_code < 300:
+        raise SmsError(_error_message(response), provider_status=response.status_code)
+    try:
+        return response.json() if response.content else {}
+    except Exception as exc:
+        raise SmsError("پاسخ فهرست فراز اس‌ام‌اس معتبر نبود.") from exc
+
+
+async def fetch_accessible_lines(setting: SmsSetting) -> list[dict[str, Any]]:
+    payload = await _provider_catalog_request(setting, "/lines/accessible")
+    lines = parse_accessible_lines(payload)
+    if not lines:
+        raise SmsError(
+            "هیچ خط ارسال قابل‌استفاده‌ای برای این API Key پیدا نشد؛ دسترسی خطوط حساب را بررسی کنید."
+        )
+    return lines
+
+
+async def fetch_active_patterns(setting: SmsSetting) -> list[dict[str, Any]]:
+    filters = {
+        "status": "active",
+        "staus": "active",
+        "sort_by": "updated_at",
+        "sort_type": "desc",
+    }
+    payload = await _provider_catalog_request(
+        setting,
+        "/patterns",
+        params=filters,
+        json_body=filters,
+    )
+    patterns = parse_provider_patterns(payload)
+    if not patterns:
+        raise SmsError(
+            "هیچ پترن فعال قابل‌استفاده‌ای برای این API Key پیدا نشد؛ وضعیت پترن‌ها را در فراز اس‌ام‌اس بررسی کنید."
+        )
+    return patterns
+
+
+async def fetch_provider_catalog(setting: SmsSetting) -> dict[str, Any]:
+    lines = await fetch_accessible_lines(setting)
+    patterns = await fetch_active_patterns(setting)
+    return {"lines": lines, "patterns": patterns}
+
+
+def choose_provider_line(lines: list[dict[str, Any]], current: str = "") -> str:
+    numbers = {str(item.get("number") or "") for item in lines}
+    if current and current in numbers:
+        return current
+    active = [item for item in lines if item.get("active") is not False]
+    shared = [item for item in active if item.get("is_dedicated") is False]
+    candidates = shared or active or lines
+    return str(candidates[0].get("number") or "") if candidates else ""
+
+
+def provider_pattern_map(patterns: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {str(item.get("code") or ""): item for item in patterns if item.get("code")}
+
+
+async def validate_provider_selection(setting: SmsSetting, pattern_code: str) -> dict[str, Any]:
+    catalog = await fetch_provider_catalog(setting)
+    line_number = _line_number(setting)
+    if line_number not in {str(item.get("number") or "") for item in catalog["lines"]}:
+        raise SmsError(
+            "خط ارسال انتخاب‌شده دیگر در فهرست خطوط مجاز این API Key نیست؛ فهرست را تازه‌سازی کنید."
+        )
+    patterns = provider_pattern_map(catalog["patterns"])
+    if str(pattern_code or "").strip() not in patterns:
+        raise SmsError(
+            "پترن انتخاب‌شده دیگر در فهرست پترن‌های فعال این API Key نیست؛ فهرست را تازه‌سازی کنید."
+        )
+    return catalog
+
 def _sanitize_params(spec: SmsTemplateSpec, params: dict[str, Any]) -> dict[str, str]:
     result: dict[str, str] = {}
     for item in spec.variables:

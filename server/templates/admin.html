@@ -397,8 +397,20 @@
     <div class="form-grid">
       <div><label>درگاه ایران‌پیامک</label><input value="https://api.iranpayamak.com/ws/v1" readonly aria-readonly="true"><small>مسیر رسمی به‌صورت خودکار مدیریت می‌شود.</small></div>
       <div><label>API Key ایران‌پیامک</label><input name="api_key" type="password" placeholder="{{ sms_api_mask }}" autocomplete="new-password"></div>
-      <div><label>نوع خط ارسال</label><input value="خط اشتراکی یا اختصاصی ایران‌پیامک" readonly aria-readonly="true"><small>نوع خط در خود حساب ایران‌پیامک تعیین می‌شود.</small></div>
-      <div><label>شماره خط ارسال ایران‌پیامک (line_number)</label><input name="from_number" value="{{ sms.from_number }}" placeholder="مثال: 50002178584000" inputmode="numeric" required><small>API جدید برای خط اشتراکی هم شماره خط واقعی و مجاز حساب را می‌خواهد؛ این شماره، شماره موبایل شخصی نیست.</small></div>
+      <div><label>خط ارسال معتبر حساب</label>
+        <select name="from_number">
+          <option value="">انتخاب خودکار خط اشتراکی</option>
+          {% if sms.from_number and sms.from_number not in (sms_provider_lines|map(attribute='number')|list) %}<option value="{{ sms.from_number }}" selected>خط قبلی؛ نیازمند تازه‌سازی — {{ sms.from_number }}</option>{% endif %}
+          {% for line in sms_provider_lines %}<option value="{{ line.number }}" {% if sms.from_number==line.number %}selected{% endif %}>{{ line.number }}{% if line.title %} — {{ line.title }}{% endif %} — {{ 'اختصاصی' if line.is_dedicated else 'اشتراکی' if line.is_dedicated is not none else 'نوع نامشخص' }}</option>{% endfor %}
+        </select>
+        <small>فهرست مستقیماً از خطوط قابل‌دسترسی همان API Key دریافت می‌شود؛ شماره را دستی وارد نمی‌کنی.</small>
+      </div>
+      <div class="wide sms-provider-sync-status">
+        <strong>{{ sms_provider_lines|length }} خط و {{ sms_provider_patterns|length }} پترن فعال دریافت‌شده</strong>
+        <span>{% if sms_provider_synced_at %}آخرین همگام‌سازی: {{ sms_provider_synced_at }}{% else %}هنوز با فراز اس‌ام‌اس همگام نشده است.{% endif %}</span>
+        {% if sms_provider_sync_error %}<small class="source-error">آخرین خطا: {{ sms_provider_sync_error }}</small>{% endif %}
+        <button class="secondary" type="submit" formaction="/admin/sms/provider-sync" formmethod="post" formnovalidate>دریافت خطوط و پترن‌های فعال از فراز اس‌ام‌اس</button>
+      </div>
       <div class="wide sms-config-note"><strong>پترن ورود از بخش «پترن‌های پیامکی» خوانده می‌شود.</strong><span>کد پترن را فقط در ردیف «ورود با کد پیامکی» ثبت کنید؛ متغیر ورود به‌صورت ثابت <b>%code%</b> است.</span><a href="#sms-templates">رفتن به پترن ورود</a></div>
       <div><label>تعداد رقم کد</label><input name="otp_length" type="number" min="4" max="8" value="{{ sms.otp_length or 5 }}"></div>
       <div><label>اعتبار کد؛ ثانیه</label><input name="otp_ttl_seconds" type="number" min="60" max="600" value="{{ sms.otp_ttl_seconds or 120 }}"></div>
@@ -421,7 +433,8 @@
 </section>
 
 <section id="sms-templates" class="card">
-  <div class="section-heading"><div><span class="eyebrow">38 PATTERNS</span><h2>پترن‌های پیامکی بلوپنل</h2><p>UID دقیق پترن فعال ایران‌پیامک را با همان حروف بزرگ و کوچک وارد کن. تأییدشدن متن کافی نیست؛ کد باید متعلق به همان حساب و API Key باشد.</p></div></div>
+  <div class="section-heading"><div><span class="eyebrow">38 PATTERNS</span><h2>پترن‌های پیامکی بلوپنل</h2><p>پترن‌های فعال مستقیماً از حساب فراز اس‌ام‌اس دریافت می‌شوند. برای هر پیام فقط از فهرست انتخاب کن؛ UID دستی حذف شده است.</p></div></div>
+  <form method="post" action="/admin/sms/provider-sync" class="inline-form sms-provider-refresh"><button class="secondary" type="submit">تازه‌سازی خطوط و پترن‌های فعال</button></form>
   <form method="post" action="/admin/sms-templates">
     <div class="sms-template-grid">
       {% for row in sms_templates %}
@@ -432,7 +445,13 @@
         <div class="sms-vars">
           {% for var in spec.variables %}<span><b>%{{ var.name }}%</b> • {{ var.kind }} • {{ var.length }} کاراکتر</span>{% else %}<span>بدون متغیر</span>{% endfor %}
         </div>
-        <label>کد پترن ایران‌پیامک<input name="pattern_{{ row.key }}" value="{{ row.pattern_code }}" placeholder="Pattern UID؛ حساس به حروف بزرگ و کوچک" autocomplete="off" spellcheck="false"></label>
+        <label>پترن فعال فراز اس‌ام‌اس
+          <select name="pattern_{{ row.key }}">
+            <option value="">انتخاب نشده</option>
+            {% if row.pattern_code and row.pattern_code not in sms_provider_pattern_map %}<option value="{{ row.pattern_code }}" selected>پترن قبلی در فهرست فعال نیست — {{ row.pattern_code }}</option>{% endif %}
+            {% for item in sms_provider_patterns %}<option value="{{ item.code }}" {% if row.pattern_code==item.code %}selected{% endif %}>{{ item.code }} — {{ (item.title or item.text or 'بدون عنوان')[:70] }}{% if item.variables %} — متغیرها: {{ item.variables|join(', ') }}{% endif %}</option>{% endfor %}
+          </select>
+        </label>
       </article>
       {% endfor %}
     </div>

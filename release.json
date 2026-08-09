@@ -1,11 +1,11 @@
 {
-  "version": "3.0.57",
+  "version": "3.0.58",
   "channel": "stable",
-  "build_id": "20260809-low-end-anr-fix-v3056",
-  "built_at": "2026-08-09T11:10:00Z",
-  "android_version": "3.0.57",
-  "android_version_code": 30057,
-  "description": "BlueVPN 3.0.57 اعتبارسنجی پترن و شماره خط ایران‌پیامک را اصلاح می‌کند؛ API جدید برای خط اشتراکی نیز line_number واقعی می‌خواهد و خطاهای code/line_number اکنون دقیق و فارسی نمایش داده می‌شوند.",
+  "build_id": "20260809-farazsms-catalog-sync-v3058",
+  "built_at": "2026-08-09T13:10:00Z",
+  "android_version": "3.0.58",
+  "android_version_code": 30058,
+  "description": "BlueVPN 3.0.58 خطوط مجاز و پترن‌های فعال فراز اس‌ام‌اس را مستقیماً از API رسمی دریافت می‌کند؛ ورود دستی UID و شماره خط حذف شده و انتخاب‌ها فقط از فهرست همان API Key انجام می‌شوند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -370,9 +370,14 @@
     "adaptive-network-probe-workers",
     "iranpayamak-pattern-uid-validation",
     "iranpayamak-required-line-number",
-    "iranpayamak-readable-validation-errors"
+    "iranpayamak-readable-validation-errors",
+    "farazsms-accessible-lines-sync",
+    "farazsms-active-patterns-sync",
+    "farazsms-provider-dropdowns",
+    "farazsms-safe-auto-mapping",
+    "farazsms-selection-validation"
   ],
-  "version_code": 30057,
+  "version_code": 30058,
   "notes": "حالت کم‌مصرف خودکار برای دستگاه‌های کم‌رم فعال می‌شود؛ رابط سریع‌تر باز می‌شود و احتمال ANR و خروج ناگهانی کاهش می‌یابد.",
   "version_source": "low-end-anr-fix-v3056"
 }

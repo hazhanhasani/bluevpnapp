@@ -33,7 +33,7 @@ from .github_release import github_repository,latest_github_release
 from .models import AdAsset,AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,OtpChallenge,PasarGuardPanel,PaymentSetting,Plan,SmsDelivery,SmsSetting,SmsTemplate,WebhookDelivery,AiConnectionEvent,AiRouteAggregate,AiFeedback,ServerLocation
 from .blueai import admin_overview as blueai_admin_overview, customer_dashboard as blueai_customer_dashboard, recommendations as blueai_recommendations, submit_event as blueai_submit_event, submit_feedback as blueai_submit_feedback
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
-from .sms import IRANPAYAMAK_DEFAULT_BASE_URL,SmsError,customer_name,delivery_params,jalali_date,jalali_datetime_short,local_phone,migrate_iranpayamak_settings,normalize_iran_phone,process_pending_sms,queue_sms_event,seed_sms_templates,send_pattern,send_pattern_otp,validate_pattern_code,sms_notification_ready,sms_setting_ready
+from .sms import IRANPAYAMAK_DEFAULT_BASE_URL,SmsError,choose_provider_line,customer_name,delivery_params,fetch_provider_catalog,jalali_date,jalali_datetime_short,local_phone,migrate_iranpayamak_settings,normalize_iran_phone,process_pending_sms,provider_pattern_map,queue_sms_event,seed_sms_templates,send_pattern,send_pattern_otp,sms_notification_ready,sms_setting_ready,validate_pattern_code,validate_provider_selection
 from .sms_catalog import SMS_TEMPLATE_MAP, SMS_TEMPLATE_SPECS
 from .sms_runtime import queue_broadcast,scan_subscription_notifications,start_sms_runtime,stop_sms_runtime
 from .version import VERSION, VERSION_CODE
@@ -1964,8 +1964,10 @@ async def mobile_config(
     db:Session=Depends(get_db),
 ):
     s=settings(db)
+    sms_provider_lines,sms_provider_patterns=_sms_provider_cache(s)
     if _repair_legacy_ad_assets(db,s):
         s=settings(db)
+        sms_provider_lines,sms_provider_patterns=_sms_provider_cache(s)
     release,github_error=await latest_github_release(
         force=refresh,
     )
@@ -3317,6 +3319,11 @@ def admin(request:Request,db:Session=Depends(get_db)):
             'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),
             'sms':sms,
             'sms_api_mask':mask(decrypt(sms.api_key_enc)),
+            'sms_provider_lines':sms_provider_lines,
+            'sms_provider_patterns':sms_provider_patterns,
+            'sms_provider_pattern_map':provider_pattern_map(sms_provider_patterns),
+            'sms_provider_synced_at':s.get('sms_provider_synced_at',''),
+            'sms_provider_sync_error':s.get('sms_provider_sync_error',''),
             'sms_ready':sms_setting_ready(sms),
             'sms_notification_ready':sms_notification_ready(sms),
             'sms_templates':sms_templates,
@@ -3612,11 +3619,110 @@ def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form
 def payment_settings(request:Request,base_url:str=Form(...),api_key:str=Form(''),callback_secret:str=Form(''),fee_mode:str=Form('default'),ttl_minutes:int=Form(30),active:str|None=Form(None),db:Session=Depends(get_db)):
     admin_required(request);p=db.get(PaymentSetting,1) or PaymentSetting(id=1);p.base_url=base_url.rstrip('/');p.api_key_enc=encrypt(api_key.strip()) if api_key.strip() else p.api_key_enc;p.callback_secret_enc=encrypt(callback_secret.strip()) if callback_secret.strip() else p.callback_secret_enc;p.fee_mode=fee_mode;p.ttl_minutes=max(5,min(30,ttl_minutes));p.active=active=='on';db.add(p);db.commit();return RedirectResponse('/admin?saved=1#bluepay',303)
 
-@app.post('/admin/sms-settings')
-def sms_settings(
+def _sms_provider_cache(payload:dict[str,Any])->tuple[list[dict[str,Any]],list[dict[str,Any]]]:
+    raw_lines=payload.get('sms_provider_lines')
+    raw_patterns=payload.get('sms_provider_patterns')
+    lines=[item for item in raw_lines if isinstance(item,dict)] if isinstance(raw_lines,list) else []
+    patterns=[item for item in raw_patterns if isinstance(item,dict)] if isinstance(raw_patterns,list) else []
+    return lines,patterns
+
+
+def _normalize_sms_pattern_text(value:str)->str:
+    value=re.sub(r'%[A-Za-z0-9_]+%','%var%',str(value or '').lower())
+    value=value.translate(str.maketrans('يكى','یکی'))
+    return re.sub(r'[^a-z0-9%\u0600-\u06ff]+','',value)
+
+
+def _auto_match_sms_templates(db:Session,patterns:list[dict[str,Any]])->int:
+    """Map only unambiguous provider patterns; never overwrite a valid choice."""
+    catalog=provider_pattern_map(patterns)
+    changed=0
+    for spec in SMS_TEMPLATE_SPECS:
+        row=db.get(SmsTemplate,spec.key)
+        if not row:continue
+        if row.pattern_code and row.pattern_code in catalog:continue
+        required={item.name for item in spec.variables}
+        body_key=_normalize_sms_pattern_text(spec.body)
+        candidates=[]
+        for item in patterns:
+            variables={str(name).strip('% ') for name in (item.get('variables') or [])}
+            if variables!=required:continue
+            provider_text=_normalize_sms_pattern_text(str(item.get('text') or ''))
+            score=2 if provider_text and provider_text==body_key else 1
+            candidates.append((score,str(item.get('code') or '')))
+        if not candidates:continue
+        best=max(score for score,_ in candidates)
+        winners=sorted({code for score,code in candidates if score==best and code})
+        if len(winners)==1:
+            row.pattern_code=winners[0]
+            changed+=1
+    auth=db.get(SmsTemplate,'auth_otp')
+    setting=db.get(SmsSetting,1)
+    if auth and setting and auth.pattern_code:
+        setting.pattern_code=auth.pattern_code
+        setting.parameter_name='code'
+    if changed:
+        db.commit()
+    return changed
+
+
+def _save_sms_provider_catalog(db:Session,catalog:dict[str,Any],error:str='')->int:
+    app_settings=settings(db)
+    lines=list(catalog.get('lines') or [])
+    patterns=list(catalog.get('patterns') or [])
+    app_settings['sms_provider_lines']=lines
+    app_settings['sms_provider_patterns']=patterns
+    app_settings['sms_provider_synced_at']=iso_z(utcnow())
+    app_settings['sms_provider_sync_error']=str(error or '')[:500]
+    save_settings(db,app_settings)
+    return _auto_match_sms_templates(db,patterns)
+
+
+async def _sync_sms_provider_catalog(db:Session,setting:SmsSetting)->tuple[dict[str,Any],int]:
+    catalog=await fetch_provider_catalog(setting)
+    selected=choose_provider_line(list(catalog.get('lines') or []),str(setting.from_number or ''))
+    if selected and selected!=setting.from_number:
+        setting.from_number=selected
+        db.add(setting);db.commit()
+    matched=_save_sms_provider_catalog(db,catalog)
+    return catalog,matched
+
+
+@app.post('/admin/sms/provider-sync')
+async def sms_provider_sync(
     request:Request,
     api_key:str=Form(''),
-    sender_mode:str=Form('shared'),
+    verify_tls:str|None=Form(None),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    setting=db.get(SmsSetting,1) or SmsSetting(id=1)
+    setting.provider='iranpayamak'
+    setting.base_url=IRANPAYAMAK_DEFAULT_BASE_URL
+    if api_key.strip():
+        setting.api_key_enc=encrypt(api_key.strip())
+    if verify_tls is not None:
+        setting.verify_tls=verify_tls=='on'
+    db.add(setting);db.commit()
+    if not decrypt(setting.api_key_enc).strip():
+        return admin_redirect('sms',error='ابتدا API Key فراز اس‌ام‌اس را وارد کنید.')
+    try:
+        catalog,matched=await _sync_sms_provider_catalog(db,setting)
+        return admin_redirect(
+            'sms',
+            message=f"{len(catalog['lines'])} خط و {len(catalog['patterns'])} پترن فعال دریافت شد؛ {matched} پترن واضح خودکار تطبیق داده شد.",
+        )
+    except Exception as exc:
+        app_settings=settings(db)
+        app_settings['sms_provider_sync_error']=str(exc)[:500]
+        save_settings(db,app_settings)
+        return admin_redirect('sms',error='تازه‌سازی فراز اس‌ام‌اس ناموفق بود: '+str(exc)[:400])
+
+
+@app.post('/admin/sms-settings')
+async def sms_settings(
+    request:Request,
+    api_key:str=Form(''),
     from_number:str=Form(''),
     otp_length:int=Form(5),
     otp_ttl_seconds:int=Form(120),
@@ -3633,15 +3739,8 @@ def sms_settings(
     setting=db.get(SmsSetting,1) or SmsSetting(id=1)
     setting.provider='iranpayamak'
     setting.base_url=IRANPAYAMAK_DEFAULT_BASE_URL
-    if api_key.strip():setting.api_key_enc=encrypt(api_key.strip())
-    line_number=str(from_number or '').translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩','01234567890123456789')).strip()
-    line_number=re.sub(r'\s+','',line_number)
-    if not re.fullmatch(r'[+0-9A-Za-z_-]{3,32}',line_number):
-        return RedirectResponse(
-            '/admin?error='+quote_plus('شماره خط ارسال ایران‌پیامک الزامی است؛ برای خط اشتراکی هم line_number واقعی حساب را وارد کنید.')+'#sms',
-            303,
-        )
-    setting.from_number=line_number
+    api_changed=bool(api_key.strip())
+    if api_changed:setting.api_key_enc=encrypt(api_key.strip())
     setting.parameter_name='code'
     setting.otp_length=max(4,min(8,int(otp_length or 5)))
     setting.otp_ttl_seconds=max(60,min(600,int(otp_ttl_seconds or 120)))
@@ -3658,14 +3757,39 @@ def sms_settings(
     setting.active=active=='on'
     setting.notification_active=notification_active=='on'
     setting.verify_tls=verify_tls=='on'
-    auth_template=db.get(SmsTemplate,'auth_otp')
-    if auth_template:
-        # The patterns section is the only place where the login pattern code
-        # is edited. SmsSetting keeps a mirror for backward compatibility.
-        setting.pattern_code=auth_template.pattern_code
-        auth_template.enabled=setting.active
     db.add(setting);db.commit()
-    return RedirectResponse('/admin?saved=1#sms',303)
+
+    try:
+        catalog,matched=await _sync_sms_provider_catalog(db,setting)
+        allowed={str(item.get('number') or '') for item in catalog.get('lines') or []}
+        requested=str(from_number or '').translate(str.maketrans('۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩','01234567890123456789')).strip()
+        requested=re.sub(r'\s+','',requested)
+        if requested:
+            if requested not in allowed:
+                return admin_redirect('sms',error='خط انتخاب‌شده متعلق به فهرست خطوط مجاز این API Key نیست؛ فهرست را تازه‌سازی کنید.')
+            setting.from_number=requested
+        else:
+            setting.from_number=choose_provider_line(list(catalog.get('lines') or []),setting.from_number)
+        auth_template=db.get(SmsTemplate,'auth_otp')
+        if auth_template:
+            setting.pattern_code=auth_template.pattern_code
+            auth_template.enabled=setting.active
+        db.add(setting);db.commit()
+        return admin_redirect(
+            'sms',
+            message=f"تنظیمات ذخیره شد؛ {len(catalog['lines'])} خط و {len(catalog['patterns'])} پترن فعال همگام شد و {matched} مورد خودکار تطبیق یافت.",
+        )
+    except Exception as exc:
+        # Saving API credentials must remain possible during a temporary provider outage.
+        auth_template=db.get(SmsTemplate,'auth_otp')
+        if auth_template:
+            setting.pattern_code=auth_template.pattern_code
+            auth_template.enabled=setting.active
+        db.add(setting);db.commit()
+        app_settings=settings(db)
+        app_settings['sms_provider_sync_error']=str(exc)[:500]
+        save_settings(db,app_settings)
+        return admin_redirect('sms',message='تنظیمات ذخیره شد.',error='همگام‌سازی فراز اس‌ام‌اس انجام نشد: '+str(exc)[:350])
 
 @app.post('/admin/sms-settings/test')
 async def sms_settings_test(
@@ -3679,7 +3803,7 @@ async def sms_settings_test(
         phone=phone_ok(test_phone)
         if not sms_setting_ready(setting):
             raise SmsError('تنظیمات پیامک کامل نیست؛ API Key، شماره خط ارسال و پترن ورود را بررسی کنید.')
-        await validate_pattern_code(setting,setting.pattern_code)
+        await validate_provider_selection(setting,setting.pattern_code)
         await send_pattern_otp(setting,phone,'12345')
         setting.last_test_ok=True
         setting.last_test_message=f'پیام آزمایشی برای {local_phone(phone)} ارسال شد'
@@ -3698,6 +3822,34 @@ async def sms_templates_update(request:Request,db:Session=Depends(get_db)):
     admin_required(request)
     form=await request.form()
     seed_sms_templates(db)
+    app_settings=settings(db)
+    _,provider_patterns=_sms_provider_cache(app_settings)
+    allowed={str(item.get('code') or '') for item in provider_patterns}
+    if not allowed:
+        return admin_redirect('sms-templates',error='ابتدا فهرست پترن‌های فعال فراز اس‌ام‌اس را تازه‌سازی کنید.')
+    invalid=[]
+    variable_mismatch=[]
+    catalog=provider_pattern_map(provider_patterns)
+    for spec in SMS_TEMPLATE_SPECS:
+        code=str(form.get(f'pattern_{spec.key}') or '').strip()[:160]
+        if code and code not in allowed:
+            invalid.append(spec.title)
+            continue
+        if code:
+            provider_vars={str(name).strip('% ') for name in (catalog.get(code,{}).get('variables') or [])}
+            expected={item.name for item in spec.variables}
+            if provider_vars and provider_vars!=expected:
+                variable_mismatch.append(spec.title)
+    if invalid:
+        return admin_redirect(
+            'sms-templates',
+            error='پترن انتخاب‌شده برای این موارد در حساب فعلی فعال نیست: '+'، '.join(invalid[:8]),
+        )
+    if variable_mismatch:
+        return admin_redirect(
+            'sms-templates',
+            error='متغیرهای پترن انتخاب‌شده با قرارداد این پیام‌ها یکسان نیست: '+'، '.join(variable_mismatch[:8]),
+        )
     for spec in SMS_TEMPLATE_SPECS:
         row=db.get(SmsTemplate,spec.key)
         if not row:continue
@@ -3709,7 +3861,7 @@ async def sms_templates_update(request:Request,db:Session=Depends(get_db)):
         setting.pattern_code=auth.pattern_code
         setting.active=bool(auth.enabled and setting.active)
     db.commit()
-    return RedirectResponse('/admin?saved=1#sms-templates',303)
+    return admin_redirect('sms-templates',message='پترن‌های انتخاب‌شده از فهرست فعال فراز اس‌ام‌اس ذخیره شدند.')
 
 @app.post('/admin/sms-templates/test')
 async def sms_template_test(
@@ -3733,6 +3885,7 @@ async def sms_template_test(
         # declared variables and avoids creating a permanent customer event.
         expected={item.name for item in spec.variables}
         clean={name:str(params.get(name,'')) for name in expected}
+        await validate_provider_selection(setting,template.pattern_code)
         result=await send_pattern(setting,phone_ok(test_phone),template.pattern_code,clean)
         template.updated_at=utcnow()
         db.commit()

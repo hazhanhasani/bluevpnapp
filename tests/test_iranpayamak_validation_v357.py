@@ -17,10 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_357():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.57"
-    assert release["version_code"] == 30057
-    assert app["version_name"] == "3.0.57"
-    assert app["version_code"] == 30057
+    assert release["version"] == "3.0.58"
+    assert release["version_code"] == 30058
+    assert app["version_name"] == "3.0.58"
+    assert app["version_code"] == 30058
 
 
 def test_line_number_is_required_even_for_shared_sender():
@@ -74,7 +74,7 @@ def test_pattern_code_can_be_verified_before_sending(monkeypatch):
 
 def test_admin_explains_exact_uid_and_line_requirement():
     html = (ROOT / "server/templates/admin.html").read_text(encoding="utf-8")
-    assert "UID دقیق پترن فعال ایران‌پیامک" in html
-    assert "API جدید برای خط اشتراکی هم شماره خط واقعی" in html
+    assert "پترن‌های فعال مستقیماً از حساب فراز اس‌ام‌اس دریافت می‌شوند" in html
+    assert "فهرست مستقیماً از خطوط قابل‌دسترسی" in html
     assert 'name="from_number"' in html
     assert 'name="sender_mode"' not in html

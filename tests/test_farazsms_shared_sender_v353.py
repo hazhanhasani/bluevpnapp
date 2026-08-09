@@ -28,7 +28,7 @@ def test_sms_settings_do_not_duplicate_login_pattern_fields():
     html = (ROOT / "server/templates/admin.html").read_text(encoding="utf-8")
     main = (ROOT / "server/main.py").read_text(encoding="utf-8")
     assert 'name="sender_mode"' not in html
-    assert "شماره خط ارسال ایران‌پیامک (line_number)" in html
+    assert '<select name="from_number">' in html
     assert 'name="pattern_code"' not in html
     assert 'name="parameter_name"' not in html
     assert "پترن ورود از بخش «پترن‌های پیامکی» خوانده می‌شود" in html

@@ -1381,6 +1381,14 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             mainViewModel.startListenBroadcast()
             mainViewModel.initAssets(assets)
             mainViewModel.reloadServerList()
+            BlueVpnLocationUtil.syncCloudLocations(
+                this@BlueVpnHomeActivity,
+                force = true,
+            ) {
+                if (!isFinishing && !isDestroyed) {
+                    refreshDashboard(force = true)
+                }
+            }
             refreshDashboard(force = true)
             refreshSubscriptionInfo(force = false)
 
@@ -2455,6 +2463,7 @@ private fun dpHome(value: Int): Int =
     private fun requestThroughLocalXrayProxy(
         endpoint: String,
         httpPort: Int,
+        countryGuid: String = attemptedGuid,
     ): Long? =
         runCatching {
             val proxy = Proxy(
@@ -2505,7 +2514,7 @@ private fun dpHome(value: Int): Int =
                 }
 
                 if (valid) {
-                    if (endpoint.contains("check-host.net/cdn-cgi/trace")) {
+                    if (endpoint.contains("/cdn-cgi/trace")) {
                         body.lineSequence()
                             .firstOrNull { it.startsWith("loc=") }
                             ?.substringAfter("loc=")
@@ -2514,7 +2523,7 @@ private fun dpHome(value: Int): Int =
                             ?.let { countryCode ->
                                 BlueVpnPreferences.markVerifiedCountry(
                                     this@BlueVpnHomeActivity,
-                                    attemptedGuid,
+                                    countryGuid,
                                     countryCode,
                                 )
                                 BlueVpnLocationUtil.invalidateCache()
@@ -2569,12 +2578,24 @@ private fun dpHome(value: Int): Int =
 
     private fun refreshVerifiedExitLocation() {
         val port = SettingsManager.getHttpPort()
-        if (port !in 1..65535 || attemptedGuid.isBlank()) return
+        val guid = attemptedGuid
+        if (port !in 1..65535 || guid.isBlank()) return
         lifecycleScope.launch(Dispatchers.IO) {
-            requestThroughLocalXrayProxy(
+            val resolved = requestThroughLocalXrayProxy(
                 endpoint = "https://check-host.net/cdn-cgi/trace",
                 httpPort = port,
+                countryGuid = guid,
+            ) ?: requestThroughLocalXrayProxy(
+                endpoint = "http://1.1.1.1/cdn-cgi/trace",
+                httpPort = port,
+                countryGuid = guid,
             )
+            if (resolved != null) {
+                BlueVpnLocationUtil.syncCloudLocations(
+                    this@BlueVpnHomeActivity,
+                    force = true,
+                )
+            }
             withContext(Dispatchers.Main) {
                 if (!isFinishing && !isDestroyed) {
                     refreshDashboard(force = true)

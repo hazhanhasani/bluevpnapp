@@ -1,10 +1,16 @@
 package com.v2ray.ang.bluevpn
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import com.v2ray.ang.dto.entities.ProfileItem
 import com.v2ray.ang.handler.MmkvManager
+import org.json.JSONArray
+import java.security.MessageDigest
 import java.util.Locale
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class BlueVpnLocation(
     val key: String,
@@ -26,7 +32,7 @@ object BlueVpnPreferences {
     private const val SUCCESS_FRESH_MS = 20 * 60 * 1000L
     private const val VERIFIED_COUNTRY_PREFIX = "verified_country_"
     private const val VERIFIED_COUNTRY_AT_PREFIX = "verified_country_at_"
-    private const val VERIFIED_COUNTRY_TTL_MS = 7 * 24 * 60 * 60 * 1000L
+    private const val VERIFIED_COUNTRY_TTL_MS = 180L * 24L * 60L * 60L * 1000L
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -124,28 +130,51 @@ object BlueVpnPreferences {
         countryCode: String,
     ) {
         val normalized = countryCode.trim().lowercase(Locale.ROOT)
-        if (guid.isBlank() || normalized.length != 2) return
+        val profile = MmkvManager.decodeServerConfig(guid) ?: return
+        val configKey = BlueVpnLocationUtil.serverIdentity(profile)
+        if (configKey.isBlank() || normalized.length != 2) return
+        markVerifiedCountryKey(context, configKey, normalized)
+        BlueVpnLocationUtil.reportVerifiedCountry(
+            context.applicationContext,
+            configKey,
+            normalized,
+        )
+    }
+
+    fun markVerifiedCountryKey(
+        context: Context,
+        configKey: String,
+        countryCode: String,
+    ) {
+        val normalized = countryCode.trim().lowercase(Locale.ROOT)
+        if (configKey.isBlank() || normalized.length != 2) return
         prefs(context).edit()
-            .putString(VERIFIED_COUNTRY_PREFIX + guid, normalized)
-            .putLong(VERIFIED_COUNTRY_AT_PREFIX + guid, System.currentTimeMillis())
+            .putString(VERIFIED_COUNTRY_PREFIX + configKey, normalized)
+            .putLong(VERIFIED_COUNTRY_AT_PREFIX + configKey, System.currentTimeMillis())
             .apply()
     }
 
     fun verifiedCountry(context: Context, guid: String): String {
         if (guid.isBlank()) return ""
+        val profile = MmkvManager.decodeServerConfig(guid) ?: return ""
+        return verifiedCountryKey(context, BlueVpnLocationUtil.serverIdentity(profile))
+    }
+
+    fun verifiedCountryKey(context: Context, configKey: String): String {
+        if (configKey.isBlank()) return ""
         val storage = prefs(context)
-        val verifiedAt = storage.getLong(VERIFIED_COUNTRY_AT_PREFIX + guid, 0L)
+        val verifiedAt = storage.getLong(VERIFIED_COUNTRY_AT_PREFIX + configKey, 0L)
         if (
             verifiedAt <= 0L ||
             System.currentTimeMillis() - verifiedAt > VERIFIED_COUNTRY_TTL_MS
         ) {
             storage.edit()
-                .remove(VERIFIED_COUNTRY_PREFIX + guid)
-                .remove(VERIFIED_COUNTRY_AT_PREFIX + guid)
+                .remove(VERIFIED_COUNTRY_PREFIX + configKey)
+                .remove(VERIFIED_COUNTRY_AT_PREFIX + configKey)
                 .apply()
             return ""
         }
-        return storage.getString(VERIFIED_COUNTRY_PREFIX + guid, "").orEmpty()
+        return storage.getString(VERIFIED_COUNTRY_PREFIX + configKey, "").orEmpty()
     }
 
     fun failedRecently(context: Context, guid: String): Boolean {
@@ -222,6 +251,17 @@ object BlueVpnLocationUtil {
 
     @Volatile
     private var candidateCache: List<Candidate> = emptyList()
+
+    private val cloudExecutor = Executors.newSingleThreadExecutor {
+        Thread(it, "bluevpn-location-sync").apply { isDaemon = true }
+    }
+    private val cloudSyncing = AtomicBoolean(false)
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    @Volatile
+    private var lastCloudSyncAt = 0L
+
+    private const val CLOUD_SYNC_TTL_MS = 60_000L
 
     private data class Rule(
         val location: BlueVpnLocation,
@@ -423,7 +463,7 @@ private fun detectFromServer(
 private fun unknownLocation(): BlueVpnLocation =
     BlueVpnLocation(
         key = "unknown",
-        title = "لوکیشن ناشناخته",
+        title = "در حال شناسایی",
         flag = "🌐",
     )
 
@@ -438,6 +478,91 @@ private fun unknownLocation(): BlueVpnLocation =
         return detectKnown(remarks.orEmpty())
             ?: detectFromServer(server)
             ?: unknownLocation()
+    }
+
+    fun serverIdentity(profile: ProfileItem): String {
+        val stableSource = listOf(
+            profile.server.orEmpty().trim().lowercase(Locale.ROOT),
+            profile.remarks.orEmpty().trim().lowercase(Locale.ROOT),
+        ).joinToString("|")
+        return MessageDigest.getInstance("SHA-256")
+            .digest(stableSource.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+            .take(40)
+    }
+
+    fun reportVerifiedCountry(
+        context: Context,
+        configKey: String,
+        countryCode: String,
+    ) {
+        val normalized = countryCode.trim().lowercase(Locale.ROOT)
+        if (
+            !configKey.matches(Regex("[a-f0-9]{40}")) ||
+            normalized.length != 2 ||
+            !BlueVpnAccountManager.hasSession(context)
+        ) return
+        cloudExecutor.execute {
+            BlueVpnAccountManager.reportServerLocation(
+                context.applicationContext,
+                configKey,
+                normalized,
+            )
+        }
+    }
+
+    fun syncCloudLocations(
+        context: Context,
+        force: Boolean = false,
+        onComplete: (() -> Unit)? = null,
+    ) {
+        val app = context.applicationContext
+        if (!BlueVpnAccountManager.hasSession(app)) {
+            onComplete?.let { mainHandler.post(it) }
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (!force && now - lastCloudSyncAt < CLOUD_SYNC_TTL_MS) {
+            onComplete?.let { mainHandler.post(it) }
+            return
+        }
+        if (!cloudSyncing.compareAndSet(false, true)) {
+            onComplete?.let { mainHandler.postDelayed(it, 350L) }
+            return
+        }
+        val keys = allCandidates(forceRefresh = true)
+            .map { serverIdentity(it.profile) }
+            .filter { it.matches(Regex("[a-f0-9]{40}")) }
+            .distinct()
+        if (keys.isEmpty()) {
+            cloudSyncing.set(false)
+            lastCloudSyncAt = now
+            onComplete?.let { mainHandler.post(it) }
+            return
+        }
+        cloudExecutor.execute {
+            var changed = false
+            runCatching {
+                val response = BlueVpnAccountManager.resolveServerLocations(
+                    app,
+                    keys,
+                ).getOrThrow()
+                val rows = response.optJSONArray("locations") ?: JSONArray()
+                for (index in 0 until rows.length()) {
+                    val row = rows.optJSONObject(index) ?: continue
+                    val key = row.optString("config_key").trim().lowercase(Locale.ROOT)
+                    val code = row.optString("country_code").trim().lowercase(Locale.ROOT)
+                    if (key.matches(Regex("[a-f0-9]{40}")) && code.length == 2) {
+                        BlueVpnPreferences.markVerifiedCountryKey(app, key, code)
+                        changed = true
+                    }
+                }
+            }
+            lastCloudSyncAt = System.currentTimeMillis()
+            cloudSyncing.set(false)
+            if (changed) invalidateCache()
+            onComplete?.let { mainHandler.post(it) }
+        }
     }
 
     fun isUsable(profile: ProfileItem): Boolean {
@@ -507,7 +632,8 @@ private fun unknownLocation(): BlueVpnLocation =
         context: Context,
         forceRefresh: Boolean = false,
     ): List<Candidate> = allCandidates(forceRefresh).map { candidate ->
-        val verified = BlueVpnPreferences.verifiedCountry(context, candidate.guid)
+        val configKey = serverIdentity(candidate.profile)
+        val verified = BlueVpnPreferences.verifiedCountryKey(context, configKey)
         val location = locationForCountryCode(verified) ?: candidate.location
         if (location == candidate.location) candidate else candidate.copy(location = location)
     }

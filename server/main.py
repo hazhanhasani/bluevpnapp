@@ -30,7 +30,7 @@ from .manual_guardcore import (
     set_manual_decision,
 )
 from .github_release import github_repository,latest_github_release
-from .models import AdAsset,AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,OtpChallenge,PasarGuardPanel,PaymentSetting,Plan,SmsDelivery,SmsSetting,SmsTemplate,WebhookDelivery,AiConnectionEvent,AiRouteAggregate,AiFeedback
+from .models import AdAsset,AppSetting,Customer,CustomerDevice,CustomerSession,GuardCorePanel,MarzbanPanel,Order,OtpChallenge,PasarGuardPanel,PaymentSetting,Plan,SmsDelivery,SmsSetting,SmsTemplate,WebhookDelivery,AiConnectionEvent,AiRouteAggregate,AiFeedback,ServerLocation
 from .blueai import admin_overview as blueai_admin_overview, customer_dashboard as blueai_customer_dashboard, recommendations as blueai_recommendations, submit_event as blueai_submit_event, submit_feedback as blueai_submit_feedback
 from .security import decrypt,encrypt,mask,new_token,password_hash,password_ok,session_expiry,token_hash,utcnow
 from .sms import SmsError,customer_name,delivery_params,jalali_date,jalali_datetime_short,local_phone,normalize_iran_phone,process_pending_sms,queue_sms_event,seed_sms_templates,send_pattern,send_pattern_otp,sms_notification_ready,sms_setting_ready
@@ -2523,6 +2523,86 @@ def plans(
             for x in rows
         ],
     }
+
+
+_SERVER_LOCATION_KEY_RE = re.compile(r"^[a-f0-9]{40}$")
+_SERVER_COUNTRY_RE = re.compile(r"^[a-z]{2}$")
+
+
+def _server_location_payload(row:ServerLocation)->dict[str,Any]:
+    return {
+        'config_key':row.config_key,
+        'country_code':row.country_code,
+        'source':row.source,
+        'confidence':int(row.confidence or 0),
+        'verified_at':iso_z(row.verified_at),
+        'updated_at':iso_z(row.updated_at),
+    }
+
+
+@app.post('/api/v1/server-locations/resolve')
+async def resolve_server_locations(
+    request:Request,
+    c:Customer=Depends(current_customer),
+    db:Session=Depends(get_db),
+):
+    payload=await request.json()
+    raw_keys=payload.get('keys') if isinstance(payload,dict) else []
+    keys=[]
+    if isinstance(raw_keys,list):
+        for value in raw_keys[:600]:
+            key=str(value or '').strip().lower()
+            if _SERVER_LOCATION_KEY_RE.fullmatch(key) and key not in keys:
+                keys.append(key)
+    if not keys:
+        return {'success':True,'locations':[],'count':0}
+    rows=db.scalars(
+        select(ServerLocation)
+        .where(ServerLocation.config_key.in_(keys))
+    ).all()
+    return {
+        'success':True,
+        'locations':[_server_location_payload(row) for row in rows],
+        'count':len(rows),
+    }
+
+
+@app.post('/api/v1/server-locations/verify')
+async def verify_server_location(
+    request:Request,
+    c:Customer=Depends(current_customer),
+    db:Session=Depends(get_db),
+):
+    payload=await request.json()
+    config_key=str(payload.get('config_key') or '').strip().lower()
+    country_code=str(payload.get('country_code') or '').strip().lower()
+    source=str(payload.get('source') or 'client_trace').strip().lower()[:40]
+    if not _SERVER_LOCATION_KEY_RE.fullmatch(config_key):
+        raise HTTPException(422,detail={'code':'SERVER_LOCATION_KEY_INVALID','message':'شناسه سرور معتبر نیست'})
+    if not _SERVER_COUNTRY_RE.fullmatch(country_code):
+        raise HTTPException(422,detail={'code':'SERVER_COUNTRY_INVALID','message':'کد کشور معتبر نیست'})
+    now=utcnow()
+    row=db.get(ServerLocation,config_key)
+    if row is None:
+        row=ServerLocation(
+            config_key=config_key,
+            country_code=country_code,
+            source=source or 'client_trace',
+            confidence=100,
+            verified_at=now,
+            updated_at=now,
+        )
+        db.add(row)
+    else:
+        row.country_code=country_code
+        row.source=source or row.source or 'client_trace'
+        row.confidence=100
+        row.verified_at=now
+        row.updated_at=now
+    db.commit()
+    db.refresh(row)
+    return {'success':True,'location':_server_location_payload(row)}
+
 @app.post('/api/v1/ai/events')
 async def ai_event(request:Request,c:Customer=Depends(current_customer),db:Session=Depends(get_db)):
     s=settings(db)

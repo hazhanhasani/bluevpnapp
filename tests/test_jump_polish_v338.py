@@ -33,10 +33,10 @@ def test_background_intelligence_and_schema_15():
     assert "fun instantCandidates(" in location
     assert "successFreshnessScore" in location
     assert "bestDelay" not in servers
-    assert 'SCHEMA_VERSION = "16"' in db
+    assert 'SCHEMA_VERSION = "17"' in db
     assert "recent_score" in models
     assert "confidence_score" in models
-    assert release["version"] == "3.0.51"
+    assert release["version"] == "3.0.52"
 
 
 def test_exit_location_theme_launch_and_retired_presets():

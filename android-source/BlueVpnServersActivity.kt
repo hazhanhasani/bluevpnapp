@@ -6,6 +6,8 @@ import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
@@ -60,6 +62,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var selectedTab = LocationTab.ALL
     private var query = ""
     private var firstResume = true
+    private val locationSyncHandler = Handler(Looper.getMainLooper())
+    private val locationSyncRunnable = object : Runnable {
+        override fun run() {
+            syncDetectedLocations(force = true)
+            locationSyncHandler.postDelayed(this, 15_000L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,6 +96,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             renderLocations()
         }
         renderLocations()
+        syncDetectedLocations(force = true)
     }
 
     override fun onResume() {
@@ -97,6 +107,29 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             return
         }
         if (firstResume) firstResume = false else renderLocations()
+        locationSyncHandler.removeCallbacks(locationSyncRunnable)
+        locationSyncHandler.postDelayed(locationSyncRunnable, 2_000L)
+    }
+
+    override fun onPause() {
+        locationSyncHandler.removeCallbacks(locationSyncRunnable)
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        locationSyncHandler.removeCallbacks(locationSyncRunnable)
+        super.onDestroy()
+    }
+
+    private fun syncDetectedLocations(force: Boolean) {
+        BlueVpnLocationUtil.syncCloudLocations(
+            this,
+            force = force,
+        ) {
+            if (!isFinishing && !isDestroyed) {
+                renderLocations()
+            }
+        }
     }
 
     private fun createScreen(): View {
@@ -154,6 +187,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 text = "در حال بررسی"
                 mainViewModel.reloadServerList()
                 mainViewModel.testAllRealPing()
+                syncDetectedLocations(force = true)
             }
         }
         row.addView(refreshButton, LinearLayout.LayoutParams(dp(104), dp(44)))
@@ -350,6 +384,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             ellipsize = android.text.TextUtils.TruncateAt.END
         })
         val availability = when {
+            group.location.key == "unknown" -> "شناسایی کشور در پس‌زمینه"
             group.usableRoutes <= 0 -> "در انتظار بررسی"
             group.usableRoutes == group.servers.size -> "همه مسیرها آماده"
             else -> "${group.usableRoutes} مسیر آماده"

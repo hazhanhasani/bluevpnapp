@@ -56,6 +56,25 @@ class AdAsset(Base):
         default=utcnow,
     )
 
+
+
+class ServerLocation(Base):
+    __tablename__ = "server_locations"
+    config_key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    country_code: Mapped[str] = mapped_column(String(2), index=True)
+    source: Mapped[str] = mapped_column(String(40), default="client_trace")
+    confidence: Mapped[int] = mapped_column(Integer, default=100)
+    verified_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
 class PasarGuardPanel(Base):
     __tablename__ = "pasarguard_panels"
     id: Mapped[int] = mapped_column(primary_key=True)

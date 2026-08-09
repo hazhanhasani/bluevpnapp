@@ -9,10 +9,10 @@ WORKFLOW = ROOT / ".github" / "workflows" / "build-apk.yml"
 def test_release_version_331():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding" / "app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.51"
-    assert release["version_code"] == 30051
-    assert app["version_name"] == "3.0.51"
-    assert app["version_code"] == 30051
+    assert release["version"] == "3.0.52"
+    assert release["version_code"] == 30052
+    assert app["version_name"] == "3.0.52"
+    assert app["version_code"] == 30052
 
 
 def test_workflow_accepts_repository_dispatch():

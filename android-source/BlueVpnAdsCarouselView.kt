@@ -235,9 +235,8 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
                 val row = array.optJSONObject(index) ?: continue
                 val id = row.optString("id").trim()
                 val title = row.optString("title").trim()
-                val imageUrl = imageAssetUrl(
-                    row.optString("image_path").ifBlank { row.optString("image_url") }
-                )
+                val imageUrl = imageAssetUrl(row.optString("image_path"))
+                    .ifBlank { imageAssetUrl(row.optString("image_url")) }
                 if (id.isBlank() || imageUrl.isBlank()) continue
                 parsed += AdItem(
                     id = id,
@@ -420,7 +419,9 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         val trimmed = value.trim()
         if (trimmed.isBlank()) return ""
         if (trimmed.startsWith('/')) {
-            if (!trimmed.startsWith("/media/")) return ""
+            val supportedPath = trimmed.startsWith("/media/ads/") ||
+                trimmed.startsWith("/api/v1/ad-assets/")
+            if (!supportedPath) return ""
             val base = runCatching { Uri.parse(BlueVpnAccountManager.apiBaseUrl().trim()) }.getOrNull() ?: return ""
             val scheme = base.scheme?.lowercase().orEmpty()
             val authority = base.encodedAuthority.orEmpty()

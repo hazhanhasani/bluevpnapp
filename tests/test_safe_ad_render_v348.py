@@ -13,10 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_348():
     release=json.loads((ROOT/'release.json').read_text(encoding='utf-8'))
     app=json.loads((ROOT/'branding/app.json').read_text(encoding='utf-8'))
-    assert release['version']=='3.0.50'
-    assert release['version_code']==30050
-    assert app['version_name']=='3.0.50'
-    assert app['version_code']==30050
+    assert release['version']=='3.0.51'
+    assert release['version_code']==30051
+    assert app['version_name']=='3.0.51'
+    assert app['version_code']==30051
 
 
 def test_broken_old_ad_layout_is_disabled_server_side():
@@ -53,7 +53,7 @@ def test_banner_only_appears_after_real_image_decode():
     assert 'ViewGroup.LayoutParams.MATCH_PARENT,\n                0,' in home
     assert 'MeasureSpec.makeMeasureSpec(0, MeasureSpec.EXACTLY)' in source
     assert 'if (id.isBlank() || imageUrl.isBlank()) continue' in source
-    assert 'row.optString("image_path").ifBlank { row.optString("image_url") }' in source
+    assert '.ifBlank { imageAssetUrl(row.optString("image_url")) }' in source
 
 
 def test_server_gates_old_clients_and_requires_existing_images():

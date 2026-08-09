@@ -535,7 +535,7 @@ def advertising_payload(s:dict[str,Any],public_origin:str='',client_version:str=
             'title':title,
             'subtitle':str(item.get('subtitle') or ''),
             'image_url':image_url,
-            'image_path':raw_image if raw_image.startswith(('/media/ads/','/api/v1/ad-assets/')) else '',
+            'image_path':raw_image if raw_image.startswith('/media/ads/') else '',
             'target_url':target_url,
             'button_text':str(item.get('button_text') or ''),
         })

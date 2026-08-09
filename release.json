@@ -1,10 +1,10 @@
 {
-  "version": "3.0.50",
+  "version": "3.0.51",
   "channel": "stable",
   "build_id": "20260809-db-persistent-ad-assets-v3050",
   "built_at": "2026-08-09T08:10:00Z",
-  "android_version": "3.0.50",
-  "android_version_code": 30050,
+  "android_version": "3.0.51",
+  "android_version_code": 30051,
   "description": "BlueVPN 3.0.50 تصاویر تبلیغات آپلودی را در دیتابیس پایدار ذخیره می‌کند، تصاویر مفقودشده پس از Redeploy را بازیابی می‌کند و از حذف تبلیغ به‌دلیل حافظه موقت Railway جلوگیری می‌کند.",
   "features": [
     "premium-ui-v3",
@@ -340,9 +340,12 @@
     "database-persistent-ad-assets",
     "railway-redeploy-ad-recovery",
     "public-etagged-ad-assets",
-    "legacy-ad-image-auto-migration"
+    "legacy-ad-image-auto-migration",
+    "db-ad-asset-absolute-url-compat",
+    "legacy-client-ad-delivery-fix",
+    "ad-image-url-fallback"
   ],
-  "version_code": 30050,
+  "version_code": 30051,
   "notes": "تبلیغات صفحه اصلی اکنون از پنل مدیریت می‌شوند و بدون تبلیغ فعال هیچ فضای خالی در اپ نمایش داده نمی‌شود.",
-  "version_source": "in-app-ad-carousel-v3042"
+  "version_source": "ad-asset-path-compat-v3051"
 }

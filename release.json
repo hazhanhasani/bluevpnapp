@@ -1,11 +1,11 @@
 {
-  "version": "3.0.75",
+  "version": "3.0.76",
   "channel": "stable",
-  "build_id": "20260809-entitlement-pool-isolation-v3075",
-  "built_at": "2026-08-09T20:38:32Z",
-  "android_version": "3.0.75",
-  "android_version_code": 30075,
-  "description": "BlueVPN 3.0.75 استخر سرورهای رایگان و Premium را کاملاً جدا می‌کند و گیرکردن صفحه مکان‌ها در حالت دریافت سرور را برطرف می‌کند.",
+  "build_id": "20260810-runtime-pool-bluepay-recovery-v3076",
+  "built_at": "2026-08-10T00:00:00Z",
+  "android_version": "3.0.76",
+  "android_version_code": 30076,
+  "description": "BlueVPN 3.0.76 پروفایل‌های فیزیکی پلن‌های غیرفعال را از Runtime حذف می‌کند، انتخاب خودکار را در مرز اشتراک قفل می‌کند و ساخت فاکتور BluePay را با Retry امن و Callback معتبر بازیابی می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -479,9 +479,16 @@
     "no-global-mmkv-auto-selection-fallback",
     "stale-premium-subscription-disable",
     "location-import-broadcast-coalescing",
-    "location-loading-exception-recovery"
+    "location-loading-exception-recovery",
+    "entitlement-physical-profile-pruning",
+    "engine-start-entitlement-guard",
+    "provider-round-robin-subscription",
+    "bluepay-idempotent-transport-retry",
+    "bluepay-request-origin-callback",
+    "bluepay-encryption-key-fallback",
+    "bluepay-invalid-callback-omission"
   ],
-  "version_code": 30075,
-  "notes": "انتخاب خودکار فقط از سرورهای متعلق به اشتراک فعال استفاده می‌کند؛ Cache با اثرانگشت پلن جدا شده، مسیرهای قدیمی و رایگان وارد Pool Premium نمی‌شوند و خطا یا Broadcastهای پیاپی دیگر صفحه مکان‌ها را روی Loading نگه نمی‌دارند.",
-  "version_source": "entitlement-pool-isolation-v3075"
+  "version_code": 30076,
+  "notes": "سرورهای رایگان و اشتراک‌های قدیمی دیگر فقط غیرفعال نمی‌شوند و از MMKV نیز حذف می‌شوند؛ شروع Core خارج از Pool فعال ممنوع است. منابع پاسارگارد، مرزبان و پنل سوم به‌صورت Round-robin ادغام می‌شوند. BluePay با همان Idempotency-Key و بدنه ثابت یک Retry امن دارد، Callback نامعتبر حذف می‌شود و کلیدهای رمزگذاری قدیمی قابل بازیابی‌اند.",
+  "version_source": "runtime-pool-bluepay-recovery-v3076"
 }

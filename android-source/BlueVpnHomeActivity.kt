@@ -2578,6 +2578,11 @@ private fun dpHome(value: Int): Int =
         disconnectRetry.reset()
         handler.removeCallbacks(disconnectRetry)
 
+        // Enforce the account boundary before any legacy v2rayNG state is
+        // consulted. Disabled subscriptions remain in decodeAllServerList()
+        // unless their physical profiles are pruned.
+        BlueVpnAccountManager.ensureEntitlementSelection(this)
+
         if (
             BlueVpnUpdateManager.blockInteraction(
                 this
@@ -2720,7 +2725,16 @@ private fun dpHome(value: Int): Int =
         candidates: List<BlueVpnLocationUtil.Candidate>,
         automaticSelection: Boolean,
     ) {
-        if (candidates.isEmpty()) {
+        val entitlementGuids = BlueVpnAccountManager.preferredServerGuids(this).toSet()
+        val isolatedCandidates = candidates.filter { candidate ->
+            BlueVpnAccountManager.candidateAllowed(
+                this,
+                candidate.guid,
+                candidate.profile.subscriptionId,
+                entitlementGuids,
+            )
+        }
+        if (isolatedCandidates.isEmpty()) {
             hideConnectingOverlay()
             liveLocationSwitch = false
             switchTargetTitle = ""
@@ -2730,7 +2744,7 @@ private fun dpHome(value: Int): Int =
             Toast.makeText(this, "سرور سالم و سازگار پیدا نشد", Toast.LENGTH_SHORT).show()
             return
         }
-        failoverQueue = candidates.map { it.guid }
+        failoverQueue = isolatedCandidates.map { it.guid }
         failoverIndex = 0
         failoverActive = true
         connectionVerified = false
@@ -2770,10 +2784,19 @@ private fun dpHome(value: Int): Int =
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
 
+        val profile = MmkvManager.decodeServerConfig(guid)
+        if (
+            profile == null ||
+            !BlueVpnAccountManager.candidateAllowed(this, guid, profile.subscriptionId)
+        ) {
+            BlueVpnPreferences.markSessionInactive(this, guid)
+            failoverIndex += 1
+            handler.post { if (failoverActive) startCurrentCandidate() }
+            return
+        }
         MmkvManager.setSelectServer(guid)
 
-        val profile = MmkvManager.decodeServerConfig(guid)
-        if (profile == null || BlueVpnLocationUtil.compatibilityIssue(profile) != null) {
+        if (BlueVpnLocationUtil.compatibilityIssue(profile) != null) {
             BlueVpnPreferences.markSessionInactive(this, guid)
             failoverIndex += 1
             handler.post { if (failoverActive) startCurrentCandidate() }

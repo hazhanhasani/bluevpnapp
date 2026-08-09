@@ -35,10 +35,10 @@ def _setting() -> SmsSetting:
 def test_release_version_360():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.75"
-    assert release["version_code"] == 30075
-    assert app["version_name"] == "3.0.75"
-    assert app["version_code"] == 30075
+    assert release["version"] == "3.0.76"
+    assert release["version_code"] == 30076
+    assert app["version_name"] == "3.0.76"
+    assert app["version_code"] == 30076
 
 
 def test_fetches_all_farazsms_pattern_pages_with_laravel_meta(monkeypatch):

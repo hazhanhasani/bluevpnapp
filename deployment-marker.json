@@ -1,7 +1,7 @@
 {
-  "release": "3.0.75-auto",
-  "version_name": "3.0.75",
-  "version_code": 30075,
+  "release": "3.0.76",
+  "version_name": "3.0.76",
+  "version_code": 30076,
   "changes": [
     "Route Android connect and disconnect commands through BlueVpnEngineManager",
     "Remove direct UI and account dependencies on v2rayNG CoreServiceManager",
@@ -43,5 +43,6 @@
   "built_at": "2026-08-09T20:38:32Z",
   "build_id": "20260809-entitlement-pool-isolation-v3075",
   "feature": "entitlement-pool-isolation",
-  "build_fix": "strict-server-pool-and-location-loading-recovery"
+  "build_fix": "strict-server-pool-and-location-loading-recovery",
+  "version_source": "runtime-pool-bluepay-recovery-v3076"
 }

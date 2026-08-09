@@ -65,8 +65,8 @@ for relative in ("branding/app.json", "release.json", "deployment-marker.json", 
 app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
 release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
 marker = json.loads((ROOT / "deployment-marker.json").read_text(encoding="utf-8"))
-check("metadata-version-consistent", {app.get("version_name"), release.get("version"), marker.get("version_name"), marker.get("release")} == {"3.0.75"})
-check("metadata-version-code-consistent", {app.get("version_code"), release.get("version_code"), marker.get("version_code")} == {30075})
+check("metadata-version-consistent", {app.get("version_name"), release.get("version"), marker.get("version_name"), marker.get("release")} == {"3.0.76"})
+check("metadata-version-code-consistent", {app.get("version_code"), release.get("version_code"), marker.get("version_code")} == {30076})
 check("sing-box-reference-declared", app.get("sing_box_ref") == "v1.13.16")
 
 try:

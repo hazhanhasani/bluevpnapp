@@ -10,10 +10,10 @@ WORKFLOW = ROOT / ".github/workflows/build-apk.yml"
 def test_release_version_349():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.75"
-    assert release["version_code"] == 30075
-    assert app["version_name"] == "3.0.75"
-    assert app["version_code"] == 30075
+    assert release["version"] == "3.0.76"
+    assert release["version_code"] == 30076
+    assert app["version_name"] == "3.0.76"
+    assert app["version_code"] == 30076
 
 
 def test_workflow_really_builds_and_signs_apks():

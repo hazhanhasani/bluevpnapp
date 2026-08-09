@@ -2879,7 +2879,10 @@ async def create_order(request:Request,c:Customer=Depends(current_customer),db:S
             headers={'Retry-After':'3'},
         )
 
-    base=settings(db)['public_base_url'].rstrip('/')
+    current_settings=settings(db)
+    base=_public_origin(request,current_settings).rstrip('/')
+    if not base:
+        base=str(current_settings.get('public_base_url') or '').rstrip('/')
     last_error='BluePay فاکتور قابل پرداخت ایجاد نکرد.'
     for attempt in range(1,FRESH_INVOICE_RETRY_COUNT+1):
         now=aware(utcnow()) or datetime.now(timezone.utc)
@@ -2924,10 +2927,9 @@ async def create_order(request:Request,c:Customer=Depends(current_customer),db:S
             last_error=str(exc)
             _delete_invalid_order(db,order,last_error,event='invoice_create_attempt_deleted')
             db.commit()
-            # create_invoice already tries all compatible endpoints, payloads
-            # and auth headers under one bounded deadline. Repeating the whole
-            # network sequence would exceed Android's checkout timeout and can
-            # only delay the same provider error.
+            # create_invoice performs one canonical request and one safe
+            # idempotent retry with the exact same body. Keep the provider's
+            # real message instead of replacing it with a generic 500 page.
             raise HTTPException(502,detail={'code':'INVOICE_CREATE_FAILED','message':last_error})
         except Exception as exc:
             # Never leak a Railway/HTML 500 page to Android. Persist a redacted

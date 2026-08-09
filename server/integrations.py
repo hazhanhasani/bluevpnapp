@@ -2900,6 +2900,93 @@ async def get_invoice(
     )
 
 
+
+async def test_bluepay_connection(setting: PaymentSetting) -> dict:
+    """Validate the configured store key against BluePay's isolated sandbox.
+
+    No real card, wallet charge or live invoice is used. The test invoice is
+    immediately moved to an expired sandbox state when possible.
+    """
+    base, key, _ = payment_secret(setting)
+    if not base or not key:
+        raise IntegrationError("آدرس یا API Key فروشگاه BluePay تنظیم نشده است")
+
+    nonce = secrets.token_hex(8)
+    order_id = f"BLUEVPN-CONNECTION-{nonce}"[:120]
+    idempotency_key = f"bluevpn-test-{nonce}"[:180]
+    payload = {
+        "amount_toman": 1000,
+        "order_id": order_id,
+        "description": "BlueVPN BluePay connection test",
+        "fee_mode": "default",
+        "ttl_minutes": 5,
+    }
+    url = base.rstrip("/") + "/api/v1/sandbox/invoices"
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0, connect=5.0),
+            follow_redirects=False,
+        ) as client:
+            response = await client.post(
+                url,
+                headers=_bluepay_headers(key, idempotency_key=idempotency_key),
+                json=payload,
+            )
+            request_id = str(response.headers.get("X-Request-ID") or "").strip()
+            try:
+                body: Any = response.json()
+            except Exception:
+                body = {"raw": response.text[:1500]}
+
+            if response.status_code >= 400 or (isinstance(body, dict) and body.get("success") is False):
+                log_bluepay_error(
+                    "sandbox_connection_test",
+                    status_code=response.status_code,
+                    response_body=body,
+                    error=f"request_id={request_id}" if request_id else "",
+                )
+                message = _bluepay_message(body)
+                suffix = f" (Request ID: {request_id})" if request_id else ""
+                if response.status_code in {401, 403}:
+                    raise IntegrationError("API Key فروشگاه BluePay معتبر نیست" + suffix)
+                if response.status_code == 429:
+                    raise IntegrationError("محدودیت درخواست BluePay فعال است؛ کمی بعد دوباره تست کنید" + suffix)
+                raise IntegrationError(
+                    (message or f"تست BluePay ناموفق بود: HTTP {response.status_code}") + suffix
+                )
+
+            invoice = normalize_bluepay_invoice(body)
+            payment_id = str(invoice.get("payment_id") or "").strip()
+            if not payment_id:
+                raise IntegrationError("BluePay در تست Sandbox شناسه فاکتور برنگرداند")
+
+            # Best effort: close the sandbox record without affecting live data.
+            simulate_url = base.rstrip("/") + "/api/v1/sandbox/invoices/" + quote(payment_id, safe="") + "/simulate"
+            try:
+                await client.post(
+                    simulate_url,
+                    headers=_bluepay_headers(key),
+                    json={"result": "expired"},
+                )
+            except Exception:
+                pass
+
+            return {
+                "success": True,
+                "payment_id": payment_id,
+                "request_id": request_id,
+                "store_id": invoice.get("store_id"),
+                "store_code": invoice.get("store_code"),
+                "store_name": invoice.get("store_name"),
+                "status": str(invoice.get("status") or "pending"),
+            }
+    except IntegrationError:
+        raise
+    except httpx.TimeoutException as exc:
+        raise IntegrationError("تست BluePay به پایان مهلت پاسخ رسید") from exc
+    except httpx.HTTPError as exc:
+        raise IntegrationError("ارتباط آزمایشی با BluePay برقرار نشد") from exc
+
 def verify_webhook(
     raw: bytes,
     signature: str,

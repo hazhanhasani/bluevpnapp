@@ -505,8 +505,9 @@
     <article class="stat"><strong>{{ bluepay_pending.stale_pending }}</strong><span>در انتظار پاک‌سازی</span></article>
   </div>
   <p class="hint">
-    فاکتورهای باطل، منقضی و تکراری از دیتابیس محلی حذف می‌شوند. صفحه پرداخت باز تا ۳۰ دقیقه معتبر است؛ پس از خروج کاربر، فاکتور فقط ۵ دقیقه باقی می‌ماند و سپس پاک می‌شود. پیش از بازکردن هر لینک ذخیره‌شده، وضعیت واقعی آن از BluePay بررسی می‌شود.
+    فاکتورهای منقضی از چرخه پرداخت فعال خارج می‌شوند اما سابقه مالی آن‌ها حذف نمی‌شود؛ بنابراین Callback دیرهنگام، گزارش پیامک و پیگیری پرداخت از بین نمی‌رود. پیش از استفاده مجدد، وضعیت واقعی فاکتور از BluePay استعلام می‌شود.
   </p>
+  {% if payment_secret_error %}<p class="alert error">کلید ذخیره‌شده قابل رمزگشایی نیست؛ API Key و Callback Secret را دوباره وارد و ذخیره کنید.</p>{% endif %}
 
   <form method="post" action="/admin/payment-settings">
     <div class="form-grid">
@@ -518,6 +519,11 @@
     </div>
     <label class="check"><input type="checkbox" name="active" {% if payment.active %}checked{% endif %}> درگاه فعال</label>
     <button class="save">ذخیره BluePay</button>
+  </form>
+
+  <form method="post" action="/admin/bluepay/test" class="inline-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <button type="submit" class="secondary">تست امن اتصال BluePay در Sandbox</button>
   </form>
 
   <form method="post" action="/admin/bluepay/cleanup" class="inline-form" onsubmit="return confirm('فاکتورهای معلقی که مهلتشان تمام شده منقضی شوند؟ سوابق حذف نمی‌شوند.');">

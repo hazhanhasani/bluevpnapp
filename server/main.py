@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session,selectinload
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 from .database import DATA_DIR,DATABASE_ERROR,DATABASE_MODE,ENGINE,SQLITE_PATH,SessionLocal,database_status,database_table_counts,initialize_database,get_db
-from .integrations import IntegrationError,combined_subscription,create_invoice,delete_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,normalize_bluepay_base_url,normalize_bluepay_invoice,normalize_provider_status,parse_remote_date,provision,recent_bluepay_errors,repair_subscription_states,sync_customer,test_marzban_panel,test_panel,verify_webhook
+from .integrations import IntegrationError,combined_subscription,create_invoice,delete_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,normalize_bluepay_base_url,normalize_bluepay_invoice,normalize_provider_status,parse_remote_date,provision,recent_bluepay_errors,repair_subscription_states,sync_customer,test_bluepay_connection,test_marzban_panel,test_panel,verify_webhook
 from .guardcore import service_ids_from_json,test_guardcore_panel
 from .manual_guardcore import (
     attach_manual_subscription,
@@ -774,6 +774,20 @@ def legal_page_data(page:str)->dict:
         },
     }
     return pages[page]
+def _safe_decrypt_secret(value:str)->tuple[str,str]:
+    if not value:
+        return '', ''
+    try:
+        return decrypt(value).strip(), ''
+    except Exception as exc:
+        return '', f'{type(exc).__name__}: {exc}'
+
+def _looks_like_masked_secret(value:str)->bool:
+    text=str(value or '').strip()
+    if not text:
+        return False
+    return any(ch in text for ch in ('•','●','*','…'))
+
 def admin_required(request:Request):
     if not request.session.get('admin'):raise HTTPException(401,'Unauthorized')
 def email_ok(raw:str)->str:
@@ -850,6 +864,54 @@ def _order_metadata(order:Order)->dict:
 
 def _set_order_metadata(order:Order,metadata:dict)->None:
     order.gateway_json=json.dumps(metadata,ensure_ascii=False)
+
+def _order_is_archived(order:Order)->bool:
+    metadata=_order_metadata(order)
+    return bool(metadata.get('_bluevpn_archived_at'))
+
+def _archive_order(
+    db:Session,
+    order:Order,
+    reason:str,
+    *,
+    status:str|None=None,
+    event:str='local_invoice_archived',
+)->None:
+    """Close an unusable invoice without deleting its financial audit row.
+
+    Payment/SMS rows may reference ``orders.id`` in PostgreSQL. Hard-deleting
+    those orders caused the admin cleanup route to fail with HTTP 500 and also
+    made a late paid callback impossible to recover.
+    """
+    current=aware(utcnow()) or datetime.now(timezone.utc)
+    if status:
+        order.status=status
+    elif order.status in PENDING_GATEWAY_STATUSES:
+        order.status='expired_local'
+    metadata=_order_metadata(order)
+    first_archive=not bool(metadata.get('_bluevpn_archived_at'))
+    metadata['_bluevpn_archived_at']=metadata.get('_bluevpn_archived_at') or iso_z(current)
+    metadata['_bluevpn_archived_reason']=str(reason or '')[:1000]
+    metadata['_bluevpn_archived_status']=order.status
+    metadata['_bluevpn_checkout_state']='closed'
+    _set_order_metadata(order,metadata)
+    order.checkout_closed_at=order.checkout_closed_at or current
+    if reason:
+        order.activation_error=str(reason)[:2000]
+    db.add(order)
+    if first_archive:
+        log_bluepay_error(
+            event,
+            order_code=order.order_code,
+            payment_id=order.payment_id,
+            error=str(reason or '')[:1000],
+            response_body={
+                'status':order.status,
+                'created_at':iso_z(aware(order.created_at)),
+                'expires_at':iso_z(aware(order.expires_at)),
+                'preserved_for_late_callback':bool(order.payment_id),
+            },
+        )
 
 def payment_ttl_minutes(payment:PaymentSetting|None)->int:
     # A checkout may stay open for at most 30 minutes. Administrators can
@@ -1041,13 +1103,27 @@ def _delete_invalid_order(
     *,
     event:str='local_invalid_invoice_deleted',
 )->None:
-    """Hard-delete an unpaid unusable invoice from the local database.
+    """Delete only never-created local drafts; archive every real invoice.
 
-    BlueVPN 3.0.23 deliberately does not retain abandoned/expired invoice
-    rows, because retaining them allowed stale payment URLs to be selected on
-    the next purchase. A compact redacted diagnostic is written outside the
-    orders table before deletion.
+    A row with a gateway payment id or URL is a financial record and may also
+    be referenced by SMS delivery rows. Keeping it prevents PostgreSQL foreign
+    key failures and lets a late ``invoice.paid`` callback activate service.
     """
+    has_gateway_identity=bool(
+        str(order.payment_id or '').strip()
+        or _payment_url_is_valid(order.payment_url)
+    )
+    if has_gateway_identity:
+        status=order.status
+        if event=='duplicate_invoice_deleted':
+            status='superseded'
+        elif status in PENDING_GATEWAY_STATUSES:
+            status='abandoned' if ('خارج شد' in reason or 'پنج' in reason) else 'expired_local'
+        _archive_order(
+            db,order,reason,status=status,event=event.replace('deleted','archived'),
+        )
+        return
+
     log_bluepay_error(
         event,
         order_code=order.order_code,
@@ -1056,9 +1132,7 @@ def _delete_invalid_order(
         response_body={
             'status':order.status,
             'created_at':iso_z(aware(order.created_at)),
-            'created_at_fa':format_jalali(aware(order.created_at),fallback=''),
             'expires_at':iso_z(aware(order.expires_at)),
-            'expires_at_fa':format_jalali(aware(order.expires_at),fallback=''),
         },
     )
     db.delete(order)
@@ -1092,9 +1166,13 @@ def expire_stale_orders(
     if customer_id is not None:
         query=query.where(Order.customer_id==customer_id)
     rows=list(db.scalars(query.order_by(Order.created_at.asc())).all())
-    deleted=0
+    archived=0
+    deleted_drafts=0
     initialized=0
+    notification_rows:list[tuple[int,str,str]]=[]
     for order in rows:
+        if _order_is_archived(order):
+            continue
         had_expiry=order.expires_at is not None
         expires=ensure_order_expiry(order,payment,now=current)
         if not had_expiry:
@@ -1104,35 +1182,52 @@ def expire_stale_orders(
             order.status=local_status
             customer=db.get(Customer,order.customer_id)
             if customer and customer.phone:
-                queue_sms_event(
-                    db,'invoice_expired',customer.phone,
-                    delivery_params(invoice_id=order.order_code[:40]),
-                    customer_id=customer.id,
-                    dedupe_seed=f'invoice-expired:{order.id}',
-                )
+                notification_rows.append((customer.id,customer.phone,order.order_code[:40]))
+            before_deleted=order in db.deleted
             _delete_invalid_order(db,order,message)
-            deleted+=1
+            if order in db.deleted and not before_deleted:
+                deleted_drafts+=1
+            else:
+                archived+=1
 
     terminal=select(Order).where(Order.status.in_(tuple(PURGEABLE_ORDER_STATUSES)))
     if customer_id is not None:
         terminal=terminal.where(Order.customer_id==customer_id)
     for order in list(db.scalars(terminal).all()):
-        _delete_invalid_order(
-            db,
-            order,
-            order.activation_error or 'فاکتور باطل یا غیرقابل استفاده از دیتابیس حذف شد.',
-            event='terminal_invoice_deleted',
+        if _order_is_archived(order):
+            continue
+        _archive_order(
+            db,order,
+            order.activation_error or 'فاکتور بسته و از چرخه پرداخت فعال خارج شد.',
+            status=order.status,
+            event='terminal_invoice_archived',
         )
-        deleted+=1
+        archived+=1
 
-    if commit and (deleted or initialized):
+    if commit:
         db.commit()
     else:
         db.flush()
-    # Keep the legacy ``expired`` key for dashboard/startup compatibility.
+
+    # Queue notifications only after the order transaction is stable.
+    if commit:
+        for customer_id_value,phone,invoice_id in notification_rows:
+            try:
+                queue_sms_event(
+                    db,'invoice_expired',phone,
+                    delivery_params(invoice_id=invoice_id),
+                    customer_id=customer_id_value,
+                    dedupe_seed=f'invoice-expired:{invoice_id}',
+                )
+            except Exception:
+                db.rollback()
+
+    closed=archived+deleted_drafts
     return {
-        'expired':deleted,
-        'deleted':deleted,
+        'expired':closed,
+        'deleted':deleted_drafts,
+        'archived':archived,
+        'closed':closed,
         'initialized':initialized,
         'scanned':len(rows),
     }
@@ -1147,6 +1242,8 @@ def pending_order_counts(db:Session)->dict[str,int]:
     ).all())
     active=expired=local_expired=superseded=abandoned=0
     for order in rows:
+        if _order_is_archived(order):
+            continue
         if order.status=='expired_local':
             local_expired+=1
         elif order.status=='superseded':
@@ -1163,6 +1260,66 @@ def pending_order_counts(db:Session)->dict[str,int]:
         'expired_local':local_expired,
         'superseded':superseded,
         'abandoned':abandoned,
+    }
+
+async def reconcile_stale_bluepay_orders(
+    db:Session,
+    *,
+    limit:int=100,
+)->dict[str,int]:
+    """Reconcile old invoices one-by-one; one bad row never aborts cleanup."""
+    now=aware(utcnow()) or datetime.now(timezone.utc)
+    payment=db.get(PaymentSetting,1)
+    candidates=list(db.scalars(
+        select(Order)
+        .where(Order.status.in_(tuple(PENDING_GATEWAY_STATUSES|LOCAL_RECOVERABLE_STATUSES)))
+        .order_by(Order.created_at.asc())
+        .limit(max(1,min(500,int(limit))))
+    ).all())
+    checked=recovered=remote_canceled=remote_errors=0
+    for order in candidates:
+        if _order_is_archived(order) and order.status not in LOCAL_RECOVERABLE_STATUSES:
+            continue
+        is_due=(
+            order.status in LOCAL_RECOVERABLE_STATUSES
+            or computed_order_expiry(order,payment,now=now)<=now
+        )
+        if not is_due or not order.payment_id or not payment or not payment.active:
+            continue
+        checked+=1
+        try:
+            remote=await get_invoice(payment,order.payment_id)
+            remote_status=normalize_gateway_status(remote.get('status'))
+            if remote_status=='paid':
+                order.status='paid'
+                order.paid_at=order.paid_at or now
+                metadata=_order_metadata(order)
+                metadata.pop('_bluevpn_archived_at',None)
+                metadata.pop('_bluevpn_archived_reason',None)
+                _set_order_metadata(order,metadata)
+                db.commit()
+                await activate(db,order)
+                recovered+=1
+                continue
+            if remote_status in PENDING_GATEWAY_STATUSES:
+                if await delete_invoice(payment,order.payment_id):
+                    remote_canceled+=1
+        except Exception as exc:
+            remote_errors+=1
+            log_bluepay_error(
+                'cleanup_reconcile_error',
+                order_code=order.order_code,
+                payment_id=order.payment_id,
+                error=f'{type(exc).__name__}: {exc}',
+            )
+            db.rollback()
+    local=expire_stale_orders(db,now=now)
+    return {
+        **local,
+        'checked_remote':checked,
+        'recovered_paid':recovered,
+        'remote_canceled':remote_canceled,
+        'remote_errors':remote_errors,
     }
 
 async def _payment_cleanup_loop()->None:
@@ -3351,20 +3508,56 @@ def admin_bluepay_errors(request:Request,limit:int=100):
     }
 
 @app.post('/admin/bluepay/cleanup')
-def admin_bluepay_cleanup(
+async def admin_bluepay_cleanup(
     request:Request,
     csrf:str=Form(...),
     db:Session=Depends(get_db),
 ):
     require_admin_csrf(request,csrf)
-    result=expire_stale_orders(db)
-    counts=pending_order_counts(db)
-    message=(
-        f"پاک‌سازی انجام شد: {result['deleted']} فاکتور باطل حذف و "
-        f"{result['initialized']} فاکتور قدیمی زمان‌دار شد. "
-        f"فاکتور فعال: {counts['active']}"
-    )
-    return admin_redirect('bluepay',message=message)
+    try:
+        result=await reconcile_stale_bluepay_orders(db)
+        counts=pending_order_counts(db)
+        message=(
+            f"پاک‌سازی امن انجام شد: {result['archived']} فاکتور بسته شد، "
+            f"{result['deleted']} پیش‌نویس ناقص حذف شد، "
+            f"{result['recovered_paid']} پرداخت دیرهنگام بازیابی شد و "
+            f"{result['remote_canceled']} فاکتور معلق در BluePay لغو شد. "
+            f"فاکتور فعال: {counts['active']}"
+        )
+        if result['remote_errors']:
+            message+=f"؛ {result['remote_errors']} استعلام با خطا روبه‌رو شد و در لاگ ثبت شد"
+        return admin_redirect('bluepay',message=message)
+    except Exception as exc:
+        db.rollback()
+        logger.exception('Manual BluePay cleanup failed')
+        log_bluepay_error(
+            'admin_cleanup_failed',
+            error=f'{type(exc).__name__}: {exc}',
+        )
+        return admin_redirect(
+            'bluepay',
+            error='پاک‌سازی پرداخت‌ها انجام نشد؛ خطا در گزارش BluePay ثبت شد: '+str(exc)[:350],
+        )
+
+@app.post('/admin/bluepay/test')
+async def admin_bluepay_test(
+    request:Request,
+    csrf:str=Form(...),
+    db:Session=Depends(get_db),
+):
+    require_admin_csrf(request,csrf)
+    payment=db.get(PaymentSetting,1)
+    if not payment:
+        return admin_redirect('bluepay',error='تنظیمات BluePay پیدا نشد')
+    try:
+        result=await test_bluepay_connection(payment)
+        store=str(result.get('store_name') or result.get('store_code') or result.get('store_id') or 'فروشگاه')
+        request_id=str(result.get('request_id') or '')
+        suffix=f'؛ Request ID: {request_id}' if request_id else ''
+        return admin_redirect('bluepay',message=f'اتصال Sandbox به BluePay برای {store} موفق بود{suffix}')
+    except Exception as exc:
+        logger.warning('BluePay sandbox connection test failed: %s',exc)
+        return admin_redirect('bluepay',error='تست BluePay ناموفق بود: '+str(exc)[:450])
 
 @app.get('/admin/api/bluepay/pending')
 def admin_bluepay_pending(request:Request,db:Session=Depends(get_db)):
@@ -3519,8 +3712,9 @@ def admin(request:Request,db:Session=Depends(get_db)):
             'ads_config':advertising_payload(s),
             'free_subscription_items':_configured_free_subscription_items(s),
             'payment':pay,
-            'payment_api_mask':mask(decrypt(pay.api_key_enc)),
-            'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),
+            'payment_api_mask':mask(_safe_decrypt_secret(pay.api_key_enc)[0]),
+            'payment_callback_mask':mask(_safe_decrypt_secret(pay.callback_secret_enc)[0]),
+            'payment_secret_error':_safe_decrypt_secret(pay.api_key_enc)[1] or _safe_decrypt_secret(pay.callback_secret_enc)[1],
             'sms':sms,
             'sms_api_mask':mask(decrypt(sms.api_key_enc)),
             'sms_provider_lines':sms_provider_lines,
@@ -3886,32 +4080,66 @@ def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form
     save_settings(db,s)
     return RedirectResponse('/admin?saved=1#app',303)
 @app.post('/admin/payment-settings')
-def payment_settings(request:Request,base_url:str=Form(...),api_key:str=Form(''),callback_secret:str=Form(''),fee_mode:str=Form('default'),ttl_minutes:int=Form(30),active:str|None=Form(None),db:Session=Depends(get_db)):
+def payment_settings(
+    request:Request,
+    base_url:str=Form(...),
+    api_key:str=Form(''),
+    callback_secret:str=Form(''),
+    fee_mode:str=Form('default'),
+    ttl_minutes:int=Form(30),
+    active:str|None=Form(None),
+    db:Session=Depends(get_db),
+):
     admin_required(request)
-    p=db.get(PaymentSetting,1) or PaymentSetting(id=1)
-    normalized_base,embedded_key=normalize_bluepay_base_url(base_url)
-    if not normalized_base:
-        raise HTTPException(400,detail='Base URL بلوپی معتبر نیست')
-    p.base_url=normalized_base
-    submitted_key=api_key.strip() or embedded_key
-    existing_key=decrypt(p.api_key_enc).strip() if p.api_key_enc else ''
-    effective_key=submitted_key or existing_key
-    requested_active=active=='on'
-    if requested_active and not effective_key:
-        raise HTTPException(
-            400,
-            detail='برای فعال‌کردن BluePay، API Key اختصاصی فروشگاه را از ربات BluePay وارد کنید؛ لینک /developers به‌تنهایی کلید API نیست.',
-        )
-    if submitted_key:
-        p.api_key_enc=encrypt(submitted_key)
-    if callback_secret.strip():
-        p.callback_secret_enc=encrypt(callback_secret.strip())
-    normalized_fee=str(fee_mode or 'default').strip().lower()
-    p.fee_mode=normalized_fee if normalized_fee in {'default','merchant','customer','split'} else 'default'
-    p.ttl_minutes=max(5,min(1440,ttl_minutes))
-    p.active=requested_active
-    db.add(p);db.commit()
-    return RedirectResponse('/admin?saved=1#bluepay',303)
+    try:
+        p=db.get(PaymentSetting,1) or PaymentSetting(id=1)
+        normalized_base,embedded_key=normalize_bluepay_base_url(base_url)
+        if not normalized_base:
+            return admin_redirect('bluepay',error='Base URL بلوپی معتبر نیست')
+
+        existing_key,key_error=_safe_decrypt_secret(p.api_key_enc)
+        existing_secret,secret_error=_safe_decrypt_secret(p.callback_secret_enc)
+        submitted_key=str(api_key or '').strip()
+        submitted_secret=str(callback_secret or '').strip()
+        if _looks_like_masked_secret(submitted_key):
+            submitted_key=''
+        if _looks_like_masked_secret(submitted_secret):
+            submitted_secret=''
+        if not submitted_key and embedded_key and not _looks_like_masked_secret(embedded_key):
+            submitted_key=embedded_key.strip()
+
+        effective_key=submitted_key or existing_key
+        effective_secret=submitted_secret or existing_secret
+        requested_active=active=='on'
+        if requested_active and not effective_key:
+            detail='API Key اختصاصی فروشگاه را وارد کنید؛ لینک /developers به‌تنهایی کلید API نیست.'
+            if key_error:
+                detail+=' کلید قبلی با کلید رمزگذاری فعلی قابل خواندن نیست و باید دوباره ذخیره شود.'
+            return admin_redirect('bluepay',error=detail)
+        if requested_active and len(effective_key)<16:
+            return admin_redirect('bluepay',error='API Key فروشگاه کوتاه یا نامعتبر است')
+        if requested_active and not effective_secret:
+            detail='Callback Secret فروشگاه را وارد کنید تا پرداخت تأییدشده قابل فعال‌سازی باشد.'
+            if secret_error:
+                detail+=' Secret قبلی قابل رمزگشایی نیست و باید دوباره ذخیره شود.'
+            return admin_redirect('bluepay',error=detail)
+
+        p.base_url=normalized_base
+        if submitted_key:
+            p.api_key_enc=encrypt(submitted_key)
+        if submitted_secret:
+            p.callback_secret_enc=encrypt(submitted_secret)
+        normalized_fee=str(fee_mode or 'default').strip().lower()
+        p.fee_mode=normalized_fee if normalized_fee in {'default','merchant','customer','split'} else 'default'
+        p.ttl_minutes=max(5,min(1440,int(ttl_minutes or 30)))
+        p.active=requested_active
+        db.add(p)
+        db.commit()
+        return admin_redirect('bluepay',message='تنظیمات BluePay ذخیره شد؛ برای اطمینان دکمه تست اتصال را اجرا کنید.')
+    except Exception as exc:
+        db.rollback()
+        logger.exception('Saving BluePay settings failed')
+        return admin_redirect('bluepay',error='ذخیره تنظیمات BluePay ناموفق بود: '+str(exc)[:400])
 
 def _sms_provider_cache(payload:dict[str,Any])->tuple[list[dict[str,Any]],list[dict[str,Any]]]:
     raw_lines=payload.get('sms_provider_lines')

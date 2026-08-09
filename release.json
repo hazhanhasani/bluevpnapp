@@ -1,11 +1,11 @@
 {
-  "version": "3.0.77",
+  "version": "3.0.78",
   "channel": "stable",
-  "build_id": "20260810-stable-location-snapshot-v3077",
+  "build_id": "20260810-bluepay-payment-runtime-v3078",
   "built_at": "2026-08-10T00:00:00Z",
-  "android_version": "3.0.77",
-  "android_version_code": 30077,
-  "description": "BlueVPN 3.0.77 همگام‌سازی لوکیشن‌ها را تک‌مسیره می‌کند، از Import دوباره اشتراک سالم جلوگیری می‌کند و آخرین Snapshot معتبر سرورها را تا آماده‌شدن Snapshot جدید حفظ می‌کند.",
+  "android_version": "3.0.78",
+  "android_version_code": 30078,
+  "description": "BlueVPN 3.0.78 کل چرخه پرداخت BluePay را پایدار می‌کند: پاک‌سازی بدون حذف سوابق مالی، بازیابی پرداخت دیرهنگام، تست Sandbox، نگهداری امن کلیدها و خطای JSON قابل‌پیگیری.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -118,7 +118,6 @@
     "bluepay-valid-invoice-reuse",
     "bluepay-duplicate-invoice-suppression",
     "bluepay-customer-row-creation-lock",
-    "bluepay-local-expiry-without-history-deletion",
     "bluepay-late-payment-recovery",
     "bluepay-superseded-order-recovery",
     "bluepay-admin-pending-dashboard",
@@ -150,7 +149,6 @@
     "two-second-live-stats",
     "static-connected-orb",
     "three-minute-auto-health-window",
-    "bluepay-invalid-invoice-hard-delete",
     "bluepay-remote-invoice-cancel-best-effort",
     "bluepay-reuse-remote-status-validation",
     "bluepay-stale-link-fingerprint-rejection",
@@ -492,9 +490,17 @@
     "single-owner-location-refresh",
     "subscription-refresh-single-flight",
     "no-healthy-pool-reimport",
-    "location-render-atomic-snapshot"
+    "location-render-atomic-snapshot",
+    "bluepay-financial-record-archive",
+    "bluepay-postgres-foreign-key-safe-cleanup",
+    "bluepay-late-callback-order-preservation",
+    "bluepay-sandbox-connection-test",
+    "bluepay-masked-secret-preservation",
+    "bluepay-structured-admin-errors",
+    "bluepay-per-invoice-cleanup-isolation",
+    "bluepay-remote-cancel-and-late-paid-recovery"
   ],
-  "version_code": 30077,
-  "notes": "لیست مکان‌ها دیگر هنگام Refresh یا Import موقت خالی نمی‌شود. Cache بر اساس هویت پایدار اشتراک نگهداری می‌شود، پاسخ خالی موقت جای Snapshot سالم را نمی‌گیرد و ورود به صفحه مکان‌ها اشتراک سالم را دوباره Import نمی‌کند.",
-  "version_source": "stable-location-snapshot-v3077"
+  "version_code": 30078,
+  "notes": "فاکتورهای واقعی دیگر Hard Delete نمی‌شوند؛ بنابراین خطای 500 ناشی از Foreign Key پیامک، گم‌شدن Callback دیرهنگام و حذف سابقه مالی برطرف شده است. تست Sandbox و پاک‌سازی مقاوم نیز به پنل افزوده شد.",
+  "version_source": "bluepay-payment-runtime-v3078"
 }

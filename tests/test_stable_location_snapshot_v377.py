@@ -10,11 +10,11 @@ def test_release_metadata_is_v377():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
     marker = json.loads((ROOT / "deployment-marker.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.77"
-    assert release["version_code"] == 30077
-    assert app["version_name"] == "3.0.77"
-    assert app["version_code"] == 30077
-    assert marker["release"] == "3.0.77"
+    assert release["version"] == "3.0.78"
+    assert release["version_code"] == 30078
+    assert app["version_name"] == "3.0.78"
+    assert app["version_code"] == 30078
+    assert marker["release"] == "3.0.78"
 
 
 def test_healthy_premium_pool_is_not_reimported_on_account_refresh():

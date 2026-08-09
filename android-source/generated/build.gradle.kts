@@ -14,8 +14,8 @@ android {
         buildConfigField("String", "BLUEVPN_API_BASE_URL", "\"https://bluevpnapp-production.up.railway.app\"")
         minSdk = 24
         targetSdk = 37
-        versionCode = 30049
-        versionName = "3.0.49"
+        versionCode = 30050
+        versionName = "3.0.50"
         multiDexEnabled = true
 
         val abiFilterList = (properties["ABI_FILTERS"] as? String)?.split(';')

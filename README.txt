@@ -1,1 +1,1 @@
-BlueVPN 3.0.41 - In-app APK parser fix using Android PackageInstaller Session, signature continuity validation, private staging, and OEM fallback.
+BlueVPN 3.0.42 - Admin-managed automatic in-app advertising carousel with uploads, remote images, links and scheduling.

@@ -1,7 +1,7 @@
 {
-  "release": "3.0.41-auto",
-  "version_name": "3.0.41",
-  "version_code": 30041,
+  "release": "3.0.42",
+  "version_name": "3.0.42",
+  "version_code": 30042,
   "changes": [
     "Stage downloaded APK bytes through Android PackageInstaller Session",
     "Validate update package signature continuity and monotonically higher versionCode",
@@ -13,5 +13,6 @@
   "purpose": "رفع خطای تجزیه بسته در بروزرسانی داخلی و ارائه خطای دقیق نصب",
   "updated_at": "2026-08-09T02:10:00Z",
   "built_at": "2026-08-09T02:10:00Z",
-  "build_id": "20260809-package-installer-v3041"
+  "build_id": "20260809-package-installer-v3041",
+  "feature": "in-app-ad-carousel"
 }

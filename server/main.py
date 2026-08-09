@@ -4,8 +4,11 @@ from collections import deque
 from urllib.parse import quote_plus,urlparse
 from datetime import datetime,timedelta,timezone
 from pathlib import Path
+from io import BytesIO
+from zoneinfo import ZoneInfo
+from PIL import Image,ImageOps
 from typing import Any
-from fastapi import Depends,FastAPI,Form,Header,HTTPException,Request
+from fastapi import Depends,FastAPI,File,Form,Header,HTTPException,Request,UploadFile
 from fastapi.responses import FileResponse,HTMLResponse,JSONResponse,RedirectResponse,Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -13,7 +16,7 @@ from sqlalchemy import delete,func,select
 from sqlalchemy.orm import Session,selectinload
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
-from .database import DATABASE_ERROR,DATABASE_MODE,ENGINE,SQLITE_PATH,SessionLocal,database_status,database_table_counts,initialize_database,get_db
+from .database import DATA_DIR,DATABASE_ERROR,DATABASE_MODE,ENGINE,SQLITE_PATH,SessionLocal,database_status,database_table_counts,initialize_database,get_db
 from .integrations import IntegrationError,combined_subscription,create_invoice,delete_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,normalize_provider_status,parse_remote_date,provision,recent_bluepay_errors,repair_subscription_states,sync_customer,test_marzban_panel,test_panel,verify_webhook
 from .guardcore import service_ids_from_json,test_guardcore_panel
 from .manual_guardcore import (
@@ -39,7 +42,7 @@ BASE=Path(__file__).resolve().parent
 logger=logging.getLogger('bluevpn.main')
 templates=Jinja2Templates(directory=BASE/'templates')
 templates.env.filters['jalali']=format_jalali
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','updated_at':iso_z(utcnow())}
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','ads_enabled':False,'ads_autoplay':True,'ads_loop':True,'ads_interval_seconds':6,'ads_height_dp':142,'ads_items':[],'updated_at':iso_z(utcnow())}
 
 
 def env_bool(name:str,default:bool=False)->bool:
@@ -252,7 +255,10 @@ app.add_middleware(
     https_only=session_https_only,
     max_age=max(900,int(os.getenv('ADMIN_SESSION_MAX_AGE','43200'))),
 )
+ADS_DIR=DATA_DIR/'ads'
+ADS_DIR.mkdir(parents=True,exist_ok=True)
 app.mount('/static',StaticFiles(directory=BASE/'static'),name='static')
+app.mount('/media/ads',StaticFiles(directory=ADS_DIR),name='ads')
 
 SUBSCRIPTION_PROVIDER_REPAIR_TASK: asyncio.Task | None = None
 
@@ -355,6 +361,163 @@ def settings(db:Session)->dict:
     return {**DEFAULT,**data}
 def save_settings(db:Session,data:dict):
     data['updated_at']=iso_z(utcnow());row=db.get(AppSetting,1) or AppSetting(id=1,payload='{}');row.payload=json.dumps(data,ensure_ascii=False);row.updated_at=utcnow();db.add(row);db.commit()
+
+
+TEHRAN_TZ=ZoneInfo('Asia/Tehran')
+MAX_AD_IMAGE_BYTES=6*1024*1024
+
+
+def _ad_items(value:Any)->list[dict[str,Any]]:
+    if not isinstance(value,list):
+        return []
+    result=[]
+    for raw in value[:100]:
+        if not isinstance(raw,dict):
+            continue
+        ad_id=str(raw.get('id') or '').strip()
+        if not re.fullmatch(r'[a-zA-Z0-9_-]{6,64}',ad_id):
+            continue
+        result.append({
+            'id':ad_id,
+            'title':str(raw.get('title') or '').strip()[:120],
+            'subtitle':str(raw.get('subtitle') or '').strip()[:240],
+            'image_url':str(raw.get('image_url') or '').strip()[:1200],
+            'target_url':str(raw.get('target_url') or '').strip()[:1200],
+            'button_text':str(raw.get('button_text') or '').strip()[:40],
+            'active':bool(raw.get('active',True)),
+            'sort_order':max(-10000,min(10000,int(raw.get('sort_order') or 0))),
+            'start_at':str(raw.get('start_at') or '').strip()[:40],
+            'end_at':str(raw.get('end_at') or '').strip()[:40],
+        })
+    return result
+
+
+def _http_url(value:str,field_name:str,required:bool=False)->str:
+    value=str(value or '').strip()
+    if not value:
+        if required:
+            raise ValueError(f'{field_name} الزامی است')
+        return ''
+    parsed=urlparse(value)
+    if parsed.scheme.lower() not in {'http','https'} or not parsed.netloc:
+        raise ValueError(f'{field_name} باید لینک معتبر http یا https باشد')
+    return value[:1200]
+
+
+def _parse_ad_time(value:str)->datetime|None:
+    value=str(value or '').strip()
+    if not value:
+        return None
+    try:
+        parsed=datetime.fromisoformat(value.replace('Z','+00:00'))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed=parsed.replace(tzinfo=TEHRAN_TZ)
+    return parsed.astimezone(timezone.utc)
+
+
+def _ad_is_current(item:dict[str,Any],now:datetime|None=None)->bool:
+    if not item.get('active',True):
+        return False
+    now=now or utcnow()
+    start=_parse_ad_time(str(item.get('start_at') or ''))
+    end=_parse_ad_time(str(item.get('end_at') or ''))
+    if start and now<start:
+        return False
+    if end and now>=end:
+        return False
+    return True
+
+
+def _public_ad_image_url(value:str,s:dict[str,Any])->str:
+    value=str(value or '').strip()
+    if not value:
+        return ''
+    if value.startswith('/media/ads/'):
+        base=str(s.get('public_base_url') or '').strip().rstrip('/')
+        return f'{base}{value}' if base else value
+    try:
+        return _http_url(value,'لینک تصویر')
+    except ValueError:
+        return ''
+
+
+def advertising_payload(s:dict[str,Any])->dict[str,Any]:
+    rows=[]
+    for item in sorted(
+        _ad_items(s.get('ads_items')),
+        key=lambda row:(int(row.get('sort_order') or 0),str(row.get('id') or '')),
+    ):
+        if not _ad_is_current(item):
+            continue
+        image_url=_public_ad_image_url(item.get('image_url',''),s)
+        title=str(item.get('title') or '').strip()
+        if not image_url and not title:
+            continue
+        target_url=''
+        try:
+            target_url=_http_url(item.get('target_url',''),'لینک مقصد')
+        except ValueError:
+            pass
+        rows.append({
+            'id':item['id'],
+            'title':title,
+            'subtitle':str(item.get('subtitle') or ''),
+            'image_url':image_url,
+            'target_url':target_url,
+            'button_text':str(item.get('button_text') or ''),
+        })
+    enabled=bool(s.get('ads_enabled',False)) and bool(rows)
+    return {
+        'enabled':enabled,
+        'autoplay':bool(s.get('ads_autoplay',True)),
+        'loop':bool(s.get('ads_loop',True)),
+        'interval_ms':max(3000,min(30000,int(s.get('ads_interval_seconds',6) or 6)*1000)),
+        'height_dp':max(96,min(240,int(s.get('ads_height_dp',142) or 142))),
+        'items':rows if enabled else [],
+    }
+
+
+def _remove_local_ad_image(value:str)->None:
+    value=str(value or '').strip()
+    if not value.startswith('/media/ads/'):
+        return
+    name=Path(value).name
+    if not re.fullmatch(r'[a-zA-Z0-9._-]{1,160}',name):
+        return
+    try:
+        (ADS_DIR/name).unlink(missing_ok=True)
+    except OSError:
+        logger.warning('Could not delete local ad image %s',name)
+
+
+async def _save_ad_upload(upload:UploadFile|None)->str:
+    if upload is None or not str(upload.filename or '').strip():
+        return ''
+    payload=await upload.read(MAX_AD_IMAGE_BYTES+1)
+    if len(payload)>MAX_AD_IMAGE_BYTES:
+        raise ValueError('حجم تصویر تبلیغ نباید بیشتر از ۶ مگابایت باشد')
+    try:
+        with Image.open(BytesIO(payload)) as probe:
+            probe.verify()
+        with Image.open(BytesIO(payload)) as source:
+            image=ImageOps.exif_transpose(source)
+            if image.width<240 or image.height<120:
+                raise ValueError('ابعاد تصویر تبلیغ خیلی کوچک است')
+            if image.width>8000 or image.height>8000:
+                raise ValueError('ابعاد تصویر تبلیغ بیش از حد بزرگ است')
+            image.thumbnail((1600,900),Image.Resampling.LANCZOS)
+            if image.mode not in {'RGB','RGBA'}:
+                image=image.convert('RGBA' if 'A' in image.getbands() else 'RGB')
+            filename=f'ad-{uuid.uuid4().hex}.webp'
+            destination=ADS_DIR/filename
+            image.save(destination,'WEBP',quality=86,method=6)
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError('فایل انتخاب‌شده تصویر معتبر نیست') from exc
+    return f'/media/ads/{filename}'
 
 
 DEFAULT_ENAMAD_ID='748781'
@@ -1689,6 +1852,7 @@ async def mobile_config(
                 'title':s['announcement_title'],
                 'message':s['announcement_message'],
             },
+            'advertising':advertising_payload(s),
             'updated_at':s['updated_at'],
             'updated_at_fa':format_jalali(s['updated_at'],fallback=''),
             'calendar':'jalali',
@@ -2889,6 +3053,8 @@ def admin(request:Request,db:Session=Depends(get_db)):
         name='admin.html',
         context={
             'settings':s,
+            'ads_items':_ad_items(s.get('ads_items')),
+            'ads_config':advertising_payload(s),
             'payment':pay,
             'payment_api_mask':mask(decrypt(pay.api_key_enc)),
             'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),
@@ -3004,6 +3170,162 @@ def admin_database_backup(
         },
         background=BackgroundTask(shutil.rmtree,temp_dir,ignore_errors=True),
     )
+
+@app.post('/admin/ads/settings')
+def admin_ads_settings(
+    request:Request,
+    csrf:str=Form(...),
+    interval_seconds:int=Form(6),
+    height_dp:int=Form(142),
+    enabled:str|None=Form(None),
+    autoplay:str|None=Form(None),
+    loop:str|None=Form(None),
+    db:Session=Depends(get_db),
+):
+    require_admin_csrf(request,csrf)
+    s=settings(db)
+    s.update({
+        'ads_enabled':enabled=='on',
+        'ads_autoplay':autoplay=='on',
+        'ads_loop':loop=='on',
+        'ads_interval_seconds':max(3,min(30,int(interval_seconds or 6))),
+        'ads_height_dp':max(96,min(240,int(height_dp or 142))),
+    })
+    save_settings(db,s)
+    return RedirectResponse('/admin?saved=1#ads',303)
+
+
+@app.post('/admin/ads')
+async def admin_ads_create(
+    request:Request,
+    csrf:str=Form(...),
+    title:str=Form(''),
+    subtitle:str=Form(''),
+    image_url:str=Form(''),
+    target_url:str=Form(''),
+    button_text:str=Form('مشاهده'),
+    sort_order:int=Form(0),
+    start_at:str=Form(''),
+    end_at:str=Form(''),
+    active:str|None=Form(None),
+    image_file:UploadFile|None=File(None),
+    db:Session=Depends(get_db),
+):
+    require_admin_csrf(request,csrf)
+    try:
+        uploaded=await _save_ad_upload(image_file)
+        remote=_http_url(image_url,'لینک تصویر') if image_url.strip() else ''
+        target=_http_url(target_url,'لینک مقصد') if target_url.strip() else ''
+        selected_image=uploaded or remote
+        if not selected_image and not title.strip():
+            raise ValueError('برای تبلیغ حداقل تصویر یا عنوان وارد کنید')
+        if start_at and end_at:
+            start=_parse_ad_time(start_at);end=_parse_ad_time(end_at)
+            if start and end and end<=start:
+                raise ValueError('زمان پایان باید بعد از زمان شروع باشد')
+        s=settings(db)
+        items=_ad_items(s.get('ads_items'))
+        items.append({
+            'id':uuid.uuid4().hex[:16],
+            'title':title.strip()[:120],
+            'subtitle':subtitle.strip()[:240],
+            'image_url':selected_image,
+            'target_url':target,
+            'button_text':button_text.strip()[:40],
+            'active':active=='on',
+            'sort_order':max(-10000,min(10000,int(sort_order or 0))),
+            'start_at':start_at.strip()[:40],
+            'end_at':end_at.strip()[:40],
+        })
+        s['ads_items']=items
+        save_settings(db,s)
+        return RedirectResponse('/admin?saved=1#ads',303)
+    except ValueError as exc:
+        return RedirectResponse('/admin?error='+quote_plus(str(exc))+'#ads',303)
+
+
+@app.post('/admin/ads/{ad_id}/edit')
+async def admin_ads_edit(
+    ad_id:str,
+    request:Request,
+    csrf:str=Form(...),
+    title:str=Form(''),
+    subtitle:str=Form(''),
+    image_url:str=Form(''),
+    target_url:str=Form(''),
+    button_text:str=Form('مشاهده'),
+    sort_order:int=Form(0),
+    start_at:str=Form(''),
+    end_at:str=Form(''),
+    active:str|None=Form(None),
+    remove_image:str|None=Form(None),
+    image_file:UploadFile|None=File(None),
+    db:Session=Depends(get_db),
+):
+    require_admin_csrf(request,csrf)
+    s=settings(db);items=_ad_items(s.get('ads_items'))
+    item=next((row for row in items if row['id']==ad_id),None)
+    if not item:
+        raise HTTPException(404,'تبلیغ پیدا نشد')
+    previous_image=item.get('image_url','')
+    try:
+        uploaded=await _save_ad_upload(image_file)
+        remote=_http_url(image_url,'لینک تصویر') if image_url.strip() else ''
+        target=_http_url(target_url,'لینک مقصد') if target_url.strip() else ''
+        next_image=previous_image
+        if remove_image=='on':
+            next_image=''
+        if remote:
+            next_image=remote
+        if uploaded:
+            next_image=uploaded
+        if start_at and end_at:
+            start=_parse_ad_time(start_at);end=_parse_ad_time(end_at)
+            if start and end and end<=start:
+                raise ValueError('زمان پایان باید بعد از زمان شروع باشد')
+        if not next_image and not title.strip():
+            raise ValueError('برای تبلیغ حداقل تصویر یا عنوان وارد کنید')
+        item.update({
+            'title':title.strip()[:120],
+            'subtitle':subtitle.strip()[:240],
+            'image_url':next_image,
+            'target_url':target,
+            'button_text':button_text.strip()[:40],
+            'active':active=='on',
+            'sort_order':max(-10000,min(10000,int(sort_order or 0))),
+            'start_at':start_at.strip()[:40],
+            'end_at':end_at.strip()[:40],
+        })
+        if previous_image!=next_image:
+            _remove_local_ad_image(previous_image)
+        s['ads_items']=items;save_settings(db,s)
+        return RedirectResponse('/admin?saved=1#ads',303)
+    except ValueError as exc:
+        return RedirectResponse('/admin?error='+quote_plus(str(exc))+'#ads',303)
+
+
+@app.post('/admin/ads/{ad_id}/toggle')
+def admin_ads_toggle(ad_id:str,request:Request,csrf:str=Form(...),db:Session=Depends(get_db)):
+    require_admin_csrf(request,csrf)
+    s=settings(db);items=_ad_items(s.get('ads_items'))
+    item=next((row for row in items if row['id']==ad_id),None)
+    if not item:raise HTTPException(404,'تبلیغ پیدا نشد')
+    item['active']=not bool(item.get('active',True))
+    s['ads_items']=items;save_settings(db,s)
+    return RedirectResponse('/admin?saved=1#ads',303)
+
+
+@app.post('/admin/ads/{ad_id}/delete')
+def admin_ads_delete(ad_id:str,request:Request,csrf:str=Form(...),db:Session=Depends(get_db)):
+    require_admin_csrf(request,csrf)
+    s=settings(db);items=_ad_items(s.get('ads_items'))
+    removed=next((row for row in items if row['id']==ad_id),None)
+    if not removed:raise HTTPException(404,'تبلیغ پیدا نشد')
+    s['ads_items']=[row for row in items if row['id']!=ad_id]
+    save_settings(db,s)
+    _remove_local_ad_image(removed.get('image_url',''))
+    return RedirectResponse('/admin?saved=1#ads',303)
+
 
 @app.post('/admin/app-settings')
 def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),minimum_version:str=Form(...),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),auto_update:str|None=Form(None),announcement_enabled:str|None=Form(None),blueai_enabled:str|None=Form(None),blueai_collective:str|None=Form(None),blueai_auto_heal:str|None=Form(None),blueai_min_samples:int=Form(3),blueai_privacy_message:str=Form(''),db:Session=Depends(get_db)):

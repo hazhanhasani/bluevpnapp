@@ -42,6 +42,7 @@ import com.v2ray.ang.AppConfig
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.R
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
+import com.v2ray.ang.bluevpn.BlueVpnAdsCarouselView
 import com.v2ray.ang.bluevpn.BlueVpnAi
 import com.v2ray.ang.bluevpn.BlueVpnDynamicBackgroundView
 import com.v2ray.ang.bluevpn.BlueVpnPalette
@@ -82,6 +83,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var dragStartTranslation = 0f
     private var dragMoved = false
 
+    private lateinit var adsCarousel: BlueVpnAdsCarouselView
     private lateinit var connectButton: AppCompatTextView
     private lateinit var connectTrack: MaterialCardView
     private lateinit var connectHint: TextView
@@ -442,6 +444,14 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 topMargin = dpHome(4)
                 bottomMargin = dpHome(12)
             },
+        )
+        adsCarousel = BlueVpnAdsCarouselView(this)
+        content.addView(
+            adsCarousel,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { bottomMargin = dpHome(10) },
         )
         content.addView(
             createServerCard(),
@@ -1404,9 +1414,11 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         if (::connectButton.isInitialized) {
             applyOrbVisual(orbVisualState)
         }
+        if (::adsCarousel.isInitialized) adsCarousel.start()
     }
 
     override fun onStop() {
+        if (::adsCarousel.isInitialized) adsCarousel.stop()
         handler.removeCallbacks(statsTicker)
         setOrbPulseEnabled(false)
         super.onStop()
@@ -1421,6 +1433,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         startupDialog?.dismiss()
         startupDialog = null
         setOrbPulseEnabled(false)
+        if (::adsCarousel.isInitialized) adsCarousel.release()
         super.onDestroy()
     }
 

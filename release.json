@@ -1,11 +1,11 @@
 {
-  "version": "3.0.41",
-  "channel": "in-app-package-installer-fix",
-  "build_id": "20260809-package-installer-v3041",
-  "built_at": "2026-08-09T02:10:00Z",
-  "android_version": "3.0.41",
-  "android_version_code": 30041,
-  "description": "BlueVPN 3.0.41 خطای تجزیه APK در بروزرسانی داخلی را با نصب مستقیم از PackageInstaller Session، اعتبارسنجی امضا و کد نسخه، ذخیره‌سازی داخلی و مسیر سازگار جایگزین رفع می‌کند؛ تمام قابلیت‌های نسخه 3.0.40 حفظ شده‌اند.",
+  "version": "3.0.42",
+  "channel": "in-app-ad-carousel",
+  "build_id": "20260809-ad-carousel-v3042",
+  "built_at": "2026-08-09T06:50:00Z",
+  "android_version": "3.0.42",
+  "android_version_code": 30042,
+  "description": "BlueVPN 3.0.42 سامانه تبلیغات اسلایدی قابل مدیریت از پنل را با آپلود تصویر، URL تصویر، لینک مقصد، زمان‌بندی، ترتیب، پخش خودکار و کش امن اندروید اضافه می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -303,9 +303,17 @@
     "update-version-code-monotonic-check",
     "transparent-installer-status-activity",
     "custom-fileprovider-oem-fallback",
-    "installer-status-specific-user-errors"
+    "installer-status-specific-user-errors",
+    "admin-managed-in-app-ads",
+    "image-upload-or-remote-url",
+    "automatic-ad-carousel",
+    "scheduled-ad-campaigns",
+    "safe-http-ad-links",
+    "android-bitmap-cache",
+    "swipeable-ad-slides",
+    "zero-space-when-no-ads"
   ],
-  "version_code": 30041,
-  "notes": "بروزرسانی داخلی اکنون APK را در PackageInstaller Session اندروید مرحله‌بندی می‌کند، امضا و versionCode را پیش از نصب می‌سنجد و FileProvider را فقط به‌عنوان مسیر جایگزین نگه می‌دارد.",
-  "version_source": "package-installer-v3041"
+  "version_code": 30042,
+  "notes": "تبلیغات صفحه اصلی اکنون از پنل مدیریت می‌شوند و بدون تبلیغ فعال هیچ فضای خالی در اپ نمایش داده نمی‌شود.",
+  "version_source": "in-app-ad-carousel-v3042"
 }

@@ -1,27 +1,30 @@
 {
-  "project_version": "3.0.41",
-  "version_code": 30041,
-  "schema_version": 15,
-  "release": "3.0.41",
-  "generated_at": "2026-08-09T02:10:00Z",
-  "validation_status": "passed_with_full_apk_compile_pending_github_actions",
-  "update_install_fix": {
-    "primary_installer": "android_package_installer_session",
-    "private_storage_staging": true,
-    "sha256_and_size_validation": true,
-    "package_name_and_version_validation": true,
-    "version_code_monotonic_validation": true,
-    "signing_certificate_continuity_validation": true,
-    "mutable_pending_intent_callback": true,
-    "custom_fileprovider_fallback": true
+  "version": "3.0.42",
+  "version_code": 30042,
+  "feature": "in-app-ad-carousel",
+  "tests": {
+    "passed": 130,
+    "failed": 0,
+    "warnings": 10
   },
-  "full_android_gradle_compile": "pending_github_actions",
-  "preserved_from_3_0_40": true,
-  "artifact_name": "bluevpn-complete-v3.0.41-in-app-package-installer-fix.zip",
-  "python_compileall": "passed",
-  "android_generator_sync": "passed (26 embedded sources/resources)",
-  "android_source_parity": "passed",
-  "pytest": "passed (125/125)",
-  "zip_integrity": "passed",
-  "packaged_file_count": 216
+  "generated_android": {
+    "status": "passed",
+    "embedded_sources": 27,
+    "home_ids": 29
+  },
+  "backend": {
+    "admin_ads": "passed",
+    "mobile_config_advertising": "passed",
+    "image_processing": "passed"
+  },
+  "archive": {
+    "status": "passed",
+    "file_count": 231,
+    "size_bytes": 1505310,
+    "sha256": "9d041921d0c79069b8b036b18a8652719c52dec74fc7f809858dbd9806c629f8"
+  },
+  "full_gradle_build": {
+    "status": "not_run",
+    "reason": "Android upstream/SDK build is performed by GitHub Actions"
+  }
 }

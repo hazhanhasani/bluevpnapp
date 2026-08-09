@@ -1,6 +1,6 @@
 <!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#07101f"><title>BlueVPN Platform</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="/static/style.css"></head><body>
 <header class="topbar"><div class="brand"><div class="brand-logo-wrap"><img src="/static/logo.png"><span class="brand-live-dot" aria-label="online"></span></div><div><b>BlueVPN Platform</b><span>مرکز مدیریت سرویس و هوش شبکه</span></div></div><div class="topbar-actions"><span class="secure-session"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4.5 5v6c0 5.1 3.2 9.7 7.5 11 4.3-1.3 7.5-5.9 7.5-11V5L12 2Zm0 3.1 4.5 1.8V11c0 3.6-2 7-4.5 8.1C9.5 18 7.5 14.6 7.5 11V6.9L12 5.1Zm-1 3.4v3H8.8v2.2H11v2.2h2v-2.2h2.2v-2.2H13v-3h-2Z"/></svg>نشست امن</span><span class="secure-session" id="tehran-clock">{{ now_fa }} • تهران</span><form method="post" action="/admin/logout"><button class="secondary icon-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 4H4v16h6v-2H6V6h4V4Zm4.6 3.4-1.4 1.4 2.2 2.2H9v2h6.4l-2.2 2.2 1.4 1.4L19.2 12l-4.6-4.6Z"/></svg>خروج</button></form></div></header>
-<nav class="tabs"><a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">پنل سوم</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف قدیمی پنل سوم</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#sms" data-tab="sms">تنظیمات پیامک</a><a href="#sms-templates" data-tab="sms-templates">پترن‌ها</a><a href="#sms-broadcast" data-tab="sms-broadcast">ارسال عمومی</a><a href="#sms-deliveries" data-tab="sms-deliveries">گزارش پیامک</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#app" data-tab="app">اپ و آپدیت</a></nav>
+<nav class="tabs"><a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">پنل سوم</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف قدیمی پنل سوم</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#sms" data-tab="sms">تنظیمات پیامک</a><a href="#sms-templates" data-tab="sms-templates">پترن‌ها</a><a href="#sms-broadcast" data-tab="sms-broadcast">ارسال عمومی</a><a href="#sms-deliveries" data-tab="sms-deliveries">گزارش پیامک</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#ads" data-tab="ads">تبلیغات</a><a href="#app" data-tab="app">اپ و آپدیت</a></nav>
 <main class="container">{% if not database_info.persistent %}<div class="alert danger flash-alert" data-sticky="1"><span>هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if saved %}<div class="alert success flash-alert"><span>تغییرات ذخیره شد.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if manual_message %}<div class="alert success flash-alert"><span>{{ manual_message }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if error %}<div class="alert danger flash-alert"><span>{{ error }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}
 <section id="overview" class="dashboard-overview">
   <div class="overview-hero card">
@@ -606,6 +606,85 @@
   </div>
 </section>
 <section id="orders" class="card"><h2>پرداخت و فعال‌سازی</h2><div class="table-wrap"><table><thead><tr><th>سفارش</th><th>کاربر</th><th>پلن</th><th>مبلغ</th><th>تاریخ تهران</th><th>وضعیت</th><th>عملیات</th></tr></thead><tbody>{% for o in orders %}<tr><td class="ltr">{{ o.order_code }}{% if o.order_code.startswith("MANUAL-") %}<span class="badge manual">دستی</span>{% endif %}</td><td class="ltr">{{ customer_identity(o.customer) }}</td><td>{{ o.plan.title }}</td><td>{% if o.order_code.startswith('MANUAL-') %}بدون درگاه{% else %}{{ '{:,}'.format(o.amount_toman) }}{% endif %}</td><td>{{ o.created_at|jalali }}</td><td><span class="badge {{ 'ok' if o.status=='activated' else 'warn' }}">{{ o.status }}</span>{% if o.activation_error %}<small>{{ o.activation_error[:160] }}</small>{% endif %}</td><td>{% if o.status in ['paid','paid_needs_sync','partial_needs_sync'] %}<form method="post" action="/admin/orders/{{ o.id }}/activate"><button>تلاش فعال‌سازی</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="7">پرداختی وجود ندارد.</td></tr>{% endfor %}</tbody></table></div></section>
+
+<section id="ads" class="card ads-admin-card">
+  <div class="section-heading ads-heading">
+    <div><span class="eyebrow">IN-APP CAMPAIGNS</span><h2>تبلیغات اسلایدی اپلیکیشن</h2><p>تصویر را مستقیماً آپلود کنید یا URL تصویر بدهید؛ لینک مقصد، ترتیب و زمان نمایش نیز از همین بخش مدیریت می‌شود.</p></div>
+    <span class="badge {{ 'ok' if settings.get('ads_enabled',False) else 'warn' }}">{{ 'فعال' if settings.get('ads_enabled',False) else 'غیرفعال' }}</span>
+  </div>
+  <form method="post" action="/admin/ads/settings" class="ads-global-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <div class="form-grid">
+      <div><label>فاصله تعویض اسلاید؛ ثانیه</label><input type="number" name="interval_seconds" min="3" max="30" value="{{ settings.get('ads_interval_seconds',6) }}"></div>
+      <div><label>ارتفاع بنر در اپ؛ dp</label><input type="number" name="height_dp" min="96" max="240" value="{{ settings.get('ads_height_dp',142) }}"></div>
+    </div>
+    <div class="checks">
+      <label><input type="checkbox" name="enabled" {% if settings.get('ads_enabled',False) %}checked{% endif %}> نمایش تبلیغات</label>
+      <label><input type="checkbox" name="autoplay" {% if settings.get('ads_autoplay',True) %}checked{% endif %}> پخش خودکار</label>
+      <label><input type="checkbox" name="loop" {% if settings.get('ads_loop',True) %}checked{% endif %}> تکرار اسلایدها</label>
+    </div>
+    <button class="save">ذخیره تنظیمات نمایش</button>
+  </form>
+
+  <div class="ads-admin-grid">
+    <form method="post" action="/admin/ads" enctype="multipart/form-data" class="ad-editor-card">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <h3>افزودن تبلیغ جدید</h3>
+      <div class="form-grid">
+        <div><label>عنوان</label><input name="title" maxlength="120" placeholder="عنوان کوتاه تبلیغ"></div>
+        <div><label>متن دکمه</label><input name="button_text" maxlength="40" value="مشاهده"></div>
+        <div class="wide"><label>توضیح کوتاه</label><input name="subtitle" maxlength="240" placeholder="متن اختیاری زیر عنوان"></div>
+        <div><label>آپلود تصویر</label><input type="file" name="image_file" accept="image/png,image/jpeg,image/webp,image/gif"></div>
+        <div><label>یا URL تصویر</label><input class="ltr" name="image_url" placeholder="https://.../banner.webp"></div>
+        <div class="wide"><label>لینک مقصد با لمس تبلیغ</label><input class="ltr" name="target_url" placeholder="https://example.com/campaign"></div>
+        <div><label>ترتیب</label><input type="number" name="sort_order" value="0"></div>
+        <div><label>شروع نمایش؛ اختیاری</label><input type="datetime-local" name="start_at"></div>
+        <div><label>پایان نمایش؛ اختیاری</label><input type="datetime-local" name="end_at"></div>
+      </div>
+      <label class="check"><input type="checkbox" name="active" checked> تبلیغ فعال باشد</label>
+      <p class="hint">تصویر آپلودی به WebP بهینه تبدیل و در فضای داده دائمی Railway ذخیره می‌شود. اندازه پیشنهادی ۱۶:۹ است.</p>
+      <button class="save">افزودن به اسلایدر</button>
+    </form>
+
+    <div class="ads-preview-panel">
+      <h3>پیش‌نمایش وضعیت</h3>
+      <div class="ads-kpis"><article><span>کل تبلیغ</span><strong>{{ ads_items|length }}</strong></article><article><span>قابل نمایش اکنون</span><strong>{{ ads_config.get('items',[])|length }}</strong></article><article><span>تعویض</span><strong>{{ settings.get('ads_interval_seconds',6) }} ثانیه</strong></article></div>
+      <p class="hint">اسلایدر فقط وقتی حداقل یک تبلیغ فعال و معتبر داشته باشد در صفحه اصلی اپ ظاهر می‌شود؛ در نبود تبلیغ هیچ فضای خالی باقی نمی‌ماند.</p>
+    </div>
+  </div>
+
+  <div class="ads-list">
+    {% for ad in ads_items|sort(attribute='sort_order') %}
+    <article class="ad-manage-card">
+      <div class="ad-preview">
+        {% if ad.image_url %}<img src="{{ ad.image_url }}" alt="پیش‌نمایش {{ ad.title }}" loading="lazy">{% else %}<div class="ad-preview-empty">بدون تصویر</div>{% endif %}
+        <span>{{ 'فعال' if ad.active else 'غیرفعال' }}</span>
+      </div>
+      <form method="post" action="/admin/ads/{{ ad.id }}/edit" enctype="multipart/form-data" class="ad-edit-form">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <div class="form-grid">
+          <div><label>عنوان</label><input name="title" maxlength="120" value="{{ ad.title }}"></div>
+          <div><label>متن دکمه</label><input name="button_text" maxlength="40" value="{{ ad.button_text }}"></div>
+          <div class="wide"><label>توضیح</label><input name="subtitle" maxlength="240" value="{{ ad.subtitle }}"></div>
+          <div><label>جایگزینی با فایل</label><input type="file" name="image_file" accept="image/png,image/jpeg,image/webp,image/gif"></div>
+          <div><label>جایگزینی با URL</label><input class="ltr" name="image_url" placeholder="برای حفظ تصویر فعلی خالی بگذارید"></div>
+          <div class="wide"><label>لینک مقصد</label><input class="ltr" name="target_url" value="{{ ad.target_url }}"></div>
+          <div><label>ترتیب</label><input type="number" name="sort_order" value="{{ ad.sort_order }}"></div>
+          <div><label>شروع</label><input type="datetime-local" name="start_at" value="{{ ad.start_at }}"></div>
+          <div><label>پایان</label><input type="datetime-local" name="end_at" value="{{ ad.end_at }}"></div>
+        </div>
+        <div class="checks"><label><input type="checkbox" name="active" {% if ad.active %}checked{% endif %}> فعال</label><label><input type="checkbox" name="remove_image"> حذف تصویر فعلی</label></div>
+        <button class="save">ذخیره تغییرات</button>
+      </form>
+      <div class="actions ad-actions">
+        <form method="post" action="/admin/ads/{{ ad.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="secondary">{{ 'غیرفعال‌کردن' if ad.active else 'فعال‌کردن' }}</button></form>
+        <form method="post" action="/admin/ads/{{ ad.id }}/delete" data-confirm="این تبلیغ حذف شود؟"><input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="danger">حذف</button></form>
+      </div>
+    </article>
+    {% else %}<div class="empty-state">هنوز تبلیغی برای اپ ثبت نشده است.</div>{% endfor %}
+  </div>
+</section>
+
 <section id="app" class="card">
   <h2>اپلیکیشن و آپدیت خودکار GitHub</h2>
   <div class="github-release-box">

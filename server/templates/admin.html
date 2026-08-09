@@ -20,7 +20,7 @@
     <button type="button" class="mobile-nav-close" aria-label="بستن منو" data-nav-close>×</button>
   </div>
   <label class="mobile-nav-search"><span>جستجوی بخش‌ها</span><input type="search" inputmode="search" autocomplete="off" placeholder="مثلاً کاربران یا تبلیغات"></label>
-  <a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">پنل سوم</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف قدیمی پنل سوم</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#sms" data-tab="sms">تنظیمات پیامک</a><a href="#sms-templates" data-tab="sms-templates">پترن‌ها</a><a href="#sms-broadcast" data-tab="sms-broadcast">ارسال عمومی</a><a href="#sms-deliveries" data-tab="sms-deliveries">گزارش پیامک</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#ads" data-tab="ads">تبلیغات</a><a href="#app" data-tab="app">اپ و آپدیت</a>
+  <a href="#overview" data-tab="overview">نمای کلی</a><a href="#blueai" data-tab="blueai">BlueAI</a><a href="#database" data-tab="database">دیتابیس</a><a href="#panels" data-tab="panels">پاسارگارد</a><a href="#marzban" data-tab="marzban">مرزبان</a><a href="#guardcore" data-tab="guardcore">پنل سوم</a><a href="#guardcore-manual" data-tab="guardcore-manual">صف قدیمی پنل سوم</a><a href="#plans" data-tab="plans">پلن‌ها</a><a href="#sms" data-tab="sms">تنظیمات پیامک</a><a href="#sms-templates" data-tab="sms-templates">پترن‌ها</a><a href="#sms-broadcast" data-tab="sms-broadcast">ارسال عمومی</a><a href="#sms-deliveries" data-tab="sms-deliveries">گزارش پیامک</a><a href="#bluepay" data-tab="bluepay">بلوپی</a><a href="#manual" data-tab="manual">فعال‌سازی دستی</a><a href="#customers" data-tab="customers">کاربران</a><a href="#orders" data-tab="orders">پرداخت‌ها</a><a href="#ads" data-tab="ads">تبلیغات</a><a href="#free-subs" data-tab="free-subs">ساب‌های رایگان</a><a href="#app" data-tab="app">اپ و آپدیت</a>
 </nav>
 <main class="container">{% if not database_info.persistent %}<div class="alert danger flash-alert" data-sticky="1"><span>هشدار: دیتابیس فعلی دائمی نیست. در Railway نباید این حالت دیده شود.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if saved %}<div class="alert success flash-alert"><span>تغییرات ذخیره شد.</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if manual_message %}<div class="alert success flash-alert"><span>{{ manual_message }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}{% if error %}<div class="alert danger flash-alert"><span>{{ error }}</span><button type="button" class="alert-close" aria-label="بستن">×</button></div>{% endif %}
 <section id="overview" class="dashboard-overview">
@@ -725,6 +725,44 @@
   </div>
 </section>
 
+<section id="free-subs" class="card">
+  <div class="section-heading">
+    <div><span class="eyebrow">GUEST FREE ACCESS</span><h2>ساب‌های پلن رایگان</h2><p>چند لینک ساب رایگان تعریف کن. اپ همه منابع فعال را دریافت می‌کند، اما کاربر مهمان فقط انتخاب خودکار دارد و لینک‌ها هرگز داخل اپ نمایش داده نمی‌شوند.</p></div>
+    <span class="badge {{ 'ok' if settings.get('free_access_enabled',False) and free_subscription_items else 'warn' }}">{{ free_subscription_items|length }} منبع ثبت‌شده</span>
+  </div>
+  <form method="post" action="/admin/free-subscriptions" class="free-sub-create-form">
+    <input type="hidden" name="csrf" value="{{ csrf_token }}">
+    <div class="form-grid">
+      <label>نام منبع<input name="name" placeholder="مثلاً سرورهای رایگان ایرانسل" required></label>
+      <label class="wide">لینک ساب<input class="ltr" name="url" inputmode="url" placeholder="https://..." required></label>
+      <label>اولویت<input type="number" name="priority" min="0" max="9999" value="0"></label>
+    </div>
+    <label class="check"><input type="checkbox" name="active" checked> فعال باشد</label>
+    <button class="save">افزودن ساب رایگان</button>
+  </form>
+  <div class="free-sub-grid">
+    {% for item in free_subscription_items %}
+    <article class="ad-admin-card free-sub-card">
+      <form method="post" action="/admin/free-subscriptions/{{ item.id }}/edit">
+        <input type="hidden" name="csrf" value="{{ csrf_token }}">
+        <div class="form-grid">
+          <label>نام<input name="name" value="{{ item.name }}" required></label>
+          <label class="wide">لینک ساب<input class="ltr" name="url" value="{{ item.url }}" required></label>
+          <label>اولویت<input type="number" name="priority" min="0" max="9999" value="{{ item.priority }}"></label>
+        </div>
+        <label class="check"><input type="checkbox" name="active" {% if item.active %}checked{% endif %}> فعال</label>
+        <button class="save">ذخیره تغییرات</button>
+      </form>
+      <div class="actions">
+        <form method="post" action="/admin/free-subscriptions/{{ item.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="secondary">{{ 'غیرفعال‌کردن' if item.active else 'فعال‌کردن' }}</button></form>
+        <form method="post" action="/admin/free-subscriptions/{{ item.id }}/delete" data-confirm="این ساب رایگان حذف شود؟"><input type="hidden" name="csrf" value="{{ csrf_token }}"><button class="danger">حذف</button></form>
+      </div>
+    </article>
+    {% else %}<div class="empty-state">هنوز ساب رایگانی ثبت نشده است. تا زمان ثبت حداقل یک منبع فعال، اتصال مهمان غیرفعال می‌ماند.</div>{% endfor %}
+  </div>
+  <p class="hint">ورود و ساخت حساب برای اتصال رایگان لازم نیست. شماره موبایل یا ایمیل فقط هنگام ورود به بخش اشتراک، خرید پلن یا بازکردن انتخاب دستی لوکیشن درخواست می‌شود.</p>
+</section>
+
 <section id="app" class="card">
   <h2>اپلیکیشن و آپدیت خودکار GitHub</h2>
   <div class="github-release-box">
@@ -765,10 +803,9 @@
     <label class="check"><input type="checkbox" name="free_access_enabled" {% if settings.get('free_access_enabled',False) %}checked{% endif %}> فعال‌سازی اتصال رایگان</label>
   </div>
   <div class="form-grid">
-    <label class="wide">لینک اشتراک مخصوص سرورهای رایگان<input name="free_subscription_url" inputmode="url" placeholder="https://..." value="{{ settings.get('free_subscription_url','') }}"></label>
     <label>مدت هر اتصال رایگان؛ دقیقه<input type="number" name="free_session_minutes" min="15" max="180" value="{{ settings.get('free_session_minutes',60) }}"></label>
   </div>
-  <p class="hint">پیشنهاد: لینک جداگانه‌ای شامل فقط سرورهای رایگان ثبت کن. لینک اصلی از اپ مخفی می‌ماند و از مسیر امن BlueVPN تحویل داده می‌شود. پس از پایان زمان، اتصال قطع می‌شود و کاربر می‌تواند دوباره دستی متصل شود.</p>
+  <p class="hint">ساب‌های رایگان از بخش مستقل «ساب‌های رایگان» مدیریت می‌شوند. کاربر مهمان بدون ساخت حساب مستقیماً وارد صفحه اتصال می‌شود و فقط انتخاب خودکار در دسترس اوست.</p>
 </div>
 
 <div class="ai-settings-panel">

@@ -488,11 +488,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             isFocusable = true
             setOnClickListener {
                 if (!premium) {
-                    Toast.makeText(
-                        this@BlueVpnServersActivity,
-                        "انتخاب دستی کشور و مسیر فقط برای کاربران دارای اشتراک است",
-                        Toast.LENGTH_LONG,
-                    ).show()
+                    openSubscriptionForPremium()
                 } else {
                     selectServer(group, candidate)
                 }
@@ -540,6 +536,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         return raw.takeIf { it.length in 2..36 } ?: "${candidate.location.title} • مسیر ${index + 1}"
     }
 
+    private fun openSubscriptionForPremium() {
+        Toast.makeText(
+            this,
+            "برای انتخاب دستی لوکیشن ابتدا اشتراک تهیه کنید",
+            Toast.LENGTH_LONG,
+        ).show()
+        startActivity(Intent(this, BlueVpnSubscriptionsActivity::class.java))
+    }
+
     private fun selectServer(
         group: LocationGroup,
         candidate: BlueVpnLocationUtil.Candidate,
@@ -571,7 +576,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
     private fun selectGroup(group: LocationGroup, automatic: Boolean, selectedLocation: String?) {
         if (!BlueVpnAccountManager.active(this)) {
-            Toast.makeText(this, "انتخاب دستی فقط با اشتراک فعال است", Toast.LENGTH_LONG).show()
+            openSubscriptionForPremium()
             return
         }
         val currentPreferred = BlueVpnPreferences.preferredLocation(this).ifBlank { selectedLocation.orEmpty() }

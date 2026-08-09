@@ -1,11 +1,11 @@
 {
-  "version": "3.0.64",
+  "version": "3.0.65",
   "channel": "stable",
-  "build_id": "20260809-postgres-nullable-fk-migration-fix-v3064",
-  "built_at": "2026-08-09T17:35:00Z",
-  "android_version": "3.0.64",
-  "android_version_code": 30064,
-  "description": "BlueVPN 3.0.64 خطای راه‌اندازی PostgreSQL در Migration رکوردهای OTP قدیمی را رفع می‌کند و از مقداردهی جعلی Foreign Keyهای اختیاری جلوگیری می‌کند.",
+  "build_id": "20260809-guest-free-subscriptions-v3065",
+  "built_at": "2026-08-09T18:05:00Z",
+  "android_version": "3.0.65",
+  "android_version_code": 30065,
+  "description": "BlueVPN 3.0.65 حالت مهمان بدون حساب، ورود مستقیم به صفحه اتصال و مدیریت چند ساب مستقل برای پلن رایگان را اضافه می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -402,9 +402,18 @@
     "postgres-nullable-foreign-key-migration-safety",
     "otp-customer-id-null-preservation",
     "no-synthetic-foreign-key-defaults",
-    "startup-migration-regression-guard"
+    "startup-migration-regression-guard",
+    "guest-first-launch-no-account",
+    "direct-home-after-install",
+    "account-required-only-for-subscription",
+    "multi-source-free-subscriptions",
+    "free-subscription-admin-crud",
+    "hidden-free-relay-per-source",
+    "guest-auto-selection-only",
+    "premium-lock-opens-subscription",
+    "legacy-free-subscription-migration"
   ],
-  "version_code": 30064,
-  "notes": "رفع ForeignKeyViolation در otp_challenges.customer_id؛ ستون‌های nullable و Foreign Key دیگر با مقدار صفر یا مقدار ساختگی پر نمی‌شوند.",
-  "version_source": "postgres-nullable-fk-migration-fix-v3064"
+  "version_code": 30065,
+  "notes": "کاربر پس از نصب مستقیماً وارد صفحه اتصال می‌شود؛ حساب فقط در بخش اشتراک/خرید لازم است. ساب‌های رایگان به‌صورت چندمنبعی از پنل مدیریت می‌شوند.",
+  "version_source": "guest-free-subscriptions-v3065"
 }

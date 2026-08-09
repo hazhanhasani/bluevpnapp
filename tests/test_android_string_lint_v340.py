@@ -74,7 +74,7 @@ def test_generator_contains_missing_default_guard():
 def test_release_is_3040():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.63"
-    assert release["version_code"] == 30063
-    assert app["version_name"] == "3.0.63"
-    assert app["version_code"] == 30063
+    assert release["version"] == "3.0.65"
+    assert release["version_code"] == 30065
+    assert app["version_name"] == "3.0.65"
+    assert app["version_code"] == 30065

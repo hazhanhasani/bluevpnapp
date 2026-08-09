@@ -43,7 +43,7 @@ BASE=Path(__file__).resolve().parent
 logger=logging.getLogger('bluevpn.main')
 templates=Jinja2Templates(directory=BASE/'templates')
 templates.env.filters['jalali']=format_jalali
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','ads_enabled':False,'ads_autoplay':True,'ads_loop':True,'ads_interval_seconds':6,'ads_height_dp':146,'ads_items':[],'free_access_enabled':False,'free_subscription_url':'','free_session_minutes':60,'updated_at':iso_z(utcnow())}
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','ads_enabled':False,'ads_autoplay':True,'ads_loop':True,'ads_interval_seconds':6,'ads_height_dp':146,'ads_items':[],'free_access_enabled':False,'free_subscription_url':'','free_subscription_items':[],'free_session_minutes':60,'updated_at':iso_z(utcnow())}
 
 
 def env_bool(name:str,default:bool=False)->bool:
@@ -1958,26 +1958,84 @@ def sitemap_xml(request:Request):
     base=(os.getenv('PUBLIC_SITE_URL') or str(request.base_url)).strip().rstrip('/')
     urls=''.join(f'<url><loc>{base}{path}</loc></url>' for path in ('/','/terms','/privacy','/refund-policy','/contact'))
     return Response(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>',media_type='application/xml')
+def _free_subscription_items(value:Any)->list[dict[str,Any]]:
+    rows=value if isinstance(value,list) else []
+    normalized:list[dict[str,Any]]=[]
+    seen:set[str]=set()
+    for index,raw in enumerate(rows):
+        if not isinstance(raw,dict):
+            continue
+        item_id=re.sub(r'[^a-zA-Z0-9_-]+','',str(raw.get('id') or ''))[:64] or uuid.uuid4().hex
+        if item_id in seen:
+            item_id=uuid.uuid4().hex
+        seen.add(item_id)
+        url=str(raw.get('url') or '').strip()[:1200]
+        name=str(raw.get('name') or f'ساب رایگان {index+1}').strip()[:120] or f'ساب رایگان {index+1}'
+        normalized.append({
+            'id':item_id,
+            'name':name,
+            'url':url,
+            'active':bool(raw.get('active',True)),
+            'priority':max(0,min(9999,int(raw.get('priority',index) or 0))),
+        })
+    normalized.sort(key=lambda item:(item['priority'],item['name'],item['id']))
+    return normalized
+
+
+def _configured_free_subscription_items(s:dict[str,Any])->list[dict[str,Any]]:
+    items=_free_subscription_items(s.get('free_subscription_items'))
+    legacy=str(s.get('free_subscription_url') or '').strip()
+    if not items and legacy:
+        items=[{
+            'id':'legacy-default',
+            'name':'ساب رایگان اصلی',
+            'url':legacy[:1200],
+            'active':True,
+            'priority':0,
+        }]
+    return items
+
+
+def _active_free_subscription_items(s:dict[str,Any])->list[dict[str,Any]]:
+    result=[]
+    for item in _configured_free_subscription_items(s):
+        if not item.get('active'):
+            continue
+        try:
+            url=_http_url(str(item.get('url') or ''),'لینک اشتراک رایگان',required=True)
+        except ValueError:
+            continue
+        row=dict(item);row['url']=url;result.append(row)
+    return result
+
+
 _FREE_SUB_CACHE:dict[str,Any]={"url":"","body":b"","content_type":"text/plain; charset=utf-8","fetched_at":0.0}
 _FREE_SUB_CACHE_LOCK=asyncio.Lock()
 
 
 def _free_access_payload(request:Request,s:dict[str,Any])->dict[str,Any]:
-    source=str(s.get('free_subscription_url') or '').strip()
-    valid=False
-    try:
-        valid=bool(_http_url(source,'لینک اشتراک رایگان'))
-    except ValueError:
-        valid=False
-    enabled=bool(s.get('free_access_enabled',False)) and valid
+    items=_active_free_subscription_items(s)
+    enabled=bool(s.get('free_access_enabled',False)) and bool(items)
     minutes=max(15,min(180,int(s.get('free_session_minutes',60) or 60)))
     base=_public_origin(request,s)
+    public_items=[
+        {
+            'id':item['id'],
+            'name':item['name'],
+            'subscription_url':f"{base}/api/v1/free/subscriptions/{item['id']}" if enabled and base else '',
+            'priority':item['priority'],
+        }
+        for item in items
+    ]
     return {
         'enabled':enabled,
         'session_minutes':minutes,
         'auto_only':True,
+        'guest_allowed':True,
+        'account_required_for_free':False,
         'manual_selection_requires_subscription':True,
-        'subscription_url':f"{base}/api/v1/free/subscription" if enabled and base else '',
+        'subscription_url':public_items[0]['subscription_url'] if public_items else '',
+        'subscriptions':public_items,
         'label':'اتصال رایگان',
     }
 
@@ -2011,23 +2069,40 @@ async def _free_subscription_body(source_url:str)->tuple[bytes,str]:
         return body,content_type
 
 
-@app.get('/api/v1/free/subscription')
-async def free_subscription(db:Session=Depends(get_db)):
+@app.get('/api/v1/free/subscriptions/{item_id}')
+async def free_subscription_item(item_id:str,db:Session=Depends(get_db)):
     s=settings(db)
-    source=str(s.get('free_subscription_url') or '').strip()
-    try:
-        source=_http_url(source,'لینک اشتراک رایگان',required=True)
-    except ValueError:
-        raise HTTPException(404,detail={'code':'FREE_ACCESS_DISABLED','message':'اتصال رایگان فعال نیست'})
     if not bool(s.get('free_access_enabled',False)):
         raise HTTPException(404,detail={'code':'FREE_ACCESS_DISABLED','message':'اتصال رایگان فعال نیست'})
-    body,content_type=await _free_subscription_body(source)
+    item=next((row for row in _active_free_subscription_items(s) if row['id']==item_id),None)
+    if not item:
+        raise HTTPException(404,detail={'code':'FREE_SUBSCRIPTION_NOT_FOUND','message':'ساب رایگان پیدا نشد'})
+    body,content_type=await _free_subscription_body(item['url'])
     return Response(
         content=body,
         media_type=content_type,
         headers={
             'Cache-Control':'public, max-age=60, stale-if-error=300',
             'X-BlueVPN-Access':'free-auto-only',
+            'X-BlueVPN-Free-Source':item['id'],
+        },
+    )
+
+
+@app.get('/api/v1/free/subscription')
+async def free_subscription(db:Session=Depends(get_db)):
+    s=settings(db)
+    items=_active_free_subscription_items(s)
+    if not bool(s.get('free_access_enabled',False)) or not items:
+        raise HTTPException(404,detail={'code':'FREE_ACCESS_DISABLED','message':'اتصال رایگان فعال نیست'})
+    body,content_type=await _free_subscription_body(items[0]['url'])
+    return Response(
+        content=body,
+        media_type=content_type,
+        headers={
+            'Cache-Control':'public, max-age=60, stale-if-error=300',
+            'X-BlueVPN-Access':'free-auto-only',
+            'X-BlueVPN-Free-Source':items[0]['id'],
         },
     )
 
@@ -2055,7 +2130,8 @@ async def mobile_config(
             'minimum_version':s['minimum_version'],
             'force_update':bool(s['force_update']),
             'auto_update':bool(s.get('auto_update',True)),
-            'account_required':True,
+            'account_required':False,
+            'account_optional':True,
             'latest_version':release.get('version','0.0.0'),
             'latest_version_code':int(release.get('version_code') or 0),
             'apk_url':release.get('apk_url',''),
@@ -3409,6 +3485,7 @@ def admin(request:Request,db:Session=Depends(get_db)):
             'settings':s,
             'ads_items':_ad_items(s.get('ads_items')),
             'ads_config':advertising_payload(s),
+            'free_subscription_items':_configured_free_subscription_items(s),
             'payment':pay,
             'payment_api_mask':mask(decrypt(pay.api_key_enc)),
             'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),
@@ -3686,8 +3763,72 @@ def admin_ads_delete(ad_id:str,request:Request,csrf:str=Form(...),db:Session=Dep
     return RedirectResponse('/admin?saved=1#ads',303)
 
 
+@app.post('/admin/free-subscriptions')
+def add_free_subscription(
+    request:Request,
+    name:str=Form(...),
+    url:str=Form(...),
+    priority:int=Form(0),
+    active:str|None=Form(None),
+    db:Session=Depends(get_db),
+):
+    admin_required(request)
+    clean_url=_http_url(url,'لینک اشتراک رایگان',required=True)
+    s=settings(db);items=_configured_free_subscription_items(s)
+    items.append({
+        'id':uuid.uuid4().hex,
+        'name':name.strip()[:120] or 'ساب رایگان',
+        'url':clean_url,
+        'priority':max(0,min(9999,int(priority or 0))),
+        'active':active=='on',
+    })
+    s['free_subscription_items']=_free_subscription_items(items)
+    s['free_subscription_url']=''
+    save_settings(db,s)
+    return RedirectResponse('/admin?saved=1#free-subs',303)
+
+
+@app.post('/admin/free-subscriptions/{item_id}/edit')
+def edit_free_subscription(
+    item_id:str,request:Request,name:str=Form(...),url:str=Form(...),priority:int=Form(0),
+    active:str|None=Form(None),db:Session=Depends(get_db),
+):
+    admin_required(request)
+    clean_url=_http_url(url,'لینک اشتراک رایگان',required=True)
+    s=settings(db);items=_configured_free_subscription_items(s)
+    found=False
+    for item in items:
+        if item['id']==item_id:
+            item.update(name=name.strip()[:120] or 'ساب رایگان',url=clean_url,priority=max(0,min(9999,int(priority or 0))),active=active=='on')
+            found=True;break
+    if not found:raise HTTPException(404,'ساب رایگان پیدا نشد')
+    s['free_subscription_items']=_free_subscription_items(items);s['free_subscription_url']='';save_settings(db,s)
+    return RedirectResponse('/admin?saved=1#free-subs',303)
+
+
+@app.post('/admin/free-subscriptions/{item_id}/toggle')
+def toggle_free_subscription(item_id:str,request:Request,db:Session=Depends(get_db)):
+    admin_required(request);s=settings(db);items=_configured_free_subscription_items(s)
+    found=False
+    for item in items:
+        if item['id']==item_id:
+            item['active']=not bool(item.get('active'));found=True;break
+    if not found:raise HTTPException(404,'ساب رایگان پیدا نشد')
+    s['free_subscription_items']=_free_subscription_items(items);s['free_subscription_url']='';save_settings(db,s)
+    return RedirectResponse('/admin?saved=1#free-subs',303)
+
+
+@app.post('/admin/free-subscriptions/{item_id}/delete')
+def delete_free_subscription(item_id:str,request:Request,db:Session=Depends(get_db)):
+    admin_required(request);s=settings(db);items=_configured_free_subscription_items(s)
+    remaining=[item for item in items if item['id']!=item_id]
+    if len(remaining)==len(items):raise HTTPException(404,'ساب رایگان پیدا نشد')
+    s['free_subscription_items']=remaining;s['free_subscription_url']='';save_settings(db,s)
+    return RedirectResponse('/admin?saved=1#free-subs',303)
+
+
 @app.post('/admin/app-settings')
-def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),minimum_version:str=Form(...),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),auto_update:str|None=Form(None),announcement_enabled:str|None=Form(None),blueai_enabled:str|None=Form(None),blueai_collective:str|None=Form(None),blueai_auto_heal:str|None=Form(None),blueai_min_samples:int=Form(3),blueai_privacy_message:str=Form(''),free_access_enabled:str|None=Form(None),free_subscription_url:str=Form(''),free_session_minutes:int=Form(60),db:Session=Depends(get_db)):
+def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),minimum_version:str=Form(...),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),auto_update:str|None=Form(None),announcement_enabled:str|None=Form(None),blueai_enabled:str|None=Form(None),blueai_collective:str|None=Form(None),blueai_auto_heal:str|None=Form(None),blueai_min_samples:int=Form(3),blueai_privacy_message:str=Form(''),free_access_enabled:str|None=Form(None),free_session_minutes:int=Form(60),db:Session=Depends(get_db)):
     admin_required(request)
     s=settings(db)
     s.update({
@@ -3708,7 +3849,6 @@ def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form
         'blueai_min_samples':max(1,min(100,int(blueai_min_samples or 3))),
         'blueai_privacy_message':blueai_privacy_message.strip()[:500],
         'free_access_enabled':free_access_enabled=='on',
-        'free_subscription_url':free_subscription_url.strip()[:1200],
         'free_session_minutes':max(15,min(180,int(free_session_minutes or 60))),
     })
     save_settings(db,s)

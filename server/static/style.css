@@ -173,3 +173,10 @@ input,textarea,select{background:rgba(2,10,23,.66);border-color:rgba(112,159,232
 
 /* BlueVPN 3.0.55 — IranPayamak API migration */
 .sms-config-note{display:flex;flex-direction:column;gap:7px;padding:14px 16px;border:1px solid rgba(56,189,248,.22);border-radius:16px;background:linear-gradient(145deg,rgba(8,47,73,.28),rgba(15,23,42,.42))}.sms-config-note strong{font-size:.9rem}.sms-config-note span{color:var(--muted);font-size:.78rem;line-height:1.9}.sms-config-note a{width:max-content;color:#67e8f9;font-weight:700;font-size:.78rem;text-decoration:none}.sms-config-note a:hover{text-decoration:underline}#sms-dedicated-sender small{display:block;margin-top:7px;color:var(--muted);font-size:.72rem;line-height:1.8}
+
+/* BlueVPN 3.0.65 — guest free subscriptions */
+.free-sub-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:18px}
+.free-sub-create-form{padding:16px;border:1px solid rgba(80,153,255,.22);border-radius:18px;background:linear-gradient(135deg,rgba(48,112,255,.08),rgba(94,69,208,.08))}
+.free-sub-card{padding:16px;border:1px solid var(--line);border-radius:20px;background:linear-gradient(145deg,rgba(12,32,66,.82),rgba(5,18,41,.86))}
+.free-sub-card .actions{margin-top:12px}
+@media(max-width:680px){.free-sub-grid{grid-template-columns:1fr}.free-sub-card,.free-sub-create-form{padding:13px}.free-sub-card .actions{display:grid;grid-template-columns:1fr 1fr}.free-sub-card .actions form,.free-sub-card .actions button{width:100%;margin:0}}

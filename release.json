@@ -1,11 +1,11 @@
 {
-  "version": "3.0.70",
+  "version": "3.0.71",
   "channel": "stable",
-  "build_id": "20260809-dual-engine-boundary-source-v3070",
+  "build_id": "20260809-entitlement-hot-swap-bluepay-v3071",
   "built_at": "2026-08-09T22:30:00Z",
-  "android_version": "3.0.70",
-  "android_version_code": 30070,
-  "description": "BlueVPN 3.0.70 با لایه موتور مشترک، حذف وابستگی مستقیم رابط به CoreServiceManager و Runtime بومی ایزوله sing-box آماده مهاجرت مرحله‌ای شده است.",
+  "android_version": "3.0.71",
+  "android_version_code": 30071,
+  "description": "BlueVPN 3.0.71 انتخاب خودکار پلن رایگان، تعویض فوری سرورهای رایگان و اشتراکی، سازگاری فاکتور BluePay و تازه‌سازی حساب بدون خروج را اصلاح می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -448,9 +448,18 @@
     "isolated-sing-box-native-runtime",
     "gomobile-duplicate-runtime-avoidance",
     "sing-box-profile-native-validation",
-    "safe-xray-fallback"
+    "safe-xray-fallback",
+    "entitlement-scoped-free-server-shortlist",
+    "free-server-inactive-fallback",
+    "free-to-premium-atomic-hot-swap",
+    "foreground-entitlement-force-refresh",
+    "no-logout-manual-activation-refresh",
+    "bluepay-bearer-and-api-key-compatibility",
+    "bluepay-wrapped-response-normalization",
+    "bluepay-webhook-header-compatibility",
+    "bluepay-prefixed-hmac-support"
   ],
-  "version_code": 30070,
-  "notes": "لایه موتور مشترک اضافه شد، تماس مستقیم UI با CoreServiceManager حذف شد و sing-box بومیِ ایزوله با اعتبارسنجی Native وارد Build گردید. در این مرحله Xray تنها مالک TUN است تا اتصال ناپایدار یا Connected جعلی ایجاد نشود.",
-  "version_source": "dual-engine-boundary-source-v3070"
+  "version_code": 30071,
+  "notes": "سرورهای رایگان بر اساس مالکیت اشتراک اولویت‌بندی می‌شوند، تغییر پلن به‌صورت اتمی Cache و سرورها را جایگزین می‌کند، پاسخ‌ها و هدرهای سازگار BluePay پشتیبانی می‌شوند و فعال‌سازی دستی یا پرداخت بدون Logout در اولین بازگشت برنامه اعمال می‌شود.",
+  "version_source": "entitlement-hot-swap-bluepay-v3071"
 }

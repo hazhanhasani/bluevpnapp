@@ -26,10 +26,10 @@ def _embedded_sources() -> dict[str, str]:
 def test_release_is_global_runtime_bugfix_3069() -> None:
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.70"
-    assert release["version_code"] == 30070
-    assert app["version_name"] == "3.0.70"
-    assert app["version_code"] == 30070
+    assert release["version"] == "3.0.71"
+    assert release["version_code"] == 30071
+    assert app["version_name"] == "3.0.71"
+    assert app["version_code"] == 30071
 
 
 def test_startup_and_dashboard_are_coalesced_and_non_blocking() -> None:
@@ -74,7 +74,7 @@ def test_account_sync_does_not_block_form_editing() -> None:
     assert "syncInProgress" in source
     assert "if(syncInProgress)return" in source
     assert "currentFocus !is EditText" in source
-    assert "handler.postDelayed({if(!isFinishing&&!isDestroyed)sync(false)},450L)" in source.replace(" ", "")
+    assert "handler.postDelayed({if(!isFinishing&&!isDestroyed)sync(true)},320L)" in source.replace(" ", "")
 
 
 def test_modified_android_snapshots_match_generator_payloads() -> None:

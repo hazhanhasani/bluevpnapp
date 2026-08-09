@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session,selectinload
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 from .database import DATA_DIR,DATABASE_ERROR,DATABASE_MODE,ENGINE,SQLITE_PATH,SessionLocal,database_status,database_table_counts,initialize_database,get_db
-from .integrations import IntegrationError,combined_subscription,create_invoice,delete_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,normalize_provider_status,parse_remote_date,provision,recent_bluepay_errors,repair_subscription_states,sync_customer,test_marzban_panel,test_panel,verify_webhook
+from .integrations import IntegrationError,combined_subscription,create_invoice,delete_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,normalize_bluepay_invoice,normalize_provider_status,parse_remote_date,provision,recent_bluepay_errors,repair_subscription_states,sync_customer,test_marzban_panel,test_panel,verify_webhook
 from .guardcore import service_ids_from_json,test_guardcore_panel
 from .manual_guardcore import (
     attach_manual_subscription,
@@ -3202,11 +3202,23 @@ async def check_order_after_success(
 
 
 @app.post('/webhooks/bluepay')
-async def bluepay_webhook(request:Request,x_gateway_signature:str|None=Header(None),x_gateway_delivery:str|None=Header(None),x_gateway_event:str|None=Header(None),db:Session=Depends(get_db)):
+async def bluepay_webhook(
+    request:Request,
+    x_gateway_signature:str|None=Header(None),
+    x_bluepay_signature:str|None=Header(None),
+    x_signature:str|None=Header(None),
+    x_gateway_delivery:str|None=Header(None),
+    x_bluepay_delivery:str|None=Header(None),
+    x_gateway_event:str|None=Header(None),
+    x_bluepay_event:str|None=Header(None),
+    db:Session=Depends(get_db),
+):
     pay=db.get(PaymentSetting,1)
     secret=decrypt(pay.callback_secret_enc) if pay else ''
     raw=await request.body()
-    valid,payload=verify_webhook(raw,x_gateway_signature or '',secret)
+    signature=x_gateway_signature or x_bluepay_signature or x_signature or ''
+    valid,payload=verify_webhook(raw,signature,secret)
+    payload=normalize_bluepay_invoice(payload)
     if not secret or not valid:
         log_bluepay_error(
             'webhook_signature',
@@ -3218,7 +3230,7 @@ async def bluepay_webhook(request:Request,x_gateway_signature:str|None=Header(No
     order=find_bluepay_order(db,payload)
     payment_id=str(payload.get('payment_id') or payload.get('id') or (order.payment_id if order else ''))
     incoming_status=normalize_gateway_status(payload.get('status'))
-    delivery=x_gateway_delivery or f"payment:{payment_id}:{payload.get('status','')}"
+    delivery=x_gateway_delivery or x_bluepay_delivery or f"payment:{payment_id}:{payload.get('status','')}"
     duplicate=db.scalar(select(WebhookDelivery).where(WebhookDelivery.delivery_id==delivery))
 
     if not order:
@@ -3226,7 +3238,7 @@ async def bluepay_webhook(request:Request,x_gateway_signature:str|None=Header(No
             db.add(WebhookDelivery(
                 delivery_id=delivery,
                 payment_id=payment_id,
-                event=x_gateway_event or str(payload.get('event','')),
+                event=x_gateway_event or x_bluepay_event or str(payload.get('event','')),
             ))
         log_bluepay_error(
             'webhook_order_not_found',
@@ -3256,7 +3268,7 @@ async def bluepay_webhook(request:Request,x_gateway_signature:str|None=Header(No
             db.add(WebhookDelivery(
                 delivery_id=delivery,
                 payment_id=payment_id,
-                event=x_gateway_event or str(payload.get('event','')),
+                event=x_gateway_event or x_bluepay_event or str(payload.get('event','')),
             ))
         db.commit()
         return {'success':False,'code':'AMOUNT_MISMATCH'}
@@ -3265,7 +3277,7 @@ async def bluepay_webhook(request:Request,x_gateway_signature:str|None=Header(No
         db.add(WebhookDelivery(
             delivery_id=delivery,
             payment_id=payment_id,
-            event=x_gateway_event or str(payload.get('event','')),
+            event=x_gateway_event or x_bluepay_event or str(payload.get('event','')),
         ))
 
     now=aware(utcnow()) or datetime.now(timezone.utc)

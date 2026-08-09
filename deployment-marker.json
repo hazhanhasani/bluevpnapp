@@ -1,7 +1,7 @@
 {
-  "release": "3.0.70-auto",
-  "version_name": "3.0.70",
-  "version_code": 30070,
+  "release": "3.0.71",
+  "version_name": "3.0.71",
+  "version_code": 30071,
   "changes": [
     "Route Android connect and disconnect commands through BlueVpnEngineManager",
     "Remove direct UI and account dependencies on v2rayNG CoreServiceManager",
@@ -9,13 +9,18 @@
     "Validate sing-box profiles natively without loading a second gomobile runtime",
     "Keep Xray as the only TUN owner until the atomic engine-switch service is complete",
     "Fix Android ARMv7 sing-box build with the pinned NDK external linker",
-    "Capture and report the real sing-box build stage and native build log"
+    "Capture and report the real sing-box build stage and native build log",
+    "Prioritize free and premium server GUIDs belonging to the current entitlement",
+    "Atomically disable free sources and refresh premium sources after activation",
+    "Force account entitlement refresh on foreground without requiring logout",
+    "Normalize wrapped BluePay invoice responses and compatible auth headers",
+    "Accept compatible BluePay webhook signature and delivery header names"
   ],
   "generated_at_unix": 1786231800,
-  "purpose": "مرحله نخست مهاجرت امن BlueVPN به معماری دو هسته مستقل Xray و sing-box",
-  "updated_at": "2026-08-09T17:30:00Z",
-  "built_at": "2026-08-09T17:30:00Z",
-  "build_id": "20260809-dual-engine-v3070-build118-fix",
-  "feature": "dual-engine-runtime-boundary",
-  "build_fix": "119-singbox-arm64-xray-armv7-fallback"
+  "purpose": "رفع انتخاب خودکار رایگان، تعویض فوری پلن، پرداخت BluePay و فعال‌سازی بدون خروج",
+  "updated_at": "2026-08-09T19:30:00Z",
+  "built_at": "2026-08-09T19:30:00Z",
+  "build_id": "20260809-entitlement-hot-swap-bluepay-v3071",
+  "feature": "entitlement-hot-swap-bluepay-compat",
+  "build_fix": "free-premium-bluepay-account-refresh"
 }

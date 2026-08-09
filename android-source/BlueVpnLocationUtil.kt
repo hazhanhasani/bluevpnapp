@@ -910,34 +910,49 @@ private fun unknownLocation(): BlueVpnLocation =
         }
 
         val selected = MmkvManager.getSelectServer().orEmpty()
-        val guids = MmkvManager.decodeAllServerList()
-        if (guids.isEmpty()) return emptyList()
+        val entitlementGuids = BlueVpnAccountManager.preferredServerGuids(context)
+        val allGuids = MmkvManager.decodeAllServerList()
+        if (entitlementGuids.isEmpty() && allGuids.isEmpty()) return emptyList()
+
+        // Subscription-owned routes must be inspected first. The old first-48
+        // scan could completely miss free servers when many premium or legacy
+        // profiles were stored before them.
         val orderedGuids = buildList {
-            if (selected.isNotBlank() && selected in guids) add(selected)
-            guids.asSequence()
-                .filter { it != selected }
-                .take(48)
-                .forEach { add(it) }
-        }
+            entitlementGuids.forEach { add(it) }
+            if (selected.isNotBlank()) add(selected)
+            allGuids.forEach { add(it) }
+        }.distinct()
+
         val wanted = preferredKey.orEmpty().ifBlank {
             BlueVpnPreferences.preferredLocation(context)
         }
         val automatic = BlueVpnPreferences.smartBalance(context)
-        val result = ArrayList<Candidate>(maxCandidates)
-        for (guid in orderedGuids) {
-            if (result.size >= maxCandidates) break
-            if (BlueVpnPreferences.isSessionInactive(context, guid)) continue
-            val profile = MmkvManager.decodeServerConfig(guid) ?: continue
-            if (!isUsable(profile, MmkvManager.decodeServerRaw(guid))) continue
-            if (!BlueVpnAccountManager.candidateAllowed(context, profile.subscriptionId)) continue
-            val location = detect(profile.remarks, profile.server)
-            if (!automatic && wanted.isNotBlank() && location.key != wanted) continue
-            result += Candidate(
-                guid = guid,
-                profile = profile,
-                location = location,
-                delay = MmkvManager.decodeServerAffiliationInfo(guid)?.testDelayMillis ?: 0L,
-            )
+
+        fun scan(skipSessionInactive: Boolean): List<Candidate> {
+            val result = ArrayList<Candidate>(maxCandidates)
+            for (guid in orderedGuids) {
+                if (result.size >= maxCandidates) break
+                if (skipSessionInactive &&
+                    BlueVpnPreferences.isSessionInactive(context, guid)) continue
+                val profile = MmkvManager.decodeServerConfig(guid) ?: continue
+                if (!isUsable(profile, MmkvManager.decodeServerRaw(guid))) continue
+                if (!BlueVpnAccountManager.candidateAllowed(context, profile.subscriptionId)) continue
+                val location = detect(profile.remarks, profile.server)
+                if (!automatic && wanted.isNotBlank() && location.key != wanted) continue
+                result += Candidate(
+                    guid = guid,
+                    profile = profile,
+                    location = location,
+                    delay = MmkvManager.decodeServerAffiliationInfo(guid)?.testDelayMillis ?: 0L,
+                )
+            }
+            return result
+        }
+
+        // Prefer healthy routes, but never return an empty list solely because
+        // every free route was marked inactive earlier in the same session.
+        val result = scan(skipSessionInactive = true).ifEmpty {
+            scan(skipSessionInactive = false)
         }
         return result.sortedWith(
             compareByDescending<Candidate> {

@@ -637,7 +637,7 @@
     <input type="hidden" name="csrf" value="{{ csrf_token }}">
     <div class="form-grid">
       <div><label>فاصله تعویض اسلاید؛ ثانیه</label><input type="number" name="interval_seconds" min="3" max="30" value="{{ settings.get('ads_interval_seconds',6) }}"></div>
-      <div><label>ارتفاع بنر در اپ؛ dp</label><input type="number" name="height_dp" min="96" max="240" value="{{ settings.get('ads_height_dp',142) }}"></div>
+      <div><label>ارتفاع بنر در اپ؛ dp</label><input type="number" name="height_dp" min="116" max="160" value="{{ settings.get('ads_height_dp',146) }}"><small>پیشنهاد: ۱۴۶؛ ارتفاع نهایی با عرض گوشی خودکار تنظیم می‌شود.</small></div>
     </div>
     <div class="checks">
       <label><input type="checkbox" name="enabled" {% if settings.get('ads_enabled',False) %}checked{% endif %}> نمایش تبلیغات</label>
@@ -663,7 +663,7 @@
         <div><label>پایان نمایش؛ اختیاری</label><input type="datetime-local" name="end_at"></div>
       </div>
       <label class="check"><input type="checkbox" name="active" checked> تبلیغ فعال باشد</label>
-      <p class="hint">تصویر آپلودی به WebP بهینه تبدیل و در فضای داده دائمی Railway ذخیره می‌شود. اندازه پیشنهادی ۱۶:۹ است.</p>
+      <p class="hint"><strong>اندازه پیشنهادی تصویر: ۱۲۰۰×۵۴۰ پیکسل با نسبت ۲۰:۹.</strong> حداقل مناسب ۱۰۰۰×۴۵۰ است. متن و لوگوی مهم را حداقل ۶۰ پیکسل از لبه‌ها فاصله بدهید. تصویر آپلودی به WebP بهینه تبدیل و در فضای داده دائمی Railway ذخیره می‌شود.</p>
       <button class="save">افزودن به اسلایدر</button>
     </form>
 

@@ -42,7 +42,7 @@ BASE=Path(__file__).resolve().parent
 logger=logging.getLogger('bluevpn.main')
 templates=Jinja2Templates(directory=BASE/'templates')
 templates.env.filters['jalali']=format_jalali
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','ads_enabled':False,'ads_autoplay':True,'ads_loop':True,'ads_interval_seconds':6,'ads_height_dp':142,'ads_items':[],'updated_at':iso_z(utcnow())}
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','ads_enabled':False,'ads_autoplay':True,'ads_loop':True,'ads_interval_seconds':6,'ads_height_dp':146,'ads_items':[],'updated_at':iso_z(utcnow())}
 
 
 def env_bool(name:str,default:bool=False)->bool:
@@ -315,10 +315,26 @@ def _schedule_subscription_provider_repair(order_ids:list[int])->None:
 
 @app.middleware('http')
 async def locale_response_headers(request:Request,call_next):
-    response=await call_next(request)
+    path=request.url.path.rstrip('/') or '/'
+    # Browsers can occasionally keep the URL of an admin POST action after a
+    # slow mobile refresh. Opening that URL with GET used to return raw 405 JSON.
+    # Recover transparently to the dashboard while leaving read-only admin APIs
+    # and the login page untouched.
+    if (
+        request.method in {'GET','HEAD'}
+        and path.startswith('/admin/')
+        and path!='/admin/login'
+        and not path.startswith('/admin/api/')
+    ):
+        response=RedirectResponse('/admin?recovered=1',status_code=302)
+    else:
+        response=await call_next(request)
     response.headers.setdefault('Content-Language','fa-IR')
     response.headers.setdefault('X-BlueVPN-Timezone',TEHRAN_ZONE_NAME)
     response.headers.setdefault('X-BlueVPN-Calendar','jalali')
+    if path.startswith('/admin'):
+        response.headers.setdefault('Cache-Control','no-store, private')
+        response.headers.setdefault('Pragma','no-cache')
     return response
 @app.on_event('startup')
 async def startup():
@@ -435,8 +451,7 @@ def _public_ad_image_url(value:str,s:dict[str,Any])->str:
     if not value:
         return ''
     if value.startswith('/media/ads/'):
-        base=str(s.get('public_base_url') or '').strip().rstrip('/')
-        return f'{base}{value}' if base else value
+        return value
     try:
         return _http_url(value,'لینک تصویر')
     except ValueError:
@@ -474,7 +489,7 @@ def advertising_payload(s:dict[str,Any])->dict[str,Any]:
         'autoplay':bool(s.get('ads_autoplay',True)),
         'loop':bool(s.get('ads_loop',True)),
         'interval_ms':max(3000,min(30000,int(s.get('ads_interval_seconds',6) or 6)*1000)),
-        'height_dp':max(96,min(240,int(s.get('ads_height_dp',142) or 142))),
+        'height_dp':max(116,min(160,int(s.get('ads_height_dp',146) or 146))),
         'items':rows if enabled else [],
     }
 
@@ -3083,7 +3098,7 @@ def admin(request:Request,db:Session=Depends(get_db)):
             'database_info':database_status(),
             'database_counts':database_table_counts(),
             'saved':request.query_params.get('saved')=='1',
-            'manual_message':request.query_params.get('manual',''),
+            'manual_message':request.query_params.get('manual','') or ('صفحه مدیریت پس از رفرش بازیابی شد.' if request.query_params.get('recovered')=='1' else ''),
             'error':request.query_params.get('error',''),
             'github_repository':github_repository(),
             'csrf_token':csrf_token(request),
@@ -3189,7 +3204,7 @@ def admin_ads_settings(
         'ads_autoplay':autoplay=='on',
         'ads_loop':loop=='on',
         'ads_interval_seconds':max(3,min(30,int(interval_seconds or 6))),
-        'ads_height_dp':max(96,min(240,int(height_dp or 142))),
+        'ads_height_dp':max(116,min(160,int(height_dp or 146))),
     })
     save_settings(db,s)
     return RedirectResponse('/admin?saved=1#ads',303)

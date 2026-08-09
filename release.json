@@ -1,5 +1,5 @@
 {
-  "version": "3.0.43",
+  "version": "3.0.46",
   "channel": "mobile-first-admin",
   "build_id": "20260809-mobile-admin-v3043",
   "built_at": "2026-08-09T07:30:00Z",
@@ -317,9 +317,18 @@
     "mobile-table-card-layout",
     "touch-friendly-admin-forms",
     "safe-area-responsive-admin",
-    "mobile-ad-manager-layout"
+    "mobile-ad-manager-layout",
+    "ad-carousel-broken-image-hardening",
+    "local-ad-image-relative-path-support",
+    "ad-carousel-fixed-height",
+    "ad-carousel-20x9-responsive-placement",
+    "ad-carousel-first-frame-safe-render",
+    "ad-image-size-guidance",
+    "admin-post-refresh-recovery",
+    "admin-no-store-cache-headers",
+    "mobile-refresh-405-fix"
   ],
-  "version_code": 30043,
+  "version_code": 30046,
   "notes": "تبلیغات صفحه اصلی اکنون از پنل مدیریت می‌شوند و بدون تبلیغ فعال هیچ فضای خالی در اپ نمایش داده نمی‌شود.",
   "version_source": "in-app-ad-carousel-v3042"
 }

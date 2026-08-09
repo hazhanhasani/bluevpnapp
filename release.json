@@ -3,8 +3,8 @@
   "channel": "stable",
   "build_id": "20260809-db-persistent-ad-assets-v3050",
   "built_at": "2026-08-09T08:10:00Z",
-  "android_version": "3.0.52",
-  "android_version_code": 30052,
+  "android_version": "3.0.54",
+  "android_version_code": 30054,
   "description": "BlueVPN 3.0.50 تصاویر تبلیغات آپلودی را در دیتابیس پایدار ذخیره می‌کند، تصاویر مفقودشده پس از Redeploy را بازیابی می‌کند و از حذف تبلیغ به‌دلیل حافظه موقت Railway جلوگیری می‌کند.",
   "features": [
     "premium-ui-v3",

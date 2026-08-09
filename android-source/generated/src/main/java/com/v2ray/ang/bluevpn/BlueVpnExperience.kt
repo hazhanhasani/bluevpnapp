@@ -142,106 +142,14 @@ object BlueVpnExperience {
     fun healthScore(
         context: Context,
         candidate: BlueVpnLocationUtil.Candidate,
-    ): Int {
-        if (
-            BlueVpnPreferences.isSessionInactive(
-                context,
-                candidate.guid,
-            )
-        ) {
-            return 8
-        }
-
-        val delay = candidate.delay
-        var score = when {
-            delay in 1..35 -> 98
-            delay in 36..60 -> 94
-            delay in 61..90 -> 88
-            delay in 91..130 -> 80
-            delay in 131..180 -> 70
-            delay in 181..250 -> 58
-            delay > 250 -> 42
-            delay < 0 -> 18
-            else -> 55
-        }
-
-        if (
-            BlueVpnPreferences.failedRecently(
-                context,
-                candidate.guid,
-            )
-        ) {
-            score -= 24
-        }
-
-        if (
-            isFavorite(
-                context,
-                candidate.location.key,
-            )
-        ) {
-            score += 4
-        }
-
-        score += when (mode(context)) {
-            BlueVpnConnectionMode.GAMING -> when {
-                delay in 1..50 -> 8
-                delay in 51..85 -> 4
-                delay > 150 -> -12
-                else -> 0
-            }
-
-            BlueVpnConnectionMode.STREAMING -> when {
-                delay in 1..180 -> 5
-                delay > 300 -> -8
-                else -> 0
-            }
-
-            BlueVpnConnectionMode.BALANCED -> 0
-        }
-
-        return BlueVpnAi.combinedScore(
-            context,
-            candidate,
-            score.coerceIn(0, 100),
-        ).coerceIn(0, 100)
-    }
+    ): Int = BlueVpnSmartSelector.score(context, candidate).score
 
     fun candidatePriority(
         context: Context,
         candidate: BlueVpnLocationUtil.Candidate,
     ): Int {
-        var priority = healthScore(context, candidate) * 100
-
-        if (
-            isFavorite(
-                context,
-                candidate.location.key,
-            )
-        ) {
-            priority += when (mode(context)) {
-                BlueVpnConnectionMode.BALANCED -> 450
-                BlueVpnConnectionMode.GAMING -> 180
-                BlueVpnConnectionMode.STREAMING -> 650
-            }
-        }
-
-        priority += when (mode(context)) {
-            BlueVpnConnectionMode.GAMING ->
-                if (candidate.delay in 1..80) 500 else 0
-
-            BlueVpnConnectionMode.STREAMING ->
-                if (candidate.delay in 1..220) 280 else 0
-
-            BlueVpnConnectionMode.BALANCED -> 0
-        }
-
-        priority += BlueVpnAi.priorityBoost(
-            context,
-            candidate,
-        )
-
-        return priority
+        val scored = BlueVpnSmartSelector.score(context, candidate)
+        return scored.score * 100 + scored.confidence
     }
 
     fun qualityLabel(score: Int): String =

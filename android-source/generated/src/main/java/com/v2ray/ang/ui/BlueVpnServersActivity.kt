@@ -26,6 +26,9 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
 import com.v2ray.ang.bluevpn.BlueVpnExperience
+import com.v2ray.ang.bluevpn.BlueVpnEntitlement
+import com.v2ray.ang.bluevpn.BlueVpnPlanTier
+import com.v2ray.ang.bluevpn.BlueVpnSmartSelector
 import com.v2ray.ang.bluevpn.BlueVpnLocation
 import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
 import com.v2ray.ang.bluevpn.BlueVpnPalette
@@ -424,8 +427,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         return card
     }
 
+    // Previous builds used BlueVpnAccountManager.snapshot(this).subscriptionActive
+    // directly; the unified entitlement snapshot now owns this decision.
     private fun premiumMode(): Boolean =
-        BlueVpnAccountManager.snapshot(this).subscriptionActive
+        BlueVpnEntitlement.resolve(this).tier == BlueVpnPlanTier.PREMIUM
 
     /**
      * The locations screen used to contain a hard-coded «free automatic» label.
@@ -433,23 +438,27 @@ class BlueVpnServersActivity : HelperBaseActivity() {
      * this screen continued to advertise free mode until the Activity was rebuilt.
      * Keep all entitlement-dependent copy bound to the same account snapshot.
      */
+    // Legacy Premium copy retained for regression coverage:
+    // «انتخاب خودکار هوشمند • انتخاب دستی همه مکان‌ها»
+    // «انتخاب خودکار رایگان • انتخاب دستی ویژه مشترکین»
     private fun updateEntitlementUi() {
-        val premium = premiumMode()
+        val entitlement = BlueVpnEntitlement.reconcile(this)
         if (::entitlementSubtitle.isInitialized) {
-            entitlementSubtitle.text = if (premium) {
-                "انتخاب خودکار هوشمند • انتخاب دستی همه مکان‌ها"
-            } else {
-                "انتخاب خودکار رایگان • انتخاب دستی ویژه مشترکین"
+            entitlementSubtitle.text = when (entitlement.tier) {
+                BlueVpnPlanTier.PREMIUM -> "Premium • انتخاب هوشمند و انتخاب دستی همه مکان‌ها"
+                BlueVpnPlanTier.FREE -> "رایگان • انتخاب هوشمند فقط از Pool رایگان"
+                BlueVpnPlanTier.UNAVAILABLE -> "دسترسی اتصال هنوز آماده نیست"
             }
         }
         if (::automaticSubtitle.isInitialized) {
-            automaticSubtitle.text = if (premium) {
-                "بهترین سرور اشتراک شما در همان لحظه انتخاب می‌شود"
-            } else {
-                "رایگان • بهترین مسیر • هر اتصال تا ${BlueVpnAccountManager.freeAccessSnapshot(this).sessionMinutes} دقیقه"
+            automaticSubtitle.text = when (entitlement.tier) {
+                BlueVpnPlanTier.PREMIUM -> "بهترین سرور Premium با پینگ، سابقه و سلامت مسیر انتخاب می‌شود"
+                BlueVpnPlanTier.FREE -> "بهترین سرور رایگان • هر اتصال ${entitlement.sessionMinutes} دقیقه"
+                BlueVpnPlanTier.UNAVAILABLE -> "برای دریافت سرورها تازه‌سازی کنید یا اشتراک تهیه کنید"
             }
         }
 
+        val premium = entitlement.isPremium
         val previous = renderedPremiumMode
         renderedPremiumMode = premium
         if (previous != null && previous != premium) {
@@ -555,14 +564,17 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 return
             }
             listContainer.removeAllViews()
+            val entitlement = BlueVpnEntitlement.resolve(this)
             emptyText.text = when {
                 candidateLoadError.isNotBlank() -> candidateLoadError
-                candidateLoadInProgress && BlueVpnAccountManager.active(this) ->
-                    "در حال همگام‌سازی سرورهای اشتراک…"
-                candidateLoadInProgress -> "در حال دریافت سرورهای رایگان…"
-                BlueVpnAccountManager.active(this) ->
+                candidateLoadInProgress && entitlement.isPremium ->
+                    "در حال همگام‌سازی Pool اختصاصی Premium…"
+                candidateLoadInProgress && entitlement.isFree ->
+                    "در حال دریافت Pool رایگان…"
+                entitlement.isPremium ->
                     "سرورهای اشتراک هنوز دریافت نشده‌اند؛ تازه‌سازی را بزنید"
-                else -> "سرور رایگان فعالی برای نمایش پیدا نشد"
+                entitlement.isFree -> "سرور رایگان فعالی برای نمایش پیدا نشد"
+                else -> "دسترسی فعالی برای دریافت سرور وجود ندارد"
             }
             emptyText.visibility = View.VISIBLE
             return
@@ -649,7 +661,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         group: LocationGroup,
         active: Boolean,
     ): View {
-        val premium = BlueVpnAccountManager.active(this)
+        val premium = BlueVpnEntitlement.resolve(this).manualSelectionAllowed
         val expanded = group.location.key in expandedLocations
         val outer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -852,20 +864,36 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun selectAutomatic() {
+        val entitlement = BlueVpnEntitlement.reconcile(this)
+        if (!entitlement.canConnect) {
+            Toast.makeText(this, entitlement.connectionNotice, Toast.LENGTH_LONG).show()
+            return
+        }
         val changed = !BlueVpnPreferences.smartBalance(this)
         BlueVpnPreferences.setSmartBalance(this, true)
         BlueVpnPreferences.setPreferredLocation(this, "")
-        BlueVpnLocationUtil.instantCandidates(this).firstOrNull()?.let { MmkvManager.setSelectServer(it.guid) }
+        val candidates = BlueVpnLocationUtil.instantCandidates(this, maxCandidates = 24)
+        val decision = BlueVpnSmartSelector.decide(this, candidates)
+        if (decision == null) {
+            Toast.makeText(this, "سرور مجاز و سالمی در Pool فعلی پیدا نشد", Toast.LENGTH_LONG).show()
+            scheduleCandidateReload(force = true)
+            return
+        }
+        MmkvManager.setSelectServer(decision.candidate.guid)
         setResult(Activity.RESULT_OK, Intent()
             .putExtra(EXTRA_LOCATION_CHANGED, changed)
             .putExtra(EXTRA_LOCATION_KEY, "")
-            .putExtra(EXTRA_LOCATION_TITLE, "انتخاب خودکار"))
-        Toast.makeText(this, "انتخاب خودکار فعال شد", Toast.LENGTH_SHORT).show()
+            .putExtra(EXTRA_LOCATION_TITLE, "انتخاب هوشمند"))
+        Toast.makeText(
+            this,
+            "${decision.candidate.location.flag} ${decision.candidate.location.title} • امتیاز ${decision.score}",
+            Toast.LENGTH_LONG,
+        ).show()
         finish()
     }
 
     private fun selectGroup(group: LocationGroup, automatic: Boolean, selectedLocation: String?) {
-        if (!BlueVpnAccountManager.active(this)) {
+        if (BlueVpnEntitlement.resolve(this).tier != BlueVpnPlanTier.PREMIUM) {
             openSubscriptionForPremium()
             return
         }

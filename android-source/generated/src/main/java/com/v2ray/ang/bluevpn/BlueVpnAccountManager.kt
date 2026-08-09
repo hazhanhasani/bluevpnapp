@@ -297,6 +297,9 @@ object BlueVpnAccountManager {
     fun active(c: Context) =
         prefs(c).getBoolean("active", false)
 
+    fun entitlement(c: Context): BlueVpnEntitlementSnapshot =
+        BlueVpnEntitlement.resolve(c)
+
     private fun freePrefs(c: Context) =
         c.getSharedPreferences(FREE_PREFS, Context.MODE_PRIVATE)
 
@@ -1764,6 +1767,7 @@ object BlueVpnAccountManager {
             )
             backgroundExecutor.execute { prepareFreeAccess(c, force = false) }
         }
+        BlueVpnEntitlement.reconcile(c)
         return snapshot(c)
     }
 

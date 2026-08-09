@@ -108,5 +108,7 @@
     "stale_decision_guard": true,
     "explainable_score": true,
     "manual_selection_premium_only": true
-  }
+  },
+  "project_version": "3.0.79",
+  "release": "3.0.79"
 }

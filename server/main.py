@@ -2144,10 +2144,22 @@ async def _create_otp_challenge(
             await send_pattern_otp(setting,phone,code)
     except SmsError as exc:
         db.rollback()
-        logger.warning('Faraz SMS OTP send failed phone_hash=%s: %s',phone_key,exc)
+        logger.warning(
+            'Faraz SMS OTP send failed phone_hash=%s transient=%s provider_status=%s: %s',
+            phone_key,
+            bool(getattr(exc,'transient',False)),
+            getattr(exc,'provider_status',None),
+            str(exc),
+        )
+        transient=bool(getattr(exc,'transient',False))
         raise HTTPException(
-            502,
-            detail={'code':'SMS_SEND_FAILED','message':str(exc)[:500]},
+            503 if transient else 502,
+            detail={
+                'code':'SMS_PROVIDER_TEMPORARY_UNAVAILABLE' if transient else 'SMS_SEND_FAILED',
+                'message':str(exc)[:240],
+                'retryable':transient,
+            },
+            headers={'Retry-After':'30'} if transient else None,
         ) from exc
     db.commit()
     return {

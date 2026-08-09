@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -22,11 +23,22 @@ logger = logging.getLogger("bluevpn.sms")
 
 
 class SmsError(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        transient: bool = False,
+        provider_status: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.transient = transient
+        self.provider_status = provider_status
 
 
 _PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
 _RETRY_SECONDS = (60, 300, 900, 1800)
+_PROVIDER_RETRY_DELAYS = (0.6, 1.5)
+_TRANSIENT_PROVIDER_STATUSES = {408, 425, 429, 500, 502, 503, 504}
 
 
 def utcnow() -> datetime:
@@ -127,22 +139,39 @@ def seed_sms_templates(db: Session) -> int:
     return changed
 
 
+def _clean_provider_text(value: Any, fallback: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return fallback
+    lowered = text.lower()
+    if any(marker in lowered for marker in ("<!doctype", "<html", "<body", "cdn-cgi", "error-section__")):
+        return fallback
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:240] or fallback
+
+
 def _error_message(response: httpx.Response) -> str:
+    fallback = "پاسخ نامعتبر از سرویس پیامک دریافت شد"
+    content_type = str(response.headers.get("content-type") or "").lower()
+    if "text/html" in content_type:
+        return fallback
     try:
         payload = response.json()
     except Exception:
-        return response.text[:500] or f"HTTP {response.status_code}"
+        return _clean_provider_text(response.text, fallback)
     meta = payload.get("meta") if isinstance(payload, dict) else None
     if isinstance(meta, dict):
-        message = str(meta.get("message") or "").strip()
+        message = _clean_provider_text(meta.get("message"), "")
         errors = meta.get("errors")
         if message and errors:
-            return f"{message}: {errors}"
+            clean_errors = _clean_provider_text(errors, "")
+            return f"{message}: {clean_errors}"[:240] if clean_errors else message
         if message:
             return message
     if isinstance(payload, dict):
-        return str(payload.get("message") or payload)[:500]
-    return str(payload)[:500]
+        return _clean_provider_text(payload.get("message") or payload.get("error"), fallback)
+    return _clean_provider_text(payload, fallback)
 
 
 def _sender(setting: SmsSetting) -> str:
@@ -204,26 +233,63 @@ async def send_pattern(
         "Authorization": decrypt(setting.api_key_enc).strip(),
         "Content-Type": "application/json",
         "Accept": "application/json",
-        "User-Agent": "BluePanel-SMS/2",
+        "User-Agent": "BluePanel-SMS/3",
     }
-    try:
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(15.0, connect=8.0),
-            verify=bool(setting.verify_tls),
-        ) as client:
-            response = await client.post(endpoint, json=payload, headers=headers)
-    except httpx.HTTPError as exc:
-        raise SmsError(f"ارتباط با فراز اس‌ام‌اس ناموفق بود: {exc}") from exc
-    if not 200 <= response.status_code < 300:
-        raise SmsError(f"فراز اس‌ام‌اس HTTP {response.status_code}: {_error_message(response)}")
-    try:
-        data = response.json()
-    except Exception as exc:
-        raise SmsError("پاسخ فراز اس‌ام‌اس JSON معتبر نبود") from exc
-    meta = data.get("meta") if isinstance(data, dict) else None
-    if isinstance(meta, dict) and meta.get("status") is False:
-        raise SmsError(_error_message(response))
-    return data if isinstance(data, dict) else {"data": data}
+
+    attempts = len(_PROVIDER_RETRY_DELAYS) + 1
+    async with httpx.AsyncClient(
+        timeout=httpx.Timeout(15.0, connect=8.0),
+        verify=bool(setting.verify_tls),
+        follow_redirects=True,
+    ) as client:
+        for attempt in range(attempts):
+            try:
+                response = await client.post(endpoint, json=payload, headers=headers)
+            except httpx.HTTPError as exc:
+                if attempt < attempts - 1:
+                    await asyncio.sleep(_PROVIDER_RETRY_DELAYS[attempt])
+                    continue
+                logger.warning("FarazSMS transport failed after retries: %s", exc.__class__.__name__)
+                raise SmsError(
+                    "ارتباط با سامانه پیامک موقتاً برقرار نشد؛ چند لحظه دیگر دوباره تلاش کنید.",
+                    transient=True,
+                ) from exc
+
+            if response.status_code in _TRANSIENT_PROVIDER_STATUSES:
+                if attempt < attempts - 1:
+                    await asyncio.sleep(_PROVIDER_RETRY_DELAYS[attempt])
+                    continue
+                logger.warning(
+                    "FarazSMS transient HTTP failure status=%s content_type=%s",
+                    response.status_code,
+                    response.headers.get("content-type", ""),
+                )
+                raise SmsError(
+                    "سامانه پیامک موقتاً پاسخ‌گو نیست؛ چند لحظه دیگر دوباره تلاش کنید.",
+                    transient=True,
+                    provider_status=response.status_code,
+                )
+
+            if not 200 <= response.status_code < 300:
+                if response.status_code in {401, 403}:
+                    public_message = "کلید API فراز اس‌ام‌اس معتبر نیست یا دسترسی ارسال پیامک ندارد."
+                else:
+                    public_message = _error_message(response)
+                raise SmsError(public_message, provider_status=response.status_code)
+
+            try:
+                data = response.json()
+            except Exception as exc:
+                raise SmsError("پاسخ معتبر از سامانه پیامک دریافت نشد.") from exc
+            meta = data.get("meta") if isinstance(data, dict) else None
+            if isinstance(meta, dict) and meta.get("status") is False:
+                raise SmsError(_error_message(response))
+            return data if isinstance(data, dict) else {"data": data}
+
+    raise SmsError(
+        "سامانه پیامک موقتاً پاسخ‌گو نیست؛ چند لحظه دیگر دوباره تلاش کنید.",
+        transient=True,
+    )
 
 
 async def send_pattern_otp(setting: SmsSetting, phone: str, code: str) -> dict[str, Any]:

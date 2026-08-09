@@ -445,13 +445,20 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 bottomMargin = dpHome(12)
             },
         )
+        // Compact campaign banner: directly below the connection control and
+        // immediately above server selection, matching the primary user flow.
         adsCarousel = BlueVpnAdsCarouselView(this)
         content.addView(
             adsCarousel,
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-            ).apply { bottomMargin = dpHome(10) },
+                0,
+            ).apply {
+                marginStart = dpHome(4)
+                marginEnd = dpHome(4)
+                topMargin = dpHome(2)
+                bottomMargin = dpHome(10)
+            },
         )
         content.addView(
             createServerCard(),

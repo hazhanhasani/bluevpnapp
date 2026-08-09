@@ -1,11 +1,11 @@
 {
-  "version": "3.0.59",
+  "version": "3.0.60",
   "channel": "stable",
-  "build_id": "20260809-admin-sms-catalog-context-v3059",
-  "built_at": "2026-08-09T14:30:00Z",
-  "android_version": "3.0.59",
-  "android_version_code": 30059,
-  "description": "BlueVPN 3.0.59 خطای 500 پنل مدیریت پس از افزودن همگام‌سازی خطوط و پترن‌های فراز اس‌ام‌اس را رفع می‌کند؛ داده‌های کاتالوگ پیش از رندر قالب مقداردهی می‌شوند.",
+  "build_id": "20260809-farazsms-all-pattern-pages-v3060",
+  "built_at": "2026-08-09T15:10:00Z",
+  "android_version": "3.0.60",
+  "android_version_code": 30060,
+  "description": "BlueVPN 3.0.60 تمام صفحات فهرست پترن‌های فراز اس‌ام‌اس را دریافت می‌کند و محدودیت نمایش ۱۵ پترن اول را برطرف می‌سازد.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -378,9 +378,12 @@
     "farazsms-selection-validation",
     "admin-sms-catalog-context-initialization",
     "admin-dashboard-render-regression-test",
-    "farazsms-catalog-empty-safe-render"
+    "farazsms-catalog-empty-safe-render",
+    "farazsms-complete-pattern-pagination",
+    "farazsms-pattern-deduplication",
+    "farazsms-pagination-loop-guard"
   ],
-  "version_code": 30059,
-  "notes": "رفع Internal Server Error پنل مدیریت و افزودن تست واقعی بازشدن داشبورد پس از ورود.",
-  "version_source": "admin-sms-catalog-context-fix-v3059"
+  "version_code": 30060,
+  "notes": "رفع محدودیت ۱۵تایی همگام‌سازی پترن‌ها با صفحه‌بندی کامل، حذف موارد تکراری و محافظ حلقه بی‌نهایت.",
+  "version_source": "farazsms-pattern-pagination-v3060"
 }

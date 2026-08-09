@@ -486,20 +486,161 @@ async def fetch_accessible_lines(setting: SmsSetting) -> list[dict[str, Any]]:
     return lines
 
 
+def _provider_pagination_sections(payload: Any) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    if isinstance(payload, dict):
+        sections.append(payload)
+        for key in ("meta", "pagination", "pager", "page_info", "pageInfo", "links"):
+            value = payload.get(key)
+            if isinstance(value, dict):
+                sections.append(value)
+        data = payload.get("data")
+        if isinstance(data, dict):
+            sections.append(data)
+            for key in ("meta", "pagination", "pager", "page_info", "pageInfo", "links"):
+                value = data.get(key)
+                if isinstance(value, dict):
+                    sections.append(value)
+    return sections
+
+
+def _provider_positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _provider_next_page(
+    payload: Any,
+    *,
+    requested_page: int,
+    page_pattern_count: int,
+    first_page_count: int,
+) -> int | None:
+    sections = _provider_pagination_sections(payload)
+
+    # Laravel-style and common REST pagination metadata. FarazSMS currently
+    # defaults to 15 rows per page, so relying on the first response silently
+    # truncates accounts with more patterns.
+    for section in sections:
+        current = None
+        last = None
+        for key in ("current_page", "currentPage", "page", "page_number", "pageNumber"):
+            current = _provider_positive_int(section.get(key))
+            if current:
+                break
+        for key in ("last_page", "lastPage", "total_pages", "totalPages", "pages"):
+            last = _provider_positive_int(section.get(key))
+            if last:
+                break
+        if last is not None:
+            current = current or requested_page
+            return current + 1 if current < last else None
+
+        total = None
+        per_page = None
+        for key in ("total", "total_count", "totalCount", "count"):
+            total = _provider_positive_int(section.get(key))
+            if total:
+                break
+        for key in ("per_page", "perPage", "page_size", "pageSize", "limit"):
+            per_page = _provider_positive_int(section.get(key))
+            if per_page:
+                break
+        if total is not None and per_page is not None:
+            current = current or requested_page
+            return current + 1 if current * per_page < total else None
+
+        for key in ("next_page", "nextPage"):
+            if key in section:
+                return _provider_positive_int(section.get(key))
+
+        for key in ("next_page_url", "nextPageUrl", "next"):
+            if key not in section:
+                continue
+            value = section.get(key)
+            if value in (None, "", False):
+                return None
+            numeric = _provider_positive_int(value)
+            if numeric:
+                return numeric
+            match = re.search(r"(?:[?&]page=)(\d+)", str(value))
+            if match:
+                return int(match.group(1))
+
+    # Some deployments omit pagination metadata. Continue while a full page is
+    # returned and stop on a short/empty page. A duplicate-page guard in the
+    # caller prevents an endless loop if the provider ignores `page`.
+    if page_pattern_count <= 0:
+        return None
+    # The provider's observed/default page size is 15. A first page shorter
+    # than that is already complete even when pagination metadata is omitted.
+    if first_page_count < 15:
+        return None
+    if page_pattern_count < first_page_count:
+        return None
+    return requested_page + 1
+
+
 async def fetch_active_patterns(setting: SmsSetting) -> list[dict[str, Any]]:
-    filters = {
+    base_filters: dict[str, Any] = {
         "status": "active",
+        # Keep the historical typo for compatibility with older FarazSMS
+        # gateways that documented/accepted it.
         "staus": "active",
         "sort_by": "updated_at",
         "sort_type": "desc",
+        "per_page": 100,
     }
-    payload = await _provider_catalog_request(
-        setting,
-        "/patterns",
-        params=filters,
-        json_body=filters,
+    found: dict[str, dict[str, Any]] = {}
+    page = 1
+    first_page_count = 0
+
+    # 100 pages is a defensive ceiling (up to thousands of patterns) and keeps
+    # a malformed provider response from creating an infinite sync request.
+    for _ in range(100):
+        filters = dict(base_filters)
+        filters["page"] = page
+        payload = await _provider_catalog_request(
+            setting,
+            "/patterns",
+            params=filters,
+        )
+        page_patterns = parse_provider_patterns(payload)
+        if page == 1:
+            first_page_count = len(page_patterns)
+
+        before = len(found)
+        for item in page_patterns:
+            code = str(item.get("code") or "").strip()
+            if code:
+                found[code] = item
+        added = len(found) - before
+
+        next_page = _provider_next_page(
+            payload,
+            requested_page=page,
+            page_pattern_count=len(page_patterns),
+            first_page_count=first_page_count,
+        )
+        if next_page is None:
+            break
+        if page > 1 and added == 0:
+            # The API ignored the page parameter and returned the first page
+            # again. Stop safely instead of looping forever.
+            break
+        if next_page <= page:
+            break
+        page = next_page
+
+    patterns = sorted(
+        found.values(),
+        key=lambda item: (str(item.get("title") or item.get("text") or ""), str(item.get("code") or "")),
     )
-    patterns = parse_provider_patterns(payload)
     if not patterns:
         raise SmsError(
             "هیچ پترن فعال قابل‌استفاده‌ای برای این API Key پیدا نشد؛ وضعیت پترن‌ها را در فراز اس‌ام‌اس بررسی کنید."

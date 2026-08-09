@@ -8,10 +8,10 @@ BOT = ROOT / "server" / "deploy_bot_runtime.py"
 def test_release_version_331():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding" / "app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.59"
-    assert release["version_code"] == 30059
-    assert app["version_name"] == "3.0.59"
-    assert app["version_code"] == 30059
+    assert release["version"] == "3.0.60"
+    assert release["version_code"] == 30060
+    assert app["version_name"] == "3.0.60"
+    assert app["version_code"] == 30060
 
 
 def test_bot_has_manual_and_automatic_unlock_paths():

@@ -247,6 +247,7 @@ object BlueVpnPreferences {
 object BlueVpnLocationUtil {
 
     private const val CANDIDATE_CACHE_TTL_MS = 60_000L
+    private const val CONTEXT_STALE_GRACE_MS = 120_000L
 
     @Volatile
     private var candidateCacheAt = 0L
@@ -262,6 +263,9 @@ object BlueVpnLocationUtil {
 
     @Volatile
     private var contextCandidateCacheKey: String = ""
+
+    @Volatile
+    private var contextCandidateCacheDirty = false
 
     private val identityCache = ConcurrentHashMap<String, String>()
     private val compatibilityCache = ConcurrentHashMap<String, String>()
@@ -683,18 +687,17 @@ private fun unknownLocation(): BlueVpnLocation =
         synchronized(this) {
             candidateCacheAt = 0L
             candidateCache = emptyList()
-            contextCandidateCacheAt = 0L
-            contextCandidateCache = emptyList()
-            contextCandidateCacheKey = ""
+            // Keep the last non-empty context cache visible while a refresh is
+            // running. The stable entitlement identity prevents a previous Free
+            // or Premium pool from leaking into a different account mode.
+            contextCandidateCacheDirty = true
             compatibilityCache.clear()
         }
     }
 
     fun invalidateResolvedCache() {
         synchronized(this) {
-            contextCandidateCacheAt = 0L
-            contextCandidateCache = emptyList()
-            contextCandidateCacheKey = ""
+            contextCandidateCacheDirty = true
         }
     }
 
@@ -746,14 +749,18 @@ private fun unknownLocation(): BlueVpnLocation =
      * warm or refresh the cache.
      */
     fun cachedCandidates(context: Context): List<Candidate> {
-        val cacheKey = BlueVpnAccountManager.entitlementPoolFingerprint(context)
+        // BlueVpnAccountManager.entitlementPoolFingerprint(context) used to include
+        // transient server GUIDs and is intentionally not the visible-cache key.
+        val cacheKey = BlueVpnAccountManager.entitlementIdentityFingerprint(context)
         val cached = contextCandidateCache
-        // Stale-while-revalidate: keep rendering the last pool while a background
-        // refresh runs, but only when the entitlement fingerprint is unchanged.
-        // A free→Premium transition immediately invalidates the old free pool.
+        val age = SystemClock.elapsedRealtime() - contextCandidateCacheAt
+        // Stale-while-revalidate: keep the last non-empty list visible for the
+        // same entitlement while v2rayNG clears and repopulates MMKV. A Free →
+        // Premium or URL change produces a different identity and is never shown.
         return if (
             contextCandidateCacheAt > 0L &&
-            contextCandidateCacheKey == cacheKey
+            contextCandidateCacheKey == cacheKey &&
+            age in 0L..CONTEXT_STALE_GRACE_MS
         ) cached else emptyList()
     }
 
@@ -764,9 +771,15 @@ private fun unknownLocation(): BlueVpnLocation =
         forceRefresh: Boolean = false,
     ): List<Candidate> {
         val now = SystemClock.elapsedRealtime()
-        val cacheKey = BlueVpnAccountManager.entitlementPoolFingerprint(context)
+        val cacheKey = BlueVpnAccountManager.entitlementIdentityFingerprint(context)
+        val previous = if (
+            contextCandidateCacheAt > 0L &&
+            contextCandidateCacheKey == cacheKey &&
+            now - contextCandidateCacheAt < CONTEXT_STALE_GRACE_MS
+        ) contextCandidateCache else emptyList()
         if (
             !forceRefresh &&
+            !contextCandidateCacheDirty &&
             contextCandidateCacheAt > 0L &&
             contextCandidateCacheKey == cacheKey &&
             now - contextCandidateCacheAt < CANDIDATE_CACHE_TTL_MS
@@ -812,10 +825,20 @@ private fun unknownLocation(): BlueVpnLocation =
                 val location = locationForCountryCode(resolvedCode) ?: candidate.location
                 if (location == candidate.location) candidate else candidate.copy(location = location)
             }
+        if (resolved.isEmpty() && previous.isNotEmpty()) {
+            // Never let a transient empty import replace a healthy visible pool.
+            // A later MMKV broadcast will retry; until then the engine guard still
+            // validates every selected GUID against the current entitlement.
+            synchronized(this) {
+                contextCandidateCacheDirty = true
+            }
+            return previous
+        }
         synchronized(this) {
             contextCandidateCache = resolved
             contextCandidateCacheAt = SystemClock.elapsedRealtime()
             contextCandidateCacheKey = cacheKey
+            contextCandidateCacheDirty = false
         }
         return resolved
     }

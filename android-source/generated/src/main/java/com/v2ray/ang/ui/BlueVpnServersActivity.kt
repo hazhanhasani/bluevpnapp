@@ -190,6 +190,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
         candidateLoadInProgress = true
         candidateLoadError = ""
+        val requestIdentity = BlueVpnAccountManager.entitlementIdentityFingerprint(this)
         val requestedForce = force || candidateReloadPending
         candidateReloadPending = false
         renderLocations()
@@ -226,6 +227,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 candidateLoadInProgress = false
                 stopRefreshing()
                 if (isFinishing || isDestroyed) return@withContext
+
+                val currentIdentity = BlueVpnAccountManager
+                    .entitlementIdentityFingerprint(this@BlueVpnServersActivity)
+                if (requestIdentity != currentIdentity) {
+                    scheduleCandidateReload(force = true)
+                    return@withContext
+                }
 
                 val loaded = result.getOrDefault(emptyList())
                 candidateLoadError = result.exceptionOrNull()?.let {
@@ -319,10 +327,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 isEnabled = false
                 text = "در حال بررسی"
                 entitlementRepairAttempted = false
+                // One owner for the refresh pipeline. Running account sync, MMKV
+                // import, candidate decode and ping simultaneously caused the list
+                // to appear and disappear as each job published a different state.
                 refreshEntitlementState(force = true)
-                loadCandidates(force = true, selectAutomaticAfterLoad = true)
-                mainViewModel.reloadServerList()
-                mainViewModel.testAllRealPing()
                 syncDetectedLocations(force = true)
                 renderHandler.removeCallbacks(refreshTimeoutRunnable)
                 renderHandler.postDelayed(refreshTimeoutRunnable, 12_000L)
@@ -534,13 +542,19 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             isFinishing ||
             isDestroyed
         ) return
-        listContainer.removeAllViews()
-
         val automatic = BlueVpnPreferences.smartBalance(this)
         val preferred = BlueVpnPreferences.preferredLocation(this)
         val selected = MmkvManager.getSelectServer()
         val candidates = BlueVpnLocationUtil.cachedCandidates(this)
         if (candidates.isEmpty()) {
+            // Do not destroy already rendered rows while an entitlement import is
+            // temporarily between clear and repopulate. The cache layer will
+            // replace them atomically when the new non-empty snapshot is ready.
+            if (candidateLoadInProgress && listContainer.childCount > 0) {
+                emptyText.visibility = View.GONE
+                return
+            }
+            listContainer.removeAllViews()
             emptyText.text = when {
                 candidateLoadError.isNotBlank() -> candidateLoadError
                 candidateLoadInProgress && BlueVpnAccountManager.active(this) ->
@@ -553,6 +567,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             emptyText.visibility = View.VISIBLE
             return
         }
+        listContainer.removeAllViews()
         val selectedLocation = candidates.firstOrNull { it.guid == selected }?.location?.key
         val recentKeys = BlueVpnExperience.history(this).map { it.locationKey }.distinct()
         val recentIndex = recentKeys.withIndex().associate { it.value to it.index }

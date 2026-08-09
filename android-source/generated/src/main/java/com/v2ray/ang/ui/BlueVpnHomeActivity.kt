@@ -142,6 +142,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var liveLocationSwitch = false
     private var switchTargetTitle = ""
     private var accountSyncInProgress = false
+    private var accountSyncForcePending = false
+    private var lastForegroundAccountSyncAt = 0L
     private var userDisconnecting = false
     private var navigationLocked = false
     private var lastHistoryGuid = ""
@@ -1784,14 +1786,19 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
 
         scheduleStartupPipeline()
-        if (
-            BlueVpnAccountManager.hasSession(this) &&
-            startupOptimizationShown &&
-            !BlueVpnAccountManager.snapshot(this).subscriptionActive
-        ) {
-            handler.postDelayed({
-                if (!isFinishing && !isDestroyed) syncManagedAccount(force = false)
-            }, BlueVpnPerformance.accountSyncDelayMs(this))
+        if (BlueVpnAccountManager.hasSession(this)) {
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastForegroundAccountSyncAt > 2_000L) {
+                lastForegroundAccountSyncAt = now
+                // Manual admin activation and completed payments must become
+                // visible without logging out. A forced foreground refresh is
+                // cheap and also reconciles the free/premium server sources.
+                handler.postDelayed({
+                    if (!isFinishing && !isDestroyed) {
+                        syncManagedAccount(force = true)
+                    }
+                }, 280L)
+            }
         }
 
         handler.post {
@@ -3760,8 +3767,12 @@ private fun dpHome(value: Int): Int =
 
     private fun syncManagedAccount(force: Boolean) {
         if (!BlueVpnAccountManager.hasSession(this)) return
-        if (accountSyncInProgress) return
+        if (accountSyncInProgress) {
+            accountSyncForcePending = accountSyncForcePending || force
+            return
+        }
 
+        val before = BlueVpnAccountManager.snapshot(this)
         accountSyncInProgress = true
         lifecycleScope.launch(Dispatchers.IO) {
             val result = BlueVpnAccountManager.sync(
@@ -3771,10 +3782,17 @@ private fun dpHome(value: Int): Int =
             withContext(Dispatchers.Main) {
                 accountSyncInProgress = false
 
-                result.onSuccess {
+                result.onSuccess { after ->
+                    val entitlementChanged =
+                        before.subscriptionActive != after.subscriptionActive ||
+                            before.subscriptionUrl != after.subscriptionUrl ||
+                            before.status != after.status ||
+                            before.expire != after.expire
+                    BlueVpnLocationUtil.invalidateCache()
                     mainViewModel.reloadServerList()
-                    requestDashboardRefresh()
+                    requestDashboardRefresh(force = true)
                     refreshSubscriptionInfo(force = true)
+                    warmCandidatesThenRefresh(force = entitlementChanged || force)
                 }.onFailure {
                     refreshSubscriptionInfo(force = true)
 
@@ -3783,6 +3801,16 @@ private fun dpHome(value: Int): Int =
                         )
                     ) {
                         openAccount()
+                    }
+                }
+
+                if (accountSyncForcePending &&
+                    BlueVpnAccountManager.hasSession(this@BlueVpnHomeActivity)) {
+                    accountSyncForcePending = false
+                    handler.post {
+                        if (!isFinishing && !isDestroyed) {
+                            syncManagedAccount(force = true)
+                        }
                     }
                 }
             }

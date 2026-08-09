@@ -48,10 +48,13 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   if(returnedOrder.isNotBlank()){closeCheckoutAfterReturn(returnedOrder)}
   if(firstResume){
    firstResume=false
-   if(returnedOrder.isBlank()&&BlueVpnAccountManager.hasSession(this)){
-    handler.postDelayed({if(!isFinishing&&!isDestroyed)sync(false)},450L)
-   }
   }else if(BlueVpnAccountManager.hasSession(this)!=renderedSessionState){render()}
+  if(returnedOrder.isBlank()&&BlueVpnAccountManager.hasSession(this)){
+   // Always refresh after returning to this screen. Manual activation and
+   // successful payment must not require logout/login to invalidate the old
+   // entitlement and server cache.
+   handler.postDelayed({if(!isFinishing&&!isDestroyed)sync(true)},320L)
+  }
   handler.removeCallbacks(poll)
   handler.post(poll)
  }
@@ -519,7 +522,7 @@ private fun loadPlans(generation:Int){
     if(isFinishing||isDestroyed)return@withContext
     r.onSuccess{after->
      val materiallyChanged=before!=after
-     if(materiallyChanged&&currentFocus !is EditText)render()
+     if((materiallyChanged||force)&&currentFocus !is EditText)render()
     }.onFailure{
      if(!BlueVpnAccountManager.hasSession(this@BlueVpnSubscriptionsActivity))render()
      else if(force)status.text=it.message?:"خطای همگام‌سازی"

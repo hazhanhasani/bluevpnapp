@@ -281,13 +281,13 @@ object BlueVpnLocationUtil {
     )
 
     private val rules = listOf(
-        rule("ca", "کانادا", "🇨🇦", "ca", "can", "canada", "کانادا", "toronto", "montreal", "vancouver"),
-        rule("de", "آلمان", "🇩🇪", "de", "ger", "germany", "deutschland", "آلمان", "frankfurt", "berlin"),
-        rule("nl", "هلند", "🇳🇱", "nl", "nld", "netherlands", "holland", "هلند", "amsterdam"),
+        rule("ca", "کانادا", "🇨🇦", "ca", "can", "canada", "کانادا", "toronto", "montreal", "vancouver", "quebec"),
+        rule("de", "آلمان", "🇩🇪", "de", "ger", "germany", "deutschland", "آلمان", "frankfurt", "berlin", "nuremberg", "falkenstein", "dusseldorf", "düsseldorf", "munich", "hamburg"),
+        rule("nl", "هلند", "🇳🇱", "nl", "nld", "netherlands", "holland", "هلند", "amsterdam", "rotterdam", "dronten", "meppel"),
         rule("fi", "فنلاند", "🇫🇮", "fi", "fin", "finland", "فنلاند", "helsinki"),
-        rule("fr", "فرانسه", "🇫🇷", "fr", "fra", "france", "فرانسه", "paris"),
-        rule("gb", "انگلیس", "🇬🇧", "gb", "uk", "united kingdom", "england", "انگلیس", "britain", "london"),
-        rule("us", "آمریکا", "🇺🇸", "us", "usa", "united states", "america", "آمریکا", "new york", "los angeles", "miami"),
+        rule("fr", "فرانسه", "🇫🇷", "fr", "fra", "france", "فرانسه", "paris", "marseille", "gravelines", "strasbourg", "roubaix", "lyon", "lille"),
+        rule("gb", "انگلیس", "🇬🇧", "gb", "uk", "united kingdom", "england", "انگلیس", "britain", "london", "manchester", "coventry"),
+        rule("us", "آمریکا", "🇺🇸", "us", "usa", "united states", "america", "آمریکا", "new york", "los angeles", "miami", "dallas", "chicago", "seattle", "ashburn", "phoenix"),
         rule("tr", "ترکیه", "🇹🇷", "tr", "tur", "turkey", "türkiye", "ترکیه", "istanbul"),
         rule("ae", "امارات", "🇦🇪", "ae", "uae", "united arab emirates", "امارات", "dubai"),
         rule("se", "سوئد", "🇸🇪", "se", "swe", "sweden", "سوئد", "stockholm"),
@@ -386,8 +386,34 @@ object BlueVpnLocationUtil {
         return " $source ".contains(" $normalizedPhrase ")
     }
 
+    private fun countryCodeFromFlag(value: String): String? {
+        var index = 0
+        while (index < value.length) {
+            val first = Character.codePointAt(value, index)
+            val firstSize = Character.charCount(first)
+            val secondIndex = index + firstSize
+            if (secondIndex < value.length) {
+                val second = Character.codePointAt(value, secondIndex)
+                if (
+                    first in 0x1F1E6..0x1F1FF &&
+                    second in 0x1F1E6..0x1F1FF
+                ) {
+                    val firstLetter = ('a'.code + first - 0x1F1E6).toChar()
+                    val secondLetter = ('a'.code + second - 0x1F1E6).toChar()
+                    return "${firstLetter}${secondLetter}"
+                }
+            }
+            index += firstSize
+        }
+        return null
+    }
+
     private fun detectKnown(remarks: String): BlueVpnLocation? {
         if (remarks.isBlank()) return null
+
+        countryCodeFromFlag(remarks)
+            ?.let(::locationForCountryCode)
+            ?.let { return it }
 
         rules.firstOrNull { rule ->
             rule.flags.any { remarks.contains(it) }
@@ -677,7 +703,28 @@ private fun unknownLocation(): BlueVpnLocation =
             .map { candidate ->
                 val configKey = serverIdentity(candidate.profile)
                 val verified = BlueVpnPreferences.verifiedCountryKey(context, configKey)
-                val location = locationForCountryCode(verified) ?: candidate.location
+                if (
+                    verified.isBlank() &&
+                    candidate.location.key != "unknown"
+                ) {
+                    // A visible country name, city alias, flag or country-code
+                    // hostname is already strong evidence. Persist it locally
+                    // immediately so a known route never remains under
+                    // «در حال شناسایی», then share it with the cloud when the
+                    // user has an account.
+                    BlueVpnPreferences.markVerifiedCountryKey(
+                        context,
+                        configKey,
+                        candidate.location.key,
+                    )
+                    reportVerifiedCountry(
+                        context.applicationContext,
+                        configKey,
+                        candidate.location.key,
+                    )
+                }
+                val resolvedCode = verified.ifBlank { candidate.location.key }
+                val location = locationForCountryCode(resolvedCode) ?: candidate.location
                 if (location == candidate.location) candidate else candidate.copy(location = location)
             }
         synchronized(this) {

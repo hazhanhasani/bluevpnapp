@@ -3,6 +3,7 @@ package com.v2ray.ang.ui
 import android.animation.ValueAnimator
 import android.app.Dialog
 import android.content.ComponentCallbacks2
+import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Canvas
@@ -25,6 +26,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.AccelerateDecelerateInterpolator
+import android.view.animation.LinearInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -149,6 +151,13 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var candidateWarmupInProgress = false
     private var freePreparationInProgress = false
 
+    private lateinit var freeTimerBadge: TextView
+    private lateinit var connectingOverlay: FrameLayout
+    private lateinit var connectingGlobe: ConnectingGlobeView
+    private lateinit var connectingTitle: TextView
+    private lateinit var connectingCaption: TextView
+    private lateinit var connectingLocation: TextView
+
     private var startupOptimizationShown = false
     private var startupOptimizationActive = false
     private var startupServerTestStarted = false
@@ -231,7 +240,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                     Toast.LENGTH_LONG,
                 ).show()
             }
-            handler.postDelayed(this, 15_000L)
+            updateFreeTimerBadge()
+            handler.postDelayed(this, 1_000L)
         }
     }
 
@@ -373,6 +383,92 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
     }
 
+    private class ConnectingGlobeView(
+        context: Context,
+        private val lowEnd: Boolean,
+    ) : View(context) {
+        private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+        }
+        private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textAlign = Paint.Align.CENTER
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD_ITALIC)
+        }
+        private var accent = Color.parseColor("#3978FF")
+        private var phase = 0f
+        private var animator: ValueAnimator? = null
+
+        fun setAccent(color: Int) {
+            accent = color
+            invalidate()
+        }
+
+        fun start() {
+            if (lowEnd || animator?.isRunning == true) {
+                invalidate()
+                return
+            }
+            animator = ValueAnimator.ofFloat(0f, 360f).apply {
+                duration = 2_400L
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                addUpdateListener {
+                    phase = it.animatedValue as Float
+                    invalidate()
+                }
+                start()
+            }
+        }
+
+        fun stop() {
+            animator?.cancel()
+            animator = null
+        }
+
+        override fun onDetachedFromWindow() {
+            stop()
+            super.onDetachedFromWindow()
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val side = width.coerceAtMost(height).toFloat()
+            val cx = width / 2f
+            val cy = height / 2f
+            val radius = side * 0.39f
+
+            fill.color = Color.argb(22, Color.red(accent), Color.green(accent), Color.blue(accent))
+            canvas.drawCircle(cx, cy, radius * 1.22f, fill)
+
+            stroke.color = Color.argb(205, Color.red(accent), Color.green(accent), Color.blue(accent))
+            stroke.strokeWidth = side * 0.015f
+            canvas.drawCircle(cx, cy, radius, stroke)
+            canvas.drawOval(cx - radius * 0.46f, cy - radius, cx + radius * 0.46f, cy + radius, stroke)
+            canvas.drawOval(cx - radius, cy - radius * 0.42f, cx + radius, cy + radius * 0.42f, stroke)
+
+            stroke.color = Color.argb(120, 255, 255, 255)
+            stroke.strokeWidth = side * 0.008f
+            canvas.drawArc(
+                cx - radius * 1.08f, cy - radius * 1.08f,
+                cx + radius * 1.08f, cy + radius * 1.08f,
+                phase, 82f, false, stroke,
+            )
+            val angle = Math.toRadians(phase.toDouble())
+            val dotX = cx + kotlin.math.cos(angle).toFloat() * radius * 1.08f
+            val dotY = cy + kotlin.math.sin(angle).toFloat() * radius * 1.08f
+            fill.color = Color.WHITE
+            canvas.drawCircle(dotX, dotY, side * 0.022f, fill)
+
+            label.color = Color.WHITE
+            label.textSize = side * 0.105f
+            canvas.drawText("BlueVPN", cx, cy + label.textSize * 0.34f, label)
+        }
+    }
+
     private class HeaderGlyphView(
         context: android.content.Context,
         private val kind: String,
@@ -503,6 +599,15 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             ).apply { topMargin = dpHome(10) },
         )
         content.addView(createCompatibilityFields())
+
+        connectingOverlay = createConnectingOverlay()
+        root.addView(
+            connectingOverlay,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
         return root
     }
 
@@ -526,12 +631,149 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 marginStart = dpHome(8)
             },
         )
+        freeTimerBadge = uiText(
+            "رایگان 60:00",
+            9.5f,
+            palette.textPrimary,
+            bold = true,
+            gravity = Gravity.CENTER,
+        ).apply {
+            visibility = View.GONE
+            maxLines = 1
+            background = roundedGradient(
+                intArrayOf(palette.surfaceStrong, palette.surface),
+                15,
+                palette.accent,
+            )
+            setPadding(dpHome(8), 0, dpHome(8), 0)
+        }
+        row.addView(
+            freeTimerBadge,
+            LinearLayout.LayoutParams(dpHome(86), dpHome(38)).apply {
+                marginStart = dpHome(6)
+            },
+        )
         row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         row.addView(
             headerIcon("account", R.id.bluevpn_action_subscription, "حساب و اشتراک"),
             LinearLayout.LayoutParams(dpHome(48), dpHome(48)),
         )
         return row
+    }
+
+    private fun createConnectingOverlay(): FrameLayout {
+        val overlay = FrameLayout(this).apply {
+            visibility = View.GONE
+            isClickable = true
+            isFocusable = true
+            setBackgroundColor(palette.background)
+        }
+        overlay.addView(
+            BlueVpnDynamicBackgroundView(this),
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(dpHome(24), dpHome(28), dpHome(24), dpHome(24))
+        }
+        overlay.addView(
+            body,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            ),
+        )
+
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        top.addView(
+            MaterialButton(this).apply {
+                text = "لغو"
+                textSize = 11f
+                isAllCaps = false
+                insetTop = 0
+                insetBottom = 0
+                cornerRadius = dpHome(16)
+                setTextColor(palette.textSecondary)
+                backgroundTintList = ColorStateList.valueOf(palette.surfaceStrong)
+                strokeColor = ColorStateList.valueOf(palette.stroke)
+                strokeWidth = dpHome(1)
+                setOnClickListener { stopConnectionImmediately() }
+            },
+            LinearLayout.LayoutParams(dpHome(82), dpHome(44)),
+        )
+        top.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        top.addView(
+            uiText("BlueVPN", 14f, palette.accent, bold = true, gravity = Gravity.CENTER),
+            LinearLayout.LayoutParams(dpHome(100), dpHome(44)),
+        )
+        body.addView(top, LinearLayout.LayoutParams(-1, dpHome(48)))
+
+        body.addView(View(this), LinearLayout.LayoutParams(1, 0, 0.30f))
+
+        connectingGlobe = ConnectingGlobeView(
+            this,
+            BlueVpnPerformance.isLowEnd(this),
+        ).apply { setAccent(palette.accent) }
+        body.addView(
+            connectingGlobe,
+            LinearLayout.LayoutParams(dpHome(226), dpHome(226)),
+        )
+
+        connectingTitle = uiText(
+            "در حال اتصال",
+            22f,
+            palette.textPrimary,
+            bold = true,
+            gravity = Gravity.CENTER,
+        )
+        body.addView(
+            connectingTitle,
+            LinearLayout.LayoutParams(-1, dpHome(42)).apply { topMargin = dpHome(12) },
+        )
+
+        connectingLocation = uiText(
+            "انتخاب خودکار",
+            14f,
+            palette.accent,
+            bold = true,
+            gravity = Gravity.CENTER,
+        )
+        body.addView(connectingLocation, LinearLayout.LayoutParams(-1, dpHome(34)))
+
+        connectingCaption = uiText(
+            "در حال انتخاب سریع بهترین مسیر",
+            11f,
+            palette.textMuted,
+            gravity = Gravity.CENTER,
+        ).apply { maxLines = 2 }
+        body.addView(connectingCaption, LinearLayout.LayoutParams(-1, dpHome(48)))
+
+        body.addView(View(this), LinearLayout.LayoutParams(1, 0, 0.55f))
+
+        val notice = glassCard(
+            18,
+            palette.stroke,
+            palette.surface,
+        )
+        notice.addView(
+            uiText(
+                "اتصال رایگان تا ۶۰ دقیقه فعال می‌ماند؛ پس از پایان زمان می‌توانید دوباره متصل شوید.",
+                10.5f,
+                palette.textSecondary,
+                gravity = Gravity.CENTER,
+            ).apply { setPadding(dpHome(16), dpHome(10), dpHome(16), dpHome(10)) },
+        )
+        body.addView(notice, LinearLayout.LayoutParams(-1, dpHome(58)))
+        return overlay
     }
 
     private fun createBrandBlock(): View {
@@ -1487,6 +1729,9 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         if (::connectButton.isInitialized) {
             applyOrbVisual(orbVisualState)
         }
+        if (::connectingOverlay.isInitialized && connectingOverlay.visibility == View.VISIBLE) {
+            connectingGlobe.start()
+        }
         if (::adsCarousel.isInitialized) adsCarousel.start()
     }
 
@@ -1495,6 +1740,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         handler.removeCallbacks(statsTicker)
         handler.removeCallbacks(freeSessionTicker)
         setOrbPulseEnabled(false)
+        if (::connectingGlobe.isInitialized) connectingGlobe.stop()
         super.onStop()
     }
 
@@ -1517,6 +1763,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         startupDialog?.dismiss()
         startupDialog = null
         setOrbPulseEnabled(false)
+        if (::connectingGlobe.isInitialized) connectingGlobe.stop()
         if (::adsCarousel.isInitialized) adsCarousel.release()
         super.onDestroy()
     }
@@ -2122,6 +2369,49 @@ private fun dpHome(value: Int): Int =
         }
     }
 
+    private fun showConnectingOverlay(
+        title: String = "در حال اتصال",
+        caption: String = "در حال انتخاب سریع بهترین مسیر",
+        location: String = "انتخاب خودکار",
+    ) {
+        if (!::connectingOverlay.isInitialized) return
+        connectingTitle.text = title
+        connectingCaption.text = caption
+        connectingLocation.text = location
+        connectingOverlay.visibility = View.VISIBLE
+        connectingOverlay.alpha = 1f
+        connectingGlobe.start()
+    }
+
+    private fun hideConnectingOverlay() {
+        if (!::connectingOverlay.isInitialized) return
+        connectingGlobe.stop()
+        connectingOverlay.visibility = View.GONE
+    }
+
+    private fun updateFreeTimerBadge() {
+        if (!::freeTimerBadge.isInitialized) return
+        val remaining = BlueVpnAccountManager.freeSessionRemainingMillis(this)
+        val show =
+            connectionVerified &&
+                BlueVpnAccountManager.isFreeMode(this) &&
+                remaining in 1 until Long.MAX_VALUE
+        if (!show) {
+            freeTimerBadge.visibility = View.GONE
+            return
+        }
+        val totalSeconds = (remaining + 999L) / 1_000L
+        val minutes = totalSeconds / 60L
+        val seconds = totalSeconds % 60L
+        freeTimerBadge.text = String.format(
+            Locale.US,
+            "رایگان %02d:%02d",
+            minutes,
+            seconds,
+        )
+        freeTimerBadge.visibility = View.VISIBLE
+    }
+
     private fun toggleConnection() {
         if (
             userDisconnecting ||
@@ -2165,6 +2455,7 @@ private fun dpHome(value: Int): Int =
         BlueVpnPreferences.clearConnected(this)
         BlueVpnAccountManager.stopFreeSession(this, expired = false)
         connectionVerified = false
+        updateFreeTimerBadge()
         existingSessionCheckInProgress = false
 
         connectButton.isEnabled = false
@@ -2212,13 +2503,42 @@ private fun dpHome(value: Int): Int =
             return
         }
 
+        showConnectingOverlay(
+            title = "در حال اتصال",
+            caption = "در حال آماده‌سازی انتخاب خودکار",
+            location = "انتخاب خودکار",
+        )
+
         if (!BlueVpnAccountManager.active(this)) {
-            if (freePreparationInProgress) return
+            if (freePreparationInProgress) {
+                showConnectingOverlay(
+                    title = "آماده‌سازی اتصال رایگان",
+                    caption = "مسیرهای رایگان در حال همگام‌سازی هستند",
+                    location = "انتخاب خودکار",
+                )
+                handler.postDelayed({
+                    if (
+                        !isFinishing &&
+                        !isDestroyed &&
+                        !freePreparationInProgress &&
+                        !failoverActive &&
+                        mainViewModel.isRunning.value != true
+                    ) {
+                        beginSmartConnection()
+                    }
+                }, 450L)
+                return
+            }
             if (!BlueVpnAccountManager.isFreeMode(this)) {
                 freePreparationInProgress = true
                 connectButton.isEnabled = false
                 statusText.text = "آماده‌سازی اتصال رایگان"
                 statusCaption.text = "در حال دریافت مسیرهای رایگان"
+                showConnectingOverlay(
+                    title = "آماده‌سازی اتصال رایگان",
+                    caption = "در حال دریافت مسیرهای رایگان",
+                    location = "انتخاب خودکار",
+                )
                 lifecycleScope.launch(Dispatchers.IO) {
                     val prepared = BlueVpnAccountManager
                         .prepareFreeAccess(this@BlueVpnHomeActivity, force = true)
@@ -2231,6 +2551,7 @@ private fun dpHome(value: Int): Int =
                             refreshDashboard(force = true)
                             beginSmartConnection()
                         } else {
+                            hideConnectingOverlay()
                             statusText.text = "اتصال رایگان در دسترس نیست"
                             statusCaption.text = "اشتراک تهیه کنید یا کمی بعد دوباره تلاش کنید"
                             Toast.makeText(
@@ -2277,6 +2598,7 @@ private fun dpHome(value: Int): Int =
         )
 
         if (candidates.isEmpty()) {
+            hideConnectingOverlay()
             liveLocationSwitch = false
             switchTargetTitle = ""
 
@@ -2361,8 +2683,13 @@ private fun dpHome(value: Int): Int =
         val location = profile?.let {
             BlueVpnLocationUtil.detect(it.remarks, it.server)
         }
-        val locationName = location?.let { "${it.flag} ${it.title}" } ?: "لوکیشن انتخاب‌شده"
+        val locationName = location?.let { "${it.flag} ${it.title}" } ?: "انتخاب خودکار"
 
+        showConnectingOverlay(
+            title = "در حال اتصال",
+            caption = "در حال بررسی و برقراری مسیر امن",
+            location = locationName,
+        )
         statusText.text = "در حال اتصال"
         statusCaption.visibility = View.VISIBLE
         statusCaption.text =
@@ -2427,6 +2754,13 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun renderVerifyingState() {
+        if (failoverActive) {
+            showConnectingOverlay(
+                title = "در حال تأیید اتصال",
+                caption = "کیفیت اینترنت در پس‌زمینه بررسی می‌شود",
+                location = connectingLocation.text.toString().ifBlank { "انتخاب خودکار" },
+            )
+        }
         updateConnectLabel("لغو اتصال")
         connectButton.isEnabled = true
         applyOrbVisual(OrbVisualState.CONNECTING)
@@ -2720,7 +3054,9 @@ private fun dpHome(value: Int): Int =
         connectButton.isEnabled = true
         resetTrafficBaseline()
         refreshDashboard()
+        hideConnectingOverlay()
         renderConnectionState(true)
+        updateFreeTimerBadge()
         mainViewModel.testCurrentServerRealPing()
 
         val verifiedDelay = delay ?: lastVerifiedLatency
@@ -2795,6 +3131,11 @@ private fun dpHome(value: Int): Int =
         statusText.text = "تغییر مسیر خودکار"
         statusCaption.text =
             "مسیر بهتر به‌صورت خودکار در حال انتخاب است"
+        showConnectingOverlay(
+            title = "در حال تغییر مسیر",
+            caption = "مسیر قبلی پاسخ نداد؛ بهترین مسیر بعدی بررسی می‌شود",
+            location = "انتخاب خودکار",
+        )
 
         handler.postDelayed({
             if (failoverActive) startCurrentCandidate()
@@ -2802,6 +3143,7 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun finishFailoverWithError() {
+        hideConnectingOverlay()
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
         CoreServiceManager.stopVService(this)
@@ -2831,6 +3173,7 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun cancelFailover() {
+        hideConnectingOverlay()
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
         failoverActive = false
@@ -2848,6 +3191,11 @@ private fun dpHome(value: Int): Int =
 
     private fun renderConnectionState(connected: Boolean) {
         if (failoverActive) {
+            showConnectingOverlay(
+                title = "در حال اتصال",
+                caption = "بهترین مسیر به‌صورت خودکار در حال بررسی است",
+                location = "انتخاب خودکار",
+            )
             updateConnectLabel("لغو اتصال")
             connectButton.isEnabled = true
             applyOrbVisual(OrbVisualState.CONNECTING)
@@ -2866,6 +3214,7 @@ private fun dpHome(value: Int): Int =
                 return
             }
 
+            hideConnectingOverlay()
             updateConnectLabel("قطع اتصال")
             applyOrbVisual(OrbVisualState.CONNECTED)
             statusText.text = "متصل هستید"
@@ -2873,7 +3222,9 @@ private fun dpHome(value: Int): Int =
             statusCaption.visibility = View.GONE
             statusDot.backgroundTintList =
                 ColorStateList.valueOf(Color.parseColor("#36E6A7"))
+            updateFreeTimerBadge()
         } else {
+            hideConnectingOverlay()
             BlueVpnPreferences.clearConnected(this)
             connectionVerified = false
             lastHistoryGuid = ""

@@ -1,7 +1,7 @@
 {
-  "release": "3.0.74-auto",
-  "version_name": "3.0.74",
-  "version_code": 30074,
+  "release": "3.0.75",
+  "version_name": "3.0.75",
+  "version_code": 30075,
   "changes": [
     "Route Android connect and disconnect commands through BlueVpnEngineManager",
     "Remove direct UI and account dependencies on v2rayNG CoreServiceManager",
@@ -29,13 +29,19 @@
     "Never reuse one idempotency key with different request bodies",
     "Remove undocumented webhook_url and compatibility payload variants",
     "Expose BluePay request IDs and provider messages in diagnostics",
-    "Reject enabling BluePay without a real store API key"
+    "Reject enabling BluePay without a real store API key",
+    "Isolate automatic selection to the exact active entitlement server GUID pool",
+    "Remove global MMKV fallback that mixed free, expired and Premium profiles",
+    "Bind candidate cache to an entitlement fingerprint",
+    "Disable stale Premium subscription rows with mismatched URLs",
+    "Keep last matching location list visible while refreshing",
+    "Coalesce subscription import broadcasts and recover loading state after exceptions"
   ],
-  "generated_at_unix": 1786307400,
-  "purpose": "رفع قطعی ساخت فاکتور BluePay طبق قرارداد رسمی API",
-  "updated_at": "2026-08-09T20:30:00Z",
-  "built_at": "2026-08-09T20:30:00Z",
-  "build_id": "20260809-bluepay-official-contract-v3074",
-  "feature": "bluepay-official-contract",
-  "build_fix": "canonical-single-request-idempotency"
+  "generated_at_unix": 1786307912,
+  "purpose": "جداسازی قطعی سرورهای رایگان و Premium و رفع گیرکردن صفحه مکان‌ها",
+  "updated_at": "2026-08-09T20:38:32Z",
+  "built_at": "2026-08-09T20:38:32Z",
+  "build_id": "20260809-entitlement-pool-isolation-v3075",
+  "feature": "entitlement-pool-isolation",
+  "build_fix": "strict-server-pool-and-location-loading-recovery"
 }

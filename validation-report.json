@@ -91,7 +91,5 @@
     ],
     "request_id_diagnostics": true,
     "settings_api_key_guard": true
-  },
-  "project_version": "3.0.74",
-  "release": "3.0.74"
+  }
 }

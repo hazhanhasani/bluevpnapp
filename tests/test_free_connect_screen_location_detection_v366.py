@@ -11,10 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_version_3066():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.74"
-    assert release["version_code"] == 30074
-    assert app["version_name"] == "3.0.74"
-    assert app["version_code"] == 30074
+    assert release["version"] == "3.0.75"
+    assert release["version_code"] == 30075
+    assert app["version_name"] == "3.0.75"
+    assert app["version_code"] == 30075
 
 
 def test_free_connecting_screen_and_countdown_present():

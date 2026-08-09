@@ -1,10 +1,10 @@
 {
-  "version": "3.0.63",
+  "version": "3.0.64",
   "channel": "stable",
   "build_id": "20260809-free-auto-access-v3063",
   "built_at": "2026-08-09T17:35:00Z",
-  "android_version": "3.0.63",
-  "android_version_code": 30063,
+  "android_version": "3.0.64",
+  "android_version_code": 30064,
   "description": "BlueVPN 3.0.63 اتصال رایگان خودکار با محدودیت یک‌ساعته، قفل انتخاب دستی برای کاربران بدون اشتراک و نمایش تمام ورودی‌های هر لوکیشن را اضافه می‌کند.",
   "features": [
     "premium-ui-v3",
@@ -400,7 +400,7 @@
     "expandable-location-entry-list",
     "dedicated-free-subscription-relay"
   ],
-  "version_code": 30063,
+  "version_code": 30064,
   "notes": "رفع تغییر مرحله‌ای رنگ‌ها، اعمال هم‌زمان تم در صفحه تنظیمات و جلوگیری از توقف یا اتصال مجدد VPN هنگام بازسازی رابط.",
   "version_source": "theme-connection-stability-v3062"
 }

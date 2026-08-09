@@ -1,11 +1,11 @@
 {
-  "version": "3.0.73",
+  "version": "3.0.74",
   "channel": "stable",
-  "build_id": "20260809-premium-location-entitlement-ui-v3073",
-  "built_at": "2026-08-09T20:00:22Z",
-  "android_version": "3.0.73",
-  "android_version_code": 30073,
-  "description": "BlueVPN 3.0.73 برچسب ثابت «خودکار رایگان» را حذف می‌کند و صفحه مکان‌ها را مستقیماً به وضعیت تازه اشتراک Premium متصل می‌کند.",
+  "build_id": "20260809-bluepay-official-contract-v3074",
+  "built_at": "2026-08-09T20:30:00Z",
+  "android_version": "3.0.74",
+  "android_version_code": 30074,
+  "description": "BlueVPN 3.0.74 ساخت فاکتور را دقیقاً با قرارداد رسمی BluePay 1.2.5 هماهنگ می‌کند و Retry ناسازگار Idempotency را حذف می‌کند.",
   "features": [
     "premium-ui-v3",
     "blueai-personal-memory",
@@ -466,9 +466,14 @@
     "dynamic-location-entitlement-copy",
     "premium-location-entry-force-sync",
     "location-screen-no-stale-free-label",
-    "location-refresh-entitlement-reconciliation"
+    "location-refresh-entitlement-reconciliation",
+    "bluepay-canonical-v1-invoice-contract",
+    "bluepay-single-idempotent-create-request",
+    "bluepay-x-api-key-only",
+    "bluepay-request-id-diagnostics",
+    "bluepay-settings-key-guard"
   ],
-  "version_code": 30073,
+  "version_code": 30074,
   "notes": "صفحه مکان‌ها وضعیت رایگان یا Premium را از Snapshot مشترک حساب می‌خواند، هنگام ورود و تازه‌سازی حساب را اجباری همگام می‌کند و متن، فیلتر و Cache سرورها بدون خروج از حساب به‌روزرسانی می‌شوند.",
   "version_source": "premium-location-entitlement-ui-v3073"
 }

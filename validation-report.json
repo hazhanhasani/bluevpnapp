@@ -1,7 +1,7 @@
 {
-  "version": "3.0.70",
-  "version_code": 30073,
-  "feature": "dual-engine-runtime-boundary",
+  "version": "3.0.74",
+  "version_code": 30074,
+  "feature": "bluepay-official-contract",
   "tests": {
     "passed": 35,
     "failed": 0,
@@ -20,7 +20,7 @@
     "single_tun_owner": "xray-phase-1"
   },
   "archive": {
-    "status": "pending-packaging"
+    "status": "ready-for-packaging"
   },
   "full_gradle_build": {
     "status": "not_run",
@@ -71,14 +71,25 @@
   },
   "validation_commands": {
     "project_suite": "python -m pytest -q",
-    "project_suite_result": "265 passed, 0 failed, 40 deprecation warnings",
+    "project_suite_result": "281 passed, 0 failed, 40 deprecation warnings",
     "runtime_validator": "python scripts/validate_dual_engine.py",
     "runtime_validator_result": "35 passed, 0 failed, 1 environment warning",
     "workflow_yaml_parse": "passed",
     "sing_box_shell_syntax": "passed",
-    "build_118_regression": "passed"
+    "build_118_regression": "passed",
+    "generated_android_validator": "passed (3.0.74 / 30074, 27 embedded sources)",
+    "bluepay_contract_regression": "passed"
   },
-  "build_fix": "119-singbox-arm64-xray-armv7-fallback",
-  "project_version": "3.0.73",
-  "release": "3.0.73"
+  "build_fix": "bluepay-canonical-v1-single-idempotent-request",
+  "bluepay": {
+    "endpoint": "POST /api/v1/invoices",
+    "auth_header": "X-API-Key",
+    "idempotency_header": "Idempotency-Key",
+    "request_variants": 1,
+    "undocumented_fields_removed": [
+      "webhook_url"
+    ],
+    "request_id_diagnostics": true,
+    "settings_api_key_guard": true
+  }
 }

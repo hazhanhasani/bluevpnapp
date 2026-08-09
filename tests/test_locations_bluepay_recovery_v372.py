@@ -9,10 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_metadata_is_v372():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.73"
-    assert release["version_code"] == 30073
-    assert app["version_name"] == "3.0.73"
-    assert app["version_code"] == 30073
+    assert release["version"] == "3.0.74"
+    assert release["version_code"] == 30074
+    assert app["version_name"] == "3.0.74"
+    assert app["version_code"] == 30074
 
 
 def test_bluepay_developer_url_is_converted_to_api_root():
@@ -29,10 +29,13 @@ def test_bluepay_developer_url_is_converted_to_api_root():
     assert key == ""
 
 
-def test_bluepay_supports_both_api_key_header_spellings():
-    assert _bluepay_headers("secret", auth_mode="api_key")["X-API-Key"] == "secret"
-    assert _bluepay_headers("secret", auth_mode="api_key_alt")["Api-Key"] == "secret"
-    assert _bluepay_headers("secret", auth_mode="bearer")["Authorization"] == "Bearer secret"
+def test_bluepay_uses_only_the_documented_api_key_header():
+    headers = _bluepay_headers("secret", idempotency_key="order-1001-create")
+    assert headers["X-API-Key"] == "secret"
+    assert headers["Idempotency-Key"] == "order-1001-create"
+    assert "Api-Key" not in headers
+    assert "Authorization" not in headers
+    assert "X-Idempotency-Key" not in headers
 
 
 def test_android_locations_use_server_guid_and_do_not_reload_forever():
@@ -55,6 +58,7 @@ def test_android_invoice_timeout_matches_backend_provider_budget():
 
     assert "connection.readTimeout = if (invoiceRequest) 50_000 else 12_000" in account
     assert '"BLUEPAY_TIMEOUT"' in account
-    assert "deadline = time.monotonic() + 38.0" in integrations
+    assert 'base.rstrip("/") + "/api/v1/invoices"' in integrations
+    assert 'timeout=httpx.Timeout(20.0, connect=8.0)' in integrations
     assert "normalize_bluepay_base_url" in main
     assert "BLUEPAY_INTERNAL_ERROR" in main

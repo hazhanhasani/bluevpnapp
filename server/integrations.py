@@ -2551,24 +2551,23 @@ def _bluepay_headers(
     key: str,
     *,
     idempotency_key: str = "",
-    auth_mode: str = "api_key",
 ) -> dict[str, str]:
+    """Build headers for the public BluePay API contract.
+
+    BluePay 1.2.5 authenticates private API calls only with ``X-API-Key``.
+    Older compatibility retries used alternative header names and reused one
+    idempotency key with different request bodies; the gateway correctly
+    rejected that sequence with 409. Keep one canonical request instead.
+    """
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
+        "X-API-Key": str(key or "").strip(),
         "User-Agent": f"BlueVPN-Backend/{VERSION}",
     }
-    if auth_mode == "bearer":
-        headers["Authorization"] = f"Bearer {key}"
-    elif auth_mode == "api_key_alt":
-        headers["Api-Key"] = key
-    else:
-        headers["X-API-Key"] = key
     if idempotency_key:
         headers["Idempotency-Key"] = idempotency_key
-        headers["X-Idempotency-Key"] = idempotency_key
     return headers
-
 
 def normalize_bluepay_invoice(payload: Any) -> dict:
     """Unwrap BluePay/compatible responses and expose stable invoice fields."""
@@ -2625,124 +2624,120 @@ async def create_invoice(
     order: Order,
     callback_url: str,
 ) -> dict:
+    """Create one invoice using the canonical BluePay v1 contract.
+
+    One order produces one body and one Idempotency-Key. This is important:
+    BluePay returns 409 when the same idempotency key is reused with a
+    different body. The former compatibility loop could therefore prevent a
+    valid invoice after the first schema/auth experiment failed.
+    """
     base, key, _ = payment_secret(setting)
     if not setting.active or not base or not key:
         raise IntegrationError("درگاه BluePay فعال یا کامل نیست")
 
-    ttl = max(5, min(30, int(setting.ttl_minutes or 30)))
-    common = {
+    fee_mode = str(setting.fee_mode or "default").strip().lower()
+    if fee_mode not in {"default", "merchant", "customer", "split"}:
+        fee_mode = "default"
+    ttl = max(5, min(1440, int(setting.ttl_minutes or 30)))
+    payload = {
+        "amount_toman": int(order.amount_toman),
+        "order_id": str(order.order_code),
         "description": f"خرید {order.plan.title} برای {customer_label(order.customer)}",
+        "fee_mode": fee_mode,
         "callback_url": callback_url,
-        "webhook_url": callback_url,
-        "return_url": callback_url,
+        "ttl_minutes": ttl,
     }
-    payloads = (
-        {
-            **common,
-            "amount_toman": int(order.amount_toman),
-            "order_id": order.order_code,
-            "fee_mode": setting.fee_mode,
-            "ttl_minutes": ttl,
-        },
-        {
-            **common,
-            "amount": int(order.amount_toman),
-            "currency": "IRT",
-            "external_id": order.order_code,
-            "order_id": order.order_code,
-            "fee_mode": setting.fee_mode,
-            "expires_in_minutes": ttl,
-        },
-    )
-    endpoints = ("/api/v1/invoices", "/api/invoices")
-    last_status: int | None = None
-    last_body: Any = None
+    idempotency_key = f"{order.order_code}-create"
+    url = base.rstrip("/") + "/api/v1/invoices"
 
     try:
-        deadline = time.monotonic() + 38.0
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(14.0, connect=8.0),
+            timeout=httpx.Timeout(20.0, connect=8.0),
             follow_redirects=False,
         ) as client:
-            for endpoint in endpoints:
-                for variant, payload in enumerate(payloads, start=1):
-                    for auth_mode in ("api_key", "api_key_alt", "bearer"):
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 1.0:
-                            raise httpx.TimeoutException("BluePay total request budget exceeded")
-                        request_timeout = httpx.Timeout(
-                            min(14.0, remaining),
-                            connect=min(8.0, remaining),
-                        )
-                        response = await client.post(
-                            base + endpoint,
-                            headers=_bluepay_headers(
-                                key,
-                                idempotency_key=f"{order.order_code}-create",
-                                auth_mode=auth_mode,
-                            ),
-                            json=payload,
-                            timeout=request_timeout,
-                        )
-                        try:
-                            body: Any = response.json()
-                        except Exception:
-                            body = {"raw": response.text[:1500]}
-                        last_status = response.status_code
-                        last_body = body
-                        if response.status_code < 400:
-                            normalized = normalize_bluepay_invoice(body)
-                            location_header = str(response.headers.get("location") or "").strip()
-                            if location_header and not normalized.get("payment_url"):
-                                normalized["payment_url"] = urljoin(base + "/", location_header)
-                                normalized.setdefault(
-                                    "payment_id",
-                                    location_header.rstrip("/").rsplit("/", 1)[-1],
-                                )
-                            amount_toman, source_currency = normalize_gateway_amount_toman(
-                                normalized, order.amount_toman
-                            )
-                            if amount_toman is not None:
-                                normalized["normalized_amount_toman"] = amount_toman
-                                normalized["source_currency"] = source_currency
-                            normalized["bluepay_endpoint"] = endpoint
-                            normalized["bluepay_payload_variant"] = variant
-                            normalized["bluepay_auth_mode"] = auth_mode
-                            return normalized
-                        if response.status_code not in {401, 403}:
-                            break
-                    # 400/422 are often schema mismatches between BluePay
-                    # releases. Idempotency headers make the compatibility
-                    # payload safe, while other provider failures stop early.
-                    if last_status not in {400, 404, 405, 415, 422}:
-                        break
-                if last_status not in {400, 404, 405, 415, 422}:
-                    break
-    except httpx.HTTPError as exc:
+            response = await client.post(
+                url,
+                headers=_bluepay_headers(key, idempotency_key=idempotency_key),
+                json=payload,
+            )
+    except httpx.TimeoutException as exc:
         log_bluepay_error(
-            "create_invoice",
+            "create_invoice_timeout",
             order_code=order.order_code,
             error=f"{type(exc).__name__}: {exc}",
         )
         raise IntegrationError(
-            "ارتباط با BluePay برقرار نشد؛ چند لحظه بعد دوباره تلاش کنید"
+            "پاسخ BluePay دیر دریافت شد؛ چند لحظه بعد دوباره تلاش کنید. "
+            "شناسه سفارش از ساخت فاکتور تکراری جلوگیری می‌کند"
+        ) from exc
+    except httpx.HTTPError as exc:
+        log_bluepay_error(
+            "create_invoice_network",
+            order_code=order.order_code,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        raise IntegrationError(
+            "ارتباط با BluePay برقرار نشد؛ وضعیت اینترنت و سرویس درگاه را بررسی کنید"
         ) from exc
 
-    log_bluepay_error(
-        "create_invoice",
-        order_code=order.order_code,
-        status_code=last_status,
-        response_body=last_body,
+    request_id = str(response.headers.get("X-Request-ID") or "").strip()
+    try:
+        body: Any = response.json()
+    except Exception:
+        body = {"raw": response.text[:1500]}
+
+    if response.status_code >= 400:
+        log_bluepay_error(
+            "create_invoice_rejected",
+            order_code=order.order_code,
+            status_code=response.status_code,
+            response_body=body,
+            error=f"request_id={request_id}" if request_id else "",
+        )
+        provider_message = _bluepay_message(body)
+        if response.status_code in {401, 403}:
+            raise IntegrationError("کلید API فروشگاه BluePay نامعتبر، حذف‌شده یا بازنشانی شده است")
+        if response.status_code == 409:
+            raise IntegrationError(
+                provider_message or
+                "شناسه سفارش یا Idempotency-Key قبلاً با اطلاعات متفاوت استفاده شده است"
+            )
+        if response.status_code == 429:
+            retry_after = str(response.headers.get("Retry-After") or "").strip()
+            suffix = f"؛ {retry_after} ثانیه دیگر تلاش کنید" if retry_after.isdigit() else ""
+            raise IntegrationError("محدودیت تعداد درخواست BluePay فعال شده است" + suffix)
+        if provider_message:
+            raise IntegrationError(f"ساخت فاکتور BluePay ناموفق: {provider_message}")
+        raise IntegrationError(f"ساخت فاکتور BluePay ناموفق: HTTP {response.status_code}")
+
+    normalized = normalize_bluepay_invoice(body)
+    location_header = str(response.headers.get("location") or "").strip()
+    if location_header and not normalized.get("payment_url"):
+        normalized["payment_url"] = urljoin(base.rstrip("/") + "/", location_header)
+        normalized.setdefault(
+            "payment_id",
+            location_header.rstrip("/").rsplit("/", 1)[-1],
+        )
+    amount_toman, source_currency = normalize_gateway_amount_toman(
+        normalized, order.amount_toman
     )
-    if last_status in {401, 403}:
-        raise IntegrationError("کلید API درگاه BluePay نامعتبر یا منقضی شده است")
-    provider_message = _bluepay_message(last_body)
-    if provider_message:
-        raise IntegrationError(f"ساخت فاکتور BluePay ناموفق: {provider_message}")
-    raise IntegrationError(
-        "ساخت فاکتور BluePay ناموفق" +
-        (f": HTTP {last_status}" if last_status is not None else "")
-    )
+    if amount_toman is not None:
+        normalized["normalized_amount_toman"] = amount_toman
+        normalized["source_currency"] = source_currency
+    normalized["bluepay_endpoint"] = "/api/v1/invoices"
+    normalized["bluepay_auth_mode"] = "X-API-Key"
+    normalized["bluepay_request_id"] = request_id
+
+    if not normalized.get("payment_id") or not normalized.get("payment_url"):
+        log_bluepay_error(
+            "create_invoice_invalid_success",
+            order_code=order.order_code,
+            status_code=response.status_code,
+            response_body=body,
+            error=f"request_id={request_id}" if request_id else "",
+        )
+        raise IntegrationError("BluePay پاسخ موفق داد اما شناسه یا لینک پرداخت در پاسخ نبود")
+    return normalized
 
 
 async def delete_invoice(
@@ -2762,10 +2757,7 @@ async def delete_invoice(
         return False
 
     encoded = quote(payment_id, safe="")
-    candidates = (
-        ("DELETE", f"{base}/api/v1/invoices/{encoded}"),
-        ("POST", f"{base}/api/v1/invoices/{encoded}/cancel"),
-    )
+    candidates = (("POST", f"{base}/api/v1/invoices/{encoded}/cancel"),)
     try:
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(15.0, connect=8.0),
@@ -2812,10 +2804,7 @@ async def get_invoice(
         raise IntegrationError("کلید BluePay تنظیم نشده است")
 
     encoded = quote(payment_id, safe="")
-    endpoints = (
-        f"/api/v1/invoices/{encoded}",
-        f"/api/invoices/{encoded}",
-    )
+    endpoints = (f"/api/v1/invoices/{encoded}",)
     last_status: int | None = None
     last_body: Any = None
     try:
@@ -2824,29 +2813,25 @@ async def get_invoice(
             follow_redirects=False,
         ) as client:
             for endpoint in endpoints:
-                for auth_mode in ("api_key", "bearer"):
-                    response = await client.get(
-                        base + endpoint,
-                        headers=_bluepay_headers(key, auth_mode=auth_mode),
-                    )
-                    try:
-                        body: Any = response.json()
-                    except Exception:
-                        body = {"raw": response.text[:1500]}
-                    last_status = response.status_code
-                    last_body = body
-                    if response.status_code < 400:
-                        normalized = normalize_bluepay_invoice(body)
-                        amount_toman, source_currency = normalize_gateway_amount_toman(normalized)
-                        if amount_toman is not None:
-                            normalized["normalized_amount_toman"] = amount_toman
-                            normalized["source_currency"] = source_currency
-                        normalized["bluepay_auth_mode"] = auth_mode
-                        return normalized
-                    if response.status_code not in {401, 403}:
-                        break
-                if last_status not in {404, 405}:
-                    break
+                response = await client.get(
+                    base + endpoint,
+                    headers=_bluepay_headers(key),
+                )
+                try:
+                    body: Any = response.json()
+                except Exception:
+                    body = {"raw": response.text[:1500]}
+                last_status = response.status_code
+                last_body = body
+                if response.status_code < 400:
+                    normalized = normalize_bluepay_invoice(body)
+                    amount_toman, source_currency = normalize_gateway_amount_toman(normalized)
+                    if amount_toman is not None:
+                        normalized["normalized_amount_toman"] = amount_toman
+                        normalized["source_currency"] = source_currency
+                    normalized["bluepay_auth_mode"] = "X-API-Key"
+                    return normalized
+                break
     except httpx.HTTPError as exc:
         log_bluepay_error(
             "get_invoice",

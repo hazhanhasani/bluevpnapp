@@ -11,10 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_363():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.73"
-    assert release["version_code"] == 30073
-    assert app["version_name"] == "3.0.73"
-    assert app["version_code"] == 30073
+    assert release["version"] == "3.0.74"
+    assert release["version_code"] == 30074
+    assert app["version_name"] == "3.0.74"
+    assert app["version_code"] == 30074
 
 
 def test_server_exposes_managed_free_access_and_hidden_relay():

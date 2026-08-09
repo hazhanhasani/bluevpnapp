@@ -3892,13 +3892,22 @@ def payment_settings(request:Request,base_url:str=Form(...),api_key:str=Form('')
         raise HTTPException(400,detail='Base URL بلوپی معتبر نیست')
     p.base_url=normalized_base
     submitted_key=api_key.strip() or embedded_key
+    existing_key=decrypt(p.api_key_enc).strip() if p.api_key_enc else ''
+    effective_key=submitted_key or existing_key
+    requested_active=active=='on'
+    if requested_active and not effective_key:
+        raise HTTPException(
+            400,
+            detail='برای فعال‌کردن BluePay، API Key اختصاصی فروشگاه را از ربات BluePay وارد کنید؛ لینک /developers به‌تنهایی کلید API نیست.',
+        )
     if submitted_key:
         p.api_key_enc=encrypt(submitted_key)
     if callback_secret.strip():
         p.callback_secret_enc=encrypt(callback_secret.strip())
-    p.fee_mode=fee_mode
-    p.ttl_minutes=max(5,min(30,ttl_minutes))
-    p.active=active=='on'
+    normalized_fee=str(fee_mode or 'default').strip().lower()
+    p.fee_mode=normalized_fee if normalized_fee in {'default','merchant','customer','split'} else 'default'
+    p.ttl_minutes=max(5,min(1440,ttl_minutes))
+    p.active=requested_active
     db.add(p);db.commit()
     return RedirectResponse('/admin?saved=1#bluepay',303)
 

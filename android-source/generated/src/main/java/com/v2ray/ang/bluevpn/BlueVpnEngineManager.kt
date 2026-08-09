@@ -101,6 +101,13 @@ object BlueVpnEngineManager {
         val requested = preferredMode(app)
         publish(State.PREPARING, requested, Engine.XRAY)
 
+        if (!BlueVpnAccountManager.selectedServerAllowed(app)) {
+            val reason = "selected server is outside the active entitlement pool"
+            Log.e(TAG, reason)
+            publish(State.FAILED, requested, Engine.XRAY, reason)
+            return
+        }
+
         val singBoxReady = BlueVpnSingBoxProcess.isRuntimeAvailable(app) &&
             BlueVpnSingBoxProcess.hasValidatedProfile(app)
 

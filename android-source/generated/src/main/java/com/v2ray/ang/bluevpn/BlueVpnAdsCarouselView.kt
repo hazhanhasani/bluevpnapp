@@ -198,7 +198,22 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         }
         fetchInFlight = true
         worker.execute {
-            val result = BlueVpnAccountManager.mobileConfig(context, force = false)
+            val result = runCatching {
+                val connection = URL(
+                    BlueVpnAccountManager.apiBaseUrl().trimEnd('/') + "/api/v1/mobile/config"
+                ).openConnection() as HttpURLConnection
+                try {
+                    connection.connectTimeout = 8_000
+                    connection.readTimeout = 10_000
+                    connection.useCaches = false
+                    connection.setRequestProperty("Accept", "application/json")
+                    connection.setRequestProperty("User-Agent", "BlueVPN/${BuildConfig.VERSION_NAME}")
+                    if (connection.responseCode !in 200..299) error("HTTP ${connection.responseCode}")
+                    JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+                } finally {
+                    connection.disconnect()
+                }
+            }
             handler.post {
                 fetchInFlight = false
                 if (!running) return@post

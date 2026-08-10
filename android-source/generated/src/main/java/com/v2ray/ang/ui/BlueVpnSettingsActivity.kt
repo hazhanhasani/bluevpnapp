@@ -21,12 +21,11 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
-import com.v2ray.ang.bluevpn.BlueVpnEntitlement
+import com.v2ray.ang.bluevpn.BlueVpnDynamicBackgroundView
 import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnThemeMode
 import com.v2ray.ang.bluevpn.BlueVpnUpdateManager
-import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,11 +37,9 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
 
     private lateinit var palette: BlueVpnPalette
     private var themeDarkAtCreate = true
-    private var remoteLinkInProgress = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.setWindowAnimations(0)
         applyThemeInPlace()
     }
 
@@ -68,6 +65,10 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
         val frame = FrameLayout(this).apply {
             setBackgroundColor(palette.background)
         }
+        frame.addView(
+            BlueVpnDynamicBackgroundView(this),
+            FrameLayout.LayoutParams(-1, -1),
+        )
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -91,7 +92,7 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
             strokeColor = ColorStateList.valueOf(palette.stroke)
             strokeWidth = dp(1)
             cornerRadius = dp(16)
-            BlueVpnUiGuard.bind(this) { finish() }
+            setOnClickListener { finish() }
         }
         val title = TextView(this).apply {
             text = "تنظیمات"
@@ -112,17 +113,13 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
 
         sectionLabel(content, "حساب کاربری")
         val snapshot = BlueVpnAccountManager.snapshot(this)
-        val entitlement = BlueVpnEntitlement.resolve(this)
         content.addView(
             settingRow(
                 title = "حساب BlueVPN",
                 value = snapshot.email.ifBlank { "ورود یا ثبت‌نام" },
-                description = entitlement.accountLabel,
+                description = if (snapshot.subscriptionActive) "اشتراک فعال" else "مدیریت حساب و اشتراک",
             ) {
-                BlueVpnUiGuard.start(
-                    this,
-                    Intent(this, BlueVpnSubscriptionsActivity::class.java),
-                )
+                startActivity(Intent(this, BlueVpnSubscriptionsActivity::class.java))
             },
         )
 
@@ -150,10 +147,7 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
                 value = "انتخاب خودکار یا دستی",
                 description = "کشورها و سرورهای در دسترس",
             ) {
-                BlueVpnUiGuard.start(
-                    this,
-                    Intent(this, BlueVpnServersActivity::class.java),
-                )
+                startActivity(Intent(this, BlueVpnServersActivity::class.java))
             },
         )
         content.addView(
@@ -240,7 +234,7 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
             strokeWidth = dp(1)
             isClickable = action != null
             isFocusable = action != null
-            if (action != null) BlueVpnUiGuard.bind(this) { action() }
+            if (action != null) setOnClickListener { action() }
             layoutParams = LinearLayout.LayoutParams(-1, -2).apply {
                 bottomMargin = dp(9)
             }
@@ -297,22 +291,18 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
     }
 
     private fun showThemeChooser() {
-        if (isFinishing || isDestroyed) return
-        BlueVpnUiGuard.run(this, "theme-dialog") {
-            val values = BlueVpnThemeMode.values()
-            val labels = values.map { it.title }.toTypedArray()
-            val selected = values.indexOf(BlueVpnTheme.mode(this)).coerceAtLeast(0)
-            AlertDialog.Builder(this)
-                .setTitle("تم برنامه")
-                .setSingleChoiceItems(labels, selected) { dialog, which ->
-                    if (which !in values.indices) return@setSingleChoiceItems
-                    BlueVpnTheme.setMode(this, values[which])
-                    dialog.dismiss()
-                    if (!isFinishing && !isDestroyed) applyThemeInPlace()
-                }
-                .setNegativeButton("انصراف", null)
-                .show()
-        }
+        val values = BlueVpnThemeMode.values()
+        val labels = values.map { it.title }.toTypedArray()
+        val selected = values.indexOf(BlueVpnTheme.mode(this)).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("تم برنامه")
+            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                BlueVpnTheme.setMode(this, values[which])
+                dialog.dismiss()
+                applyThemeInPlace()
+            }
+            .setNegativeButton("انصراف", null)
+            .show()
     }
 
     private fun showPrivacy() {
@@ -336,22 +326,23 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
     }
 
     private fun openRemoteLink(field: String) {
-        if (remoteLinkInProgress || isFinishing || isDestroyed) return
-        remoteLinkInProgress = true
         lifecycleScope.launch(Dispatchers.IO) {
-            val link = BlueVpnAccountManager.mobileConfig(
-                this@BlueVpnSettingsActivity,
-                force = false,
-            ).getOrNull()?.optString(field, "").orEmpty()
+            val link = runCatching {
+                val base = BuildConfig.BLUEVPN_API_BASE_URL.trimEnd('/')
+                if (base.isBlank()) return@runCatching ""
+                val connection = URL("$base/api/v1/mobile/config").openConnection()
+                    as HttpURLConnection
+                connection.connectTimeout = 6_000
+                connection.readTimeout = 6_000
+                connection.requestMethod = "GET"
+                connection.inputStream.bufferedReader().use {
+                    JSONObject(it.readText()).optString(field, "")
+                }
+            }.getOrDefault("")
 
             withContext(Dispatchers.Main) {
-                remoteLinkInProgress = false
-                if (isFinishing || isDestroyed) return@withContext
                 if (link.startsWith("http://") || link.startsWith("https://")) {
-                    BlueVpnUiGuard.start(
-                        this@BlueVpnSettingsActivity,
-                        Intent(Intent.ACTION_VIEW, Uri.parse(link)),
-                    )
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
                 } else {
                     Toast.makeText(
                         this@BlueVpnSettingsActivity,

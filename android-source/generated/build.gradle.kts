@@ -14,8 +14,8 @@ android {
         buildConfigField("String", "BLUEVPN_API_BASE_URL", "\"https://bluevpnapp-production.up.railway.app\"")
         minSdk = 24
         targetSdk = 37
-        versionCode = 30086
-        versionName = "3.0.86"
+        versionCode = 30087
+        versionName = "3.0.87"
         multiDexEnabled = true
 
         val abiFilterList = (properties["ABI_FILTERS"] as? String)?.split(';')
@@ -139,8 +139,6 @@ android {
 }
 
 dependencies {
-    implementation("ir.tapsell.plus:tapsell-plus-sdk-android:2.3.3")
-    implementation("com.google.guava:guava:33.6.0-android")
     // Core Libraries
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
 

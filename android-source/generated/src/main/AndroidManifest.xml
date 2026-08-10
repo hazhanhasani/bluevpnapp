@@ -337,11 +337,6 @@
             android:launchMode="singleTop"
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
     
-        <receiver
-            android:name="com.v2ray.ang.bluevpn.BlueVpnFreeSessionReceiver"
-            android:enabled="true"
-            android:exported="false" />
-    
         <provider
             android:name="com.v2ray.ang.bluevpn.BlueVpnUpdateFileProvider"
             android:authorities="${applicationId}.bluevpn.updateprovider"

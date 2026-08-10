@@ -19,10 +19,18 @@ data class BlueVpnLocation(
     val flag: String,
 )
 
+enum class BlueVpnSelectionMode {
+    AUTO,
+    MANUAL_LOCATION,
+    MANUAL_SERVER,
+}
+
 object BlueVpnPreferences {
     private const val PREFS = "bluevpn_customer_preferences"
     private const val KEY_SMART_BALANCE = "smart_balance"
+    private const val KEY_SELECTION_MODE = "selection_mode"
     private const val KEY_PREFERRED_LOCATION = "preferred_location"
+    private const val KEY_MANUAL_SERVER_GUID = "manual_server_guid"
     private const val KEY_CONNECTED_AT = "connected_at"
     private const val FAILED_PREFIX = "failed_server_"
     private const val SESSION_INACTIVE_PREFIX = "session_inactive_"
@@ -38,14 +46,66 @@ object BlueVpnPreferences {
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    fun selectionMode(context: Context): BlueVpnSelectionMode {
+        val storage = prefs(context)
+        val raw = storage.getString(KEY_SELECTION_MODE, "").orEmpty()
+        return runCatching { BlueVpnSelectionMode.valueOf(raw) }.getOrNull()
+            ?: if (storage.getBoolean(KEY_SMART_BALANCE, true)) {
+                BlueVpnSelectionMode.AUTO
+            } else {
+                BlueVpnSelectionMode.MANUAL_LOCATION
+            }
+    }
+
     fun smartBalance(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_SMART_BALANCE, true)
+        selectionMode(context) == BlueVpnSelectionMode.AUTO
 
     fun setSmartBalance(context: Context, enabled: Boolean) {
+        if (enabled) {
+            setAutomaticSelection(context)
+            return
+        }
+        val storage = prefs(context)
+        val current = selectionMode(context)
+        if (current == BlueVpnSelectionMode.AUTO) {
+            storage.edit()
+                .putBoolean(KEY_SMART_BALANCE, false)
+                .putString(KEY_SELECTION_MODE, BlueVpnSelectionMode.MANUAL_LOCATION.name)
+                .apply()
+        } else {
+            storage.edit().putBoolean(KEY_SMART_BALANCE, false).apply()
+        }
+    }
+
+    fun setAutomaticSelection(context: Context) {
         prefs(context).edit()
-            .putBoolean(KEY_SMART_BALANCE, enabled)
+            .putBoolean(KEY_SMART_BALANCE, true)
+            .putString(KEY_SELECTION_MODE, BlueVpnSelectionMode.AUTO.name)
+            .remove(KEY_MANUAL_SERVER_GUID)
+            .putString(KEY_PREFERRED_LOCATION, "")
             .apply()
     }
+
+    fun setManualLocationSelection(context: Context, locationKey: String) {
+        prefs(context).edit()
+            .putBoolean(KEY_SMART_BALANCE, false)
+            .putString(KEY_SELECTION_MODE, BlueVpnSelectionMode.MANUAL_LOCATION.name)
+            .remove(KEY_MANUAL_SERVER_GUID)
+            .putString(KEY_PREFERRED_LOCATION, locationKey)
+            .apply()
+    }
+
+    fun setManualServerSelection(context: Context, locationKey: String, guid: String) {
+        prefs(context).edit()
+            .putBoolean(KEY_SMART_BALANCE, false)
+            .putString(KEY_SELECTION_MODE, BlueVpnSelectionMode.MANUAL_SERVER.name)
+            .putString(KEY_MANUAL_SERVER_GUID, guid)
+            .putString(KEY_PREFERRED_LOCATION, locationKey)
+            .apply()
+    }
+
+    fun manualServerGuid(context: Context): String =
+        prefs(context).getString(KEY_MANUAL_SERVER_GUID, "").orEmpty()
 
     fun preferredLocation(context: Context): String =
         prefs(context).getString(KEY_PREFERRED_LOCATION, "").orEmpty()
@@ -856,14 +916,18 @@ private fun unknownLocation(): BlueVpnLocation =
                 BlueVpnPreferences.preferredLocation(context)
             }
 
-        val automatic = BlueVpnPreferences.smartBalance(context)
+        val selectionMode = BlueVpnPreferences.selectionMode(context)
+        val manualGuid = BlueVpnPreferences.manualServerGuid(context)
 
-        // Automatic mode evaluates every usable server from every location.
-        // Manual mode stays restricted to the location selected by the user.
-        val scoped = if (automatic || wanted.isBlank()) {
-            candidates
-        } else {
-            candidates.filter { it.location.key == wanted }
+        // Selection ownership is strict:
+        // AUTO sees the whole entitlement pool, MANUAL_LOCATION never leaves the
+        // chosen country, and MANUAL_SERVER resolves to that exact GUID only.
+        val scoped = when (selectionMode) {
+            BlueVpnSelectionMode.AUTO -> candidates
+            BlueVpnSelectionMode.MANUAL_LOCATION ->
+                if (wanted.isBlank()) emptyList() else candidates.filter { it.location.key == wanted }
+            BlueVpnSelectionMode.MANUAL_SERVER ->
+                if (manualGuid.isBlank()) emptyList() else candidates.filter { it.guid == manualGuid }
         }
 
         if (scoped.isEmpty()) return emptyList()
@@ -916,7 +980,8 @@ private fun unknownLocation(): BlueVpnLocation =
         val wanted = preferredKey.orEmpty().ifBlank {
             BlueVpnPreferences.preferredLocation(context)
         }
-        val automatic = BlueVpnPreferences.smartBalance(context)
+        val selectionMode = BlueVpnPreferences.selectionMode(context)
+        val manualGuid = BlueVpnPreferences.manualServerGuid(context)
 
         val entitlementServerGuidSet = entitlementGuidSet
 
@@ -935,7 +1000,13 @@ private fun unknownLocation(): BlueVpnLocation =
                         entitlementServerGuidSet,
                     )) continue
                 val location = detect(profile.remarks, profile.server)
-                if (!automatic && wanted.isNotBlank() && location.key != wanted) continue
+                when (selectionMode) {
+                    BlueVpnSelectionMode.AUTO -> Unit
+                    BlueVpnSelectionMode.MANUAL_LOCATION ->
+                        if (wanted.isBlank() || location.key != wanted) continue
+                    BlueVpnSelectionMode.MANUAL_SERVER ->
+                        if (manualGuid.isBlank() || guid != manualGuid) continue
+                }
                 result += Candidate(
                     guid = guid,
                     profile = profile,

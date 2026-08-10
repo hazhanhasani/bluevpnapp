@@ -444,8 +444,7 @@ object BlueVpnAccountManager {
                     .putString("installed_sources_fingerprint", fingerprint)
                     .apply()
             }
-            BlueVpnPreferences.setSmartBalance(appContext, true)
-            BlueVpnPreferences.setPreferredLocation(appContext, "")
+            BlueVpnPreferences.setAutomaticSelection(appContext)
             true
         } finally {
             synchronized(freePrepareLock) {

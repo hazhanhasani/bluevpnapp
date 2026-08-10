@@ -60,7 +60,9 @@ import com.v2ray.ang.bluevpn.BlueVpnPreferences
 import com.v2ray.ang.bluevpn.BlueVpnEngineManager
 import com.v2ray.ang.bluevpn.BlueVpnEntitlement
 import com.v2ray.ang.bluevpn.BlueVpnPlanTier
+import com.v2ray.ang.bluevpn.BlueVpnSelectionMode
 import com.v2ray.ang.bluevpn.BlueVpnSmartSelector
+import com.v2ray.ang.bluevpn.BlueVpnTapsellManager
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.handler.SubscriptionUpdater
@@ -1542,6 +1544,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        BlueVpnTapsellManager.warmUp(this)
         palette = BlueVpnTheme.palette(this)
         themeDarkAtCreate = palette.dark
         if (BlueVpnTheme.isTransitionRecent(this)) {
@@ -2365,20 +2368,23 @@ private fun finishStartupOptimization(
         all.size - activeCount - inactiveCount
     ).coerceAtLeast(0)
 
-    val preferred = if (
-        BlueVpnPreferences.smartBalance(this)
-    ) {
+    val selectionMode = BlueVpnPreferences.selectionMode(this)
+    val preferred = if (selectionMode == BlueVpnSelectionMode.AUTO) {
         ""
     } else {
         BlueVpnPreferences.preferredLocation(this)
     }
 
-    BlueVpnLocationUtil
-        .instantCandidates(this, preferred)
-        .firstOrNull()
-        ?.let {
-            MmkvManager.setSelectServer(it.guid)
-        }
+    // Startup optimization may refresh AUTO/MANUAL_LOCATION previews, but an
+    // explicit MANUAL_SERVER choice is owned by the user and must stay untouched.
+    if (selectionMode != BlueVpnSelectionMode.MANUAL_SERVER) {
+        BlueVpnLocationUtil
+            .instantCandidates(this, preferred)
+            .firstOrNull()
+            ?.let {
+                MmkvManager.setSelectServer(it.guid)
+            }
+    }
 
     updateStartupProgress(
         100,
@@ -2559,7 +2565,7 @@ private fun dpHome(value: Int): Int =
                     aiSummaryValue.text = "نتیجه منقضی شد؛ تحلیل دوباره لازم است"
                     return@withContext
                 }
-                BlueVpnPreferences.setSmartBalance(this@BlueVpnHomeActivity, true)
+                BlueVpnPreferences.setAutomaticSelection(this@BlueVpnHomeActivity)
                 BlueVpnPreferences.setPreferredLocation(this@BlueVpnHomeActivity, "")
                 MmkvManager.setSelectServer(decision.candidate.guid)
                 aiSummaryValue.text = BlueVpnSmartSelector.lastSummary(this@BlueVpnHomeActivity)
@@ -2726,19 +2732,7 @@ private fun dpHome(value: Int): Int =
         // unless their physical profiles are pruned.
         BlueVpnAccountManager.ensureEntitlementSelection(this)
 
-        if (
-            BlueVpnUpdateManager.blockInteraction(
-                this
-            )
-        ) {
-            return
-        }
-
-        showConnectingOverlay(
-            title = "در حال اتصال",
-            caption = "در حال آماده‌سازی انتخاب خودکار",
-            location = "انتخاب خودکار",
-        )
+        if (BlueVpnUpdateManager.blockInteraction(this)) return
 
         val entitlement = BlueVpnEntitlement.reconcile(this)
         applyEntitlementPresentation(entitlement)
@@ -2749,13 +2743,36 @@ private fun dpHome(value: Int): Int =
             Toast.makeText(this, entitlement.connectionNotice, Toast.LENGTH_LONG).show()
             return
         }
+
+        // Free is always automatic. Premium keeps explicit ownership selected by
+        // the user; opening the connect flow must never silently switch MANUAL
+        // back to AUTO.
+        if (entitlement.isFree && BlueVpnPreferences.selectionMode(this) != BlueVpnSelectionMode.AUTO) {
+            BlueVpnPreferences.setAutomaticSelection(this)
+        }
+        val selectionMode = if (entitlement.isFree) {
+            BlueVpnSelectionMode.AUTO
+        } else {
+            BlueVpnPreferences.selectionMode(this)
+        }
+
+        val overlayLocation = when (selectionMode) {
+            BlueVpnSelectionMode.AUTO -> if (entitlement.isFree) "انتخاب هوشمند رایگان" else "انتخاب خودکار"
+            BlueVpnSelectionMode.MANUAL_LOCATION -> "لوکیشن انتخاب‌شده"
+            BlueVpnSelectionMode.MANUAL_SERVER -> "سرور انتخاب‌شده"
+        }
+        showConnectingOverlay(
+            title = "در حال اتصال",
+            caption = when (selectionMode) {
+                BlueVpnSelectionMode.AUTO -> "در حال آماده‌سازی انتخاب هوشمند"
+                BlueVpnSelectionMode.MANUAL_LOCATION -> "در حال آماده‌سازی مسیرهای همان لوکیشن"
+                BlueVpnSelectionMode.MANUAL_SERVER -> "در حال اتصال دقیق به سرور انتخاب‌شده"
+            },
+            location = overlayLocation,
+        )
+
         if (entitlement.tier == BlueVpnPlanTier.FREE) {
             if (freePreparationInProgress) {
-                showConnectingOverlay(
-                    title = "آماده‌سازی اتصال رایگان",
-                    caption = "فقط سرورهای رایگان در حال همگام‌سازی هستند",
-                    location = "انتخاب هوشمند رایگان",
-                )
                 handler.postDelayed({
                     if (!isFinishing && !isDestroyed && !freePreparationInProgress &&
                         !failoverActive && mainViewModel.isRunning.value != true) {
@@ -2798,32 +2815,56 @@ private fun dpHome(value: Int): Int =
                 return
             }
         }
-        BlueVpnPreferences.setSmartBalance(this, true)
-        BlueVpnPreferences.setPreferredLocation(this, "")
+
         enforceReliableVpnSettings()
         BlueVpnPreferences.clearConnected(this)
         connectionVerified = false
         existingSessionCheckInProgress = false
         lastVerifiedLatency = 0L
 
-        val selectedProfile = MmkvManager.getSelectServer()
+        val selectedGuid = MmkvManager.getSelectServer().orEmpty()
+        val selectedProfile = selectedGuid.takeIf { it.isNotBlank() }
             ?.let { MmkvManager.decodeServerConfig(it) }
-
         val selectedLocation = selectedProfile
             ?.takeIf { BlueVpnLocationUtil.isUsable(it) }
             ?.let { BlueVpnLocationUtil.detect(it.remarks, it.server).key }
             .orEmpty()
 
-        val automaticSelection =
-            BlueVpnPreferences.smartBalance(this)
+        val preferredLocation = when (selectionMode) {
+            BlueVpnSelectionMode.AUTO -> ""
+            BlueVpnSelectionMode.MANUAL_LOCATION -> BlueVpnPreferences.preferredLocation(this)
+                .ifBlank { selectedLocation }
+            BlueVpnSelectionMode.MANUAL_SERVER -> BlueVpnPreferences.preferredLocation(this)
+                .ifBlank { selectedLocation }
+        }
 
-        val preferredLocation =
-            if (automaticSelection) {
-                ""
-            } else {
-                BlueVpnPreferences.preferredLocation(this)
-                    .ifBlank { selectedLocation }
-            }
+        fun exactManualCandidate(): BlueVpnLocationUtil.Candidate? {
+            if (selectionMode != BlueVpnSelectionMode.MANUAL_SERVER) return null
+            val manualGuid = BlueVpnPreferences.manualServerGuid(this)
+                .ifBlank { selectedGuid }
+            if (manualGuid.isBlank()) return null
+            val profile = MmkvManager.decodeServerConfig(manualGuid) ?: return null
+            if (!BlueVpnAccountManager.candidateAllowed(this, manualGuid, profile.subscriptionId)) return null
+            if (!BlueVpnLocationUtil.isUsable(profile, MmkvManager.decodeServerRaw(manualGuid))) return null
+            return BlueVpnLocationUtil.Candidate(
+                guid = manualGuid,
+                profile = profile,
+                location = BlueVpnLocationUtil.detect(profile.remarks, profile.server),
+                delay = MmkvManager.decodeServerAffiliationInfo(manualGuid)?.testDelayMillis ?: 0L,
+            )
+        }
+
+        exactManualCandidate()?.let { exact ->
+            startSmartConnectionWithCandidates(listOf(exact), selectionMode)
+            return
+        }
+        if (selectionMode == BlueVpnSelectionMode.MANUAL_SERVER) {
+            hideConnectingOverlay()
+            statusText.text = "سرور انتخاب‌شده در دسترس نیست"
+            statusCaption.text = "همان سرور حذف یا منقضی شده است؛ دوباره یک سرور انتخاب کنید"
+            connectButton.isEnabled = true
+            return
+        }
 
         if (!BlueVpnLocationUtil.hasCandidateCache(this)) {
             if (candidateLoadInProgress) {
@@ -2832,22 +2873,17 @@ private fun dpHome(value: Int): Int =
             }
             candidateLoadInProgress = true
             pendingConnectionRequest = true
-            showConnectingOverlay(
-                title = "در حال اتصال",
-                caption = "آماده‌سازی سریع چند مسیر منتخب",
-                location = "انتخاب خودکار",
-            )
             lifecycleScope.launch(Dispatchers.Default) {
                 val fast = BlueVpnLocationUtil.fastCandidates(
                     this@BlueVpnHomeActivity,
                     preferredLocation,
-                    maxCandidates = 8,
+                    maxCandidates = 10,
                 )
                 withContext(Dispatchers.Main) {
                     candidateLoadInProgress = false
                     if (isFinishing || isDestroyed || !pendingConnectionRequest) return@withContext
                     pendingConnectionRequest = false
-                    startSmartConnectionWithCandidates(fast, automaticSelection)
+                    startSmartConnectionWithCandidates(fast, selectionMode)
                     scheduleIdleCandidateWarmup()
                 }
             }
@@ -2855,14 +2891,14 @@ private fun dpHome(value: Int): Int =
         }
 
         startSmartConnectionWithCandidates(
-            BlueVpnLocationUtil.instantCandidates(this, preferredLocation, maxCandidates = 10),
-            automaticSelection,
+            BlueVpnLocationUtil.instantCandidates(this, preferredLocation, maxCandidates = 12),
+            selectionMode,
         )
     }
 
     private fun startSmartConnectionWithCandidates(
         candidates: List<BlueVpnLocationUtil.Candidate>,
-        automaticSelection: Boolean,
+        selectionMode: BlueVpnSelectionMode,
     ) {
         val entitlementGuids = BlueVpnAccountManager.preferredServerGuids(this).toSet()
         val isolatedCandidates = candidates.filter { candidate ->
@@ -2877,21 +2913,48 @@ private fun dpHome(value: Int): Int =
             hideConnectingOverlay()
             liveLocationSwitch = false
             switchTargetTitle = ""
-            statusText.text = if (automaticSelection) "سرور قابل اتصال نیست" else "لوکیشن قابل اتصال نیست"
-            statusCaption.text = "مسیرهای قدیمی یا ناسازگار کنار گذاشته شدند؛ ساب را بروزرسانی کنید"
+            statusText.text = when (selectionMode) {
+                BlueVpnSelectionMode.AUTO -> "سرور قابل اتصال نیست"
+                BlueVpnSelectionMode.MANUAL_LOCATION -> "لوکیشن قابل اتصال نیست"
+                BlueVpnSelectionMode.MANUAL_SERVER -> "سرور انتخاب‌شده قابل اتصال نیست"
+            }
+            statusCaption.text = "فقط مسیرهای مجاز پلن فعلی بررسی شدند"
             connectButton.isEnabled = true
             Toast.makeText(this, "سرور سالم و سازگار پیدا نشد", Toast.LENGTH_SHORT).show()
             return
         }
-        val ranked = BlueVpnSmartSelector.rank(this, isolatedCandidates)
-        val best = ranked.firstOrNull()
-        failoverQueue = ranked.map { it.candidate.guid }
-        if (best != null) {
-            MmkvManager.setSelectServer(best.candidate.guid)
-            aiSummaryValue.text = BlueVpnSmartSelector.decide(this, isolatedCandidates)?.let {
-                BlueVpnSmartSelector.lastSummary(this)
-            } ?: BlueVpnAi.localSummary(this)
+
+        val scoredQueue = when (selectionMode) {
+            BlueVpnSelectionMode.AUTO -> BlueVpnSmartSelector.connectionOrder(this, isolatedCandidates)
+            BlueVpnSelectionMode.MANUAL_LOCATION -> BlueVpnSmartSelector.rank(this, isolatedCandidates)
+            BlueVpnSelectionMode.MANUAL_SERVER -> {
+                val manualGuid = BlueVpnPreferences.manualServerGuid(this)
+                    .ifBlank { MmkvManager.getSelectServer().orEmpty() }
+                val exact = isolatedCandidates.firstOrNull { it.guid == manualGuid }
+                if (exact == null) emptyList() else listOf(BlueVpnSmartSelector.score(this, exact))
+            }
         }
+        if (scoredQueue.isEmpty()) {
+            hideConnectingOverlay()
+            failoverActive = false
+            connectButton.isEnabled = true
+            statusText.text = "انتخاب معتبر نیست"
+            statusCaption.text = "سرور یا لوکیشن را دوباره انتخاب کنید"
+            return
+        }
+
+        failoverQueue = scoredQueue.map { it.candidate.guid }
+        val chosen = scoredQueue.first()
+        MmkvManager.setSelectServer(chosen.candidate.guid)
+        if (selectionMode == BlueVpnSelectionMode.AUTO) {
+            BlueVpnSmartSelector.recordAutomaticConnectionChoice(
+                this,
+                chosen,
+                isolatedCandidates.size,
+            )
+            aiSummaryValue.text = BlueVpnSmartSelector.lastSummary(this)
+        }
+
         failoverIndex = 0
         failoverActive = true
         connectionVerified = false
@@ -2899,13 +2962,17 @@ private fun dpHome(value: Int): Int =
         waitingForPingResult = false
         healthProbeInProgress = false
         connectButton.isEnabled = false
-        statusText.text = if (liveLocationSwitch) "در حال تغییر لوکیشن" else "یافتن مسیر سالم"
+        statusText.text = if (liveLocationSwitch) "در حال تغییر لوکیشن" else when (selectionMode) {
+            BlueVpnSelectionMode.AUTO -> "یافتن مسیر سالم"
+            BlueVpnSelectionMode.MANUAL_LOCATION -> "اتصال به لوکیشن انتخاب‌شده"
+            BlueVpnSelectionMode.MANUAL_SERVER -> "اتصال به سرور انتخاب‌شده"
+        }
         statusCaption.text = if (liveLocationSwitch) {
-            "اتصال خودکار به ${switchTargetTitle.ifBlank { "لوکیشن جدید" }}"
-        } else if (automaticSelection) {
-            "در حال انتخاب سریع بهترین مسیر"
-        } else {
-            "در حال آماده‌سازی اتصال"
+            "اتصال به ${switchTargetTitle.ifBlank { "لوکیشن جدید" }}"
+        } else when (selectionMode) {
+            BlueVpnSelectionMode.AUTO -> "بهترین مسیرهای نزدیک به هم به‌صورت چرخشی بررسی می‌شوند"
+            BlueVpnSelectionMode.MANUAL_LOCATION -> "Failover فقط داخل همین لوکیشن انجام می‌شود"
+            BlueVpnSelectionMode.MANUAL_SERVER -> "حالت دستی قفل است؛ Auto این انتخاب را تغییر نمی‌دهد"
         }
         if (SettingsManager.isVpnMode()) {
             val permissionIntent = VpnService.prepare(this)
@@ -3338,6 +3405,16 @@ private fun dpHome(value: Int): Int =
             } else {
                 "اتصال امن برقرار شد و پایش خودکار فعال است"
             }
+
+        // Interstitial ads are a Free-plan benefit exchange, never a gate for
+        // VPN connectivity. Trigger only after a real verified connection;
+        // live location switches and Premium sessions do not show an ad.
+        if (!completedLiveSwitch && BlueVpnEntitlement.resolve(this).isFree) {
+            BlueVpnTapsellManager.onVerifiedConnection(
+                this,
+                BlueVpnPreferences.connectedAt(this),
+            )
+        }
     }
 
     private fun refreshVerifiedExitLocation() {

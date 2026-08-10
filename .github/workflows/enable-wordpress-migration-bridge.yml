@@ -1,0 +1,39 @@
+name: Enable WordPress Migration Bridge
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  enable:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate bridge file
+        run: test -f server/wordpress_migration_bridge.py
+
+      - name: Patch current Backend safely
+        run: python scripts/enable_wordpress_migration_bridge.py
+
+      - name: Python syntax check
+        run: python -m py_compile server/wordpress_migration_bridge.py server/main.py
+
+      - name: Commit patch if needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No source changes needed"
+            exit 0
+          fi
+          git config user.name "BlueVPN Migration Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add server/main.py
+          git commit -m "Enable WordPress migration bridge"
+          git push origin HEAD:main

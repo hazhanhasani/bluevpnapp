@@ -129,4 +129,46 @@ final class BlueVPN_Utils {
         }
         return $phone;
     }
+
+    public static function mysql_from_iso(?string $value): ?string {
+        $value = trim((string)$value);
+        if ($value === '') return null;
+        try {
+            $dt = new DateTimeImmutable($value);
+            return $dt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
+    public static function encrypt_secret(string $plain): string {
+        if ($plain === '') return '';
+        if (!function_exists('openssl_encrypt')) {
+            return 'plain64:' . base64_encode($plain);
+        }
+        $key = hash('sha256', wp_salt('auth') . '|' . wp_salt('secure_auth') . '|bluevpn-manager', true);
+        $iv = random_bytes(12);
+        $tag = '';
+        $cipher = openssl_encrypt($plain, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, 'bluevpn-manager-v1');
+        if ($cipher === false) return '';
+        return 'gcm1:' . base64_encode($iv . $tag . $cipher);
+    }
+
+    public static function decrypt_secret(string $encoded): string {
+        if ($encoded === '') return '';
+        if (str_starts_with($encoded, 'plain64:')) {
+            $plain = base64_decode(substr($encoded, 8), true);
+            return $plain === false ? '' : $plain;
+        }
+        if (!str_starts_with($encoded, 'gcm1:') || !function_exists('openssl_decrypt')) return '';
+        $raw = base64_decode(substr($encoded, 5), true);
+        if ($raw === false || strlen($raw) < 29) return '';
+        $iv = substr($raw, 0, 12);
+        $tag = substr($raw, 12, 16);
+        $cipher = substr($raw, 28);
+        $key = hash('sha256', wp_salt('auth') . '|' . wp_salt('secure_auth') . '|bluevpn-manager', true);
+        $plain = openssl_decrypt($cipher, 'aes-256-gcm', $key, OPENSSL_RAW_DATA, $iv, $tag, 'bluevpn-manager-v1');
+        return $plain === false ? '' : $plain;
+    }
+
 }

@@ -3,7 +3,7 @@
  * Plugin Name: BlueVPN Manager
  * Plugin URI: https://bluevpn.local/
  * Description: Backend/API foundation for migrating BlueVPN from Railway/PostgreSQL to WordPress/MySQL.
- * Version: 1.1.0
+ * Version: 1.2.0
  * Author: BlueVPN
  * Requires at least: 6.2
  * Requires PHP: 8.0
@@ -15,8 +15,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('BLUEVPN_MANAGER_VERSION', '1.1.0');
-define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.0.0');
+define('BLUEVPN_MANAGER_VERSION', '1.2.0');
+define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.1.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
 define('BLUEVPN_MANAGER_URL', plugin_dir_url(__FILE__));
@@ -29,16 +29,19 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-compat.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-cron.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-admin.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-github-updater.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-migration.php';
 
 register_activation_hook(__FILE__, function () {
     BlueVPN_DB::activate();
     BlueVPN_Compat::register_rewrites();
     flush_rewrite_rules(false);
     BlueVPN_Cron::schedule();
+    BlueVPN_Migration::sync_cron_schedule(!empty(BlueVPN_Migration::settings()['auto_sync']));
 });
 
 register_deactivation_hook(__FILE__, function () {
     BlueVPN_Cron::unschedule();
+    BlueVPN_Migration::sync_cron_schedule(false);
     flush_rewrite_rules(false);
 });
 
@@ -49,4 +52,5 @@ add_action('plugins_loaded', function () {
     BlueVPN_Cron::init();
     BlueVPN_Admin::init();
     BlueVPN_GitHub_Updater::init();
+    BlueVPN_Migration::init();
 });

@@ -140,6 +140,7 @@ android {
 
 dependencies {
     implementation("ir.tapsell.plus:tapsell-plus-sdk-android:2.3.3")
+    implementation("com.google.guava:guava:33.6.0-android")
     // Core Libraries
     implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
 

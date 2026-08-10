@@ -30,7 +30,7 @@ def test_fast_free_connection_timer_and_probe():
     assert 'SystemClock.elapsedRealtime() + 3_600L' in home
     assert 'connection.connectTimeout = 1_800' in home
     assert 'connection.readTimeout = 1_800' in home
-    assert 'handler.postDelayed(attemptTimeout, 5_500L)' in home
+    assert 'handler.postDelayed(attemptTimeout, 12_000L)' in home
     assert 'waitForLocalProxyReady(httpPort)' in home
     assert 'handler.removeCallbacks(attemptTimeout)' in home
 

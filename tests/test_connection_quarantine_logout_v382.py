@@ -88,7 +88,7 @@ def test_core_start_stop_commands_are_off_main_thread_and_generation_guarded():
     assert "AtomicLong(0L)" in engine
     assert "commandExecutor.execute" in engine
     assert "generation != commandGeneration.get()" in engine
-    assert "CoreServiceManager.startVService(app)" in engine
+    assert "CoreServiceManager.startVService(app, targetGuid)" in engine
     assert "CoreServiceManager.stopVService(app)" in engine
 
 

@@ -29,7 +29,8 @@ def test_android_runtime_prunes_disabled_managed_profiles_and_guards_core_start(
     assert "fun ensureEntitlementSelection" in account
     assert "BlueVpnAccountManager.ensureEntitlementSelection(this)" in home
     assert "val isolatedCandidates = candidates.filter" in home
-    assert "BlueVpnAccountManager.selectedServerAllowed(app)" in engine
+    assert "BlueVpnAccountManager.candidateAllowed(" in engine
+    assert "MmkvManager.decodeServerConfig(it)" in engine
 
 
 def test_combined_subscription_interleaves_providers_for_cold_shortlist():

@@ -3,6 +3,7 @@ package com.v2ray.ang.bluevpn
 import android.content.Context
 import android.util.Log
 import com.v2ray.ang.core.CoreServiceManager
+import com.v2ray.ang.handler.MmkvManager
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
@@ -102,20 +103,34 @@ object BlueVpnEngineManager {
      * Android TUN path, AUTO fails closed to the proven Xray bridge instead of
      * exposing a false "connected" state.
      */
-    fun start(context: Context) {
+    fun start(context: Context, serverGuid: String? = null) {
         val app = context.applicationContext
         val requested = preferredMode(app)
+        val targetGuid = serverGuid.orEmpty().trim().ifBlank {
+            MmkvManager.getSelectServer().orEmpty().trim()
+        }
         val generation = commandGeneration.incrementAndGet()
         publish(State.PREPARING, requested, Engine.XRAY)
 
-        // CoreServiceManager can perform config generation/binder work. Keep it
-        // off the main thread so a slow or malformed config never produces an
-        // Android "BlueVPN isn't responding" dialog.
+        // CoreServiceManager owns the proven v2rayNG/Xray compatibility path.
+        // BlueVPN only validates entitlement and selects the exact GUID here;
+        // it does not reconstruct VLESS/VMess/Trojan/SS profiles. Stop/start
+        // ordering is driven by the service-state broadcast in HomeActivity,
+        // because CoreVpnService runs in a separate Android process.
         commandExecutor.execute {
             if (generation != commandGeneration.get()) return@execute
 
-            if (!BlueVpnAccountManager.selectedServerAllowed(app)) {
-                val reason = "selected server is outside the active entitlement pool"
+            val profile = targetGuid.takeIf { it.isNotBlank() }
+                ?.let { MmkvManager.decodeServerConfig(it) }
+            if (
+                profile == null ||
+                !BlueVpnAccountManager.candidateAllowed(
+                    app,
+                    targetGuid,
+                    profile.subscriptionId,
+                )
+            ) {
+                val reason = "target server is outside the active entitlement pool"
                 Log.e(TAG, reason)
                 if (generation == commandGeneration.get()) {
                     publish(State.FAILED, requested, Engine.XRAY, reason)
@@ -146,7 +161,10 @@ object BlueVpnEngineManager {
             publish(State.STARTING, requested, Engine.XRAY, fallback)
 
             runCatching {
-                CoreServiceManager.startVService(app)
+                // Use the exact official v2rayNG entry point. Passing the GUID
+                // closes the race where BlueVPN changed global MMKV selection
+                // before the previous CoreVpnService had actually stopped.
+                CoreServiceManager.startVService(app, targetGuid)
             }.onFailure { error ->
                 Log.e(TAG, "Xray start failed", error)
                 if (generation == commandGeneration.get()) {

@@ -143,7 +143,11 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var attemptedGuid = ""
     private var waitingForPingResult = false
     private var healthProbeInProgress = false
+    private var waitingForCoreStop = false
+    private var coreStopRetryCount = 0
+    private var verificationRound = 0
     private var existingSessionCheckInProgress = false
+    private var existingSessionRetryCount = 0
     private var lastVerifiedLatency = 0L
     private var serversOpenedWhileActive = false
     private var liveLocationSwitch = false
@@ -193,10 +197,28 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var startupStageText: TextView? = null
 
     private val attemptTimeout = Runnable {
-        if (!failoverActive || userDisconnecting) {
+        if (!failoverActive || userDisconnecting || waitingForCoreStop) {
             return@Runnable
         }
-        failCurrentAndTryNext("این مسیر در زمان مجاز پاسخ نداد")
+        failCurrentAndTryNext("هسته Xray در زمان مجاز شروع نشد")
+    }
+
+    private val coreStopTimeout = object : Runnable {
+        override fun run() {
+            if (!failoverActive || userDisconnecting || !waitingForCoreStop) return
+
+            if (coreStopRetryCount < 1) {
+                coreStopRetryCount += 1
+                BlueVpnEngineManager.stop(this@BlueVpnHomeActivity)
+                handler.postDelayed(this, 4_000L)
+                return
+            }
+
+            // Failure to stop the previous service is a runtime/lifecycle issue,
+            // not evidence that the next profile is invalid. Do not quarantine it.
+            waitingForCoreStop = false
+            finishFailoverWithError("اتصال قبلی کامل متوقف نشد؛ دوباره تلاش کنید")
+        }
     }
 
     private val disconnectRetry = object : Runnable {
@@ -1660,6 +1682,37 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             }
 
             when {
+                active && failoverActive && waitingForCoreStop -> {
+                    // We are still observing the old CoreVpnService. Never verify
+                    // the next GUID against traffic from the previous route.
+                    updateConnectLabel("لغو اتصال")
+                    connectButton.isEnabled = true
+                    statusText.text = "در حال تغییر مسیر"
+                    statusCaption.text = "در انتظار توقف کامل اتصال قبلی"
+                }
+
+                !active && failoverActive && waitingForCoreStop -> {
+                    // v2rayNG confirmed that its service/core is fully stopped.
+                    // Only now select/start the next exact GUID. This replaces the
+                    // old fixed 90 ms restart race.
+                    waitingForCoreStop = false
+                    coreStopRetryCount = 0
+                    handler.removeCallbacks(coreStopTimeout)
+                    val guid = attemptedGuid
+                    if (guid.isNotBlank()) {
+                        handler.post { startExactCandidateCore(guid) }
+                    }
+                }
+
+                active && failoverActive -> {
+                    // The service reported RUNNING for the exact candidate, so the
+                    // startup watchdog has completed its job. From here multi-proof
+                    // end-to-end verification owns failure detection.
+                    handler.removeCallbacks(attemptTimeout)
+                    renderVerifyingState()
+                    scheduleConnectionVerification()
+                }
+
                 active && isThemeConnectionGraceActive() -> {
                     // Theme changes recreate only the screen. Keep the core
                     // untouched and restore the verified UI immediately.
@@ -1670,16 +1723,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                         renderVerifyingState()
                         verifyExistingRunningSession(preserveServiceOnFailure = true)
                     }
-                }
-
-                active && failoverActive -> {
-                    // The service reported RUNNING, so the startup watchdog has
-                    // completed its job. From here the bounded end-to-end tunnel
-                    // verifier owns failure detection; do not race it with a
-                    // stale short timeout and kill a valid slow handshake.
-                    handler.removeCallbacks(attemptTimeout)
-                    renderVerifyingState()
-                    scheduleConnectionVerification()
                 }
 
                 active && connectionVerified -> {
@@ -1699,9 +1742,31 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             }
         }
 
-        mainViewModel.updateTestResultAction.observe(this) {
+        mainViewModel.updateTestResultAction.observe(this) { result ->
             BlueVpnLocationUtil.invalidateCache()
             warmCandidatesThenRefresh(force = true)
+
+            val upstreamDelay = parseV2rayNgDelayMs(result)
+            if (upstreamDelay != null && mainViewModel.isRunning.value == true) {
+                lastVerifiedLatency = upstreamDelay
+                if (
+                    failoverActive &&
+                    !waitingForCoreStop &&
+                    MmkvManager.getSelectServer() == attemptedGuid
+                ) {
+                    // v2rayNG's own coreController.measureDelay() is an end-to-end
+                    // proof through the running Xray core. Accept it as a valid
+                    // compatibility proof instead of requiring BlueVPN-only URLs.
+                    completeFailover(upstreamDelay)
+                } else if (!failoverActive && !connectionVerified) {
+                    existingSessionRetryCount = 0
+                    connectionVerified = true
+                    BlueVpnPreferences.markConnected(this, resetTimer = false)
+                    BlueVpnAccountManager.startFreeSession(this)
+                    renderConnectionState(true)
+                    recordCurrentConnection(upstreamDelay)
+                }
+            }
 
             if (startupOptimizationActive) {
                 finishStartupOptimization()
@@ -1773,6 +1838,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacks(attemptTimeout)
+        handler.removeCallbacks(coreStopTimeout)
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(startupProgressTicker)
         handler.removeCallbacks(startupOptimizationTimeout)
@@ -2962,7 +3028,8 @@ private fun dpHome(value: Int): Int =
 
         failoverQueue = scoredQueue.map { it.candidate.guid }
         val chosen = scoredQueue.first()
-        MmkvManager.setSelectServer(chosen.candidate.guid)
+        // Do not mutate v2rayNG's global selected GUID until the previous core
+        // has fully stopped. The exact candidate is committed at core start.
         if (selectionMode == BlueVpnSelectionMode.AUTO) {
             BlueVpnSmartSelector.recordAutomaticConnectionChoice(
                 this,
@@ -3012,8 +3079,12 @@ private fun dpHome(value: Int): Int =
         attemptedGuid = guid
         waitingForPingResult = false
         healthProbeInProgress = false
+        waitingForCoreStop = false
+        coreStopRetryCount = 0
+        verificationRound = 0
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
+        handler.removeCallbacks(coreStopTimeout)
 
         val profile = MmkvManager.decodeServerConfig(guid)
         if (
@@ -3026,8 +3097,6 @@ private fun dpHome(value: Int): Int =
             handler.post { if (failoverActive) startCurrentCandidate() }
             return
         }
-        MmkvManager.setSelectServer(guid)
-
         val location = BlueVpnLocationUtil.detect(profile.remarks, profile.server)
         val locationName = location?.let { "${it.flag} ${it.title}" } ?: "انتخاب خودکار"
 
@@ -3085,43 +3154,107 @@ private fun dpHome(value: Int): Int =
                 // end-to-end tunnel proof before quarantining this route.
                 statusCaption.text = preflight.reason
 
-                val startCore = Runnable {
-                    if (
-                        !failoverActive ||
-                        userDisconnecting ||
-                        attemptedGuid != guid
-                    ) return@Runnable
-                    BlueVpnEngineManager.start(this@BlueVpnHomeActivity)
-                    handler.postDelayed({
-                        if (!isFinishing && !isDestroyed) requestDashboardRefresh()
-                    }, 60L)
-                    handler.postDelayed(attemptTimeout, 5_500L)
-                }
-
                 if (mainViewModel.isRunning.value == true) {
+                    // A fixed restart delay is unsafe because CoreVpnService lives
+                    // in another process. Wait for v2rayNG's NOT_RUNNING broadcast
+                    // before committing/starting the next GUID.
+                    waitingForCoreStop = true
+                    coreStopRetryCount = 0
+                    BlueVpnEngineManager.markSwitching()
+                    statusText.text = "در حال تغییر مسیر"
+                    statusCaption.text = "در انتظار توقف کامل اتصال قبلی"
                     BlueVpnEngineManager.stop(this@BlueVpnHomeActivity)
-                    handler.postDelayed(startCore, 90L)
+                    handler.removeCallbacks(coreStopTimeout)
+                    handler.postDelayed(coreStopTimeout, 6_000L)
                 } else {
-                    startCore.run()
+                    startExactCandidateCore(guid)
                 }
             }
         }
+    }
+
+    private fun startExactCandidateCore(guid: String) {
+        if (
+            !failoverActive ||
+            userDisconnecting ||
+            waitingForCoreStop ||
+            attemptedGuid != guid
+        ) return
+
+        val profile = MmkvManager.decodeServerConfig(guid)
+        if (
+            profile == null ||
+            !BlueVpnAccountManager.candidateAllowed(this, guid, profile.subscriptionId)
+        ) {
+            failCurrentAndTryNext("کانفیگ از Pool فعال خارج شده است")
+            return
+        }
+
+        // BlueVpnEngineManager passes this exact GUID to
+        // the official v2rayNG start entry point with an exact GUID. v2rayNG remains the
+        // parser/config-builder/VpnService authority for Xray-compatible routes.
+        BlueVpnEngineManager.start(this, guid)
+        handler.postDelayed({
+            if (!isFinishing && !isDestroyed) requestDashboardRefresh()
+        }, 60L)
+        handler.removeCallbacks(attemptTimeout)
+        handler.postDelayed(attemptTimeout, 12_000L)
     }
 
     private fun scheduleConnectionVerification() {
         if (
             !failoverActive ||
             userDisconnecting ||
+            waitingForCoreStop ||
             healthProbeInProgress
         ) return
 
+        BlueVpnEngineManager.markVerifying()
+        // Ask the same upstream v2rayNG core for its native delay proof in
+        // parallel with BlueVPN's independent HTTP proof. Either proof may
+        // succeed first; a single BlueVPN endpoint failure no longer kills Xray.
+        mainViewModel.testCurrentServerRealPing()
         handler.postDelayed({
-            if (failoverActive) {
+            if (failoverActive && !waitingForCoreStop) {
                 verifyTunnelThroughCore(
-                    "این مسیر پاسخ مناسب نداد"
+                    "این مسیر در چند تست واقعی اینترنت پاسخ نداد"
                 )
             }
-        }, 80L)
+        }, 180L)
+    }
+
+    private fun parseV2rayNgDelayMs(value: String?): Long? {
+        val normalized = value.orEmpty().map { ch ->
+            when (ch) {
+                '۰' -> '0'
+                '۱' -> '1'
+                '۲' -> '2'
+                '۳' -> '3'
+                '۴' -> '4'
+                '۵' -> '5'
+                '۶' -> '6'
+                '۷' -> '7'
+                '۸' -> '8'
+                '۹' -> '9'
+                '٠' -> '0'
+                '١' -> '1'
+                '٢' -> '2'
+                '٣' -> '3'
+                '٤' -> '4'
+                '٥' -> '5'
+                '٦' -> '6'
+                '٧' -> '7'
+                '٨' -> '8'
+                '٩' -> '9'
+                else -> ch
+            }
+        }.joinToString("")
+        return Regex("""(\d{1,7})\s*ms""", RegexOption.IGNORE_CASE)
+            .find(normalized)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toLongOrNull()
+            ?.takeIf { it >= 0L }
     }
 
     private fun handlePingResult() {
@@ -3177,6 +3310,7 @@ private fun dpHome(value: Int): Int =
 
         existingSessionCheckInProgress = true
         renderVerifyingState()
+        mainViewModel.testCurrentServerRealPing()
 
         lifecycleScope.launch(Dispatchers.IO) {
             val latency = probeInternetThroughCore()
@@ -3185,6 +3319,7 @@ private fun dpHome(value: Int): Int =
                 existingSessionCheckInProgress = false
 
                 if (mainViewModel.isRunning.value != true) {
+                    existingSessionRetryCount = 0
                     connectionVerified = false
                     BlueVpnPreferences.clearConnected(this@BlueVpnHomeActivity)
                     renderConnectionState(false)
@@ -3192,6 +3327,7 @@ private fun dpHome(value: Int): Int =
                 }
 
                 if (latency != null) {
+                    existingSessionRetryCount = 0
                     lastVerifiedLatency = latency
                     connectionVerified = true
                     BlueVpnPreferences.markConnected(
@@ -3205,55 +3341,54 @@ private fun dpHome(value: Int): Int =
                         "اتصال امن با موفقیت برقرار شد"
                     recordCurrentConnection(latency)
                     refreshVerifiedExitLocation()
-                } else if (preserveServiceOnFailure || isThemeConnectionGraceActive()) {
-                    // A theme switch is visual-only. A transient probe failure
-                    // during Activity recreation must never stop/restart VPN.
-                    if (BlueVpnPreferences.connectedAt(this@BlueVpnHomeActivity) > 0L) {
-                        connectionVerified = true
-                        renderConnectionState(true)
-                    } else {
-                        renderVerifyingState()
-                    }
-                    statusCaption.text =
-                        "اتصال فعلی حفظ شد؛ بررسی در پس‌زمینه ادامه دارد"
-                    if (themeHealthRetryCount < 2) {
-                        themeHealthRetryCount += 1
-                        handler.postDelayed({
-                            if (
-                                mainViewModel.isRunning.value == true &&
-                                !isFinishing &&
-                                !isDestroyed
-                            ) {
-                                verifyExistingRunningSession(
-                                    preserveServiceOnFailure = true
-                                )
-                            }
-                        }, 1_800L)
-                    }
+                    return@withContext
+                }
+
+                // A running v2rayNG CoreVpnService is preserved while verification
+                // is inconclusive. BlueVPN must not tear down a working tunnel just
+                // because one HTTP endpoint, DNS path or Activity recreation probe
+                // failed. The UI stays in VERIFYING until an upstream or independent
+                // end-to-end proof succeeds.
+                if (
+                    (preserveServiceOnFailure || isThemeConnectionGraceActive()) &&
+                    BlueVpnPreferences.connectedAt(this@BlueVpnHomeActivity) > 0L
+                ) {
+                    connectionVerified = true
+                    renderConnectionState(true)
                 } else {
-                    // A running core is not proof of a working VPN. Do not
-                    // expose a false connected state or send a live heartbeat.
                     connectionVerified = false
-                    BlueVpnPreferences.clearConnected(
-                        this@BlueVpnHomeActivity
-                    )
-                    BlueVpnEngineManager.stop(
-                        this@BlueVpnHomeActivity
-                    )
-                    renderConnectionState(false)
-                    statusText.text = "اتصال واقعی تأیید نشد"
-                    statusCaption.text =
-                        "این مسیر قابل استفاده نبود؛ دوباره تلاش کنید"
+                    renderVerifyingState()
+                }
+                statusCaption.text =
+                    "هسته Xray فعال است؛ تأیید اینترنت در پس‌زمینه ادامه دارد"
+
+                val retryLimit = if (preserveServiceOnFailure || isThemeConnectionGraceActive()) 3 else 2
+                if (existingSessionRetryCount < retryLimit) {
+                    existingSessionRetryCount += 1
+                    handler.postDelayed({
+                        if (
+                            mainViewModel.isRunning.value == true &&
+                            !isFinishing &&
+                            !isDestroyed &&
+                            !connectionVerified
+                        ) {
+                            verifyExistingRunningSession(
+                                preserveServiceOnFailure = preserveServiceOnFailure,
+                            )
+                        }
+                    }, 1_800L)
                 }
             }
         }
     }
 
     private fun verifyTunnelThroughCore(reason: String) {
-        if (!failoverActive || healthProbeInProgress) return
+        if (!failoverActive || healthProbeInProgress || waitingForCoreStop) return
         if (MmkvManager.getSelectServer() != attemptedGuid) return
 
         healthProbeInProgress = true
+        verificationRound += 1
+        val round = verificationRound
         val guid = attemptedGuid
 
         lifecycleScope.launch(Dispatchers.IO) {
@@ -3261,6 +3396,7 @@ private fun dpHome(value: Int): Int =
 
             withContext(Dispatchers.Main) {
                 if (!failoverActive || attemptedGuid != guid) {
+                    healthProbeInProgress = false
                     return@withContext
                 }
 
@@ -3269,12 +3405,37 @@ private fun dpHome(value: Int): Int =
                 if (latency != null) {
                     lastVerifiedLatency = latency
                     completeFailover(latency)
-                } else {
-                    // Never count "core started" as a live connection. A route
-                    // is accepted only after a remote proof succeeds through
-                    // the local Xray proxy and the Android VPN transport.
-                    failCurrentAndTryNext(reason)
+                    return@withContext
                 }
+
+                if (
+                    mainViewModel.isRunning.value == true &&
+                    MmkvManager.getSelectServer() == guid &&
+                    round < 3
+                ) {
+                    // Do not classify a v2rayNG-compatible config as dead after a
+                    // single BlueVPN probe. Reality/WS/gRPC/TLS can need a longer
+                    // warm-up on Iranian mobile networks, and public probe URLs can
+                    // be filtered independently of the tunnel itself.
+                    statusText.text = "در حال تأیید اینترنت"
+                    statusCaption.text = "تست واقعی ${round + 1} از ۳"
+                    mainViewModel.testCurrentServerRealPing()
+                    handler.postDelayed({
+                        if (
+                            failoverActive &&
+                            attemptedGuid == guid &&
+                            mainViewModel.isRunning.value == true
+                        ) {
+                            verifyTunnelThroughCore(reason)
+                        }
+                    }, if (round == 1) 700L else 1_200L)
+                    return@withContext
+                }
+
+                // Only after repeated end-to-end failures (plus the upstream
+                // v2rayNG delay probe running in parallel) may the route be
+                // quarantined for this connection cycle and fail over.
+                failCurrentAndTryNext(reason)
             }
         }
     }
@@ -3467,6 +3628,7 @@ private fun dpHome(value: Int): Int =
 
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
+        handler.removeCallbacks(coreStopTimeout)
         BlueVpnPreferences.markServerSuccess(
             this,
             attemptedGuid,
@@ -3483,6 +3645,9 @@ private fun dpHome(value: Int): Int =
         failoverActive = false
         waitingForPingResult = false
         healthProbeInProgress = false
+        waitingForCoreStop = false
+        coreStopRetryCount = 0
+        verificationRound = 0
         connectionVerified = true
         liveLocationSwitch = false
         switchTargetTitle = ""
@@ -3557,6 +3722,7 @@ private fun dpHome(value: Int): Int =
 
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
+        handler.removeCallbacks(coreStopTimeout)
 
         if (failedGuid.isNotBlank()) {
             // Hard quarantine for this connect cycle. The next explicit connect
@@ -3573,6 +3739,9 @@ private fun dpHome(value: Int): Int =
         failoverIndex += 1
         waitingForPingResult = false
         healthProbeInProgress = false
+        waitingForCoreStop = false
+        coreStopRetryCount = 0
+        verificationRound = 0
 
         if (failoverIndex >= failoverQueue.size) {
             finishFailoverWithError()
@@ -3593,15 +3762,19 @@ private fun dpHome(value: Int): Int =
         }, 250L)
     }
 
-    private fun finishFailoverWithError() {
+    private fun finishFailoverWithError(reason: String? = null) {
         hideConnectingOverlay()
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
+        handler.removeCallbacks(coreStopTimeout)
         BlueVpnEngineManager.stop(this)
 
         failoverActive = false
         waitingForPingResult = false
         healthProbeInProgress = false
+        waitingForCoreStop = false
+        coreStopRetryCount = 0
+        verificationRound = 0
         connectionVerified = false
         liveLocationSwitch = false
         switchTargetTitle = ""
@@ -3611,14 +3784,14 @@ private fun dpHome(value: Int): Int =
         applyOrbVisual(OrbVisualState.ERROR)
         statusText.text = "لوکیشن در دسترس نیست"
         statusCaption.visibility = View.VISIBLE
-        statusCaption.text =
-            "همه مسیرهای این لوکیشن بررسی شدند؛ بعداً دوباره امتحان کنید"
+        statusCaption.text = reason
+            ?: "همه مسیرهای این لوکیشن بررسی شدند؛ بعداً دوباره امتحان کنید"
         statusDot.backgroundTintList =
             ColorStateList.valueOf(Color.parseColor("#FFB44A"))
 
         Toast.makeText(
             this,
-            "هیچ‌کدام از مسیرهای این لوکیشن پاسخ ندادند",
+            reason ?: "هیچ‌کدام از مسیرهای این لوکیشن پاسخ ندادند",
             Toast.LENGTH_LONG
         ).show()
     }
@@ -3627,6 +3800,7 @@ private fun dpHome(value: Int): Int =
         hideConnectingOverlay()
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
+        handler.removeCallbacks(coreStopTimeout)
         failoverActive = false
         pendingConnectionRequest = false
         failoverQueue = emptyList()
@@ -3634,6 +3808,9 @@ private fun dpHome(value: Int): Int =
         attemptedGuid = ""
         waitingForPingResult = false
         healthProbeInProgress = false
+        waitingForCoreStop = false
+        coreStopRetryCount = 0
+        verificationRound = 0
         connectionVerified = false
         liveLocationSwitch = false
         switchTargetTitle = ""

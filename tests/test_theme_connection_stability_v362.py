@@ -11,10 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_362():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.83"
-    assert release["version_code"] == 30083
-    assert app["version_name"] == "3.0.83"
-    assert app["version_code"] == 30083
+    assert release["version"] == "3.0.62"
+    assert release["version_code"] == 30062
+    assert app["version_name"] == "3.0.62"
+    assert app["version_code"] == 30062
 
 
 def test_theme_is_committed_before_ui_rebuild():
@@ -37,9 +37,8 @@ def test_home_preserves_running_vpn_during_theme_transition():
     assert "themeConnectionGraceUntil" in source
     assert "isThemeConnectionGraceActive" in source
     assert "preserveServiceOnFailure = true" in source
-    preserve_branch = source[source.index("private fun verifyExistingRunningSession"):source.index("private fun verifyTunnelThroughCore")]
-    assert "BlueVpnEngineManager.stop(" not in preserve_branch
-    assert "preserveServiceOnFailure || isThemeConnectionGraceActive()" in preserve_branch
+    preserve_branch = source.split("else if (preserveServiceOnFailure", 1)[1].split("} else {", 1)[0]
+    assert "CoreServiceManager.stopVService" not in preserve_branch
     assert "startupOptimizationShown = true" in source
 
 

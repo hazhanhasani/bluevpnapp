@@ -7,7 +7,6 @@ from pathlib import Path
 from io import BytesIO
 from zoneinfo import ZoneInfo
 from PIL import Image,ImageOps
-import httpx
 from typing import Any
 from fastapi import Depends,FastAPI,File,Form,Header,HTTPException,Request,UploadFile
 from fastapi.responses import FileResponse,HTMLResponse,JSONResponse,RedirectResponse,Response
@@ -18,7 +17,7 @@ from sqlalchemy.orm import Session,selectinload
 from starlette.background import BackgroundTask
 from starlette.middleware.sessions import SessionMiddleware
 from .database import DATA_DIR,DATABASE_ERROR,DATABASE_MODE,ENGINE,SQLITE_PATH,SessionLocal,database_status,database_table_counts,initialize_database,get_db
-from .integrations import IntegrationError,combined_subscription,create_invoice,delete_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,normalize_bluepay_base_url,normalize_bluepay_invoice,normalize_provider_status,parse_remote_date,provision,recent_bluepay_errors,repair_subscription_states,sync_customer,test_bluepay_connection,test_marzban_panel,test_panel,verify_webhook
+from .integrations import IntegrationError,combined_subscription,create_invoice,delete_invoice,get_invoice,iso_z,log_bluepay_error,merge_order_metadata,normalize_gateway_amount_toman,normalize_provider_status,parse_remote_date,provision,recent_bluepay_errors,repair_subscription_states,sync_customer,test_marzban_panel,test_panel,verify_webhook
 from .guardcore import service_ids_from_json,test_guardcore_panel
 from .manual_guardcore import (
     attach_manual_subscription,
@@ -43,7 +42,7 @@ BASE=Path(__file__).resolve().parent
 logger=logging.getLogger('bluevpn.main')
 templates=Jinja2Templates(directory=BASE/'templates')
 templates.env.filters['jalali']=format_jalali
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','ads_enabled':False,'ads_autoplay':True,'ads_loop':True,'ads_interval_seconds':6,'ads_height_dp':146,'ads_items':[],'tapsell_enabled':False,'tapsell_app_key':'','tapsell_interstitial_zone_id':'','tapsell_show_after_connect':True,'tapsell_min_interval_seconds':0,'tapsell_daily_cap':0,'free_access_enabled':False,'free_subscription_url':'','free_subscription_items':[],'free_session_minutes':60,'updated_at':iso_z(utcnow())}
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','ads_enabled':False,'ads_autoplay':True,'ads_loop':True,'ads_interval_seconds':6,'ads_height_dp':146,'ads_items':[],'updated_at':iso_z(utcnow())}
 
 
 def env_bool(name:str,default:bool=False)->bool:
@@ -557,22 +556,6 @@ def advertising_payload(s:dict[str,Any],public_origin:str='',client_version:str=
     }
 
 
-
-def tapsell_payload(s:dict[str,Any])->dict[str,Any]:
-    app_key=str(s.get('tapsell_app_key') or '').strip()
-    zone_id=str(s.get('tapsell_interstitial_zone_id') or '').strip()
-    configured=bool(s.get('tapsell_enabled',False)) and bool(app_key) and bool(zone_id)
-    return {
-        'enabled':configured,
-        'app_key':app_key if configured else '',
-        'interstitial_zone_id':zone_id if configured else '',
-        'show_after_connect':bool(s.get('tapsell_show_after_connect',True)),
-        'free_only':True,
-        'min_interval_seconds':max(0,min(86400,int(s.get('tapsell_min_interval_seconds',0) or 0))),
-        'daily_cap':max(0,min(1000,int(s.get('tapsell_daily_cap',0) or 0))),
-        'disabled_reason':'' if configured else ('missing_credentials' if s.get('tapsell_enabled',False) else 'disabled'),
-    }
-
 def _ad_asset_path(asset_id:str)->str:
     return f'/api/v1/ad-assets/{asset_id}'
 
@@ -764,7 +747,6 @@ def legal_page_data(page:str)->dict:
                 {'title':'اطلاعات مورد نیاز','paragraphs':['برای ایجاد و مدیریت حساب ممکن است شماره همراه، اطلاعات سفارش، صورتحساب، وضعیت پرداخت، درخواست‌های پشتیبانی و داده‌های فنی ضروری ثبت شود.']},
                 {'title':'هدف پردازش','paragraphs':['اطلاعات برای احراز هویت، ارائه و پیگیری خدمت، جلوگیری از تقلب، ارسال اعلان‌های ضروری، پاسخ‌گویی به پشتیبانی و بهبود پایداری سامانه استفاده می‌شود.']},
                 {'title':'پیامک‌ها','paragraphs':['پیامک برای کد ورود، وضعیت سفارش و پرداخت، فعال‌سازی یا تمدید خدمت، هشدارهای امنیتی و پاسخ پشتیبانی ارسال می‌شود. پیام تبلیغاتی بدون رضایت کاربر ارسال نمی‌شود.']},
-                {'title':'تبلیغات پلن رایگان','paragraphs':['برای تأمین هزینه دسترسی رایگان، ممکن است پس از اتصال موفق یک تبلیغ بینابینی از شبکه تبلیغاتی تپسل نمایش داده شود. این قابلیت برای حساب‌های Premium غیرفعال است. SDK تبلیغاتی ممکن است داده‌های فنی لازم برای تحویل، اندازه‌گیری و جلوگیری از تقلب تبلیغاتی را طبق سیاست‌های ارائه‌دهنده پردازش کند.']},
                 {'title':'نگهداری و حفاظت','paragraphs':['دسترسی به اطلاعات به نیازهای عملیاتی و پشتیبانی محدود می‌شود و برای کاهش دسترسی غیرمجاز از کنترل‌های فنی و مدیریتی استفاده می‌شود. مدت نگهداری بر اساس ضرورت ارائه خدمت و الزامات قانونی تعیین می‌شود.']},
                 {'title':'درخواست کاربر','paragraphs':['کاربر می‌تواند برای اصلاح اطلاعات نادرست یا پیگیری وضعیت داده‌های حساب خود از مسیرهای رسمی پشتیبانی درخواست ثبت کند.']},
             ],
@@ -791,20 +773,6 @@ def legal_page_data(page:str)->dict:
         },
     }
     return pages[page]
-def _safe_decrypt_secret(value:str)->tuple[str,str]:
-    if not value:
-        return '', ''
-    try:
-        return decrypt(value).strip(), ''
-    except Exception as exc:
-        return '', f'{type(exc).__name__}: {exc}'
-
-def _looks_like_masked_secret(value:str)->bool:
-    text=str(value or '').strip()
-    if not text:
-        return False
-    return any(ch in text for ch in ('•','●','*','…'))
-
 def admin_required(request:Request):
     if not request.session.get('admin'):raise HTTPException(401,'Unauthorized')
 def email_ok(raw:str)->str:
@@ -881,54 +849,6 @@ def _order_metadata(order:Order)->dict:
 
 def _set_order_metadata(order:Order,metadata:dict)->None:
     order.gateway_json=json.dumps(metadata,ensure_ascii=False)
-
-def _order_is_archived(order:Order)->bool:
-    metadata=_order_metadata(order)
-    return bool(metadata.get('_bluevpn_archived_at'))
-
-def _archive_order(
-    db:Session,
-    order:Order,
-    reason:str,
-    *,
-    status:str|None=None,
-    event:str='local_invoice_archived',
-)->None:
-    """Close an unusable invoice without deleting its financial audit row.
-
-    Payment/SMS rows may reference ``orders.id`` in PostgreSQL. Hard-deleting
-    those orders caused the admin cleanup route to fail with HTTP 500 and also
-    made a late paid callback impossible to recover.
-    """
-    current=aware(utcnow()) or datetime.now(timezone.utc)
-    if status:
-        order.status=status
-    elif order.status in PENDING_GATEWAY_STATUSES:
-        order.status='expired_local'
-    metadata=_order_metadata(order)
-    first_archive=not bool(metadata.get('_bluevpn_archived_at'))
-    metadata['_bluevpn_archived_at']=metadata.get('_bluevpn_archived_at') or iso_z(current)
-    metadata['_bluevpn_archived_reason']=str(reason or '')[:1000]
-    metadata['_bluevpn_archived_status']=order.status
-    metadata['_bluevpn_checkout_state']='closed'
-    _set_order_metadata(order,metadata)
-    order.checkout_closed_at=order.checkout_closed_at or current
-    if reason:
-        order.activation_error=str(reason)[:2000]
-    db.add(order)
-    if first_archive:
-        log_bluepay_error(
-            event,
-            order_code=order.order_code,
-            payment_id=order.payment_id,
-            error=str(reason or '')[:1000],
-            response_body={
-                'status':order.status,
-                'created_at':iso_z(aware(order.created_at)),
-                'expires_at':iso_z(aware(order.expires_at)),
-                'preserved_for_late_callback':bool(order.payment_id),
-            },
-        )
 
 def payment_ttl_minutes(payment:PaymentSetting|None)->int:
     # A checkout may stay open for at most 30 minutes. Administrators can
@@ -1120,27 +1040,13 @@ def _delete_invalid_order(
     *,
     event:str='local_invalid_invoice_deleted',
 )->None:
-    """Delete only never-created local drafts; archive every real invoice.
+    """Hard-delete an unpaid unusable invoice from the local database.
 
-    A row with a gateway payment id or URL is a financial record and may also
-    be referenced by SMS delivery rows. Keeping it prevents PostgreSQL foreign
-    key failures and lets a late ``invoice.paid`` callback activate service.
+    BlueVPN 3.0.23 deliberately does not retain abandoned/expired invoice
+    rows, because retaining them allowed stale payment URLs to be selected on
+    the next purchase. A compact redacted diagnostic is written outside the
+    orders table before deletion.
     """
-    has_gateway_identity=bool(
-        str(order.payment_id or '').strip()
-        or _payment_url_is_valid(order.payment_url)
-    )
-    if has_gateway_identity:
-        status=order.status
-        if event=='duplicate_invoice_deleted':
-            status='superseded'
-        elif status in PENDING_GATEWAY_STATUSES:
-            status='abandoned' if ('خارج شد' in reason or 'پنج' in reason) else 'expired_local'
-        _archive_order(
-            db,order,reason,status=status,event=event.replace('deleted','archived'),
-        )
-        return
-
     log_bluepay_error(
         event,
         order_code=order.order_code,
@@ -1149,7 +1055,9 @@ def _delete_invalid_order(
         response_body={
             'status':order.status,
             'created_at':iso_z(aware(order.created_at)),
+            'created_at_fa':format_jalali(aware(order.created_at),fallback=''),
             'expires_at':iso_z(aware(order.expires_at)),
+            'expires_at_fa':format_jalali(aware(order.expires_at),fallback=''),
         },
     )
     db.delete(order)
@@ -1183,13 +1091,9 @@ def expire_stale_orders(
     if customer_id is not None:
         query=query.where(Order.customer_id==customer_id)
     rows=list(db.scalars(query.order_by(Order.created_at.asc())).all())
-    archived=0
-    deleted_drafts=0
+    deleted=0
     initialized=0
-    notification_rows:list[tuple[int,str,str]]=[]
     for order in rows:
-        if _order_is_archived(order):
-            continue
         had_expiry=order.expires_at is not None
         expires=ensure_order_expiry(order,payment,now=current)
         if not had_expiry:
@@ -1199,52 +1103,35 @@ def expire_stale_orders(
             order.status=local_status
             customer=db.get(Customer,order.customer_id)
             if customer and customer.phone:
-                notification_rows.append((customer.id,customer.phone,order.order_code[:40]))
-            before_deleted=order in db.deleted
+                queue_sms_event(
+                    db,'invoice_expired',customer.phone,
+                    delivery_params(invoice_id=order.order_code[:40]),
+                    customer_id=customer.id,
+                    dedupe_seed=f'invoice-expired:{order.id}',
+                )
             _delete_invalid_order(db,order,message)
-            if order in db.deleted and not before_deleted:
-                deleted_drafts+=1
-            else:
-                archived+=1
+            deleted+=1
 
     terminal=select(Order).where(Order.status.in_(tuple(PURGEABLE_ORDER_STATUSES)))
     if customer_id is not None:
         terminal=terminal.where(Order.customer_id==customer_id)
     for order in list(db.scalars(terminal).all()):
-        if _order_is_archived(order):
-            continue
-        _archive_order(
-            db,order,
-            order.activation_error or 'فاکتور بسته و از چرخه پرداخت فعال خارج شد.',
-            status=order.status,
-            event='terminal_invoice_archived',
+        _delete_invalid_order(
+            db,
+            order,
+            order.activation_error or 'فاکتور باطل یا غیرقابل استفاده از دیتابیس حذف شد.',
+            event='terminal_invoice_deleted',
         )
-        archived+=1
+        deleted+=1
 
-    if commit:
+    if commit and (deleted or initialized):
         db.commit()
     else:
         db.flush()
-
-    # Queue notifications only after the order transaction is stable.
-    if commit:
-        for customer_id_value,phone,invoice_id in notification_rows:
-            try:
-                queue_sms_event(
-                    db,'invoice_expired',phone,
-                    delivery_params(invoice_id=invoice_id),
-                    customer_id=customer_id_value,
-                    dedupe_seed=f'invoice-expired:{invoice_id}',
-                )
-            except Exception:
-                db.rollback()
-
-    closed=archived+deleted_drafts
+    # Keep the legacy ``expired`` key for dashboard/startup compatibility.
     return {
-        'expired':closed,
-        'deleted':deleted_drafts,
-        'archived':archived,
-        'closed':closed,
+        'expired':deleted,
+        'deleted':deleted,
         'initialized':initialized,
         'scanned':len(rows),
     }
@@ -1259,8 +1146,6 @@ def pending_order_counts(db:Session)->dict[str,int]:
     ).all())
     active=expired=local_expired=superseded=abandoned=0
     for order in rows:
-        if _order_is_archived(order):
-            continue
         if order.status=='expired_local':
             local_expired+=1
         elif order.status=='superseded':
@@ -1277,66 +1162,6 @@ def pending_order_counts(db:Session)->dict[str,int]:
         'expired_local':local_expired,
         'superseded':superseded,
         'abandoned':abandoned,
-    }
-
-async def reconcile_stale_bluepay_orders(
-    db:Session,
-    *,
-    limit:int=100,
-)->dict[str,int]:
-    """Reconcile old invoices one-by-one; one bad row never aborts cleanup."""
-    now=aware(utcnow()) or datetime.now(timezone.utc)
-    payment=db.get(PaymentSetting,1)
-    candidates=list(db.scalars(
-        select(Order)
-        .where(Order.status.in_(tuple(PENDING_GATEWAY_STATUSES|LOCAL_RECOVERABLE_STATUSES)))
-        .order_by(Order.created_at.asc())
-        .limit(max(1,min(500,int(limit))))
-    ).all())
-    checked=recovered=remote_canceled=remote_errors=0
-    for order in candidates:
-        if _order_is_archived(order) and order.status not in LOCAL_RECOVERABLE_STATUSES:
-            continue
-        is_due=(
-            order.status in LOCAL_RECOVERABLE_STATUSES
-            or computed_order_expiry(order,payment,now=now)<=now
-        )
-        if not is_due or not order.payment_id or not payment or not payment.active:
-            continue
-        checked+=1
-        try:
-            remote=await get_invoice(payment,order.payment_id)
-            remote_status=normalize_gateway_status(remote.get('status'))
-            if remote_status=='paid':
-                order.status='paid'
-                order.paid_at=order.paid_at or now
-                metadata=_order_metadata(order)
-                metadata.pop('_bluevpn_archived_at',None)
-                metadata.pop('_bluevpn_archived_reason',None)
-                _set_order_metadata(order,metadata)
-                db.commit()
-                await activate(db,order)
-                recovered+=1
-                continue
-            if remote_status in PENDING_GATEWAY_STATUSES:
-                if await delete_invoice(payment,order.payment_id):
-                    remote_canceled+=1
-        except Exception as exc:
-            remote_errors+=1
-            log_bluepay_error(
-                'cleanup_reconcile_error',
-                order_code=order.order_code,
-                payment_id=order.payment_id,
-                error=f'{type(exc).__name__}: {exc}',
-            )
-            db.rollback()
-    local=expire_stale_orders(db,now=now)
-    return {
-        **local,
-        'checked_remote':checked,
-        'recovered_paid':recovered,
-        'remote_canceled':remote_canceled,
-        'remote_errors':remote_errors,
     }
 
 async def _payment_cleanup_loop()->None:
@@ -2132,155 +1957,6 @@ def sitemap_xml(request:Request):
     base=(os.getenv('PUBLIC_SITE_URL') or str(request.base_url)).strip().rstrip('/')
     urls=''.join(f'<url><loc>{base}{path}</loc></url>' for path in ('/','/terms','/privacy','/refund-policy','/contact'))
     return Response(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{urls}</urlset>',media_type='application/xml')
-def _free_subscription_items(value:Any)->list[dict[str,Any]]:
-    rows=value if isinstance(value,list) else []
-    normalized:list[dict[str,Any]]=[]
-    seen:set[str]=set()
-    for index,raw in enumerate(rows):
-        if not isinstance(raw,dict):
-            continue
-        item_id=re.sub(r'[^a-zA-Z0-9_-]+','',str(raw.get('id') or ''))[:64] or uuid.uuid4().hex
-        if item_id in seen:
-            item_id=uuid.uuid4().hex
-        seen.add(item_id)
-        url=str(raw.get('url') or '').strip()[:1200]
-        name=str(raw.get('name') or f'ساب رایگان {index+1}').strip()[:120] or f'ساب رایگان {index+1}'
-        normalized.append({
-            'id':item_id,
-            'name':name,
-            'url':url,
-            'active':bool(raw.get('active',True)),
-            'priority':max(0,min(9999,int(raw.get('priority',index) or 0))),
-        })
-    normalized.sort(key=lambda item:(item['priority'],item['name'],item['id']))
-    return normalized
-
-
-def _configured_free_subscription_items(s:dict[str,Any])->list[dict[str,Any]]:
-    items=_free_subscription_items(s.get('free_subscription_items'))
-    legacy=str(s.get('free_subscription_url') or '').strip()
-    if not items and legacy:
-        items=[{
-            'id':'legacy-default',
-            'name':'ساب رایگان اصلی',
-            'url':legacy[:1200],
-            'active':True,
-            'priority':0,
-        }]
-    return items
-
-
-def _active_free_subscription_items(s:dict[str,Any])->list[dict[str,Any]]:
-    result=[]
-    for item in _configured_free_subscription_items(s):
-        if not item.get('active'):
-            continue
-        try:
-            url=_http_url(str(item.get('url') or ''),'لینک اشتراک رایگان',required=True)
-        except ValueError:
-            continue
-        row=dict(item);row['url']=url;result.append(row)
-    return result
-
-
-_FREE_SUB_CACHE:dict[str,Any]={"url":"","body":b"","content_type":"text/plain; charset=utf-8","fetched_at":0.0}
-_FREE_SUB_CACHE_LOCK=asyncio.Lock()
-
-
-def _free_access_payload(request:Request,s:dict[str,Any])->dict[str,Any]:
-    items=_active_free_subscription_items(s)
-    enabled=bool(s.get('free_access_enabled',False)) and bool(items)
-    minutes=max(15,min(180,int(s.get('free_session_minutes',60) or 60)))
-    base=_public_origin(request,s)
-    public_items=[
-        {
-            'id':item['id'],
-            'name':item['name'],
-            'subscription_url':f"{base}/api/v1/free/subscriptions/{item['id']}" if enabled and base else '',
-            'priority':item['priority'],
-        }
-        for item in items
-    ]
-    return {
-        'enabled':enabled,
-        'session_minutes':minutes,
-        'auto_only':True,
-        'guest_allowed':True,
-        'account_required_for_free':False,
-        'manual_selection_requires_subscription':True,
-        'subscription_url':public_items[0]['subscription_url'] if public_items else '',
-        'subscriptions':public_items,
-        'label':'اتصال رایگان',
-    }
-
-
-async def _free_subscription_body(source_url:str)->tuple[bytes,str]:
-    now=time.monotonic()
-    async with _FREE_SUB_CACHE_LOCK:
-        if (
-            _FREE_SUB_CACHE.get('url')==source_url
-            and _FREE_SUB_CACHE.get('body')
-            and now-float(_FREE_SUB_CACHE.get('fetched_at') or 0.0)<60.0
-        ):
-            return bytes(_FREE_SUB_CACHE['body']),str(_FREE_SUB_CACHE.get('content_type') or 'text/plain; charset=utf-8')
-        try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(18.0,connect=8.0),
-                follow_redirects=True,
-                headers={'Accept':'text/plain, application/octet-stream;q=0.9, */*;q=0.1','User-Agent':'BlueVPN-Free-Relay/1.0'},
-            ) as client:
-                response=await client.get(source_url)
-                response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise HTTPException(503,detail={'code':'FREE_SOURCE_UNAVAILABLE','message':'سرورهای رایگان موقتاً در دسترس نیستند'}) from exc
-        body=response.content
-        if not body or len(body)>4*1024*1024:
-            raise HTTPException(503,detail={'code':'FREE_SOURCE_INVALID','message':'پاسخ اشتراک رایگان معتبر نیست'})
-        content_type=str(response.headers.get('content-type') or 'text/plain; charset=utf-8').split(';')[0].strip()
-        if content_type not in {'text/plain','application/octet-stream','application/json'}:
-            content_type='text/plain'
-        _FREE_SUB_CACHE.update({'url':source_url,'body':body,'content_type':content_type,'fetched_at':now})
-        return body,content_type
-
-
-@app.get('/api/v1/free/subscriptions/{item_id}')
-async def free_subscription_item(item_id:str,db:Session=Depends(get_db)):
-    s=settings(db)
-    if not bool(s.get('free_access_enabled',False)):
-        raise HTTPException(404,detail={'code':'FREE_ACCESS_DISABLED','message':'اتصال رایگان فعال نیست'})
-    item=next((row for row in _active_free_subscription_items(s) if row['id']==item_id),None)
-    if not item:
-        raise HTTPException(404,detail={'code':'FREE_SUBSCRIPTION_NOT_FOUND','message':'ساب رایگان پیدا نشد'})
-    body,content_type=await _free_subscription_body(item['url'])
-    return Response(
-        content=body,
-        media_type=content_type,
-        headers={
-            'Cache-Control':'public, max-age=60, stale-if-error=300',
-            'X-BlueVPN-Access':'free-auto-only',
-            'X-BlueVPN-Free-Source':item['id'],
-        },
-    )
-
-
-@app.get('/api/v1/free/subscription')
-async def free_subscription(db:Session=Depends(get_db)):
-    s=settings(db)
-    items=_active_free_subscription_items(s)
-    if not bool(s.get('free_access_enabled',False)) or not items:
-        raise HTTPException(404,detail={'code':'FREE_ACCESS_DISABLED','message':'اتصال رایگان فعال نیست'})
-    body,content_type=await _free_subscription_body(items[0]['url'])
-    return Response(
-        content=body,
-        media_type=content_type,
-        headers={
-            'Cache-Control':'public, max-age=60, stale-if-error=300',
-            'X-BlueVPN-Access':'free-auto-only',
-            'X-BlueVPN-Free-Source':items[0]['id'],
-        },
-    )
-
-
 @app.get('/api/v1/mobile/config')
 async def mobile_config(
     request:Request,
@@ -2304,8 +1980,7 @@ async def mobile_config(
             'minimum_version':s['minimum_version'],
             'force_update':bool(s['force_update']),
             'auto_update':bool(s.get('auto_update',True)),
-            'account_required':False,
-            'account_optional':True,
+            'account_required':True,
             'latest_version':release.get('version','0.0.0'),
             'latest_version_code':int(release.get('version_code') or 0),
             'apk_url':release.get('apk_url',''),
@@ -2343,8 +2018,6 @@ async def mobile_config(
                 'message':s['announcement_message'],
             },
             'advertising':advertising_payload(s,_public_origin(request,s),_bluevpn_client_version(request)),
-            'tapsell':tapsell_payload(s),
-            'free_access':_free_access_payload(request,s),
             'updated_at':s['updated_at'],
             'updated_at_fa':format_jalali(s['updated_at'],fallback=''),
             'calendar':'jalali',
@@ -3054,10 +2727,7 @@ async def create_order(request:Request,c:Customer=Depends(current_customer),db:S
             headers={'Retry-After':'3'},
         )
 
-    current_settings=settings(db)
-    base=_public_origin(request,current_settings).rstrip('/')
-    if not base:
-        base=str(current_settings.get('public_base_url') or '').rstrip('/')
+    base=settings(db)['public_base_url'].rstrip('/')
     last_error='BluePay فاکتور قابل پرداخت ایجاد نکرد.'
     for attempt in range(1,FRESH_INVOICE_RETRY_COUNT+1):
         now=aware(utcnow()) or datetime.now(timezone.utc)
@@ -3102,26 +2772,9 @@ async def create_order(request:Request,c:Customer=Depends(current_customer),db:S
             last_error=str(exc)
             _delete_invalid_order(db,order,last_error,event='invoice_create_attempt_deleted')
             db.commit()
-            # create_invoice performs one canonical request and one safe
-            # idempotent retry with the exact same body. Keep the provider's
-            # real message instead of replacing it with a generic 500 page.
+            if attempt<FRESH_INVOICE_RETRY_COUNT:
+                continue
             raise HTTPException(502,detail={'code':'INVOICE_CREATE_FAILED','message':last_error})
-        except Exception as exc:
-            # Never leak a Railway/HTML 500 page to Android. Persist a redacted
-            # diagnostic and return a stable JSON error that the app can show.
-            last_error='خطای داخلی هنگام ارتباط با BluePay؛ تنظیمات درگاه و لاگ BluePay را بررسی کنید.'
-            log_bluepay_error(
-                'create_invoice_unexpected',
-                order_code=order.order_code,
-                error=f'{type(exc).__name__}: {exc}',
-            )
-            logger.exception('Unexpected BluePay invoice error for %s',order.order_code)
-            _delete_invalid_order(db,order,last_error,event='invoice_create_unexpected_deleted')
-            db.commit()
-            raise HTTPException(
-                502,
-                detail={'code':'BLUEPAY_INTERNAL_ERROR','message':last_error},
-            ) from exc
 
         invoice_amount,currency=normalize_gateway_amount_toman(invoice,order.amount_toman)
         payment_id=str(invoice.get('payment_id') or invoice.get('id') or '').strip()
@@ -3397,23 +3050,11 @@ async def check_order_after_success(
 
 
 @app.post('/webhooks/bluepay')
-async def bluepay_webhook(
-    request:Request,
-    x_gateway_signature:str|None=Header(None),
-    x_bluepay_signature:str|None=Header(None),
-    x_signature:str|None=Header(None),
-    x_gateway_delivery:str|None=Header(None),
-    x_bluepay_delivery:str|None=Header(None),
-    x_gateway_event:str|None=Header(None),
-    x_bluepay_event:str|None=Header(None),
-    db:Session=Depends(get_db),
-):
+async def bluepay_webhook(request:Request,x_gateway_signature:str|None=Header(None),x_gateway_delivery:str|None=Header(None),x_gateway_event:str|None=Header(None),db:Session=Depends(get_db)):
     pay=db.get(PaymentSetting,1)
     secret=decrypt(pay.callback_secret_enc) if pay else ''
     raw=await request.body()
-    signature=x_gateway_signature or x_bluepay_signature or x_signature or ''
-    valid,payload=verify_webhook(raw,signature,secret)
-    payload=normalize_bluepay_invoice(payload)
+    valid,payload=verify_webhook(raw,x_gateway_signature or '',secret)
     if not secret or not valid:
         log_bluepay_error(
             'webhook_signature',
@@ -3425,7 +3066,7 @@ async def bluepay_webhook(
     order=find_bluepay_order(db,payload)
     payment_id=str(payload.get('payment_id') or payload.get('id') or (order.payment_id if order else ''))
     incoming_status=normalize_gateway_status(payload.get('status'))
-    delivery=x_gateway_delivery or x_bluepay_delivery or f"payment:{payment_id}:{payload.get('status','')}"
+    delivery=x_gateway_delivery or f"payment:{payment_id}:{payload.get('status','')}"
     duplicate=db.scalar(select(WebhookDelivery).where(WebhookDelivery.delivery_id==delivery))
 
     if not order:
@@ -3433,7 +3074,7 @@ async def bluepay_webhook(
             db.add(WebhookDelivery(
                 delivery_id=delivery,
                 payment_id=payment_id,
-                event=x_gateway_event or x_bluepay_event or str(payload.get('event','')),
+                event=x_gateway_event or str(payload.get('event','')),
             ))
         log_bluepay_error(
             'webhook_order_not_found',
@@ -3463,7 +3104,7 @@ async def bluepay_webhook(
             db.add(WebhookDelivery(
                 delivery_id=delivery,
                 payment_id=payment_id,
-                event=x_gateway_event or x_bluepay_event or str(payload.get('event','')),
+                event=x_gateway_event or str(payload.get('event','')),
             ))
         db.commit()
         return {'success':False,'code':'AMOUNT_MISMATCH'}
@@ -3472,7 +3113,7 @@ async def bluepay_webhook(
         db.add(WebhookDelivery(
             delivery_id=delivery,
             payment_id=payment_id,
-            event=x_gateway_event or x_bluepay_event or str(payload.get('event','')),
+            event=x_gateway_event or str(payload.get('event','')),
         ))
 
     now=aware(utcnow()) or datetime.now(timezone.utc)
@@ -3526,56 +3167,20 @@ def admin_bluepay_errors(request:Request,limit:int=100):
     }
 
 @app.post('/admin/bluepay/cleanup')
-async def admin_bluepay_cleanup(
+def admin_bluepay_cleanup(
     request:Request,
     csrf:str=Form(...),
     db:Session=Depends(get_db),
 ):
     require_admin_csrf(request,csrf)
-    try:
-        result=await reconcile_stale_bluepay_orders(db)
-        counts=pending_order_counts(db)
-        message=(
-            f"پاک‌سازی امن انجام شد: {result['archived']} فاکتور بسته شد، "
-            f"{result['deleted']} پیش‌نویس ناقص حذف شد، "
-            f"{result['recovered_paid']} پرداخت دیرهنگام بازیابی شد و "
-            f"{result['remote_canceled']} فاکتور معلق در BluePay لغو شد. "
-            f"فاکتور فعال: {counts['active']}"
-        )
-        if result['remote_errors']:
-            message+=f"؛ {result['remote_errors']} استعلام با خطا روبه‌رو شد و در لاگ ثبت شد"
-        return admin_redirect('bluepay',message=message)
-    except Exception as exc:
-        db.rollback()
-        logger.exception('Manual BluePay cleanup failed')
-        log_bluepay_error(
-            'admin_cleanup_failed',
-            error=f'{type(exc).__name__}: {exc}',
-        )
-        return admin_redirect(
-            'bluepay',
-            error='پاک‌سازی پرداخت‌ها انجام نشد؛ خطا در گزارش BluePay ثبت شد: '+str(exc)[:350],
-        )
-
-@app.post('/admin/bluepay/test')
-async def admin_bluepay_test(
-    request:Request,
-    csrf:str=Form(...),
-    db:Session=Depends(get_db),
-):
-    require_admin_csrf(request,csrf)
-    payment=db.get(PaymentSetting,1)
-    if not payment:
-        return admin_redirect('bluepay',error='تنظیمات BluePay پیدا نشد')
-    try:
-        result=await test_bluepay_connection(payment)
-        store=str(result.get('store_name') or result.get('store_code') or result.get('store_id') or 'فروشگاه')
-        request_id=str(result.get('request_id') or '')
-        suffix=f'؛ Request ID: {request_id}' if request_id else ''
-        return admin_redirect('bluepay',message=f'اتصال Sandbox به BluePay برای {store} موفق بود{suffix}')
-    except Exception as exc:
-        logger.warning('BluePay sandbox connection test failed: %s',exc)
-        return admin_redirect('bluepay',error='تست BluePay ناموفق بود: '+str(exc)[:450])
+    result=expire_stale_orders(db)
+    counts=pending_order_counts(db)
+    message=(
+        f"پاک‌سازی انجام شد: {result['deleted']} فاکتور باطل حذف و "
+        f"{result['initialized']} فاکتور قدیمی زمان‌دار شد. "
+        f"فاکتور فعال: {counts['active']}"
+    )
+    return admin_redirect('bluepay',message=message)
 
 @app.get('/admin/api/bluepay/pending')
 def admin_bluepay_pending(request:Request,db:Session=Depends(get_db)):
@@ -3728,11 +3333,9 @@ def admin(request:Request,db:Session=Depends(get_db)):
             'settings':s,
             'ads_items':_ad_items(s.get('ads_items')),
             'ads_config':advertising_payload(s),
-            'free_subscription_items':_configured_free_subscription_items(s),
             'payment':pay,
-            'payment_api_mask':mask(_safe_decrypt_secret(pay.api_key_enc)[0]),
-            'payment_callback_mask':mask(_safe_decrypt_secret(pay.callback_secret_enc)[0]),
-            'payment_secret_error':_safe_decrypt_secret(pay.api_key_enc)[1] or _safe_decrypt_secret(pay.callback_secret_enc)[1],
+            'payment_api_mask':mask(decrypt(pay.api_key_enc)),
+            'payment_callback_mask':mask(decrypt(pay.callback_secret_enc)),
             'sms':sms,
             'sms_api_mask':mask(decrypt(sms.api_key_enc)),
             'sms_provider_lines':sms_provider_lines,
@@ -3850,41 +3453,6 @@ def admin_database_backup(
         },
         background=BackgroundTask(shutil.rmtree,temp_dir,ignore_errors=True),
     )
-
-
-@app.post('/admin/tapsell/settings')
-def admin_tapsell_settings(
-    request:Request,
-    csrf:str=Form(...),
-    app_key:str=Form(''),
-    interstitial_zone_id:str=Form(''),
-    min_interval_seconds:int=Form(0),
-    daily_cap:int=Form(0),
-    enabled:str|None=Form(None),
-    show_after_connect:str|None=Form(None),
-    db:Session=Depends(get_db),
-):
-    require_admin_csrf(request,csrf)
-    s=settings(db)
-    clean_key=str(app_key or '').strip()[:300]
-    clean_zone=str(interstitial_zone_id or '').strip()[:200]
-    requested=enabled=='on'
-    if requested and (not clean_key or not clean_zone):
-        return RedirectResponse(
-            '/admin?error='+quote_plus('برای فعال‌سازی تپسل، App Key و شناسه جایگاه بینابینی هر دو الزامی هستند.')+'#ads',
-            303,
-        )
-    s.update({
-        'tapsell_enabled':requested,
-        'tapsell_app_key':clean_key,
-        'tapsell_interstitial_zone_id':clean_zone,
-        'tapsell_show_after_connect':show_after_connect=='on',
-        'tapsell_min_interval_seconds':max(0,min(86400,int(min_interval_seconds or 0))),
-        'tapsell_daily_cap':max(0,min(1000,int(daily_cap or 0))),
-    })
-    save_settings(db,s)
-    return RedirectResponse('/admin?saved=1#ads',303)
-
 
 @app.post('/admin/ads/settings')
 def admin_ads_settings(
@@ -4042,72 +3610,8 @@ def admin_ads_delete(ad_id:str,request:Request,csrf:str=Form(...),db:Session=Dep
     return RedirectResponse('/admin?saved=1#ads',303)
 
 
-@app.post('/admin/free-subscriptions')
-def add_free_subscription(
-    request:Request,
-    name:str=Form(...),
-    url:str=Form(...),
-    priority:int=Form(0),
-    active:str|None=Form(None),
-    db:Session=Depends(get_db),
-):
-    admin_required(request)
-    clean_url=_http_url(url,'لینک اشتراک رایگان',required=True)
-    s=settings(db);items=_configured_free_subscription_items(s)
-    items.append({
-        'id':uuid.uuid4().hex,
-        'name':name.strip()[:120] or 'ساب رایگان',
-        'url':clean_url,
-        'priority':max(0,min(9999,int(priority or 0))),
-        'active':active=='on',
-    })
-    s['free_subscription_items']=_free_subscription_items(items)
-    s['free_subscription_url']=''
-    save_settings(db,s)
-    return RedirectResponse('/admin?saved=1#free-subs',303)
-
-
-@app.post('/admin/free-subscriptions/{item_id}/edit')
-def edit_free_subscription(
-    item_id:str,request:Request,name:str=Form(...),url:str=Form(...),priority:int=Form(0),
-    active:str|None=Form(None),db:Session=Depends(get_db),
-):
-    admin_required(request)
-    clean_url=_http_url(url,'لینک اشتراک رایگان',required=True)
-    s=settings(db);items=_configured_free_subscription_items(s)
-    found=False
-    for item in items:
-        if item['id']==item_id:
-            item.update(name=name.strip()[:120] or 'ساب رایگان',url=clean_url,priority=max(0,min(9999,int(priority or 0))),active=active=='on')
-            found=True;break
-    if not found:raise HTTPException(404,'ساب رایگان پیدا نشد')
-    s['free_subscription_items']=_free_subscription_items(items);s['free_subscription_url']='';save_settings(db,s)
-    return RedirectResponse('/admin?saved=1#free-subs',303)
-
-
-@app.post('/admin/free-subscriptions/{item_id}/toggle')
-def toggle_free_subscription(item_id:str,request:Request,db:Session=Depends(get_db)):
-    admin_required(request);s=settings(db);items=_configured_free_subscription_items(s)
-    found=False
-    for item in items:
-        if item['id']==item_id:
-            item['active']=not bool(item.get('active'));found=True;break
-    if not found:raise HTTPException(404,'ساب رایگان پیدا نشد')
-    s['free_subscription_items']=_free_subscription_items(items);s['free_subscription_url']='';save_settings(db,s)
-    return RedirectResponse('/admin?saved=1#free-subs',303)
-
-
-@app.post('/admin/free-subscriptions/{item_id}/delete')
-def delete_free_subscription(item_id:str,request:Request,db:Session=Depends(get_db)):
-    admin_required(request);s=settings(db);items=_configured_free_subscription_items(s)
-    remaining=[item for item in items if item['id']!=item_id]
-    if len(remaining)==len(items):raise HTTPException(404,'ساب رایگان پیدا نشد')
-    s['free_subscription_items']=remaining;s['free_subscription_url']='';save_settings(db,s)
-    return RedirectResponse('/admin?saved=1#free-subs',303)
-
-
 @app.post('/admin/app-settings')
-def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),minimum_version:str=Form(...),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),auto_update:str|None=Form(None),announcement_enabled:str|None=Form(None),blueai_enabled:str|None=Form(None),blueai_collective:str|None=Form(None),blueai_auto_heal:str|None=Form(None),blueai_min_samples:int=Form(3),blueai_privacy_message:str=Form(''),free_access_enabled:str|None=Form(None),free_session_minutes:int=Form(60),db:Session=Depends(get_db)):
+def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form(...),support_url:str=Form(''),minimum_version:str=Form(...),announcement_id:str=Form(''),announcement_title:str=Form(''),announcement_message:str=Form(''),maintenance:str|None=Form(None),force_update:str|None=Form(None),auto_update:str|None=Form(None),announcement_enabled:str|None=Form(None),blueai_enabled:str|None=Form(None),blueai_collective:str|None=Form(None),blueai_auto_heal:str|None=Form(None),blueai_min_samples:int=Form(3),blueai_privacy_message:str=Form(''),db:Session=Depends(get_db)):
     admin_required(request)
     s=settings(db)
     s.update({
@@ -4127,72 +3631,12 @@ def app_settings(request:Request,app_name:str=Form(...),public_base_url:str=Form
         'blueai_auto_heal':blueai_auto_heal=='on',
         'blueai_min_samples':max(1,min(100,int(blueai_min_samples or 3))),
         'blueai_privacy_message':blueai_privacy_message.strip()[:500],
-        'free_access_enabled':free_access_enabled=='on',
-        'free_session_minutes':max(15,min(180,int(free_session_minutes or 60))),
     })
     save_settings(db,s)
     return RedirectResponse('/admin?saved=1#app',303)
 @app.post('/admin/payment-settings')
-def payment_settings(
-    request:Request,
-    base_url:str=Form(...),
-    api_key:str=Form(''),
-    callback_secret:str=Form(''),
-    fee_mode:str=Form('default'),
-    ttl_minutes:int=Form(30),
-    active:str|None=Form(None),
-    db:Session=Depends(get_db),
-):
-    admin_required(request)
-    try:
-        p=db.get(PaymentSetting,1) or PaymentSetting(id=1)
-        normalized_base,embedded_key=normalize_bluepay_base_url(base_url)
-        if not normalized_base:
-            return admin_redirect('bluepay',error='Base URL بلوپی معتبر نیست')
-
-        existing_key,key_error=_safe_decrypt_secret(p.api_key_enc)
-        existing_secret,secret_error=_safe_decrypt_secret(p.callback_secret_enc)
-        submitted_key=str(api_key or '').strip()
-        submitted_secret=str(callback_secret or '').strip()
-        if _looks_like_masked_secret(submitted_key):
-            submitted_key=''
-        if _looks_like_masked_secret(submitted_secret):
-            submitted_secret=''
-        if not submitted_key and embedded_key and not _looks_like_masked_secret(embedded_key):
-            submitted_key=embedded_key.strip()
-
-        effective_key=submitted_key or existing_key
-        effective_secret=submitted_secret or existing_secret
-        requested_active=active=='on'
-        if requested_active and not effective_key:
-            detail='API Key اختصاصی فروشگاه را وارد کنید؛ لینک /developers به‌تنهایی کلید API نیست.'
-            if key_error:
-                detail+=' کلید قبلی با کلید رمزگذاری فعلی قابل خواندن نیست و باید دوباره ذخیره شود.'
-            return admin_redirect('bluepay',error=detail)
-        if requested_active and len(effective_key)<16:
-            return admin_redirect('bluepay',error='API Key فروشگاه کوتاه یا نامعتبر است')
-        if requested_active and not effective_secret:
-            detail='Callback Secret فروشگاه را وارد کنید تا پرداخت تأییدشده قابل فعال‌سازی باشد.'
-            if secret_error:
-                detail+=' Secret قبلی قابل رمزگشایی نیست و باید دوباره ذخیره شود.'
-            return admin_redirect('bluepay',error=detail)
-
-        p.base_url=normalized_base
-        if submitted_key:
-            p.api_key_enc=encrypt(submitted_key)
-        if submitted_secret:
-            p.callback_secret_enc=encrypt(submitted_secret)
-        normalized_fee=str(fee_mode or 'default').strip().lower()
-        p.fee_mode=normalized_fee if normalized_fee in {'default','merchant','customer','split'} else 'default'
-        p.ttl_minutes=max(5,min(1440,int(ttl_minutes or 30)))
-        p.active=requested_active
-        db.add(p)
-        db.commit()
-        return admin_redirect('bluepay',message='تنظیمات BluePay ذخیره شد؛ برای اطمینان دکمه تست اتصال را اجرا کنید.')
-    except Exception as exc:
-        db.rollback()
-        logger.exception('Saving BluePay settings failed')
-        return admin_redirect('bluepay',error='ذخیره تنظیمات BluePay ناموفق بود: '+str(exc)[:400])
+def payment_settings(request:Request,base_url:str=Form(...),api_key:str=Form(''),callback_secret:str=Form(''),fee_mode:str=Form('default'),ttl_minutes:int=Form(30),active:str|None=Form(None),db:Session=Depends(get_db)):
+    admin_required(request);p=db.get(PaymentSetting,1) or PaymentSetting(id=1);p.base_url=base_url.rstrip('/');p.api_key_enc=encrypt(api_key.strip()) if api_key.strip() else p.api_key_enc;p.callback_secret_enc=encrypt(callback_secret.strip()) if callback_secret.strip() else p.callback_secret_enc;p.fee_mode=fee_mode;p.ttl_minutes=max(5,min(30,ttl_minutes));p.active=active=='on';db.add(p);db.commit();return RedirectResponse('/admin?saved=1#bluepay',303)
 
 def _sms_provider_cache(payload:dict[str,Any])->tuple[list[dict[str,Any]],list[dict[str,Any]]]:
     raw_lines=payload.get('sms_provider_lines')

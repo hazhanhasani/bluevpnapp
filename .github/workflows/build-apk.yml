@@ -50,7 +50,6 @@ jobs:
             exit 1
           fi
           echo "BUILD_STAGE=source-synchronized" >> "$GITHUB_ENV"
-          echo "source-synchronized" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           echo "Building requested commit: ${ACTUAL_SHA}"
 
       - name: Check permanent signing secrets
@@ -177,7 +176,6 @@ jobs:
           PY
 
           echo "upstream_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["upstream_ref"])')" >> "$GITHUB_OUTPUT"
-          echo "sing_box_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["sing_box_ref"])')" >> "$GITHUB_OUTPUT"
 
       - name: Persist resolved version in repository
         id: persist_metadata
@@ -187,7 +185,6 @@ jobs:
         run: |
           set -euo pipefail
           echo "BUILD_STAGE=persist-version-metadata" >> "$GITHUB_ENV"
-          echo "persist-version-metadata" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
@@ -247,20 +244,6 @@ jobs:
           path: upstream
           submodules: recursive
           fetch-depth: 0
-
-      - name: Checkout pinned sing-box core
-        uses: actions/checkout@v6
-        with:
-          repository: SagerNet/sing-box
-          ref: ${{ steps.config.outputs.sing_box_ref }}
-          path: sing-box-core
-          fetch-depth: 1
-
-      - name: Setup Go for sing-box
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: sing-box-core/go.mod
-          cache-dependency-path: sing-box-core/go.sum
 
       - name: Setup Android SDK 37
         uses: android-actions/setup-android@v4
@@ -339,60 +322,6 @@ jobs:
           fileName: libv2ray.aar
           out-file-path: upstream/V2rayNG/app/libs/
 
-      - name: Build isolated sing-box Android runtime
-        working-directory: sing-box-core
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "BUILD_STAGE=sing-box-native-build" >> "$GITHUB_ENV"
-          echo "sing-box-native-build" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
-
-          SINGBOX_LOG="$GITHUB_WORKSPACE/singbox-build.log"
-          : > "$SINGBOX_LOG"
-          exec > >(tee -a "$SINGBOX_LOG") 2>&1
-
-          TAGS="$(tr '\n' ' ' < release/DEFAULT_BUILD_TAGS_OTHERS | xargs)"
-          LDFLAGS="$(cat release/LDFLAGS) -s -w -buildid="
-          ARM64_OUTPUT="$GITHUB_WORKSPACE/upstream/V2rayNG/app/libs/arm64-v8a/libbluevpn_singbox.so"
-          ARMV7_OUTPUT="$GITHUB_WORKSPACE/upstream/V2rayNG/app/libs/armeabi-v7a/libbluevpn_singbox.so"
-
-          mkdir -p "$(dirname "$ARM64_OUTPUT")" "$(dirname "$ARMV7_OUTPUT")"
-          rm -f "$ARM64_OUTPUT" "$ARMV7_OUTPUT"
-
-          # Go supports an internally linked Android/arm64 PIE without cgo.
-          # Android/arm (armeabi-v7a) always requires external cgo linking and
-          # has repeatedly failed before Gradle on GitHub runners. BlueVPN keeps
-          # the 32-bit APK fully functional through its Xray safety fallback,
-          # while sing-box is enabled on the modern arm64 runtime.
-          env \
-            CGO_ENABLED=0 \
-            GOOS=android \
-            GOARCH=arm64 \
-            GOFLAGS= \
-            go build -trimpath -buildvcs=false \
-              -tags "$TAGS" -ldflags "$LDFLAGS" \
-              -o "$ARM64_OUTPUT" \
-              ./cmd/sing-box
-
-          test -s "$ARM64_OUTPUT"
-          file "$ARM64_OUTPUT"
-          if ! file "$ARM64_OUTPUT" | grep -Eq 'ELF 64-bit.*ARM aarch64'; then
-            echo "::error::The generated sing-box runtime is not Android arm64."
-            exit 1
-          fi
-
-          echo "sing-box ${{ steps.config.outputs.sing_box_ref }} built for arm64-v8a."
-          echo "armeabi-v7a intentionally uses the Xray fallback; no broken sing-box binary is packaged."
-
-      - name: Upload failed sing-box build log
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: BlueVPN-sing-box-build-log
-          path: singbox-build.log
-          if-no-files-found: ignore
-          retention-days: 7
-
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
@@ -437,8 +366,6 @@ jobs:
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnTheme.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLiveReporter.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnBootstrap.kt",
-              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnEngineManager.kt",
-              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnSingBoxProcess.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateManager.kt",
               "src/main/java/com/v2ray/ang/ui/BlueVpnUpdateInstallActivity.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateFileProvider.kt",
@@ -497,7 +424,6 @@ jobs:
           fi
 
           echo "BUILD_STAGE=persist-generated-android-source" >> "$GITHUB_ENV"
-          echo "persist-generated-android-source" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           PUSHED=0
           for attempt in 1 2 3 4 5; do
             if git push --porcelain origin "HEAD:${TARGET_BRANCH}"; then
@@ -591,8 +517,6 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          echo "BUILD_STAGE=gradle-compile" >> "$GITHUB_ENV"
-          echo "gradle-compile" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           chmod +x gradlew
 
@@ -603,7 +527,7 @@ jobs:
             2>&1 | tee "$GITHUB_WORKSPACE/android-build.log"
 
       - name: Show Android compiler errors
-        if: ${{ failure() && env.BUILD_STAGE == 'gradle-compile' }}
+        if: failure()
         shell: bash
         run: |
           set +e
@@ -615,7 +539,7 @@ jobs:
           fi
 
       - name: Upload failed Android build log
-        if: ${{ failure() && env.BUILD_STAGE == 'gradle-compile' }}
+        if: failure()
         uses: actions/upload-artifact@v6
         with:
           name: BlueVPN-android-build-log
@@ -871,25 +795,7 @@ jobs:
           import os
           import re
 
-          stage_file = Path(".bluevpn-build-stage")
-          stage = (
-              stage_file.read_text(encoding="utf-8", errors="replace").strip()
-              if stage_file.exists()
-              else os.getenv("BUILD_STAGE", "pre-gradle")
-          ) or "pre-gradle"
-          candidates = []
-          if stage == "sing-box-native-build":
-              candidates.append(Path("singbox-build.log"))
-          elif stage == "gradle-compile":
-              candidates.append(Path("android-build.log"))
-          candidates.extend([
-              Path("singbox-build.log"),
-              Path("android-build.log"),
-          ])
-          log_path = next(
-              (candidate for candidate in candidates if candidate.exists()),
-              Path("android-build.log"),
-          )
+          log_path = Path("android-build.log")
           report_path = Path("telegram-build-error.txt")
 
           header = [
@@ -900,8 +806,7 @@ jobs:
               f"Commit: {os.getenv('GITHUB_SHA', '')[:8]}",
               f"Branch: {os.getenv('GITHUB_REF_NAME', 'نامشخص')}",
               f"Actor: {os.getenv('GITHUB_ACTOR', 'نامشخص')}",
-              f"Stage: {stage}",
-              f"Log: {log_path.name}",
+              f"Stage: {os.getenv('BUILD_STAGE', 'pre-gradle')}",
               f"Run: {os.getenv('GITHUB_SERVER_URL', '')}/"
               f"{os.getenv('GITHUB_REPOSITORY', '')}/actions/runs/"
               f"{os.getenv('GITHUB_RUN_ID', '')}",
@@ -946,8 +851,8 @@ jobs:
                   ]
           else:
               selected = [
-                  f"هیچ فایل لاگی برای مرحله {stage} ساخته نشده است.",
-                  "خطا پیش از ثبت خروجی ابزار Build رخ داده است.",
+                  "فایل android-build.log ساخته نشده است.",
+                  "احتمالاً خطا پیش از شروع مرحله Gradle رخ داده است.",
               ]
 
           report = "\n".join(header + selected)
@@ -995,13 +900,9 @@ jobs:
             --data-urlencode "text=${MESSAGE}" \
             --data-urlencode "disable_web_page_preview=true"
 
-          STAGE="$(cat .bluevpn-build-stage 2>/dev/null || printf '%s' "${BUILD_STAGE:-pre-gradle}")"
-          if [ "$STAGE" = "sing-box-native-build" ] && [ -f singbox-build.log ]; then
-            LOG_FILE="singbox-build.log"
-            LOG_CAPTION="📎 لاگ کامل ساخت sing-box | Build #${GITHUB_RUN_NUMBER} | ${SHORT_SHA}"
-          elif [ -f android-build.log ]; then
+          if [ -f android-build.log ]; then
             LOG_FILE="android-build.log"
-            LOG_CAPTION="📎 لاگ کامل خطای Android | Build #${GITHUB_RUN_NUMBER} | ${SHORT_SHA}"
+            LOG_CAPTION="📎 لاگ کامل خطای BlueVPN | Build #${GITHUB_RUN_NUMBER} | ${SHORT_SHA}"
           else
             LOG_FILE="telegram-build-error.txt"
             LOG_CAPTION="📎 گزارش خطای BlueVPN | Build #${GITHUB_RUN_NUMBER} | ${SHORT_SHA}"

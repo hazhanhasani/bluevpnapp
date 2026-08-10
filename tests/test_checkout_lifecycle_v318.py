@@ -104,10 +104,8 @@ def test_cleanup_marks_closed_checkout_abandoned_after_grace():
             now=now + timedelta(seconds=CHECKOUT_ABANDON_GRACE_SECONDS + 1),
         )
         order_id = order.id
-        assert result["archived"] == 1
-        preserved = db.get(Order, order_id)
-        assert preserved is not None
-        assert preserved.status == "abandoned"
+        assert result["deleted"] == 1
+        assert db.get(Order, order_id) is None
 
 
 def test_reopen_before_grace_restores_original_hard_expiry():
@@ -141,6 +139,4 @@ def test_new_attempt_after_abandonment_does_not_reuse_old_invoice():
         order_id = order.id
         assert selected is None
         assert in_progress is False
-        preserved = db.get(Order, order_id)
-        assert preserved is not None
-        assert preserved.status == "abandoned"
+        assert db.get(Order, order_id) is None

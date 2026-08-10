@@ -43,7 +43,7 @@ def seed(db: Session):
     return payment, customer, plan
 
 
-def test_cleanup_archives_old_pending_order():
+def test_cleanup_deletes_old_pending_order():
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
@@ -63,14 +63,12 @@ def test_cleanup_archives_old_pending_order():
 
         old_id = old.id
         result = expire_stale_orders(db)
-        assert result["archived"] == 1
-        preserved = db.get(Order, old_id)
-        assert preserved is not None
-        assert preserved.status == "expired_local"
-        assert db.scalar(select(func.count(Order.id))) == 1
+        assert result["deleted"] == 1
+        assert db.get(Order, old_id) is None
+        assert db.scalar(select(func.count(Order.id))) == 0
 
 
-def test_reuses_newest_valid_invoice_and_archives_duplicate():
+def test_reuses_newest_valid_invoice_and_deletes_duplicate():
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     now = datetime.now(timezone.utc)
@@ -107,13 +105,11 @@ def test_reuses_newest_valid_invoice_and_archives_duplicate():
         assert selected is not None
         assert selected.id == newest.id
         assert in_progress is False
-        preserved = db.get(Order, older_id)
-        assert preserved is not None
-        assert preserved.status == "superseded"
+        assert db.get(Order, older_id) is None
         assert newest.status == "pending"
 
 
-def test_cleanup_archives_terminal_invalid_order():
+def test_cleanup_deletes_terminal_invalid_order():
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
@@ -133,7 +129,5 @@ def test_cleanup_archives_terminal_invalid_order():
         db.commit()
         order_id = order.id
         result = expire_stale_orders(db)
-        assert result["archived"] == 1
-        preserved = db.get(Order, order_id)
-        assert preserved is not None
-        assert preserved.status == "expired_local"
+        assert result["deleted"] == 1
+        assert db.get(Order, order_id) is None

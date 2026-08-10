@@ -19,40 +19,14 @@ def token_hash(raw:str)->str: return hashlib.sha256(raw.encode()).hexdigest()
 def new_token()->tuple[str,str]:
     raw=secrets.token_urlsafe(48); return raw,token_hash(raw)
 def session_expiry(): return utcnow()+timedelta(days=120)
-def _fernet_for_secret(secret:str)->Fernet:
-    return Fernet(base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest()))
-
-def _encryption_secrets()->list[str]:
-    # Keep encrypted panel/API credentials readable when a deployment migrates
-    # from SESSION_SECRET to a dedicated DATA_ENCRYPTION_KEY. Extra historical
-    # keys can be supplied comma-separated through DATA_ENCRYPTION_KEY_PREVIOUS.
-    values=[
-        os.getenv("DATA_ENCRYPTION_KEY") or "",
-        os.getenv("SESSION_SECRET") or "",
-        *(os.getenv("DATA_ENCRYPTION_KEY_PREVIOUS") or "").split(","),
-        "change-me-bluevpn",
-    ]
-    result=[]
-    for value in values:
-        value=str(value or "").strip()
-        if value and value not in result:
-            result.append(value)
-    return result
-
 def _fernet():
-    return _fernet_for_secret(_encryption_secrets()[0])
-
-def encrypt(value:str)->str:
-    return _fernet().encrypt(value.encode()).decode() if value else ""
-
+    secret=os.getenv("DATA_ENCRYPTION_KEY") or os.getenv("SESSION_SECRET") or "change-me-bluevpn"
+    return Fernet(base64.urlsafe_b64encode(hashlib.sha256(secret.encode()).digest()))
+def encrypt(value:str)->str: return _fernet().encrypt(value.encode()).decode() if value else ""
 def decrypt(value:str)->str:
     if not value:return ""
-    for secret in _encryption_secrets():
-        try:
-            return _fernet_for_secret(secret).decrypt(value.encode()).decode()
-        except InvalidToken:
-            continue
-    return ""
+    try:return _fernet().decrypt(value.encode()).decode()
+    except InvalidToken:return ""
 def mask(value:str)->str:
     if not value:return "تنظیم نشده"
     return value[:5]+"••••"+value[-4:] if len(value)>10 else "••••••••"

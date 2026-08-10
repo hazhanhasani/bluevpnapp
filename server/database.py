@@ -611,18 +611,6 @@ def _quoted(name: str) -> str:
 
 
 def _default_for_column(column: Any) -> Any:
-    # Nullable values are meaningful and must remain NULL. In particular,
-    # optional foreign keys such as otp_challenges.customer_id cannot be
-    # replaced with a synthetic integer like 0 because no referenced row
-    # exists and PostgreSQL correctly rejects the update.
-    if bool(getattr(column, "nullable", True)):
-        return None
-
-    # Never invent values for relationships. A foreign key may only be
-    # populated from an existing referenced record by an explicit migration.
-    if getattr(column, "foreign_keys", None):
-        return None
-
     if column.default is not None:
         default = column.default.arg
         if not callable(default):
@@ -782,9 +770,7 @@ def _migrate_missing_columns() -> None:
                     f"{result.rowcount}"
                 )
 
-    # Populate defaults only for required scalar columns. Nullable columns
-    # and foreign keys intentionally remain NULL until application logic or
-    # an explicit relationship-aware migration assigns them.
+    # Populate safe defaults for newly added nullable columns.
     for table in Base.metadata.sorted_tables:
         if not inspect(ENGINE).has_table(table.name):
             continue

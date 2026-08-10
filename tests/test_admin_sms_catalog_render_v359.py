@@ -13,10 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_359():
     release=json.loads((ROOT/"release.json").read_text(encoding="utf-8"))
     app_meta=json.loads((ROOT/"branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"]=="3.0.83"
-    assert release["version_code"]==30083
-    assert app_meta["version_name"]=="3.0.83"
-    assert app_meta["version_code"]==30083
+    assert release["version"]=="3.0.62"
+    assert release["version_code"]==30062
+    assert app_meta["version_name"]=="3.0.62"
+    assert app_meta["version_code"]==30062
 
 
 def test_admin_initializes_sms_provider_catalog_before_template_render():

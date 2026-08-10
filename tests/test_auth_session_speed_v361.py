@@ -5,10 +5,10 @@ ROOT=Path(__file__).resolve().parents[1]
 def test_release_361():
     release=json.loads((ROOT/'release.json').read_text())
     app=json.loads((ROOT/'branding/app.json').read_text())
-    assert release['version']=='3.0.83'
-    assert release['version_code']==30083
-    assert app['version_name']=='3.0.83'
-    assert app['version_code']==30083
+    assert release['version']=='3.0.62'
+    assert release['version_code']==30062
+    assert app['version_name']=='3.0.62'
+    assert app['version_code']==30062
 
 def test_logout_stops_tunnel_and_is_non_blocking():
     source=(ROOT/'android-source/BlueVpnAccountManager.kt').read_text()
@@ -25,14 +25,12 @@ def test_auth_forms_preserve_drafts_and_avoid_resume_rerender():
     assert 'remember(this){draftEmail=it}' in source
     assert 'remember(this){draftBindingPhone=it}' in source
     assert 'else if(BlueVpnAccountManager.hasSession(this)!=renderedSessionState){render()}' in source
-    assert '(materiallyChanged||force)&&currentFocus !is EditText' in source
+    assert 'if(currentFocus !is EditText)render()' in source
 
 def test_auth_returns_before_subscription_import():
     source=(ROOT/'android-source/BlueVpnAccountManager.kt').read_text()
-    assert 'scheduleInstall(c, url)' in source
+    assert 'scheduleInstall(url)' in source
     assert 'subscriptionInstallExecutor.execute' in source
-    assert 'if (forceSubscriptions)' in source
-    assert 'reconcileSubscriptionMode(' in source
 
 def test_server_otp_and_password_work_do_not_block():
     source=(ROOT/'server/main.py').read_text()

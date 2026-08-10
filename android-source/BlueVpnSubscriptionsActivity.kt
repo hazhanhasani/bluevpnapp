@@ -26,10 +26,10 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
+import com.v2ray.ang.bluevpn.BlueVpnDynamicBackgroundView
 import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnPersianDate
-import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -37,9 +37,9 @@ import org.json.JSONObject
 import java.text.NumberFormat
 import java.util.Locale
 class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
- private lateinit var content:LinearLayout;private lateinit var status:TextView;private lateinit var palette:BlueVpnPalette;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true;private var otpChallengeId="";private var otpPhone="";private var otpBinding=false;private var authMode="sms";private var emailRegister=false;private var themeDarkAtCreate=true;private var renderedSessionState=false;private var draftPhone="";private var draftOtpCode="";private var draftEmail="";private var draftPassword="";private var draftBindingPhone="";private var draftBindingCode="";private var renderPosted=false;private var renderGeneration=0;private var syncInProgress=false
+ private lateinit var content:LinearLayout;private lateinit var status:TextView;private lateinit var palette:BlueVpnPalette;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true;private var otpChallengeId="";private var otpPhone="";private var otpBinding=false;private var authMode="sms";private var emailRegister=false;private var themeDarkAtCreate=true;private var renderedSessionState=false;private var draftPhone="";private var draftOtpCode="";private var draftEmail="";private var draftPassword="";private var draftBindingPhone="";private var draftBindingCode=""
  private val poll=object:Runnable{override fun run(){val id=BlueVpnAccountManager.pendingOrder(this@BlueVpnSubscriptionsActivity);if(id.isNotBlank()){checkOrder(id);handler.postDelayed(this,4000)}}}
- override fun onCreate(b:Bundle?){super.onCreate(b);window.setWindowAnimations(0);palette=BlueVpnTheme.palette(this);themeDarkAtCreate=palette.dark;window.setBackgroundDrawable(ColorDrawable(palette.background));BlueVpnTheme.applySystemBars(this);setContentView(screen());render()}
+ override fun onCreate(b:Bundle?){super.onCreate(b);palette=BlueVpnTheme.palette(this);themeDarkAtCreate=palette.dark;window.setBackgroundDrawable(ColorDrawable(palette.background));BlueVpnTheme.applySystemBars(this);setContentView(screen());render()}
  override fun onResume(){
   super.onResume()
   BlueVpnTheme.applySystemBars(this)
@@ -48,24 +48,21 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   if(returnedOrder.isNotBlank()){closeCheckoutAfterReturn(returnedOrder)}
   if(firstResume){
    firstResume=false
+   if(returnedOrder.isBlank()&&BlueVpnAccountManager.hasSession(this)){
+    sync(true)
+   }
   }else if(BlueVpnAccountManager.hasSession(this)!=renderedSessionState){render()}
-  if(returnedOrder.isBlank()&&BlueVpnAccountManager.hasSession(this)){
-   // Always refresh after returning to this screen. Manual activation and
-   // successful payment must not require logout/login to invalidate the old
-   // entitlement and server cache.
-   handler.postDelayed({if(!isFinishing&&!isDestroyed)sync(true)},320L)
-  }
   handler.removeCallbacks(poll)
   handler.post(poll)
  }
  override fun onPause(){handler.removeCallbacks(poll);super.onPause()}
- override fun onDestroy(){handler.removeCallbacksAndMessages(null);super.onDestroy()}
  private fun screen():View{
   palette=BlueVpnTheme.palette(this)
   val frame=FrameLayout(this).apply{setBackgroundColor(palette.background)}
-    val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(12),dp(18),dp(20));layoutDirection=View.LAYOUT_DIRECTION_RTL}
+  frame.addView(BlueVpnDynamicBackgroundView(this),FrameLayout.LayoutParams(-1,-1))
+  val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(12),dp(18),dp(20));layoutDirection=View.LAYOUT_DIRECTION_RTL}
   val h=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER_VERTICAL}
-  val back=button("بازگشت",palette.surfaceStrong).apply{setTextColor(palette.textPrimary);BlueVpnUiGuard.bind(this){finish()}}
+  val back=button("بازگشت",palette.surfaceStrong).apply{setTextColor(palette.textPrimary);setOnClickListener{finish()}}
   val title=TextView(this).apply{text="حساب BlueVPN";textSize=23f;setTextColor(palette.textPrimary);setTypeface(typeface,Typeface.BOLD);gravity=Gravity.END;includeFontPadding=false}
   h.addView(back,LinearLayout.LayoutParams(dp(92),dp(46)))
   h.addView(title,LinearLayout.LayoutParams(0,dp(50),1f))
@@ -78,21 +75,10 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   return frame
  }
  private fun render(){
-  if(!::content.isInitialized||isFinishing||isDestroyed)return
-  renderGeneration++
-  if(renderPosted)return
-  renderPosted=true
-  content.post{
-   renderPosted=false
-   if(isFinishing||isDestroyed||!::content.isInitialized)return@post
-   val generation=renderGeneration
-   val hasSession=BlueVpnAccountManager.hasSession(this)
-   renderedSessionState=hasSession
-   BlueVpnUiGuard.run(this,"render-account"){
-    content.removeAllViews()
-    if(hasSession)account(generation) else auth()
-   }
-  }
+  val hasSession=BlueVpnAccountManager.hasSession(this)
+  renderedSessionState=hasSession
+  content.removeAllViews()
+  if(hasSession)account() else auth()
  }
  private fun remember(field:EditText,onValue:(String)->Unit){
   field.addTextChangedListener(object:TextWatcher{
@@ -119,8 +105,8 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   content.addView(brand,LinearLayout.LayoutParams(-1,-2))
 
   val modeRow=LinearLayout(this).apply{orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER;background=GradientDrawable().apply{cornerRadius=dp(18).toFloat();setColor(palette.surface);setStroke(dp(1),palette.stroke)};setPadding(dp(5),dp(5),dp(5),dp(5))}
-  modeRow.addView(button("پیامک",if(authMode=="sms")palette.accent else Color.TRANSPARENT).apply{setTextColor(if(authMode=="sms")Color.WHITE else palette.textSecondary);BlueVpnUiGuard.bind(this){authMode="sms";emailRegister=false;render()}},LinearLayout.LayoutParams(0,dp(44),1f).apply{marginEnd=dp(4)})
-  modeRow.addView(button("ایمیل",if(authMode=="email")palette.accent else Color.TRANSPARENT).apply{setTextColor(if(authMode=="email")Color.WHITE else palette.textSecondary);BlueVpnUiGuard.bind(this){authMode="email";otpChallengeId="";otpBinding=false;render()}},LinearLayout.LayoutParams(0,dp(44),1f).apply{marginStart=dp(4)})
+  modeRow.addView(button("پیامک",if(authMode=="sms")palette.accent else Color.TRANSPARENT).apply{setTextColor(if(authMode=="sms")Color.WHITE else palette.textSecondary);setOnClickListener{authMode="sms";emailRegister=false;render()}},LinearLayout.LayoutParams(0,dp(44),1f).apply{marginEnd=dp(4)})
+  modeRow.addView(button("ایمیل",if(authMode=="email")palette.accent else Color.TRANSPARENT).apply{setTextColor(if(authMode=="email")Color.WHITE else palette.textSecondary);setOnClickListener{authMode="email";otpChallengeId="";otpBinding=false;render()}},LinearLayout.LayoutParams(0,dp(44),1f).apply{marginStart=dp(4)})
   content.addView(modeRow,LinearLayout.LayoutParams(-1,dp(54)).apply{bottomMargin=dp(12)})
 
   val form=card()
@@ -131,12 +117,12 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
    val phone=authField("شماره تماس؛ مثال 09123456789").apply{inputType=InputType.TYPE_CLASS_PHONE;imeOptions=if(otpChallengeId.isBlank())EditorInfo.IME_ACTION_DONE else EditorInfo.IME_ACTION_NEXT;setText(draftPhone.ifBlank{otpPhone});remember(this){draftPhone=it}}
    box.addView(phone,LinearLayout.LayoutParams(-1,dp(58)))
    if(otpChallengeId.isBlank()){
-    box.addView(button("ارسال کد تأیید",palette.accent).apply{textSize=14f;setTypeface(typeface,Typeface.BOLD);BlueVpnUiGuard.bind(this){requestOtp(phone.text.toString(),false)}},LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)})
+    box.addView(button("ارسال کد تأیید",palette.accent).apply{textSize=14f;setTypeface(typeface,Typeface.BOLD);setOnClickListener{requestOtp(phone.text.toString(),false)}},LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)})
    }else{
     val code=authField("کد پیامکی").apply{inputType=InputType.TYPE_CLASS_NUMBER;imeOptions=EditorInfo.IME_ACTION_DONE;setText(draftOtpCode);remember(this){draftOtpCode=it};setOnEditorActionListener{_,actionId,_->if(actionId==EditorInfo.IME_ACTION_DONE){verifyOtp(phone.text.toString(),text.toString(),false);true}else false}}
     box.addView(code,LinearLayout.LayoutParams(-1,dp(58)).apply{topMargin=dp(10)})
-    box.addView(button("تأیید و ورود",palette.accent).apply{textSize=14f;setTypeface(typeface,Typeface.BOLD);BlueVpnUiGuard.bind(this){verifyOtp(phone.text.toString(),code.text.toString(),false)}},LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)})
-    box.addView(button("ارسال دوباره",palette.surfaceStrong).apply{setTextColor(palette.textPrimary);strokeWidth=dp(1);strokeColor=ColorStateList.valueOf(palette.stroke);BlueVpnUiGuard.bind(this){otpChallengeId="";otpPhone=phone.text.toString();render()}},LinearLayout.LayoutParams(-1,dp(48)).apply{topMargin=dp(10)})
+    box.addView(button("تأیید و ورود",palette.accent).apply{textSize=14f;setTypeface(typeface,Typeface.BOLD);setOnClickListener{verifyOtp(phone.text.toString(),code.text.toString(),false)}},LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)})
+    box.addView(button("ارسال دوباره",palette.surfaceStrong).apply{setTextColor(palette.textPrimary);strokeWidth=dp(1);strokeColor=ColorStateList.valueOf(palette.stroke);setOnClickListener{otpChallengeId="";otpPhone=phone.text.toString();render()}},LinearLayout.LayoutParams(-1,dp(48)).apply{topMargin=dp(10)})
    }
   }else{
    box.addView(TextView(this).apply{text=if(emailRegister)"ساخت حساب" else "ورود با ایمیل";textSize=19f;setTextColor(palette.textPrimary);setTypeface(typeface,Typeface.BOLD);gravity=Gravity.END})
@@ -146,13 +132,13 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
    password.setOnEditorActionListener{_,actionId,_->if(actionId==EditorInfo.IME_ACTION_DONE){emailAuth(email.text.toString(),password.text.toString(),emailRegister);true}else false}
    box.addView(email,LinearLayout.LayoutParams(-1,dp(58)))
    box.addView(password,LinearLayout.LayoutParams(-1,dp(58)).apply{topMargin=dp(10)})
-   box.addView(button(if(emailRegister)"ثبت‌نام و ورود" else "ورود",palette.accent).apply{textSize=14f;setTypeface(typeface,Typeface.BOLD);BlueVpnUiGuard.bind(this){emailAuth(email.text.toString(),password.text.toString(),emailRegister)}},LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)})
-   box.addView(button(if(emailRegister)"حساب دارم" else "ساخت حساب جدید",palette.surfaceStrong).apply{setTextColor(palette.textPrimary);strokeWidth=dp(1);strokeColor=ColorStateList.valueOf(palette.stroke);BlueVpnUiGuard.bind(this){emailRegister=!emailRegister;render()}},LinearLayout.LayoutParams(-1,dp(48)).apply{topMargin=dp(10)})
+   box.addView(button(if(emailRegister)"ثبت‌نام و ورود" else "ورود",palette.accent).apply{textSize=14f;setTypeface(typeface,Typeface.BOLD);setOnClickListener{emailAuth(email.text.toString(),password.text.toString(),emailRegister)}},LinearLayout.LayoutParams(-1,dp(52)).apply{topMargin=dp(16)})
+   box.addView(button(if(emailRegister)"حساب دارم" else "ساخت حساب جدید",palette.surfaceStrong).apply{setTextColor(palette.textPrimary);strokeWidth=dp(1);strokeColor=ColorStateList.valueOf(palette.stroke);setOnClickListener{emailRegister=!emailRegister;render()}},LinearLayout.LayoutParams(-1,dp(48)).apply{topMargin=dp(10)})
   }
   box.addView(TextView(this).apply{text="نشست ورود روی همین دستگاه حفظ می‌شود و اشتراک در پس‌زمینه همگام خواهد شد.";textSize=10.5f;gravity=Gravity.CENTER;setTextColor(palette.textMuted);setPadding(0,dp(14),0,0)})
   form.addView(box);content.addView(form)
  }
- private fun account(generation:Int){
+ private fun account(){
   val account=BlueVpnAccountManager.snapshot(this)
   status.text=
    if(account.subscriptionActive){
@@ -275,13 +261,12 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   })
 
   box.addView(button("خروج از حساب","#6A2940").apply{
-   BlueVpnUiGuard.bind(this){
+   setOnClickListener{
     BlueVpnAccountManager.logout(
      this@BlueVpnSubscriptionsActivity
     )
     setResult(RESULT_CANCELED)
-    finish()
-    overridePendingTransition(0,0)
+    render()
    }
   },LinearLayout.LayoutParams(-1,dp(46)).apply{
    topMargin=dp(8)
@@ -290,7 +275,7 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   card.addView(box)
   content.addView(card)
   if(!account.phoneVerified){phoneBindingCard()}
-  loadPlans(generation)
+  loadPlans()
  }
  private fun phoneBindingCard(){
   val card=card()
@@ -319,17 +304,17 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
    val code=authField("کد پیامکی").apply{inputType=InputType.TYPE_CLASS_NUMBER;setText(draftBindingCode);remember(this){draftBindingCode=it}}
    box.addView(code,LinearLayout.LayoutParams(-1,dp(56)).apply{topMargin=dp(8)})
    box.addView(button("تأیید و ثبت شماره","#18A873").apply{
-    BlueVpnUiGuard.bind(this){verifyOtp(phone.text.toString(),code.text.toString(),true)}
+    setOnClickListener{verifyOtp(phone.text.toString(),code.text.toString(),true)}
    },LinearLayout.LayoutParams(-1,dp(48)).apply{topMargin=dp(10)})
   }else{
    box.addView(button("ارسال کد تأیید","#1676FF").apply{
-    BlueVpnUiGuard.bind(this){requestOtp(phone.text.toString(),true)}
+    setOnClickListener{requestOtp(phone.text.toString(),true)}
    },LinearLayout.LayoutParams(-1,dp(48)).apply{topMargin=dp(10)})
   }
   card.addView(box)
   content.addView(card,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(12)})
  }
-private fun loadPlans(generation:Int){
+private fun loadPlans(){
  if(!BlueVpnAccountManager.hasSession(this)){
   render()
   return
@@ -341,7 +326,6 @@ private fun loadPlans(generation:Int){
   )
 
   withContext(Dispatchers.Main){
-   if(isFinishing||isDestroyed||generation!=renderGeneration)return@withContext
    r.onSuccess{arr->
     if(!BlueVpnAccountManager.hasSession(
       this@BlueVpnSubscriptionsActivity
@@ -447,7 +431,7 @@ private fun loadPlans(generation:Int){
   ).apply{
    textSize=13.5f
    setTypeface(typeface,Typeface.BOLD)
-   BlueVpnUiGuard.bind(this){
+   setOnClickListener{
     buy(p.optInt("id"))
    }
   },LinearLayout.LayoutParams(-1,dp(52)).apply{
@@ -468,7 +452,6 @@ private fun loadPlans(generation:Int){
   lifecycleScope.launch(Dispatchers.IO){
    val result=BlueVpnAccountManager.authenticateWithEmail(this@BlueVpnSubscriptionsActivity,email,password,register)
    withContext(Dispatchers.Main){
-    if(isFinishing||isDestroyed)return@withContext
     busy=false
     result.onSuccess{draftPassword="";setResult(RESULT_OK);render()}.onFailure{status.text=it.message?:if(register)"ثبت‌نام ناموفق بود" else "ورود ناموفق بود"}
    }
@@ -482,7 +465,6 @@ private fun loadPlans(generation:Int){
   lifecycleScope.launch(Dispatchers.IO){
    val result=BlueVpnAccountManager.requestOtp(this@BlueVpnSubscriptionsActivity,phone,bind)
    withContext(Dispatchers.Main){
-    if(isFinishing||isDestroyed)return@withContext
     busy=false
     result.onSuccess{
      otpChallengeId=it.challengeId;otpPhone=it.phone;otpBinding=bind
@@ -502,7 +484,6 @@ private fun loadPlans(generation:Int){
   lifecycleScope.launch(Dispatchers.IO){
    val result=BlueVpnAccountManager.verifyOtp(this@BlueVpnSubscriptionsActivity,phone,otpChallengeId,code,bind)
    withContext(Dispatchers.Main){
-    if(isFinishing||isDestroyed)return@withContext
     busy=false
     result.onSuccess{
      otpChallengeId="";otpPhone="";otpBinding=false
@@ -512,25 +493,7 @@ private fun loadPlans(generation:Int){
    }
   }
  }
- private fun sync(force:Boolean){
-  if(syncInProgress)return
-  syncInProgress=true
-  val before=BlueVpnAccountManager.snapshot(this)
-  lifecycleScope.launch(Dispatchers.IO){
-   val r=BlueVpnAccountManager.sync(this@BlueVpnSubscriptionsActivity,force)
-   withContext(Dispatchers.Main){
-    syncInProgress=false
-    if(isFinishing||isDestroyed)return@withContext
-    r.onSuccess{after->
-     val materiallyChanged=before!=after
-     if((materiallyChanged||force)&&currentFocus !is EditText)render()
-    }.onFailure{
-     if(!BlueVpnAccountManager.hasSession(this@BlueVpnSubscriptionsActivity))render()
-     else if(force)status.text=it.message?:"خطای همگام‌سازی"
-    }
-   }
-  }
- }
+ private fun sync(force:Boolean){if(busy)return;busy=true;lifecycleScope.launch(Dispatchers.IO){val r=BlueVpnAccountManager.sync(this@BlueVpnSubscriptionsActivity,force);withContext(Dispatchers.Main){busy=false;r.onFailure{if(!BlueVpnAccountManager.hasSession(this@BlueVpnSubscriptionsActivity))render() else status.text=it.message?:"خطای همگام‌سازی"};if(currentFocus !is EditText)render()}}}
  private fun buy(planId:Int){
   if(busy)return
   BlueVpnAccountManager.clearPendingOrder(this)

@@ -38,6 +38,7 @@ from .sms_catalog import SMS_TEMPLATE_MAP, SMS_TEMPLATE_SPECS
 from .sms_runtime import queue_broadcast,scan_subscription_notifications,start_sms_runtime,stop_sms_runtime
 from .version import VERSION, VERSION_CODE
 from .time_locale import TEHRAN_ZONE_NAME, format_jalali
+from .wordpress_migration_bridge import register_wordpress_migration_bridge
 BASE=Path(__file__).resolve().parent
 logger=logging.getLogger('bluevpn.main')
 templates=Jinja2Templates(directory=BASE/'templates')
@@ -248,6 +249,7 @@ app=FastAPI(
     redoc_url='/redoc' if PUBLIC_API_DOCS else None,
     openapi_url='/openapi.json' if PUBLIC_API_DOCS else None,
 )
+register_wordpress_migration_bridge(app)
 app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv('SESSION_SECRET') or secrets.token_urlsafe(48),

@@ -29,7 +29,7 @@ def test_auth_forms_preserve_drafts_and_avoid_resume_rerender():
 
 def test_auth_returns_before_subscription_import():
     source=(ROOT/'android-source/BlueVpnAccountManager.kt').read_text()
-    assert 'scheduleInstall(url)' in source
+    assert 'scheduleInstall(c, url)' in source
     assert 'subscriptionInstallExecutor.execute' in source
     assert 'if (forceSubscriptions)' in source
     assert 'reconcileSubscriptionMode(' in source

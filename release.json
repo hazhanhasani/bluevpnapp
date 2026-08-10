@@ -1,12 +1,15 @@
 {
   "version": "3.0.83",
   "channel": "stable",
-  "build_id": "20260810-unified-profile-subscription-management-v3083",
+  "build_id": "20260810-build132-kotlin-compile-hotfix",
   "built_at": "2026-08-10T00:00:00Z",
   "android_version": "3.0.83",
   "android_version_code": 30083,
-  "description": "BlueVPN 3.0.83 مدیریت کانفیگ و Subscription را با هویت معنایی پایدار، حذف تکراری‌ها در کاتالوگ انتخاب، حفظ سرور منتخب پس از Refresh، سازگاری بهتر V2Ray/JSON و آماده‌سازی SSH روی sing-box بازطراحی می‌کند.",
+  "description": "BlueVPN 3.0.83 hotfix: رفع خطای Kotlin Build #132 در context نصب Subscription و import موتور Route Intelligence، بدون تغییر رفتار مدیریت کانفیگ.",
   "features": [
+    "generated-source-b64-resync",
+    "build132-route-intelligence-import-fix",
+    "build132-kotlin-context-fix",
     "unified-profile-catalogue",
     "semantic-profile-fingerprint",
     "subscription-refresh-selection-rebind",

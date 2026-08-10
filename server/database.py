@@ -611,10 +611,23 @@ def _quoted(name: str) -> str:
 
 
 def _default_for_column(column: Any) -> Any:
+    # Never invent a parent row for a foreign-key column.  The previous
+    # migration helper treated every integer as safely defaultable to 0,
+    # which turned nullable relations such as customers.plan_id into an
+    # invalid reference to plans.id=0 and aborted PostgreSQL startup.
+    if column.foreign_keys:
+        return None
+
     if column.default is not None:
         default = column.default.arg
         if not callable(default):
             return default
+
+    # NULL is meaningful for nullable columns (unassigned plan/panel,
+    # unverified phone, missing expiry, ...).  Do not overwrite it with a
+    # guessed primitive value merely because of the Python type.
+    if column.nullable:
+        return None
 
     python_type = None
     try:
@@ -701,6 +714,7 @@ def _get_meta(key: str) -> str:
 
 def _migrate_missing_columns() -> None:
     inspector = inspect(ENGINE)
+    added_columns_this_run: set[tuple[str, str]] = set()
 
     for table in Base.metadata.sorted_tables:
         if not inspector.has_table(table.name):
@@ -729,6 +743,7 @@ def _migrate_missing_columns() -> None:
             MIGRATION_REPORT["added_columns"].append(
                 f"{table.name}.{column.name}"
             )
+            added_columns_this_run.add((table.name, column.name))
             existing.add(column.name)
 
     # Copy values from older column names into current columns.
@@ -770,7 +785,12 @@ def _migrate_missing_columns() -> None:
                     f"{result.rowcount}"
                 )
 
-    # Populate safe defaults for newly added nullable columns.
+    # Backfill only values that are safe to synthesize.  Existing nullable
+    # columns are intentionally left alone: NULL may carry domain meaning
+    # and must not be rewritten on every process startup.  A nullable column
+    # added in this migration may receive an explicit model default, while
+    # required primitive columns can still be repaired if an older partial
+    # migration left NULL values behind.
     for table in Base.metadata.sorted_tables:
         if not inspect(ENGINE).has_table(table.name):
             continue
@@ -782,6 +802,10 @@ def _migrate_missing_columns() -> None:
 
         for column in table.columns:
             if column.name not in columns or column.primary_key:
+                continue
+
+            was_added = (table.name, column.name) in added_columns_this_run
+            if column.nullable and not was_added:
                 continue
 
             default = _default_for_column(column)

@@ -70,7 +70,7 @@ final class BlueVPN_Admin {
         echo '<input type="hidden" name="action" value="bluevpn_migration_save"><table class="form-table">';
         echo '<tr><th>Railway Backend URL</th><td><input class="regular-text" dir="ltr" name="source_url" placeholder="https://bluevpnapp-production.up.railway.app" value="'.esc_attr($cfg['source_url']).'"></td></tr>';
         echo '<tr><th>Migration Token</th><td><input class="regular-text" dir="ltr" type="password" name="token" value="" placeholder="'.(BlueVPN_Migration::has_token()?'ذخیره شده؛ برای تغییر مقدار جدید وارد کن':'Token را وارد کن').'"></td></tr>';
-        echo '<tr><th>Batch Size</th><td><input type="number" min="25" max="1000" name="batch_size" value="'.(int)$cfg['batch_size'].'"></td></tr>';
+        echo '<tr><th>Batch Size</th><td><input type="number" min="100" max="5000" name="batch_size" value="'.(int)$cfg['batch_size'].'"><p class="description">Turbo Migration برای جدول بزرگ AI به‌صورت خودکار تا ۵۰۰۰ رکورد در هر درخواست استفاده می‌کند.</p></td></tr>';
         echo '<tr><th>SSL Verify</th><td><label><input type="checkbox" name="verify_tls" value="1" '.checked(!empty($cfg['verify_tls']),true,false).'> بررسی گواهی TLS</label></td></tr>';
         echo '<tr><th>انتقال خودکار</th><td><label><input type="checkbox" name="auto_migrate" value="1" '.checked(!empty($cfg['auto_migrate']),true,false).'> Batchها، Retry و Resync نهایی بدون کلیک دستی انجام شوند</label></td></tr>';
         echo '<tr><th>Dual Sync</th><td><label><input type="checkbox" name="auto_sync" value="1" '.checked(!empty($cfg['auto_sync']),true,false).'> بعد از آماده‌شدن Cutover هر ۵ دقیقه تغییرات جدید همگام شوند</label></td></tr>';
@@ -137,7 +137,7 @@ final class BlueVPN_Admin {
         self::guard(); check_admin_referer('bluevpn_migration_save');
         BlueVPN_Migration::save_settings([
             'source_url'=>wp_unslash($_POST['source_url']??''), 'token'=>wp_unslash($_POST['token']??''),
-            'batch_size'=>(int)($_POST['batch_size']??250), 'verify_tls'=>isset($_POST['verify_tls']),
+            'batch_size'=>(int)($_POST['batch_size']??1000), 'verify_tls'=>isset($_POST['verify_tls']),
             'auto_migrate'=>isset($_POST['auto_migrate']), 'auto_sync'=>isset($_POST['auto_sync'])
         ]);
         self::migration_redirect('تنظیمات Migration Bridge ذخیره شد.');

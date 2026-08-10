@@ -1,5 +1,5 @@
 === BlueVPN Manager ===
-Version: 1.2.2
+Version: 1.2.4
 Requires PHP: 8.0
 
 زیرساخت مهاجرت Backend BlueVPN از Railway/PostgreSQL به WordPress/MySQL با Migration Bridge امن و قابل Resume.
@@ -8,7 +8,8 @@ Requires PHP: 8.0
 - Migration Bridge امن Railway → WordPress با Token اختصاصی
 - انتقال کاملاً خودکار در پس‌زمینه با Resume و Retry بدون رکورد تکراری
 - Runner یک‌دقیقه‌ای برای ادامه خودکار Batchها
-- Batch هزار‌تایی برای ai_connection_events و Resync افزایشی این جدول
+- حالت Turbo: دریافت ۵۰۰۰ رکوردی ai_connection_events و نوشتن Bulk چندصدتایی در MySQL
+- حذف هزاران Query تکی هنگام مهاجرت و Resync افزایشی جدول AI
 - مقایسه تعداد رکوردهای PostgreSQL/MySQL و Resync
 - Dual Sync آزمایشی با WP-Cron
 - انتقال Secretها با رمزگذاری مجدد سمت WordPress

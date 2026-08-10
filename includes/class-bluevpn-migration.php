@@ -6,7 +6,9 @@ final class BlueVPN_Migration {
     const STATE_OPTION = 'bluevpn_migration_state';
     const CRON_HOOK = 'bluevpn_migration_sync';
     const AUTO_HOOK = 'bluevpn_migration_auto_runner';
-    const DEFAULT_BATCH_SIZE = 250;
+    const DEFAULT_BATCH_SIZE = 1000;
+    const FAST_EXPORT_LIMIT = 5000;
+    const BULK_WRITE_CHUNK = 500;
     const AUTO_LOCK = 'bluevpn_migration_auto_lock';
 
     public static function init(): void {
@@ -47,7 +49,7 @@ final class BlueVPN_Migration {
             'source_url' => $source,
             'token_enc' => $plainToken !== '' ? BlueVPN_Utils::encrypt_secret($plainToken) : (string)$current['token_enc'],
             'verify_tls' => array_key_exists('verify_tls', $input) ? !empty($input['verify_tls']) : !empty($current['verify_tls']),
-            'batch_size' => max(25, min(1000, (int)($input['batch_size'] ?? $current['batch_size'] ?? self::DEFAULT_BATCH_SIZE))),
+            'batch_size' => max(100, min(self::FAST_EXPORT_LIMIT, (int)($input['batch_size'] ?? $current['batch_size'] ?? self::DEFAULT_BATCH_SIZE))),
             'auto_migrate' => array_key_exists('auto_migrate', $input) ? !empty($input['auto_migrate']) : !empty($current['auto_migrate']),
             'auto_sync' => array_key_exists('auto_sync', $input) ? !empty($input['auto_sync']) : !empty($current['auto_sync']),
         ];
@@ -148,7 +150,7 @@ final class BlueVPN_Migration {
 
     public static function run(int $maxBatches = 8): array {
         $started = microtime(true);
-        $maxBatches = max(1, min(40, $maxBatches));
+        $maxBatches = max(1, min(60, $maxBatches));
         $state = self::state();
         if (empty($state['source_counts'])) {
             $manifest = self::refresh_manifest();
@@ -162,7 +164,7 @@ final class BlueVPN_Migration {
         $batches = 0;
         $rowsImported = 0;
         $errors = [];
-        while ($batches < $maxBatches && (microtime(true) - $started) < 18.0) {
+        while ($batches < $maxBatches && (microtime(true) - $started) < self::execution_budget_seconds()) {
             $state = self::state();
             $table = self::next_table($state);
             if ($table === null) {
@@ -259,28 +261,45 @@ final class BlueVPN_Migration {
         if (!in_array($table, self::table_order(), true)) return new WP_Error('invalid_table', 'جدول مهاجرت معتبر نیست.');
         $settings = self::settings();
         if ($table === 'ad_assets') {
-            $effectiveLimit = min(5, (int)$settings['batch_size']);
+            $effectiveLimit = min(20, (int)$settings['batch_size']);
         } elseif ($table === 'ai_connection_events') {
-            $effectiveLimit = 1000;
+            // History is append-only and is by far the largest table. Pull several
+            // thousand rows per request, then write them to MySQL in bulk below.
+            $effectiveLimit = self::FAST_EXPORT_LIMIT;
+        } elseif (in_array($table, ['ai_live_connections', 'ai_route_aggregates', 'ai_feedback'], true)) {
+            $effectiveLimit = min(2500, self::FAST_EXPORT_LIMIT);
         } else {
-            $effectiveLimit = (int)$settings['batch_size'];
+            $effectiveLimit = min(max(1000, (int)$settings['batch_size']), self::FAST_EXPORT_LIMIT);
         }
         $query = ['limit' => $effectiveLimit];
         if ($cursor !== '') $query['after'] = $cursor;
         $path = '/internal/migration/v1/export/' . rawurlencode($table) . '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
         $payload = self::request($path, ['timeout' => 45]);
+        // Rolling-deploy compatibility: if WordPress updates a few seconds before
+        // Railway and the old Bridge still caps pages at 1000, keep migrating
+        // instead of stopping with HTTP 422. The next run will automatically use 5k.
+        if (is_wp_error($payload) && $effectiveLimit > 1000) {
+            $data = $payload->get_error_data();
+            if (is_array($data) && (int)($data['status'] ?? 0) === 422) {
+                $query['limit'] = 1000;
+                $fallbackPath = '/internal/migration/v1/export/' . rawurlencode($table) . '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+                $payload = self::request($fallbackPath, ['timeout' => 45]);
+            }
+        }
         if (is_wp_error($payload)) return $payload;
         $rows = is_array($payload['rows'] ?? null) ? $payload['rows'] : [];
-        $imported = 0;
+        $decodedRows = [];
         foreach ($rows as $row) {
             if (!is_array($row)) continue;
-            $decoded = self::decode_row($row);
-            $result = self::upsert($table, $decoded);
+            $decodedRows[] = self::decode_row($row);
+        }
+        $imported = count($decodedRows);
+        if ($decodedRows) {
+            $result = self::bulk_upsert($table, $decodedRows);
             if ($result === false) {
                 global $wpdb;
                 return new WP_Error('mysql_import_failed', 'خطای MySQL در جدول '.$table.': '.$wpdb->last_error);
             }
-            $imported++;
         }
         $state = self::state();
         $nextCursor = (string)($payload['next_cursor'] ?? '');
@@ -313,19 +332,70 @@ final class BlueVPN_Migration {
         return $row;
     }
 
-    private static function upsert(string $logicalTable, array $row) {
+    /**
+     * Bulk REPLACE is dramatically faster than calling $wpdb->replace() once per row.
+     * It preserves the exact semantics of the old importer (primary/unique conflicts are
+     * replaced) while reducing thousands of MySQL round-trips to a few dozen queries.
+     */
+    private static function bulk_upsert(string $logicalTable, array $rows): bool {
+        global $wpdb;
+        if (!$rows) return true;
+        $table = BlueVPN_DB::table($logicalTable);
+        $columns = self::table_columns($logicalTable);
+        if (!$columns) return false;
+        $allowed = array_flip($columns);
+
+        $usable = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) continue;
+            foreach ($row as $key => $_) {
+                if (isset($allowed[$key])) $usable[$key] = true;
+            }
+        }
+        $usableColumns = array_keys($usable);
+        if (!$usableColumns) return true;
+
+        $quotedColumns = implode(',', array_map(static fn($name) => '`'.str_replace('`', '``', $name).'`', $usableColumns));
+        foreach (array_chunk($rows, self::BULK_WRITE_CHUNK) as $chunk) {
+            $valueRows = [];
+            foreach ($chunk as $row) {
+                if (!is_array($row)) continue;
+                $parts = [];
+                foreach ($usableColumns as $column) {
+                    $value = array_key_exists($column, $row) ? $row[$column] : null;
+                    if ($value === null) {
+                        $parts[] = 'NULL';
+                    } else {
+                        // %s is intentional for every non-NULL value. MySQL safely coerces
+                        // numeric/date target columns while wpdb performs correct escaping.
+                        $parts[] = $wpdb->prepare('%s', $value);
+                    }
+                }
+                $valueRows[] = '('.implode(',', $parts).')';
+            }
+            if (!$valueRows) continue;
+            $sql = "REPLACE INTO {$table} ({$quotedColumns}) VALUES ".implode(',', $valueRows);
+            if ($wpdb->query($sql) === false) return false;
+        }
+        return true;
+    }
+
+    private static function table_columns(string $logicalTable): array {
+        static $cache = [];
+        if (isset($cache[$logicalTable])) return $cache[$logicalTable];
         global $wpdb;
         $table = BlueVPN_DB::table($logicalTable);
-        if (!$row) return true;
         $columns = $wpdb->get_col("SHOW COLUMNS FROM {$table}", 0);
-        if (!is_array($columns) || !$columns) return false;
-        $allowed = array_flip($columns);
-        $clean = [];
-        foreach ($row as $key => $value) {
-            if (isset($allowed[$key])) $clean[$key] = $value;
-        }
-        if (!$clean) return true;
-        return $wpdb->replace($table, $clean);
+        $cache[$logicalTable] = is_array($columns) ? array_values($columns) : [];
+        return $cache[$logicalTable];
+    }
+
+    private static function execution_budget_seconds(): float {
+        $configured = (int)ini_get('max_execution_time');
+        // Keep enough headroom for PHP/FPM/hosting termination while allowing one
+        // turbo run to finish several 5k-row pages in a single cron invocation.
+        if ($configured <= 0) return 45.0;
+        return (float)max(18, min(45, $configured - 5));
     }
 
     private static function request(string $path, array $args = []) {
@@ -489,7 +559,7 @@ final class BlueVPN_Migration {
                 self::save_state($state);
             }
 
-            $result = self::run(20);
+            $result = self::run(40);
             if (empty($result['success'])) {
                 $errors = $result['errors'] ?? [];
                 self::auto_error($errors ? implode(' | ', $errors) : 'خطای نامشخص در انتقال خودکار');

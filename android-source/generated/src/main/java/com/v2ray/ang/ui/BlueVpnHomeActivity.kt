@@ -57,6 +57,7 @@ import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
 import com.v2ray.ang.bluevpn.BlueVpnUpdateManager
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
+import com.v2ray.ang.bluevpn.BlueVpnRouteIntelligence
 import com.v2ray.ang.bluevpn.BlueVpnEngineManager
 import com.v2ray.ang.bluevpn.BlueVpnEntitlement
 import com.v2ray.ang.bluevpn.BlueVpnPlanTier

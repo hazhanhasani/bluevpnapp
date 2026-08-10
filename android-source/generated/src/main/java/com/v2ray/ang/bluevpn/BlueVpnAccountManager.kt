@@ -1806,8 +1806,10 @@ object BlueVpnAccountManager {
             } else if (url.startsWith("http")) {
                 // Login/registration returns immediately; foreground/order
                 // refreshes pass forceSubscriptions=true and wait for the
-                // entitlement hot-swap before updating the UI.
-                scheduleInstall(url)
+                // entitlement hot-swap before updating the UI. Keep an
+                // application Context with the queued install so desktop-style
+                // subscription intelligence can persist per-network metadata.
+                scheduleInstall(c, url)
             }
         } else {
             reconcileSubscriptionMode(
@@ -1822,19 +1824,20 @@ object BlueVpnAccountManager {
         return snapshot(c)
     }
 
-    private fun scheduleInstall(url: String) {
+    private fun scheduleInstall(context: Context, url: String) {
         val now = System.currentTimeMillis()
         if (url == lastScheduledSubscriptionUrl && now - lastScheduledSubscriptionAt < 5_000L) {
             return
         }
         lastScheduledSubscriptionUrl = url
         lastScheduledSubscriptionAt = now
+        val appContext = context.applicationContext
         subscriptionInstallExecutor.execute {
-            runCatching { install(url) }
+            runCatching { install(appContext, url) }
         }
     }
 
-    private fun install(url: String) = synchronized(subscriptionReconcileLock) {
+    private fun install(c: Context, url: String) = synchronized(subscriptionReconcileLock) {
         val subscriptions = MmkvManager.decodeSubscriptions()
         val old = subscriptions.firstOrNull {
             it.subscription.remarks == SUB &&
@@ -1873,13 +1876,13 @@ object BlueVpnAccountManager {
             enabled = true,
             autoUpdate = true,
             userAgent = old.subscription.userAgent
-                ?: BlueVpnSubscriptionIntelligence.recommendedUserAgent(c = c, url = url),
+                ?: BlueVpnSubscriptionIntelligence.recommendedUserAgent(context = c, url = url),
         ) ?: SubscriptionItem(
             remarks = SUB,
             url = url,
             enabled = true,
             autoUpdate = true,
-            userAgent = BlueVpnSubscriptionIntelligence.recommendedUserAgent(c = c, url = url),
+            userAgent = BlueVpnSubscriptionIntelligence.recommendedUserAgent(context = c, url = url),
         )
 
         if (!currentReady) {

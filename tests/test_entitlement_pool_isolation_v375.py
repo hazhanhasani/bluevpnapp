@@ -15,15 +15,17 @@ def test_release_metadata_is_v375():
     assert app["version_code"] == 30083
 
 
-def test_entitlement_pool_is_strict_and_has_no_global_fallback():
+def test_free_pool_stays_strict_while_premium_has_last_known_good_fallback():
     account = (ROOT / "android-source/BlueVpnAccountManager.kt").read_text(encoding="utf-8")
     locations = (ROOT / "android-source/BlueVpnLocationUtil.kt").read_text(encoding="utf-8")
 
     assert "fun entitlementSubscriptionGuids" in account
     assert "fun entitlementPoolFingerprint" in account
     assert "return guid in entitlementServerGuids" in account
-    assert "id.isNotBlank() && id in entitlementSubscriptionGuids(c)" in account
-    assert "id !in allFreeGuids" not in account
+    assert "if (!active(c)) return false" in account
+    assert "allFreeServerGuids()" in account
+    assert "MmkvManager.decodeAllServerList()" in account
+    assert "it !in freeServerGuids" in account
 
     fast = locations.split("fun fastCandidates(", 1)[1].split("fun instantCandidates(", 1)[0]
     assert "if (entitlementGuids.isEmpty()) return emptyList()" in fast

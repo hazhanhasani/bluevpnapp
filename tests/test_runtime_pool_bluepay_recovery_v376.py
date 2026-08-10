@@ -19,13 +19,15 @@ def test_release_metadata_is_v376():
     assert app["version_code"] == 30083
 
 
-def test_android_runtime_prunes_disabled_managed_profiles_and_guards_core_start():
+def test_android_runtime_preserves_last_known_good_profiles_and_guards_core_start():
     account = (ROOT / "android-source/BlueVpnAccountManager.kt").read_text(encoding="utf-8")
     home = (ROOT / "android-source/BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
     engine = (ROOT / "android-source/BlueVpnEngineManager.kt").read_text(encoding="utf-8")
 
     assert "fun pruneInactiveManagedPools" in account
-    assert "MmkvManager.removeServerViaSubid(row.guid)" in account
+    prune = account[account.index("fun pruneInactiveManagedPools"):account.index("fun selectedServerAllowed")]
+    assert "MmkvManager.removeServerViaSubid" not in prune
+    assert "row.subscription.copy(enabled = false)" in prune
     assert "fun ensureEntitlementSelection" in account
     assert "BlueVpnAccountManager.ensureEntitlementSelection(this)" in home
     assert "val isolatedCandidates = candidates.filter" in home

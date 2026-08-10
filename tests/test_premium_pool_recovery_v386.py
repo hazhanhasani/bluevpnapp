@@ -18,8 +18,10 @@ def test_subscription_refresh_uses_native_v2rayng_user_agent_first():
 
 def test_entitlement_server_guids_ignore_ghost_profiles():
     text = read("android-source/BlueVpnAccountManager.kt")
+    helper = text[text.index("private fun usableServerGuids"):text.index("fun pruneInactiveManagedPools")]
     block = text[text.index("fun preferredServerGuids"):text.index("fun entitlementPoolFingerprint")]
-    assert "MmkvManager.decodeServerConfig(serverGuid) != null" in block
+    assert "MmkvManager.decodeServerConfig(serverGuid) != null" in helper
+    assert "val exact = usableServerGuids(entitlementSubscriptionGuids(c))" in block
 
 
 def test_invalid_selected_guid_is_cleared_when_pool_is_empty():

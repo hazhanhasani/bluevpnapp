@@ -42,7 +42,7 @@ def test_android_enforces_auto_only_free_mode_and_one_hour_alarm():
     assert "BlueVpnPreferences.setAutomaticSelection(this)" in home
     assert "برای انتخاب دستی لوکیشن ابتدا اشتراک تهیه کنید" in servers
     assert "createServerEntry" in servers
-    assert "candidate.profile.subscriptionId" in locations
+    assert "profile.subscriptionId" in locations
     assert "BlueVpnFreeSessionReceiver" in prepare
 
 

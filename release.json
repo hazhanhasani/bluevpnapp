@@ -1,10 +1,10 @@
 {
-  "version": "3.0.83",
+  "version": "3.0.84",
   "channel": "stable",
   "build_id": "20260810-v2rayng-runtime-compat-repair",
   "built_at": "2026-08-10T12:06:00Z",
-  "android_version": "3.0.83",
-  "android_version_code": 30083,
+  "android_version": "3.0.84",
+  "android_version_code": 30084,
   "description": "BlueVPN 3.0.83 compatibility repair: بازگردانی مسیر اتصال Xray به lifecycle رسمی v2rayNG، حذف race توقف/شروع، تست چندمرحله‌ای و جلوگیری از قطع اتصال سالم به‌خاطر یک health probe ناموفق.",
   "features": [
     "v2rayng-exact-guid-core-start",
@@ -536,7 +536,7 @@
     "entitlement-transition-state-reset",
     "ai-selection-without-login"
   ],
-  "version_code": 30083,
+  "version_code": 30084,
   "notes": "Unified profile/subscription management inspired by mature multi-protocol clients; invalid current-session routes remain temporarily quarantined rather than permanently deleted. SSH/sing-box sources can be compiled and natively validated, while Android TUN ownership remains on Xray until the dedicated bridge/TUN hand-off is implemented.",
   "version_source": "unified-profile-subscription-management-v3083"
 }

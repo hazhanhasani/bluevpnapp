@@ -1,7 +1,7 @@
 {
-  "release": "3.0.81",
-  "version_name": "3.0.81",
-  "version_code": 30081,
+  "release": "3.0.82-auto",
+  "version_name": "3.0.82",
+  "version_code": 30082,
   "changes": [
     "Add explicit AUTO, MANUAL_LOCATION and MANUAL_SERVER ownership modes",
     "Never overwrite an explicit manual server during connect, startup optimization or background entitlement refresh",

@@ -1,10 +1,10 @@
 {
-  "version": "3.0.81",
+  "version": "3.0.82",
   "channel": "stable",
   "build_id": "20260810-selection-ownership-rotation-v3081",
   "built_at": "2026-08-10T00:00:00Z",
-  "android_version": "3.0.81",
-  "android_version_code": 30081,
+  "android_version": "3.0.82",
+  "android_version_code": 30082,
   "description": "BlueVPN 3.0.81 مالکیت انتخاب دستی و خودکار را کاملاً جدا می‌کند؛ سرور دستی دیگر توسط Auto/AI بازنویسی نمی‌شود و Auto بین مسیرهای هم‌کیفیت چرخش واقعی دارد.",
   "features": [
     "background-refresh-no-manual-override",
@@ -519,7 +519,7 @@
     "entitlement-transition-state-reset",
     "ai-selection-without-login"
   ],
-  "version_code": 30081,
+  "version_code": 30082,
   "notes": "Manual server selection is exact and sticky until the user changes it; automatic sessions diversify near-equal healthy routes instead of reusing one GUID forever.",
   "version_source": "selection-ownership-rotation-v3081"
 }

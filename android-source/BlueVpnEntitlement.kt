@@ -37,6 +37,7 @@ data class BlueVpnEntitlementSnapshot(
 object BlueVpnEntitlement {
     private const val PREFS = "bluevpn_entitlement_runtime"
     private const val KEY_IDENTITY = "last_identity"
+    private const val KEY_TIER = "last_tier"
 
     fun resolve(context: Context): BlueVpnEntitlementSnapshot {
         val account = BlueVpnAccountManager.snapshot(context)
@@ -120,15 +121,39 @@ object BlueVpnEntitlement {
         val current = resolve(app)
         val storage = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val previous = storage.getString(KEY_IDENTITY, "").orEmpty()
+        val previousTier = storage.getString(KEY_TIER, "").orEmpty()
         if (previous != current.identity) {
             if (current.isPremium) {
                 BlueVpnAccountManager.stopFreeSession(app, expired = false)
             }
-            BlueVpnPreferences.setPreferredLocation(app, "")
-            BlueVpnPreferences.setSmartBalance(app, true)
+
+            val tierChanged = previousTier.isNotBlank() && previousTier != current.tier.name
+            val mode = BlueVpnPreferences.selectionMode(app)
+            val manualServerStillAllowed = mode == BlueVpnSelectionMode.MANUAL_SERVER &&
+                BlueVpnPreferences.manualServerGuid(app).let { guid ->
+                    guid.isNotBlank() && current.serverGuids.contains(guid)
+                }
+            val manualLocationStillAllowed = mode == BlueVpnSelectionMode.MANUAL_LOCATION &&
+                current.isPremium && BlueVpnPreferences.preferredLocation(app).isNotBlank()
+
+            // A background entitlement refresh must never silently flip an explicit
+            // Premium manual choice back to AUTO. Only a real tier transition, Free
+            // mode, or a no-longer-valid manual target resets selection ownership.
+            if (current.isFree || current.isUnavailable || tierChanged ||
+                (!manualServerStillAllowed && !manualLocationStillAllowed && mode != BlueVpnSelectionMode.AUTO)
+            ) {
+                BlueVpnPreferences.setAutomaticSelection(app)
+            }
+
             BlueVpnAi.onEntitlementChanged(app, current.identity)
+            BlueVpnTapsellManager.onEntitlementChanged(app)
             BlueVpnLocationUtil.invalidateCache()
-            storage.edit().putString(KEY_IDENTITY, current.identity).commit()
+            storage.edit()
+                .putString(KEY_IDENTITY, current.identity)
+                .putString(KEY_TIER, current.tier.name)
+                .commit()
+        } else if (previousTier.isBlank()) {
+            storage.edit().putString(KEY_TIER, current.tier.name).apply()
         }
         return current
     }

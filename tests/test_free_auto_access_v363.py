@@ -11,10 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_363():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.79"
-    assert release["version_code"] == 30079
-    assert app["version_name"] == "3.0.79"
-    assert app["version_code"] == 30079
+    assert release["version"] == "3.0.81"
+    assert release["version_code"] == 30081
+    assert app["version_name"] == "3.0.81"
+    assert app["version_code"] == 30081
 
 
 def test_server_exposes_managed_free_access_and_hidden_relay():
@@ -39,7 +39,7 @@ def test_android_enforces_auto_only_free_mode_and_one_hour_alarm():
     assert "setAndAllowWhileIdle" in account
     assert "sessionMinutes * 60_000L" in account
     assert "prepareFreeAccess" in home
-    assert "BlueVpnPreferences.setSmartBalance(this, true)" in home
+    assert "BlueVpnPreferences.setAutomaticSelection(this)" in home
     assert "برای انتخاب دستی لوکیشن ابتدا اشتراک تهیه کنید" in servers
     assert "createServerEntry" in servers
     assert "candidate.profile.subscriptionId" in locations

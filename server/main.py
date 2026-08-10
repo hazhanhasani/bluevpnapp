@@ -43,7 +43,7 @@ BASE=Path(__file__).resolve().parent
 logger=logging.getLogger('bluevpn.main')
 templates=Jinja2Templates(directory=BASE/'templates')
 templates.env.filters['jalali']=format_jalali
-DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','ads_enabled':False,'ads_autoplay':True,'ads_loop':True,'ads_interval_seconds':6,'ads_height_dp':146,'ads_items':[],'free_access_enabled':False,'free_subscription_url':'','free_subscription_items':[],'free_session_minutes':60,'updated_at':iso_z(utcnow())}
+DEFAULT={'app_name':'BlueVPN','public_base_url':os.getenv('PUBLIC_BASE_URL','https://bluevpnapp-production.up.railway.app'),'maintenance':False,'support_url':os.getenv('SUPPORT_URL',''),'minimum_version':'0.4.9','force_update':False,'auto_update':True,'announcement_enabled':True,'announcement_id':'platform-100','announcement_title':'حساب یکپارچه BlueVPN','announcement_message':'خرید، تمدید و اشتراک شما به‌صورت خودکار مدیریت می‌شود.','blueai_enabled':True,'blueai_collective':True,'blueai_auto_heal':True,'blueai_min_samples':3,'blueai_privacy_message':'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.','ads_enabled':False,'ads_autoplay':True,'ads_loop':True,'ads_interval_seconds':6,'ads_height_dp':146,'ads_items':[],'tapsell_enabled':False,'tapsell_app_key':'','tapsell_interstitial_zone_id':'','tapsell_show_after_connect':True,'tapsell_min_interval_seconds':0,'tapsell_daily_cap':0,'free_access_enabled':False,'free_subscription_url':'','free_subscription_items':[],'free_session_minutes':60,'updated_at':iso_z(utcnow())}
 
 
 def env_bool(name:str,default:bool=False)->bool:
@@ -557,6 +557,22 @@ def advertising_payload(s:dict[str,Any],public_origin:str='',client_version:str=
     }
 
 
+
+def tapsell_payload(s:dict[str,Any])->dict[str,Any]:
+    app_key=str(s.get('tapsell_app_key') or '').strip()
+    zone_id=str(s.get('tapsell_interstitial_zone_id') or '').strip()
+    configured=bool(s.get('tapsell_enabled',False)) and bool(app_key) and bool(zone_id)
+    return {
+        'enabled':configured,
+        'app_key':app_key if configured else '',
+        'interstitial_zone_id':zone_id if configured else '',
+        'show_after_connect':bool(s.get('tapsell_show_after_connect',True)),
+        'free_only':True,
+        'min_interval_seconds':max(0,min(86400,int(s.get('tapsell_min_interval_seconds',0) or 0))),
+        'daily_cap':max(0,min(1000,int(s.get('tapsell_daily_cap',0) or 0))),
+        'disabled_reason':'' if configured else ('missing_credentials' if s.get('tapsell_enabled',False) else 'disabled'),
+    }
+
 def _ad_asset_path(asset_id:str)->str:
     return f'/api/v1/ad-assets/{asset_id}'
 
@@ -748,6 +764,7 @@ def legal_page_data(page:str)->dict:
                 {'title':'اطلاعات مورد نیاز','paragraphs':['برای ایجاد و مدیریت حساب ممکن است شماره همراه، اطلاعات سفارش، صورتحساب، وضعیت پرداخت، درخواست‌های پشتیبانی و داده‌های فنی ضروری ثبت شود.']},
                 {'title':'هدف پردازش','paragraphs':['اطلاعات برای احراز هویت، ارائه و پیگیری خدمت، جلوگیری از تقلب، ارسال اعلان‌های ضروری، پاسخ‌گویی به پشتیبانی و بهبود پایداری سامانه استفاده می‌شود.']},
                 {'title':'پیامک‌ها','paragraphs':['پیامک برای کد ورود، وضعیت سفارش و پرداخت، فعال‌سازی یا تمدید خدمت، هشدارهای امنیتی و پاسخ پشتیبانی ارسال می‌شود. پیام تبلیغاتی بدون رضایت کاربر ارسال نمی‌شود.']},
+                {'title':'تبلیغات پلن رایگان','paragraphs':['برای تأمین هزینه دسترسی رایگان، ممکن است پس از اتصال موفق یک تبلیغ بینابینی از شبکه تبلیغاتی تپسل نمایش داده شود. این قابلیت برای حساب‌های Premium غیرفعال است. SDK تبلیغاتی ممکن است داده‌های فنی لازم برای تحویل، اندازه‌گیری و جلوگیری از تقلب تبلیغاتی را طبق سیاست‌های ارائه‌دهنده پردازش کند.']},
                 {'title':'نگهداری و حفاظت','paragraphs':['دسترسی به اطلاعات به نیازهای عملیاتی و پشتیبانی محدود می‌شود و برای کاهش دسترسی غیرمجاز از کنترل‌های فنی و مدیریتی استفاده می‌شود. مدت نگهداری بر اساس ضرورت ارائه خدمت و الزامات قانونی تعیین می‌شود.']},
                 {'title':'درخواست کاربر','paragraphs':['کاربر می‌تواند برای اصلاح اطلاعات نادرست یا پیگیری وضعیت داده‌های حساب خود از مسیرهای رسمی پشتیبانی درخواست ثبت کند.']},
             ],
@@ -2326,6 +2343,7 @@ async def mobile_config(
                 'message':s['announcement_message'],
             },
             'advertising':advertising_payload(s,_public_origin(request,s),_bluevpn_client_version(request)),
+            'tapsell':tapsell_payload(s),
             'free_access':_free_access_payload(request,s),
             'updated_at':s['updated_at'],
             'updated_at_fa':format_jalali(s['updated_at'],fallback=''),
@@ -3832,6 +3850,41 @@ def admin_database_backup(
         },
         background=BackgroundTask(shutil.rmtree,temp_dir,ignore_errors=True),
     )
+
+
+@app.post('/admin/tapsell/settings')
+def admin_tapsell_settings(
+    request:Request,
+    csrf:str=Form(...),
+    app_key:str=Form(''),
+    interstitial_zone_id:str=Form(''),
+    min_interval_seconds:int=Form(0),
+    daily_cap:int=Form(0),
+    enabled:str|None=Form(None),
+    show_after_connect:str|None=Form(None),
+    db:Session=Depends(get_db),
+):
+    require_admin_csrf(request,csrf)
+    s=settings(db)
+    clean_key=str(app_key or '').strip()[:300]
+    clean_zone=str(interstitial_zone_id or '').strip()[:200]
+    requested=enabled=='on'
+    if requested and (not clean_key or not clean_zone):
+        return RedirectResponse(
+            '/admin?error='+quote_plus('برای فعال‌سازی تپسل، App Key و شناسه جایگاه بینابینی هر دو الزامی هستند.')+'#ads',
+            303,
+        )
+    s.update({
+        'tapsell_enabled':requested,
+        'tapsell_app_key':clean_key,
+        'tapsell_interstitial_zone_id':clean_zone,
+        'tapsell_show_after_connect':show_after_connect=='on',
+        'tapsell_min_interval_seconds':max(0,min(86400,int(min_interval_seconds or 0))),
+        'tapsell_daily_cap':max(0,min(1000,int(daily_cap or 0))),
+    })
+    save_settings(db,s)
+    return RedirectResponse('/admin?saved=1#ads',303)
+
 
 @app.post('/admin/ads/settings')
 def admin_ads_settings(

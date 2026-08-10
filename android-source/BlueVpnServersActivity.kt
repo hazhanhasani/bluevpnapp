@@ -28,6 +28,7 @@ import com.v2ray.ang.bluevpn.BlueVpnAccountManager
 import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnEntitlement
 import com.v2ray.ang.bluevpn.BlueVpnPlanTier
+import com.v2ray.ang.bluevpn.BlueVpnSelectionMode
 import com.v2ray.ang.bluevpn.BlueVpnSmartSelector
 import com.v2ray.ang.bluevpn.BlueVpnLocation
 import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
@@ -852,8 +853,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         candidate: BlueVpnLocationUtil.Candidate,
     ) {
         val changed = MmkvManager.getSelectServer() != candidate.guid || BlueVpnPreferences.smartBalance(this)
-        BlueVpnPreferences.setSmartBalance(this, false)
-        BlueVpnPreferences.setPreferredLocation(this, group.location.key)
+        BlueVpnPreferences.setManualServerSelection(
+            this,
+            group.location.key,
+            candidate.guid,
+        )
         MmkvManager.setSelectServer(candidate.guid)
         setResult(Activity.RESULT_OK, Intent()
             .putExtra(EXTRA_LOCATION_CHANGED, changed)
@@ -870,8 +874,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             return
         }
         val changed = !BlueVpnPreferences.smartBalance(this)
-        BlueVpnPreferences.setSmartBalance(this, true)
-        BlueVpnPreferences.setPreferredLocation(this, "")
+        BlueVpnPreferences.setAutomaticSelection(this)
         val candidates = BlueVpnLocationUtil.instantCandidates(this, maxCandidates = 24)
         val decision = BlueVpnSmartSelector.decide(this, candidates)
         if (decision == null) {
@@ -899,8 +902,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
         val currentPreferred = BlueVpnPreferences.preferredLocation(this).ifBlank { selectedLocation.orEmpty() }
         val changed = automatic || currentPreferred != group.location.key
-        BlueVpnPreferences.setSmartBalance(this, false)
-        BlueVpnPreferences.setPreferredLocation(this, group.location.key)
+        BlueVpnPreferences.setManualLocationSelection(this, group.location.key)
         BlueVpnLocationUtil.instantCandidates(this, group.location.key).firstOrNull()?.let { MmkvManager.setSelectServer(it.guid) }
         setResult(Activity.RESULT_OK, Intent()
             .putExtra(EXTRA_LOCATION_CHANGED, changed)

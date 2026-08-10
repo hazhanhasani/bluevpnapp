@@ -1,11 +1,11 @@
 {
-  "version": "3.0.79",
-  "version_code": 30079,
-  "feature": "plan-entitlement-ai-runtime-redesign",
+  "version": "3.0.81",
+  "version_code": 30081,
+  "feature": "selection-ownership-rotation",
   "tests": {
-    "passed": 35,
+    "passed": 321,
     "failed": 0,
-    "warnings": 1
+    "warnings": 40
   },
   "dual_engine": {
     "status": "passed",
@@ -71,15 +71,15 @@
   },
   "validation_commands": {
     "project_suite": "python -m pytest -q",
-    "project_suite_result": "307 passed, 0 failed, 40 deprecation warnings",
+    "project_suite_result": "321 passed, 0 failed, 40 deprecation warnings",
     "runtime_validator": "python scripts/validate_dual_engine.py",
     "runtime_validator_result": "35 passed, 0 failed, 1 environment warning",
-    "generated_android_validator": "passed (3.0.79 / 30079, 27 embedded sources)",
+    "generated_android_validator": "passed (3.0.81 / 30081, 27 embedded sources)",
     "json_validation": "passed",
     "python_compileall": "passed",
     "full_gradle_build": "not run in offline container"
   },
-  "build_fix": "plan-entitlement-ai-redesign-v3079",
+  "build_fix": "tapsell-free-connect-ads-v3080",
   "bluepay": {
     "endpoint": "POST /api/v1/invoices",
     "auth_header": "X-API-Key",
@@ -109,6 +109,15 @@
     "explainable_score": true,
     "manual_selection_premium_only": true
   },
-  "project_version": "3.0.79",
-  "release": "3.0.79"
+  "tapsell": {
+    "status": "integrated",
+    "sdk": "ir.tapsell.plus:tapsell-plus-sdk-android:2.3.3",
+    "placement": "interstitial",
+    "trigger": "verified free-plan connection",
+    "premium_excluded": true,
+    "live_switch_excluded": true,
+    "session_deduplication": true,
+    "fail_open": true,
+    "admin_config": true
+  }
 }

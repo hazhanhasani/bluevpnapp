@@ -658,6 +658,28 @@
     <div><span class="eyebrow">IN-APP CAMPAIGNS</span><h2>تبلیغات اسلایدی اپلیکیشن</h2><p>تصویر را مستقیماً آپلود کنید یا URL تصویر بدهید؛ لینک مقصد، ترتیب و زمان نمایش نیز از همین بخش مدیریت می‌شود.</p></div>
     <span class="badge {{ 'ok' if settings.get('ads_enabled',False) else 'warn' }}">{{ 'فعال' if settings.get('ads_enabled',False) else 'غیرفعال' }}</span>
   </div>
+  <div class="ad-editor-card" style="margin-bottom:18px">
+    <div class="section-heading">
+      <div><span class="eyebrow">TAPSELL PLUS</span><h3>تبلیغ بینابینی پس از اتصال رایگان</h3><p>پس از تأیید واقعی اتصال، فقط برای کاربر رایگان یک تبلیغ نمایش داده می‌شود. اتصال VPN به آماده‌شدن تبلیغ وابسته نیست و کاربران Premium هرگز این تبلیغ را دریافت نمی‌کنند.</p></div>
+      <span class="badge {{ 'ok' if settings.get('tapsell_enabled',False) else 'warn' }}">{{ 'فعال' if settings.get('tapsell_enabled',False) else 'غیرفعال' }}</span>
+    </div>
+    <form method="post" action="/admin/tapsell/settings" class="ads-global-form">
+      <input type="hidden" name="csrf" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <div class="wide"><label>App Key اپلیکیشن در تپسل</label><input class="ltr" name="app_key" value="{{ settings.get('tapsell_app_key','') }}" autocomplete="off" placeholder="کلید اپلیکیشن تپسل"></div>
+        <div class="wide"><label>شناسه جایگاه تبلیغ بینابینی</label><input class="ltr" name="interstitial_zone_id" value="{{ settings.get('tapsell_interstitial_zone_id','') }}" autocomplete="off" placeholder="Interstitial Zone ID"></div>
+        <div><label>حداقل فاصله نمایش؛ ثانیه</label><input type="number" name="min_interval_seconds" min="0" max="86400" value="{{ settings.get('tapsell_min_interval_seconds',0) }}"><small>صفر یعنی هر اتصال موفق جدید.</small></div>
+        <div><label>سقف روزانه برای هر دستگاه</label><input type="number" name="daily_cap" min="0" max="1000" value="{{ settings.get('tapsell_daily_cap',0) }}"><small>صفر یعنی بدون سقف.</small></div>
+      </div>
+      <div class="checks">
+        <label><input type="checkbox" name="enabled" {% if settings.get('tapsell_enabled',False) %}checked{% endif %}> درگاه تبلیغاتی تپسل فعال باشد</label>
+        <label><input type="checkbox" name="show_after_connect" {% if settings.get('tapsell_show_after_connect',True) %}checked{% endif %}> نمایش بعد از تأیید اتصال رایگان</label>
+      </div>
+      <p class="hint">App Key و Zone ID از پنل تپسل گرفته می‌شوند و برای درخواست تبلیغ باید داخل APK در دسترس باشند؛ این مقادیر رمز عبور یا کلید پرداخت نیستند. نمایش برای اتصال Premium، تغییر زنده سرور و بازشدن دوباره صفحه تکرار نمی‌شود.</p>
+      <button class="save">ذخیره تنظیمات تپسل</button>
+    </form>
+  </div>
+
   <form method="post" action="/admin/ads/settings" class="ads-global-form">
     <input type="hidden" name="csrf" value="{{ csrf_token }}">
     <div class="form-grid">

@@ -27,6 +27,8 @@ object BlueVpnSmartSelector {
     private const val KEY_LAST_REASON = "last_reason"
     private const val KEY_LAST_SCORE = "last_score"
     private const val KEY_LAST_AT = "last_at"
+    private const val KEY_LAST_AUTO_GUID = "last_auto_guid"
+    private const val KEY_LAST_AUTO_IDENTITY = "last_auto_identity"
 
     private fun delayScore(delay: Long): Int = when {
         delay in 1..35 -> 100
@@ -100,6 +102,67 @@ object BlueVpnSmartSelector {
                 .thenBy { it.candidate.location.title }
         )
         .toList()
+
+    /**
+     * Orders candidates for an AUTO connection without permanently sticking to
+     * one GUID. The highest scored route remains preferred, but when multiple
+     * routes are within a small quality window, consecutive new sessions rotate
+     * between them. A clearly superior route is never displaced merely to rotate.
+     */
+    fun connectionOrder(
+        context: Context,
+        candidates: List<BlueVpnLocationUtil.Candidate>,
+    ): List<ScoredCandidate> {
+        val ranked = rank(context, candidates)
+        if (ranked.size < 2) return ranked
+
+        val bestScore = ranked.first().score
+        val nearTop = ranked.takeWhile { it.score >= max(35, bestScore - 8) }
+        if (nearTop.size < 2) return ranked
+
+        val identity = BlueVpnEntitlement.resolve(context).identity
+        val storage = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val lastIdentity = storage.getString(KEY_LAST_AUTO_IDENTITY, "").orEmpty()
+        val lastGuid = if (lastIdentity == identity) {
+            storage.getString(KEY_LAST_AUTO_GUID, "").orEmpty()
+        } else {
+            ""
+        }
+        val lastIndex = nearTop.indexOfFirst { it.candidate.guid == lastGuid }
+        val chosen = if (lastIndex >= 0) {
+            nearTop[(lastIndex + 1) % nearTop.size]
+        } else {
+            nearTop.first()
+        }
+        return buildList {
+            add(chosen)
+            ranked.forEach { if (it.candidate.guid != chosen.candidate.guid) add(it) }
+        }
+    }
+
+    fun recordAutomaticConnectionChoice(
+        context: Context,
+        chosen: ScoredCandidate,
+        evaluated: Int,
+    ): Decision {
+        val decision = Decision(
+            candidate = chosen.candidate,
+            score = chosen.score,
+            confidence = chosen.confidence,
+            reason = chosen.reason,
+            evaluated = evaluated,
+        )
+        val identity = BlueVpnEntitlement.resolve(context).identity
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_LAST_AUTO_GUID, decision.candidate.guid)
+            .putString(KEY_LAST_AUTO_IDENTITY, identity)
+            .putString(KEY_LAST_GUID, decision.candidate.guid)
+            .putString(KEY_LAST_REASON, decision.reason)
+            .putInt(KEY_LAST_SCORE, decision.score)
+            .putLong(KEY_LAST_AT, System.currentTimeMillis())
+            .apply()
+        return decision
+    }
 
     fun decide(
         context: Context,

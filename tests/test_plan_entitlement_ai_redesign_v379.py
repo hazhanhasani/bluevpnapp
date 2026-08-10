@@ -14,11 +14,11 @@ def test_release_metadata_v379():
     app = json.loads(text("branding/app.json"))
     release = json.loads(text("release.json"))
     marker = json.loads(text("deployment-marker.json"))
-    assert app["version_name"] == "3.0.79"
-    assert app["version_code"] == 30079
-    assert release["version"] == "3.0.79"
-    assert release["android_version_code"] == 30079
-    assert marker["release"] == "3.0.79"
+    assert app["version_name"] == "3.0.81"
+    assert app["version_code"] == 30081
+    assert release["version"] == "3.0.81"
+    assert release["android_version_code"] == 30081
+    assert marker["release"] == "3.0.81"
 
 
 def test_single_entitlement_source_and_strict_tiers():

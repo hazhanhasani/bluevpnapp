@@ -1,12 +1,21 @@
 {
-  "version": "3.0.79",
+  "version": "3.0.81",
   "channel": "stable",
-  "build_id": "20260810-plan-entitlement-ai-redesign-v3079",
+  "build_id": "20260810-selection-ownership-rotation-v3081",
   "built_at": "2026-08-10T00:00:00Z",
-  "android_version": "3.0.79",
-  "android_version_code": 30079,
-  "description": "BlueVPN 3.0.79 بازطراحی کامل دسترسی رایگان و Premium را با منبع واحد Entitlement، جداسازی قطعی Poolها و انتخاب‌گر هوشمند محلی/ابری ارائه می‌کند.",
+  "android_version": "3.0.81",
+  "android_version_code": 30081,
+  "description": "BlueVPN 3.0.81 مالکیت انتخاب دستی و خودکار را کاملاً جدا می‌کند؛ سرور دستی دیگر توسط Auto/AI بازنویسی نمی‌شود و Auto بین مسیرهای هم‌کیفیت چرخش واقعی دارد.",
   "features": [
+    "background-refresh-no-manual-override",
+    "auto-near-top-rotation",
+    "manual-location-scoped-failover",
+    "manual-server-exact-lock",
+    "strict-selection-ownership",
+    "اتصال Tapsell Plus SDK 2.3.3 به Android با تنظیم App Key و جایگاه بینابینی از پنل مدیریت",
+    "نمایش تبلیغ فقط پس از تأیید واقعی اتصال کاربران رایگان؛ بدون نمایش برای Premium، تغییر زنده سرور یا بازسازی Activity",
+    "Preload غیرمسدودکننده تبلیغ و Fail-open کامل؛ خرابی یا نبود تبلیغ هرگز اتصال VPN را متوقف نمی‌کند",
+    "کنترل فاصله نمایش و سقف روزانه هر دستگاه از پنل مدیریت و جلوگیری از نمایش تکراری در یک نشست اتصال",
     "premium-ui-v3",
     "blueai-personal-memory",
     "blueai-collective-ranking",
@@ -510,7 +519,7 @@
     "entitlement-transition-state-reset",
     "ai-selection-without-login"
   ],
-  "version_code": 30079,
-  "notes": "فاکتورهای واقعی دیگر Hard Delete نمی‌شوند؛ بنابراین خطای 500 ناشی از Foreign Key پیامک، گم‌شدن Callback دیرهنگام و حذف سابقه مالی برطرف شده است. تست Sandbox و پاک‌سازی مقاوم نیز به پنل افزوده شد.",
-  "version_source": "bluepay-payment-runtime-v3078"
+  "version_code": 30081,
+  "notes": "Manual server selection is exact and sticky until the user changes it; automatic sessions diversify near-equal healthy routes instead of reusing one GUID forever.",
+  "version_source": "selection-ownership-rotation-v3081"
 }

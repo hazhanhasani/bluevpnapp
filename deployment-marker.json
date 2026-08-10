@@ -1,24 +1,21 @@
 {
-  "release": "3.0.79-auto",
-  "version_name": "3.0.79",
-  "version_code": 30079,
+  "release": "3.0.81",
+  "version_name": "3.0.81",
+  "version_code": 30081,
   "changes": [
-    "Archive real payment orders instead of hard deleting financial records",
-    "Prevent PostgreSQL foreign-key failures from SMS deliveries during cleanup",
-    "Preserve late paid callbacks and recover archived invoices",
-    "Reconcile and cancel stale BluePay invoices one by one",
-    "Never let one broken invoice crash the whole admin cleanup route",
-    "Add an isolated BluePay Sandbox connection test in admin",
-    "Preserve existing API keys when masked placeholders are submitted",
-    "Require both store API key and callback secret before enabling payment",
-    "Return safe admin errors instead of raw Internal Server Error pages"
+    "Add explicit AUTO, MANUAL_LOCATION and MANUAL_SERVER ownership modes",
+    "Never overwrite an explicit manual server during connect, startup optimization or background entitlement refresh",
+    "Restrict manual-location failover to the selected location only",
+    "Rotate automatic sessions among near-equal healthy candidates while retaining score priority",
+    "Keep Free plan automatic-only without leaking Premium/manual state"
   ],
   "generated_at_unix": 1786307912,
-  "purpose": "بازسازی کامل چرخه پرداخت BluePay و رفع خطای 500 پاک‌سازی فاکتورهای معلق",
+  "purpose": "رفع برگشت انتخاب دستی به خودکار و گیرکردن انتخاب خودکار روی یک سرور",
   "updated_at": "2026-08-10T00:00:00Z",
   "built_at": "2026-08-10T00:00:00Z",
-  "build_id": "20260810-plan-entitlement-ai-redesign-v3079",
-  "feature": "bluepay-payment-runtime",
-  "build_fix": "financial-record-archive-and-sandbox-test",
-  "version_source": "bluepay-payment-runtime-v3078"
+  "build_id": "20260810-selection-ownership-rotation-v3081",
+  "feature": "selection-ownership-rotation",
+  "build_fix": "manual-selection-lock-and-auto-diversification",
+  "version_source": "selection-ownership-rotation-v3081",
+  "summary": "Exact manual server ownership plus non-sticky automatic server rotation."
 }

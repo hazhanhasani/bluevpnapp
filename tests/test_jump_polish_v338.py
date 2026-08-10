@@ -36,7 +36,7 @@ def test_background_intelligence_and_schema_15():
     assert 'SCHEMA_VERSION = "18"' in db
     assert "recent_score" in models
     assert "confidence_score" in models
-    assert release["version"] == "3.0.79"
+    assert release["version"] == "3.0.81"
 
 
 def test_exit_location_theme_launch_and_retired_presets():

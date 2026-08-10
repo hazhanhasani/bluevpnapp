@@ -9,10 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_version_370():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.79"
-    assert release["android_version_code"] == 30079
-    assert app["version_name"] == "3.0.79"
-    assert app["version_code"] == 30079
+    assert release["version"] == "3.0.81"
+    assert release["android_version_code"] == 30081
+    assert app["version_name"] == "3.0.81"
+    assert app["version_code"] == 30081
 
 
 def test_runtime_is_local_first_and_deferred():

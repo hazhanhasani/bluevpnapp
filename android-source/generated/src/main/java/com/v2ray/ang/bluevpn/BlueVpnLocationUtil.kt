@@ -825,16 +825,38 @@ private fun unknownLocation(): BlueVpnLocation =
         ) {
             return contextCandidateCache
         }
-        val entitlementServerGuids = BlueVpnAccountManager
-            .preferredServerGuids(context)
-            .toSet()
-        val resolved = allCandidates(forceRefresh)
-            .filter { candidate ->
-                BlueVpnAccountManager.candidateAllowed(
-                    context,
-                    candidate.guid,
-                    candidate.profile.subscriptionId,
-                    entitlementServerGuids,
+        val entitlementGuidList = BlueVpnAccountManager.preferredServerGuids(context)
+        val entitlementServerGuids = entitlementGuidList.toSet()
+        val selectedGuid = MmkvManager.getSelectServer().orEmpty().trim()
+        val orderedEntitlementGuids = buildList {
+            if (selectedGuid.isNotBlank() && selectedGuid in entitlementServerGuids) add(selectedGuid)
+            entitlementGuidList.forEach { guid -> if (guid != selectedGuid) add(guid) }
+        }
+
+        // Important: deduplicate *after* entitlement isolation. The global
+        // v2rayNG database can contain the same endpoint in both Free and Premium
+        // subscriptions. Global semantic dedupe used to keep the Free copy first,
+        // then the entitlement filter removed it and accidentally hid the valid
+        // Premium twin. Decode only the active/fallback entitlement pool here.
+        val seenEntitlementFingerprints = HashSet<String>(orderedEntitlementGuids.size)
+        val resolved = orderedEntitlementGuids
+            .mapNotNull { guid ->
+                val profile = MmkvManager.decodeServerConfig(guid) ?: return@mapNotNull null
+                val raw = MmkvManager.decodeServerRaw(guid)
+                if (!isUsable(profile, raw)) return@mapNotNull null
+                if (!BlueVpnAccountManager.candidateAllowed(
+                        context,
+                        guid,
+                        profile.subscriptionId,
+                        entitlementServerGuids,
+                    )) return@mapNotNull null
+                val semanticKey = BlueVpnProfileManager.fingerprint(profile, raw)
+                if (!seenEntitlementFingerprints.add(semanticKey)) return@mapNotNull null
+                Candidate(
+                    guid = guid,
+                    profile = profile,
+                    location = detect(profile.remarks, profile.server),
+                    delay = MmkvManager.decodeServerAffiliationInfo(guid)?.testDelayMillis ?: 0L,
                 )
             }
             .map { candidate ->

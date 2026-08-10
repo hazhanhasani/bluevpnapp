@@ -614,27 +614,64 @@ object BlueVpnAccountManager {
     }
 
     /**
-     * Remove the physical server rows of every inactive BlueVPN subscription.
-     * Merely setting SubscriptionItem.enabled=false is not enough in v2rayNG:
-     * decodeAllServerList() still merges the server lists of disabled rows and
-     * legacy code can therefore select a free/expired profile. Pruning the rows
-     * makes the entitlement boundary true for the whole runtime, not only for
-     * the BlueVPN locations screen.
+     * Every known Free subscription row, enabled or disabled. We intentionally
+     * keep their physical profiles in MMKV as a last-known-good cache, but their
+     * server GUIDs must never leak into a Premium fallback selection.
+     */
+    private fun allFreeSubscriptionGuids(): Set<String> =
+        MmkvManager.decodeSubscriptions()
+            .asSequence()
+            .filter { it.subscription.remarks.startsWith(FREE_SUB) }
+            .map { it.guid.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+    private fun allFreeServerGuids(): Set<String> =
+        allFreeSubscriptionGuids()
+            .flatMap { subscriptionGuid ->
+                runCatching { MmkvManager.decodeServerList(subscriptionGuid) }
+                    .getOrDefault(emptyList())
+            }
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+    private fun usableServerGuids(subscriptionGuids: Collection<String>): List<String> =
+        subscriptionGuids
+            .flatMap { subscriptionGuid ->
+                runCatching { MmkvManager.decodeServerList(subscriptionGuid) }
+                    .getOrDefault(emptyList())
+            }
+            .map { it.trim() }
+            .filter { serverGuid ->
+                serverGuid.isNotBlank() && MmkvManager.decodeServerConfig(serverGuid) != null
+            }
+            .distinct()
+
+    /**
+     * Never delete a BlueVPN pool merely because it is currently inactive.
+     *
+     * The Free/Premium split originally made this destructive: disabling a row
+     * also deleted its imported v2rayNG profiles. A transient subscription or
+     * entitlement refresh could therefore turn a working Premium account into
+     * an empty pool. The old, reliable BlueVPN behaviour was effectively
+     * last-known-good: profiles stayed in v2rayNG until a replacement import was
+     * ready. Entitlement filtering is enough to prevent the inactive pool from
+     * being selected, so cleanup is now metadata-only.
      */
     fun pruneInactiveManagedPools(c: Context): Int {
         val keep = entitlementSubscriptionGuids(c)
-        var removed = 0
         MmkvManager.decodeSubscriptions().forEach { row ->
             if (!isBlueVpnManagedSubscription(row.subscription.remarks)) return@forEach
             if (row.guid in keep) return@forEach
-            val count = runCatching { MmkvManager.decodeServerList(row.guid).size }
-                .getOrDefault(0)
-            if (count > 0) {
-                runCatching { MmkvManager.removeServerViaSubid(row.guid) }
-                removed += count
+            if (row.subscription.enabled) {
+                MmkvManager.encodeSubscription(
+                    row.guid,
+                    row.subscription.copy(enabled = false),
+                )
             }
         }
-        return removed
+        return 0
     }
 
     fun selectedServerAllowed(c: Context): Boolean {
@@ -644,8 +681,11 @@ object BlueVpnAccountManager {
         return candidateAllowed(c, selected, profile.subscriptionId)
     }
 
-    /** Select a server from the exact current entitlement and never preserve a
-     * GUID that belongs to a free, expired or previous Premium subscription. */
+    /**
+     * Preserve a working Premium selection across a temporary subscription
+     * refresh. Free mode remains strict and can only select the configured Free
+     * pool; Premium may use a preserved non-Free v2rayNG profile as fallback.
+     */
     fun ensureEntitlementSelection(c: Context): String? {
         val selected = MmkvManager.getSelectServer().orEmpty().trim()
         if (selected.isNotBlank()) {
@@ -660,35 +700,55 @@ object BlueVpnAccountManager {
             return it
         }
 
-        // Never leave a GUID from an expired/previous/temporarily removed pool
-        // selected. HomeActivity used to decode that orphan directly, which is
-        // why the UI could show Finland/France while the entitlement summary
-        // correctly said 0 locations / 0 routes.
-        if (selected.isNotBlank()) {
+        // Free/anonymous mode must never retain a Premium selection. Premium,
+        // however, should not throw away a still-decodable last-known-good
+        // profile simply because the provider refresh is temporarily empty.
+        if (selected.isNotBlank() && !active(c)) {
             MmkvManager.setSelectServer("")
         }
         return null
     }
 
     /**
-     * Returns server GUIDs belonging strictly to the current entitlement.
-     * The global MMKV server list is never used as a fallback because it can
-     * contain free, expired Premium and manually imported profiles together.
+     * Return the current entitlement's usable server GUIDs.
+     *
+     * Premium has a compatibility ladder intentionally modelled after the
+     * pre-Free BlueVPN/v2rayNG behaviour:
+     *   1) exact current Premium subscription;
+     *   2) preserved BlueVPN Premium rows from a previous URL/renewal;
+     *   3) any remaining usable local v2rayNG profile except known Free rows.
+     *
+     * This makes the account/subscription layer advisory for availability
+     * instead of a single point of failure. Free mode stays strictly isolated.
      */
-    fun preferredServerGuids(c: Context): List<String> =
-        entitlementSubscriptionGuids(c)
-            .flatMap { guid ->
-                runCatching { MmkvManager.decodeServerList(guid) }
-                    .getOrDefault(emptyList())
-            }
+    fun preferredServerGuids(c: Context): List<String> {
+        val exact = usableServerGuids(entitlementSubscriptionGuids(c))
+        if (exact.isNotEmpty() || !active(c)) return exact
+
+        val freeServerGuids = allFreeServerGuids()
+        val premiumRows = MmkvManager.decodeSubscriptions()
+            .asSequence()
+            .filter { it.subscription.remarks == SUB }
+            .map { it.guid.trim() }
+            .filter { it.isNotBlank() }
+            .toList()
+
+        val preservedPremium = usableServerGuids(premiumRows)
+            .filterNot { it in freeServerGuids }
+        if (preservedPremium.isNotEmpty()) return preservedPremium
+
+        // Final compatibility fallback: before the Free tier existed BlueVPN
+        // simply consumed v2rayNG's global profile database. Retain that safety
+        // net for authenticated Premium users only, excluding every known Free
+        // server GUID so tier isolation is never weakened.
+        return MmkvManager.decodeAllServerList()
+            .asSequence()
             .map { it.trim() }
-            .filter { serverGuid ->
-                // A subscription list can survive an interrupted migration even
-                // when the corresponding profile row is gone. Ghost GUIDs must
-                // not make poolReady=true or keep stale UI state alive.
-                serverGuid.isNotBlank() && MmkvManager.decodeServerConfig(serverGuid) != null
-            }
+            .filter { it.isNotBlank() && it !in freeServerGuids }
+            .filter { MmkvManager.decodeServerConfig(it) != null }
             .distinct()
+            .toList()
+    }
 
     fun entitlementPoolFingerprint(c: Context): String {
         val mode = when {
@@ -740,16 +800,23 @@ object BlueVpnAccountManager {
     ): Boolean {
         val guid = serverGuid.trim()
         if (guid.isNotBlank()) {
-            // Membership in the subscription-owned server list is authoritative.
-            // Never fall back to the global profile database for a known GUID.
+            // preferredServerGuids() is strict for Free mode and contains the
+            // last-known-good compatibility ladder for Premium mode.
             return guid in entitlementServerGuids
         }
 
-        // This branch only covers the short import window where a ProfileItem
-        // exists without a published server GUID. Restrict it to the exact
-        // active subscription rows; do not accept arbitrary non-free profiles.
         val id = subscriptionId.orEmpty().trim()
-        return id.isNotBlank() && id in entitlementSubscriptionGuids(c)
+        if (id.isBlank()) return false
+        if (id in entitlementSubscriptionGuids(c)) return true
+        if (!active(c)) return false
+
+        // During an interrupted/legacy v2rayNG import the ProfileItem can be
+        // published before its GUID list. Premium may keep using old BlueVPN
+        // Account rows, but a known Free row is never accepted here.
+        if (id in allFreeSubscriptionGuids()) return false
+        return MmkvManager.decodeSubscriptions().any { row ->
+            row.guid == id && row.subscription.remarks == SUB
+        }
     }
 
     /**
@@ -895,15 +962,10 @@ object BlueVpnAccountManager {
         // leave Premium at 0 locations. Free rows can be removed immediately;
         // stale Premium rows stay disabled and are pruned only after the new
         // Premium pool is confirmed ready.
-        if (premiumActive) {
-            MmkvManager.decodeSubscriptions()
-                .filter { it.subscription.remarks.startsWith(FREE_SUB) }
-                .forEach { row ->
-                    runCatching { MmkvManager.removeServerViaSubid(row.guid) }
-                }
-        } else {
-            pruneInactiveManagedPools(c)
-        }
+        // Keep inactive physical profiles as a last-known-good cache. Their
+        // subscription rows are disabled above and candidateAllowed() enforces
+        // Free/Premium isolation, so destructive MMKV cleanup is unnecessary.
+        pruneInactiveManagedPools(c)
         if (mustRefresh) {
             subscriptionRefreshRunning = true
             try {
@@ -1240,8 +1302,9 @@ object BlueVpnAccountManager {
             Context.MODE_PRIVATE
         ).edit().clear().commit()
 
-        // Prune old Premium physical profiles off the UI thread. Free sources
-        // are re-enabled by prepareFreeAccess() when Home resumes.
+        // Disable old Premium subscription rows off the UI thread without
+        // deleting their v2rayNG profiles. Free sources are re-enabled by
+        // prepareFreeAccess() when Home resumes.
         subscriptionInstallExecutor.execute {
             runCatching { pruneInactiveManagedPools(appContext) }
             BlueVpnLocationUtil.invalidateCache()
@@ -1892,7 +1955,9 @@ object BlueVpnAccountManager {
                     row.guid,
                     row.subscription.copy(enabled = false),
                 )
-                MmkvManager.removeServerViaSubid(row.guid)
+                // Preserve the imported Free profiles physically; they remain
+                // invisible to Premium via entitlement filtering and can be
+                // reused immediately after logout without a destructive swap.
             }
 
         val stalePremiumRows = subscriptions
@@ -1958,9 +2023,9 @@ object BlueVpnAccountManager {
             } == true
 
         if (activePremiumReady) {
-            stalePremiumRows.forEach { row ->
-                runCatching { MmkvManager.removeServerViaSubid(row.guid) }
-            }
+            // Replacement is ready. Keep stale Premium profiles disabled as a
+            // last-known-good fallback instead of deleting working v2rayNG data.
+            // preferredServerGuids() always prefers the exact active URL first.
         }
         if (old != null && selectedFingerprint != null) {
             val refreshedServerGuids = runCatching {

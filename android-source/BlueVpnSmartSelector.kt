@@ -3,7 +3,6 @@ package com.v2ray.ang.bluevpn
 import android.content.Context
 import android.os.SystemClock
 import com.v2ray.ang.handler.MmkvManager
-import kotlin.math.max
 
 /** A deterministic local selector. Cloud BlueAI is an optional signal, never a dependency. */
 object BlueVpnSmartSelector {
@@ -56,27 +55,31 @@ object BlueVpnSmartSelector {
         val cloud = BlueVpnAi.cloudScore(context, candidate)
         val personal = BlueVpnAi.personalScore(context, candidate)
         val latency = delayScore(candidate.delay)
+        val routeAdjustment = BlueVpnRouteIntelligence.rankingAdjustment(context, candidate.guid)
+        val routeEvidence = BlueVpnRouteIntelligence.evidence(context, candidate.guid)
 
-        var score = latency * 55 / 100
-        score += cloud * 15 / 100
-        score += personal * 15 / 100
-        score += freshness.coerceIn(0, 34) * 15 / 34
+        var score = latency * 50 / 100
+        score += cloud * 14 / 100
+        score += personal * 14 / 100
+        score += freshness.coerceIn(0, 34) * 12 / 34
+        score += routeAdjustment
         if (BlueVpnExperience.isFavorite(context, candidate.location.key)) score += 3
         if (failed) score -= 24
         if (inactive) score -= 55
         score = score.coerceIn(0, 100)
 
-        val evidence = listOf(
-            if (candidate.delay > 0L) "پینگ ${candidate.delay}ms" else "پینگ نامشخص",
-            when {
+        val evidence = buildList {
+            add(if (candidate.delay > 0L) "پینگ ${candidate.delay}ms" else "پینگ نامشخص")
+            routeEvidence?.let { add(it) }
+            add(when {
                 inactive -> "در این نشست ناموفق"
                 failed -> "خطای اخیر"
                 freshness > 10 -> "موفقیت اخیر"
                 personal >= 65 -> "سابقه خوب روی این دستگاه"
                 cloud >= 65 -> "پیشنهاد جمعی مناسب"
                 else -> "مسیر سازگار"
-            },
-        ).joinToString(" • ")
+            })
+        }.joinToString(" • ")
         val confidence = when {
             candidate.delay > 0L && (freshness > 0 || personal != 50 || cloud != 50) -> 92
             candidate.delay > 0L -> 78
@@ -116,28 +119,18 @@ object BlueVpnSmartSelector {
         val ranked = rank(context, candidates)
         if (ranked.size < 2) return ranked
 
-        val bestScore = ranked.first().score
-        val nearTop = ranked.takeWhile { it.score >= max(35, bestScore - 8) }
-        if (nearTop.size < 2) return ranked
-
-        val identity = BlueVpnEntitlement.resolve(context).identity
-        val storage = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val lastIdentity = storage.getString(KEY_LAST_AUTO_IDENTITY, "").orEmpty()
-        val lastGuid = if (lastIdentity == identity) {
-            storage.getString(KEY_LAST_AUTO_GUID, "").orEmpty()
-        } else {
-            ""
+        // Desktop-style URL-test behaviour: keep a recently verified route while
+        // it is still within a small score/latency tolerance. This avoids
+        // unnecessary server flapping and only switches when another route is
+        // meaningfully better or the current one has actually failed.
+        val sticky = BlueVpnRouteIntelligence.stickyCandidate(context, ranked)
+        if (sticky != null && sticky.candidate.guid != ranked.first().candidate.guid) {
+            return buildList {
+                add(sticky)
+                ranked.forEach { if (it.candidate.guid != sticky.candidate.guid) add(it) }
+            }
         }
-        val lastIndex = nearTop.indexOfFirst { it.candidate.guid == lastGuid }
-        val chosen = if (lastIndex >= 0) {
-            nearTop[(lastIndex + 1) % nearTop.size]
-        } else {
-            nearTop.first()
-        }
-        return buildList {
-            add(chosen)
-            ranked.forEach { if (it.candidate.guid != chosen.candidate.guid) add(it) }
-        }
+        return ranked
     }
 
     fun recordAutomaticConnectionChoice(

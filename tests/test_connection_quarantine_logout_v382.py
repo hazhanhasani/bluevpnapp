@@ -59,7 +59,7 @@ def test_new_connect_cycle_restores_temporarily_quarantined_routes():
     assert "BlueVpnPreferences.beginHealthSession(this)" in begin
 
 
-def test_preflight_runs_before_xray_and_rejects_dead_endpoint():
+def test_preflight_runs_before_xray_without_false_negative_endpoint_rejection():
     locations = text("android-source/BlueVpnLocationUtil.kt")
     home = text("android-source/BlueVpnHomeActivity.kt")
 
@@ -67,13 +67,18 @@ def test_preflight_runs_before_xray_and_rejects_dead_endpoint():
     assert "InetAddress.getAllByName(host)" in locations
     assert "Socket().use" in locations
     assert "socket.connect(" in locations
-    assert "UDP-only transports" in locations
+    assert "DNS and raw TCP" in locations
+    assert 'CandidatePreflight(false, "DNS سرور پاسخ نداد")' not in locations
+    assert 'CandidatePreflight(false, "سرور روی پورت کانفیگ پاسخ نداد")' not in locations
+    assert "take(3)" in locations
+    assert "sortedBy { if (it.address.size == 4) 0 else 1 }" in locations
 
     current = home[home.index("private fun startCurrentCandidate"): home.index("private fun scheduleConnectionVerification")]
     assert "lifecycleScope.launch(Dispatchers.IO)" in current
     assert "BlueVpnLocationUtil.preflightCandidate(" in current
     assert current.index("BlueVpnLocationUtil.preflightCandidate(") < current.index("BlueVpnEngineManager.start(")
     assert "failCurrentAndTryNext(preflight.reason)" in current
+    assert "statusCaption.text = preflight.reason" in current
 
 
 def test_core_start_stop_commands_are_off_main_thread_and_generation_guarded():

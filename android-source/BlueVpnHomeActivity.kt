@@ -73,6 +73,7 @@ import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Proxy
+import java.net.Socket
 import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -1671,8 +1672,11 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 }
 
                 active && failoverActive -> {
-                    // Core start is not a successful connection. The free
-                    // allowance starts only after a real tunnel probe passes.
+                    // The service reported RUNNING, so the startup watchdog has
+                    // completed its job. From here the bounded end-to-end tunnel
+                    // verifier owns failure detection; do not race it with a
+                    // stale short timeout and kill a valid slow handshake.
+                    handler.removeCallbacks(attemptTimeout)
                     renderVerifyingState()
                     scheduleConnectionVerification()
                 }
@@ -2982,7 +2986,7 @@ private fun dpHome(value: Int): Int =
         statusCaption.text = if (liveLocationSwitch) {
             "اتصال به ${switchTargetTitle.ifBlank { "لوکیشن جدید" }}"
         } else when (selectionMode) {
-            BlueVpnSelectionMode.AUTO -> "بهترین مسیرهای نزدیک به هم به‌صورت چرخشی بررسی می‌شوند"
+            BlueVpnSelectionMode.AUTO -> "مسیر سالم قبلی حفظ می‌شود و فقط در صورت افت کیفیت جابه‌جا می‌شویم"
             BlueVpnSelectionMode.MANUAL_LOCATION -> "Failover فقط داخل همین لوکیشن انجام می‌شود"
             BlueVpnSelectionMode.MANUAL_SERVER -> "حالت دستی قفل است؛ Auto این انتخاب را تغییر نمی‌دهد"
         }
@@ -3023,14 +3027,6 @@ private fun dpHome(value: Int): Int =
         }
         MmkvManager.setSelectServer(guid)
 
-        if (BlueVpnLocationUtil.compatibilityIssue(profile) != null) {
-            BlueVpnPreferences.markSessionInactive(this, guid)
-            BlueVpnPreferences.markServerFailure(this, guid)
-            MmkvManager.encodeServerTestDelayMillis(guid, -1L)
-            failoverIndex += 1
-            handler.post { if (failoverActive) startCurrentCandidate() }
-            return
-        }
         val location = BlueVpnLocationUtil.detect(profile.remarks, profile.server)
         val locationName = location?.let { "${it.flag} ${it.title}" } ?: "انتخاب خودکار"
 
@@ -3054,12 +3050,13 @@ private fun dpHome(value: Int): Int =
         )
         statusCaption.text = "پیش‌تست DNS و دسترسی endpoint"
 
-        // Do not start Xray for obviously dead endpoints. This runs entirely
-        // off the main thread so a blocked DNS/socket can never freeze the UI.
+        // Reject only deterministic malformed profiles here. DNS/TCP reachability is
+        // advisory; the real Xray tunnel proof below is authoritative. This runs
+        // off the main thread so a slow resolver/socket can never freeze the UI.
         lifecycleScope.launch(Dispatchers.IO) {
             val preflight = BlueVpnLocationUtil.preflightCandidate(
                 candidate,
-                timeoutMs = 650,
+                timeoutMs = 450,
             )
             withContext(Dispatchers.Main) {
                 if (
@@ -3077,6 +3074,16 @@ private fun dpHome(value: Int): Int =
                     return@withContext
                 }
 
+                // Keep advisory endpoint observations separate from the final
+                // core verdict; only the end-to-end tunnel proof marks success.
+                // The route intelligence layer intentionally stores history by
+                // semantic endpoint + physical network, not by volatile GUID.
+
+                // A failed raw DNS/TCP preflight is only a hint. v2rayNG/Xray
+                // is the source of truth, so continue into a real core start and
+                // end-to-end tunnel proof before quarantining this route.
+                statusCaption.text = preflight.reason
+
                 val startCore = Runnable {
                     if (
                         !failoverActive ||
@@ -3087,7 +3094,7 @@ private fun dpHome(value: Int): Int =
                     handler.postDelayed({
                         if (!isFinishing && !isDestroyed) requestDashboardRefresh()
                     }, 60L)
-                    handler.postDelayed(attemptTimeout, 2_100L)
+                    handler.postDelayed(attemptTimeout, 5_500L)
                 }
 
                 if (mainViewModel.isRunning.value == true) {
@@ -3271,6 +3278,29 @@ private fun dpHome(value: Int): Int =
         }
     }
 
+    private fun waitForLocalProxyReady(
+        httpPort: Int,
+        maxWaitMs: Long = 2_400L,
+    ): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + maxWaitMs
+        do {
+            val ready = runCatching {
+                Socket().use { socket ->
+                    socket.tcpNoDelay = true
+                    socket.connect(
+                        InetSocketAddress("127.0.0.1", httpPort),
+                        140,
+                    )
+                }
+                true
+            }.getOrDefault(false)
+            if (ready) return true
+            if (SystemClock.elapsedRealtime() >= deadline) break
+            runCatching { Thread.sleep(90L) }
+        } while (!Thread.currentThread().isInterrupted)
+        return false
+    }
+
     private suspend fun probeInternetThroughCore(): Long? =
         withContext(Dispatchers.IO) {
             val httpPort = SettingsManager.getHttpPort()
@@ -3279,16 +3309,25 @@ private fun dpHome(value: Int): Int =
                 return@withContext null
             }
 
-            // V2Box/Npv-style fast connect: race a small mixed endpoint set
-            // and finish as soon as the first real response arrives. The old
-            // implementation waited for every slow/blocked endpoint.
+            // CoreService RUNNING can arrive a little before the local HTTP
+            // inbound is actually accepting sockets. Waiting for localhost
+            // readiness prevents a perfectly valid v2rayNG profile from being
+            // discarded during that startup race.
+            if (!waitForLocalProxyReady(httpPort)) {
+                return@withContext null
+            }
+
+            // Race several independent Internet proofs through Xray and return
+            // on first success. Initial TLS/REALITY/WS/gRPC handshakes on mobile
+            // networks can legitimately exceed one second, so the verifier has
+            // a bounded but realistic window instead of the former 1050 ms.
             val endpoints = buildList {
-                add("${BuildConfig.BLUEVPN_API_BASE_URL.trimEnd('/')}/health")
                 add("http://cp.cloudflare.com/generate_204")
                 add("http://connectivitycheck.gstatic.com/generate_204")
+                add("http://1.1.1.1/cdn-cgi/trace")
+                add("${BuildConfig.BLUEVPN_API_BASE_URL.trimEnd('/')}/health")
                 if (!BlueVpnPerformance.isLowEnd(this@BlueVpnHomeActivity)) {
                     add("https://check-host.net/cdn-cgi/trace")
-                    add("http://1.1.1.1/cdn-cgi/trace")
                 }
             }
 
@@ -3309,7 +3348,7 @@ private fun dpHome(value: Int): Int =
 
             try {
                 val deadline =
-                    SystemClock.elapsedRealtime() + 1_050L
+                    SystemClock.elapsedRealtime() + 3_600L
 
                 repeat(futures.size) {
                     val remaining = (
@@ -3352,8 +3391,8 @@ private fun dpHome(value: Int): Int =
 
             try {
                 connection.instanceFollowRedirects = false
-                connection.connectTimeout = 650
-                connection.readTimeout = 650
+                connection.connectTimeout = 1_800
+                connection.readTimeout = 1_800
                 connection.requestMethod = "GET"
                 connection.useCaches = false
                 connection.setRequestProperty("Connection", "close")
@@ -3391,6 +3430,11 @@ private fun dpHome(value: Int): Int =
 
                 if (valid) {
                     if (endpoint.contains("/cdn-cgi/trace")) {
+                        BlueVpnRouteIntelligence.recordExitTrace(
+                            this@BlueVpnHomeActivity,
+                            countryGuid,
+                            body,
+                        )
                         body.lineSequence()
                             .firstOrNull { it.startsWith("loc=") }
                             ?.substringAfter("loc=")
@@ -3426,6 +3470,11 @@ private fun dpHome(value: Int): Int =
             this,
             attemptedGuid,
             delay ?: lastVerifiedLatency,
+        )
+        BlueVpnRouteIntelligence.recordSuccess(
+            this,
+            attemptedGuid,
+            (delay ?: lastVerifiedLatency).coerceAtLeast(1L),
         )
         BlueVpnPreferences.markConnected(this, resetTimer = true)
         BlueVpnAccountManager.startFreeSession(this)
@@ -3515,6 +3564,7 @@ private fun dpHome(value: Int): Int =
             // first again immediately.
             BlueVpnPreferences.markSessionInactive(this, failedGuid)
             BlueVpnPreferences.markServerFailure(this, failedGuid)
+            BlueVpnRouteIntelligence.recordFailure(this, failedGuid, reason)
             MmkvManager.encodeServerTestDelayMillis(failedGuid, -1L)
         }
 

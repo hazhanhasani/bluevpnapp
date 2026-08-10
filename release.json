@@ -1,12 +1,20 @@
 {
-  "version": "3.0.82",
+  "version": "3.0.83",
   "channel": "stable",
-  "build_id": "20260810-selection-ownership-rotation-v3081",
+  "build_id": "20260810-unified-profile-subscription-management-v3083",
   "built_at": "2026-08-10T00:00:00Z",
-  "android_version": "3.0.82",
-  "android_version_code": 30082,
-  "description": "BlueVPN 3.0.81 مالکیت انتخاب دستی و خودکار را کاملاً جدا می‌کند؛ سرور دستی دیگر توسط Auto/AI بازنویسی نمی‌شود و Auto بین مسیرهای هم‌کیفیت چرخش واقعی دارد.",
+  "android_version": "3.0.83",
+  "android_version_code": 30083,
+  "description": "BlueVPN 3.0.83 مدیریت کانفیگ و Subscription را با هویت معنایی پایدار، حذف تکراری‌ها در کاتالوگ انتخاب، حفظ سرور منتخب پس از Refresh، سازگاری بهتر V2Ray/JSON و آماده‌سازی SSH روی sing-box بازطراحی می‌کند.",
   "features": [
+    "unified-profile-catalogue",
+    "semantic-profile-fingerprint",
+    "subscription-refresh-selection-rebind",
+    "non-destructive-duplicate-collapse",
+    "xray-singbox-json-classification",
+    "ssh-singbox-profile-compiler",
+    "native-singbox-profile-validation",
+    "shadowsocks-sip002-transport-query-backport",
     "background-refresh-no-manual-override",
     "auto-near-top-rotation",
     "manual-location-scoped-failover",
@@ -519,7 +527,7 @@
     "entitlement-transition-state-reset",
     "ai-selection-without-login"
   ],
-  "version_code": 30082,
-  "notes": "Manual server selection is exact and sticky until the user changes it; automatic sessions diversify near-equal healthy routes instead of reusing one GUID forever.",
-  "version_source": "selection-ownership-rotation-v3081"
+  "version_code": 30083,
+  "notes": "Unified profile/subscription management inspired by mature multi-protocol clients; invalid current-session routes remain temporarily quarantined rather than permanently deleted. SSH/sing-box sources can be compiled and natively validated, while Android TUN ownership remains on Xray until the dedicated bridge/TUN hand-off is implemented.",
+  "version_source": "unified-profile-subscription-management-v3083"
 }

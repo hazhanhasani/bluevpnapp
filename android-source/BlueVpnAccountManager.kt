@@ -9,7 +9,6 @@ import android.os.Build
 import android.provider.Settings
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.dto.entities.SubscriptionItem
-import com.v2ray.ang.handler.AngConfigManager
 import com.v2ray.ang.handler.MmkvManager
 import org.json.JSONArray
 import org.json.JSONObject
@@ -461,6 +460,9 @@ object BlueVpnAccountManager {
         val storage = freePrefs(c)
         val existing = MmkvManager.decodeSubscriptions()
             .filter { it.subscription.remarks.startsWith(FREE_SUB) }
+        val selectedFingerprint = BlueVpnProfileManager.captureSelectedFingerprint(
+            existing.map { it.guid }.filter { it.isNotBlank() }.toSet(),
+        )
         val desiredIds = sources.map { it.id }.toSet()
         val installedGuids = linkedSetOf<String>()
         val lastInstallAt = storage.getLong("installed_at", 0L)
@@ -473,11 +475,19 @@ object BlueVpnAccountManager {
                 it.subscription.remarks == remark || it.subscription.url == source.url
             }
             val unchanged = old?.subscription?.url == source.url && old.subscription.enabled
-            val item = SubscriptionItem(
+            val item = old?.subscription?.copy(
                 remarks = remark,
                 url = source.url,
                 enabled = true,
                 autoUpdate = true,
+                userAgent = old.subscription.userAgent
+                    ?: BlueVpnSubscriptionIntelligence.recommendedUserAgent(c, source.url),
+            ) ?: SubscriptionItem(
+                remarks = remark,
+                url = source.url,
+                enabled = true,
+                autoUpdate = true,
+                userAgent = BlueVpnSubscriptionIntelligence.recommendedUserAgent(c, source.url),
             )
             if (!recent || !unchanged) {
                 MmkvManager.encodeSubscription(old?.guid.orEmpty(), item)
@@ -490,21 +500,36 @@ object BlueVpnAccountManager {
         }.forEach { old ->
             MmkvManager.encodeSubscription(
                 old.guid,
-                SubscriptionItem(
-                    remarks = old.subscription.remarks,
-                    url = old.subscription.url,
-                    enabled = false,
-                    autoUpdate = old.subscription.autoUpdate,
-                ),
+                old.subscription.copy(enabled = false),
             )
         }
 
         if (!recent || existing.isEmpty()) {
-            AngConfigManager.updateConfigViaSubAll()
+            val desiredUrls = sources.map { it.url.trim() }.toSet()
+            val refreshRows = MmkvManager.decodeSubscriptions().filter { row ->
+                row.subscription.enabled &&
+                    row.subscription.remarks.startsWith(FREE_SUB) &&
+                    row.subscription.url.trim() in desiredUrls
+            }
+            BlueVpnSubscriptionIntelligence.refresh(
+                c,
+                refreshRows,
+                aggressiveRepair = existing.isEmpty(),
+            )
         }
         MmkvManager.decodeSubscriptions()
             .filter { it.subscription.enabled && it.subscription.remarks.startsWith(FREE_SUB) }
             .forEach { installedGuids += it.guid }
+        if (selectedFingerprint != null) {
+            val refreshedServerGuids = installedGuids.flatMap { subscriptionGuid ->
+                runCatching { MmkvManager.decodeServerList(subscriptionGuid) }
+                    .getOrDefault(emptyList())
+            }
+            BlueVpnProfileManager.restoreSelectedFingerprint(
+                selectedFingerprint,
+                refreshedServerGuids,
+            )
+        }
         storage.edit()
             .putStringSet("subscription_guids", installedGuids)
             .putString("subscription_guid", installedGuids.firstOrNull().orEmpty())
@@ -775,12 +800,7 @@ object BlueVpnAccountManager {
             if (row.subscription.enabled != shouldEnable) {
                 MmkvManager.encodeSubscription(
                     row.guid,
-                    SubscriptionItem(
-                        remarks = row.subscription.remarks,
-                        url = row.subscription.url,
-                        enabled = shouldEnable,
-                        autoUpdate = row.subscription.autoUpdate,
-                    ),
+                    row.subscription.copy(enabled = shouldEnable),
                 )
                 changed = true
             }
@@ -801,26 +821,30 @@ object BlueVpnAccountManager {
             }.forEach { row ->
                 MmkvManager.encodeSubscription(
                     row.guid,
-                    SubscriptionItem(
-                        remarks = row.subscription.remarks,
-                        url = row.subscription.url,
-                        enabled = false,
-                        autoUpdate = row.subscription.autoUpdate,
-                    ),
+                    row.subscription.copy(enabled = false),
                 )
                 changed = true
             }
 
             val needsManagedWrite = managed == null || !managed.subscription.enabled
             if (needsManagedWrite) {
+                val item = managed?.subscription?.copy(
+                    remarks = SUB,
+                    url = normalizedPremiumUrl,
+                    enabled = true,
+                    autoUpdate = true,
+                    userAgent = managed.subscription.userAgent
+                        ?: BlueVpnSubscriptionIntelligence.recommendedUserAgent(c, normalizedPremiumUrl),
+                ) ?: SubscriptionItem(
+                    remarks = SUB,
+                    url = normalizedPremiumUrl,
+                    enabled = true,
+                    autoUpdate = true,
+                    userAgent = BlueVpnSubscriptionIntelligence.recommendedUserAgent(c, normalizedPremiumUrl),
+                )
                 MmkvManager.encodeSubscription(
                     managed?.guid.orEmpty(),
-                    SubscriptionItem(
-                        remarks = SUB,
-                        url = normalizedPremiumUrl,
-                        enabled = true,
-                        autoUpdate = true,
-                    ),
+                    item,
                 )
                 changed = true
                 mustRefresh = true
@@ -844,12 +868,7 @@ object BlueVpnAccountManager {
             managedRows.filter { it.subscription.enabled }.forEach { row ->
                 MmkvManager.encodeSubscription(
                     row.guid,
-                    SubscriptionItem(
-                        remarks = row.subscription.remarks,
-                        url = row.subscription.url,
-                        enabled = false,
-                        autoUpdate = row.subscription.autoUpdate,
-                    ),
+                    row.subscription.copy(enabled = false),
                 )
                 changed = true
             }
@@ -862,7 +881,23 @@ object BlueVpnAccountManager {
         if (mustRefresh) {
             subscriptionRefreshRunning = true
             try {
-                AngConfigManager.updateConfigViaSubAll()
+                val activeRows = MmkvManager.decodeSubscriptions().filter { row ->
+                    row.subscription.enabled && when {
+                        premiumActive ->
+                            row.subscription.remarks == SUB &&
+                                row.subscription.url.trim() == normalizedPremiumUrl
+                        else ->
+                            row.subscription.remarks.startsWith(FREE_SUB) &&
+                                row.guid in configuredFreeSubscriptionGuids(c)
+                    }
+                }
+                BlueVpnSubscriptionIntelligence.refresh(
+                    c,
+                    activeRows,
+                    aggressiveRepair = activeRows.any { row ->
+                        runCatching { MmkvManager.decodeServerList(row.guid).isEmpty() }.getOrDefault(true)
+                    },
+                )
             } finally {
                 subscriptionRefreshRunning = false
             }
@@ -1805,6 +1840,9 @@ object BlueVpnAccountManager {
             it.subscription.remarks == SUB &&
                 it.subscription.url.trim() == url.trim()
         }
+        val selectedFingerprint = old?.guid
+            ?.takeIf { it.isNotBlank() }
+            ?.let { BlueVpnProfileManager.captureSelectedFingerprint(setOf(it)) }
         val currentReady = old != null &&
             old.subscription.enabled &&
             runCatching { MmkvManager.decodeServerList(old.guid).isNotEmpty() }
@@ -1814,12 +1852,7 @@ object BlueVpnAccountManager {
             .forEach { row ->
                 MmkvManager.encodeSubscription(
                     row.guid,
-                    SubscriptionItem(
-                        remarks = row.subscription.remarks,
-                        url = row.subscription.url,
-                        enabled = false,
-                        autoUpdate = row.subscription.autoUpdate,
-                    ),
+                    row.subscription.copy(enabled = false),
                 )
                 MmkvManager.removeServerViaSubid(row.guid)
             }
@@ -1829,21 +1862,24 @@ object BlueVpnAccountManager {
             .forEach { row ->
                 MmkvManager.encodeSubscription(
                     row.guid,
-                    SubscriptionItem(
-                        remarks = row.subscription.remarks,
-                        url = row.subscription.url,
-                        enabled = false,
-                        autoUpdate = row.subscription.autoUpdate,
-                    ),
+                    row.subscription.copy(enabled = false),
                 )
                 MmkvManager.removeServerViaSubid(row.guid)
             }
 
-        val item = SubscriptionItem(
+        val item = old?.subscription?.copy(
             remarks = SUB,
             url = url,
             enabled = true,
             autoUpdate = true,
+            userAgent = old.subscription.userAgent
+                ?: BlueVpnSubscriptionIntelligence.recommendedUserAgent(c = c, url = url),
+        ) ?: SubscriptionItem(
+            remarks = SUB,
+            url = url,
+            enabled = true,
+            autoUpdate = true,
+            userAgent = BlueVpnSubscriptionIntelligence.recommendedUserAgent(c = c, url = url),
         )
 
         if (!currentReady) {
@@ -1853,10 +1889,28 @@ object BlueVpnAccountManager {
             )
             subscriptionRefreshRunning = true
             try {
-                AngConfigManager.updateConfigViaSubAll()
+                val refreshRows = MmkvManager.decodeSubscriptions().filter { row ->
+                    row.subscription.enabled &&
+                        row.subscription.remarks == SUB &&
+                        row.subscription.url.trim() == url.trim()
+                }
+                BlueVpnSubscriptionIntelligence.refresh(
+                    c,
+                    refreshRows,
+                    aggressiveRepair = true,
+                )
             } finally {
                 subscriptionRefreshRunning = false
             }
+        }
+        if (old != null && selectedFingerprint != null) {
+            val refreshedServerGuids = runCatching {
+                MmkvManager.decodeServerList(old.guid)
+            }.getOrDefault(emptyList())
+            BlueVpnProfileManager.restoreSelectedFingerprint(
+                selectedFingerprint,
+                refreshedServerGuids,
+            )
         }
         BlueVpnLocationUtil.invalidateCache()
     }

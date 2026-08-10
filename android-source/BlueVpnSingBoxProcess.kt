@@ -54,6 +54,17 @@ object BlueVpnSingBoxProcess {
         File(target.parentFile, VERIFIED_MARKER).writeText(System.currentTimeMillis().toString())
     }
 
+    /** Parse a managed SSH/sing-box source, validate it with the pinned native
+     * runtime, and only then atomically promote it to the active profile. */
+    fun installManagedSource(
+        context: Context,
+        raw: String,
+    ): Result<BlueVpnSingBoxProfileCompiler.CompileResult> =
+        BlueVpnSingBoxProfileCompiler.compile(raw).mapCatching { compiled ->
+            installProfile(context, compiled.json).getOrThrow()
+            compiled
+        }
+
     fun validate(context: Context, candidate: File = profile(context)): Result<Unit> = runCatching {
         check(isRuntimeAvailable(context)) { "sing-box native runtime is unavailable" }
         check(candidate.isFile) { "sing-box profile is missing" }

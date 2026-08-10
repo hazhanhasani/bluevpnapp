@@ -6,12 +6,12 @@ ROOT=Path(__file__).resolve().parents[1]
 def test_release_368():
     r=json.loads((ROOT/'release.json').read_text())
     a=json.loads((ROOT/'branding/app.json').read_text())
-    assert r['version']=='3.0.81'
-    assert r['version_code']==30081
-    assert r['android_version']=='3.0.81'
-    assert r['android_version_code']==30081
-    assert a['version_name']=='3.0.81'
-    assert a['version_code']==30081
+    assert r['version']=='3.0.83'
+    assert r['version_code']==30083
+    assert r['android_version']=='3.0.83'
+    assert r['android_version_code']==30083
+    assert a['version_name']=='3.0.83'
+    assert a['version_code']==30083
 
 def test_navigation_is_immediate_and_auto_unlocks():
     home=(ROOT/'android-source/BlueVpnHomeActivity.kt').read_text()
@@ -27,10 +27,12 @@ def test_fast_free_connection_timer_and_probe():
     home=(ROOT/'android-source/BlueVpnHomeActivity.kt').read_text()
     assert 'beginFreeTimerOnCoreStart()' not in home
     assert 'BlueVpnAccountManager.startFreeSession(this)' in home
-    assert 'SystemClock.elapsedRealtime() + 1_050L' in home
-    assert 'connection.connectTimeout = 650' in home
-    assert 'connection.readTimeout = 650' in home
-    assert 'handler.postDelayed(attemptTimeout, 2_100L)' in home
+    assert 'SystemClock.elapsedRealtime() + 3_600L' in home
+    assert 'connection.connectTimeout = 1_800' in home
+    assert 'connection.readTimeout = 1_800' in home
+    assert 'handler.postDelayed(attemptTimeout, 5_500L)' in home
+    assert 'waitForLocalProxyReady(httpPort)' in home
+    assert 'handler.removeCallbacks(attemptTimeout)' in home
 
 def test_secondary_screens_are_static_first_frame():
     for name in ['BlueVpnSettingsActivity.kt','BlueVpnSubscriptionsActivity.kt','BlueVpnServersActivity.kt']:

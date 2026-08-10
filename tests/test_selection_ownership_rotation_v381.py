@@ -14,11 +14,11 @@ def test_release_metadata_v381():
     app = json.loads(text("branding/app.json"))
     release = json.loads(text("release.json"))
     marker = json.loads(text("deployment-marker.json"))
-    assert app["version_name"] == "3.0.81"
-    assert app["version_code"] == 30081
-    assert release["version"] == "3.0.81"
-    assert release["android_version_code"] == 30081
-    assert marker["release"] == "3.0.81"
+    assert app["version_name"] == "3.0.83"
+    assert app["version_code"] == 30083
+    assert release["version"] == "3.0.83"
+    assert release["android_version_code"] == 30083
+    assert marker["release"] == "3.0.83"
 
 
 def test_explicit_selection_modes_exist_and_have_atomic_writers():
@@ -71,13 +71,14 @@ def test_background_entitlement_refresh_preserves_valid_premium_manual_choice():
     assert "current.isFree || current.isUnavailable || tierChanged" in entitlement
 
 
-def test_auto_connection_rotates_only_among_near_equal_candidates():
+def test_auto_connection_uses_desktop_style_stickiness_without_breaking_ownership():
     selector = text("android-source/BlueVpnSmartSelector.kt")
+    intelligence = text("android-source/BlueVpnRouteIntelligence.kt")
     home = text("android-source/BlueVpnHomeActivity.kt")
     assert "fun connectionOrder(" in selector
-    assert "bestScore - 8" in selector
-    assert "KEY_LAST_AUTO_GUID" in selector
-    assert "nearTop[(lastIndex + 1) % nearTop.size]" in selector
+    assert "BlueVpnRouteIntelligence.stickyCandidate(context, ranked)" in selector
+    assert "scoreTolerance: Int = 7" in intelligence
+    assert "latencyToleranceMs: Long = 60L" in intelligence
     assert "fun recordAutomaticConnectionChoice(" in selector
     assert "BlueVpnSmartSelector.connectionOrder(this, isolatedCandidates)" in home
     assert "BlueVpnSmartSelector.recordAutomaticConnectionChoice(" in home

@@ -11,10 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_367():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.81"
-    assert release["android_version_code"] == 30081
-    assert app["version_name"] == "3.0.81"
-    assert app["version_code"] == 30081
+    assert release["version"] == "3.0.83"
+    assert release["android_version_code"] == 30083
+    assert app["version_name"] == "3.0.83"
+    assert app["version_code"] == 30083
 
 
 def test_global_ui_guard_and_recovery_mode_present():

@@ -9,10 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_metadata_is_v372():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.81"
-    assert release["version_code"] == 30081
-    assert app["version_name"] == "3.0.81"
-    assert app["version_code"] == 30081
+    assert release["version"] == "3.0.83"
+    assert release["version_code"] == 30083
+    assert app["version_name"] == "3.0.83"
+    assert app["version_code"] == 30083
 
 
 def test_bluepay_developer_url_is_converted_to_api_root():

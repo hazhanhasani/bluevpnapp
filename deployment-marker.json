@@ -1,21 +1,21 @@
 {
-  "release": "3.0.82-auto",
-  "version_name": "3.0.82",
-  "version_code": 30082,
+  "release": "3.0.83",
+  "version_name": "3.0.83",
+  "version_code": 30083,
   "changes": [
-    "Add explicit AUTO, MANUAL_LOCATION and MANUAL_SERVER ownership modes",
-    "Never overwrite an explicit manual server during connect, startup optimization or background entitlement refresh",
-    "Restrict manual-location failover to the selected location only",
-    "Rotate automatic sessions among near-equal healthy candidates while retaining score priority",
-    "Keep Free plan automatic-only without leaking Premium/manual state"
+    "Add engine-neutral semantic profile catalogue for V2Ray share links, Xray JSON, sing-box JSON and SSH URI sources",
+    "Collapse duplicate semantic nodes only in the selection catalogue while preserving physical subscription data",
+    "Rebind the selected semantic server after free or premium subscription refresh changes MMKV GUIDs",
+    "Backport Shadowsocks SIP002 transport/TLS query parsing and export preservation to pinned v2rayNG 2.2.6",
+    "Compile SSH and sing-box outbound sources into a native-validated local mixed-proxy profile without taking over Android TUN yet"
   ],
   "generated_at_unix": 1786307912,
-  "purpose": "رفع برگشت انتخاب دستی به خودکار و گیرکردن انتخاب خودکار روی یک سرور",
+  "purpose": "مدیریت پایدار کانفیگ‌ها و ساب‌های V2Ray/JSON/SSH بدون حذف دائمی مسیرهای موقتاً خراب",
   "updated_at": "2026-08-10T00:00:00Z",
   "built_at": "2026-08-10T00:00:00Z",
-  "build_id": "20260810-selection-ownership-rotation-v3081",
-  "feature": "selection-ownership-rotation",
-  "build_fix": "manual-selection-lock-and-auto-diversification",
-  "version_source": "selection-ownership-rotation-v3081",
-  "summary": "Exact manual server ownership plus non-sticky automatic server rotation."
+  "build_id": "20260810-unified-profile-subscription-management-v3083",
+  "feature": "unified-profile-subscription-management",
+  "build_fix": "semantic-config-catalogue-subscription-selection-rebind",
+  "version_source": "unified-profile-subscription-management-v3083",
+  "summary": "Semantic profile identity, non-destructive de-duplication, selection preservation on subscription refresh, JSON engine classification and staged SSH/sing-box support."
 }

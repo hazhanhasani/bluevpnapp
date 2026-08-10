@@ -19,7 +19,7 @@ def test_premium_transition_is_reconciled_before_sync_returns():
     account = (ROOT / "android-source/BlueVpnAccountManager.kt").read_text()
     assert "private fun reconcileSubscriptionMode" in account
     assert "forceSubscriptions = force" in account
-    assert "AngConfigManager.updateConfigViaSubAll()" in account
+    assert "BlueVpnSubscriptionIntelligence.refresh(" in account
     assert "it.subscription.remarks.startsWith(FREE_SUB)" in account
     assert "MmkvManager.setSelectServer(it)" in account
 

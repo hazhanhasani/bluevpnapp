@@ -35,6 +35,7 @@ import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
 import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
+import com.v2ray.ang.bluevpn.BlueVpnRouteIntelligence
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import com.v2ray.ang.handler.MmkvManager
@@ -813,15 +814,26 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         })
+        val routeEvidence = BlueVpnRouteIntelligence.evidence(this, candidate.guid)
+        val exitEvidence = BlueVpnRouteIntelligence.exitSummary(this, candidate.guid)
+        val routeDetails = when {
+            !premium -> "ویژه مشترکین"
+            else -> buildList {
+                if (selected) add("مسیر انتخاب‌شده")
+                if (candidate.delay > 0L) add("${candidate.delay}ms")
+                routeEvidence?.let { add(it) }
+                exitEvidence?.let { add("خروجی $it") }
+                if (isEmpty()) add("مسیر ${index + 1}")
+            }.take(3).joinToString(" • ")
+        }
         labelBox.addView(textView(
-            when {
-                !premium -> "ویژه مشترکین"
-                selected -> "مسیر انتخاب‌شده"
-                candidate.delay > 0L -> "آماده اتصال"
-                else -> "مسیر ${index + 1}"
-            },
+            routeDetails,
             9.5f, palette.textMuted, Gravity.END,
-        ).apply { setPadding(0, dp(3), 0, 0) })
+        ).apply {
+            setPadding(0, dp(3), 0, 0)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        })
         row.addView(labelBox, LinearLayout.LayoutParams(0, -1, 1f))
         row.addView(textView(if (premium) "انتخاب" else "🔒", 11f, if (premium) palette.accent else palette.textMuted, Gravity.CENTER), LinearLayout.LayoutParams(dp(58), dp(38)))
         return entry

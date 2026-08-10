@@ -9,10 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_version_370():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.81"
-    assert release["android_version_code"] == 30081
-    assert app["version_name"] == "3.0.81"
-    assert app["version_code"] == 30081
+    assert release["version"] == "3.0.83"
+    assert release["android_version_code"] == 30083
+    assert app["version_name"] == "3.0.83"
+    assert app["version_code"] == 30083
 
 
 def test_runtime_is_local_first_and_deferred():
@@ -30,14 +30,18 @@ def test_runtime_is_local_first_and_deferred():
     assert "beginFreeTimerOnCoreStart()" not in home
 
 
-def test_removed_tls_profiles_are_filtered_twice():
+def test_tls_profile_acceptance_matches_upstream_and_is_not_silently_filtered():
     location = (ROOT / "android-source/BlueVpnLocationUtil.kt").read_text(encoding="utf-8")
     prepare = (ROOT / "scripts/prepare_android.py").read_text(encoding="utf-8")
-    assert "containsRemovedTlsOption" in location
-    assert "MmkvManager.decodeServerRaw(guid)" in location
+    home = (ROOT / "android-source/BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
+    assert "containsRemovedTlsOption" not in location
+    assert "compatibilityIssue(" not in location
+    assert "BlueVpnLocationUtil.compatibilityIssue(" not in home
     assert "patch_legacy_tls_profiles" in prepare
-    assert "config.insecure == true" in prepare
-    assert "containsRemovedTlsOption(rawConfig)" in prepare
+    patch = prepare[prepare.index("def patch_legacy_tls_profiles"): prepare.index("def inject_bootstrap")]
+    assert "return" in patch
+    assert "config.insecure == true" not in patch
+    assert "containsRemovedTlsOption" not in patch
 
 
 def test_generated_sources_match_snapshots():

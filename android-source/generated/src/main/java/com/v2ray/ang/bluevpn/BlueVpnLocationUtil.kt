@@ -333,7 +333,6 @@ object BlueVpnLocationUtil {
     private var contextCandidateCacheDirty = false
 
     private val identityCache = ConcurrentHashMap<String, String>()
-    private val compatibilityCache = ConcurrentHashMap<String, String>()
 
     private val cloudExecutor = Executors.newSingleThreadExecutor {
         Thread(it, "bluevpn-location-sync").apply { isDaemon = true }
@@ -683,52 +682,13 @@ private fun unknownLocation(): BlueVpnLocation =
     }
 
     /**
-     * New Xray cores reject legacy TLS profiles that still request
-     * allowInsecure/insecure=1. Detect them before starting the core so one
-     * stale route cannot show a raw engine error or hold the UI for seconds.
-     * The provider must replace these profiles with a valid certificate,
-     * pinnedPeerCertSha256 or verifyPeerCertByName configuration.
+     * Keep profile acceptance aligned with upstream v2rayNG.
+     *
+     * BlueVPN must not permanently drop a profile because of an option that
+     * upstream may migrate, ignore, or normalize during config generation.
+     * Runtime/core validation below is authoritative and failed routes are only
+     * quarantined for the current connect cycle.
      */
-    private fun containsRemovedTlsOption(value: String?): Boolean {
-        val compact = value.orEmpty()
-            .lowercase(Locale.ROOT)
-            .replace(Regex("\\s+"), "")
-        return compact.contains("\"allowinsecure\":true") ||
-            compact.contains("allowinsecure=true") ||
-            compact.contains("allowinsecure%3dtrue") ||
-            compact.contains("insecure=1") ||
-            compact.contains("insecure%3d1")
-    }
-
-    fun compatibilityIssue(
-        profile: ProfileItem,
-        rawConfig: String? = null,
-    ): String? {
-        val key = serverIdentity(profile).ifBlank {
-            (profile.server.orEmpty() + "|" + profile.remarks.orEmpty())
-                .lowercase(Locale.ROOT)
-        }
-        compatibilityCache[key]?.let { cached ->
-            return cached.takeIf { it.isNotBlank() }
-        }
-        val explicitInsecure = runCatching {
-            profile.javaClass.methods
-                .firstOrNull { method ->
-                    method.parameterTypes.isEmpty() &&
-                        (method.name.equals("getInsecure", ignoreCase = true) ||
-                            method.name.equals("isInsecure", ignoreCase = true))
-                }
-                ?.invoke(profile) == true
-        }.getOrDefault(false)
-        val serialized = runCatching { profile.toString() }.getOrDefault("")
-        val legacyTls = explicitInsecure ||
-            containsRemovedTlsOption(rawConfig) ||
-            containsRemovedTlsOption(serialized)
-        val issue = if (legacyTls) "LEGACY_TLS_ALLOW_INSECURE" else ""
-        compatibilityCache[key] = issue
-        return issue.takeIf { it.isNotBlank() }
-    }
-
     fun isUsable(
         profile: ProfileItem,
         rawConfig: String? = null,
@@ -743,7 +703,6 @@ private fun unknownLocation(): BlueVpnLocation =
         if (server == "::1") return false
         if (server == "localhost") return false
         if (server.startsWith("127.")) return false
-        if (compatibilityIssue(profile, rawConfig) != null) return false
 
         return true
     }
@@ -756,7 +715,6 @@ private fun unknownLocation(): BlueVpnLocation =
             // running. The stable entitlement identity prevents a previous Free
             // or Premium pool from leaking into a different account mode.
             contextCandidateCacheDirty = true
-            compatibilityCache.clear()
         }
     }
 
@@ -780,25 +738,41 @@ private fun unknownLocation(): BlueVpnLocation =
             return cached
         }
 
-        val loaded = MmkvManager.decodeAllServerList()
-            .mapNotNull { guid ->
-                val profile =
-                    MmkvManager.decodeServerConfig(guid)
-                        ?: return@mapNotNull null
+        val allGuids = MmkvManager.decodeAllServerList()
+        val selectedGuid = MmkvManager.getSelectServer().orEmpty()
+        val orderedGuids = buildList {
+            if (selectedGuid.isNotBlank() && selectedGuid in allGuids) add(selectedGuid)
+            allGuids.forEach { guid -> if (guid != selectedGuid) add(guid) }
+        }
+        val seenFingerprints = HashSet<String>(orderedGuids.size)
+        val loaded = orderedGuids.mapNotNull { guid ->
+            val profile =
+                MmkvManager.decodeServerConfig(guid)
+                    ?: return@mapNotNull null
+            val raw = MmkvManager.decodeServerRaw(guid)
 
-                if (!isUsable(profile, MmkvManager.decodeServerRaw(guid))) {
-                    return@mapNotNull null
-                }
-
-                Candidate(
-                    guid = guid,
-                    profile = profile,
-                    location = detect(profile.remarks, profile.server),
-                    delay = MmkvManager
-                        .decodeServerAffiliationInfo(guid)
-                        ?.testDelayMillis ?: 0L,
-                )
+            if (!isUsable(profile, raw)) {
+                return@mapNotNull null
             }
+
+            // Subscription providers often publish the same semantic endpoint
+            // under different remarks/GUIDs. Keep the currently selected copy
+            // first and collapse only the selection catalogue; the physical
+            // imported profiles remain untouched and can reappear after refresh.
+            val semanticKey = BlueVpnProfileManager.fingerprint(profile, raw)
+            if (!seenFingerprints.add(semanticKey)) {
+                return@mapNotNull null
+            }
+
+            Candidate(
+                guid = guid,
+                profile = profile,
+                location = detect(profile.remarks, profile.server),
+                delay = MmkvManager
+                    .decodeServerAffiliationInfo(guid)
+                    ?.testDelayMillis ?: 0L,
+            )
+        }
 
         synchronized(this) {
             candidateCache = loaded
@@ -1103,16 +1077,21 @@ private fun unknownLocation(): BlueVpnLocation =
     )
 
     /**
-     * Cheap physical-path validation before Xray owns the TUN.
+     * Fast advisory preflight before Xray owns the TUN.
      *
-     * Static config validation already happens in isUsable(). This stage adds
-     * endpoint resolution and, for TCP-capable profiles, a short TCP handshake.
-     * UDP-only transports are DNS-validated but are not rejected merely because
-     * a TCP socket is unavailable.
+     * Only deterministic local/config errors are rejected here. DNS and raw TCP
+     * checks are deliberately advisory because they are not equivalent to an
+     * Xray handshake: Android DNS can disagree with the core DNS strategy,
+     * IPv6 may be listed before a working IPv4 address, and several transports
+     * can look unreachable to a plain socket while still working in v2rayNG.
+     *
+     * The authoritative health decision is made after the core starts by a real
+     * HTTP request through the local Xray proxy. A route is quarantined for the
+     * current connect cycle only when that end-to-end verification fails.
      */
     fun preflightCandidate(
         candidate: Candidate,
-        timeoutMs: Int = 700,
+        timeoutMs: Int = 450,
     ): CandidatePreflight {
         val profile = candidate.profile
         val host = profile.server.orEmpty().trim()
@@ -1123,10 +1102,17 @@ private fun unknownLocation(): BlueVpnLocation =
             return CandidatePreflight(false, "کانفیگ با هسته فعلی سازگار نیست")
         }
 
+        val port = profilePort(profile)
+        if (port != null && port !in 1..65535) {
+            return CandidatePreflight(false, "پورت کانفیگ نامعتبر است")
+        }
+
         val started = SystemClock.elapsedRealtime()
-        val serialized = runCatching { profile.toString().lowercase(Locale.ROOT) }
-            .getOrDefault("")
-        val udpOnly = serialized.contains("hysteria") ||
+        val raw = MmkvManager.decodeServerRaw(candidate.guid).orEmpty()
+        val serialized = (
+            runCatching { profile.toString() }.getOrDefault("") + "\n" + raw
+        ).lowercase(Locale.ROOT)
+        val udpLike = serialized.contains("hysteria") ||
             serialized.contains("hy2") ||
             serialized.contains("tuic") ||
             serialized.contains("\"network\":\"quic\"") ||
@@ -1136,32 +1122,40 @@ private fun unknownLocation(): BlueVpnLocation =
 
         val addresses = runCatching { InetAddress.getAllByName(host).toList() }
             .getOrElse {
-                return CandidatePreflight(false, "DNS سرور پاسخ نداد")
+                // Do not discard a profile solely because Android's resolver
+                // failed. Xray can use a different DNS path and this exact
+                // profile may still work in upstream v2rayNG.
+                return CandidatePreflight(
+                    true,
+                    "DNS پیش‌تست نامشخص بود؛ بررسی با هسته ادامه دارد",
+                    (SystemClock.elapsedRealtime() - started).coerceAtLeast(1L),
+                )
             }
         if (addresses.isEmpty()) {
-            return CandidatePreflight(false, "DNS سرور پاسخ نداد")
-        }
-
-        if (udpOnly) {
             return CandidatePreflight(
                 true,
-                "DNS endpoint verified",
+                "DNS پیش‌تست پاسخی نداشت؛ بررسی با هسته ادامه دارد",
                 (SystemClock.elapsedRealtime() - started).coerceAtLeast(1L),
             )
         }
 
-        val port = profilePort(profile)
-            ?: return CandidatePreflight(
+        if (udpLike || port == null) {
+            return CandidatePreflight(
                 true,
-                "endpoint port unavailable; core validation required",
+                "endpoint برای تست واقعی هسته آماده است",
                 (SystemClock.elapsedRealtime() - started).coerceAtLeast(1L),
             )
-        if (port !in 1..65535) {
-            return CandidatePreflight(false, "پورت کانفیگ نامعتبر است")
         }
 
-        val perAddressTimeout = timeoutMs.coerceIn(250, 1_200)
-        val connected = addresses.take(2).any { address ->
+        // Prefer IPv4 first on mobile networks, but still try IPv6. Test more
+        // than two addresses because CDN domains commonly return several AAAA/A
+        // records and the first pair can be unreachable on the current carrier.
+        val orderedAddresses = addresses
+            .distinctBy { it.hostAddress.orEmpty() }
+            .sortedBy { if (it.address.size == 4) 0 else 1 }
+            .take(3)
+        val perAddressTimeout = timeoutMs.coerceIn(220, 260)
+        val connected = orderedAddresses.any { address ->
             runCatching {
                 Socket().use { socket ->
                     socket.tcpNoDelay = true
@@ -1173,15 +1167,15 @@ private fun unknownLocation(): BlueVpnLocation =
                 true
             }.getOrDefault(false)
         }
-        return if (connected) {
-            CandidatePreflight(
-                true,
-                "endpoint reachable",
-                (SystemClock.elapsedRealtime() - started).coerceAtLeast(1L),
-            )
-        } else {
-            CandidatePreflight(false, "سرور روی پورت کانفیگ پاسخ نداد")
-        }
+        return CandidatePreflight(
+            true,
+            if (connected) {
+                "endpoint در پیش‌تست پاسخ داد"
+            } else {
+                "TCP پیش‌تست قطعی نبود؛ تست واقعی Xray انجام می‌شود"
+            },
+            (SystemClock.elapsedRealtime() - started).coerceAtLeast(1L),
+        )
     }
 
     private fun profilePort(profile: ProfileItem): Int? {

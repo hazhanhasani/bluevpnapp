@@ -3908,8 +3908,9 @@ private fun dpHome(value: Int): Int =
         val selected = candidates.firstOrNull {
             it.guid == selectedGuid
         }
+        val selectedAllowed = BlueVpnAccountManager.selectedServerAllowed(this)
         val profile = selected?.profile ?: selectedGuid
-            ?.takeIf { it.isNotBlank() }
+            ?.takeIf { it.isNotBlank() && selectedAllowed }
             ?.let { MmkvManager.decodeServerConfig(it) }
         val automaticSelection =
             BlueVpnPreferences.smartBalance(this)

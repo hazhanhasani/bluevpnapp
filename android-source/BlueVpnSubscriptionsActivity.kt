@@ -280,7 +280,8 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
      this@BlueVpnSubscriptionsActivity
     )
     setResult(RESULT_CANCELED)
-    render()
+    finish()
+    overridePendingTransition(0,0)
    }
   },LinearLayout.LayoutParams(-1,dp(46)).apply{
    topMargin=dp(8)

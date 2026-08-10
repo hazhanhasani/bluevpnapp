@@ -119,5 +119,7 @@
     "session_deduplication": true,
     "fail_open": true,
     "admin_config": true
-  }
+  },
+  "project_version": "3.0.81",
+  "release": "3.0.81"
 }

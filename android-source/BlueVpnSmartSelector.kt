@@ -189,8 +189,18 @@ object BlueVpnSmartSelector {
             return "انتخاب‌گر هوشمند آماده تحلیل است"
         }
         val profile = MmkvManager.decodeServerConfig(guid)
-        val location = profile?.let { BlueVpnLocationUtil.detect(it.remarks, it.server) }
-        return "${location?.flag.orEmpty()} ${location?.title ?: "مسیر منتخب"} • امتیاز $score • $reason".trim()
+        if (
+            profile == null ||
+            !BlueVpnAccountManager.candidateAllowed(
+                context,
+                guid,
+                profile.subscriptionId,
+            )
+        ) {
+            return "انتخاب‌گر هوشمند در انتظار دریافت سرورهای مجاز است"
+        }
+        val location = BlueVpnLocationUtil.detect(profile.remarks, profile.server)
+        return "${location.flag} ${location.title} • امتیاز $score • $reason".trim()
     }
 
     fun clear(context: Context) {

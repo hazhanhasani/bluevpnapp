@@ -14,8 +14,8 @@ def test_subscription_intelligence_source_and_ua_ladder():
     assert '"sing-box"' in text
     assert '"Clash.Meta"' in text
     assert "AngConfigManager.updateConfigViaSub(row)" in text
-    assert "MAX_FALLBACKS_NORMAL = 2" in text
-    assert "MAX_FALLBACKS_REPAIR = 4" in text
+    assert "MAX_FALLBACKS_NORMAL = 1" in text
+    assert "MAX_FALLBACKS_REPAIR = 3" in text
     assert "if (aggressiveRepair || beforeCount == 0)" in text
     assert "captureSelectedFingerprint" in text
     assert "restoreSelectedFingerprint" in text

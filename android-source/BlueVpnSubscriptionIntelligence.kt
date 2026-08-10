@@ -9,19 +9,21 @@ import com.v2ray.ang.handler.MmkvManager
 import java.security.MessageDigest
 
 /**
- * Resilient subscription refresh policy for BlueVPN-managed sources.
+ * Subscription refresh coordinator that keeps v2rayNG as the compatibility
+ * authority.
  *
- * Desktop clients have taught two useful lessons here:
- *  1) subscription servers sometimes return a different format according to
- *     User-Agent, so one hard-coded identity is unnecessarily brittle;
- *  2) a failed refresh must never destroy the last-known-good node pool.
+ * The first request deliberately uses a null User-Agent. In pinned v2rayNG
+ * 2.2.6 that means HttpUtil sends its native "v2rayNG/<version>" identity.
+ * Earlier BlueVPN builds forced the shorter literal "v2rayNG" and then tried
+ * several desktop UAs synchronously. Some providers return different payloads
+ * for those identities and four sequential retries can keep the locations page
+ * loading for a very long time.
  *
- * v2rayNG 2.2.6 already exposes SubscriptionItem.userAgent and its importer
- * only replaces a subscription server list after at least one valid profile was
- * parsed. This coordinator builds on those guarantees: it remembers the UA that
- * last worked for each source, tries a small bounded compatibility ladder when
- * needed, restores semantic selection after GUID churn, and treats the whole
- * refresh as one logical attempt rather than one failure per fallback UA.
+ * Rule now:
+ *  1) native upstream v2rayNG behavior first;
+ *  2) a small compatibility ladder only when the pool is actually empty;
+ *  3) never delete a last-known-good pool when parsing fails;
+ *  4) preserve semantic selection across GUID churn.
  */
 object BlueVpnSubscriptionIntelligence {
     private const val PREFS = "bluevpn_subscription_intelligence"
@@ -29,8 +31,12 @@ object BlueVpnSubscriptionIntelligence {
     private const val SUCCESS_AT_PREFIX = "ok_at:"
     private const val CONFIG_COUNT_PREFIX = "count:"
     private const val FAILURE_STREAK_PREFIX = "fail_streak:"
-    private const val MAX_FALLBACKS_NORMAL = 2
-    private const val MAX_FALLBACKS_REPAIR = 4
+    private const val UPSTREAM_DEFAULT_UA = "__v2rayng_default__"
+
+    // A healthy refresh gets exactly the upstream-compatible attempt. Repair is
+    // bounded so a bad provider cannot block the locations screen for minutes.
+    private const val MAX_FALLBACKS_NORMAL = 1
+    private const val MAX_FALLBACKS_REPAIR = 3
 
     data class RefreshOutcome(
         val configCount: Int,
@@ -55,14 +61,13 @@ object BlueVpnSubscriptionIntelligence {
         .take(32)
 
     /**
-     * A stable UA avoids leaking Android model/build data. Prefer the UA that
-     * proved compatible with this exact source; otherwise start with v2rayNG
-     * because the pinned importer understands that family of subscription
-     * formats natively.
+     * Return only a previously proven explicit UA. null intentionally means
+     * "let v2rayNG choose its own native User-Agent" and is the safest default.
      */
-    fun recommendedUserAgent(context: Context, url: String): String {
+    fun recommendedUserAgent(context: Context, url: String): String? {
         val remembered = prefs(context).getString(UA_PREFIX + urlKey(url), "").orEmpty().trim()
-        return remembered.ifBlank { "v2rayNG" }
+        return remembered
+            .takeUnless { it.isBlank() || it == UPSTREAM_DEFAULT_UA }
     }
 
     fun lastGoodConfigCount(context: Context, url: String): Int =
@@ -74,11 +79,6 @@ object BlueVpnSubscriptionIntelligence {
     fun failureStreak(context: Context, url: String): Int =
         prefs(context).getInt(FAILURE_STREAK_PREFIX + urlKey(url), 0).coerceAtLeast(0)
 
-    /**
-     * Refresh only the rows owned by the current BlueVPN entitlement. The
-     * caller decides which rows are in scope so free, expired and previous
-     * Premium pools can never be mixed by an "update all subscriptions" call.
-     */
     fun refresh(
         context: Context,
         rows: List<SubscriptionCache>,
@@ -101,7 +101,9 @@ object BlueVpnSubscriptionIntelligence {
 
             val beforeGuids = runCatching { MmkvManager.decodeServerList(row.guid).toList() }
                 .getOrDefault(emptyList())
-            val beforeCount = beforeGuids.size
+            val beforeCount = beforeGuids.count { guid ->
+                guid.isNotBlank() && MmkvManager.decodeServerConfig(guid) != null
+            }
             val selectedFingerprint = BlueVpnProfileManager.captureSelectedFingerprint(setOf(row.guid))
             val originalUa = row.subscription.userAgent
             val agents = compatibilityUserAgents(context, url, originalUa)
@@ -117,6 +119,10 @@ object BlueVpnSubscriptionIntelligence {
                 usedAttempts += 1
                 row.subscription.userAgent = ua
                 MmkvManager.encodeSubscription(row.guid, row.subscription)
+
+                // Keep parsing/fetching behavior inside pinned v2rayNG. It parses
+                // the complete payload before replacing the old subscription
+                // server list, so a bad response does not erase a healthy pool.
                 val result = runCatching { AngConfigManager.updateConfigViaSub(row) }
                     .getOrDefault(SubscriptionUpdateResult(failureCount = 1))
                 if (result.successCount > 0 && result.configCount > 0) {
@@ -135,14 +141,13 @@ object BlueVpnSubscriptionIntelligence {
             if (!success) {
                 failures += 1
                 rememberFailure(context, url)
-                // Restore the caller/provider choice when no compatibility UA
-                // worked. More importantly, keep the old physical pool. The
-                // pinned importer only swaps rows after parsing valid configs;
-                // this explicit check guards future upstream behavior changes.
                 row.subscription.userAgent = originalUa
                 MmkvManager.encodeSubscription(row.guid, row.subscription)
-                val afterCount = runCatching { MmkvManager.decodeServerList(row.guid).size }
-                    .getOrDefault(0)
+                val afterCount = runCatching {
+                    MmkvManager.decodeServerList(row.guid).count { guid ->
+                        guid.isNotBlank() && MmkvManager.decodeServerConfig(guid) != null
+                    }
+                }.getOrDefault(0)
                 if (beforeCount > 0 && afterCount > 0) {
                     preservedPools += 1
                 }
@@ -162,29 +167,31 @@ object BlueVpnSubscriptionIntelligence {
         context: Context,
         url: String,
         configured: String?,
-    ): List<String> = buildList {
+    ): List<String?> {
         val remembered = recommendedUserAgent(context, url)
+        val values = mutableListOf<String?>(null) // native v2rayNG/<version> first
         listOf(
-            remembered,
-            configured.orEmpty().trim(),
+            configured?.trim()?.takeIf { it.isNotBlank() },
+            remembered?.trim()?.takeIf { it.isNotBlank() },
             "v2rayNG",
             "sing-box",
             "Clash.Meta",
             "BlueVPN/${BuildConfig.VERSION_NAME}",
         ).forEach { ua ->
-            if (ua.isNotBlank() && ua !in this) add(ua)
+            if (ua != null && ua !in values) values.add(ua)
         }
+        return values
     }
 
     private fun rememberSuccess(
         context: Context,
         url: String,
-        userAgent: String,
+        userAgent: String?,
         configCount: Int,
     ) {
         val key = urlKey(url)
         prefs(context).edit()
-            .putString(UA_PREFIX + key, userAgent)
+            .putString(UA_PREFIX + key, userAgent ?: UPSTREAM_DEFAULT_UA)
             .putLong(SUCCESS_AT_PREFIX + key, System.currentTimeMillis())
             .putInt(CONFIG_COUNT_PREFIX + key, configCount.coerceAtLeast(0))
             .putInt(FAILURE_STREAK_PREFIX + key, 0)

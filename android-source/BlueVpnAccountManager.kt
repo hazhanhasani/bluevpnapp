@@ -647,7 +647,6 @@ object BlueVpnAccountManager {
     /** Select a server from the exact current entitlement and never preserve a
      * GUID that belongs to a free, expired or previous Premium subscription. */
     fun ensureEntitlementSelection(c: Context): String? {
-        pruneInactiveManagedPools(c)
         val selected = MmkvManager.getSelectServer().orEmpty().trim()
         if (selected.isNotBlank()) {
             val profile = MmkvManager.decodeServerConfig(selected)
@@ -655,12 +654,20 @@ object BlueVpnAccountManager {
                 return selected
             }
         }
-        var replacement: String? = null
+
         preferredServerGuids(c).firstOrNull()?.let {
             MmkvManager.setSelectServer(it)
-            replacement = it
+            return it
         }
-        return replacement
+
+        // Never leave a GUID from an expired/previous/temporarily removed pool
+        // selected. HomeActivity used to decode that orphan directly, which is
+        // why the UI could show Finland/France while the entitlement summary
+        // correctly said 0 locations / 0 routes.
+        if (selected.isNotBlank()) {
+            MmkvManager.setSelectServer("")
+        }
+        return null
     }
 
     /**
@@ -675,7 +682,12 @@ object BlueVpnAccountManager {
                     .getOrDefault(emptyList())
             }
             .map { it.trim() }
-            .filter { it.isNotBlank() }
+            .filter { serverGuid ->
+                // A subscription list can survive an interrupted migration even
+                // when the corresponding profile row is gone. Ghost GUIDs must
+                // not make poolReady=true or keep stale UI state alive.
+                serverGuid.isNotBlank() && MmkvManager.decodeServerConfig(serverGuid) != null
+            }
             .distinct()
 
     fun entitlementPoolFingerprint(c: Context): String {
@@ -765,7 +777,10 @@ object BlueVpnAccountManager {
         } else {
             prepareFreeAccess(appContext, force = true).getOrThrow()
         }
-        pruneInactiveManagedPools(appContext)
+        val premiumPoolReady = !active(appContext) || preferredServerGuids(appContext).isNotEmpty()
+        if (premiumPoolReady) {
+            pruneInactiveManagedPools(appContext)
+        }
         ensureEntitlementSelection(appContext)
 
         val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs.coerceIn(2_000L, 30_000L)
@@ -874,10 +889,21 @@ object BlueVpnAccountManager {
             }
         }
 
-        // Disabled subscription rows still participate in v2rayNG's global
-        // decodeAllServerList(). Remove their physical profiles before and
-        // after refresh so neither the UI nor the legacy core can mix pools.
-        pruneInactiveManagedPools(c)
+        // Do not delete the previous Premium physical pool before the new
+        // entitlement row has imported at least one real profile. A rotated
+        // subscription URL plus a temporary network/provider failure used to
+        // leave Premium at 0 locations. Free rows can be removed immediately;
+        // stale Premium rows stay disabled and are pruned only after the new
+        // Premium pool is confirmed ready.
+        if (premiumActive) {
+            MmkvManager.decodeSubscriptions()
+                .filter { it.subscription.remarks.startsWith(FREE_SUB) }
+                .forEach { row ->
+                    runCatching { MmkvManager.removeServerViaSubid(row.guid) }
+                }
+        } else {
+            pruneInactiveManagedPools(c)
+        }
         if (mustRefresh) {
             subscriptionRefreshRunning = true
             try {
@@ -903,7 +929,13 @@ object BlueVpnAccountManager {
             }
         }
         if (changed || mustRefresh) {
-            pruneInactiveManagedPools(c)
+            val currentPoolReady = !premiumActive || preferredServerGuids(c).isNotEmpty()
+            if (currentPoolReady) {
+                // Transactional swap complete: only now delete stale Premium
+                // rows. Until this point they are disabled and invisible to
+                // BlueVPN's entitlement-aware selector, but remain recoverable.
+                pruneInactiveManagedPools(c)
+            }
             BlueVpnLocationUtil.invalidateCache()
             ensureEntitlementSelection(c)
         }
@@ -1848,8 +1880,11 @@ object BlueVpnAccountManager {
             ?.let { BlueVpnProfileManager.captureSelectedFingerprint(setOf(it)) }
         val currentReady = old != null &&
             old.subscription.enabled &&
-            runCatching { MmkvManager.decodeServerList(old.guid).isNotEmpty() }
-                .getOrDefault(false)
+            runCatching {
+                MmkvManager.decodeServerList(old.guid).any { serverGuid ->
+                    serverGuid.isNotBlank() && MmkvManager.decodeServerConfig(serverGuid) != null
+                }
+            }.getOrDefault(false)
         subscriptions
             .filter { it.subscription.remarks.startsWith(FREE_SUB) }
             .forEach { row ->
@@ -1860,15 +1895,17 @@ object BlueVpnAccountManager {
                 MmkvManager.removeServerViaSubid(row.guid)
             }
 
-        subscriptions
+        val stalePremiumRows = subscriptions
             .filter { it.subscription.remarks == SUB && it.guid != old?.guid }
-            .forEach { row ->
-                MmkvManager.encodeSubscription(
-                    row.guid,
-                    row.subscription.copy(enabled = false),
-                )
-                MmkvManager.removeServerViaSubid(row.guid)
-            }
+        stalePremiumRows.forEach { row ->
+            MmkvManager.encodeSubscription(
+                row.guid,
+                row.subscription.copy(enabled = false),
+            )
+            // Keep the physical rows until the replacement Premium pool is
+            // confirmed. They are disabled and entitlement filtering prevents
+            // BlueVPN from selecting them during the swap.
+        }
 
         val item = old?.subscription?.copy(
             remarks = SUB,
@@ -1906,6 +1943,25 @@ object BlueVpnAccountManager {
                 subscriptionRefreshRunning = false
             }
         }
+        val activePremiumRow = MmkvManager.decodeSubscriptions().firstOrNull { row ->
+            row.subscription.enabled &&
+                row.subscription.remarks == SUB &&
+                row.subscription.url.trim() == url.trim()
+        }
+        val activePremiumReady = activePremiumRow?.guid
+            ?.let { guid ->
+                runCatching {
+                    MmkvManager.decodeServerList(guid).any { serverGuid ->
+                        serverGuid.isNotBlank() && MmkvManager.decodeServerConfig(serverGuid) != null
+                    }
+                }.getOrDefault(false)
+            } == true
+
+        if (activePremiumReady) {
+            stalePremiumRows.forEach { row ->
+                runCatching { MmkvManager.removeServerViaSubid(row.guid) }
+            }
+        }
         if (old != null && selectedFingerprint != null) {
             val refreshedServerGuids = runCatching {
                 MmkvManager.decodeServerList(old.guid)
@@ -1915,6 +1971,7 @@ object BlueVpnAccountManager {
                 refreshedServerGuids,
             )
         }
+        ensureEntitlementSelection(c)
         BlueVpnLocationUtil.invalidateCache()
     }
 

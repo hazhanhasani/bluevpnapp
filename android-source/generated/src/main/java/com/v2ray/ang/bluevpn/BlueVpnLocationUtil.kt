@@ -7,6 +7,9 @@ import android.os.SystemClock
 import com.v2ray.ang.dto.entities.ProfileItem
 import com.v2ray.ang.handler.MmkvManager
 import org.json.JSONArray
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -260,11 +263,13 @@ object BlueVpnPreferences {
         val storage = prefs(context)
         val editor = storage.edit()
 
+        // Session quarantine is intentionally temporary: a route that failed
+        // during the previous connect cycle is allowed back on the next user
+        // attempt. FAILED_PREFIX is kept so the scorer can still penalize a
+        // recently bad route for a few minutes instead of immediately picking
+        // it as the first candidate again.
         storage.all.keys
-            .filter {
-                it.startsWith(SESSION_INACTIVE_PREFIX) ||
-                    it.startsWith(FAILED_PREFIX)
-            }
+            .filter { it.startsWith(SESSION_INACTIVE_PREFIX) }
             .forEach { editor.remove(it) }
 
         editor.putLong(
@@ -932,16 +937,18 @@ private fun unknownLocation(): BlueVpnLocation =
 
         if (scoped.isEmpty()) return emptyList()
 
-        // Routes that failed with the current user's network are removed
-        // from this foreground session. At the next app entry
-        // beginHealthSession() clears the exclusion and tests them again.
+        // Routes that failed in the current connect cycle are hard-quarantined
+        // for the rest of that cycle. Do not silently add them back when every
+        // route has failed; a fresh user attempt calls beginHealthSession() and
+        // gives them another chance with their recent-failure penalty intact.
         val sessionHealthy = scoped.filterNot { candidate ->
             BlueVpnPreferences.isSessionInactive(
                 context,
                 candidate.guid
             )
         }
-        val effective = sessionHealthy.ifEmpty { scoped }
+        if (sessionHealthy.isEmpty()) return emptyList()
+        val effective = sessionHealthy
 
         return BlueVpnSmartSelector.rank(context, effective)
             .map { it.candidate }
@@ -1017,11 +1024,13 @@ private fun unknownLocation(): BlueVpnLocation =
             return result
         }
 
-        // Prefer healthy routes, but never return an empty list solely because
-        // every free route was marked inactive earlier in the same session.
-        val result = scan(skipSessionInactive = true).ifEmpty {
-            scan(skipSessionInactive = false)
-        }
+        // Current-cycle failures stay excluded until the next explicit connect
+        // attempt. Re-introducing them here caused BlueVPN to loop over the same
+        // dead configs and eventually trigger long "not responding" stalls.
+        val result = scan(skipSessionInactive = true)
+        // Legacy fallback `scan(skipSessionInactive = false)` is intentionally
+        // disabled: failed routes must not re-enter the same connect cycle.
+        if (result.isEmpty()) return emptyList()
         return BlueVpnSmartSelector.rank(context, result)
             .map { it.candidate }
     }
@@ -1085,6 +1094,110 @@ private fun unknownLocation(): BlueVpnLocation =
             }
             .maxOrNull()
             ?: 0
+    }
+
+    data class CandidatePreflight(
+        val ok: Boolean,
+        val reason: String,
+        val latencyMs: Long = 0L,
+    )
+
+    /**
+     * Cheap physical-path validation before Xray owns the TUN.
+     *
+     * Static config validation already happens in isUsable(). This stage adds
+     * endpoint resolution and, for TCP-capable profiles, a short TCP handshake.
+     * UDP-only transports are DNS-validated but are not rejected merely because
+     * a TCP socket is unavailable.
+     */
+    fun preflightCandidate(
+        candidate: Candidate,
+        timeoutMs: Int = 700,
+    ): CandidatePreflight {
+        val profile = candidate.profile
+        val host = profile.server.orEmpty().trim()
+        if (host.isBlank()) {
+            return CandidatePreflight(false, "آدرس سرور خالی است")
+        }
+        if (!isUsable(profile, MmkvManager.decodeServerRaw(candidate.guid))) {
+            return CandidatePreflight(false, "کانفیگ با هسته فعلی سازگار نیست")
+        }
+
+        val started = SystemClock.elapsedRealtime()
+        val serialized = runCatching { profile.toString().lowercase(Locale.ROOT) }
+            .getOrDefault("")
+        val udpOnly = serialized.contains("hysteria") ||
+            serialized.contains("hy2") ||
+            serialized.contains("tuic") ||
+            serialized.contains("\"network\":\"quic\"") ||
+            serialized.contains("network=quic") ||
+            serialized.contains("\"network\":\"kcp\"") ||
+            serialized.contains("network=kcp")
+
+        val addresses = runCatching { InetAddress.getAllByName(host).toList() }
+            .getOrElse {
+                return CandidatePreflight(false, "DNS سرور پاسخ نداد")
+            }
+        if (addresses.isEmpty()) {
+            return CandidatePreflight(false, "DNS سرور پاسخ نداد")
+        }
+
+        if (udpOnly) {
+            return CandidatePreflight(
+                true,
+                "DNS endpoint verified",
+                (SystemClock.elapsedRealtime() - started).coerceAtLeast(1L),
+            )
+        }
+
+        val port = profilePort(profile)
+            ?: return CandidatePreflight(
+                true,
+                "endpoint port unavailable; core validation required",
+                (SystemClock.elapsedRealtime() - started).coerceAtLeast(1L),
+            )
+        if (port !in 1..65535) {
+            return CandidatePreflight(false, "پورت کانفیگ نامعتبر است")
+        }
+
+        val perAddressTimeout = timeoutMs.coerceIn(250, 1_200)
+        val connected = addresses.take(2).any { address ->
+            runCatching {
+                Socket().use { socket ->
+                    socket.tcpNoDelay = true
+                    socket.connect(
+                        InetSocketAddress(address, port),
+                        perAddressTimeout,
+                    )
+                }
+                true
+            }.getOrDefault(false)
+        }
+        return if (connected) {
+            CandidatePreflight(
+                true,
+                "endpoint reachable",
+                (SystemClock.elapsedRealtime() - started).coerceAtLeast(1L),
+            )
+        } else {
+            CandidatePreflight(false, "سرور روی پورت کانفیگ پاسخ نداد")
+        }
+    }
+
+    private fun profilePort(profile: ProfileItem): Int? {
+        val getter = profile.javaClass.methods.firstOrNull { method ->
+            method.parameterTypes.isEmpty() &&
+                (
+                    method.name.equals("getServerPort", ignoreCase = true) ||
+                        method.name.equals("getPort", ignoreCase = true)
+                    )
+        } ?: return null
+        val value = runCatching { getter.invoke(profile) }.getOrNull() ?: return null
+        return when (value) {
+            is Number -> value.toInt()
+            is String -> value.trim().toIntOrNull()
+            else -> value.toString().trim().toIntOrNull()
+        }
     }
 
     fun activeCandidateCount(

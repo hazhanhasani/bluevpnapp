@@ -360,6 +360,12 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 // keep showing «نیاز به تمدید» after a successful activation.
                 syncManagedAccount(force = true)
             } else {
+                // Logout returns directly to guest/free mode. Clear any stale
+                // Premium-connected presentation before free sources refresh.
+                cancelFailover()
+                connectionVerified = false
+                BlueVpnPreferences.clearConnected(this)
+                renderConnectionState(false)
                 prepareGuestFreeAccess(force = false)
                 requestDashboardRefresh(force = true)
                 refreshSubscriptionInfo(force = false)
@@ -2727,6 +2733,11 @@ private fun dpHome(value: Int): Int =
         disconnectRetry.reset()
         handler.removeCallbacks(disconnectRetry)
 
+        // A new explicit connect cycle gets a fresh temporary quarantine.
+        // Routes that fail during this cycle are excluded immediately and are
+        // allowed back only on a later user attempt.
+        BlueVpnPreferences.beginHealthSession(this)
+
         // Enforce the account boundary before any legacy v2rayNG state is
         // consulted. Disabled subscriptions remain in decodeAllServerList()
         // unless their physical profiles are pruned.
@@ -2902,12 +2913,13 @@ private fun dpHome(value: Int): Int =
     ) {
         val entitlementGuids = BlueVpnAccountManager.preferredServerGuids(this).toSet()
         val isolatedCandidates = candidates.filter { candidate ->
-            BlueVpnAccountManager.candidateAllowed(
-                this,
-                candidate.guid,
-                candidate.profile.subscriptionId,
-                entitlementGuids,
-            )
+            !BlueVpnPreferences.isSessionInactive(this, candidate.guid) &&
+                BlueVpnAccountManager.candidateAllowed(
+                    this,
+                    candidate.guid,
+                    candidate.profile.subscriptionId,
+                    entitlementGuids,
+                )
         }
         if (isolatedCandidates.isEmpty()) {
             hideConnectingOverlay()
@@ -3004,6 +3016,7 @@ private fun dpHome(value: Int): Int =
             !BlueVpnAccountManager.candidateAllowed(this, guid, profile.subscriptionId)
         ) {
             BlueVpnPreferences.markSessionInactive(this, guid)
+            BlueVpnPreferences.markServerFailure(this, guid)
             failoverIndex += 1
             handler.post { if (failoverActive) startCurrentCandidate() }
             return
@@ -3012,6 +3025,8 @@ private fun dpHome(value: Int): Int =
 
         if (BlueVpnLocationUtil.compatibilityIssue(profile) != null) {
             BlueVpnPreferences.markSessionInactive(this, guid)
+            BlueVpnPreferences.markServerFailure(this, guid)
+            MmkvManager.encodeServerTestDelayMillis(guid, -1L)
             failoverIndex += 1
             handler.post { if (failoverActive) startCurrentCandidate() }
             return
@@ -3031,24 +3046,57 @@ private fun dpHome(value: Int): Int =
         updateConnectLabel("لغو اتصال")
         connectButton.isEnabled = true
 
-        val startCore = Runnable {
-            if (
-                !failoverActive ||
-                userDisconnecting ||
-                attemptedGuid != guid
-            ) return@Runnable
-            BlueVpnEngineManager.start(this)
-            handler.postDelayed({
-                if (!isFinishing && !isDestroyed) requestDashboardRefresh()
-            }, 60L)
-            handler.postDelayed(attemptTimeout, 2_100L)
-        }
+        val candidate = BlueVpnLocationUtil.Candidate(
+            guid = guid,
+            profile = profile,
+            location = location,
+            delay = MmkvManager.decodeServerAffiliationInfo(guid)?.testDelayMillis ?: 0L,
+        )
+        statusCaption.text = "پیش‌تست DNS و دسترسی endpoint"
 
-        if (mainViewModel.isRunning.value == true) {
-            BlueVpnEngineManager.stop(this)
-            handler.postDelayed(startCore, 90L)
-        } else {
-            startCore.run()
+        // Do not start Xray for obviously dead endpoints. This runs entirely
+        // off the main thread so a blocked DNS/socket can never freeze the UI.
+        lifecycleScope.launch(Dispatchers.IO) {
+            val preflight = BlueVpnLocationUtil.preflightCandidate(
+                candidate,
+                timeoutMs = 650,
+            )
+            withContext(Dispatchers.Main) {
+                if (
+                    !failoverActive ||
+                    userDisconnecting ||
+                    attemptedGuid != guid ||
+                    isFinishing ||
+                    isDestroyed
+                ) {
+                    return@withContext
+                }
+
+                if (!preflight.ok) {
+                    failCurrentAndTryNext(preflight.reason)
+                    return@withContext
+                }
+
+                val startCore = Runnable {
+                    if (
+                        !failoverActive ||
+                        userDisconnecting ||
+                        attemptedGuid != guid
+                    ) return@Runnable
+                    BlueVpnEngineManager.start(this@BlueVpnHomeActivity)
+                    handler.postDelayed({
+                        if (!isFinishing && !isDestroyed) requestDashboardRefresh()
+                    }, 60L)
+                    handler.postDelayed(attemptTimeout, 2_100L)
+                }
+
+                if (mainViewModel.isRunning.value == true) {
+                    BlueVpnEngineManager.stop(this@BlueVpnHomeActivity)
+                    handler.postDelayed(startCore, 90L)
+                } else {
+                    startCore.run()
+                }
+            }
         }
     }
 
@@ -3461,6 +3509,11 @@ private fun dpHome(value: Int): Int =
         handler.removeCallbacks(attemptTimeout)
 
         if (failedGuid.isNotBlank()) {
+            // Hard quarantine for this connect cycle. The next explicit connect
+            // attempt clears only this temporary flag, while failedRecently()
+            // keeps a short-lived score penalty so the same route is not picked
+            // first again immediately.
+            BlueVpnPreferences.markSessionInactive(this, failedGuid)
             BlueVpnPreferences.markServerFailure(this, failedGuid)
             MmkvManager.encodeServerTestDelayMillis(failedGuid, -1L)
         }

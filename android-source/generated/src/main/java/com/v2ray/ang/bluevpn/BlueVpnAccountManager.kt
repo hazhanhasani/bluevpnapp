@@ -1150,18 +1150,35 @@ object BlueVpnAccountManager {
         prefs(appContext).edit()
             .clear()
             .putString("device_id", id)
-            .apply()
+            .commit()
 
         backup(appContext).edit()
             .clear()
             .putString("device_id", id)
-            .apply()
+            .commit()
         invalidateAccountSnapshot()
+
+        // Logout is also an entitlement boundary. Drop every account-owned UI
+        // choice immediately so the home screen can fall back to guest/free
+        // without showing the previous Premium account for another frame.
+        BlueVpnPreferences.clearConnected(appContext)
+        BlueVpnPreferences.setAutomaticSelection(appContext)
+        BlueVpnPreferences.beginHealthSession(appContext)
+        BlueVpnSmartSelector.clear(appContext)
+        BlueVpnLocationUtil.invalidateCache()
+        stopFreeSession(appContext, expired = false)
 
         appContext.getSharedPreferences(
             "bluevpn_subscription_info",
             Context.MODE_PRIVATE
-        ).edit().clear().apply()
+        ).edit().clear().commit()
+
+        // Prune old Premium physical profiles off the UI thread. Free sources
+        // are re-enabled by prepareFreeAccess() when Home resumes.
+        subscriptionInstallExecutor.execute {
+            runCatching { pruneInactiveManagedPools(appContext) }
+            BlueVpnLocationUtil.invalidateCache()
+        }
 
         // Remote session revocation is best-effort and never blocks the UI. The
         // captured access token is used because local credentials are already gone.

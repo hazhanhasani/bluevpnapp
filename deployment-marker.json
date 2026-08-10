@@ -1,7 +1,7 @@
 {
-  "release": "3.0.88-auto",
-  "version_name": "3.0.88",
-  "version_code": 30088,
+  "release": "3.0.89-auto",
+  "version_name": "3.0.89",
+  "version_code": 30089,
   "changes": [
     "Add a searchable mobile navigation drawer for all admin sections",
     "Render wide admin tables as labeled cards on phone screens",

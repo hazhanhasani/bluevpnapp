@@ -287,7 +287,7 @@ final class BlueVPN_Migration {
         $source = untrailingslashit((string)$settings['source_url']);
         $token = self::token();
         if ($source === '') return new WP_Error('migration_source_missing', 'آدرس Backend فعلی Railway ثبت نشده است.');
-        if ($token === '') return new WP_Error('migration_token_missing', 'Migration Token ثبت نشده است.');
+        if ($token === '') return new WP_Error('migration_token_missing', 'Migration Token در WordPress ثبت نشده است. ابتدا Token را بساز/ذخیره کن.');
         $url = $source . '/' . ltrim($path, '/');
         $defaults = [
             'timeout' => 30,
@@ -300,16 +300,36 @@ final class BlueVPN_Migration {
             ],
         ];
         $response = wp_remote_get($url, array_merge($defaults, $args));
-        if (is_wp_error($response)) return $response;
-        $status = wp_remote_retrieve_response_code($response);
-        $body = wp_remote_retrieve_body($response);
+        if (is_wp_error($response)) {
+            return new WP_Error(
+                'migration_transport_error',
+                'ارتباط WordPress با Railway برقرار نشد: '.$response->get_error_message().' | URL: '.$url,
+                ['url' => $url, 'original_code' => $response->get_error_code()]
+            );
+        }
+        $status = (int)wp_remote_retrieve_response_code($response);
+        $body = (string)wp_remote_retrieve_body($response);
         $decoded = json_decode($body, true);
         if ($status < 200 || $status >= 300) {
-            $message = is_array($decoded) ? (string)($decoded['detail'] ?? $decoded['message'] ?? '') : '';
-            if ($message === '') $message = 'HTTP '.$status;
-            return new WP_Error('migration_http_error', 'Railway Migration API: '.$message, ['status' => $status]);
+            $detail = is_array($decoded) ? trim((string)($decoded['detail'] ?? $decoded['message'] ?? '')) : '';
+            if ($status === 404) {
+                $message = 'Backend Railway در دسترس است، اما Migration Bridge روی Deployment فعلی ثبت نشده است (HTTP 404). Guard/Bridge را روی main فعال کن و منتظر Deploy جدید Railway بمان.';
+            } elseif ($status === 401) {
+                $message = 'Migration Token بین WordPress و Railway یکسان نیست (HTTP 401). مقدار WORDPRESS_MIGRATION_TOKEN را با Token ذخیره‌شده در WordPress یکسان کن و Railway را Redeploy کن.';
+            } elseif ($status === 503 && stripos($detail, 'WORDPRESS_MIGRATION_TOKEN') !== false) {
+                $message = 'متغیر WORDPRESS_MIGRATION_TOKEN در Railway تنظیم نشده یا کمتر از 32 کاراکتر است (HTTP 503).';
+            } elseif ($status === 403) {
+                $message = 'درخواست Migration Bridge توسط سرور/فایروال رد شد (HTTP 403).';
+            } elseif ($status >= 500) {
+                $message = 'Migration Bridge در Railway خطای داخلی دارد (HTTP '.$status.').'.($detail !== '' ? ' '.$detail : '');
+            } else {
+                $message = 'Railway Migration API: '.($detail !== '' ? $detail : 'HTTP '.$status);
+            }
+            return new WP_Error('migration_http_error', $message.' | URL: '.$url, ['status' => $status, 'url' => $url]);
         }
-        if (!is_array($decoded)) return new WP_Error('migration_invalid_json', 'پاسخ Migration API معتبر نیست.');
+        if (!is_array($decoded)) {
+            return new WP_Error('migration_invalid_json', 'Railway پاسخ HTTP 200 داد اما پاسخ Migration API از نوع JSON معتبر نیست. احتمالاً URL به سرویس اشتباه اشاره می‌کند. | URL: '.$url, ['status' => $status, 'url' => $url]);
+        }
         return $decoded;
     }
 

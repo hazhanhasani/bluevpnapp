@@ -1,0 +1,69 @@
+name: BlueVPN Manager Release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'wordpress/bluevpn-manager/**'
+      - '.github/workflows/bluevpn-manager-release.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bluevpn-manager-release
+  cancel-in-progress: false
+
+jobs:
+  release-plugin:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read plugin version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          FILE="wordpress/bluevpn-manager/bluevpn-manager.php"
+          test -f "$FILE"
+          VERSION="$(sed -n 's/^ \* Version: \([0-9][0-9A-Za-z.+-]*\)$/\1/p' "$FILE" | head -n1)"
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=bluevpn-manager-v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Lint PHP
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' f; do php -l "$f"; done < <(find wordpress/bluevpn-manager -type f -name '*.php' -print0)
+
+      - name: Build plugin ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist/bluevpn-manager
+          cp -a wordpress/bluevpn-manager/. dist/bluevpn-manager/
+          cd dist
+          zip -qr ../bluevpn-manager.zip bluevpn-manager
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" bluevpn-manager.zip --clobber
+          else
+            gh release create "$TAG" bluevpn-manager.zip \
+              --target "$GITHUB_SHA" \
+              --title "BlueVPN Manager $VERSION" \
+              --notes "WordPress plugin release for BlueVPN Manager $VERSION."
+          fi

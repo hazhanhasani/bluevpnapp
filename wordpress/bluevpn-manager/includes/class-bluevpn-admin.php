@@ -18,6 +18,8 @@ final class BlueVPN_Admin {
         add_action('admin_post_bluevpn_migration_resync',[self::class,'migration_resync']);
         add_action('admin_post_bluevpn_migration_reset',[self::class,'migration_reset']);
         add_action('admin_post_bluevpn_migration_cutover',[self::class,'migration_cutover']);
+        add_action('admin_post_bluevpn_migration_auto_start',[self::class,'migration_auto_start']);
+        add_action('admin_post_bluevpn_migration_auto_stop',[self::class,'migration_auto_stop']);
     }
     private static function guard(): void { if(!current_user_can('manage_options')) wp_die('دسترسی ندارید.'); }
     public static function menu(): void {
@@ -70,8 +72,19 @@ final class BlueVPN_Admin {
         echo '<tr><th>Migration Token</th><td><input class="regular-text" dir="ltr" type="password" name="token" value="" placeholder="'.(BlueVPN_Migration::has_token()?'ذخیره شده؛ برای تغییر مقدار جدید وارد کن':'Token را وارد کن').'"></td></tr>';
         echo '<tr><th>Batch Size</th><td><input type="number" min="25" max="1000" name="batch_size" value="'.(int)$cfg['batch_size'].'"></td></tr>';
         echo '<tr><th>SSL Verify</th><td><label><input type="checkbox" name="verify_tls" value="1" '.checked(!empty($cfg['verify_tls']),true,false).'> بررسی گواهی TLS</label></td></tr>';
-        echo '<tr><th>Dual Sync آزمایشی</th><td><label><input type="checkbox" name="auto_sync" value="1" '.checked(!empty($cfg['auto_sync']),true,false).'> بعد از انتقال اولیه هر ۵ دقیقه Resync اجرا شود</label></td></tr>';
+        echo '<tr><th>انتقال خودکار</th><td><label><input type="checkbox" name="auto_migrate" value="1" '.checked(!empty($cfg['auto_migrate']),true,false).'> Batchها، Retry و Resync نهایی بدون کلیک دستی انجام شوند</label></td></tr>';
+        echo '<tr><th>Dual Sync</th><td><label><input type="checkbox" name="auto_sync" value="1" '.checked(!empty($cfg['auto_sync']),true,false).'> بعد از آماده‌شدن Cutover هر ۵ دقیقه تغییرات جدید همگام شوند</label></td></tr>';
         echo '</table>'; submit_button('ذخیره تنظیمات Bridge'); echo '</form>';
+        $autoActive = !empty($cfg['auto_migrate']);
+        $autoMsg = (string)($state['auto_last_message'] ?? '');
+        echo '<div class="bvp-card" style="margin:14px 0;max-width:1000px;border-right:4px solid '.($autoActive?'#00a32a':'#dba617').'">';
+        echo '<h3 style="margin-top:0">انتقال خودکار</h3><p class="'.($autoActive?'bvp-ok':'bvp-warn').'">'.($autoActive?'فعال — نیازی به زدن دکمه ادامه نیست':'غیرفعال').'</p>';
+        if ($autoMsg!=='') echo '<p>'.esc_html($autoMsg).'</p>';
+        echo '<p><small>Runner هر دقیقه اجرا می‌شود؛ جدول بزرگ ai_connection_events با Batch هزار‌تایی منتقل می‌شود و خطاهای موقت خودکار Retry می‌شوند.</small></p>';
+        echo '<div style="display:flex;gap:8px;flex-wrap:wrap">';
+        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'; wp_nonce_field('bluevpn_migration_auto_start'); echo '<input type="hidden" name="action" value="bluevpn_migration_auto_start">'; submit_button('شروع/ادامه خودکار','primary','submit',false); echo '</form>';
+        if ($autoActive) { echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'; wp_nonce_field('bluevpn_migration_auto_stop'); echo '<input type="hidden" name="action" value="bluevpn_migration_auto_stop">'; submit_button('توقف انتقال خودکار','secondary','submit',false); echo '</form>'; }
+        echo '</div></div>';
         echo '<div style="display:flex;gap:8px;flex-wrap:wrap">';
         echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="display:inline">';
         wp_nonce_field('bluevpn_migration_generate_token'); echo '<input type="hidden" name="action" value="bluevpn_migration_generate_token">'; submit_button('ساخت Migration Token','secondary','submit',false); echo '</form>';
@@ -115,7 +128,7 @@ final class BlueVPN_Admin {
         $cfg = BlueVPN_Migration::settings();
         BlueVPN_Migration::save_settings([
             'source_url'=>$cfg['source_url'], 'token'=>$token, 'batch_size'=>$cfg['batch_size'],
-            'verify_tls'=>$cfg['verify_tls'], 'auto_sync'=>$cfg['auto_sync']
+            'verify_tls'=>$cfg['verify_tls'], 'auto_migrate'=>$cfg['auto_migrate'], 'auto_sync'=>$cfg['auto_sync']
         ]);
         set_transient('bluevpn_migration_token_once_'.get_current_user_id(), $token, 5 * MINUTE_IN_SECONDS);
         self::migration_redirect('Token ساخته و داخل WordPress ذخیره شد؛ آن را در Railway Variables ثبت کن.');
@@ -124,7 +137,8 @@ final class BlueVPN_Admin {
         self::guard(); check_admin_referer('bluevpn_migration_save');
         BlueVPN_Migration::save_settings([
             'source_url'=>wp_unslash($_POST['source_url']??''), 'token'=>wp_unslash($_POST['token']??''),
-            'batch_size'=>(int)($_POST['batch_size']??250), 'verify_tls'=>isset($_POST['verify_tls']), 'auto_sync'=>isset($_POST['auto_sync'])
+            'batch_size'=>(int)($_POST['batch_size']??250), 'verify_tls'=>isset($_POST['verify_tls']),
+            'auto_migrate'=>isset($_POST['auto_migrate']), 'auto_sync'=>isset($_POST['auto_sync'])
         ]);
         self::migration_redirect('تنظیمات Migration Bridge ذخیره شد.');
     }
@@ -139,15 +153,27 @@ final class BlueVPN_Admin {
         self::migration_redirect('Manifest دریافت شد و تعداد جدول‌ها به‌روزرسانی شد.');
     }
     public static function migration_run(): void {
-        self::guard(); check_admin_referer('bluevpn_migration_run'); $r=BlueVPN_Migration::run(12);
+        self::guard(); check_admin_referer('bluevpn_migration_run'); BlueVPN_Migration::start_auto(); $r=BlueVPN_Migration::run(12);
         if (empty($r['success'])) self::migration_redirect('', implode(' | ', $r['errors']??['خطای نامشخص']));
-        self::migration_redirect(!empty($r['complete'])?'انتقال اولیه کامل شد. اکنون یک Resync نهایی انجام بده.':'انتقال ادامه یافت؛ '.(int)$r['rows_imported'].' رکورد در '.(int)$r['batches'].' Batch پردازش شد.');
+        self::migration_redirect(!empty($r['complete'])?'این مرحله کامل شد؛ ادامه و Resync نهایی از اینجا به بعد خودکار است.':'انتقال خودکار فعال شد؛ '.(int)$r['rows_imported'].' رکورد همین حالا پردازش شد و ادامه بدون کلیک انجام می‌شود.');
     }
     public static function migration_resync(): void {
-        self::guard(); check_admin_referer('bluevpn_migration_resync'); BlueVPN_Migration::refresh_manifest(); BlueVPN_Migration::start_resync(); $r=BlueVPN_Migration::run(12);
+        self::guard(); check_admin_referer('bluevpn_migration_resync'); BlueVPN_Migration::refresh_manifest(); BlueVPN_Migration::start_resync(true); BlueVPN_Migration::start_auto(); $r=BlueVPN_Migration::run(12);
         if (empty($r['success'])) self::migration_redirect('', implode(' | ', $r['errors']??['خطای نامشخص']));
-        self::migration_redirect('Resync شروع شد؛ برای ادامه دوباره «شروع / ادامه انتقال» را بزن یا Dual Sync را فعال کن.');
+        self::migration_redirect('Resync شروع شد و ادامه آن کاملاً خودکار انجام می‌شود.');
     }
+    public static function migration_auto_start(): void {
+        self::guard(); check_admin_referer('bluevpn_migration_auto_start');
+        BlueVPN_Migration::start_auto();
+        BlueVPN_Migration::auto_step();
+        self::migration_redirect('انتقال خودکار فعال شد؛ دیگر لازم نیست دکمه ادامه را بزنید.');
+    }
+    public static function migration_auto_stop(): void {
+        self::guard(); check_admin_referer('bluevpn_migration_auto_stop');
+        BlueVPN_Migration::stop_auto();
+        self::migration_redirect('انتقال خودکار متوقف شد.');
+    }
+
     public static function migration_reset(): void {
         self::guard(); check_admin_referer('bluevpn_migration_reset'); BlueVPN_Migration::reset(true); BlueVPN_Migration::mark_cutover_ready(false); self::migration_redirect('Progress مهاجرت ریست شد؛ داده‌های MySQL حذف نشدند.');
     }
@@ -188,7 +214,7 @@ final class BlueVPN_Admin {
         echo '<table class="form-table">';
         echo '<tr><th>GitHub Owner</th><td><input class="regular-text" dir="ltr" name="owner" value="'.esc_attr($cfg['owner']).'"></td></tr>';
         echo '<tr><th>Repository</th><td><input class="regular-text" dir="ltr" name="repo" value="'.esc_attr($cfg['repo']).'"></td></tr>';
-        echo '<tr><th>Tag Prefix</th><td><input class="regular-text" dir="ltr" name="tag_prefix" value="'.esc_attr($cfg['tag_prefix']).'"><p class="description">مثال: bluevpn-manager-v1.2.1</p></td></tr>';
+        echo '<tr><th>Tag Prefix</th><td><input class="regular-text" dir="ltr" name="tag_prefix" value="'.esc_attr($cfg['tag_prefix']).'"><p class="description">مثال: bluevpn-manager-v1.2.2</p></td></tr>';
         echo '<tr><th>Release Asset</th><td><input class="regular-text" dir="ltr" name="asset_name" value="'.esc_attr($cfg['asset_name']).'"></td></tr>';
         echo '<tr><th>آپدیت خودکار</th><td><label><input type="checkbox" name="auto_update" value="1" '.checked(!empty($cfg['auto_update']),true,false).'> وردپرس اجازه داشته باشد BlueVPN Manager را در پس‌زمینه آپدیت کند.</label></td></tr>';
         echo '</table>';
@@ -199,7 +225,7 @@ final class BlueVPN_Admin {
         echo '<input type="hidden" name="action" value="bluevpn_check_github_update">';
         submit_button('همین حالا GitHub را بررسی کن','secondary');
         echo '</form>';
-        echo '<p><strong>قرارداد Release:</strong> Tag باید مانند <code>bluevpn-manager-v1.2.1</code> و فایل Release باید <code>bluevpn-manager.zip</code> باشد.</p></div>';
+        echo '<p><strong>قرارداد Release:</strong> Tag باید مانند <code>bluevpn-manager-v1.2.2</code> و فایل Release باید <code>bluevpn-manager.zip</code> باشد.</p></div>';
         self::foot();
     }
 

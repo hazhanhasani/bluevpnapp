@@ -5,10 +5,14 @@ final class BlueVPN_Migration {
     const SETTINGS_OPTION = 'bluevpn_migration_settings';
     const STATE_OPTION = 'bluevpn_migration_state';
     const CRON_HOOK = 'bluevpn_migration_sync';
+    const AUTO_HOOK = 'bluevpn_migration_auto_runner';
     const DEFAULT_BATCH_SIZE = 250;
+    const AUTO_LOCK = 'bluevpn_migration_auto_lock';
 
     public static function init(): void {
         add_action(self::CRON_HOOK, [self::class, 'cron_sync']);
+        add_action(self::AUTO_HOOK, [self::class, 'auto_step']);
+        self::maybe_resume_auto();
     }
 
     public static function table_order(): array {
@@ -30,6 +34,7 @@ final class BlueVPN_Migration {
             'token_enc' => '',
             'verify_tls' => true,
             'batch_size' => self::DEFAULT_BATCH_SIZE,
+            'auto_migrate' => true,
             'auto_sync' => false,
         ], $raw);
     }
@@ -41,12 +46,14 @@ final class BlueVPN_Migration {
         $settings = [
             'source_url' => $source,
             'token_enc' => $plainToken !== '' ? BlueVPN_Utils::encrypt_secret($plainToken) : (string)$current['token_enc'],
-            'verify_tls' => !empty($input['verify_tls']),
-            'batch_size' => max(25, min(1000, (int)($input['batch_size'] ?? self::DEFAULT_BATCH_SIZE))),
-            'auto_sync' => !empty($input['auto_sync']),
+            'verify_tls' => array_key_exists('verify_tls', $input) ? !empty($input['verify_tls']) : !empty($current['verify_tls']),
+            'batch_size' => max(25, min(1000, (int)($input['batch_size'] ?? $current['batch_size'] ?? self::DEFAULT_BATCH_SIZE))),
+            'auto_migrate' => array_key_exists('auto_migrate', $input) ? !empty($input['auto_migrate']) : !empty($current['auto_migrate']),
+            'auto_sync' => array_key_exists('auto_sync', $input) ? !empty($input['auto_sync']) : !empty($current['auto_sync']),
         ];
         update_option(self::SETTINGS_OPTION, $settings, false);
         self::sync_cron_schedule($settings['auto_sync']);
+        self::sync_auto_schedule(!empty($settings['auto_migrate']));
     }
 
     public static function clear_token(): void {
@@ -81,11 +88,17 @@ final class BlueVPN_Migration {
             'source_schema_version' => '',
             'source_database_mode' => '',
             'source_counts' => [],
+            'source_primary_keys' => [],
             'last_manifest_at' => '',
             'last_run_at' => '',
             'last_error' => '',
             'initial_completed_at' => '',
             'last_full_sync_at' => '',
+            'auto_started_at' => '',
+            'auto_completed_at' => '',
+            'auto_last_message' => '',
+            'auto_retry_count' => 0,
+            'auto_resync_cycles' => 0,
             'tables' => $tables,
         ], $raw, ['tables' => $tables]);
     }
@@ -102,9 +115,11 @@ final class BlueVPN_Migration {
             'source_schema_version' => $keepManifest ? $old['source_schema_version'] : '',
             'source_database_mode' => $keepManifest ? $old['source_database_mode'] : '',
             'source_counts' => $keepManifest ? $old['source_counts'] : [],
+            'source_primary_keys' => $keepManifest ? ($old['source_primary_keys'] ?? []) : [],
             'last_manifest_at' => $keepManifest ? $old['last_manifest_at'] : '',
             'last_run_at' => '', 'last_error' => '', 'initial_completed_at' => '',
-            'last_full_sync_at' => '', 'tables' => [],
+            'last_full_sync_at' => '', 'auto_started_at' => '', 'auto_completed_at' => '',
+            'auto_last_message' => '', 'auto_retry_count' => 0, 'auto_resync_cycles' => 0, 'tables' => [],
         ];
         self::save_state($state);
     }
@@ -121,6 +136,7 @@ final class BlueVPN_Migration {
         $state['source_schema_version'] = (string)($result['schema_version'] ?? '');
         $state['source_database_mode'] = (string)($result['database_mode'] ?? '');
         $state['source_counts'] = is_array($result['table_counts'] ?? null) ? $result['table_counts'] : [];
+        $state['source_primary_keys'] = is_array($result['primary_keys'] ?? null) ? $result['primary_keys'] : [];
         $state['last_manifest_at'] = BlueVPN_Utils::iso_now();
         foreach ($state['tables'] as $name => &$row) {
             if (array_key_exists($name, $state['source_counts'])) $row['source_count'] = (int)$state['source_counts'][$name];
@@ -183,10 +199,16 @@ final class BlueVPN_Migration {
         return ['success' => !$errors, 'complete' => false, 'batches' => $batches, 'rows_imported' => $rowsImported, 'errors' => $errors];
     }
 
-    public static function start_resync(): void {
+    public static function start_resync(bool $incremental = true): void {
         $state = self::state();
-        foreach ($state['tables'] as &$row) {
-            $row['cursor'] = '';
+        foreach ($state['tables'] as $name => &$row) {
+            // ai_connection_events is append-only and can be very large. Resume from the
+            // highest local primary key instead of retransferring the entire history.
+            if ($incremental && $name === 'ai_connection_events') {
+                $row['cursor'] = self::local_max_primary_key($name, $state);
+            } else {
+                $row['cursor'] = '';
+            }
             $row['imported'] = 0;
             $row['done'] = false;
             $row['last_error'] = '';
@@ -194,8 +216,20 @@ final class BlueVPN_Migration {
         unset($row);
         $state['phase'] = 'resyncing';
         $state['last_error'] = '';
+        $state['auto_resync_cycles'] = (int)($state['auto_resync_cycles'] ?? 0) + 1;
         self::save_state($state);
         update_option('bluevpn_manager_cutover_ready', '0', false);
+    }
+
+    private static function local_max_primary_key(string $logicalTable, array $state): string {
+        global $wpdb;
+        $pk = (string)(($state['source_primary_keys'][$logicalTable] ?? '') ?: 'id');
+        if (!preg_match('/^[A-Za-z0-9_]+$/', $pk)) return '';
+        $table = BlueVPN_DB::table($logicalTable);
+        $columns = $wpdb->get_col("SHOW COLUMNS FROM {$table}", 0);
+        if (!is_array($columns) || !in_array($pk, $columns, true)) return '';
+        $max = $wpdb->get_var("SELECT MAX(`{$pk}`) FROM {$table}");
+        return $max === null ? '' : (string)$max;
     }
 
     public static function compare_counts(): array {
@@ -224,7 +258,13 @@ final class BlueVPN_Migration {
     private static function import_batch(string $table, string $cursor) {
         if (!in_array($table, self::table_order(), true)) return new WP_Error('invalid_table', 'جدول مهاجرت معتبر نیست.');
         $settings = self::settings();
-        $effectiveLimit = $table === 'ad_assets' ? min(5, (int)$settings['batch_size']) : (int)$settings['batch_size'];
+        if ($table === 'ad_assets') {
+            $effectiveLimit = min(5, (int)$settings['batch_size']);
+        } elseif ($table === 'ai_connection_events') {
+            $effectiveLimit = 1000;
+        } else {
+            $effectiveLimit = (int)$settings['batch_size'];
+        }
         $query = ['limit' => $effectiveLimit];
         if ($cursor !== '') $query['after'] = $cursor;
         $path = '/internal/migration/v1/export/' . rawurlencode($table) . '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
@@ -243,7 +283,13 @@ final class BlueVPN_Migration {
             $imported++;
         }
         $state = self::state();
-        $state['tables'][$table]['cursor'] = (string)($payload['next_cursor'] ?? '');
+        $nextCursor = (string)($payload['next_cursor'] ?? '');
+        if ($nextCursor === '' && $rows) {
+            $pk = (string)($payload['primary_key'] ?? 'id');
+            $last = end($rows);
+            if (is_array($last) && array_key_exists($pk, $last)) $nextCursor = (string)$last[$pk];
+        }
+        $state['tables'][$table]['cursor'] = $nextCursor;
         $state['tables'][$table]['imported'] = (int)$state['tables'][$table]['imported'] + $imported;
         $state['tables'][$table]['done'] = !empty($payload['done']);
         $state['tables'][$table]['last_error'] = '';
@@ -342,11 +388,145 @@ final class BlueVPN_Migration {
         if ($enabled && !$timestamp) wp_schedule_event(time() + 120, 'bluevpn_five_minutes', self::CRON_HOOK);
     }
 
+    public static function sync_auto_schedule(bool $enabled): void {
+        $timestamp = wp_next_scheduled(self::AUTO_HOOK);
+        if (!$enabled && $timestamp) {
+            wp_unschedule_event($timestamp, self::AUTO_HOOK);
+            return;
+        }
+        if ($enabled && !$timestamp) {
+            wp_schedule_event(time(), 'bluevpn_one_minute', self::AUTO_HOOK);
+        }
+    }
+
+    public static function start_auto(): void {
+        $settings = self::settings();
+        $settings['auto_migrate'] = true;
+        update_option(self::SETTINGS_OPTION, $settings, false);
+        $state = self::state();
+        if (empty($state['auto_started_at'])) $state['auto_started_at'] = BlueVPN_Utils::iso_now();
+        $state['auto_completed_at'] = '';
+        $state['auto_last_message'] = 'انتقال خودکار فعال شد.';
+        $state['auto_retry_count'] = 0;
+        self::save_state($state);
+        self::sync_auto_schedule(true);
+        if (function_exists('spawn_cron')) spawn_cron(time());
+    }
+
+    public static function stop_auto(): void {
+        $settings = self::settings();
+        $settings['auto_migrate'] = false;
+        update_option(self::SETTINGS_OPTION, $settings, false);
+        self::sync_auto_schedule(false);
+        $state = self::state();
+        $state['auto_last_message'] = 'انتقال خودکار متوقف شد.';
+        self::save_state($state);
+    }
+
+    private static function maybe_resume_auto(): void {
+        $settings = self::settings();
+        if (empty($settings['auto_migrate']) || empty($settings['source_url']) || !self::has_token()) return;
+        $state = self::state();
+        $hasProgress = !empty($state['source_counts']) && $state['phase'] !== 'not_started';
+        if ($hasProgress && $state['phase'] !== 'ready_for_cutover') self::sync_auto_schedule(true);
+    }
+
+    public static function auto_step(): void {
+        $settings = self::settings();
+        if (empty($settings['auto_migrate']) || empty($settings['source_url']) || !self::has_token()) return;
+        if (get_transient(self::AUTO_LOCK)) return;
+        set_transient(self::AUTO_LOCK, '1', 55);
+        try {
+            $state = self::state();
+            if (empty($state['auto_started_at'])) {
+                $state['auto_started_at'] = BlueVPN_Utils::iso_now();
+                self::save_state($state);
+            }
+
+            if ($state['phase'] === 'not_started') {
+                $manifest = self::refresh_manifest();
+                if (is_wp_error($manifest)) {
+                    self::auto_error($manifest->get_error_message());
+                    return;
+                }
+            }
+
+            $state = self::state();
+            if ($state['phase'] === 'initial_complete') {
+                $manifest = self::refresh_manifest();
+                if (is_wp_error($manifest)) {
+                    self::auto_error($manifest->get_error_message());
+                    return;
+                }
+                self::start_resync(true);
+                $state = self::state();
+                $state['auto_last_message'] = 'انتقال اولیه تمام شد؛ Resync نهایی خودکار شروع شد.';
+                self::save_state($state);
+            }
+
+            if ($state['phase'] === 'sync_complete') {
+                $manifest = self::refresh_manifest();
+                if (is_wp_error($manifest)) {
+                    self::auto_error($manifest->get_error_message());
+                    return;
+                }
+                $comparison = self::compare_counts();
+                $mismatches = array_filter($comparison, static fn($row) => empty($row['match']));
+                if (!$mismatches) {
+                    self::mark_cutover_ready(true);
+                    $state = self::state();
+                    $state['phase'] = 'ready_for_cutover';
+                    $state['auto_completed_at'] = BlueVPN_Utils::iso_now();
+                    $state['auto_last_message'] = 'همه جدول‌ها برابر شدند؛ آماده Cutover است.';
+                    $state['auto_retry_count'] = 0;
+                    self::save_state($state);
+                    self::sync_auto_schedule(false);
+                    return;
+                }
+                self::start_resync(true);
+                $state = self::state();
+                $state['auto_last_message'] = count($mismatches).' جدول هنوز اختلاف دارد؛ Resync خودکار ادامه دارد.';
+                self::save_state($state);
+            }
+
+            $result = self::run(20);
+            if (empty($result['success'])) {
+                $errors = $result['errors'] ?? [];
+                self::auto_error($errors ? implode(' | ', $errors) : 'خطای نامشخص در انتقال خودکار');
+                return;
+            }
+
+            $state = self::state();
+            $state['auto_retry_count'] = 0;
+            $state['auto_last_message'] = !empty($result['complete'])
+                ? 'یک مرحله انتقال کامل شد؛ مرحله بعد خودکار اجرا می‌شود.'
+                : ((int)$result['rows_imported'].' رکورد در این اجرای خودکار منتقل شد.');
+            self::save_state($state);
+        } finally {
+            delete_transient(self::AUTO_LOCK);
+        }
+    }
+
+    private static function auto_error(string $message): void {
+        $state = self::state();
+        $state['auto_retry_count'] = min(20, (int)($state['auto_retry_count'] ?? 0) + 1);
+        $state['auto_last_message'] = 'Retry خودکار: '.$message;
+        $state['last_error'] = $message;
+        self::save_state($state);
+    }
+
     public static function cron_sync(): void {
         $settings = self::settings();
         if (empty($settings['auto_sync'])) return;
         $state = self::state();
-        if (in_array($state['phase'], ['initial_complete', 'sync_complete'], true)) self::start_resync();
-        self::run(4);
+        if ($state['phase'] !== 'ready_for_cutover') return; // initial migration is handled by AUTO_HOOK
+        $manifest = self::refresh_manifest();
+        if (is_wp_error($manifest)) {
+            self::auto_error($manifest->get_error_message());
+            return;
+        }
+        self::start_resync(true);
+        self::sync_auto_schedule(true); // let the one-minute runner finish the dual-sync cycle
+        self::run(6);
     }
 }

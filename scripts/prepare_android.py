@@ -59,16 +59,28 @@ def patch_build_gradle() -> None:
     field = '\n        buildConfigField("String", "BLUEVPN_API_BASE_URL", "\\"' + api_value + '\\"")'
     if "BLUEVPN_API_BASE_URL" not in text:
         text = text.replace(marker, marker + field, 1)
-    tapsell_dependency = 'implementation("ir.tapsell.plus:tapsell-plus-sdk-android:2.3.3")'
-    if tapsell_dependency not in text:
-        dependencies_marker = "dependencies {"
-        if dependencies_marker not in text:
-            raise RuntimeError("Gradle dependencies block not found")
-        text = text.replace(
-            dependencies_marker,
-            dependencies_marker + "\n    " + tapsell_dependency,
-            1,
-        )
+    dependencies_marker = "dependencies {"
+    if dependencies_marker not in text:
+        raise RuntimeError("Gradle dependencies block not found")
+
+    # Tapsell Plus adds a sizeable dependency graph. In the generated v2rayNG 2.2.6
+    # app this can leave WorkManager's RemoteWorkManager API visible while the
+    # com.google.common.util.concurrent.ListenableFuture class is absent from the
+    # Kotlin compile classpath. RemoteWorkManager exposes ListenableFuture directly
+    # in cancel/enqueue signatures, so keep the Android Guava artifact explicit.
+    # Using full Guava is intentional: forcing listenablefuture:1.0 can conflict with
+    # Guava's 9999.0 empty compatibility artifact when another SDK brings Guava.
+    required_dependencies = (
+        'implementation("com.google.guava:guava:33.6.0-android")',
+        'implementation("ir.tapsell.plus:tapsell-plus-sdk-android:2.3.3")',
+    )
+    for dependency in required_dependencies:
+        if dependency not in text:
+            text = text.replace(
+                dependencies_marker,
+                dependencies_marker + "\n    " + dependency,
+                1,
+            )
     path.write_text(text, encoding="utf-8")
 
     # The integration uses a defensive reflection boundary so vendor SDK

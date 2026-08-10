@@ -3,9 +3,9 @@
   "version_code": 30081,
   "feature": "selection-ownership-rotation",
   "tests": {
-    "passed": 321,
+    "passed": 35,
     "failed": 0,
-    "warnings": 40
+    "warnings": 1
   },
   "dual_engine": {
     "status": "passed",
@@ -120,6 +120,15 @@
     "fail_open": true,
     "admin_config": true
   },
-  "project_version": "3.0.81",
-  "release": "3.0.81"
+  "build_129_fix": {
+    "status": "passed",
+    "stage": "gradle-compile",
+    "error": "missing com.google.common.util.concurrent.ListenableFuture",
+    "provider": "com.google.guava:guava:33.6.0-android",
+    "upstream_api": "androidx.work.multiprocess.RemoteWorkManager",
+    "tests_passed": 323,
+    "architecture_checks_passed": 35,
+    "generated_android_validation": true,
+    "full_gradle_build": "delegated to GitHub Actions"
+  }
 }

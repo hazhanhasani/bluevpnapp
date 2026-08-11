@@ -83,7 +83,7 @@ jobs:
 
           # Keep every version declaration synchronized.
           sed -Ei "s/^( \* Version: )[0-9][0-9A-Za-z.+-]*/\\1$NEXT/" "$FILE"
-          sed -Ei "s/^(define\('BLUEVPN_MANAGER_VERSION', ')[^']+(');)/\\1$NEXT\\2/" "$FILE"
+          sed -Ei "s/^(define\('BLUEVPN_MANAGER_VERSION', ')[^']+('\);)/\\1$NEXT\\2/" "$FILE"
           if [ -f "$README" ]; then
             sed -Ei "s/^(Version: )[0-9][0-9A-Za-z.+-]*/\\1$NEXT/" "$README"
           fi

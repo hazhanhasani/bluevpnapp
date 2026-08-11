@@ -1,23 +1,3 @@
-BlueVPN Force Marzban Source 1.0.15
-
-این ZIP را مستقیم برای ربات Deploy ارسال کن.
-
-اصلاح اصلی:
-- ترمیم و ساخت کاربر Marzban قبل از هر پاسخ لینک اشتراک
-- اتصال خودکار تنها Marzban فعال به پلن‌های قدیمی
-- خواندن لینک‌های مستقیم API Marzban
-- شمارش جداگانه کانفیگ PasarGuard و Marzban
-- دکمه «بررسی تعداد منابع» داخل مدیریت کاربران
-- رفع 403 شروع Build با Commit خالی و Push روی main
-- Android Version: 1.0.15
-- Version Code: 29
-- Build ID: 20260804115227
-
-بعد از Deploy:
-مدیریت → کاربران → بررسی تعداد منابع
-
-نتیجه باید مانند این باشد:
-PasarGuard: 18، Marzban: عدد بزرگ‌تر از صفر، مجموع: بیشتر از 18
-
-ربات قدیمی ممکن است هنگام ثبت همین ZIP یک بار دیگر 403 بدهد.
-پس از Deploy شدن Railway، دکمه «ساخت دوباره» را بزن.
+این فایل خطای مرحله Calculate next plugin version را رفع می‌کند.
+مسیر فایل را دقیقاً با .github/workflows/bluevpn-manager-release.yml در مخزن جایگزین کنید.
+بعد از Commit، Workflow باید از 1.2.2 به 1.2.3 افزایش نسخه دهد و Release جدید بسازد.

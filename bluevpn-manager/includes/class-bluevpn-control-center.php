@@ -3,7 +3,7 @@ if (!defined('ABSPATH')) exit;
 
 final class BlueVPN_Control_Center {
     private const TABS=[
-        'overview'=>'نمای کلی','blueai'=>'BlueAI','ads'=>'تبلیغات','free'=>'اتصال رایگان','database'=>'دیتابیس','panels'=>'PasarGuard','marzban'=>'Marzban','guardcore'=>'GuardCore','guardcore-manual'=>'صف GuardCore','plans'=>'پلن‌ها','bluepay'=>'BluePay','manual'=>'فعال‌سازی دستی','customers'=>'کاربران','orders'=>'پرداخت‌ها','app'=>'اپ و آپدیت','sms'=>'SMS / OTP'
+        'overview'=>'نمای کلی','blueai'=>'BlueAI','ads'=>'تبلیغات','free'=>'اتصال رایگان','database'=>'دیتابیس','production'=>'سلامت و Backup','panels'=>'PasarGuard','marzban'=>'Marzban','guardcore'=>'GuardCore','guardcore-manual'=>'صف GuardCore','plans'=>'پلن‌ها','bluepay'=>'BluePay','manual'=>'فعال‌سازی دستی','customers'=>'کاربران','orders'=>'پرداخت‌ها','app'=>'اپ و آپدیت','sms'=>'SMS / OTP'
     ];
     private const PAGE_SLUGS=[
         'overview'=>'bluevpn-manager',
@@ -11,6 +11,7 @@ final class BlueVPN_Control_Center {
         'ads'=>'bluevpn-ads',
         'free'=>'bluevpn-free-access',
         'database'=>'bluevpn-database',
+        'production'=>'bluevpn-production',
         'panels'=>'bluevpn-pasarguard',
         'marzban'=>'bluevpn-marzban',
         'guardcore'=>'bluevpn-guardcore',
@@ -28,6 +29,9 @@ final class BlueVPN_Control_Center {
             'bluevpn_cc_save_provider'=>'save_provider','bluevpn_cc_toggle_provider'=>'toggle_provider','bluevpn_cc_test_provider'=>'test_provider',
             'bluevpn_cc_save_payment'=>'save_payment','bluevpn_cc_save_sms'=>'save_sms','bluevpn_cc_save_sms_templates'=>'save_sms_templates','bluevpn_cc_test_sms_template'=>'test_sms_template','bluevpn_cc_process_sms'=>'process_sms','bluevpn_cc_broadcast_sms'=>'broadcast_sms','bluevpn_cc_retry_sms'=>'retry_sms','bluevpn_cc_sync_customer'=>'sync_customer','bluevpn_cc_save_plan_routing'=>'save_plan_routing',
             'bluevpn_cc_manual_activate'=>'manual_activate','bluevpn_cc_attach_guardcore'=>'attach_guardcore','bluevpn_cc_export_backup'=>'export_backup',
+            'bluevpn_cc_create_private_backup'=>'create_private_backup','bluevpn_cc_restore_backup'=>'restore_backup','bluevpn_cc_finalize_cutover'=>'finalize_cutover',
+            'bluevpn_cc_save_plan'=>'save_plan','bluevpn_cc_delete_plan'=>'delete_plan','bluevpn_cc_restore_plan'=>'restore_plan',
+            'bluevpn_cc_revoke_device'=>'revoke_device','bluevpn_cc_revoke_session'=>'revoke_session','bluevpn_cc_logout_customer'=>'logout_customer','bluevpn_cc_set_customer_status'=>'set_customer_status',
             'bluevpn_cc_save_app_update_policy'=>'save_app_update_policy','bluevpn_cc_sync_app_release'=>'sync_app_release'
         ] as $hook=>$method)add_action('admin_post_'.$hook,[self::class,$method]);
     }
@@ -77,6 +81,27 @@ final class BlueVPN_Control_Center {
         $s=BlueVPN_DB::status();$counts=BlueVPN_DB::counts();echo '<div class="bvc-grid"><div class="bvc-card"><h3>وضعیت</h3><p class="'.($s['ready']?'bvc-ok':'bvc-bad').'">'.($s['ready']?'✅ آماده':'❌ ناقص').'</p><small>MySQL '.self::esc($s['mysql_version']).'</small></div><div class="bvc-card"><h3>Schema</h3><strong>'.self::esc($s['schema_version']).'</strong></div><div class="bvc-card"><h3>Cutover</h3><strong>'.(get_option('bluevpn_manager_cutover_ready','0')==='1'?'آماده':'ناآماده').'</strong></div></div>';
         echo '<div class="bvc-card"><div class="bvc-actions"><a class="button" href="'.esc_url(admin_url('admin.php?page=bluevpn-migration')).'">ابزار مهاجرت</a><a class="button button-primary" href="'.esc_url(wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_export_backup'),'bluevpn_cc_export_backup')).'">دانلود Backup JSON</a></div></div><table class="widefat striped bvc-table"><tr><th>جدول</th><th>تعداد</th></tr>';foreach($counts as $k=>$v)echo '<tr><td><code>'.self::esc($k).'</code></td><td>'.number_format((int)$v).'</td></tr>';echo '</table>';
     }
+    private static function tab_production(): void {
+        $health=BlueVPN_Production::health_summary();$backup=BlueVPN_Production::backup_status();$restore=BlueVPN_Production::restore_status();$finalized=get_option('bluevpn_manager_legacy_bridge_disabled','0')==='1';
+        echo '<div class="bvc-grid">';
+        echo '<div class="bvc-card bvc-kpi"><span>Production Health</span><strong>'.(int)$health['score'].'%</strong><small>'.(!empty($health['ok'])?'همه بررسی‌ها سبز است':'چند مورد نیازمند توجه است').'</small></div>';
+        echo '<div class="bvc-card"><h3>Backup خودکار</h3><p class="'.(!empty($backup['ok'])?'bvc-ok':'bvc-warn').'">'.(!empty($backup['ok'])?'فعال و سالم':'هنوز Backup سالم ثبت نشده').'</p><small>'.self::esc($backup['created_at']??'—').'</small></div>';
+        echo '<div class="bvc-card"><h3>Restore</h3><p class="'.(!empty($restore['ok'])?'bvc-ok':'bvc-warn').'">'.(!empty($restore['ok'])?'آخرین Restore موفق':'Restore اجرا نشده یا آخرین اجرا ناموفق بوده').'</p><small>'.self::esc($restore['at']??'—').'</small></div>';
+        echo '<div class="bvc-card"><h3>Railway Bridge</h3><p class="'.($finalized?'bvc-ok':'bvc-warn').'">'.($finalized?'خاموش و نهایی شده':'هنوز برای Recovery نگه داشته شده').'</p></div>';
+        echo '</div>';
+        echo '<div class="bvc-card"><h2>بررسی‌های سلامت</h2><table class="widefat striped bvc-table"><tr><th>بخش</th><th>وضعیت</th><th>جزئیات</th></tr>';
+        $labels=['database'=>'دیتابیس','sms_queue'=>'صف SMS','payments'=>'پرداخت‌ها','backup'=>'Backup','cron'=>'Cron','cutover'=>'Cutover اپ','providers'=>'Providerها'];
+        foreach($health['checks'] as $key=>$row)echo '<tr><td>'.self::esc($labels[$key]??$key).'</td><td class="'.(!empty($row['ok'])?'bvc-ok':'bvc-bad').'">'.(!empty($row['ok'])?'✅ سالم':'⚠️ نیازمند توجه').'</td><td>'.self::esc($row['message']??'').'</td></tr>';
+        echo '</table></div>';
+        echo '<div class="bvc-grid"><div class="bvc-card"><h2>Backup خصوصی</h2><p>روزانه یک Snapshot از تمام جدول‌های BlueVPN ساخته می‌شود و ۷ نسخه اخیر نگه داشته می‌شود. قبل از هر Restore هم یک Backup خودکار گرفته می‌شود.</p>';
+        if(!empty($backup['filename']))echo '<p><code>'.self::esc($backup['filename']).'</code><br><small>'.number_format((int)($backup['size']??0)).' bytes</small></p>';
+        echo '<div class="bvc-actions"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_create_private_backup');echo '<input type="hidden" name="action" value="bluevpn_cc_create_private_backup"><button class="button button-primary">ساخت Backup همین حالا</button></form><a class="button" href="'.esc_url(wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_export_backup'),'bluevpn_cc_export_backup')).'">دانلود Export JSON</a></div></div>';
+        echo '<div class="bvc-card bvc-danger"><h2>Restore واقعی</h2><p>Restore تمام رکوردهای موجود در فایل را روی MySQL برمی‌گرداند. قبل از اجرا Snapshot فعلی خودکار ذخیره می‌شود.</p><form method="post" enctype="multipart/form-data" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_restore_backup');echo '<input type="hidden" name="action" value="bluevpn_cc_restore_backup"><p><input type="file" name="backup_file" accept="application/json,.json" required></p><p><label>برای تأیید بنویس <code>RESTORE BLUEVPN</code><input style="width:100%" name="confirm" required></label></p><button class="button button-primary">اعتبارسنجی و Restore</button></form></div></div>';
+        if(!$finalized){
+            echo '<div class="bvc-card bvc-danger"><h2>نهایی‌کردن انتقال از Railway</h2><p>فقط وقتی اپ روی WordPress تست شده و Cutover سبز است اجرا کن. این عملیات قبل از خاموش‌کردن Bridge یک Backup خصوصی می‌سازد، Cron مهاجرت را متوقف و Migration Token را پاک می‌کند.</p><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_finalize_cutover');echo '<input type="hidden" name="action" value="bluevpn_cc_finalize_cutover"><label><input type="checkbox" name="confirmed" value="1" required> تأیید می‌کنم اپ از WordPress/MySQL استفاده می‌کند.</label><p><button class="button">نهایی‌کردن Production Cutover</button></p></form></div>';
+        }
+    }
+
     private static function provider_tab(string $provider): void {
         global $wpdb;$maps=['pasarguard'=>['pasarguard_panels','PasarGuard'],'marzban'=>['marzban_panels','Marzban'],'guardcore'=>['guardcore_panels','GuardCore']];[$table,$title]=$maps[$provider];$t=BlueVPN_DB::table($table);$rows=$wpdb->get_results("SELECT * FROM {$t} ORDER BY id DESC",ARRAY_A);$edit=(int)($_GET['edit']??0);$current=$edit?$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%d",$edit),ARRAY_A):[];
         echo '<div class="bvc-card"><h2>'.self::esc($title).' — افزودن / ویرایش</h2><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_provider');echo '<input type="hidden" name="action" value="bluevpn_cc_save_provider"><input type="hidden" name="provider" value="'.self::esc($provider).'"><input type="hidden" name="id" value="'.(int)$edit.'"><div class="bvc-form-grid">';
@@ -104,6 +129,7 @@ final class BlueVPN_Control_Center {
         $mzRows=$wpdb->get_results("SELECT id,name,active FROM {$mz} ORDER BY name,id",ARRAY_A);
         $gcRows=$wpdb->get_results("SELECT id,name,auth_mode,active,services_json FROM {$gc} ORDER BY name,id",ARRAY_A);
         $rows=$wpdb->get_results("SELECT p.*,pg.name pg_name,mz.name mz_name,gc.name gc_name,gc.auth_mode gc_auth_mode FROM {$p} p LEFT JOIN {$pg} pg ON pg.id=p.panel_id LEFT JOIN {$mz} mz ON mz.id=p.marzban_panel_id LEFT JOIN {$gc} gc ON gc.id=p.guardcore_panel_id WHERE p.deleted=0 ORDER BY p.sort_order,p.id",ARRAY_A);
+        $deletedRows=$wpdb->get_results("SELECT id,title,deleted_at FROM {$p} WHERE deleted=1 ORDER BY deleted_at DESC,id DESC LIMIT 50",ARRAY_A)?:[];
 
         $select=function(string $name,array $items,$current=0,string $none='بدون Provider'){
             echo '<select name="'.esc_attr($name).'"><option value="0">'.esc_html($none).'</option>';
@@ -154,11 +180,10 @@ final class BlueVPN_Control_Center {
         echo '</form></div></details>';
 
         if(!$rows){
-            echo '<div class="bvc-empty-state"><strong>هنوز پلنی ساخته نشده است.</strong><span>از «پلن جدید» شروع کن.</span></div>';
-            return;
+            echo '<div class="bvc-empty-state"><strong>پلن فعالی در لیست وجود ندارد.</strong><span>از «پلن جدید» شروع کن یا یک پلن حذف‌شده را بازیابی کن.</span></div>';
         }
 
-        echo '<div class="bvc-plan-list">';
+        if($rows) echo '<div class="bvc-plan-list">';
         foreach($rows as $x){
             $id=(int)$x['id'];
             $toggle=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_toggle_plan&id='.$id),'bluevpn_toggle_plan_'.$id);
@@ -209,13 +234,37 @@ final class BlueVPN_Control_Center {
             echo '<div class="bvc-form-actions"><button class="button button-primary">ذخیره مسیر</button></div>';
             echo '</form></div></details>';
 
+            echo '<details class="bvc-plan-routing"><summary><span>ویرایش کامل پلن</span><span class="bvc-summary-chevron">⌄</span></summary><div class="bvc-plan-routing-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+            wp_nonce_field('bluevpn_cc_save_plan_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_save_plan"><input type="hidden" name="plan_id" value="'.$id.'">';
+            echo '<div class="bvc-form-grid">';
+            echo '<label>عنوان<input name="title" value="'.esc_attr((string)$x['title']).'" required></label>';
+            echo '<label>قیمت تومان<input type="number" min="0" name="price_toman" value="'.(int)$x['price_toman'].'" required></label>';
+            echo '<label>اعتبار روز<input type="number" min="0" max="3650" name="duration_days" value="'.(int)$x['duration_days'].'" required></label>';
+            echo '<label>حجم GB<input type="number" min="0" name="data_limit_gb" value="'.(int)$x['data_limit_gb'].'"></label>';
+            echo '<label>تعداد دستگاه<input type="number" min="1" max="20" name="device_limit" value="'.(int)$x['device_limit'].'"></label>';
+            echo '<label>ترتیب<input type="number" name="sort_order" value="'.(int)$x['sort_order'].'"></label>';
+            echo '<label>PasarGuard';$select('panel_id',$pgRows,(int)$x['panel_id']);echo '</label>';
+            echo '<label>Marzban';$select('marzban_panel_id',$mzRows,(int)$x['marzban_panel_id']);echo '</label>';
+            echo '<label>GuardCore';$select('guardcore_panel_id',$gcRows,(int)$x['guardcore_panel_id']);echo '</label>';
+            echo '<label>اعمال حجم<select name="multi_provider_quota_mode"><option value="split" '.selected($quotaMode,'split',false).'>Split</option><option value="full" '.selected($quotaMode,'full',false).'>Full</option></select></label>';
+            echo '<label>PasarGuard Group IDs<input name="group_ids" value="'.esc_attr($groups).'"></label><label>GuardCore Service IDs<input name="guardcore_service_ids" value="'.esc_attr($serviceIds).'"></label>';
+            echo '<label><input type="checkbox" name="active" value="1" '.checked($active,true,false).'> فعال</label>';
+            echo '<label style="grid-column:1/-1">توضیحات<textarea name="description" rows="3">'.esc_textarea((string)$x['description']).'</textarea></label>';
+            echo '</div><div class="bvc-form-actions"><button class="button button-primary">ذخیره همه تغییرات</button></div></form></div></details>';
+
             echo '<footer class="bvc-plan-footer">';
             echo '<span class="bvc-plan-order">ترتیب نمایش: '.(int)$x['sort_order'].'</span>';
             echo '<a class="button '.($active?'button-link-delete':'').'" href="'.esc_url($toggle).'">'.($active?'غیرفعال‌کردن':'فعال‌کردن').'</a>';
+            echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" onsubmit="return confirm(&quot;پلن حذف نرم شود؟&quot;)">';wp_nonce_field('bluevpn_cc_delete_plan_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_delete_plan"><input type="hidden" name="plan_id" value="'.$id.'"><button class="button button-link-delete">حذف نرم</button></form>';
             echo '</footer>';
             echo '</article>';
         }
-        echo '</div>';
+        if($rows) echo '</div>';
+        if($deletedRows){
+            echo '<div class="bvc-card"><h2>پلن‌های حذف‌شده</h2><table class="widefat striped bvc-table"><tr><th>ID</th><th>عنوان</th><th>زمان حذف</th><th>عملیات</th></tr>';
+            foreach($deletedRows as $d){$did=(int)$d['id'];echo '<tr><td>#'.$did.'</td><td>'.self::esc($d['title']).'</td><td>'.self::esc($d['deleted_at']).'</td><td><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_restore_plan_'.$did);echo '<input type="hidden" name="action" value="bluevpn_cc_restore_plan"><input type="hidden" name="plan_id" value="'.$did.'"><button class="button">بازیابی</button></form></td></tr>';}
+            echo '</table></div>';
+        }
     }
 
     private static function tab_bluepay(): void {
@@ -227,9 +276,36 @@ final class BlueVPN_Control_Center {
         echo '<div class="bvc-card"><h2>فعال‌سازی / تمدید دستی روی Providerها</h2><div class="bvc-note">این عملیات از تنظیمات همان پلن استفاده می‌کند و PasarGuard/Marzban را مستقیم Provision می‌کند. GuardCore Manual وارد صف می‌شود.</div><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_manual_activate');echo '<input type="hidden" name="action" value="bluevpn_cc_manual_activate"><div class="bvc-form-grid"><label>کاربر<select name="customer_id" required><option value="">انتخاب…</option>';foreach($customers as $c)echo '<option value="'.(int)$c['id'].'">#'.(int)$c['id'].' '.self::esc($c['phone']?:$c['email']).' — '.self::esc($c['subscription_status']).'</option>';echo '</select></label><label>پلن<select name="plan_id" required><option value="">انتخاب…</option>';foreach($plans as $p)echo '<option value="'.(int)$p['id'].'">#'.(int)$p['id'].' '.self::esc($p['title']).'</option>';echo '</select></label></div>';submit_button('فعال‌سازی / تمدید','primary','submit',false);echo '</form></div>';
     }
     private static function tab_customers(): void {
-        global $wpdb;$t=BlueVPN_DB::table('customers');$q=sanitize_text_field(wp_unslash($_GET['q']??''));$where='1=1';if($q!==''){$like='%'.$wpdb->esc_like($q).'%';$where=$wpdb->prepare('(email LIKE %s OR phone LIKE %s OR pg_username LIKE %s OR marzban_username LIKE %s)',$like,$like,$like,$like);} $rows=$wpdb->get_results("SELECT * FROM {$t} WHERE {$where} ORDER BY id DESC LIMIT 250",ARRAY_A);
-        echo '<form method="get" class="bvc-card"><input type="hidden" name="page" value="bluevpn-manager"><input type="hidden" name="tab" value="customers"><input name="q" value="'.esc_attr($q).'" placeholder="ایمیل، موبایل، username"> <button class="button">جستجو</button></form><table class="widefat striped bvc-table"><tr><th>کاربر</th><th>اشتراک</th><th>مصرف</th><th>Provider</th><th>آخرین Sync</th><th>عملیات</th></tr>';foreach($rows as $x){$sync=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_sync_customer&customer_id='.(int)$x['id']),'bluevpn_cc_sync_customer_'.$x['id']);echo '<tr><td>#'.(int)$x['id'].'<br>'.self::esc($x['phone']?:$x['email']).'</td><td>'.self::esc($x['subscription_status']).'<br><small>'.self::esc($x['subscription_expire']).'</small></td><td>'.self::fmt_bytes($x['used_traffic_bytes']).' / '.self::fmt_bytes($x['data_limit_bytes']).'</td><td><small>PG '.self::esc($x['pg_username']).'<br>MZ '.self::esc($x['marzban_username']).'<br>GC '.self::esc($x['guardcore_status']).'</small></td><td>'.self::esc($x['last_sync_at']).'<br><small class="bvc-bad">'.self::esc($x['last_sync_error']).'</small></td><td><div class="bvc-actions"><a class="button" href="'.esc_url($sync).'">Sync</a><a class="button" href="'.esc_url(admin_url('admin.php?page=bluevpn-customers')).'">فعال/غیرفعال</a></div></td></tr>';}echo '</table>';
+        global $wpdb;
+        $detailId=max(0,(int)($_GET['customer_id']??0));
+        if($detailId>0){self::customer_detail($detailId);return;}
+        $t=BlueVPN_DB::table('customers');$q=sanitize_text_field(wp_unslash($_GET['q']??''));$where='1=1';if($q!==''){$like='%'.$wpdb->esc_like($q).'%';$where=$wpdb->prepare('(email LIKE %s OR phone LIKE %s OR pg_username LIKE %s OR marzban_username LIKE %s)',$like,$like,$like,$like);} $rows=$wpdb->get_results("SELECT * FROM {$t} WHERE {$where} ORDER BY id DESC LIMIT 250",ARRAY_A);
+        echo '<form method="get" class="bvc-card"><input type="hidden" name="page" value="bluevpn-customers"><input name="q" value="'.esc_attr($q).'" placeholder="ایمیل، موبایل، username"> <button class="button">جستجو</button></form><table class="widefat striped bvc-table"><tr><th>کاربر</th><th>اشتراک</th><th>مصرف</th><th>Provider</th><th>آخرین Sync</th><th>عملیات</th></tr>';
+        foreach($rows as $x){$sync=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_sync_customer&customer_id='.(int)$x['id']),'bluevpn_cc_sync_customer_'.$x['id']);$detail=self::url('customers',['customer_id'=>(int)$x['id']]);echo '<tr><td>#'.(int)$x['id'].'<br>'.self::esc($x['phone']?:$x['email']).'<br><small>'.self::esc($x['email']).'</small></td><td>'.self::esc($x['subscription_status']).'<br><small>'.self::esc($x['subscription_expire']).'</small></td><td>'.self::fmt_bytes($x['used_traffic_bytes']).' / '.self::fmt_bytes($x['data_limit_bytes']).'</td><td><small>PG '.self::esc($x['pg_username']).'<br>MZ '.self::esc($x['marzban_username']).'<br>GC '.self::esc($x['guardcore_status']).'</small></td><td>'.self::esc($x['last_sync_at']).'<br><small class="bvc-bad">'.self::esc($x['last_sync_error']).'</small></td><td><div class="bvc-actions"><a class="button button-primary" href="'.esc_url($detail).'">جزئیات</a><a class="button" href="'.esc_url($sync).'">Sync</a></div></td></tr>';}
+        echo '</table>';
     }
+
+    private static function customer_detail(int $customerId): void {
+        global $wpdb;$ct=BlueVPN_DB::table('customers');$pt=BlueVPN_DB::table('plans');$dt=BlueVPN_DB::table('customer_devices');$st=BlueVPN_DB::table('customer_sessions');$ot=BlueVPN_DB::table('orders');
+        $c=$wpdb->get_row($wpdb->prepare("SELECT c.*,p.title AS plan_title FROM {$ct} c LEFT JOIN {$pt} p ON p.id=c.plan_id WHERE c.id=%d LIMIT 1",$customerId),ARRAY_A);if(!$c){echo '<div class="notice notice-error"><p>کاربر پیدا نشد.</p></div>';return;}
+        $devices=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$dt} WHERE customer_id=%d ORDER BY last_seen_at DESC,id DESC",$customerId),ARRAY_A)?:[];
+        $sessions=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$st} WHERE customer_id=%d ORDER BY created_at DESC LIMIT 100",$customerId),ARRAY_A)?:[];
+        $orders=$wpdb->get_results($wpdb->prepare("SELECT o.*,p.title plan_title FROM {$ot} o LEFT JOIN {$pt} p ON p.id=o.plan_id WHERE o.customer_id=%d ORDER BY o.created_at DESC LIMIT 40",$customerId),ARRAY_A)?:[];
+        $plans=$wpdb->get_results("SELECT id,title FROM {$pt} WHERE active=1 AND deleted=0 ORDER BY sort_order,id",ARRAY_A)?:[];
+        $activeSessions=0;foreach($sessions as $ss)if(empty($ss['revoked_at'])&&!empty($ss['expires_at'])&&strtotime((string)$ss['expires_at'].' UTC')>time())$activeSessions++;
+        echo '<div class="bvc-actions" style="margin-bottom:12px"><a class="button" href="'.esc_url(self::url('customers')).'">← لیست کاربران</a></div>';
+        echo '<div class="bvc-grid"><div class="bvc-card"><h3>هویت</h3><strong>#'.(int)$c['id'].'</strong><p>'.self::esc($c['phone']?:'بدون موبایل').'<br>'.self::esc($c['email']?:'بدون ایمیل').'</p><small>روش ورود: '.self::esc($c['auth_method']).'</small></div><div class="bvc-card"><h3>اشتراک</h3><strong>'.self::esc($c['subscription_status']).'</strong><p>'.self::esc($c['plan_title']?:'بدون پلن').'</p><small>انقضا: '.self::esc($c['subscription_expire']).'</small></div><div class="bvc-card"><h3>دستگاه‌ها</h3><strong>'.number_format(count($devices)).'</strong><small>نشست فعال: '.number_format($activeSessions).' / سقف '.(int)$c['device_limit'].'</small></div><div class="bvc-card"><h3>مصرف</h3><strong>'.self::fmt_bytes($c['used_traffic_bytes']).'</strong><small>از '.self::fmt_bytes($c['data_limit_bytes']).'</small></div></div>';
+        echo '<div class="bvc-grid"><div class="bvc-card"><h2>وضعیت حساب</h2><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_set_customer_status_'.$customerId);echo '<input type="hidden" name="action" value="bluevpn_cc_set_customer_status"><input type="hidden" name="customer_id" value="'.$customerId.'"><label><input type="checkbox" name="active" value="1" '.checked((int)$c['active'],1,false).'> حساب فعال باشد</label><p><button class="button button-primary">ذخیره وضعیت</button></p></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_logout_customer_'.$customerId);echo '<input type="hidden" name="action" value="bluevpn_cc_logout_customer"><input type="hidden" name="customer_id" value="'.$customerId.'"><button class="button">خروج اجباری از همه نشست‌ها</button></form></div>';
+        echo '<div class="bvc-card"><h2>پلن / تمدید دستی</h2><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_manual_activate');echo '<input type="hidden" name="action" value="bluevpn_cc_manual_activate"><input type="hidden" name="customer_id" value="'.$customerId.'"><label>پلن<select name="plan_id" required><option value="">انتخاب…</option>';foreach($plans as $p)echo '<option value="'.(int)$p['id'].'" '.selected((int)$c['plan_id'],(int)$p['id'],false).'>'.self::esc($p['title']).'</option>';echo '</select></label><p><button class="button button-primary">فعال‌سازی / تمدید / تغییر پلن</button></p></form></div></div>';
+        echo '<div class="bvc-card"><h2>دستگاه‌ها</h2><table class="widefat striped bvc-table"><tr><th>دستگاه</th><th>وضعیت</th><th>اولین مشاهده</th><th>آخرین مشاهده</th><th>عملیات</th></tr>';
+        foreach($devices as $d){$hash=hash('sha256',(string)$d['device_id']);echo '<tr><td><strong>'.self::esc($d['device_name']?:'بدون نام').'</strong><br><code>'.self::esc($d['device_id']).'</code></td><td class="'.((int)$d['active']?'bvc-ok':'bvc-warn').'">'.((int)$d['active']?'فعال':'غیرفعال').'</td><td>'.self::esc($d['first_seen_at']).'</td><td>'.self::esc($d['last_seen_at']).'</td><td>';if((int)$d['active']){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_revoke_device_'.$customerId.'_'.$hash);echo '<input type="hidden" name="action" value="bluevpn_cc_revoke_device"><input type="hidden" name="customer_id" value="'.$customerId.'"><input type="hidden" name="device_id" value="'.esc_attr((string)$d['device_id']).'"><button class="button button-link-delete">قطع دستگاه</button></form>';}else echo '—';echo '</td></tr>';}
+        echo '</table></div>';
+        echo '<div class="bvc-card"><h2>نشست‌ها</h2><table class="widefat striped bvc-table"><tr><th>ID</th><th>Device ID</th><th>ساخته‌شده</th><th>آخرین استفاده</th><th>انقضا</th><th>وضعیت</th><th>عملیات</th></tr>';
+        foreach($sessions as $ss){$sid=(int)$ss['id'];$live=empty($ss['revoked_at'])&&!empty($ss['expires_at'])&&strtotime((string)$ss['expires_at'].' UTC')>time();echo '<tr><td>#'.$sid.'</td><td><code>'.self::esc($ss['device_id']).'</code></td><td>'.self::esc($ss['created_at']).'</td><td>'.self::esc($ss['last_seen_at']).'</td><td>'.self::esc($ss['expires_at']).'</td><td class="'.($live?'bvc-ok':'bvc-warn').'">'.($live?'فعال':'باطل/منقضی').'</td><td>';if($live){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_revoke_session_'.$customerId.'_'.$sid);echo '<input type="hidden" name="action" value="bluevpn_cc_revoke_session"><input type="hidden" name="customer_id" value="'.$customerId.'"><input type="hidden" name="session_id" value="'.$sid.'"><button class="button">ابطال نشست</button></form>';}else echo '—';echo '</td></tr>';}
+        echo '</table></div>';
+        echo '<div class="bvc-card"><h2>آخرین سفارش‌ها</h2><table class="widefat striped bvc-table"><tr><th>فاکتور</th><th>پلن</th><th>مبلغ</th><th>وضعیت</th><th>ایجاد</th><th>فعال‌سازی</th></tr>';foreach($orders as $o)echo '<tr><td><code>'.self::esc($o['order_code']).'</code></td><td>'.self::esc($o['plan_title']).'</td><td>'.number_format((int)$o['amount_toman']).'</td><td>'.self::esc($o['status']).'</td><td>'.self::esc($o['created_at']).'</td><td>'.self::esc($o['activated_at']).'</td></tr>';echo '</table></div>';
+    }
+
     private static function tab_orders(): void {
         global $wpdb;$o=BlueVPN_DB::table('orders');$c=BlueVPN_DB::table('customers');$p=BlueVPN_DB::table('plans');$rows=$wpdb->get_results("SELECT o.*,c.email,c.phone,p.title plan_title FROM {$o} o LEFT JOIN {$c} c ON c.id=o.customer_id LEFT JOIN {$p} p ON p.id=o.plan_id ORDER BY o.created_at DESC LIMIT 250",ARRAY_A);
         echo '<table class="widefat striped bvc-table"><tr><th>سفارش</th><th>کاربر</th><th>پلن</th><th>مبلغ</th><th>وضعیت</th><th>پرداخت</th><th>خطا</th><th>زمان</th></tr>';foreach($rows as $x)echo '<tr><td><code>'.self::esc($x['order_code']).'</code></td><td>'.self::esc($x['phone']?:$x['email']).'</td><td>'.self::esc($x['plan_title']).'</td><td>'.number_format((int)$x['amount_toman']).'</td><td>'.self::esc($x['status']).'</td><td><code>'.self::esc($x['payment_id']).'</code></td><td><small class="bvc-bad">'.self::esc($x['activation_error']).'</small></td><td>'.self::esc($x['created_at']).'</td></tr>';echo '</table>';
@@ -285,20 +361,20 @@ final class BlueVPN_Control_Center {
         BlueVPN_SMS_Notifications::seed_templates();
         $templates=BlueVPN_SMS_Notifications::templates();
         $d=BlueVPN_DB::table('sms_deliveries');
-        $recent=$wpdb->get_results("SELECT id,event_key,phone,status,attempts,max_attempts,last_error,created_at FROM {$d} ORDER BY created_at DESC LIMIT 100",ARRAY_A)?:[];
+        $recent=$wpdb->get_results("SELECT id,event_key,phone,status,attempts,max_attempts,provider_message_id,provider_delivery_status,provider_delivery_at,last_error,sent_at,created_at FROM {$d} ORDER BY created_at DESC LIMIT 100",ARRAY_A)?:[];
         $stats=[];foreach(['pending','retry','sending','sent','failed','skipped'] as $st)$stats[$st]=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$d} WHERE status=%s",$st));
         echo '<div class="bvc-grid"><div class="bvc-card bvc-kpi"><span>در صف</span><strong>'.number_format($stats['pending']+$stats['retry']+$stats['sending']).'</strong></div><div class="bvc-card bvc-kpi"><span>موفق</span><strong>'.number_format($stats['sent']).'</strong></div><div class="bvc-card bvc-kpi"><span>ناموفق</span><strong>'.number_format($stats['failed']).'</strong></div><div class="bvc-card bvc-kpi"><span>ردشده/غیرفعال</span><strong>'.number_format($stats['skipped']).'</strong></div></div>';
         echo '<div class="bvc-card"><h2>SMS / OTP</h2><p class="bvc-note">ارسال پیام‌های غیر OTP از این نسخه کاملاً روی WordPress/MySQL اجرا می‌شود؛ صف، Retry، بازیابی پیام‌های گیرکرده و پترن‌های بدون متغیر نیز پشتیبانی می‌شوند.</p><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_sms');echo '<input type="hidden" name="action" value="bluevpn_cc_save_sms"><div class="bvc-form-grid">';self::input('provider','Provider',$s['provider']??'iranpayamak');self::input('base_url','Base URL',$s['base_url']??'');self::input('api_key','API Key (خالی = حفظ)','',false,'password');self::input('from_number','شماره ارسال',$s['from_number']??'');self::input('pattern_code','Pattern ورود / OTP',$s['pattern_code']??'');self::input('parameter_name','نام پارامتر OTP',$s['parameter_name']??'code');echo '<label>طول OTP<input type="number" value="6" readonly disabled><small style="display:block;margin-top:5px">ورود BlueVPN همیشه ۶ رقمی است.</small></label><input type="hidden" name="otp_length" value="6">';self::input('otp_ttl_seconds','TTL ثانیه',$s['otp_ttl_seconds']??120,true,'number');self::input('resend_seconds','ارسال مجدد بعد از (ثانیه)',$s['resend_seconds']??60,true,'number');self::input('reminder_days','یادآوری روزهای باقی‌مانده',implode(',',BlueVPN_Utils::json_decode_array((string)($s['reminder_days_json']??'[3,2,1]'),[3,2,1])));self::input('low_volume_threshold_gb','هشدار حجم کمتر از GB',$s['low_volume_threshold_gb']??5,true,'number');self::input('retry_max_attempts','حداکثر تلاش ارسال',$s['retry_max_attempts']??3,true,'number');echo '<label><input type="checkbox" name="active" value="1" '.checked((int)($s['active']??0),1,false).'> OTP فعال</label><label><input type="checkbox" name="notification_active" value="1" '.checked((int)($s['notification_active']??0),1,false).'> اعلان‌ها فعال</label><label><input type="checkbox" name="verify_tls" value="1" '.checked(!isset($s['verify_tls'])||(int)$s['verify_tls']===1,true,false).'> بررسی TLS</label></div>';submit_button('ذخیره تنظیمات SMS','primary','submit',false);echo '</form></div>';
 
-        echo '<div class="bvc-card"><h2>پترن‌های پیام</h2><p>کد هر پترن را دقیقاً مطابق UID فعال ایران‌پیامک وارد کن. پیام‌هایی که فعال نیستند یا Pattern ندارند عمداً وارد صف نمی‌شوند.</p><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_sms_templates');echo '<input type="hidden" name="action" value="bluevpn_cc_save_sms_templates"><div class="table-wrap"><table class="widefat striped bvc-table"><tr><th>فعال</th><th>پیام</th><th>متغیرها</th><th>Pattern UID</th></tr>';
-        foreach($templates as $row){$vars=BlueVPN_Utils::json_decode_array((string)($row['variables_json']??'[]'),[]);$names=[];foreach($vars as $v)if(!empty($v['name']))$names[]='%'.$v['name'].'%';echo '<tr><td><input type="checkbox" name="enabled['.esc_attr($row['key']).']" value="1" '.checked((int)$row['enabled'],1,false).'></td><td><strong>'.self::esc($row['title']).'</strong><br><small>'.self::esc($row['category']).'</small></td><td><code>'.self::esc(implode(' ، ',$names)?:'بدون متغیر').'</code></td><td><input style="width:100%;min-width:220px" name="pattern['.esc_attr($row['key']).']" value="'.esc_attr((string)$row['pattern_code']).'" placeholder="Pattern UID"></td></tr>';}
+        echo '<div class="bvc-card"><h2>پترن‌های پیام</h2><p>کد هر پترن را دقیقاً مطابق UID فعال ایران‌پیامک وارد کن. پیام‌هایی که فعال نیستند یا Pattern ندارند عمداً وارد صف نمی‌شوند.</p><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_sms_templates');echo '<input type="hidden" name="action" value="bluevpn_cc_save_sms_templates"><div class="table-wrap"><table class="widefat striped bvc-table"><tr><th>فعال</th><th>پیام</th><th>Runtime</th><th>متغیرها</th><th>Pattern UID</th></tr>';
+        foreach($templates as $row){$vars=BlueVPN_Utils::json_decode_array((string)($row['variables_json']??'[]'),[]);$names=[];foreach($vars as $v)if(!empty($v['name']))$names[]='%'.$v['name'].'%';$runtime=BlueVPN_SMS_Notifications::runtime_supports((string)$row['key']);echo '<tr><td><input type="checkbox" name="enabled['.esc_attr($row['key']).']" value="1" '.checked((int)$row['enabled'],1,false).'></td><td><strong>'.self::esc($row['title']).'</strong><br><small>'.self::esc($row['category']).'</small></td><td class="'.($runtime?'bvc-ok':'bvc-warn').'">'.($runtime?'خودکار':'فقط دستی / Feature ندارد').'</td><td><code>'.self::esc(implode(' ، ',$names)?:'بدون متغیر').'</code></td><td><input style="width:100%;min-width:220px" name="pattern['.esc_attr($row['key']).']" value="'.esc_attr((string)$row['pattern_code']).'" placeholder="Pattern UID"></td></tr>';}
         echo '</table></div>';submit_button('ذخیره همه پترن‌ها','primary','submit',false);echo '</form></div>';
 
         echo '<div class="bvc-grid"><div class="bvc-card"><h3>تست یک پیام</h3><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_test_sms_template');echo '<input type="hidden" name="action" value="bluevpn_cc_test_sms_template"><label>پترن<select name="event_key" style="width:100%">';foreach($templates as $row)echo '<option value="'.esc_attr($row['key']).'">'.self::esc($row['title']).'</option>';echo '</select></label><label>شماره تست<input name="test_phone" placeholder="09123456789" required style="width:100%"></label><label>پارامترها JSON<textarea name="params_json" rows="4" style="width:100%" placeholder=\'{"plan":"یک ماهه","expire_date":"1405/06/20"}\'>{}</textarea></label>';submit_button('ارسال تست','secondary','submit',false);echo '</form></div>';
         $broadcast=array_values(array_filter($templates,fn($x)=>(int)($x['broadcast']??0)===1));echo '<div class="bvc-card"><h3>ارسال عمومی</h3><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_broadcast_sms');echo '<input type="hidden" name="action" value="bluevpn_cc_broadcast_sms"><label>نوع پیام<select name="event_key" style="width:100%">';foreach($broadcast as $row)echo '<option value="'.esc_attr($row['key']).'">'.self::esc($row['title']).'</option>';echo '</select></label><label>مخاطب<select name="audience" style="width:100%"><option value="active">فقط کاربران فعال</option><option value="all">همه کاربران دارای شماره</option></select></label><label>پارامترها JSON<textarea name="params_json" rows="4" style="width:100%">{}</textarea></label>';submit_button('قرار دادن در صف','secondary','submit',false);echo '</form></div></div>';
 
-        echo '<div class="bvc-card"><div class="bvc-actions"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_process_sms');echo '<input type="hidden" name="action" value="bluevpn_cc_process_sms">';submit_button('پردازش فوری صف و یادآوری‌ها','secondary','submit',false);echo '</form></div><h2>گزارش ارسال</h2><table class="widefat striped bvc-table"><tr><th>رویداد</th><th>موبایل</th><th>وضعیت</th><th>تلاش</th><th>خطا</th><th>زمان</th><th>عملیات</th></tr>';
-        foreach($recent as $x){echo '<tr><td>'.self::esc($x['event_key']).'</td><td>'.self::esc($x['phone']).'</td><td>'.self::esc($x['status']).'</td><td>'.self::esc($x['attempts']).'/'.self::esc($x['max_attempts']).'</td><td>'.self::esc(mb_substr((string)$x['last_error'],0,220)).'</td><td>'.self::esc($x['created_at']).'</td><td>';if(in_array($x['status'],['failed','skipped'],true)){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_retry_sms_'.$x['id']);echo '<input type="hidden" name="action" value="bluevpn_cc_retry_sms"><input type="hidden" name="delivery_id" value="'.esc_attr($x['id']).'"><button class="button">ارسال مجدد</button></form>';}echo '</td></tr>';}
+        echo '<div class="bvc-card"><div class="bvc-actions"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_process_sms');echo '<input type="hidden" name="action" value="bluevpn_cc_process_sms">';submit_button('پردازش فوری صف و یادآوری‌ها','secondary','submit',false);echo '</form></div><h2>گزارش ارسال</h2><p class="bvc-note">وضعیت <strong>provider_accepted</strong> یعنی API رسمی ایران‌پیامک درخواست را پذیرفته است؛ در مستندات عمومی فعلی endpoint مستقلی برای DLR نهایی تحویل روی همین API اعلام نشده، بنابراین آن را با «تحویل قطعی به گوشی» یکی نمی‌گیریم.</p><table class="widefat striped bvc-table"><tr><th>رویداد</th><th>موبایل</th><th>صف</th><th>Provider</th><th>Message ID</th><th>تلاش</th><th>خطا</th><th>زمان</th><th>عملیات</th></tr>';
+        foreach($recent as $x){echo '<tr><td>'.self::esc($x['event_key']).'</td><td>'.self::esc($x['phone']).'</td><td>'.self::esc($x['status']).'</td><td>'.self::esc($x['provider_delivery_status']?:'unknown').'</td><td><code>'.self::esc($x['provider_message_id']?:'—').'</code></td><td>'.self::esc($x['attempts']).'/'.self::esc($x['max_attempts']).'</td><td>'.self::esc(mb_substr((string)$x['last_error'],0,220)).'</td><td>'.self::esc($x['sent_at']?:$x['created_at']).'</td><td>';if(in_array($x['status'],['failed','skipped'],true)){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_retry_sms_'.$x['id']);echo '<input type="hidden" name="action" value="bluevpn_cc_retry_sms"><input type="hidden" name="delivery_id" value="'.esc_attr($x['id']).'"><button class="button">ارسال مجدد</button></form>';}echo '</td></tr>';}
         echo '</table></div>';
     }
     public static function save_provider(): void {
@@ -320,6 +396,70 @@ final class BlueVPN_Control_Center {
         if($gc>0){$g=$wpdb->get_row($wpdb->prepare('SELECT auth_mode FROM '.BlueVPN_DB::table('guardcore_panels').' WHERE id=%d',$gc),ARRAY_A);if($g&&($g['auth_mode']??'manual')!=='manual'&&!$services)self::redirect('plans','برای GuardCore خودکار حداقل یک Service ID وارد کن.',true);}
         $ok=$wpdb->update($pt,['panel_id'=>$pg?:null,'marzban_panel_id'=>$mz?:null,'guardcore_panel_id'=>$gc?:null,'group_ids_json'=>BlueVPN_Utils::json_encode($groups),'guardcore_service_ids_json'=>BlueVPN_Utils::json_encode($services),'marzban_quota_mode'=>$mode,'multi_provider_quota_mode'=>$mode],['id'=>$id]);self::redirect('plans',$ok===false?'ذخیره Routing ناموفق بود.':'Routing پلن ذخیره شد.',$ok===false);
     }
+    public static function save_plan(): void {
+        self::guard();global $wpdb;$id=(int)($_POST['plan_id']??0);check_admin_referer('bluevpn_cc_save_plan_'.$id);$pt=BlueVPN_DB::table('plans');
+        $plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$pt} WHERE id=%d AND deleted=0",$id),ARRAY_A);if(!$plan)self::redirect('plans','پلن پیدا نشد.',true);
+        $title=sanitize_text_field(wp_unslash($_POST['title']??''));if($title==='')self::redirect('plans','عنوان پلن نمی‌تواند خالی باشد.',true);
+        $ids=function(string $name): array {$raw=(string)wp_unslash($_POST[$name]??'');$out=[];foreach(preg_split('/[,\s]+/',$raw)?:[] as $v){$n=(int)$v;if($n>0&&!in_array($n,$out,true))$out[]=$n;}return array_slice($out,0,200);};
+        $pg=max(0,(int)($_POST['panel_id']??0));$mz=max(0,(int)($_POST['marzban_panel_id']??0));$gc=max(0,(int)($_POST['guardcore_panel_id']??0));$services=$ids('guardcore_service_ids');$groups=$ids('group_ids');$mode=in_array((string)($_POST['multi_provider_quota_mode']??'split'),['split','full'],true)?(string)$_POST['multi_provider_quota_mode']:'split';
+        foreach([[$pg,'pasarguard_panels','PasarGuard'],[$mz,'marzban_panels','Marzban'],[$gc,'guardcore_panels','GuardCore']] as [$panelId,$table,$label])if($panelId>0&&!$wpdb->get_var($wpdb->prepare('SELECT id FROM '.BlueVPN_DB::table($table).' WHERE id=%d',$panelId)))self::redirect('plans',$label.' انتخاب‌شده پیدا نشد.',true);
+        if($gc>0){$g=$wpdb->get_row($wpdb->prepare('SELECT auth_mode FROM '.BlueVPN_DB::table('guardcore_panels').' WHERE id=%d',$gc),ARRAY_A);if($g&&($g['auth_mode']??'manual')!=='manual'&&!$services)self::redirect('plans','برای GuardCore خودکار حداقل یک Service ID وارد کن.',true);}
+        $data=[
+            'title'=>$title,'description'=>sanitize_textarea_field(wp_unslash($_POST['description']??'')),'price_toman'=>max(0,(int)($_POST['price_toman']??0)),
+            'duration_days'=>max(0,min(3650,(int)($_POST['duration_days']??0))),'data_limit_gb'=>max(0,(int)($_POST['data_limit_gb']??0)),'device_limit'=>max(1,min(20,(int)($_POST['device_limit']??1))),
+            'sort_order'=>(int)($_POST['sort_order']??0),'active'=>isset($_POST['active'])?1:0,'panel_id'=>$pg?:null,'marzban_panel_id'=>$mz?:null,'guardcore_panel_id'=>$gc?:null,
+            'group_ids_json'=>BlueVPN_Utils::json_encode($groups),'guardcore_service_ids_json'=>BlueVPN_Utils::json_encode($services),'marzban_quota_mode'=>$mode,'multi_provider_quota_mode'=>$mode,
+        ];
+        $ok=$wpdb->update($pt,$data,['id'=>$id]);self::redirect('plans',$ok===false?'ویرایش پلن ناموفق بود: '.mb_substr((string)$wpdb->last_error,0,180):'پلن با موفقیت ویرایش شد.',$ok===false);
+    }
+
+    public static function delete_plan(): void {
+        self::guard();global $wpdb;$id=(int)($_POST['plan_id']??0);check_admin_referer('bluevpn_cc_delete_plan_'.$id);$t=BlueVPN_DB::table('plans');
+        $used=(int)$wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM '.BlueVPN_DB::table('customers').' WHERE plan_id=%d',$id));
+        $ok=$wpdb->update($t,['deleted'=>1,'active'=>0,'deleted_at'=>BlueVPN_Utils::now_mysql()],['id'=>$id]);
+        self::redirect('plans',$ok===false?'حذف نرم پلن ناموفق بود.':'پلن حذف نرم شد'.($used>0?'؛ '.$used.' کاربر فعلی همچنان سابقه این پلن را حفظ می‌کنند.':'.'),$ok===false);
+    }
+
+    public static function restore_plan(): void {
+        self::guard();global $wpdb;$id=(int)($_POST['plan_id']??0);check_admin_referer('bluevpn_cc_restore_plan_'.$id);$ok=$wpdb->update(BlueVPN_DB::table('plans'),['deleted'=>0,'deleted_at'=>null,'active'=>0],['id'=>$id]);self::redirect('plans',$ok===false?'بازیابی پلن ناموفق بود.':'پلن بازیابی شد و برای بررسی اولیه غیرفعال است.',$ok===false);
+    }
+
+    public static function revoke_device(): void {
+        self::guard();$customerId=(int)($_POST['customer_id']??0);$deviceId=sanitize_text_field(wp_unslash($_POST['device_id']??''));check_admin_referer('bluevpn_cc_revoke_device_'.$customerId.'_'.hash('sha256',$deviceId));
+        $ok=BlueVPN_Auth::revoke_device($customerId,$deviceId,true);self::redirect('customers',$ok?'دستگاه غیرفعال و نشست‌های آن باطل شد.':'دستگاه پیدا نشد.',!$ok);
+    }
+
+    public static function revoke_session(): void {
+        self::guard();$customerId=(int)($_POST['customer_id']??0);$sessionId=(int)($_POST['session_id']??0);check_admin_referer('bluevpn_cc_revoke_session_'.$customerId.'_'.$sessionId);$ok=BlueVPN_Auth::revoke_session($customerId,$sessionId);self::redirect('customers',$ok?'نشست انتخاب‌شده باطل شد.':'نشست پیدا نشد.',!$ok);
+    }
+
+    public static function logout_customer(): void {
+        self::guard();$customerId=(int)($_POST['customer_id']??0);check_admin_referer('bluevpn_cc_logout_customer_'.$customerId);$count=BlueVPN_Auth::revoke_all_sessions($customerId,false);self::redirect('customers','خروج اجباری انجام شد؛ '.number_format($count).' نشست فعال باطل شد.');
+    }
+
+    public static function set_customer_status(): void {
+        self::guard();global $wpdb;$customerId=(int)($_POST['customer_id']??0);check_admin_referer('bluevpn_cc_set_customer_status_'.$customerId);$active=isset($_POST['active'])?1:0;$t=BlueVPN_DB::table('customers');$c=$wpdb->get_row($wpdb->prepare("SELECT id,phone FROM {$t} WHERE id=%d",$customerId),ARRAY_A);if(!$c)self::redirect('customers','کاربر پیدا نشد.',true);
+        $wpdb->update($t,['active'=>$active],['id'=>$customerId]);if(!$active)BlueVPN_Auth::revoke_all_sessions($customerId,true);
+        if(!empty($c['phone'])){try{BlueVPN_SMS_Notifications::queue('account_status_changed',(string)$c['phone'],['status'=>$active?'فعال':'غیرفعال'],$customerId,null,'account-status-admin:'.$customerId.':'.$active.':'.gmdate('YmdHi'));}catch(Throwable $e){}}
+        self::redirect('customers',$active?'حساب فعال شد.':'حساب غیرفعال شد و تمام دستگاه‌ها/نشست‌ها قطع شدند.');
+    }
+
+    public static function create_private_backup(): void {
+        self::guard();check_admin_referer('bluevpn_cc_create_private_backup');try{$r=BlueVPN_Production::create_backup('manual-admin');self::redirect('production','Backup خصوصی ساخته شد: '.(string)$r['filename']);}catch(Throwable $e){self::redirect('production','Backup ناموفق: '.$e->getMessage(),true);}
+    }
+
+    public static function restore_backup(): void {
+        self::guard();check_admin_referer('bluevpn_cc_restore_backup');$confirm=trim((string)wp_unslash($_POST['confirm']??''));if($confirm!=='RESTORE BLUEVPN')self::redirect('production','عبارت تأیید Restore صحیح نیست.',true);
+        if(empty($_FILES['backup_file'])||!is_array($_FILES['backup_file'])||(int)($_FILES['backup_file']['error']??UPLOAD_ERR_NO_FILE)!==UPLOAD_ERR_OK)self::redirect('production','فایل Backup دریافت نشد.',true);
+        $size=(int)($_FILES['backup_file']['size']??0);if($size<=0||$size>100*1024*1024)self::redirect('production','حجم فایل Backup معتبر نیست.',true);
+        $tmp=(string)($_FILES['backup_file']['tmp_name']??'');$json=@file_get_contents($tmp);if(!is_string($json))self::redirect('production','خواندن فایل Backup ناموفق بود.',true);
+        try{$r=BlueVPN_Production::restore_from_json($json);self::redirect('production','Restore با موفقیت انجام شد؛ نسخه مبدا '.(string)$r['source_version'].'، Backup قبل از Restore: '.(string)$r['pre_restore_backup']);}catch(Throwable $e){self::redirect('production','Restore ناموفق و Transaction برگشت داده شد: '.$e->getMessage(),true);}
+    }
+
+    public static function finalize_cutover(): void {
+        self::guard();check_admin_referer('bluevpn_cc_finalize_cutover');if(empty($_POST['confirmed']))self::redirect('production','تأیید نهایی لازم است.',true);try{$r=BlueVPN_Production::finalize_cutover();self::redirect('production','Production Cutover نهایی شد؛ Migration Token پاک شد. Backup: '.(string)$r['backup']);}catch(Throwable $e){self::redirect('production','نهایی‌سازی انجام نشد: '.$e->getMessage(),true);}
+    }
+
     public static function save_payment(): void { self::guard();check_admin_referer('bluevpn_cc_save_payment');global $wpdb;$t=BlueVPN_DB::table('payment_settings');$old=$wpdb->get_row("SELECT * FROM {$t} WHERE id=1",ARRAY_A)?:[];$api=trim((string)wp_unslash($_POST['api_key']??''));$cb=trim((string)wp_unslash($_POST['callback_secret']??''));$wpdb->replace($t,['id'=>1,'base_url'=>untrailingslashit(esc_url_raw(wp_unslash($_POST['base_url']??''))),'api_key_enc'=>$api!==''?BlueVPN_Utils::encrypt_secret($api):(string)($old['api_key_enc']??''),'callback_secret_enc'=>$cb!==''?BlueVPN_Utils::encrypt_secret($cb):(string)($old['callback_secret_enc']??''),'fee_mode'=>sanitize_key((string)($_POST['fee_mode']??'default')),'ttl_minutes'=>max(5,min(60,(int)($_POST['ttl_minutes']??30))),'active'=>isset($_POST['active'])?1:0,'updated_at'=>BlueVPN_Utils::now_mysql()]);self::redirect('bluepay','تنظیمات BluePay ذخیره شد.'); }
     public static function save_sms(): void {
         self::guard();check_admin_referer('bluevpn_cc_save_sms');global $wpdb;

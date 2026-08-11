@@ -1,0 +1,24 @@
+BlueVPN 4.0.26 — Production Completion
+======================================
+
+این نسخه فاز تکمیل Production بخش WordPress/MySQL است و روی قابلیت جدید VPN تمرکز ندارد.
+
+تغییرات اصلی:
+- Backup خصوصی روزانه با نگهداری ۷ نسخه اخیر و Snapshot خودکار قبل از هر Restore.
+- Restore واقعی با Checksum، اعتبارسنجی جدول‌ها، MySQL Transaction و Rollback در خطا.
+- Production Health Center برای دیتابیس، صف SMS، سفارش‌های گیرکرده، Backup، Cron، Cutover و Providerها.
+- CRUD کامل‌تر پلن‌ها: ویرایش مشخصات/Provider/Quota، فعال‌سازی، حذف نرم و بازیابی.
+- صفحه جزئیات کاربر: دستگاه‌ها، Sessionها، ابطال Session، قطع دستگاه، خروج اجباری، وضعیت حساب، تغییر/تمدید پلن و تاریخچه سفارش.
+- Rate Limit برای Login/Register ایمیلی بر اساس IP + identity.
+- وضعیت SMS از Queue جدا شد: sent = پذیرفته‌شده توسط API؛ provider_delivery_status=provider_accepted ثبت می‌شود.
+- Templateهای SMS مشخص می‌کنند Runtime واقعی دارند یا فقط دستی/بدون Feature هستند.
+- Final Production Cutover: قبل از قطع Bridge Backup می‌گیرد، Cron مهاجرت را متوقف و Migration Token را پاک می‌کند.
+- Regression Gate جدید قبل از Gradle.
+
+نکته Delivery Report:
+مستندات عمومی فعلی API رسمی ایران‌پیامک برای endpoint /ws/v1/sms/pattern پذیرش موفق درخواست را مستند کرده‌اند، اما endpoint عمومی مستقلی برای DLR نهایی همین API در مستندات قابل بازیابی پیدا نشد. بنابراین BlueVPN در این نسخه «provider_accepted» را با «تحویل قطعی به گوشی» یکی نمی‌گیرد.
+
+تکمیل Backup/Restore نهایی:
+- فرمت Backup به v3 ارتقا یافت و علاوه بر تمام جداول BlueVPN، تنظیمات اصلی Control Plane وردپرس نیز ذخیره/Restore می‌شوند.
+- پس از Restore، Schema به عقب برنمی‌گردد و Cronهای Migration دوباره با تنظیمات Restoreشده همگام می‌شوند.
+- پاسخ scalar فیلد data در Provider پیامک نیز به‌عنوان reference ذخیره می‌شود.

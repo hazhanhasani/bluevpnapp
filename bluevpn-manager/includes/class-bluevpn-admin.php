@@ -33,6 +33,7 @@ final class BlueVPN_Admin {
             ['bluevpn-ads','تبلیغات','ads'],
             ['bluevpn-free-access','اتصال رایگان','free'],
             ['bluevpn-database','دیتابیس','database'],
+            ['bluevpn-production','سلامت و Backup','production'],
             ['bluevpn-pasarguard','PasarGuard','panels'],
             ['bluevpn-marzban','Marzban','marzban'],
             ['bluevpn-guardcore','GuardCore','guardcore'],

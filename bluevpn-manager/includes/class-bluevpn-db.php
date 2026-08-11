@@ -350,6 +350,8 @@ final class BlueVPN_DB {
             attempts int NOT NULL DEFAULT 0,
             max_attempts int NOT NULL DEFAULT 3,
             provider_message_id varchar(180) NOT NULL DEFAULT '',
+            provider_delivery_status varchar(40) NOT NULL DEFAULT 'unknown',
+            provider_delivery_at datetime NULL,
             response_json longtext NULL,
             last_error longtext NULL,
             next_attempt_at datetime NULL,

@@ -362,6 +362,74 @@ final class BlueVPN_Auth {
         }
     }
 
+    private static function rate_limit_key(string $scope, string $identity): string {
+        $ip = sanitize_text_field((string)($_SERVER['REMOTE_ADDR'] ?? 'unknown'));
+        return 'bluevpn_rl_' . substr(hash('sha256', $scope.'|'.$ip.'|'.mb_strtolower(trim($identity))), 0, 48);
+    }
+
+    /** Fixed-window protection for password endpoints; keyed by source IP + identity. */
+    public static function enforce_rate_limit(string $scope, string $identity, int $maxAttempts, int $windowSeconds): string {
+        $key = self::rate_limit_key($scope, $identity);
+        $state = get_transient($key);
+        if (!is_array($state)) $state = ['hits'=>0,'started'=>time()];
+        $started = (int)($state['started'] ?? time());
+        if ($started + $windowSeconds <= time()) $state = ['hits'=>0,'started'=>time()];
+        $hits = (int)($state['hits'] ?? 0);
+        if ($hits >= $maxAttempts) {
+            $retry = max(1, ($started + $windowSeconds) - time());
+            throw new BlueVPN_Auth_Exception(429, 'RATE_LIMITED', 'تعداد تلاش‌ها بیش از حد مجاز است؛ کمی بعد دوباره تلاش کنید.', ['retry_after'=>$retry]);
+        }
+        $state['hits'] = $hits + 1;
+        set_transient($key, $state, $windowSeconds);
+        return $key;
+    }
+
+    public static function clear_rate_limit(string $key): void {
+        if ($key !== '') delete_transient($key);
+    }
+
+    public static function revoke_session(int $customerId, int $sessionId): bool {
+        global $wpdb;
+        if ($customerId <= 0 || $sessionId <= 0) return false;
+        return $wpdb->update(BlueVPN_DB::table('customer_sessions'), ['revoked_at'=>BlueVPN_Utils::now_mysql()], ['id'=>$sessionId,'customer_id'=>$customerId]) !== false;
+    }
+
+    public static function revoke_device(int $customerId, string $deviceId, bool $notify=true): bool {
+        global $wpdb;
+        $deviceId = mb_substr(trim($deviceId),0,180);
+        if ($customerId <= 0 || $deviceId === '') return false;
+        $devices = BlueVPN_DB::table('customer_devices');
+        $sessions = BlueVPN_DB::table('customer_sessions');
+        $device = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$devices} WHERE customer_id=%d AND device_id=%s LIMIT 1",$customerId,$deviceId),ARRAY_A);
+        if (!$device) return false;
+        $now = BlueVPN_Utils::now_mysql();
+        $wpdb->update($devices,[
+            'active'=>0,'refresh_token_hash'=>'','refresh_expires_at'=>null,
+            'previous_refresh_token_hash'=>'','previous_refresh_expires_at'=>null,'last_seen_at'=>$now,
+        ],['id'=>(int)$device['id']]);
+        $wpdb->query($wpdb->prepare("UPDATE {$sessions} SET revoked_at=%s WHERE customer_id=%d AND device_id=%s AND revoked_at IS NULL",$now,$customerId,$deviceId));
+        if ($notify && class_exists('BlueVPN_SMS_Notifications')) {
+            $c = $wpdb->get_row($wpdb->prepare('SELECT phone FROM '.BlueVPN_DB::table('customers').' WHERE id=%d',$customerId),ARRAY_A);
+            if ($c && !empty($c['phone'])) {
+                try { BlueVPN_SMS_Notifications::queue('device_removed',(string)$c['phone'],['device'=>mb_substr((string)($device['device_name'] ?: 'دستگاه'),0,30)],$customerId,null,'device-removed:'.$customerId.':'.hash('sha256',$deviceId).':'.gmdate('YmdHi')); } catch (Throwable $e) {}
+            }
+        }
+        return true;
+    }
+
+    public static function revoke_all_sessions(int $customerId, bool $disableDevices=false): int {
+        global $wpdb;
+        if ($customerId <= 0) return 0;
+        $now = BlueVPN_Utils::now_mysql();
+        $sessions = BlueVPN_DB::table('customer_sessions');
+        $devices = BlueVPN_DB::table('customer_devices');
+        $count = (int)$wpdb->query($wpdb->prepare("UPDATE {$sessions} SET revoked_at=%s WHERE customer_id=%d AND revoked_at IS NULL",$now,$customerId));
+        $data = ['refresh_token_hash'=>'','refresh_expires_at'=>null,'previous_refresh_token_hash'=>'','previous_refresh_expires_at'=>null];
+        if ($disableDevices) $data['active']=0;
+        $wpdb->update($devices,$data,['customer_id'=>$customerId]);
+        return max(0,$count);
+    }
+
     public static function account_payload(array $c): array {
         global $wpdb;
         $expiry = !empty($c['subscription_expire']) ? strtotime($c['subscription_expire'] . ' UTC') : false;

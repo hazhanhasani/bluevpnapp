@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_SMS_Notifications {
     public const HOOK_PROCESS = 'bluevpn_sms_process_queue';
     private const RETRY_DELAYS = [60, 300, 900, 1800];
-    private const CATALOG_VERSION = '2026-08-11-4.0.25';
+    private const CATALOG_VERSION = '2026-08-11-4.0.26';
     private static bool $shutdownRegistered = false;
 
     /**
@@ -60,6 +60,22 @@ final class BlueVPN_SMS_Notifications {
         if ((string)get_option('bluevpn_sms_catalog_version','') !== self::CATALOG_VERSION) self::seed_templates();
         add_action(self::HOOK_PROCESS, [self::class, 'cron_process']);
         self::schedule();
+    }
+
+    /** Events that are currently emitted automatically by a real BlueVPN runtime path. */
+    public static function runtime_supported_events(): array {
+        return [
+            'auth_otp','welcome','account_activated','subscription_activated','admin_subscription_activated',
+            'subscription_renewed','subscription_upgraded','subscription_plan_changed','payment_success','payment_failed',
+            'invoice_created','invoice_expired','refund_success','subscription_reminder','subscription_expired',
+            'low_remaining_volume','volume_expired','new_device_login','phone_changed','phone_change_otp',
+            'account_temporarily_blocked','account_unblocked','account_status_changed','service_disruption','service_restored',
+            'scheduled_maintenance','new_version','required_update','admin_announcement','device_removed'
+        ];
+    }
+
+    public static function runtime_supports(string $eventKey): bool {
+        return in_array($eventKey, self::runtime_supported_events(), true);
     }
 
     public static function cron_schedules(array $schedules): array {
@@ -255,7 +271,7 @@ final class BlueVPN_SMS_Notifications {
         $ok = $wpdb->insert(BlueVPN_DB::table('sms_deliveries'), [
             'id'=>$id,'event_key'=>$eventKey,'customer_id'=>$customerId ?: null,'order_id'=>$orderId ?: null,
             'phone'=>$phone,'params_json'=>BlueVPN_Utils::json_encode($clean),'dedupe_key'=>$dedupe,'status'=>'pending','attempts'=>0,
-            'max_attempts'=>max(1,min(5,(int)($s['retry_max_attempts'] ?? 3))),'provider_message_id'=>'','response_json'=>'','last_error'=>'',
+            'max_attempts'=>max(1,min(5,(int)($s['retry_max_attempts'] ?? 3))),'provider_message_id'=>'','provider_delivery_status'=>'unknown','provider_delivery_at'=>null,'response_json'=>'','last_error'=>'',
             'next_attempt_at'=>BlueVPN_Utils::now_mysql(),'sending_started_at'=>null,'sent_at'=>null,'created_at'=>BlueVPN_Utils::now_mysql(),
         ]);
         if ($ok === false) {
@@ -270,6 +286,9 @@ final class BlueVPN_SMS_Notifications {
     private static function provider_id(array $response): string {
         foreach (['message_id','messageId','id','uid'] as $k) if (isset($response[$k]) && is_scalar($response[$k])) return mb_substr((string)$response[$k],0,180);
         if (isset($response['data']) && is_array($response['data'])) foreach (['message_id','messageId','id','uid'] as $k) if (isset($response['data'][$k]) && is_scalar($response['data'][$k])) return mb_substr((string)$response['data'][$k],0,180);
+        // IranPayamak's documented pattern response may expose `data` as a
+        // scalar. Preserve it as the provider reference when present.
+        if (array_key_exists('data',$response) && is_scalar($response['data'])) return mb_substr((string)$response['data'],0,180);
         return '';
     }
 
@@ -298,7 +317,7 @@ final class BlueVPN_SMS_Notifications {
                 try {
                     $params=BlueVPN_Utils::json_decode_array((string)$fresh['params_json'],[]);
                     $response=self::send_pattern((string)$fresh['phone'],(string)$template['pattern_code'],self::clean_params($spec,$params));
-                    $wpdb->update($table,['status'=>'sent','sent_at'=>BlueVPN_Utils::now_mysql(),'provider_message_id'=>self::provider_id($response),'response_json'=>mb_substr(BlueVPN_Utils::json_encode($response),0,8000),'last_error'=>'','next_attempt_at'=>null,'sending_started_at'=>null],['id'=>$fresh['id']]);$sent++;
+                    $wpdb->update($table,['status'=>'sent','sent_at'=>BlueVPN_Utils::now_mysql(),'provider_message_id'=>self::provider_id($response),'provider_delivery_status'=>'provider_accepted','provider_delivery_at'=>BlueVPN_Utils::now_mysql(),'response_json'=>mb_substr(BlueVPN_Utils::json_encode($response),0,8000),'last_error'=>'','next_attempt_at'=>null,'sending_started_at'=>null],['id'=>$fresh['id']]);$sent++;
                 } catch (Throwable $e) {
                     $max=max(1,(int)$fresh['max_attempts']);
                     if($attempts>=$max){$status='failed';$next=null;}else{$status='retry';$delay=self::RETRY_DELAYS[min($attempts-1,count(self::RETRY_DELAYS)-1)];$next=gmdate('Y-m-d H:i:s',time()+$delay);}
@@ -383,7 +402,7 @@ final class BlueVPN_SMS_Notifications {
 
     public static function retry(string $deliveryId): bool {
         global $wpdb;
-        return $wpdb->update(BlueVPN_DB::table('sms_deliveries'),['status'=>'retry','attempts'=>0,'last_error'=>'','next_attempt_at'=>BlueVPN_Utils::now_mysql(),'sending_started_at'=>null],['id'=>$deliveryId])!==false;
+        return $wpdb->update(BlueVPN_DB::table('sms_deliveries'),['status'=>'retry','attempts'=>0,'last_error'=>'','provider_delivery_status'=>'unknown','provider_delivery_at'=>null,'next_attempt_at'=>BlueVPN_Utils::now_mysql(),'sending_started_at'=>null],['id'=>$deliveryId])!==false;
     }
 
     public static function broadcast(string $eventKey, array $params, bool $onlyActive=true): int {

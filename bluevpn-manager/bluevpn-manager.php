@@ -3,7 +3,7 @@
  * Plugin Name: BlueVPN Manager
  * Plugin URI: https://bluevpn.local/
  * Description: Backend/API foundation for migrating BlueVPN from Railway/PostgreSQL to WordPress/MySQL.
- * Version: 4.0.25
+ * Version: 4.0.26
  * Author: BlueVPN
  * Requires at least: 6.2
  * Requires PHP: 8.0
@@ -15,8 +15,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('BLUEVPN_MANAGER_VERSION', '4.0.25');
-define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.4.1');
+define('BLUEVPN_MANAGER_VERSION', '4.0.26');
+define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.5.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
 define('BLUEVPN_MANAGER_URL', plugin_dir_url(__FILE__));
@@ -41,6 +41,7 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-app-release-manager.p
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-github-updater.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-telegram-bot.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-migration.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-production.php';
 
 register_activation_hook(__FILE__, function () {
     BlueVPN_DB::activate();
@@ -54,6 +55,7 @@ register_activation_hook(__FILE__, function () {
     BlueVPN_App_Release_Manager::ensure_schedule();
     BlueVPN_GitHub_Updater::ensure_schedule();
     BlueVPN_Telegram_Bot::activate();
+    BlueVPN_Production::activate();
 });
 
 register_deactivation_hook(__FILE__, function () {
@@ -64,6 +66,7 @@ register_deactivation_hook(__FILE__, function () {
     BlueVPN_App_Release_Manager::unschedule();
     BlueVPN_GitHub_Updater::unschedule();
     BlueVPN_Telegram_Bot::deactivate();
+    BlueVPN_Production::deactivate();
     flush_rewrite_rules(false);
 });
 
@@ -97,4 +100,5 @@ add_action('plugins_loaded', function () {
     BlueVPN_GitHub_Updater::init();
     BlueVPN_Telegram_Bot::init();
     BlueVPN_Migration::init();
+    BlueVPN_Production::init();
 });

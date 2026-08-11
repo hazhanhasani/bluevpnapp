@@ -1,21 +1,21 @@
 {
-  "release": "4.0.25-auto",
-  "version_name": "4.0.25",
-  "version_code": 40025,
+  "release": "4.0.26",
+  "version_name": "4.0.26",
+  "version_code": 40026,
   "changes": [
-    "Add engine-neutral semantic profile catalogue for V2Ray share links, Xray JSON, sing-box JSON and SSH URI sources",
-    "Collapse duplicate semantic nodes only in the selection catalogue while preserving physical subscription data",
-    "Rebind the selected semantic server after free or premium subscription refresh changes MMKV GUIDs",
-    "Backport Shadowsocks SIP002 transport/TLS query parsing and export preservation to pinned v2rayNG 2.2.6",
-    "Compile SSH and sing-box outbound sources into a native-validated local mixed-proxy profile without taking over Android TUN yet"
+    "Add private scheduled backups with 7-version retention",
+    "Add checksum-validated transactional restore with pre-restore rollback snapshot",
+    "Add production health center and final Railway cutover cleanup",
+    "Add full plan edit/soft-delete/restore and customer device/session controls",
+    "Add password endpoint rate limiting and explicit SMS provider-accepted status"
   ],
   "generated_at_unix": 1786307912,
   "purpose": "شروع شاخه رسمی BlueVPN 4.x",
-  "updated_at": "2026-08-11T06:15:00Z",
-  "built_at": "2026-08-11T06:15:00Z",
-  "build_id": "20260810-unified-profile-subscription-management-v3083",
-  "feature": "unified-profile-subscription-management",
-  "build_fix": "semantic-config-catalogue-subscription-selection-rebind",
-  "version_source": "unified-profile-subscription-management-v3083",
-  "summary": "Semantic profile identity, non-destructive de-duplication, selection preservation on subscription refresh, JSON engine classification and staged SSH/sing-box support."
+  "updated_at": "2026-08-11T20:15:00Z",
+  "built_at": "2026-08-11T20:15:00Z",
+  "build_id": "20260811-v4.0.26-production-completion",
+  "feature": "production-completion",
+  "build_fix": "wordpress-production-completion",
+  "version_source": "v4.0.26-production-completion",
+  "summary": "Production completion for WordPress/MySQL: private backups, transactional restore, health center, plan CRUD, session/device controls, rate limiting, SMS provider state, and final cutover cleanup."
 }

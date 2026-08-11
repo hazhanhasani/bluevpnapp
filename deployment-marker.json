@@ -1,7 +1,7 @@
 {
-  "release": "4.0.0",
-  "version_name": "4.0.0",
-  "version_code": 40000,
+  "release": "4.0.25-auto",
+  "version_name": "4.0.25",
+  "version_code": 40025,
   "changes": [
     "Add engine-neutral semantic profile catalogue for V2Ray share links, Xray JSON, sing-box JSON and SSH URI sources",
     "Collapse duplicate semantic nodes only in the selection catalogue while preserving physical subscription data",

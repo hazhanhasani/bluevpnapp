@@ -16,85 +16,12 @@ final class BlueVPN_GitHub_Updater {
     private const DEFAULT_REPO = 'bluevpnapp';
     private const DEFAULT_PREFIX = 'bluevpn-manager-v';
     private const DEFAULT_ASSET = 'bluevpn-manager.zip';
-    private const CRON_HOOK = 'bluevpn_manager_github_update_check';
-    private const LAST_CHECK_OPTION = 'bluevpn_github_updater_last_background_check';
 
     public static function init(): void {
         add_filter('pre_set_site_transient_update_plugins', [self::class, 'inject_update']);
         add_filter('plugins_api', [self::class, 'plugin_info'], 20, 3);
         add_filter('auto_update_plugin', [self::class, 'auto_update'], 20, 2);
         add_action('upgrader_process_complete', [self::class, 'after_upgrade'], 10, 2);
-        add_action(self::CRON_HOOK, [self::class, 'background_update_check']);
-        add_action('admin_init', [self::class, 'ensure_schedule']);
-        self::ensure_schedule();
-    }
-
-
-
-    /**
-     * Keep an automatic GitHub check alive without requiring the user to press
-     * the manual "check for updates" button. The custom recurrence is provided
-     * by BlueVPN_Cron (every five minutes).
-     */
-    public static function ensure_schedule(): void {
-        // Register the interval here too so activation-time scheduling works even
-        // before BlueVPN_Cron::init() has run in this request.
-        add_filter('cron_schedules', [self::class, 'cron_schedules']);
-        if (!wp_next_scheduled(self::CRON_HOOK)) {
-            wp_schedule_event(time() + 60, 'bluevpn_five_minutes', self::CRON_HOOK);
-        }
-    }
-
-    public static function cron_schedules(array $schedules): array {
-        if (!isset($schedules['bluevpn_five_minutes'])) {
-            $schedules['bluevpn_five_minutes'] = [
-                'interval' => 5 * MINUTE_IN_SECONDS,
-                'display' => 'BlueVPN every 5 minutes',
-            ];
-        }
-        return $schedules;
-    }
-
-    public static function unschedule(): void {
-        $timestamp = wp_next_scheduled(self::CRON_HOOK);
-        while ($timestamp) {
-            wp_unschedule_event($timestamp, self::CRON_HOOK);
-            $timestamp = wp_next_scheduled(self::CRON_HOOK);
-        }
-    }
-
-    /**
-     * Refresh the GitHub release cache, publish the result into WordPress'
-     * normal plugin-update transient, then let WordPress perform its standard
-     * background auto-update pass when auto update is enabled for BlueVPN.
-     */
-    public static function background_update_check(): void {
-        // Small lock protects against overlapping WP-Cron/admin requests.
-        if (get_transient('bluevpn_github_update_check_lock')) return;
-        set_transient('bluevpn_github_update_check_lock', '1', 4 * MINUTE_IN_SECONDS);
-
-        try {
-            self::clear_cache();
-            delete_site_transient('update_plugins');
-            update_option(self::LAST_CHECK_OPTION, time(), false);
-
-            // wp_update_plugins() only discovers updates. Our
-            // pre_set_site_transient_update_plugins filter injects the GitHub
-            // release into the resulting transient.
-            wp_update_plugins();
-
-            if (!empty(self::settings()['auto_update']) && function_exists('wp_maybe_auto_update')) {
-                // Respect WordPress/host auto-update policy. This function uses
-                // the normal WP_Automatic_Updater rather than bypassing it.
-                wp_maybe_auto_update();
-            }
-        } finally {
-            delete_transient('bluevpn_github_update_check_lock');
-        }
-    }
-
-    public static function last_background_check(): int {
-        return (int)get_option(self::LAST_CHECK_OPTION, 0);
     }
 
     public static function defaults(): array {
@@ -275,7 +202,7 @@ final class BlueVPN_GitHub_Updater {
         ];
     }
 
-    public static function auto_update(bool $update, $item): bool {
+    public static function auto_update($update, $item) {
         if (!is_object($item)) return $update;
         $plugin = (string)($item->plugin ?? '');
         $slug = (string)($item->slug ?? '');

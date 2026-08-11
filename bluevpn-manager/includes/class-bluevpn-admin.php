@@ -105,10 +105,11 @@ final class BlueVPN_Admin {
         }
         echo '</div></div>';
 
-        echo '<h2>وضعیت انتقال جدول‌ها</h2><table class="widefat striped bvp-table"><thead><tr><th>جدول</th><th>Railway</th><th>MySQL</th><th>این اجرا</th><th>وضعیت</th><th>خطا</th></tr></thead><tbody>';
+        echo '<h2>وضعیت انتقال جدول‌ها</h2><table class="widefat striped bvp-table"><thead><tr><th>جدول</th><th>Railway</th><th>MySQL</th><th>کل منتقل‌شده</th><th>وضعیت</th><th>خطا</th></tr></thead><tbody>';
         foreach (BlueVPN_Migration::table_order() as $name) {
             $row=$state['tables'][$name]; $cmp=$comparison[$name];
             $status=!empty($row['done'])?'✅ کامل':'⏳ در انتظار';
+            if ($state['phase']==='ready_for_cutover' && empty($row['last_error'])) $status='✅ تکمیل و تأیید';
             if (!empty($row['last_error'])) $status='❌ خطا';
             echo '<tr><td><code>'.esc_html($name).'</code></td><td>'.esc_html($cmp['source']===null?'—':(string)$cmp['source']).'</td><td>'.esc_html($cmp['local']===null?'—':(string)$cmp['local']).'</td><td>'.esc_html((string)$row['imported']).'</td><td>'.esc_html($status).'</td><td>'.esc_html((string)$row['last_error']).'</td></tr>';
         }

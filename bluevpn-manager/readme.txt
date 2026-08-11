@@ -1,5 +1,5 @@
 === BlueVPN Manager ===
-Version: 4.0.26
+Version: 4.0.27
 Requires PHP: 8.0
 
 زیرساخت مهاجرت Backend BlueVPN از Railway/PostgreSQL به WordPress/MySQL با Migration Bridge امن و قابل Resume.

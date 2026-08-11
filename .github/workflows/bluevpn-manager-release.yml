@@ -1,4 +1,4 @@
-name: BlueVPN Manager Release
+name: BlueVPN Manager Auto Version + Release
 
 on:
   workflow_dispatch:
@@ -18,52 +18,141 @@ concurrency:
 
 jobs:
   release-plugin:
+    # The version-bump commit created by this workflow also touches the plugin.
+    # Skip that bot-triggered run so we never create a release loop.
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
 
-      - name: Read plugin version
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Calculate next plugin version
         id: version
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
           FILE="wordpress/bluevpn-manager/bluevpn-manager.php"
+          README="wordpress/bluevpn-manager/readme.txt"
           test -f "$FILE"
-          VERSION="$(sed -n 's/^ \* Version: \([0-9][0-9A-Za-z.+-]*\)$/\1/p' "$FILE" | head -n1)"
-          test -n "$VERSION"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=bluevpn-manager-v$VERSION" >> "$GITHUB_OUTPUT"
+
+          CURRENT="$(sed -n 's/^ \* Version: \([0-9][0-9A-Za-z.+-]*\)$/\1/p' "$FILE" | head -n1)"
+          test -n "$CURRENT"
+
+          LATEST_TAG="$(git tag -l 'bluevpn-manager-v*' --sort=-v:refname | head -n1 || true)"
+          LATEST="${LATEST_TAG#bluevpn-manager-v}"
+          if [ "$LATEST_TAG" = "$LATEST" ]; then
+            LATEST=""
+          fi
+
+          # If source already has a manually higher version, keep it.
+          # Otherwise increment PATCH from the latest released version.
+          BASE="$CURRENT"
+          if [ -n "$LATEST" ]; then
+            HIGHER="$(printf '%s\n%s\n' "$CURRENT" "$LATEST" | sort -V | tail -n1)"
+            BASE="$HIGHER"
+          fi
+
+          if [ -z "$LATEST" ] || [ "$(printf '%s\n%s\n' "$LATEST" "$CURRENT" | sort -V | tail -n1)" = "$CURRENT" ] && [ "$CURRENT" != "$LATEST" ]; then
+            NEXT="$CURRENT"
+          else
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${BASE%%[-+]*}"
+            : "${MAJOR:=1}" "${MINOR:=0}" "${PATCH:=0}"
+            PATCH=$((PATCH + 1))
+            NEXT="${MAJOR}.${MINOR}.${PATCH}"
+          fi
+
+          # If current == latest, always bump patch for this new plugin change.
+          if [ -n "$LATEST" ] && [ "$CURRENT" = "$LATEST" ]; then
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${LATEST%%[-+]*}"
+            PATCH=$((PATCH + 1))
+            NEXT="${MAJOR}.${MINOR}.${PATCH}"
+          fi
+
+          echo "current=$CURRENT"
+          echo "latest=${LATEST:-none}"
+          echo "next=$NEXT"
+          echo "version=$NEXT" >> "$GITHUB_OUTPUT"
+          echo "tag=bluevpn-manager-v$NEXT" >> "$GITHUB_OUTPUT"
+
+          # Keep every version declaration synchronized.
+          sed -Ei "s/^( \* Version: )[0-9][0-9A-Za-z.+-]*/\\1$NEXT/" "$FILE"
+          sed -Ei "s/^(define\('BLUEVPN_MANAGER_VERSION', ')[^']+(');)/\\1$NEXT\\2/" "$FILE"
+          if [ -f "$README" ]; then
+            sed -Ei "s/^(Version: )[0-9][0-9A-Za-z.+-]*/\\1$NEXT/" "$README"
+          fi
+
+          grep -nE 'Version:|BLUEVPN_MANAGER_VERSION' "$FILE" | head
 
       - name: Lint PHP
         shell: bash
         run: |
           set -euo pipefail
-          while IFS= read -r -d '' f; do php -l "$f"; done < <(find wordpress/bluevpn-manager -type f -name '*.php' -print0)
+          while IFS= read -r -d '' f; do
+            php -l "$f"
+          done < <(find wordpress/bluevpn-manager -type f -name '*.php' -print0)
+
+      - name: Commit automatic version bump
+        id: commit
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add wordpress/bluevpn-manager/bluevpn-manager.php wordpress/bluevpn-manager/readme.txt
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git commit -m "chore(bluevpn-manager): release v${VERSION} [skip ci]"
+            git push origin HEAD:main
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Build plugin ZIP
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf dist
+          rm -rf dist bluevpn-manager.zip
           mkdir -p dist/bluevpn-manager
           cp -a wordpress/bluevpn-manager/. dist/bluevpn-manager/
           cd dist
           zip -qr ../bluevpn-manager.zip bluevpn-manager
 
-      - name: Create or update GitHub Release
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
           VERSION: ${{ steps.version.outputs.version }}
+          TARGET_SHA: ${{ steps.commit.outputs.sha }}
         shell: bash
         run: |
           set -euo pipefail
+
           if gh release view "$TAG" >/dev/null 2>&1; then
+            # This should normally only happen on a manual retry.
             gh release upload "$TAG" bluevpn-manager.zip --clobber
           else
             gh release create "$TAG" bluevpn-manager.zip \
-              --target "$GITHUB_SHA" \
+              --target "$TARGET_SHA" \
               --title "BlueVPN Manager $VERSION" \
-              --notes "WordPress plugin release for BlueVPN Manager $VERSION."
+              --notes "Automatic WordPress plugin release for BlueVPN Manager $VERSION."
           fi
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "### BlueVPN Manager ${{ steps.version.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Tag: \`${{ steps.version.outputs.tag }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Asset: \`bluevpn-manager.zip\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "WordPress can now detect this as a newer version." >> "$GITHUB_STEP_SUMMARY"

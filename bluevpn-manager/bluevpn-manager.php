@@ -3,7 +3,7 @@
  * Plugin Name: BlueVPN Manager
  * Plugin URI: https://bluevpn.local/
  * Description: Backend/API foundation for migrating BlueVPN from Railway/PostgreSQL to WordPress/MySQL.
- * Version: 4.0.11
+ * Version: 4.0.13
  * Author: BlueVPN
  * Requires at least: 6.2
  * Requires PHP: 8.0
@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('BLUEVPN_MANAGER_VERSION', '4.0.11');
+define('BLUEVPN_MANAGER_VERSION', '4.0.13');
 define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.1.1');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
@@ -25,6 +25,8 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-utils.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-db.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-auth.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-api.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-providers.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-control-center.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-compat.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-cron.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-admin.php';
@@ -65,6 +67,8 @@ add_action('init', function () {
 add_action('plugins_loaded', function () {
     BlueVPN_DB::maybe_upgrade();
     BlueVPN_API::init();
+    BlueVPN_Providers::init();
+    BlueVPN_Control_Center::init();
     BlueVPN_Compat::init();
     BlueVPN_Cron::init();
     BlueVPN_Admin::init();

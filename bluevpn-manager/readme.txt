@@ -1,5 +1,5 @@
 === BlueVPN Manager ===
-Version: 4.0.11
+Version: 4.0.13
 Requires PHP: 8.0
 
 زیرساخت مهاجرت Backend BlueVPN از Railway/PostgreSQL به WordPress/MySQL با Migration Bridge امن و قابل Resume.
@@ -55,3 +55,16 @@ Requires PHP: 8.0
 * ترمیم دقیق customers و جدول‌های کوچک با دریافت فقط IDهای مفقود.
 * تشخیص تعارض Unique به‌جای چهار دور Retry بی‌نتیجه.
 * نمایش جدول‌های همگام به شکل «X از Y» برای جلوگیری از جابه‌جایی RTL.
+
+= 4.0.12 =
+* Full Admin Control Center restored in WordPress with Railway-era tabs.
+* PasarGuard/Marzban/GuardCore management and provider connection tests.
+* Manual GuardCore queue, customer sync, manual provision/renew, BluePay and SMS settings.
+* BlueAI live/route dashboards, orders, users, plans and database backup.
+* Native WordPress subscription bridge for /sub/{token}; PasarGuard/Marzban subscription sources are merged.
+* Cutover safety: Railway should remain available until end-to-end order/payment tests pass.
+
+== 4.0.13 ==
+* تبدیل تمام تب‌های Control Center به زیرمنوهای مستقل وردپرس.
+* حذف نوار تب داخلی؛ هر بخش صفحه مدیریتی مستقل خود را دارد.
+* حفظ Dashboard اصلی BlueVPN فقط برای نمای کلی.

@@ -1,0 +1,7 @@
+BlueVPN 4.0.12 — Full WordPress Admin Control Center
+
+- Restores Railway-era management tabs in WordPress: Overview, BlueAI, Database, PasarGuard, Marzban, GuardCore, GuardCore Queue, Plans, BluePay, Manual Activation, Customers, Orders, App/Update, SMS/OTP.
+- Adds provider CRUD/test, customer sync, manual provision/renew for PasarGuard + Marzban, manual GuardCore attachment.
+- Adds subscription bridge /sub/{token} that merges provider subscription sources and returns base64 subscription content.
+- Adds JSON backup export and operational dashboards.
+- Keeps Railway as rollback until payment/order end-to-end tests pass.

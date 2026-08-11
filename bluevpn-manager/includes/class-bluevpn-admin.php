@@ -26,11 +26,28 @@ final class BlueVPN_Admin {
     }
     private static function guard(): void { if(!current_user_can('manage_options')) wp_die('دسترسی ندارید.'); }
     public static function menu(): void {
-        add_menu_page('BlueVPN Manager','BlueVPN','manage_options','bluevpn-manager',[self::class,'dashboard'],'dashicons-shield-alt',3);
-        add_submenu_page('bluevpn-manager','تنظیمات BlueVPN','تنظیمات','manage_options','bluevpn-settings',[self::class,'settings_page']);
-        add_submenu_page('bluevpn-manager','پلن‌ها','پلن‌ها','manage_options','bluevpn-plans',[self::class,'plans_page']);
-        add_submenu_page('bluevpn-manager','کاربران','کاربران','manage_options','bluevpn-customers',[self::class,'customers_page']);
+        add_menu_page('BlueVPN Control Center','BlueVPN','manage_options','bluevpn-manager',[BlueVPN_Control_Center::class,'page'],'dashicons-shield-alt',3);
+        add_submenu_page('bluevpn-manager','نمای کلی','نمای کلی','manage_options','bluevpn-manager',[BlueVPN_Control_Center::class,'page']);
+        $sections=[
+            ['bluevpn-blueai','BlueAI','blueai'],
+            ['bluevpn-database','دیتابیس','database'],
+            ['bluevpn-pasarguard','PasarGuard','panels'],
+            ['bluevpn-marzban','Marzban','marzban'],
+            ['bluevpn-guardcore','GuardCore','guardcore'],
+            ['bluevpn-guardcore-queue','صف GuardCore','guardcore-manual'],
+            ['bluevpn-plans','پلن‌ها','plans'],
+            ['bluevpn-bluepay','BluePay','bluepay'],
+            ['bluevpn-manual','فعال‌سازی دستی','manual'],
+            ['bluevpn-customers','کاربران','customers'],
+            ['bluevpn-orders','پرداخت‌ها','orders'],
+            ['bluevpn-sms','SMS / OTP','sms'],
+            ['bluevpn-app-update','اپ و آپدیت','app'],
+        ];
+        foreach($sections as [$slug,$label,$section]){
+            add_submenu_page('bluevpn-manager',$label,$label,'manage_options',$slug,static function() use($section){ BlueVPN_Control_Center::render_section($section); });
+        }
         add_submenu_page('bluevpn-manager','اتصال اپلیکیشن','اتصال اپلیکیشن','manage_options','bluevpn-app-connection',[self::class,'app_connection_page']);
+        add_submenu_page('bluevpn-manager','تنظیمات BlueVPN','تنظیمات','manage_options','bluevpn-settings',[self::class,'settings_page']);
         add_submenu_page('bluevpn-manager','ابزار مهاجرت','ابزار مهاجرت','manage_options','bluevpn-migration',[self::class,'migration_page']);
         add_submenu_page('bluevpn-manager','آپدیت GitHub','آپدیت GitHub','manage_options','bluevpn-github-updater',[self::class,'github_updater_page']);
     }

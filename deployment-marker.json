@@ -1,7 +1,7 @@
 {
-  "release": "4.0.4-auto",
-  "version_name": "4.0.4",
-  "version_code": 40004,
+  "release": "4.0.5-auto",
+  "version_name": "4.0.5",
+  "version_code": 40005,
   "changes": [
     "Add a searchable mobile navigation drawer for all admin sections",
     "Render wide admin tables as labeled cards on phone screens",

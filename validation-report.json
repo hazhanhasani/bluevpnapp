@@ -1,6 +1,6 @@
 {
   "version": "3.0.43",
-  "version_code": 40004,
+  "version_code": 40005,
   "feature": "mobile-first-admin",
   "tests": {
     "passed": 135,
@@ -33,6 +33,6 @@
     "status": "not_run",
     "reason": "Android upstream/SDK build is performed by GitHub Actions"
   },
-  "project_version": "4.0.4",
-  "release": "4.0.4"
+  "project_version": "4.0.5",
+  "release": "4.0.5"
 }

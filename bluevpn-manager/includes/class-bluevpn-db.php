@@ -15,7 +15,7 @@ final class BlueVPN_DB {
             'marzban_panels', 'guardcore_panels', 'plans', 'customers',
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
-            'webhook_deliveries', 'ai_connection_events', 'ai_live_connections',
+            'webhook_deliveries', 'bot_settings', 'bot_jobs', 'ai_connection_events', 'ai_live_connections',
             'ai_route_aggregates', 'ai_feedback',
         ];
     }
@@ -374,6 +374,52 @@ final class BlueVPN_DB {
             KEY ix_webhook_payment (payment_id)
         ) $cc;";
 
+        $queries[] = "CREATE TABLE {$t('bot_settings')} (
+            id bigint unsigned NOT NULL,
+            enabled tinyint(1) NOT NULL DEFAULT 0,
+            bot_token_enc longtext NULL,
+            admin_ids longtext NULL,
+            github_token_enc longtext NULL,
+            github_repository varchar(240) NOT NULL DEFAULT 'hazhanhasani/bluevpnapp',
+            git_branch varchar(180) NOT NULL DEFAULT 'main',
+            github_workflow varchar(180) NOT NULL DEFAULT 'build-apk.yml',
+            repository_dispatch_event varchar(120) NOT NULL DEFAULT 'bluevpn_build',
+            max_zip_mb int NOT NULL DEFAULT 50,
+            max_extracted_mb int NOT NULL DEFAULT 900,
+            max_files int NOT NULL DEFAULT 25000,
+            webhook_secret varchar(180) NOT NULL DEFAULT '',
+            webhook_secret_token_enc longtext NULL,
+            webhook_status varchar(40) NOT NULL DEFAULT 'not_configured',
+            webhook_last_error longtext NULL,
+            last_update_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('bot_jobs')} (
+            id varchar(36) NOT NULL,
+            chat_id varchar(32) NOT NULL DEFAULT '',
+            user_id varchar(32) NOT NULL DEFAULT '',
+            kind varchar(30) NOT NULL DEFAULT 'deploy_zip',
+            status varchar(40) NOT NULL DEFAULT 'queued',
+            telegram_file_id longtext NULL,
+            telegram_file_name varchar(240) NOT NULL DEFAULT '',
+            source_message_id bigint NOT NULL DEFAULT 0,
+            progress_message_id bigint NOT NULL DEFAULT 0,
+            commit_sha varchar(80) NOT NULL DEFAULT '',
+            run_id bigint unsigned NOT NULL DEFAULT 0,
+            run_url longtext NULL,
+            attempts int NOT NULL DEFAULT 0,
+            last_error longtext NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            finished_at datetime NULL,
+            PRIMARY KEY  (id),
+            KEY ix_bot_job_chat_status (chat_id, status),
+            KEY ix_bot_job_status_created (status, created_at),
+            KEY ix_bot_job_run (run_id)
+        ) $cc;";
+
         $queries[] = "CREATE TABLE {$t('ai_connection_events')} (
             id bigint unsigned NOT NULL AUTO_INCREMENT,
             customer_id bigint unsigned NULL,
@@ -627,6 +673,31 @@ final class BlueVPN_DB {
                 'fee_mode' => 'default',
                 'ttl_minutes' => 30,
                 'active' => 0,
+                'updated_at' => $now,
+            ]);
+        }
+
+        $bot = self::table('bot_settings');
+        if (!$wpdb->get_var("SELECT id FROM {$bot} WHERE id=1")) {
+            $webhookSecret = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+            $webhookToken = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+            $wpdb->insert($bot, [
+                'id' => 1,
+                'enabled' => 0,
+                'bot_token_enc' => '',
+                'admin_ids' => '',
+                'github_token_enc' => '',
+                'github_repository' => 'hazhanhasani/bluevpnapp',
+                'git_branch' => 'main',
+                'github_workflow' => 'build-apk.yml',
+                'repository_dispatch_event' => 'bluevpn_build',
+                'max_zip_mb' => 50,
+                'max_extracted_mb' => 900,
+                'max_files' => 25000,
+                'webhook_secret' => $webhookSecret,
+                'webhook_secret_token_enc' => BlueVPN_Utils::encrypt_secret($webhookToken),
+                'webhook_status' => 'not_configured',
+                'webhook_last_error' => '',
                 'updated_at' => $now,
             ]);
         }

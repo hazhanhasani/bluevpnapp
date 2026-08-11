@@ -16,7 +16,7 @@ if (!defined('ABSPATH')) {
 }
 
 define('BLUEVPN_MANAGER_VERSION', '4.0.15');
-define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.1.1');
+define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.2.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
 define('BLUEVPN_MANAGER_URL', plugin_dir_url(__FILE__));
@@ -32,6 +32,7 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-cron.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-admin.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-app-release-manager.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-github-updater.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-telegram-bot.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-migration.php';
 
 register_activation_hook(__FILE__, function () {
@@ -43,6 +44,7 @@ register_activation_hook(__FILE__, function () {
     BlueVPN_Migration::sync_auto_schedule(!empty(BlueVPN_Migration::settings()['auto_migrate']));
     BlueVPN_App_Release_Manager::ensure_schedule();
     BlueVPN_GitHub_Updater::ensure_schedule();
+    BlueVPN_Telegram_Bot::activate();
 });
 
 register_deactivation_hook(__FILE__, function () {
@@ -51,6 +53,7 @@ register_deactivation_hook(__FILE__, function () {
     BlueVPN_Migration::sync_auto_schedule(false);
     BlueVPN_App_Release_Manager::unschedule();
     BlueVPN_GitHub_Updater::unschedule();
+    BlueVPN_Telegram_Bot::deactivate();
     flush_rewrite_rules(false);
 });
 
@@ -77,5 +80,6 @@ add_action('plugins_loaded', function () {
     BlueVPN_Admin::init();
     BlueVPN_App_Release_Manager::init();
     BlueVPN_GitHub_Updater::init();
+    BlueVPN_Telegram_Bot::init();
     BlueVPN_Migration::init();
 });

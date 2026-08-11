@@ -1024,6 +1024,28 @@ final class BlueVPN_Migration {
         return $decoded;
     }
 
+    /** Import non-database runtime credentials required by the legacy Telegram deploy bot. */
+    public static function import_runtime_secrets() {
+        $payload = self::request('/internal/migration/v1/runtime-secrets', ['timeout' => 20]);
+        if (is_wp_error($payload)) return $payload;
+        if (!class_exists('BlueVPN_Telegram_Bot')) {
+            return new WP_Error('bluevpn_bot_class_missing', 'کلاس ربات WordPress بارگذاری نشده است.');
+        }
+        $runtime = is_array($payload['runtime'] ?? null) ? $payload['runtime'] : [];
+        $result = BlueVPN_Telegram_Bot::import_legacy_runtime($runtime);
+        if (!empty($payload['bot_configured']) && empty($result['success'])) {
+            return new WP_Error('bluevpn_bot_runtime_incomplete', 'تنظیمات ربات از Railway دریافت شد اما Runtime WordPress کامل نشد.');
+        }
+        update_option('bluevpn_migration_runtime_secret_state', [
+            'imported_at' => BlueVPN_Utils::iso_now(),
+            'bot_configured' => !empty($payload['bot_configured']),
+            'github_configured' => !empty($payload['github_configured']),
+            'runtime_ready' => BlueVPN_Telegram_Bot::runtime_ready(),
+            'webhook_error' => (string)($result['webhook_error'] ?? ''),
+        ], false);
+        return ['success' => true, 'payload' => $payload, 'bot' => $result];
+    }
+
     public static function sync_cron_schedule(bool $enabled): void {
         $timestamp = wp_next_scheduled(self::CRON_HOOK);
         if (!$enabled && $timestamp) {
@@ -1228,6 +1250,15 @@ final class BlueVPN_Migration {
                 $tableErrors = (array)($readiness['table_errors'] ?? []);
 
                 if (!$mismatches && !$tableErrors) {
+                    // Database rows are complete; now move the legacy deploy-bot
+                    // runtime secrets and activate Telegram Webhook on WordPress.
+                    // Cutover is not declared ready while the old Railway bot
+                    // would still be the only working runtime.
+                    $runtimeImport = self::import_runtime_secrets();
+                    if (is_wp_error($runtimeImport)) {
+                        self::auto_error('انتقال Runtime ربات: '.$runtimeImport->get_error_message());
+                        return;
+                    }
                     $state = self::state();
                     $state['final_verify_passes'] = (int)($state['final_verify_passes'] ?? 0) + 1;
                     $state['last_verified_at'] = BlueVPN_Utils::iso_now();

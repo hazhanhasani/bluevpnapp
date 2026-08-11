@@ -135,6 +135,35 @@ def register_wordpress_migration_bridge(app: FastAPI) -> None:
             "bulk_migration_protocol": 3,
         }
 
+    @router.get("/runtime-secrets")
+    def migration_runtime_secrets(x_bluevpn_migration_token: str | None = Header(default=None)):
+        """Export only the legacy bot runtime values needed for WordPress cutover.
+
+        The endpoint is protected by the same 32+ character migration token as
+        table exports and exists solely so BOT/GitHub credentials do not need
+        to be copied manually during the final cutover.
+        """
+        _require_token(x_bluevpn_migration_token)
+        allowed = (
+            "BOT_TOKEN",
+            "GITHUB_TOKEN",
+            "GITHUB_REPOSITORY",
+            "GIT_BRANCH",
+            "GITHUB_WORKFLOW",
+            "GITHUB_REPOSITORY_DISPATCH_EVENT",
+            "ADMIN_IDS",
+            "MAX_ZIP_MB",
+            "MAX_EXTRACTED_MB",
+            "MAX_FILES",
+        )
+        runtime = {name: str(os.getenv(name) or "").strip() for name in allowed}
+        return {
+            "success": True,
+            "runtime": runtime,
+            "bot_configured": bool(runtime.get("BOT_TOKEN")),
+            "github_configured": bool(runtime.get("GITHUB_TOKEN")),
+        }
+
     @router.get("/manifest")
     def migration_manifest(x_bluevpn_migration_token: str | None = Header(default=None)):
         _require_token(x_bluevpn_migration_token)

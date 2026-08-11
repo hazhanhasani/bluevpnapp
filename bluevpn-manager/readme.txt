@@ -68,3 +68,11 @@ Requires PHP: 8.0
 * تبدیل تمام تب‌های Control Center به زیرمنوهای مستقل وردپرس.
 * حذف نوار تب داخلی؛ هر بخش صفحه مدیریتی مستقل خود را دارد.
 * حفظ Dashboard اصلی BlueVPN فقط برای نمای کلی.
+
+= 4.0.15 =
+* انتقال Runtime ربات تلگرام از Railway به WordPress/MySQL با Telegram Webhook.
+* انتقال خودکار BOT_TOKEN / GITHUB_TOKEN / ADMIN_IDS از Migration Bridge امن.
+* صف Job بومی MySQL برای ZIP deploy، Build و پیگیری GitHub Actions.
+* نصب ZIP روی GitHub از طریق Git Data API بدون نیاز به git/Python/Docker روی هاست وردپرس.
+* دستورات Status / Build / Unlock / Latest APK / Signing Status و صف دستی GuardCore.
+* Railway برای اجرای ربات دیگر لازم نیست.

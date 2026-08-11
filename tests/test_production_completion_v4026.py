@@ -1,11 +1,13 @@
 from pathlib import Path
+import re
 ROOT=Path(__file__).resolve().parents[1]
 
 def txt(rel): return (ROOT/rel).read_text(encoding='utf-8')
 
 def test_version_and_schema():
     p=txt('bluevpn-manager/bluevpn-manager.php')
-    assert "BLUEVPN_MANAGER_VERSION', '4.0.27'" in p
+    m = re.search(r"BLUEVPN_MANAGER_VERSION'\s*,\s*'(\d+)\.(\d+)\.(\d+)'", p)
+    assert m and tuple(map(int, m.groups())) >= (4, 0, 26)
     assert "BLUEVPN_MANAGER_SCHEMA_VERSION', '1.5.0'" in p
 
 def test_backup_restore_is_transactional():

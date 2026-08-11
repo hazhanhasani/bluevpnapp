@@ -1,0 +1,21 @@
+BlueVPN 4.0.28 — WordPress Manager Release Autopilot
+
+مشکل:
+نسخه WordPress روی 4.0.24 مانده بود، با اینکه Auto Update فعال بود؛ آخرین Release افزونه در GitHub فقط 4.0.9 بود. بررسی مخزن نشان داد Workflow انتشار هنوز مسیر قدیمی wordpress/bluevpn-manager/** را مانیتور و بسته‌بندی می‌کرد، در حالی که افزونه مهاجرت‌شده اکنون در bluevpn-manager/** قرار دارد؛ بنابراین Pushهای جدید اصلاً Workflow افزونه را Trigger نمی‌کردند.
+همچنین بسته 4.0.27 به‌اشتباه پوشه مخفی .github را در خود نداشت و بنابراین Workflowهای انتشار همراه سورس جدید تحویل نشده بودند.
+
+رفع:
+- بازیابی کامل .github/workflows از آخرین نسخه سالم 4.0.26.
+- حفظ Workflow اصلی Build APK و اضافه‌کردن Validator اتصال WordPress نسخه 4.0.27 به Regression Gate.
+- اصلاح Workflow واقعی .github/workflows/bluevpn-manager-release.yml و تغییر مسیر قدیمی wordpress/bluevpn-manager به bluevpn-manager.
+- Release افزونه با هر Push مرتبط در main مستقل از Gradle ساخته می‌شود.
+- پس از پایان Build APK نیز Release دوباره reconcile می‌شود تا نسخه‌ای که Workflow اصلی همگام کرده حتماً منتشر شود.
+- قرارداد ثابت Updater:
+  tag = bluevpn-manager-vX.Y.Z
+  asset = bluevpn-manager.zip
+- Header، Constant و readme قبل از انتشار باید یک نسخه داشته باشند.
+- تمام PHPها lint می‌شوند، ZIP تست می‌شود، SHA256 ساخته می‌شود.
+- پس از انتشار، Asset دوباره از GitHub دانلود و Version داخل ZIP بررسی می‌شود.
+
+نتیجه مورد انتظار:
+بعد از Push این نسخه به main، GitHub Actions باید Release با tag bluevpn-manager-v4.0.28 و فایل bluevpn-manager.zip بسازد. WordPress که Auto Update آن فعال است، در بررسی بعدی باید 4.0.28 را تشخیص دهد و نصب کند؛ موفقیت Build Android شرط انتشار افزونه نیست.

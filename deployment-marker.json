@@ -1,21 +1,24 @@
 {
-  "release": "4.0.27-auto",
-  "version_name": "4.0.27",
-  "version_code": 40027,
+  "release": "4.0.28",
+  "version_name": "4.0.28",
+  "version_code": 40028,
   "changes": [
     "Add private scheduled backups with 7-version retention",
     "Add checksum-validated transactional restore with pre-restore rollback snapshot",
     "Add production health center and final Railway cutover cleanup",
     "Add full plan edit/soft-delete/restore and customer device/session controls",
-    "Add password endpoint rate limiting and explicit SMS provider-accepted status"
+    "Add password endpoint rate limiting and explicit SMS provider-accepted status",
+    "Restore hidden .github workflows omitted from v4.0.27 package",
+    "Publish BlueVPN Manager automatically on relevant main pushes",
+    "Verify bluevpn-manager-vX.Y.Z / bluevpn-manager.zip updater contract after publish"
   ],
   "generated_at_unix": 1786307912,
   "purpose": "شروع شاخه رسمی BlueVPN 4.x",
-  "updated_at": "2026-08-11T20:15:00Z",
-  "built_at": "2026-08-11T20:15:00Z",
-  "build_id": "20260812-v4.0.27-wordpress-connectivity-hotfix",
-  "feature": "wordpress-connectivity-hotfix",
-  "build_fix": "wordpress-connectivity-hotfix",
-  "version_source": "v4.0.27-wordpress-connectivity-hotfix",
-  "summary": "Production completion for WordPress/MySQL: private backups, transactional restore, health center, plan CRUD, session/device controls, rate limiting, SMS provider state, and final cutover cleanup."
+  "updated_at": "2026-08-11T21:14:00Z",
+  "built_at": "2026-08-11T21:14:00Z",
+  "build_id": "20260812-v4.0.28-wordpress-release-autopilot",
+  "feature": "wordpress-manager-release-autopilot",
+  "build_fix": "wordpress-manager-release-autopilot",
+  "version_source": "v4.0.28-wordpress-release-autopilot",
+  "summary": "Restore GitHub workflows and publish BlueVPN Manager automatically and independently so WordPress can self-update without waiting for a successful Android build."
 }

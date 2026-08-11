@@ -19,7 +19,9 @@ cc=read('bluevpn-manager/includes/class-bluevpn-control-center.php')
 db=read('bluevpn-manager/includes/class-bluevpn-db.php')
 sms=read('bluevpn-manager/includes/class-bluevpn-sms-notifications.php')
 
-require("BLUEVPN_MANAGER_VERSION', '4.0.27'" in plugin,'plugin version must be 4.0.27')
+m=re.search(r"BLUEVPN_MANAGER_VERSION'\s*,\s*'(\d+)\.(\d+)\.(\d+)'",plugin)
+require(bool(m),'plugin version missing')
+require(tuple(map(int,m.groups())) >= (4,0,26),'plugin version must be >= 4.0.26')
 require("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.5.0'" in plugin,'schema must be 1.5.0')
 require("class-bluevpn-production.php" in plugin and 'BlueVPN_Production::init()' in plugin,'production module not wired')
 for token in ['create_backup','restore_from_json','validate_backup_json','health_summary','finalize_cutover']:

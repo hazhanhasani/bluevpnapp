@@ -1,5 +1,5 @@
 === BlueVPN Manager ===
-Version: 4.0.3
+Version: 4.0.6
 Requires PHP: 8.0
 
 زیرساخت مهاجرت Backend BlueVPN از Railway/PostgreSQL به WordPress/MySQL با Migration Bridge امن و قابل Resume.
@@ -37,3 +37,14 @@ Requires PHP: 8.0
 یکپارچه‌سازی PasarGuard/Marzban/GuardCore، BluePay، OTP/SMS، AI/Telemetry و Telegram در مراحل بعد اضافه می‌شود.
 
 - Runner زنجیره‌ای داخل صفحه مدیریت برای ادامه مهاجرت حتی در صورت اختلال WP-Cron
+
+نسخه 4.0.6 — Migration Control Center:
+- ماشین حالت ۶ مرحله‌ای: Scan → Copy → Initial Verify → Resync/Repair → Final Verify → Ready
+- Resume واقعی از Cursor قبلی؛ توقف موقت Progress را پاک نمی‌کند
+- Retry محدود و توقف ایمن پس از ۵ خطای متوالی یا ۴ Verify ناموفق
+- ترمیم فقط جدول‌های دارای اختلاف/خطا، بدون Resync کامل بی‌دلیل
+- تشخیص Stall پس از ۳ دقیقه بدون Progress
+- نمایش درصد پوشش واقعی، جدول جاری، کسری، سرعت، ETA و زمان آخرین Verify
+- Runner مرورگر با Work Slice کوتاه برای هاست اشتراکی و موبایل
+- Cutover فقط پس از Resync ایمنی + Verify واقعی و بدون خطای جدول فعال می‌شود
+- بررسی مجدد Cutover، Manifest تازه Railway را می‌خواند تا Ready قدیمی/کاذب باقی نماند

@@ -2,7 +2,7 @@
   "app": "BlueVPN",
   "version": "3.0.99",
   "version_code": 30099,
-  "workflow_source_commit": "f3b17c2a9ec84ba1375d23c03ae65fb3a74a49c2",
+  "workflow_source_commit": "7cb8ca8479518a95f85e5c8a421aac4750198096",
   "upstream_ref": "2.2.6",
   "files": {
     "src/main/java/com/v2ray/ang/ui/BlueVpnHomeActivity.kt": "9a2be42bf1eedafb025f2bc27ec9cf549fab13e9a93acdb48bf2794530226485",

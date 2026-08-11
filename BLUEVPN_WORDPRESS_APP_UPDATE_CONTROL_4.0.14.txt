@@ -1,0 +1,10 @@
+BlueVPN 4.0.14 — WordPress App Update Control
+
+- WordPress is now the source of truth for Android update metadata.
+- GitHub app Releases with tags vX.Y.Z are auto-discovered.
+- release-manifest.json and SHA256SUMS.txt are ingested.
+- Per-ABI APK URLs, SHA-256 and size are exposed via /api/v1/mobile/config.
+- Minimum version, forced update, auto-download and maintenance are controlled from WordPress.
+- Existing BlueVpnUpdateManager already selects the correct ABI and downloads/installs the update.
+- The build workflow refreshes WordPress immediately after publishing a GitHub app Release.
+- Background polling and traffic-triggered recovery remain as fallbacks.

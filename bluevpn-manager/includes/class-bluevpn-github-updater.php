@@ -319,6 +319,16 @@ final class BlueVPN_GitHub_Updater {
         }
 
         $s = self::settings();
+        // The Android release manager uses the same raw response when both
+        // managers point at the same repository. This avoids duplicate GitHub
+        // API traffic and keeps both release channels synchronized.
+        if (class_exists('BlueVPN_App_Release_Manager')) {
+            $app_cfg = BlueVPN_App_Release_Manager::settings();
+            if (($app_cfg['owner'] ?? '') === $s['owner'] && ($app_cfg['repo'] ?? '') === $s['repo']) {
+                BlueVPN_App_Release_Manager::ingest_releases($releases, 'shared_plugin_updater_poll', false);
+            }
+        }
+
         $candidates = [];
         foreach ($releases as $release) {
             if (!is_array($release) || !empty($release['draft']) || !empty($release['prerelease'])) continue;

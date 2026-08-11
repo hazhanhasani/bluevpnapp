@@ -30,6 +30,7 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-control-center.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-compat.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-cron.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-admin.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-app-release-manager.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-github-updater.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-migration.php';
 
@@ -40,6 +41,7 @@ register_activation_hook(__FILE__, function () {
     BlueVPN_Cron::schedule();
     BlueVPN_Migration::sync_cron_schedule(!empty(BlueVPN_Migration::settings()['auto_sync']));
     BlueVPN_Migration::sync_auto_schedule(!empty(BlueVPN_Migration::settings()['auto_migrate']));
+    BlueVPN_App_Release_Manager::ensure_schedule();
     BlueVPN_GitHub_Updater::ensure_schedule();
 });
 
@@ -47,6 +49,7 @@ register_deactivation_hook(__FILE__, function () {
     BlueVPN_Cron::unschedule();
     BlueVPN_Migration::sync_cron_schedule(false);
     BlueVPN_Migration::sync_auto_schedule(false);
+    BlueVPN_App_Release_Manager::unschedule();
     BlueVPN_GitHub_Updater::unschedule();
     flush_rewrite_rules(false);
 });
@@ -72,6 +75,7 @@ add_action('plugins_loaded', function () {
     BlueVPN_Compat::init();
     BlueVPN_Cron::init();
     BlueVPN_Admin::init();
+    BlueVPN_App_Release_Manager::init();
     BlueVPN_GitHub_Updater::init();
     BlueVPN_Migration::init();
 });

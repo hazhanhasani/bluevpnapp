@@ -46,9 +46,52 @@ final class BlueVPN_API {
             'app_cutover_enabled' => get_option('bluevpn_manager_app_cutover_enabled','0') === '1',
         ]);
     }
-    public static function mobile_config(): WP_REST_Response {
+    public static function mobile_config(WP_REST_Request $r): WP_REST_Response {
+        $forced = rest_sanitize_boolean($r->get_param('refresh'));
+        if ($forced && class_exists('BlueVPN_App_Release_Manager')) {
+            // Many phones can request a manual refresh at the same time. One
+            // GitHub check per minute is enough for all clients.
+            if ((time() - BlueVPN_App_Release_Manager::last_sync()) >= 60) {
+                BlueVPN_App_Release_Manager::sync_now(true, 'android_forced_refresh');
+            }
+        } elseif (class_exists('BlueVPN_App_Release_Manager')) {
+            BlueVPN_App_Release_Manager::maybe_kick();
+        }
         $s=BlueVPN_DB::settings();
-        return self::ok(['app_name'=>$s['app_name'],'maintenance'=>(bool)$s['maintenance'],'support_url'=>$s['support_url'],'minimum_version'=>$s['minimum_version'],'force_update'=>(bool)$s['force_update'],'auto_update'=>(bool)$s['auto_update'],'account_required'=>true,'latest_version'=>$s['latest_version'],'latest_version_code'=>(int)$s['latest_version_code'],'apk_url'=>$s['apk_url'],'apk_assets'=>[],'apk_asset_meta'=>[],'update_title'=>$s['update_title'],'update_message'=>$s['update_message'],'release_url'=>'','release_published_at'=>'','release_published_at_fa'=>'','release_build_number'=>0,'release_commit'=>'','update_source'=>'wordpress_settings','github_repository'=>'','github_error'=>'','release_cache_seconds'=>15,'release_refresh_forced'=>false,'auth'=>['mode'=>$s['auth_mode'],'password_login'=>$s['auth_mode']==='email_password','sms_provider'=>'iranpayamak','sms_ready'=>false],'blueai'=>['enabled'=>(bool)$s['blueai_enabled'],'collective'=>(bool)$s['blueai_collective'],'auto_heal'=>(bool)$s['blueai_auto_heal'],'min_samples'=>(int)$s['blueai_min_samples'],'privacy_message'=>$s['blueai_privacy_message']],'announcement'=>['enabled'=>(bool)$s['announcement_enabled'],'id'=>$s['announcement_id'],'title'=>$s['announcement_title'],'message'=>$s['announcement_message']],'advertising'=>['enabled'=>(bool)$s['ads_enabled'],'autoplay'=>(bool)$s['ads_autoplay'],'loop'=>(bool)$s['ads_loop'],'interval_seconds'=>(int)$s['ads_interval_seconds'],'height_dp'=>(int)$s['ads_height_dp'],'items'=>$s['ads_items']],'updated_at'=>$s['updated_at'],'updated_at_fa'=>BlueVPN_Utils::tehran_datetime_fa(),'calendar'=>'jalali','timezone'=>'Asia/Tehran','migration_phase'=>2,'migration_state'=>BlueVPN_Migration::state()['phase'],'cutover_ready'=>get_option('bluevpn_manager_cutover_ready','0')==='1']);
+        $publishedMysql=BlueVPN_Utils::mysql_from_iso((string)($s['release_published_at']??''));
+        return self::ok([
+            'app_name'=>$s['app_name'],
+            'maintenance'=>(bool)$s['maintenance'],
+            'support_url'=>$s['support_url'],
+            'minimum_version'=>$s['minimum_version'],
+            'force_update'=>(bool)$s['force_update'],
+            'auto_update'=>(bool)$s['auto_update'],
+            'account_required'=>true,
+            'latest_version'=>$s['latest_version'],
+            'latest_version_code'=>(int)$s['latest_version_code'],
+            'apk_url'=>$s['apk_url'],
+            'apk_assets'=>is_array($s['apk_assets']??null)?$s['apk_assets']:[],
+            'apk_asset_meta'=>is_array($s['apk_asset_meta']??null)?$s['apk_asset_meta']:[],
+            'update_title'=>$s['update_title'],
+            'update_message'=>$s['update_message'],
+            'release_url'=>(string)($s['release_url']??''),
+            'release_published_at'=>(string)($s['release_published_at']??''),
+            'release_published_at_fa'=>$publishedMysql?BlueVPN_Utils::tehran_datetime_fa($publishedMysql):'',
+            'release_build_number'=>(int)($s['release_build_number']??0),
+            'release_commit'=>(string)($s['release_commit']??''),
+            'update_source'=>(string)($s['update_source']??'wordpress_settings'),
+            'github_repository'=>(string)($s['github_repository']??''),
+            'github_error'=>(string)($s['github_error']??''),
+            'release_cache_seconds'=>(int)($s['release_cache_seconds']??15),
+            'release_refresh_forced'=>$forced,
+            'auth'=>['mode'=>$s['auth_mode'],'password_login'=>$s['auth_mode']==='email_password','sms_provider'=>'iranpayamak','sms_ready'=>false],
+            'blueai'=>['enabled'=>(bool)$s['blueai_enabled'],'collective'=>(bool)$s['blueai_collective'],'auto_heal'=>(bool)$s['blueai_auto_heal'],'min_samples'=>(int)$s['blueai_min_samples'],'privacy_message'=>$s['blueai_privacy_message']],
+            'announcement'=>['enabled'=>(bool)$s['announcement_enabled'],'id'=>$s['announcement_id'],'title'=>$s['announcement_title'],'message'=>$s['announcement_message']],
+            'advertising'=>['enabled'=>(bool)$s['ads_enabled'],'autoplay'=>(bool)$s['ads_autoplay'],'loop'=>(bool)$s['ads_loop'],'interval_seconds'=>(int)$s['ads_interval_seconds'],'height_dp'=>(int)$s['ads_height_dp'],'items'=>$s['ads_items']],
+            'updated_at'=>$s['updated_at'],
+            'updated_at_fa'=>BlueVPN_Utils::tehran_datetime_fa(),
+            'calendar'=>'jalali','timezone'=>'Asia/Tehran','migration_phase'=>2,'migration_state'=>BlueVPN_Migration::state()['phase'],'cutover_ready'=>get_option('bluevpn_manager_cutover_ready','0')==='1'
+        ]);
     }
     public static function register(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);$email=BlueVPN_Auth::normalize_email((string)($b['email']??''));$pass=BlueVPN_Auth::validate_password((string)($b['password']??''));$c=BlueVPN_Auth::create_customer($email,$pass);$tok=BlueVPN_Auth::issue_session($c,(string)($b['device_id']??''),(string)($b['device_name']??''));return self::ok(['success'=>true,'is_new_account'=>true,'token'=>$tok['token'],'refresh_token'=>$tok['refresh_token'],'account'=>BlueVPN_Auth::account_payload($c)]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
     public static function login(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);$email=BlueVPN_Auth::normalize_email((string)($b['email']??''));$c=BlueVPN_Auth::customer_by_email($email);if(!$c||!BlueVPN_Auth::password_verify_compat((string)($b['password']??''),(string)$c['password_hash'])) throw new BlueVPN_Auth_Exception(401,'INVALID_CREDENTIALS','ایمیل یا رمز عبور نادرست است.');if(!(int)$c['active']) throw new BlueVPN_Auth_Exception(401,'ACCOUNT_DISABLED','این حساب غیرفعال شده است.');$tok=BlueVPN_Auth::issue_session($c,(string)($b['device_id']??''),(string)($b['device_name']??''));return self::ok(['success'=>true,'is_new_account'=>false,'token'=>$tok['token'],'refresh_token'=>$tok['refresh_token'],'account'=>BlueVPN_Auth::account_payload($c)]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }

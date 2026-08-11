@@ -513,6 +513,9 @@ final class BlueVPN_Admin {
             echo '<div class="bvp-card"><h3>آخرین Release افزونه</h3><p class="bvp-warn">هنوز Release مخصوص افزونه پیدا نشد.</p></div>';
         }
         echo '<div class="bvp-card"><h3>آپدیت خودکار واقعی</h3><p class="'.(!empty($cfg['auto_update'])?'bvp-ok':'bvp-warn').'">'.(!empty($cfg['auto_update'])?'فعال؛ بررسی و نصب بدون دخالت مدیر':'غیرفعال').'</p></div>';
+        $diag = BlueVPN_GitHub_Updater::diagnostics();
+        $auth = !empty($diag['authenticated']);
+        echo '<div class="bvp-card"><h3>دسترسی GitHub</h3><p class="'.($auth?'bvp-ok':'bvp-warn').'"><strong>'.($auth?'Authenticated':'Unauthenticated').'</strong></p><small>'.($auth?'از GITHUB_TOKEN مهاجرت‌شده ربات برای Release API و دانلود Asset استفاده می‌شود.':'Updater بدون Token است؛ مخزن خصوصی یا Rate Limit می‌تواند آپدیت را متوقف کند.').'</small></div>';
         $last_bg = BlueVPN_GitHub_Updater::last_background_check();
         echo '<div class="bvp-card"><h3>بررسی خودکار GitHub</h3><p class="bvp-ok"><strong>هر ۲ دقیقه</strong></p><small>'.($last_bg ? 'آخرین اجرا: '.esc_html(wp_date('Y-m-d H:i:s', $last_bg)) : 'در انتظار اولین اجرای پس‌زمینه').'</small></div>';
         $auto_status = BlueVPN_GitHub_Updater::auto_update_status();

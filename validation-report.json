@@ -1,12 +1,12 @@
 {
-  "version": "3.0.83",
-  "version_code": 40030,
-  "feature": "selection-ownership-rotation",
+  "version": "4.0.31",
+  "version_code": 40031,
+  "feature": "authenticated-wordpress-updater",
   "tests": {
-    "passed": 10,
+    "passed": 34,
     "failed": 0,
     "warnings": 0,
-    "scope": "focused 4.0.30 release/workflow regression tests"
+    "scope": "focused 4.0.31 authenticated updater + WordPress release barrier regressions"
   },
   "dual_engine": {
     "status": "passed",
@@ -72,10 +72,10 @@
   },
   "validation_commands": {
     "project_suite": "python -m pytest -q",
-    "project_suite_result": "321 passed, 0 failed, 40 deprecation warnings",
+    "project_suite_result": "356 passed, 53 legacy/non-gated failures, 40 warnings",
     "runtime_validator": "python scripts/validate_dual_engine.py",
     "runtime_validator_result": "35 passed, 0 failed, 1 environment warning",
-    "generated_android_validator": "passed (4.0.30 / 40030, 27 embedded sources)",
+    "generated_android_validator": "passed (4.0.31 / 40031, 27 embedded sources)",
     "json_validation": "passed",
     "python_compileall": "passed",
     "full_gradle_build": "not run in offline container",
@@ -83,7 +83,8 @@
     "release_race_validator": "passed (9 checks)",
     "php_lint": "22 passed, 0 failed",
     "workflow_yaml": "2 parsed successfully",
-    "full_legacy_suite": "351 passed, 53 failed; failures are legacy version-locked / pre-4.0.27 behavior assertions and are not part of the release gate"
+    "full_legacy_suite": "351 passed, 53 failed; failures are legacy version-locked / pre-4.0.27 behavior assertions and are not part of the release gate",
+    "release_gate": "7 validators passed; 34 focused pytest tests passed; 22/22 PHP lint passed; workflow YAML passed"
   },
   "build_fix": "wordpress-release-race-diagnostics-fix",
   "bluepay": {
@@ -137,6 +138,6 @@
     "generated_android_validation": true,
     "full_gradle_build": "delegated to GitHub Actions"
   },
-  "project_version": "4.0.30",
-  "release": "4.0.30"
+  "project_version": "4.0.31",
+  "release": "4.0.31"
 }

@@ -32,7 +32,7 @@ def test_current_v4_metadata_is_synchronized():
     assert release["version"] == app["version_name"] == version
     assert release["version_code"] == app["version_code"]
     assert version.startswith("4.")
-    assert "BLUEVPN_MANAGER_SCHEMA_VERSION', '1.4.1'" in plugin
+    assert "BLUEVPN_MANAGER_SCHEMA_VERSION', '1.5.0'" in plugin
 
 
 def test_archive_auth_keeps_stability_guards():

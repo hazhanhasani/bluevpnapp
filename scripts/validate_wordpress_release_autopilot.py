@@ -32,7 +32,7 @@ check('Publish synchronized BlueVPN Manager release barrier' in build, 'Android 
 check('Manager release barrier passed:' in build, 'Android workflow must verify published manager asset')
 check(build.index('Publish synchronized BlueVPN Manager release barrier') < build.index('Checkout official v2rayNG source'), 'manager release barrier must run before Android build preparation')
 check('Wait for WordPress control-plane auto-update' in build, 'Android workflow must wait for WordPress to install the manager release')
-check('WordPress did not auto-update to ${VERSION} before Android build' in build, 'WordPress convergence must be a hard release gate')
+check('WORDPRESS_AUTOUPDATE_TIMEOUT' in build, 'WordPress convergence must be a hard release gate')
 check(build.index('Wait for WordPress control-plane auto-update') < build.index('Checkout official v2rayNG source'), 'WordPress convergence must complete before Android build preparation')
 check('refresh_release()' in build and 'if ! gh release create "$TAG"' in build, 'inline publisher must recover release creation races')
 check('BUILD_STAGE=publish-wordpress-manager-release' in build, 'publish stage telemetry is missing')

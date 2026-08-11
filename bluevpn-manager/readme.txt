@@ -1,5 +1,5 @@
 === BlueVPN Manager ===
-Version: 4.0.30
+Version: 4.0.31
 Requires PHP: 8.0
 
 زیرساخت مهاجرت Backend BlueVPN از Railway/PostgreSQL به WordPress/MySQL با Migration Bridge امن و قابل Resume.
@@ -122,6 +122,13 @@ Requires PHP: 8.0
 * Railway برای اجرای ربات دیگر لازم نیست.
 
 == Changelog ==
+
+= 4.0.31 =
+* GitHub Updater اکنون از GITHUB_TOKEN مهاجرت‌شده ربات برای Release API استفاده می‌کند؛ مناسب مخزن خصوصی و جلوگیری از Rate Limit ناشناس.
+* دانلود Release Asset خصوصی از API رسمی GitHub با Authorization و application/octet-stream انجام می‌شود.
+* /health وضعیت امن Updater شامل authenticated/status/target را بدون افشای Token گزارش می‌کند.
+* WordPress Release Barrier خطای واقعی Timeout/Updater را گزارش می‌کند و خطای موقت git push دیگر به‌عنوان علت اصلی نمایش داده نمی‌شود.
+* اگر سایت هنوز روی Manager قدیمی باشد، Workflow پیام WORDPRESS_BOOTSTRAP_REQUIRED می‌دهد تا فقط یک‌بار افزونه جدید دستی نصب شود؛ پس از آن آپدیت‌ها خودکار می‌شوند.
 
 = 4.0.29 =
 * WordPress Release Barrier: بسته BlueVPN Manager اکنون در همان Workflow ساخت APK منتشر می‌شود.

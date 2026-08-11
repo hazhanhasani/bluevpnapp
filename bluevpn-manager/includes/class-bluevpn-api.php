@@ -43,7 +43,30 @@ final class BlueVPN_API {
     private static function ok(array $data,int $status=200): WP_REST_Response { return new WP_REST_Response($data,$status); }
     private static function fail(BlueVPN_Auth_Exception $e): WP_REST_Response { return self::ok(['detail'=>array_merge(['code'=>$e->error_code,'message'=>$e->getMessage()],$e->extra)],$e->http_status); }
     private static function body(WP_REST_Request $r): array { $b=$r->get_json_params(); return is_array($b)?$b:[]; }
-    public static function health(): WP_REST_Response { $db=BlueVPN_DB::status(); $production=class_exists('BlueVPN_Production')?BlueVPN_Production::health_summary():[]; return self::ok(['status'=>($db['ready']&&(!isset($production['score'])||$production['score']>=70))?'ok':'degraded','service'=>'bluevpn-wordpress-platform','version'=>BLUEVPN_MANAGER_VERSION,'server_time'=>BlueVPN_Utils::iso_now(),'server_time_fa'=>BlueVPN_Utils::tehran_datetime_fa(),'calendar'=>'jalali','timezone'=>'Asia/Tehran','database'=>$db,'counts'=>$db['ready']?BlueVPN_DB::counts():[],'production'=>$production,'migration'=>['phase'=>2,'state'=>BlueVPN_Migration::state()['phase'],'cutover_ready'=>get_option('bluevpn_manager_cutover_ready','0')==='1','finalized'=>get_option('bluevpn_manager_legacy_bridge_disabled','0')==='1']]); }
+    public static function health(): WP_REST_Response {
+        $db = BlueVPN_DB::status();
+        $production = class_exists('BlueVPN_Production') ? BlueVPN_Production::health_summary() : [];
+        $updater = class_exists('BlueVPN_GitHub_Updater') ? BlueVPN_GitHub_Updater::diagnostics() : [];
+        return self::ok([
+            'status' => ($db['ready'] && (!isset($production['score']) || $production['score'] >= 70)) ? 'ok' : 'degraded',
+            'service' => 'bluevpn-wordpress-platform',
+            'version' => BLUEVPN_MANAGER_VERSION,
+            'server_time' => BlueVPN_Utils::iso_now(),
+            'server_time_fa' => BlueVPN_Utils::tehran_datetime_fa(),
+            'calendar' => 'jalali',
+            'timezone' => 'Asia/Tehran',
+            'database' => $db,
+            'counts' => $db['ready'] ? BlueVPN_DB::counts() : [],
+            'production' => $production,
+            'github_updater' => $updater,
+            'migration' => [
+                'phase' => 2,
+                'state' => BlueVPN_Migration::state()['phase'],
+                'cutover_ready' => get_option('bluevpn_manager_cutover_ready','0') === '1',
+                'finalized' => get_option('bluevpn_manager_legacy_bridge_disabled','0') === '1',
+            ],
+        ]);
+    }
     public static function app_connection(): WP_REST_Response {
         $site = untrailingslashit(home_url('/'));
         return self::ok([

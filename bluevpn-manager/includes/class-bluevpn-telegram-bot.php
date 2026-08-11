@@ -171,6 +171,15 @@ final class BlueVPN_Telegram_Bot {
         $s = $s ?: self::settings();
         return BlueVPN_Utils::decrypt_secret((string)$s['github_token_enc']);
     }
+
+    /**
+     * Internal read-only accessor used by the GitHub updater.
+     * The token is never exposed through REST/admin output; it only leaves the
+     * process in an Authorization header sent to api.github.com.
+     */
+    public static function github_token_for_internal_requests(): string {
+        return self::github_token();
+    }
     private static function webhook_secret_token(?array $s = null): string {
         $s = $s ?: self::settings();
         return BlueVPN_Utils::decrypt_secret((string)$s['webhook_secret_token_enc']);

@@ -32,6 +32,7 @@ final class BlueVPN_GitHub_Updater {
         add_filter('pre_set_site_transient_update_plugins', [self::class, 'inject_update']);
         add_filter('plugins_api', [self::class, 'plugin_info'], 20, 3);
         add_filter('auto_update_plugin', [self::class, 'auto_update'], 20, 2);
+        add_filter('http_request_args', [self::class, 'authenticate_github_http'], 20, 2);
         add_action('upgrader_process_complete', [self::class, 'after_upgrade'], 10, 2);
         add_action(self::CRON_HOOK, [self::class, 'background_update_check']);
         add_action('admin_init', [self::class, 'ensure_schedule']);
@@ -231,11 +232,60 @@ final class BlueVPN_GitHub_Updater {
         return 'https://api.github.com/repos/' . rawurlencode($s['owner']) . '/' . rawurlencode($s['repo']) . '/releases?per_page=30';
     }
 
-    private static function request_headers(): array {
-        return [
-            'Accept' => 'application/vnd.github+json',
+    private static function github_token(): string {
+        if (!class_exists('BlueVPN_Telegram_Bot') || !method_exists('BlueVPN_Telegram_Bot', 'github_token_for_internal_requests')) return '';
+        try {
+            return trim((string)BlueVPN_Telegram_Bot::github_token_for_internal_requests());
+        } catch (Throwable $e) {
+            return '';
+        }
+    }
+
+    private static function request_headers(bool $binary = false): array {
+        $headers = [
+            'Accept' => $binary ? 'application/octet-stream' : 'application/vnd.github+json',
             'X-GitHub-Api-Version' => '2022-11-28',
             'User-Agent' => 'BlueVPN-Manager/' . BLUEVPN_MANAGER_VERSION . '; ' . home_url('/'),
+        ];
+        $token = self::github_token();
+        if ($token !== '') $headers['Authorization'] = 'Bearer ' . $token;
+        return $headers;
+    }
+
+    /**
+     * WordPress core performs the package download itself during Plugin_Upgrader.
+     * For a private repository the release asset API requires the same token as
+     * the release-list request, so attach it only to the configured repository's
+     * GitHub API/download URLs.
+     */
+    public static function authenticate_github_http(array $args, string $url): array {
+        $token = self::github_token();
+        if ($token === '') return $args;
+
+        $s = self::settings();
+        $owner = preg_quote((string)$s['owner'], '#');
+        $repo = preg_quote((string)$s['repo'], '#');
+        $isApiAsset = (bool)preg_match('#^https://api\.github\.com/repos/' . $owner . '/' . $repo . '/releases/assets/\d+(?:\?.*)?$#i', $url);
+        $isBrowserAsset = (bool)preg_match('#^https://github\.com/' . $owner . '/' . $repo . '/releases/download/#i', $url);
+        if (!$isApiAsset && !$isBrowserAsset) return $args;
+
+        if (empty($args['headers']) || !is_array($args['headers'])) $args['headers'] = [];
+        $args['headers']['Authorization'] = 'Bearer ' . $token;
+        $args['headers']['User-Agent'] = 'BlueVPN-Manager/' . BLUEVPN_MANAGER_VERSION . '; ' . home_url('/');
+        if ($isApiAsset) {
+            $args['headers']['Accept'] = 'application/octet-stream';
+            $args['headers']['X-GitHub-Api-Version'] = '2022-11-28';
+        }
+        return $args;
+    }
+
+    public static function diagnostics(): array {
+        return [
+            'repository' => self::settings()['owner'] . '/' . self::settings()['repo'],
+            'authenticated' => self::github_token() !== '',
+            'last_check' => self::last_background_check(),
+            'auto_update' => !empty(self::settings()['auto_update']),
+            'status' => self::auto_update_status(),
         ];
     }
 
@@ -304,13 +354,19 @@ final class BlueVPN_GitHub_Updater {
         $response = wp_remote_get(self::api_url(), [
             'timeout' => 12,
             'redirection' => 3,
-            'headers' => self::request_headers(),
+            'headers' => self::request_headers(false),
         ]);
         if (is_wp_error($response)) return $response;
 
         $status = (int)wp_remote_retrieve_response_code($response);
         if ($status !== 200) {
-            return new WP_Error('bluevpn_github_http', 'GitHub API HTTP ' . $status);
+            $remaining = (string)wp_remote_retrieve_header($response, 'x-ratelimit-remaining');
+            $reset = (string)wp_remote_retrieve_header($response, 'x-ratelimit-reset');
+            $suffix = '';
+            if ($remaining !== '') $suffix .= ' rate_remaining=' . $remaining;
+            if ($reset !== '') $suffix .= ' rate_reset=' . $reset;
+            $suffix .= self::github_token() !== '' ? ' auth=token' : ' auth=none';
+            return new WP_Error('bluevpn_github_http', 'GitHub API HTTP ' . $status . $suffix);
         }
 
         $releases = json_decode(wp_remote_retrieve_body($response), true);
@@ -346,11 +402,17 @@ final class BlueVPN_GitHub_Updater {
             }
             if (!is_array($asset_data)) continue;
 
+            $assetApiUrl = esc_url_raw((string)($asset_data['url'] ?? ''));
+            $browserDownloadUrl = esc_url_raw((string)$asset_data['browser_download_url']);
+            $authenticatedAsset = self::github_token() !== '' && $assetApiUrl !== '';
             $candidate = [
                 'base_version' => $version,
                 'version' => $version,
                 'tag' => $tag,
-                'package' => esc_url_raw((string)$asset_data['browser_download_url']),
+                'package' => $authenticatedAsset ? $assetApiUrl : $browserDownloadUrl,
+                'browser_download_url' => $browserDownloadUrl,
+                'asset_api_url' => $assetApiUrl,
+                'authenticated_asset' => $authenticatedAsset,
                 'url' => esc_url_raw((string)($release['html_url'] ?? self::repository_url())),
                 'published_at' => sanitize_text_field((string)($release['published_at'] ?? '')),
                 'release_updated_at' => sanitize_text_field((string)($release['updated_at'] ?? '')),

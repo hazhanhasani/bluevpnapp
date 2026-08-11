@@ -279,20 +279,26 @@ jobs:
           fi
 
           PUSHED=0
+          PUSH_LOG="$RUNNER_TEMP/bluevpn-metadata-push.log"
+          : > "$PUSH_LOG"
           for attempt in 1 2 3 4 5; do
-            if git push --porcelain origin "HEAD:${TARGET_BRANCH}"; then
+            # Rebase before every attempt so a remote bot/user commit does not
+            # generate a noisy non-fast-forward error that later looks fatal.
+            git fetch origin "${TARGET_BRANCH}" --prune
+            git rebase "origin/${TARGET_BRANCH}"
+            if git push --porcelain origin "HEAD:${TARGET_BRANCH}" >"$PUSH_LOG" 2>&1; then
+              cat "$PUSH_LOG"
               PUSHED=1
               break
             fi
 
-            echo "Push raced with another commit; rebasing attempt ${attempt}/5"
-            git fetch origin "${TARGET_BRANCH}" --prune
-            git rebase "origin/${TARGET_BRANCH}"
+            echo "Metadata push retry ${attempt}/5; remote branch changed while this run was active."
             sleep $((attempt * 2))
           done
 
           if [ "$PUSHED" != "1" ]; then
             echo "::error::Version metadata could not be persisted after five synchronized retries."
+            sed 's/^/[git-push-final] /' "$PUSH_LOG" || true
             exit 1
           fi
 
@@ -465,6 +471,10 @@ jobs:
           LAST_VERSION="unknown"
           LAST_SCHEMA="unknown"
           LAST_READY="false"
+          LAST_UPDATER_AUTH="unknown"
+          LAST_UPDATER_STATUS="unknown"
+          LAST_UPDATER_TARGET="unknown"
+          LAST_UPDATER_MESSAGE=""
 
           # The updater checks every two minutes. Health traffic also kicks its
           # non-blocking cron path, so six minutes allows extra time for a delayed host cron cycle.
@@ -473,22 +483,40 @@ jobs:
               "$HEALTH_URL" -o "$RUNNER_TEMP/bluevpn-health.json" || true
 
             if [ -s "$RUNNER_TEMP/bluevpn-health.json" ]; then
-              read -r LAST_VERSION LAST_SCHEMA LAST_READY < <(python - <<'PY'
+              mapfile -t HEALTH_FIELDS < <(python - <<'PY'
           import json, os
           from pathlib import Path
           p=Path(os.environ['RUNNER_TEMP'])/'bluevpn-health.json'
           try:
               d=json.loads(p.read_text(encoding='utf-8'))
           except Exception:
-              print('invalid unknown false')
+              print('invalid'); print('unknown'); print('false'); print('unknown'); print('unknown'); print('unknown'); print('invalid health json')
           else:
               db=d.get('database') or {}
-              print(str(d.get('version','unknown')), str(db.get('schema_version','unknown')), str(bool(db.get('ready',False))).lower())
+              updater=d.get('github_updater') or {}
+              us=updater.get('status') or {}
+              print(str(d.get('version','unknown')))
+              print(str(db.get('schema_version','unknown')))
+              print(str(bool(db.get('ready',False))).lower())
+              print(str(updater.get('authenticated','unknown')).lower())
+              print(str(us.get('status','unknown')))
+              print(str(us.get('target','unknown')))
+              print(str(us.get('message','')).replace('\n',' ')[:500])
           PY
               )
+              LAST_VERSION="${HEALTH_FIELDS[0]:-unknown}"
+              LAST_SCHEMA="${HEALTH_FIELDS[1]:-unknown}"
+              LAST_READY="${HEALTH_FIELDS[2]:-false}"
+              LAST_UPDATER_AUTH="${HEALTH_FIELDS[3]:-unknown}"
+              LAST_UPDATER_STATUS="${HEALTH_FIELDS[4]:-unknown}"
+              LAST_UPDATER_TARGET="${HEALTH_FIELDS[5]:-unknown}"
+              LAST_UPDATER_MESSAGE="${HEALTH_FIELDS[6]:-}"
             fi
 
-            echo "WordPress convergence ${attempt}/36: version=${LAST_VERSION} schema=${LAST_SCHEMA} ready=${LAST_READY}"
+            echo "WordPress convergence ${attempt}/36: version=${LAST_VERSION} schema=${LAST_SCHEMA} ready=${LAST_READY} updater_auth=${LAST_UPDATER_AUTH} updater_status=${LAST_UPDATER_STATUS} updater_target=${LAST_UPDATER_TARGET}"
+            if [ -n "$LAST_UPDATER_MESSAGE" ]; then
+              echo "WordPress updater message: $LAST_UPDATER_MESSAGE"
+            fi
             if [ "$LAST_VERSION" = "$VERSION" ] && [ "$LAST_SCHEMA" = "$EXPECTED_SCHEMA" ] && [ "$LAST_READY" = "true" ]; then
               echo "WordPress control plane is synchronized with APK ${VERSION}."
               exit 0
@@ -501,7 +529,13 @@ jobs:
             sleep 10
           done
 
-          echo "::error::WordPress did not auto-update to ${VERSION} before Android build. Current=${LAST_VERSION} Schema=${LAST_SCHEMA} Ready=${LAST_READY}"
+          echo "::error::WORDPRESS_AUTOUPDATE_TIMEOUT expected=${VERSION} current=${LAST_VERSION} schema=${LAST_SCHEMA} ready=${LAST_READY} updater_auth=${LAST_UPDATER_AUTH} updater_status=${LAST_UPDATER_STATUS} updater_target=${LAST_UPDATER_TARGET}"
+          if [ -n "$LAST_UPDATER_MESSAGE" ]; then
+            echo "::error::WORDPRESS_UPDATER_MESSAGE ${LAST_UPDATER_MESSAGE}"
+          fi
+          if [ "$LAST_VERSION" = "4.0.24" ] || [ "$LAST_UPDATER_AUTH" = "unknown" ]; then
+            echo "::error::WORDPRESS_BOOTSTRAP_REQUIRED The installed manager is too old to expose authenticated updater diagnostics. Install the published bluevpn-manager.zip once, then future releases can update automatically with the migrated GitHub token."
+          fi
           exit 1
 
       - name: Mark Android runtime checkout stage
@@ -720,6 +754,7 @@ jobs:
             python scripts/validate_wordpress_connectivity_hotfix.py
             python scripts/validate_wordpress_release_autopilot.py
             python scripts/validate_release_race_fix.py
+            python scripts/validate_authenticated_wordpress_updater.py
             while IFS= read -r -d '' file; do
               php -l "$file" >/dev/null
             done < <(find bluevpn-manager -type f -name '*.php' -print0)
@@ -850,19 +885,23 @@ jobs:
           fi
 
           PUSHED=0
+          PUSH_LOG="$RUNNER_TEMP/bluevpn-generated-push.log"
+          : > "$PUSH_LOG"
           for attempt in 1 2 3 4 5; do
-            if git push --porcelain origin "HEAD:${TARGET_BRANCH}"; then
+            git fetch origin "${TARGET_BRANCH}" --prune
+            git rebase "origin/${TARGET_BRANCH}"
+            if git push --porcelain origin "HEAD:${TARGET_BRANCH}" >"$PUSH_LOG" 2>&1; then
+              cat "$PUSH_LOG"
               PUSHED=1
               break
             fi
-            echo "Generated-source push raced with another commit; rebasing attempt ${attempt}/5"
-            git fetch origin "${TARGET_BRANCH}" --prune
-            git rebase "origin/${TARGET_BRANCH}"
+            echo "Generated-source push retry ${attempt}/5; remote branch changed while this run was active."
             sleep $((attempt * 2))
           done
 
           if [ "$PUSHED" != "1" ]; then
             echo "::error::Generated Android source could not be persisted after five synchronized retries."
+            sed 's/^/[git-push-final] /' "$PUSH_LOG" || true
             exit 1
           fi
 
@@ -1308,7 +1347,8 @@ jobs:
               ]
 
               pattern = re.compile(
-                  r"(^|\s)(e:|error:|fatal:)|"
+                  r"(^|\s)(e:|error:|fatal:)|::error::|"
+                  r"WORDPRESS_[A-Z0-9_]+|"
                   r"unresolved reference|cannot access|"
                   r"compilation error|execution failed for task|"
                   r"what went wrong|build failed",

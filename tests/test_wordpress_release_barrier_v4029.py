@@ -11,10 +11,10 @@ def test_version_is_4030_everywhere():
     plugin = source('bluevpn-manager/bluevpn-manager.php')
     readme = source('bluevpn-manager/readme.txt')
     app = source('branding/app.json')
-    assert '* Version: 4.0.30' in plugin
-    assert "BLUEVPN_MANAGER_VERSION', '4.0.30'" in plugin
-    assert 'Version: 4.0.30' in readme
-    assert '"version_name": "4.0.30"' in app
+    assert '* Version: 4.0.31' in plugin
+    assert "BLUEVPN_MANAGER_VERSION', '4.0.31'" in plugin
+    assert 'Version: 4.0.31' in readme
+    assert '"version_name": "4.0.31"' in app
 
 
 def test_main_build_publishes_manager_before_android_checkout():
@@ -32,7 +32,7 @@ def test_apk_build_is_blocked_until_wordpress_is_same_version_and_schema():
     wf = source('.github/workflows/build-apk.yml')
     assert '${API_BASE_URL}/health' in wf
     assert 'BLUEVPN_MANAGER_SCHEMA_VERSION' in wf
-    assert 'WordPress did not auto-update to ${VERSION} before Android build' in wf
+    assert 'WORDPRESS_AUTOUPDATE_TIMEOUT' in wf
     assert 'WP_CRON_URL' in wf
     assert 'LAST_VERSION" = "$VERSION' in wf
     assert 'LAST_SCHEMA" = "$EXPECTED_SCHEMA' in wf

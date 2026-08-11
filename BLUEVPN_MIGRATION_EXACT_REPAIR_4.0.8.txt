@@ -1,0 +1,7 @@
+BlueVPN 4.0.8 - Exact Migration Repair
+
+- Adds Migration Bridge protocol v3 primary-key audit endpoints.
+- Repairs only missing IDs instead of blindly replaying whole tables.
+- Fixes the persistent customers gap seen after repeated resync attempts.
+- Shows synced table counts as "X از Y" to avoid RTL slash reversal.
+- Preserves the unified App + WordPress 4.x release workflow.

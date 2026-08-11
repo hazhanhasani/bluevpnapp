@@ -111,6 +111,10 @@ final class BlueVPN_Migration {
             'last_verified_at' => '',
             'final_verify_passes' => 0,
             'paused_from_phase' => '',
+            'exact_repair_attempts' => 0,
+            'exact_repair_last_table' => '',
+            'exact_repair_last_ids' => [],
+            'exact_repair_last_message' => '',
             'tables' => $tables,
         ], $raw, ['tables' => $tables]);
     }
@@ -135,6 +139,8 @@ final class BlueVPN_Migration {
             'final_resync_started_at' => '', 'verification_failures' => 0,
             'cycle_kind' => '', 'current_table' => '', 'last_progress_at' => '',
             'last_verified_at' => '', 'final_verify_passes' => 0, 'paused_from_phase' => '',
+            'exact_repair_attempts' => 0, 'exact_repair_last_table' => '',
+            'exact_repair_last_ids' => [], 'exact_repair_last_message' => '',
             'tables' => [],
         ];
         self::save_state($state);
@@ -320,6 +326,118 @@ final class BlueVPN_Migration {
         });
     }
 
+    private static function primary_key_name(string $logicalTable, ?array $state = null): string {
+        $state = $state ?? self::state();
+        $pk = (string)(($state['source_primary_keys'][$logicalTable] ?? '') ?: 'id');
+        return preg_match('/^[A-Za-z0-9_]+$/', $pk) ? $pk : '';
+    }
+
+    private static function local_primary_key_set(string $logicalTable, string $pk): array {
+        global $wpdb;
+        if ($pk === '' || !in_array($logicalTable, self::table_order(), true)) return [];
+        $table = BlueVPN_DB::table($logicalTable);
+        $columns = $wpdb->get_col("SHOW COLUMNS FROM {$table}", 0);
+        if (!is_array($columns) || !in_array($pk, $columns, true)) return [];
+        $values = $wpdb->get_col("SELECT `{$pk}` FROM {$table}");
+        $set = [];
+        foreach ((array)$values as $value) $set[(string)$value] = true;
+        return $set;
+    }
+
+    /** Fetch source primary keys using Migration Bridge protocol v3. */
+    public static function exact_missing_primary_keys(string $logicalTable, int $cap = 1000) {
+        if (!in_array($logicalTable, self::table_order(), true)) {
+            return new WP_Error('invalid_table', 'جدول مهاجرت معتبر نیست.');
+        }
+        $state = self::state();
+        $pk = self::primary_key_name($logicalTable, $state);
+        if ($pk === '') return new WP_Error('migration_pk_missing', 'کلید اصلی جدول '.$logicalTable.' قابل تشخیص نیست.');
+
+        $local = self::local_primary_key_set($logicalTable, $pk);
+        $missing = [];
+        $cursor = '';
+        $guard = 0;
+        do {
+            $query = ['limit' => 5000];
+            if ($cursor !== '') $query['after'] = $cursor;
+            $path = '/internal/migration/v1/keys/'.rawurlencode($logicalTable).'?'.http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+            $payload = self::request($path, ['timeout' => 35]);
+            if (is_wp_error($payload)) return $payload;
+            $keys = is_array($payload['keys'] ?? null) ? $payload['keys'] : [];
+            foreach ($keys as $key) {
+                $key = (string)$key;
+                if ($key !== '' && !isset($local[$key])) {
+                    $missing[] = $key;
+                    if (count($missing) >= max(1, $cap)) break 2;
+                }
+            }
+            $next = (string)($payload['next_cursor'] ?? '');
+            $done = !empty($payload['done']);
+            if (!$done && $next === $cursor) return new WP_Error('migration_key_cursor_stalled', 'Audit کلیدهای '.$logicalTable.' بدون پیشرفت متوقف شد.');
+            $cursor = $next;
+            $guard++;
+            if ($guard > 5000) return new WP_Error('migration_key_guard', 'Audit کلیدهای '.$logicalTable.' بیش از حد طولانی شد.');
+        } while (!$done);
+
+        return ['primary_key' => $pk, 'missing_ids' => array_values(array_unique($missing))];
+    }
+
+    /**
+     * Repair only rows whose primary keys are absent from MySQL. This is the
+     * convergence path for small live-write gaps such as the last few customers.
+     */
+    public static function repair_exact_missing(string $logicalTable, int $maxIds = 500): array {
+        $audit = self::exact_missing_primary_keys($logicalTable, max(1, min(1000, $maxIds)));
+        if (is_wp_error($audit)) {
+            return ['success' => false, 'error' => $audit->get_error_message(), 'missing_ids' => [], 'imported' => 0];
+        }
+        $ids = array_values((array)($audit['missing_ids'] ?? []));
+        if (!$ids) {
+            return ['success' => true, 'error' => '', 'missing_ids' => [], 'remaining_ids' => [], 'imported' => 0];
+        }
+
+        $imported = 0;
+        foreach (array_chunk($ids, 100) as $chunk) {
+            $path = '/internal/migration/v1/export-ids/'.rawurlencode($logicalTable).'?'.http_build_query(['ids'=>implode(',', $chunk)], '', '&', PHP_QUERY_RFC3986);
+            $payload = self::request($path, ['timeout' => 45]);
+            if (is_wp_error($payload)) {
+                return ['success' => false, 'error' => $payload->get_error_message(), 'missing_ids' => $ids, 'imported' => $imported];
+            }
+            $rows = is_array($payload['rows'] ?? null) ? $payload['rows'] : [];
+            $decoded = [];
+            foreach ($rows as $row) if (is_array($row)) $decoded[] = self::decode_row($row);
+            if ($decoded && self::bulk_upsert($logicalTable, $decoded) === false) {
+                global $wpdb;
+                return ['success' => false, 'error' => 'خطای MySQL در ترمیم دقیق '.$logicalTable.': '.$wpdb->last_error, 'missing_ids' => $ids, 'imported' => $imported];
+            }
+            $imported += count($decoded);
+        }
+
+        $verify = self::exact_missing_primary_keys($logicalTable, max(1, min(1000, $maxIds)));
+        $remaining = is_wp_error($verify) ? $ids : array_values((array)($verify['missing_ids'] ?? []));
+        $state = self::state();
+        $state['exact_repair_attempts'] = (int)($state['exact_repair_attempts'] ?? 0) + 1;
+        $state['exact_repair_last_table'] = $logicalTable;
+        $state['exact_repair_last_ids'] = array_slice($remaining ?: $ids, 0, 30);
+        if ($remaining) {
+            $message = 'ترمیم دقیق '.$logicalTable.' انجام شد اما '.count($remaining).' ID هنوز در MySQL نیست: '.implode(', ', array_slice($remaining, 0, 12)).'. احتمال تعارض Unique یا تغییر همزمان داده وجود دارد.';
+            $state['exact_repair_last_message'] = $message;
+            $state['tables'][$logicalTable]['last_error'] = $message;
+            $state['last_error'] = $message;
+            self::save_state($state);
+            return ['success' => false, 'error' => $message, 'missing_ids' => $ids, 'remaining_ids' => $remaining, 'imported' => $imported];
+        }
+
+        $state['exact_repair_last_message'] = 'ترمیم دقیق '.$logicalTable.' موفق بود؛ '.count($ids).' رکورد گمشده با ID مشخص بازیابی شد.';
+        $state['tables'][$logicalTable]['last_error'] = '';
+        $state['tables'][$logicalTable]['updated_at'] = BlueVPN_Utils::iso_now();
+        $state['last_error'] = '';
+        $state['last_progress_at'] = BlueVPN_Utils::iso_now();
+        $state['verification_failures'] = 0;
+        self::save_state($state);
+        return ['success' => true, 'error' => '', 'missing_ids' => $ids, 'remaining_ids' => [], 'imported' => $imported];
+    }
+
     /**
      * Derive Cutover readiness from real Railway/MySQL coverage instead of a
      * manually toggled/stale option. This also repairs state left by older
@@ -500,6 +618,10 @@ final class BlueVPN_Migration {
             'last_verified_at' => (string)($state['last_verified_at'] ?? ''),
             'message' => (string)($state['auto_last_message'] ?? ''),
             'last_error' => (string)($state['last_error'] ?? ''),
+            'exact_repair_attempts' => (int)($state['exact_repair_attempts'] ?? 0),
+            'exact_repair_last_table' => (string)($state['exact_repair_last_table'] ?? ''),
+            'exact_repair_last_ids' => array_values((array)($state['exact_repair_last_ids'] ?? [])),
+            'exact_repair_last_message' => (string)($state['exact_repair_last_message'] ?? ''),
             'tables' => $tables,
         ];
     }
@@ -924,6 +1046,38 @@ final class BlueVPN_Migration {
                 }
 
                 $targets = array_values(array_unique(array_merge(array_keys($mismatches), array_keys($tableErrors))));
+
+                // Small count gaps should converge by exact primary-key audit, not
+                // by repeatedly re-reading a whole table. Protocol-v2 backends
+                // simply fall back to the old targeted resync path below.
+                $exactImported = 0;
+                $exactAttempted = false;
+                foreach ($targets as $target) {
+                    $cmp = $mismatches[$target] ?? null;
+                    if (!is_array($cmp)) continue;
+                    $sourceCount = (int)($cmp['source'] ?? 0);
+                    $localCount = (int)($cmp['local'] ?? 0);
+                    $gap = max(0, $sourceCount - $localCount);
+                    if ($gap <= 0 || $gap > 500 || $sourceCount > 100000) continue;
+                    $exact = self::repair_exact_missing($target, min(500, max(20, $gap + 20)));
+                    if (empty($exact['success']) && str_contains((string)($exact['error'] ?? ''), 'HTTP 404')) continue;
+                    $exactAttempted = true;
+                    if (!empty($exact['success'])) $exactImported += (int)($exact['imported'] ?? 0);
+                }
+                if ($exactAttempted && $exactImported > 0) {
+                    $manifest = self::refresh_manifest();
+                    if (is_wp_error($manifest)) {
+                        self::auto_error($manifest->get_error_message());
+                        return;
+                    }
+                    $state = self::state();
+                    $state['phase'] = 'final_verify';
+                    $state['verification_failures'] = 0;
+                    $state['auto_last_message'] = $exactImported.' رکورد گمشده با ID دقیق بازیابی شد؛ Verify نهایی دوباره اجرا می‌شود.';
+                    self::save_state($state);
+                    return;
+                }
+
                 $state = self::state();
                 $failures = (int)($state['verification_failures'] ?? 0) + 1;
                 $state['verification_failures'] = $failures;

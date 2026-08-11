@@ -1,5 +1,5 @@
 === BlueVPN Manager ===
-Version: 4.0.7
+Version: 4.0.8
 Requires PHP: 8.0
 
 زیرساخت مهاجرت Backend BlueVPN از Railway/PostgreSQL به WordPress/MySQL با Migration Bridge امن و قابل Resume.
@@ -48,3 +48,10 @@ Requires PHP: 8.0
 - Runner مرورگر با Work Slice کوتاه برای هاست اشتراکی و موبایل
 - Cutover فقط پس از Resync ایمنی + Verify واقعی و بدون خطای جدول فعال می‌شود
 - بررسی مجدد Cutover، Manifest تازه Railway را می‌خواند تا Ready قدیمی/کاذب باقی نماند
+
+
+== 4.0.8 ==
+* Exact ID Audit برای پیدا کردن رکوردهای واقعاً گمشده به‌جای Resync کور.
+* ترمیم دقیق customers و جدول‌های کوچک با دریافت فقط IDهای مفقود.
+* تشخیص تعارض Unique به‌جای چهار دور Retry بی‌نتیجه.
+* نمایش جدول‌های همگام به شکل «X از Y» برای جلوگیری از جابه‌جایی RTL.

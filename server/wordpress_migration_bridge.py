@@ -131,6 +131,8 @@ def register_wordpress_migration_bridge(app: FastAPI) -> None:
             "database_mode": DATABASE_MODE,
             "schema_version": status.get("schema_version", ""),
             "table_count": len(MIGRATION_TABLES),
+            "max_export_limit": 5000,
+            "bulk_migration_protocol": 3,
         }
 
     @router.get("/manifest")
@@ -154,6 +156,77 @@ def register_wordpress_migration_bridge(app: FastAPI) -> None:
                 "tables": list(MIGRATION_TABLES),
                 "table_counts": counts,
                 "primary_keys": primary_keys,
+                "max_export_limit": 5000,
+                "bulk_migration_protocol": 3,
+            }
+        finally:
+            db.close()
+
+    @router.get("/keys/{table_name}")
+    def migration_keys(
+        table_name: str,
+        limit: int = Query(default=5000, ge=1, le=5000),
+        after: str = Query(default=""),
+        x_bluevpn_migration_token: str | None = Header(default=None),
+    ):
+        """Return only primary keys for exact destination auditing.
+
+        This endpoint is intentionally lightweight so WordPress can identify
+        missing IDs without downloading/re-writing a whole table again.
+        """
+        _require_token(x_bluevpn_migration_token)
+        table = _table(table_name)
+        pk = _primary_key(table)
+        after_value = _cursor_value(pk, after)
+        db = SessionLocal()
+        try:
+            statement = select(pk).order_by(pk.asc()).limit(limit + 1)
+            if after_value is not None:
+                statement = statement.where(pk > after_value)
+            values = [row[0] for row in db.execute(statement).all()]
+            has_more = len(values) > limit
+            page = values[:limit]
+            keys = [str(value) for value in page]
+            next_cursor = keys[-1] if page else ""
+            return {
+                "success": True,
+                "table": table_name,
+                "primary_key": pk.name,
+                "keys": keys,
+                "returned": len(keys),
+                "next_cursor": next_cursor if has_more else "",
+                "done": not has_more,
+            }
+        finally:
+            db.close()
+
+    @router.get("/export-ids/{table_name}")
+    def migration_export_ids(
+        table_name: str,
+        ids: str = Query(default="", max_length=12000),
+        x_bluevpn_migration_token: str | None = Header(default=None),
+    ):
+        """Export a small explicit set of rows by primary key."""
+        _require_token(x_bluevpn_migration_token)
+        table = _table(table_name)
+        pk = _primary_key(table)
+        raw_ids = [part.strip() for part in str(ids or "").split(",") if part.strip()]
+        if not raw_ids:
+            return {"success": True, "table": table_name, "primary_key": pk.name, "rows": [], "returned": 0}
+        if len(raw_ids) > 200:
+            raise HTTPException(422, "At most 200 primary keys may be exported at once")
+        values = [_cursor_value(pk, value) for value in raw_ids]
+        db = SessionLocal()
+        try:
+            statement = select(table).where(pk.in_(values)).order_by(pk.asc())
+            rows = list(db.execute(statement).mappings().all())
+            payload = [_row_payload(table_name, row) for row in rows]
+            return {
+                "success": True,
+                "table": table_name,
+                "primary_key": pk.name,
+                "rows": payload,
+                "returned": len(payload),
             }
         finally:
             db.close()
@@ -161,7 +234,7 @@ def register_wordpress_migration_bridge(app: FastAPI) -> None:
     @router.get("/export/{table_name}")
     def migration_export(
         table_name: str,
-        limit: int = Query(default=250, ge=1, le=1000),
+        limit: int = Query(default=1000, ge=1, le=5000),
         after: str = Query(default=""),
         x_bluevpn_migration_token: str | None = Header(default=None),
     ):
@@ -171,7 +244,9 @@ def register_wordpress_migration_bridge(app: FastAPI) -> None:
         after_value = _cursor_value(pk, after)
         db = SessionLocal()
         try:
-            total = int(db.scalar(select(func.count()).select_from(table)) or 0)
+            # The manifest already provides authoritative table counts. Repeating
+            # COUNT(*) for every page is expensive on PostgreSQL and made large
+            # telemetry migrations unnecessarily slow.
             statement = select(table).order_by(pk.asc()).limit(limit + 1)
             if after_value is not None:
                 statement = statement.where(pk > after_value)
@@ -188,7 +263,6 @@ def register_wordpress_migration_bridge(app: FastAPI) -> None:
                 "primary_key": pk.name,
                 "rows": payload,
                 "returned": len(payload),
-                "total": total,
                 "next_cursor": next_cursor if has_more else "",
                 "done": not has_more,
             }

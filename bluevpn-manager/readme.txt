@@ -33,8 +33,7 @@ Requires PHP: 8.0
 - Cron پاکسازی پایه
 
 مهم:
-این نسخه Stage 2 است. هنوز Railway را خاموش نکنید و Base URL اپ اصلی را تغییر ندهید تا مهاجرت و Resync کامل شود.
-یکپارچه‌سازی PasarGuard/Marzban/GuardCore، BluePay، OTP/SMS، AI/Telemetry و Telegram در مراحل بعد اضافه می‌شود.
+نسخه 4.0.17 مسیرهای عملیاتی اپ، تبلیغات، BlueAI، BluePay، Providerها، OTP و ربات را روی WordPress/MySQL در اختیار دارد. Railway فقط تا زمانی نگه داشته شود که Final Verify مهاجرت و تست End-to-End APK جدید سبز شوند؛ بعد از آن Backend اصلی می‌تواند WordPress باشد.
 
 - Runner زنجیره‌ای داخل صفحه مدیریت برای ادامه مهاجرت حتی در صورت اختلال WP-Cron
 
@@ -68,6 +67,19 @@ Requires PHP: 8.0
 * تبدیل تمام تب‌های Control Center به زیرمنوهای مستقل وردپرس.
 * حذف نوار تب داخلی؛ هر بخش صفحه مدیریتی مستقل خود را دارد.
 * حفظ Dashboard اصلی BlueVPN فقط برای نمای کلی.
+
+
+= 4.0.17 =
+* بازگردانی کامل بخش مدیریت تبلیغات و ذخیره تصویر بنر در MySQL.
+* بازگردانی Endpoint باینری /api/v1/ad-assets/{id} و بازیابی خودکار لینک‌های قدیمی /media/ads و URLهای Railway.
+* اصلاح قرارداد Android تبلیغات از interval_seconds به interval_ms.
+* بازگردانی BlueAI runtime: /ai/events، /ai/recommendations، /ai/dashboard و /feedback.
+* ثبت Heartbeat و اتصال زنده BlueAI، Route Aggregate، scoring، circuit-breaker و داشبورد مدیریتی.
+* بازگردانی خرید BluePay، Poll، checkout lifecycle و Webhook امضاشده با فعال‌سازی idempotent.
+* بازگردانی اتصال شماره موبایل به حساب و account/sync واقعی با Providerها.
+* تکمیل GuardCore API provisioning/sync و Routing پلن‌ها برای PasarGuard/Marzban/GuardCore.
+* بازگردانی مدیریت اتصال رایگان و Tapsell و Endpointهای free subscription.
+* تست اتصال WordPress اکنون Advertising contract، Asset MySQL و جداول BlueAI را هم بررسی می‌کند.
 
 = 4.0.16 =
 * ورود OTP واقعی شش‌رقمی با IranPayamak روی WordPress/MySQL اضافه شد.

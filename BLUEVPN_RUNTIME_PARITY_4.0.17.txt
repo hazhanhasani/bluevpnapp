@@ -1,0 +1,48 @@
+BlueVPN Platform v4.0.17 — Runtime Parity / Ads + BlueAI Repair
+
+مواردی که در Audit نسخه 4.0.16 جا افتاده بودند و در 4.0.17 تکمیل شدند:
+
+1) Advertising
+- صفحه مدیریت تبلیغات WordPress
+- Upload و نگهداری Asset در MySQL
+- GET /api/v1/ad-assets/{asset_id}
+- بازیابی لینک‌های قدیمی Railway /media/ads و absolute URLها
+- Android contract: interval_ms / height_dp / autoplay / loop / items
+- Tapsell و Free Access management/runtime
+
+2) BlueAI
+- POST /api/v1/ai/events
+- GET /api/v1/ai/recommendations
+- GET /api/v1/ai/dashboard
+- POST /api/v1/feedback
+- Live heartbeat verification + TTL
+- Route aggregates, recent weighted scoring, jitter/loss penalties, operator circuit breaker
+- Dashboard و تنظیمات مدیریتی
+
+3) Account / Providers
+- POST /api/v1/account/phone/otp/request
+- POST /api/v1/account/phone/otp/verify
+- POST /api/v1/account/sync
+- GET /api/v1/account اکنون Provider sync را هم انجام می‌دهد
+- GuardCore automatic API provisioning + usage/expiry sync
+- Routing کامل پلن‌ها برای PasarGuard / Marzban / GuardCore
+
+4) Payment
+- POST /api/v1/orders
+- GET /api/v1/orders/{id}
+- checkout open / heartbeat / close
+- check-after-success
+- /webhooks/bluepay با HMAC verification
+- activation lock/idempotency برای جلوگیری از Provision دوباره در رقابت Webhook و Poll
+
+5) Diagnostics
+- تست Mobile Config
+- تست Advertising contract و interval_ms
+- تست Asset تبلیغاتی MySQL در صورت وجود
+- تست وجود هر چهار جدول BlueAI
+
+Audit مسیرهای مستقیم Android:
+همه Endpointهای مستقیم موجود در سورس Android v3.0.83 اکنون در WordPress 4.0.17 Route متناظر دارند.
+
+نکته Cutover:
+Railway را فقط پس از Final Verify مهاجرت، تست API از صفحه «اتصال اپلیکیشن»، تست ورود OTP، نمایش تبلیغ، ثبت حداقل یک event در BlueAI و یک خرید آزمایشی خاموش کنید.

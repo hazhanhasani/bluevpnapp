@@ -30,6 +30,8 @@ final class BlueVPN_Admin {
         add_submenu_page('bluevpn-manager','نمای کلی','نمای کلی','manage_options','bluevpn-manager',[BlueVPN_Control_Center::class,'page']);
         $sections=[
             ['bluevpn-blueai','BlueAI','blueai'],
+            ['bluevpn-ads','تبلیغات','ads'],
+            ['bluevpn-free-access','اتصال رایگان','free'],
             ['bluevpn-database','دیتابیس','database'],
             ['bluevpn-pasarguard','PasarGuard','panels'],
             ['bluevpn-marzban','Marzban','marzban'],
@@ -132,7 +134,7 @@ final class BlueVPN_Admin {
           'Mobile Config سازگار'=>$site.'/api/v1/mobile/config',
           'REST مستقیم'=>rest_url('bluevpn/v1/mobile/config'),
         ];
-        $out=[];
+        $out=[];$mobileJson=null;
         foreach($targets as $name=>$url){
             $r=wp_remote_get($url,['timeout'=>10,'redirection'=>3,'sslverify'=>true,'headers'=>['Cache-Control'=>'no-cache']]);
             if(is_wp_error($r)){$out[$name]=['ok'=>false,'message'=>$r->get_error_message()];continue;}
@@ -140,10 +142,29 @@ final class BlueVPN_Admin {
             $json=json_decode($body,true);
             $ok=$code>=200&&$code<300&&is_array($json);
             $out[$name]=['ok'=>$ok,'message'=>'HTTP '.$code.($ok?' · JSON معتبر':' · پاسخ API معتبر نیست')];
+            if($name==='Mobile Config سازگار'&&$ok)$mobileJson=$json;
         }
+        if(is_array($mobileJson)){
+            $ad=$mobileJson['advertising']??null;$adOk=is_array($ad)&&array_key_exists('enabled',$ad)&&isset($ad['interval_ms'])&&is_array($ad['items']??null);
+            $out['قرارداد تبلیغات Android']=['ok'=>$adOk,'message'=>$adOk?'advertising + interval_ms + items آماده است.':'ساختار advertising برای Android ناقص است.'];
+            $ai=$mobileJson['blueai']??null;$aiOk=is_array($ai)&&array_key_exists('enabled',$ai)&&array_key_exists('collective',$ai)&&array_key_exists('auto_heal',$ai);
+            $out['قرارداد BlueAI']=['ok'=>$aiOk,'message'=>$aiOk?('BlueAI API contract آماده است · '.(!empty($ai['enabled'])?'فعال':'فعلاً غیرفعال در تنظیمات')):'ساختار BlueAI در mobile/config ناقص است.'];
+        }
+        global $wpdb;
+        $assetTable=BlueVPN_DB::table('ad_assets');$assetId=(string)$wpdb->get_var("SELECT id FROM {$assetTable} ORDER BY created_at DESC LIMIT 1");
+        if($assetId!==''){
+            $r=wp_remote_get($site.'/api/v1/ad-assets/'.rawurlencode($assetId),['timeout'=>10,'redirection'=>0,'sslverify'=>true]);
+            $code=is_wp_error($r)?0:(int)wp_remote_retrieve_response_code($r);$type=is_wp_error($r)?'':(string)wp_remote_retrieve_header($r,'content-type');
+            $ok=!is_wp_error($r)&&$code===200&&str_starts_with(strtolower($type),'image/');
+            $out['Asset تبلیغات MySQL']=['ok'=>$ok,'message'=>$ok?'تصویر مهاجرت‌شده از MySQL قابل دریافت است.':(is_wp_error($r)?$r->get_error_message():'HTTP '.$code.' · '.$type)];
+        } else {
+            $out['Asset تبلیغات MySQL']=['ok'=>true,'message'=>'هنوز تصویر محلی ثبت نشده؛ بعد از افزودن بنر این تست فعال می‌شود.'];
+        }
+        $aiTables=['ai_connection_events','ai_live_connections','ai_route_aggregates','ai_feedback'];$missing=[];foreach($aiTables as $name){$table=BlueVPN_DB::table($name);if((string)$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s',$table))!==$table)$missing[]=$name;}
+        $out['جداول BlueAI MySQL']=['ok'=>!$missing,'message'=>$missing?('جدول‌های مفقود: '.implode(', ',$missing)):'هر چهار جدول BlueAI آماده‌اند.'];
         set_transient('bluevpn_app_connection_test_'.get_current_user_id(),$out,10*MINUTE_IN_SECONDS);
         $failed=array_filter($out,fn($x)=>empty($x['ok']));
-        self::app_connection_redirect($failed?'تست انجام شد؛ بعضی Endpointها نیاز به بررسی دارند.':'هر سه Endpoint با موفقیت پاسخ دادند.');
+        self::app_connection_redirect($failed?'تست انجام شد؛ بعضی Endpointها نیاز به بررسی دارند.':'تست کامل API، تبلیغات و BlueAI با موفقیت انجام شد.');
     }
     public static function enable_app_cutover(): void {
         self::guard();check_admin_referer('bluevpn_enable_app_cutover');
@@ -157,7 +178,16 @@ final class BlueVPN_Admin {
         self::app_connection_redirect('اتصال WordPress برای APK تأیید شد. Build بعدی باید با API Base URL همین صفحه ساخته شود.');
     }
     public static function plans_page(): void { self::guard();global $wpdb;$t=BlueVPN_DB::table('plans');$rows=$wpdb->get_results("SELECT * FROM {$t} WHERE deleted=0 ORDER BY sort_order,id",ARRAY_A);self::head('پلن‌های BlueVPN');echo '<div class="bvp-card" style="max-width:900px"><h2>افزودن پلن</h2><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_add_plan');echo '<input type="hidden" name="action" value="bluevpn_add_plan"><input name="title" placeholder="عنوان" required> <input type="number" name="price_toman" placeholder="قیمت تومان" required> <input type="number" name="duration_days" placeholder="روز" required> <input type="number" name="data_limit_gb" placeholder="گیگ" value="0"> <input type="number" name="device_limit" placeholder="دستگاه" value="1"><br><br><textarea name="description" placeholder="توضیحات" rows="3" style="width:100%"></textarea>';submit_button('افزودن پلن','primary','submit',false);echo '</form></div><h2>لیست</h2><table class="widefat striped bvp-table"><tr><th>ID</th><th>عنوان</th><th>قیمت</th><th>روز</th><th>حجم</th><th>دستگاه</th><th>وضعیت</th></tr>';foreach($rows as $x){$url=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_toggle_plan&id='.(int)$x['id']),'bluevpn_toggle_plan_'.$x['id']);echo '<tr><td>'.$x['id'].'</td><td>'.esc_html($x['title']).'</td><td>'.number_format((int)$x['price_toman']).'</td><td>'.$x['duration_days'].'</td><td>'.$x['data_limit_gb'].'</td><td>'.$x['device_limit'].'</td><td><a href="'.esc_url($url).'">'.((int)$x['active']?'فعال':'غیرفعال').'</a></td></tr>';}echo '</table>';self::foot(); }
-    public static function add_plan(): void { self::guard();check_admin_referer('bluevpn_add_plan');global $wpdb;$wpdb->insert(BlueVPN_DB::table('plans'),['title'=>sanitize_text_field(wp_unslash($_POST['title']??'')),'description'=>sanitize_textarea_field(wp_unslash($_POST['description']??'')),'price_toman'=>max(0,(int)($_POST['price_toman']??0)),'duration_days'=>max(0,(int)($_POST['duration_days']??0)),'data_limit_gb'=>max(0,(int)($_POST['data_limit_gb']??0)),'device_limit'=>max(1,(int)($_POST['device_limit']??1)),'group_ids_json'=>'[]','active'=>1,'deleted'=>0,'sort_order'=>0,'marzban_quota_mode'=>'split','guardcore_service_ids_json'=>'[]','multi_provider_quota_mode'=>'split','created_at'=>BlueVPN_Utils::now_mysql()]);wp_safe_redirect(admin_url('admin.php?page=bluevpn-plans'));exit; }
+    public static function add_plan(): void {
+        self::guard();check_admin_referer('bluevpn_add_plan');global $wpdb;
+        $ids=function(string $name): array {$out=[];foreach(preg_split('/[,\s]+/',(string)wp_unslash($_POST[$name]??''))?:[] as $v){$n=(int)$v;if($n>0&&!in_array($n,$out,true))$out[]=$n;}return array_slice($out,0,200);};
+        $pg=max(0,(int)($_POST['panel_id']??0));$mz=max(0,(int)($_POST['marzban_panel_id']??0));$gc=max(0,(int)($_POST['guardcore_panel_id']??0));$services=$ids('guardcore_service_ids');$groups=$ids('group_ids');$mode=in_array((string)($_POST['multi_provider_quota_mode']??'split'),['split','full'],true)?(string)$_POST['multi_provider_quota_mode']:'split';
+        foreach([[$pg,'pasarguard_panels'],[$mz,'marzban_panels'],[$gc,'guardcore_panels']] as [$id,$table])if($id>0&&!$wpdb->get_var($wpdb->prepare('SELECT id FROM '.BlueVPN_DB::table($table).' WHERE id=%d',$id))){wp_safe_redirect(add_query_arg('cc_error','Provider انتخاب‌شده پیدا نشد.',admin_url('admin.php?page=bluevpn-plans')));exit;}
+        if($gc>0){$auth=$wpdb->get_var($wpdb->prepare('SELECT auth_mode FROM '.BlueVPN_DB::table('guardcore_panels').' WHERE id=%d',$gc));if($auth&&$auth!=='manual'&&!$services){wp_safe_redirect(add_query_arg('cc_error','برای GuardCore خودکار حداقل یک Service ID وارد کن.',admin_url('admin.php?page=bluevpn-plans')));exit;}}
+        $price=max(0,(int)($_POST['price_toman']??0));if($price>0)$price=max(1000,$price);
+        $ok=$wpdb->insert(BlueVPN_DB::table('plans'),['title'=>sanitize_text_field(wp_unslash($_POST['title']??'')),'description'=>sanitize_textarea_field(wp_unslash($_POST['description']??'')),'price_toman'=>$price,'duration_days'=>max(0,(int)($_POST['duration_days']??0)),'data_limit_gb'=>max(0,(int)($_POST['data_limit_gb']??0)),'device_limit'=>max(1,min(10,(int)($_POST['device_limit']??1))),'group_ids_json'=>BlueVPN_Utils::json_encode($groups),'active'=>1,'deleted'=>0,'sort_order'=>(int)($_POST['sort_order']??0),'panel_id'=>$pg?:null,'marzban_panel_id'=>$mz?:null,'marzban_quota_mode'=>$mode,'guardcore_panel_id'=>$gc?:null,'guardcore_service_ids_json'=>BlueVPN_Utils::json_encode($services),'multi_provider_quota_mode'=>$mode,'created_at'=>BlueVPN_Utils::now_mysql()]);
+        wp_safe_redirect(add_query_arg($ok===false?'cc_error':'cc_msg',$ok===false?'افزودن پلن ناموفق بود.':'پلن اضافه شد.',admin_url('admin.php?page=bluevpn-plans')));exit;
+    }
     public static function toggle_plan(): void { self::guard();$id=(int)($_GET['id']??0);check_admin_referer('bluevpn_toggle_plan_'.$id);global $wpdb;$t=BlueVPN_DB::table('plans');$v=(int)$wpdb->get_var($wpdb->prepare("SELECT active FROM {$t} WHERE id=%d",$id));$wpdb->update($t,['active'=>$v?0:1],['id'=>$id]);wp_safe_redirect(admin_url('admin.php?page=bluevpn-plans'));exit; }
     public static function customers_page(): void { self::guard();global $wpdb;$t=BlueVPN_DB::table('customers');$rows=$wpdb->get_results("SELECT id,email,phone,active,plan_id,subscription_status,created_at FROM {$t} ORDER BY id DESC LIMIT 200",ARRAY_A);self::head('کاربران BlueVPN');echo '<table class="widefat striped bvp-table"><tr><th>ID</th><th>کاربر</th><th>پلن</th><th>اشتراک</th><th>وضعیت</th></tr>';foreach($rows as $x){$u=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_toggle_customer&id='.(int)$x['id']),'bluevpn_toggle_customer_'.$x['id']);echo '<tr><td>'.$x['id'].'</td><td>'.esc_html($x['phone']?:$x['email']).'</td><td>'.esc_html((string)$x['plan_id']).'</td><td>'.esc_html($x['subscription_status']).'</td><td><a href="'.esc_url($u).'">'.((int)$x['active']?'فعال':'غیرفعال').'</a></td></tr>';}echo '</table>';self::foot(); }
     public static function toggle_customer(): void { self::guard();$id=(int)($_GET['id']??0);check_admin_referer('bluevpn_toggle_customer_'.$id);global $wpdb;$t=BlueVPN_DB::table('customers');$v=(int)$wpdb->get_var($wpdb->prepare("SELECT active FROM {$t} WHERE id=%d",$id));$wpdb->update($t,['active'=>$v?0:1],['id'=>$id]);wp_safe_redirect(admin_url('admin.php?page=bluevpn-customers'));exit; }

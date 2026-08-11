@@ -4,6 +4,7 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_SMS_OTP {
     private const OTP_LENGTH = 6;
     private const PURPOSE_AUTH = 'auth';
+    private const PURPOSE_BIND = 'bind_phone';
     private const MAX_ATTEMPTS = 5;
 
     public static function settings(): array {
@@ -79,17 +80,17 @@ final class BlueVPN_SMS_OTP {
         return substr($digits, 0, self::OTP_LENGTH);
     }
 
-    private static function log_delivery(string $challengeId, string $phone, string $status, string $error = '', array $response = []): void {
+    private static function log_delivery(string $challengeId, string $phone, string $status, string $error = '', array $response = [], string $purpose = self::PURPOSE_AUTH, ?int $customerId = null): void {
         global $wpdb;
         $table = BlueVPN_DB::table('sms_deliveries');
         $wpdb->replace($table, [
             'id' => BlueVPN_Utils::random_uuid4(),
-            'event_key' => 'auth_otp',
-            'customer_id' => null,
+            'event_key' => $purpose === self::PURPOSE_BIND ? 'bind_phone_otp' : 'auth_otp',
+            'customer_id' => $customerId,
             'order_id' => null,
             'phone' => $phone,
-            'params_json' => BlueVPN_Utils::json_encode(['purpose' => self::PURPOSE_AUTH, 'challenge_id' => $challengeId]),
-            'dedupe_key' => 'auth_otp:' . $challengeId,
+            'params_json' => BlueVPN_Utils::json_encode(['purpose' => $purpose, 'challenge_id' => $challengeId]),
+            'dedupe_key' => $purpose . ':' . $challengeId,
             'status' => $status,
             'attempts' => 1,
             'max_attempts' => 1,
@@ -150,7 +151,7 @@ final class BlueVPN_SMS_OTP {
                 'Api-Key' => $apiKey,
                 'Content-Type' => 'application/json',
                 'Accept' => 'application/json',
-                'User-Agent' => 'BlueVPN-WordPress-SMS/4.0.16',
+                'User-Agent' => 'BlueVPN-WordPress-SMS/4.0.17',
             ],
             'body' => wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ]);
@@ -315,4 +316,70 @@ final class BlueVPN_SMS_OTP {
             'account' => BlueVPN_Auth::account_payload($customer),
         ];
     }
+
+    public static function request_bind(array $customer, string $phoneRaw, string $deviceId): array {
+        global $wpdb;
+        $phone = self::normalize_phone($phoneRaw);
+        $customerId = (int)($customer['id'] ?? 0);
+        if ($customerId <= 0) throw new BlueVPN_Auth_Exception(401, 'AUTH_REQUIRED', 'ورود لازم است.');
+        $deviceId = mb_substr(trim($deviceId), 0, 180);
+        if ($deviceId === '') throw new BlueVPN_Auth_Exception(422, 'DEVICE_ID_REQUIRED', 'شناسه دستگاه لازم است.');
+        $customers = BlueVPN_DB::table('customers');
+        $owner = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$customers} WHERE phone=%s AND id<>%d LIMIT 1", $phone, $customerId));
+        if ($owner) throw new BlueVPN_Auth_Exception(409, 'PHONE_ALREADY_USED', 'این شماره قبلاً به حساب دیگری متصل شده است.');
+        self::rate_limit($phone);
+        $s = self::settings();
+        if (!self::is_ready()) throw new BlueVPN_Auth_Exception(503, 'SMS_NOT_CONFIGURED', 'سامانه ایران‌پیامک هنوز در پنل مدیریت تنظیم یا فعال نشده است.');
+        $table = BlueVPN_DB::table('otp_challenges');
+        $resend = max(30, min(600, (int)($s['resend_seconds'] ?? 60)));
+        $latest = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE phone=%s AND purpose=%s AND customer_id=%d AND consumed_at IS NULL ORDER BY created_at DESC LIMIT 1", $phone, self::PURPOSE_BIND, $customerId), ARRAY_A);
+        if ($latest && !empty($latest['created_at'])) {
+            $age = max(0, time() - (int)strtotime($latest['created_at'] . ' UTC'));
+            if ($age < $resend) {
+                $wait = $resend - $age;
+                throw new BlueVPN_Auth_Exception(429, 'OTP_RESEND_WAIT', "{$wait} ثانیه تا ارسال دوباره کد صبر کنید.", ['retry_after_seconds' => $wait]);
+            }
+        }
+        $wpdb->query($wpdb->prepare("UPDATE {$table} SET consumed_at=%s WHERE phone=%s AND purpose=%s AND customer_id=%d AND consumed_at IS NULL", BlueVPN_Utils::now_mysql(), $phone, self::PURPOSE_BIND, $customerId));
+        $challengeId = BlueVPN_Utils::random_uuid4();
+        $code = self::generate_code();
+        $ttl = max(60, min(600, (int)($s['otp_ttl_seconds'] ?? 120)));
+        $ok = $wpdb->insert($table, [
+            'id'=>$challengeId, 'phone'=>$phone, 'purpose'=>self::PURPOSE_BIND, 'customer_id'=>$customerId,
+            'device_id'=>$deviceId, 'code_hash'=>self::otp_hash($challengeId,$phone,$code), 'attempts'=>0,
+            'max_attempts'=>self::MAX_ATTEMPTS, 'expires_at'=>gmdate('Y-m-d H:i:s', time()+$ttl),
+            'consumed_at'=>null, 'created_at'=>BlueVPN_Utils::now_mysql(),
+        ]);
+        if ($ok === false) throw new BlueVPN_Auth_Exception(500, 'OTP_CREATE_FAILED', 'ساخت درخواست کد تأیید انجام نشد.');
+        try {
+            $provider = self::send_code($phone, $code);
+            self::log_delivery($challengeId, $phone, 'sent', '', $provider, self::PURPOSE_BIND, $customerId);
+        } catch (BlueVPN_Auth_Exception $e) {
+            $wpdb->delete($table, ['id'=>$challengeId]);
+            self::log_delivery($challengeId, $phone, 'failed', $e->getMessage(), ['code'=>$e->error_code], self::PURPOSE_BIND, $customerId);
+            throw $e;
+        }
+        return ['success'=>true,'challenge_id'=>$challengeId,'phone'=>BlueVPN_Utils::local_phone($phone),'otp_length'=>self::OTP_LENGTH,'expires_in_seconds'=>$ttl,'resend_after_seconds'=>$resend,'message'=>'کد تأیید ۶ رقمی برای شماره شما ارسال شد.'];
+    }
+
+    public static function verify_bind(array $customer, string $phoneRaw, string $challengeId, string $codeRaw, string $deviceId): array {
+        global $wpdb;
+        $phone=self::normalize_phone($phoneRaw); $customerId=(int)($customer['id']??0); $challengeId=trim($challengeId); $deviceId=mb_substr(trim($deviceId),0,180);
+        if($customerId<=0)throw new BlueVPN_Auth_Exception(401,'AUTH_REQUIRED','ورود لازم است.');
+        if($deviceId==='')throw new BlueVPN_Auth_Exception(422,'DEVICE_ID_REQUIRED','شناسه دستگاه لازم است.');
+        $code=self::clean_code($codeRaw);if(strlen($code)!==self::OTP_LENGTH)throw new BlueVPN_Auth_Exception(422,'OTP_INVALID_FORMAT','کد ورود باید ۶ رقمی باشد.');
+        $table=BlueVPN_DB::table('otp_challenges');
+        $ch=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%s AND phone=%s AND purpose=%s AND customer_id=%d LIMIT 1",$challengeId,$phone,self::PURPOSE_BIND,$customerId),ARRAY_A);
+        if(!$ch)throw new BlueVPN_Auth_Exception(404,'OTP_NOT_FOUND','درخواست کد تأیید پیدا نشد.');
+        if(!hash_equals((string)$ch['device_id'],$deviceId))throw new BlueVPN_Auth_Exception(401,'OTP_DEVICE_MISMATCH','کد باید روی همان دستگاه درخواست‌کننده تأیید شود.');
+        if(!empty($ch['consumed_at']))throw new BlueVPN_Auth_Exception(410,'OTP_ALREADY_USED','این کد قبلاً استفاده شده است.');
+        if(empty($ch['expires_at'])||strtotime($ch['expires_at'].' UTC')<=time()){$wpdb->update($table,['consumed_at'=>BlueVPN_Utils::now_mysql()],['id'=>$challengeId]);throw new BlueVPN_Auth_Exception(410,'OTP_EXPIRED','مهلت کد تأیید پایان یافته است؛ کد جدید بگیرید.');}
+        $attempts=(int)$ch['attempts'];$max=max(1,(int)$ch['max_attempts']);if($attempts>=$max){$wpdb->update($table,['consumed_at'=>BlueVPN_Utils::now_mysql()],['id'=>$challengeId]);throw new BlueVPN_Auth_Exception(429,'OTP_LOCKED','تعداد تلاش‌های ناموفق زیاد بود؛ کد جدید بگیرید.');}
+        $attempts++;if(!hash_equals((string)$ch['code_hash'],self::otp_hash($challengeId,$phone,$code))){$up=['attempts'=>$attempts];if($attempts>=$max)$up['consumed_at']=BlueVPN_Utils::now_mysql();$wpdb->update($table,$up,['id'=>$challengeId]);throw new BlueVPN_Auth_Exception(401,'INVALID_OTP','کد تأیید نادرست است.',['remaining_attempts'=>max(0,$max-$attempts)]);}
+        $customers=BlueVPN_DB::table('customers');$owner=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$customers} WHERE phone=%s AND id<>%d LIMIT 1",$phone,$customerId));if($owner)throw new BlueVPN_Auth_Exception(409,'PHONE_ALREADY_USED','این شماره قبلاً به حساب دیگری متصل شده است.');
+        $wpdb->update($table,['attempts'=>$attempts,'consumed_at'=>BlueVPN_Utils::now_mysql()],['id'=>$challengeId]);
+        $wpdb->update($customers,['phone'=>$phone,'phone_verified_at'=>BlueVPN_Utils::now_mysql(),'auth_method'=>'phone_otp'],['id'=>$customerId]);
+        return ['success'=>true,'account'=>BlueVPN_Auth::account_payload(BlueVPN_Auth::get_customer($customerId))];
+    }
+
 }

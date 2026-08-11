@@ -1,12 +1,17 @@
 {
-  "version": "4.0.29",
+  "version": "4.0.30",
   "channel": "stable",
-  "build_id": "20260812-v4.0.29-wordpress-release-barrier",
-  "built_at": "2026-08-11T21:14:00Z",
-  "android_version": "4.0.29",
-  "android_version_code": 40029,
-  "description": "BlueVPN 4.0.29: WordPress Release Barrier — انتشار BlueVPN Manager در همان Workflow ساخت APK و جلوگیری از تحویل APK قبل از آماده‌شدن Backend.",
+  "build_id": "20260812-v4.0.30-release-race-diagnostics-fix",
+  "built_at": "2026-08-11T22:15:00Z",
+  "android_version": "4.0.30",
+  "android_version_code": 40030,
+  "description": "BlueVPN 4.0.30: رفع Race انتشار افزونه WordPress و ثبت دقیق مرحله/لاگ خطاهای قبل از Gradle.",
   "features": [
+    "wordpress-convergence-diagnostics",
+    "precise-build-stage-telemetry",
+    "pre-gradle-diagnostics-log",
+    "race-safe-manager-release",
+    "single-manager-publisher",
     "wordpress-manager-inline-release-barrier",
     "manager-release-before-gradle",
     "published-plugin-contract-verification",
@@ -561,7 +566,7 @@
     "github-workflows-package-recovery",
     "wordpress-updater-contract-verification"
   ],
-  "version_code": 40029,
+  "version_code": 40030,
   "notes": "Unified profile/subscription management inspired by mature multi-protocol clients; invalid current-session routes remain temporarily quarantined rather than permanently deleted. SSH/sing-box sources can be compiled and natively validated, while Android TUN ownership remains on Xray until the dedicated bridge/TUN hand-off is implemented.",
   "version_source": "v4.0.27-wordpress-connectivity-hotfix"
 }

@@ -7,14 +7,14 @@ def source(path: str) -> str:
     return (ROOT / path).read_text(encoding='utf-8')
 
 
-def test_version_is_4029_everywhere():
+def test_version_is_4030_everywhere():
     plugin = source('bluevpn-manager/bluevpn-manager.php')
     readme = source('bluevpn-manager/readme.txt')
     app = source('branding/app.json')
-    assert '* Version: 4.0.29' in plugin
-    assert "BLUEVPN_MANAGER_VERSION', '4.0.29'" in plugin
-    assert 'Version: 4.0.29' in readme
-    assert '"version_name": "4.0.29"' in app
+    assert '* Version: 4.0.30' in plugin
+    assert "BLUEVPN_MANAGER_VERSION', '4.0.30'" in plugin
+    assert 'Version: 4.0.30' in readme
+    assert '"version_name": "4.0.30"' in app
 
 
 def test_main_build_publishes_manager_before_android_checkout():
@@ -39,8 +39,18 @@ def test_apk_build_is_blocked_until_wordpress_is_same_version_and_schema():
     assert 'LAST_READY" = "true' in wf
 
 
-def test_dedicated_manager_workflow_remains_fallback():
+def test_dedicated_manager_workflow_is_manual_fallback_only():
     wf = source('.github/workflows/bluevpn-manager-release.yml')
     assert 'name: Release BlueVPN Manager' in wf
     assert 'workflow_dispatch:' in wf
+    assert 'push:' not in wf
+    assert 'workflow_run:' not in wf
     assert 'bluevpn-manager.zip' in wf
+
+
+def test_release_create_race_is_recovered():
+    wf = source('.github/workflows/build-apk.yml')
+    assert 'refresh_release()' in wf
+    assert 'if ! gh release create "$TAG"' in wf
+    assert 'checking whether another publisher created ${TAG}' in wf
+    assert 'Could not create or recover ${TAG}' in wf

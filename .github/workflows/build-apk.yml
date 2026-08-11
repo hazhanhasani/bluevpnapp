@@ -38,6 +38,15 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Initialize pre-build diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > "$GITHUB_WORKSPACE/android-build.log"
+          echo "BUILD_STAGE=initialize-build" >> "$GITHUB_ENV"
+          echo "initialize-build" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          echo "BlueVPN pre-Gradle diagnostics initialized." | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
       - name: Synchronize checkout with latest branch
         shell: bash
         run: |
@@ -194,6 +203,9 @@ jobs:
           VERSION: ${{ steps.config.outputs.version }}
         run: |
           set -euo pipefail
+          echo "BUILD_STAGE=sync-wordpress-manager" >> "$GITHUB_ENV"
+          echo "sync-wordpress-manager" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
           python - <<'PY'
           import os
           import re
@@ -250,6 +262,7 @@ jobs:
           set -euo pipefail
           echo "BUILD_STAGE=persist-version-metadata" >> "$GITHUB_ENV"
           echo "persist-version-metadata" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
@@ -310,6 +323,9 @@ jobs:
           SOURCE_COMMIT: ${{ steps.persist_metadata.outputs.source_sha }}
         run: |
           set -euo pipefail
+          echo "BUILD_STAGE=publish-wordpress-manager-release" >> "$GITHUB_ENV"
+          echo "publish-wordpress-manager-release" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
 
           # Production WordPress and the APK must move together. The previous
           # design delegated this to a second workflow_run, so the APK could be
@@ -353,7 +369,7 @@ jobs:
           TAG="bluevpn-manager-v${VERSION}"
           NOTES="BlueVPN Manager ${VERSION} — نسخه همگام با APK ${VERSION}. انتشار این بسته بخشی از Release Barrier اصلی BlueVPN است."
 
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          refresh_release() {
             gh release upload "$TAG" \
               bluevpn-manager.zip \
               bluevpn-manager.zip.sha256 \
@@ -365,15 +381,31 @@ jobs:
               --title "BlueVPN Manager ${VERSION}" \
               --notes "$NOTES" \
               --latest=false
+          }
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            refresh_release
           else
-            gh release create "$TAG" \
+            # gh release view + create is not atomic. A manual emergency publish
+            # can win the race between these two commands, so creation failure is
+            # recovered by re-reading and refreshing the now-existing release.
+            if ! gh release create "$TAG" \
               bluevpn-manager.zip \
               bluevpn-manager.zip.sha256 \
               --repo "$GITHUB_REPOSITORY" \
               --target "$SOURCE_COMMIT" \
               --title "BlueVPN Manager ${VERSION}" \
               --notes "$NOTES" \
-              --latest=false
+              --latest=false; then
+              echo "Release create returned an error; checking whether another publisher created ${TAG}."
+              sleep 3
+              if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+                refresh_release
+              else
+                echo "::error::Could not create or recover ${TAG}."
+                exit 1
+              fi
+            fi
           fi
 
           rm -rf "$RUNNER_TEMP/bluevpn-manager-inline-verify"
@@ -403,6 +435,9 @@ jobs:
           VERSION: ${{ steps.config.outputs.version }}
         run: |
           set -euo pipefail
+          echo "BUILD_STAGE=wait-wordpress-auto-update" >> "$GITHUB_ENV"
+          echo "wait-wordpress-auto-update" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
           if [ "${BLUEVPN_TARGET_BRANCH}" != "main" ]; then
             echo "Non-main build; WordPress production convergence check skipped."
             exit 0
@@ -432,8 +467,8 @@ jobs:
           LAST_READY="false"
 
           # The updater checks every two minutes. Health traffic also kicks its
-          # non-blocking cron path, so four minutes is enough for two full cycles.
-          for attempt in $(seq 1 24); do
+          # non-blocking cron path, so six minutes allows extra time for a delayed host cron cycle.
+          for attempt in $(seq 1 36); do
             curl --silent --show-error --location --max-time 20 \
               "$HEALTH_URL" -o "$RUNNER_TEMP/bluevpn-health.json" || true
 
@@ -453,7 +488,7 @@ jobs:
               )
             fi
 
-            echo "WordPress convergence ${attempt}/24: version=${LAST_VERSION} schema=${LAST_SCHEMA} ready=${LAST_READY}"
+            echo "WordPress convergence ${attempt}/36: version=${LAST_VERSION} schema=${LAST_SCHEMA} ready=${LAST_READY}"
             if [ "$LAST_VERSION" = "$VERSION" ] && [ "$LAST_SCHEMA" = "$EXPECTED_SCHEMA" ] && [ "$LAST_READY" = "true" ]; then
               echo "WordPress control plane is synchronized with APK ${VERSION}."
               exit 0
@@ -468,6 +503,14 @@ jobs:
 
           echo "::error::WordPress did not auto-update to ${VERSION} before Android build. Current=${LAST_VERSION} Schema=${LAST_SCHEMA} Ready=${LAST_READY}"
           exit 1
+
+      - name: Mark Android runtime checkout stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BUILD_STAGE=checkout-android-runtime" >> "$GITHUB_ENV"
+          echo "checkout-android-runtime" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          echo "WordPress release barrier passed; starting Android runtime checkout." | tee -a "$GITHUB_WORKSPACE/android-build.log"
 
       - name: Checkout official v2rayNG source
         uses: actions/checkout@v6
@@ -676,6 +719,7 @@ jobs:
             python scripts/validate_production_completion.py
             python scripts/validate_wordpress_connectivity_hotfix.py
             python scripts/validate_wordpress_release_autopilot.py
+            python scripts/validate_release_race_fix.py
             while IFS= read -r -d '' file; do
               php -l "$file" >/dev/null
             done < <(find bluevpn-manager -type f -name '*.php' -print0)

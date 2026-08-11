@@ -1,18 +1,10 @@
 name: Release BlueVPN Manager
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'bluevpn-manager/**'
-      - '.github/workflows/bluevpn-manager-release.yml'
+  # Production publication is owned by build-apk.yml so the APK and
+  # WordPress backend cannot race each other. Keep this workflow only as a
+  # manual emergency publisher.
   workflow_dispatch:
-  workflow_run:
-    workflows:
-      - Build Signed BlueVPN APK
-    types:
-      - completed
 
 permissions:
   contents: write
@@ -23,9 +15,7 @@ concurrency:
 
 jobs:
   release:
-    # workflow_run can be emitted for non-main/manual test runs. Only the main
-    # BlueVPN branch is allowed to publish the production WordPress package.
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.head_branch == 'main' }}
+    # Manual fallback only. Normal releases are published inline by build-apk.yml.
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

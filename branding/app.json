@@ -13,6 +13,6 @@
     "arm64-v8a",
     "armeabi-v7a"
   ],
-  "version_source": "v4.0.28-wordpress-release-autopilot",
+  "version_source": "project_release_or_latest_github_release_increment",
   "sing_box_ref": "v1.13.16"
 }

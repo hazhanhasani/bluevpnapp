@@ -9,6 +9,7 @@ final class BlueVPN_Ads {
         foreach ([
             'bluevpn_ads_save' => 'save_settings',
             'bluevpn_ads_create' => 'create_ad',
+            'bluevpn_ads_update' => 'update_ad',
             'bluevpn_ads_toggle' => 'toggle_ad',
             'bluevpn_ads_delete' => 'delete_ad',
             'bluevpn_free_save' => 'save_free_settings',
@@ -265,7 +266,7 @@ final class BlueVPN_Ads {
         $remote = wp_remote_get((string)$source['url'], [
             'timeout' => 18,
             'redirection' => 5,
-            'headers' => ['Accept' => 'text/plain, application/octet-stream;q=0.9, */*;q=0.1', 'User-Agent' => 'BlueVPN-Free-Relay/4.0.19'],
+            'headers' => ['Accept' => 'text/plain, application/octet-stream;q=0.9, */*;q=0.1', 'User-Agent' => 'BlueVPN-Free-Relay/4.0.20'],
         ]);
         if (is_wp_error($remote) || (int)wp_remote_retrieve_response_code($remote) >= 400) {
             return new WP_REST_Response(['detail' => ['code' => 'FREE_SOURCE_UNAVAILABLE', 'message' => 'سرورهای رایگان موقتاً در دسترس نیستند']], 503);
@@ -392,6 +393,56 @@ final class BlueVPN_Ads {
         }
     }
 
+    public static function update_ad(): void {
+        self::guard('bluevpn_ads_update');
+        try {
+            global $wpdb;
+            $id = preg_replace('/[^A-Za-z0-9_-]+/', '', (string)($_POST['id'] ?? '')) ?: '';
+            if ($id === '') throw new RuntimeException('شناسه تبلیغ معتبر نیست.');
+            $s = BlueVPN_DB::settings();
+            $items = self::items($s);
+            $found = false;
+            foreach ($items as &$item) {
+                if ($item['id'] !== $id) continue;
+                $found = true;
+                $oldImage = (string)$item['image_url'];
+                $image = $oldImage;
+                if (!empty($_FILES['image']) && is_array($_FILES['image']) && ($_FILES['image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                    $image = self::store_upload($_FILES['image']);
+                    if (preg_match('#^/api/v1/ad-assets/([A-Za-z0-9_-]{6,64})$#', $oldImage, $m)) {
+                        $wpdb->delete(BlueVPN_DB::table('ad_assets'), ['id' => $m[1]]);
+                    }
+                } else {
+                    $external = trim((string)wp_unslash($_POST['image_url'] ?? ''));
+                    if ($external !== '') {
+                        if (!wp_http_validate_url($external) && !str_starts_with($external, '/api/v1/ad-assets/')) throw new RuntimeException('لینک تصویر معتبر نیست.');
+                        $image = str_starts_with($external, '/api/v1/ad-assets/') ? $external : esc_url_raw($external);
+                    }
+                }
+                if ($image === '') throw new RuntimeException('تصویر تبلیغ لازم است.');
+                $target = trim((string)wp_unslash($_POST['target_url'] ?? ''));
+                if ($target !== '' && !wp_http_validate_url($target)) throw new RuntimeException('لینک مقصد معتبر نیست.');
+                $item['title'] = mb_substr(sanitize_text_field(wp_unslash($_POST['title'] ?? '')), 0, 120);
+                $item['subtitle'] = mb_substr(sanitize_text_field(wp_unslash($_POST['subtitle'] ?? '')), 0, 240);
+                $item['image_url'] = $image;
+                $item['target_url'] = esc_url_raw($target);
+                $item['button_text'] = mb_substr(sanitize_text_field(wp_unslash($_POST['button_text'] ?? '')), 0, 40);
+                $item['active'] = isset($_POST['active']);
+                $item['sort_order'] = max(-10000, min(10000, (int)($_POST['sort_order'] ?? 0)));
+                $item['start_at'] = self::clean_time((string)wp_unslash($_POST['start_at'] ?? ''));
+                $item['end_at'] = self::clean_time((string)wp_unslash($_POST['end_at'] ?? ''));
+                break;
+            }
+            unset($item);
+            if (!$found) throw new RuntimeException('تبلیغ پیدا نشد.');
+            $s['ads_items'] = $items;
+            BlueVPN_DB::save_settings($s);
+            self::redirect('ads', 'تبلیغ ویرایش شد.');
+        } catch (Throwable $e) {
+            self::redirect('ads', '', $e->getMessage());
+        }
+    }
+
     public static function toggle_ad(): void {
         self::guard('bluevpn_ads_toggle');
         $id = preg_replace('/[^A-Za-z0-9_-]+/', '', (string)($_POST['id'] ?? '')) ?: '';
@@ -454,25 +505,43 @@ final class BlueVPN_Ads {
     public static function render_admin(): void {
         $s = BlueVPN_DB::settings(); self::notice();
         $payload = self::advertising_payload($s, null);
-        echo '<div class="bvc-grid"><div class="bvc-card bvc-kpi"><span>تبلیغات فعال قابل نمایش</span><strong>' . count($payload['items']) . '</strong></div><div class="bvc-card bvc-kpi"><span>Assetهای MySQL</span><strong>' . self::asset_count() . '</strong></div></div>';
-        echo '<div class="bvc-card"><h2>تبلیغات داخل اپ + Tapsell</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_ads_save'); echo '<input type="hidden" name="action" value="bluevpn_ads_save"><div class="bvc-form-grid">';
-        self::checkbox('ads_enabled', 'بنرهای داخل اپ', !empty($s['ads_enabled'])); self::checkbox('ads_autoplay', 'تعویض خودکار', !empty($s['ads_autoplay'])); self::checkbox('ads_loop', 'تکرار اسلایدها', !empty($s['ads_loop']));
+        $items = self::items($s);
+        $activeCount = count(array_filter($items, static fn($x) => !empty($x['active'])));
+
+        echo '<div class="bluevpn-ad-toolbar"><div><h2>مدیریت تبلیغات BlueVPN</h2><p style="margin:4px 0 0;color:#64748b">بنرهای داخل اپ، زمان‌بندی نمایش و Tapsell را از همین صفحه کنترل کنید.</p></div><a class="button button-primary bluevpn-ad-add-button" href="#bluevpn-add-ad">＋ افزودن تبلیغ</a></div>';
+        echo '<div class="bvc-grid"><div class="bvc-card bvc-kpi"><span>کل تبلیغات</span><strong>' . count($items) . '</strong></div><div class="bvc-card bvc-kpi"><span>تبلیغات فعال</span><strong>' . $activeCount . '</strong></div><div class="bvc-card bvc-kpi"><span>قابل نمایش در اپ</span><strong>' . count($payload['items']) . '</strong></div><div class="bvc-card bvc-kpi"><span>Assetهای MySQL</span><strong>' . self::asset_count() . '</strong></div></div>';
+
+        echo '<div class="bvc-card"><h2>تنظیمات نمایش و Tapsell</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_ads_save'); echo '<input type="hidden" name="action" value="bluevpn_ads_save"><div class="bvc-form-grid">';
+        self::checkbox('ads_enabled', 'نمایش بنرهای داخل اپ', !empty($s['ads_enabled'])); self::checkbox('ads_autoplay', 'تعویض خودکار', !empty($s['ads_autoplay'])); self::checkbox('ads_loop', 'تکرار اسلایدها', !empty($s['ads_loop']));
         self::number('ads_interval_seconds', 'فاصله اسلاید (ثانیه)', (int)($s['ads_interval_seconds'] ?? 6), 3, 30); self::number('ads_height_dp', 'ارتفاع بنر (dp)', (int)($s['ads_height_dp'] ?? 146), 116, 160);
-        self::checkbox('tapsell_enabled', 'Tapsell', !empty($s['tapsell_enabled'])); self::text('tapsell_app_key', 'Tapsell App Key', (string)($s['tapsell_app_key'] ?? '')); self::text('tapsell_interstitial_zone_id', 'Interstitial Zone ID', (string)($s['tapsell_interstitial_zone_id'] ?? '')); self::checkbox('tapsell_show_after_connect', 'نمایش بعد از اتصال موفق', !array_key_exists('tapsell_show_after_connect', $s) || !empty($s['tapsell_show_after_connect'])); self::number('tapsell_min_interval_seconds', 'حداقل فاصله Tapsell', (int)($s['tapsell_min_interval_seconds'] ?? 0), 0, 86400); self::number('tapsell_daily_cap', 'سقف روزانه (۰=نامحدود)', (int)($s['tapsell_daily_cap'] ?? 0), 0, 1000);
-        echo '</div>'; submit_button('ذخیره تبلیغات', 'primary', 'submit', false); echo '</form></div>';
+        self::checkbox('tapsell_enabled', 'فعال‌سازی Tapsell', !empty($s['tapsell_enabled'])); self::text('tapsell_app_key', 'Tapsell App Key', (string)($s['tapsell_app_key'] ?? '')); self::text('tapsell_interstitial_zone_id', 'Interstitial Zone ID', (string)($s['tapsell_interstitial_zone_id'] ?? '')); self::checkbox('tapsell_show_after_connect', 'نمایش بعد از اتصال موفق', !array_key_exists('tapsell_show_after_connect', $s) || !empty($s['tapsell_show_after_connect'])); self::number('tapsell_min_interval_seconds', 'حداقل فاصله Tapsell', (int)($s['tapsell_min_interval_seconds'] ?? 0), 0, 86400); self::number('tapsell_daily_cap', 'سقف روزانه (۰=نامحدود)', (int)($s['tapsell_daily_cap'] ?? 0), 0, 1000);
+        echo '</div><div style="margin-top:14px">'; submit_button('ذخیره تنظیمات تبلیغات', 'primary', 'submit', false); echo '</div></form></div>';
 
-        echo '<div class="bvc-card"><h2>افزودن بنر</h2><p>پیشنهاد BlueVPN: 1200×540، نسبت 20:9 و WebP/JPG.</p><form method="post" enctype="multipart/form-data" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_ads_create'); echo '<input type="hidden" name="action" value="bluevpn_ads_create"><div class="bvc-form-grid">';
-        self::text('title', 'عنوان', ''); self::text('subtitle', 'زیرعنوان', ''); self::text('target_url', 'لینک مقصد', ''); self::text('button_text', 'متن دکمه', 'مشاهده'); self::number('sort_order', 'ترتیب', 0, -10000, 10000);
-        echo '<label>شروع (اختیاری)<input type="datetime-local" name="start_at"></label><label>پایان (اختیاری)<input type="datetime-local" name="end_at"></label><label>تصویر<input type="file" name="image" accept="image/webp,image/jpeg,image/png"></label><label>یا لینک تصویر<input type="url" name="image_url"></label><label><input type="checkbox" name="active" value="1" checked> فعال</label>';
-        echo '</div>'; submit_button('افزودن بنر', 'primary', 'submit', false); echo '</form></div>';
+        echo '<div class="bvc-card bluevpn-ad-editor" id="bluevpn-add-ad"><h2>افزودن تبلیغ جدید</h2><div class="bvc-note">اندازه پیشنهادی BlueVPN: 1200×540 پیکسل، نسبت 20:9، WebP یا JPG. تصویر آپلودشده مستقیماً داخل MySQL ذخیره می‌شود.</div><form method="post" enctype="multipart/form-data" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_ads_create'); echo '<input type="hidden" name="action" value="bluevpn_ads_create"><div class="bvc-form-grid">';
+        self::text('title', 'عنوان تبلیغ', ''); self::text('subtitle', 'زیرعنوان', ''); self::text('target_url', 'لینک مقصد', ''); self::text('button_text', 'متن دکمه', 'مشاهده'); self::number('sort_order', 'ترتیب نمایش', 0, -10000, 10000);
+        echo '<label>شروع نمایش (اختیاری)<input type="datetime-local" name="start_at"></label><label>پایان نمایش (اختیاری)<input type="datetime-local" name="end_at"></label>';
+        echo '<label class="bluevpn-file-input">آپلود تصویر<input type="file" name="image" accept="image/webp,image/jpeg,image/png"><span data-file-name>هیچ فایلی انتخاب نشده</span></label>';
+        echo '<label>یا URL تصویر<input type="url" name="image_url" placeholder="https://..."></label><label style="display:flex;align-items:center;align-self:end;padding-bottom:8px"><input type="checkbox" name="active" value="1" checked> فعال و قابل نمایش</label>';
+        echo '</div><div style="margin-top:14px">'; submit_button('افزودن تبلیغ', 'primary', 'submit', false); echo '</div></form></div>';
 
-        echo '<div class="bvc-card"><h2>بنرهای موجود</h2><table class="widefat striped bvc-table"><tr><th>تصویر</th><th>عنوان</th><th>وضعیت</th><th>ترتیب</th><th>عملیات</th></tr>';
-        foreach (self::items($s) as $item) {
-            $src = self::resolve_asset_path((string)$item['image_url']); if (str_starts_with($src, '/')) $src = home_url($src);
-            echo '<tr><td>' . ($src ? '<img src="' . esc_url($src) . '" style="width:150px;max-height:70px;object-fit:cover;border-radius:8px">' : '—') . '</td><td><strong>' . esc_html($item['title']) . '</strong><br><small>' . esc_html($item['subtitle']) . '</small></td><td>' . ($item['active'] ? 'فعال' : 'خاموش') . '</td><td>' . (int)$item['sort_order'] . '</td><td>';
-            self::mini_form('bluevpn_ads_toggle', 'bluevpn_ads_toggle', $item['id'], $item['active'] ? 'خاموش' : 'روشن'); self::mini_form('bluevpn_ads_delete', 'bluevpn_ads_delete', $item['id'], 'حذف', true); echo '</td></tr>';
+        echo '<div class="bluevpn-ad-toolbar" style="margin-top:22px"><div><h2>تبلیغات موجود</h2><p style="margin:4px 0 0;color:#64748b">برای ویرایش، بخش «ویرایش تبلیغ» هر کارت را باز کنید.</p></div></div>';
+        if (!$items) {
+            echo '<div class="bvc-card"><div style="text-align:center;padding:30px 10px;color:#64748b"><strong style="display:block;color:#cbd5e1;font-size:15px;margin-bottom:8px">هنوز تبلیغی ثبت نشده</strong>از دکمه «افزودن تبلیغ» بالا اولین بنر را بسازید.</div></div>';
+        } else {
+            echo '<div class="bluevpn-ad-cards">';
+            foreach ($items as $item) {
+                $src = self::resolve_asset_path((string)$item['image_url']); if (str_starts_with($src, '/')) $src = home_url($src);
+                $on = !empty($item['active']);
+                echo '<article class="bvc-card bluevpn-ad-card"><div class="bluevpn-ad-preview">' . ($src ? '<img src="' . esc_url($src) . '" alt="">' : '') . '<span class="bluevpn-ad-state ' . ($on ? 'is-on' : 'is-off') . '">' . ($on ? 'فعال' : 'خاموش') . '</span></div><div class="bluevpn-ad-body">';
+                echo '<h3>' . esc_html($item['title'] ?: 'بدون عنوان') . '</h3><p>' . esc_html($item['subtitle'] ?: 'بدون زیرعنوان') . '</p><div class="bluevpn-ad-meta"><span>ترتیب ' . (int)$item['sort_order'] . '</span>' . ($item['start_at'] ? '<span>شروع ' . esc_html($item['start_at']) . '</span>' : '') . ($item['end_at'] ? '<span>پایان ' . esc_html($item['end_at']) . '</span>' : '') . '</div><div class="bluevpn-ad-actions">';
+                self::mini_form('bluevpn_ads_toggle', 'bluevpn_ads_toggle', $item['id'], $on ? 'خاموش کردن' : 'فعال کردن'); self::mini_form('bluevpn_ads_delete', 'bluevpn_ads_delete', $item['id'], 'حذف', true); echo '</div>';
+                echo '<details class="bluevpn-inline-edit"><summary>ویرایش تبلیغ</summary><form method="post" enctype="multipart/form-data" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_ads_update'); echo '<input type="hidden" name="action" value="bluevpn_ads_update"><input type="hidden" name="id" value="' . esc_attr($item['id']) . '"><div class="bvc-form-grid">';
+                echo '<label>عنوان<input type="text" name="title" value="' . esc_attr($item['title']) . '"></label><label>زیرعنوان<input type="text" name="subtitle" value="' . esc_attr($item['subtitle']) . '"></label><label>لینک مقصد<input type="url" name="target_url" value="' . esc_attr($item['target_url']) . '"></label><label>متن دکمه<input type="text" name="button_text" value="' . esc_attr($item['button_text']) . '"></label><label>ترتیب<input type="number" name="sort_order" min="-10000" max="10000" value="' . (int)$item['sort_order'] . '"></label>';
+                echo '<label>شروع<input type="datetime-local" name="start_at"></label><label>پایان<input type="datetime-local" name="end_at"></label><label class="bluevpn-file-input">تعویض تصویر<input type="file" name="image" accept="image/webp,image/jpeg,image/png"><span data-file-name>برای حفظ تصویر فعلی خالی بگذارید</span></label><label>URL تصویر<input type="text" name="image_url" value="' . esc_attr($item['image_url']) . '"></label><label style="display:flex;align-items:center;align-self:end;padding-bottom:8px"><input type="checkbox" name="active" value="1" ' . checked($on, true, false) . '> فعال</label>';
+                echo '</div><div style="margin-top:12px">'; submit_button('ذخیره ویرایش', 'primary', 'submit', false); echo '</div></form></details></div></article>';
+            }
+            echo '</div>';
         }
-        echo '</table></div>';
     }
 
     public static function render_free_admin(): void {

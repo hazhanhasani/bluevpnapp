@@ -1,0 +1,8 @@
+BlueVPN platform 4.0.5 build recovery
+
+- Keeps the 4.x version line (4.0.5 / versionCode 40005).
+- Fixes stale sing-box stage reporting after a successful native build.
+- Captures prepare_android.py output in prepare-android.log.
+- Makes newly introduced dual-engine snapshot files optional so an older generated-source set cannot abort the build before Gradle.
+- Keeps required BlueVPN UI/account/update files strict.
+- Preserves BlueVPN Manager database migration fixes and bumps plugin to 4.0.5.

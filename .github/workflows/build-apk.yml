@@ -394,6 +394,11 @@ jobs:
           echo "sing-box ${{ steps.config.outputs.sing_box_ref }} built for arm64-v8a."
           echo "armeabi-v7a intentionally uses the Xray fallback; no broken sing-box binary is packaged."
 
+          # The native build is complete. Any later failure must not be
+          # misreported as a sing-box failure.
+          echo "BUILD_STAGE=prepare-android" >> "$GITHUB_ENV"
+          echo "prepare-android" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+
       - name: Upload failed sing-box build log
         if: ${{ failure() }}
         uses: actions/upload-artifact@v6
@@ -403,16 +408,37 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      - name: Mark Android source preparation stage
+        shell: bash
+        run: |
+          echo "BUILD_STAGE=prepare-android" >> "$GITHUB_ENV"
+          echo "prepare-android" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+
       - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
       - name: Install branding tools
-        run: pip install pillow
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check pillow
 
       - name: Apply BlueVPN custom UI and features
-        run: python scripts/prepare_android.py
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/prepare_android.py 2>&1 | tee "$GITHUB_WORKSPACE/prepare-android.log"
+
+      - name: Upload failed Android source preparation log
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: BlueVPN-prepare-android-log
+          path: prepare-android.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Persist generated Android source snapshot in GitHub
         id: persist_generated
@@ -423,6 +449,8 @@ jobs:
           VERSION_CODE: ${{ steps.config.outputs.version_code }}
         run: |
           set -euo pipefail
+          echo "BUILD_STAGE=persist-generated-android-source" >> "$GITHUB_ENV"
+          echo "persist-generated-android-source" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
 
           python - <<'PY'
           import hashlib
@@ -436,27 +464,18 @@ jobs:
           if snapshot.exists():
               shutil.rmtree(snapshot)
 
-          selected = [
+          required = [
               "src/main/java/com/v2ray/ang/ui/BlueVpnHomeActivity.kt",
               "src/main/java/com/v2ray/ang/ui/BlueVpnAiActivity.kt",
               "src/main/java/com/v2ray/ang/ui/BlueVpnServersActivity.kt",
               "src/main/java/com/v2ray/ang/ui/BlueVpnSubscriptionsActivity.kt",
               "src/main/java/com/v2ray/ang/ui/BlueVpnSettingsActivity.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAccountManager.kt",
-              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAdsCarouselView.kt",
-              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnTheme.kt",
-              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLiveReporter.kt",
-              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnBootstrap.kt",
-              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnEngineManager.kt",
-              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnSingBoxProcess.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateManager.kt",
-              "src/main/java/com/v2ray/ang/ui/BlueVpnUpdateInstallActivity.kt",
-              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateFileProvider.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLocationUtil.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnExperience.kt",
               "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAi.kt",
               "src/main/res/drawable/bluevpn_screen_background.xml",
-              "src/main/res/drawable-night/bluevpn_screen_background.xml",
               "src/main/res/drawable/bluevpn_logo_background.xml",
               "src/main/res/drawable/bluevpn_connect_ring.xml",
               "src/main/res/drawable/bluevpn_status_dot.xml",
@@ -470,16 +489,43 @@ jobs:
               "src/main/java/com/v2ray/ang/AngApplication.kt",
               "build.gradle.kts",
           ]
+          optional = [
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAdsCarouselView.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnTheme.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLiveReporter.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnBootstrap.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnEngineManager.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnSingBoxProcess.kt",
+              "src/main/java/com/v2ray/ang/ui/BlueVpnUpdateInstallActivity.kt",
+              "src/main/java/com/v2ray/ang/bluevpn/BlueVpnUpdateFileProvider.kt",
+              "src/main/res/drawable-night/bluevpn_screen_background.xml",
+          ]
 
           hashes = {}
-          for relative in selected:
+          for relative in required:
               source = app / relative
               if not source.exists():
-                  raise SystemExit(f"Generated Android file missing: {source}")
+                  raise SystemExit(f"Required generated Android file missing: {source}")
               destination = snapshot / relative
               destination.parent.mkdir(parents=True, exist_ok=True)
               shutil.copy2(source, destination)
               hashes[relative] = hashlib.sha256(source.read_bytes()).hexdigest()
+
+          missing_optional = []
+          for relative in optional:
+              source = app / relative
+              if not source.exists():
+                  missing_optional.append(relative)
+                  continue
+              destination = snapshot / relative
+              destination.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copy2(source, destination)
+              hashes[relative] = hashlib.sha256(source.read_bytes()).hexdigest()
+
+          if missing_optional:
+              print("Optional generated files not present in this source revision:")
+              for relative in missing_optional:
+                  print(f"  - {relative}")
 
           manifest = {
               "app": "BlueVPN",
@@ -506,8 +552,6 @@ jobs:
             echo "Generated Android source snapshot is already synchronized."
           fi
 
-          echo "BUILD_STAGE=persist-generated-android-source" >> "$GITHUB_ENV"
-          echo "persist-generated-android-source" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           PUSHED=0
           for attempt in 1 2 3 4 5; do
             if git push --porcelain origin "HEAD:${TARGET_BRANCH}"; then
@@ -890,6 +934,8 @@ jobs:
           candidates = []
           if stage == "sing-box-native-build":
               candidates.append(Path("singbox-build.log"))
+          if stage == "prepare-android":
+              candidates.append(Path("prepare-android.log"))
           elif stage == "gradle-compile":
               candidates.append(Path("android-build.log"))
           candidates.extend([
@@ -1006,7 +1052,10 @@ jobs:
             --data-urlencode "disable_web_page_preview=true"
 
           STAGE="$(cat .bluevpn-build-stage 2>/dev/null || printf '%s' "${BUILD_STAGE:-pre-gradle}")"
-          if [ "$STAGE" = "sing-box-native-build" ] && [ -f singbox-build.log ]; then
+          if [ "$STAGE" = "prepare-android" ] && [ -f prepare-android.log ]; then
+            LOG_FILE="prepare-android.log"
+            LOG_CAPTION="📎 لاگ آماده‌سازی سورس Android | Build #${GITHUB_RUN_NUMBER} | ${SHORT_SHA}"
+          elif [ "$STAGE" = "sing-box-native-build" ] && [ -f singbox-build.log ]; then
             LOG_FILE="singbox-build.log"
             LOG_CAPTION="📎 لاگ کامل ساخت sing-box | Build #${GITHUB_RUN_NUMBER} | ${SHORT_SHA}"
           elif [ -f android-build.log ]; then

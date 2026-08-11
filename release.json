@@ -1,10 +1,10 @@
 {
-  "version": "3.0.100",
+  "version": "4.0.4",
   "channel": "stable",
   "build_id": "20260809-theme-stability-v3062",
   "built_at": "2026-08-09T16:55:00Z",
-  "android_version": "3.0.100",
-  "android_version_code": 30100,
+  "android_version": "4.0.4",
+  "android_version_code": 40004,
   "description": "BlueVPN 3.0.62 تم را یکپارچه و فوری اعمال می‌کند و هنگام تغییر تم اتصال VPN را بدون قطع یا راه‌اندازی مجدد حفظ می‌کند.",
   "features": [
     "premium-ui-v3",
@@ -395,7 +395,7 @@
     "non-destructive-theme-health-check",
     "theme-recreation-startup-skip"
   ],
-  "version_code": 30100,
+  "version_code": 40004,
   "notes": "رفع تغییر مرحله‌ای رنگ‌ها، اعمال هم‌زمان تم در صفحه تنظیمات و جلوگیری از توقف یا اتصال مجدد VPN هنگام بازسازی رابط.",
   "version_source": "theme-connection-stability-v3062"
 }

@@ -414,9 +414,10 @@ final class BlueVPN_Telegram_Bot {
                 $commit = self::branch_head_sha($s);
                 self::update_job($jobId, ['status' => 'dispatching', 'commit_sha' => $commit]);
             }
-            self::dispatch_workflow($s);
+            $trigger = self::dispatch_build($commit, $s);
             self::update_job($jobId, ['status' => 'waiting_build']);
-            self::send_message($job['chat_id'], "🛠 Build از GitHub Actions شروع شد.\nCommit: <code>" . esc_html(substr($commit, 0, 12)) . '</code>', self::keyboard(), $s);
+            $triggerLabel = (string)($trigger['trigger'] ?? 'github');
+            self::send_message($job['chat_id'], "🛠 Build از GitHub Actions شروع شد.\nCommit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>\nTrigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
             wp_schedule_single_event(time() + 20, self::POLL_HOOK);
             self::spawn_cron();
         } catch (Throwable $e) {
@@ -589,7 +590,10 @@ final class BlueVPN_Telegram_Bot {
         $json = $raw !== '' ? json_decode($raw, true) : [];
         if ($code < 200 || $code >= 300) {
             $message = is_array($json) ? (string)($json['message'] ?? '') : '';
-            throw new RuntimeException('GitHub API HTTP ' . $code . ($message !== '' ? ': ' . $message : ''));
+            throw new RuntimeException(
+                'GitHub API ' . strtoupper($method) . ' ' . $path . ' HTTP ' . $code .
+                ($message !== '' ? ': ' . $message : '')
+            );
         }
         return is_array($json) ? $json : [];
     }
@@ -599,6 +603,45 @@ final class BlueVPN_Telegram_Bot {
         $sha = (string)($ref['object']['sha'] ?? '');
         if ($sha === '') throw new RuntimeException('SHA شاخه GitHub پیدا نشد.');
         return $sha;
+    }
+
+    private static function dispatch_build(string $commitSha, array $s): array {
+        $repositoryError = '';
+        try {
+            $requestId = bin2hex(random_bytes(12));
+            self::gh('POST', self::repo_path($s) . '/dispatches', [
+                'event_type' => (string)$s['repository_dispatch_event'],
+                'client_payload' => [
+                    'target_sha' => $commitSha,
+                    'ref' => (string)$s['git_branch'],
+                    'request_id' => $requestId,
+                    'source' => 'bluevpn-wordpress-bot',
+                ],
+            ], $s);
+            return [
+                'trigger' => 'repository_dispatch',
+                'request_id' => $requestId,
+                'target_sha' => $commitSha,
+            ];
+        } catch (Throwable $e) {
+            $repositoryError = self::redact($e->getMessage(), $s);
+        }
+
+        try {
+            self::dispatch_workflow($s);
+            return [
+                'trigger' => 'workflow_dispatch',
+                'fallback_from' => 'repository_dispatch',
+                'repository_dispatch_error' => $repositoryError,
+            ];
+        } catch (Throwable $e) {
+            $workflowError = self::redact($e->getMessage(), $s);
+            throw new RuntimeException(
+                "هیچ‌یک از دو روش اجرای Build در GitHub پذیرفته نشد.\n" .
+                'repository_dispatch: ' . $repositoryError . "\n" .
+                'workflow_dispatch: ' . $workflowError
+            );
+        }
     }
 
     private static function dispatch_workflow(array $s): void {

@@ -45,7 +45,7 @@ final class BlueVPN_Payments {
     private static function request(string $method, string $url, string $apiKey, ?array $body = null, string $idempotency = ''): array {
         $args = [
             'method' => strtoupper($method), 'timeout' => 25, 'redirection' => 0,
-            'headers' => ['Accept'=>'application/json','Content-Type'=>'application/json','X-API-Key'=>$apiKey,'User-Agent'=>'BlueVPN-WordPress/4.0.17'],
+            'headers' => ['Accept'=>'application/json','Content-Type'=>'application/json','X-API-Key'=>$apiKey,'User-Agent'=>'BlueVPN-WordPress/4.0.18'],
         ];
         if ($idempotency !== '') $args['headers']['Idempotency-Key'] = $idempotency;
         if ($body !== null) $args['body'] = wp_json_encode($body, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);

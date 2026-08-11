@@ -33,7 +33,7 @@ Requires PHP: 8.0
 - Cron پاکسازی پایه
 
 مهم:
-نسخه 4.0.17 مسیرهای عملیاتی اپ، تبلیغات، BlueAI، BluePay، Providerها، OTP و ربات را روی WordPress/MySQL در اختیار دارد. Railway فقط تا زمانی نگه داشته شود که Final Verify مهاجرت و تست End-to-End APK جدید سبز شوند؛ بعد از آن Backend اصلی می‌تواند WordPress باشد.
+نسخه 4.0.18 مسیرهای عملیاتی اپ، تبلیغات، BlueAI، BluePay، Providerها، OTP و ربات را روی WordPress/MySQL در اختیار دارد. Railway فقط تا زمانی نگه داشته شود که Final Verify مهاجرت و تست End-to-End APK جدید سبز شوند؛ بعد از آن Backend اصلی می‌تواند WordPress باشد.
 
 - Runner زنجیره‌ای داخل صفحه مدیریت برای ادامه مهاجرت حتی در صورت اختلال WP-Cron
 
@@ -69,7 +69,10 @@ Requires PHP: 8.0
 * حفظ Dashboard اصلی BlueVPN فقط برای نمای کلی.
 
 
-= 4.0.17 =
+= 4.0.18 =
+* رفع رگرسیون GitHub Build: repository_dispatch دوباره روش اصلی است و workflow_dispatch فقط fallback است.
+* سازگاری با همان PAT قدیمی Railway که Contents:write داشت و بدون نیاز اجباری به Actions:write Build را شروع می‌کرد.
+* نمایش Trigger واقعی در پیام ربات و گزارش خطای جداگانه برای هر دو روش.
 * بازگردانی کامل بخش مدیریت تبلیغات و ذخیره تصویر بنر در MySQL.
 * بازگردانی Endpoint باینری /api/v1/ad-assets/{id} و بازیابی خودکار لینک‌های قدیمی /media/ads و URLهای Railway.
 * اصلاح قرارداد Android تبلیغات از interval_seconds به interval_ms.

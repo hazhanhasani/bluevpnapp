@@ -1,0 +1,15 @@
+BlueVPN Platform 4.0.18 — GitHub Trigger Compatibility Fix
+
+علت 403:
+در مهاجرت ربات Railway به WordPress، مسیر قدیمی repository_dispatch حذف و workflow_dispatch مستقیماً اجرا می‌شد. توکن قبلی کاربر با repository_dispatch کار می‌کرد و الزام جداگانه Actions:write نداشت.
+
+اصلاحات:
+- repository_dispatch دوباره Trigger اصلی Build است.
+- workflow_dispatch فقط در صورت شکست روش اول fallback است.
+- client_payload شامل target_sha، ref و request_id است.
+- repository_dispatch_event ذخیره‌شده در تنظیمات واقعاً استفاده می‌شود.
+- پیام Telegram نوع Trigger موفق را نشان می‌دهد.
+- خطاهای GitHub متد و Endpoint دقیق را نمایش می‌دهند.
+- Workflow موجود از repository_dispatch/type=bluevpn_build پشتیبانی می‌کند.
+
+این تغییر برای سازگاری با همان PAT مورد استفاده در Runtime قدیمی Railway انجام شده است.

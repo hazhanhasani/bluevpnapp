@@ -51,8 +51,8 @@ final class BlueVPN_Admin {
         add_submenu_page('bluevpn-manager','ابزار مهاجرت','ابزار مهاجرت','manage_options','bluevpn-migration',[self::class,'migration_page']);
         add_submenu_page('bluevpn-manager','آپدیت افزونه','آپدیت افزونه','manage_options','bluevpn-github-updater',[self::class,'github_updater_page']);
     }
-    private static function head(string $title): void { echo '<div class="wrap" dir="rtl"><h1>'.esc_html($title).'</h1><style>.bvp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;max-width:1100px}.bvp-card{background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:18px}.bvp-ok{color:#008a20;font-weight:700}.bvp-warn{color:#b26200;font-weight:700}.bvp-code{direction:ltr;text-align:left;background:#f6f7f7;padding:10px;border-radius:6px;overflow:auto}.bvp-table{background:#fff;max-width:1200px}.bvp-table th,.bvp-table td{text-align:right}</style>'; }
-    private static function foot(): void { echo '</div>'; }
+    private static function head(string $title): void { BlueVPN_Unified_UI::shell_open($title); echo '<div class="wrap" dir="rtl"><style>.bvp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;max-width:1100px}.bvp-card{background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:18px}.bvp-ok{color:#34d399;font-weight:700}.bvp-warn{color:#fbbf24;font-weight:700}.bvp-code{direction:ltr;text-align:left;background:#f6f7f7;padding:10px;border-radius:6px;overflow:auto}.bvp-table{background:#fff;max-width:1200px}.bvp-table th,.bvp-table td{text-align:right}</style>'; }
+    private static function foot(): void { echo '</div>'; BlueVPN_Unified_UI::shell_close(); }
     public static function dashboard(): void {
         self::guard();
         $s = BlueVPN_DB::status();

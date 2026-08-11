@@ -69,6 +69,12 @@ Requires PHP: 8.0
 * حذف نوار تب داخلی؛ هر بخش صفحه مدیریتی مستقل خود را دارد.
 * حفظ Dashboard اصلی BlueVPN فقط برای نمای کلی.
 
+= 4.0.16 =
+* ورود OTP واقعی شش‌رقمی با IranPayamak روی WordPress/MySQL اضافه شد.
+* رابط ورود جدید بر پایه Archive.zip و پنل مدیریت یکپارچه بر پایه admin.zip اضافه شد.
+* Endpointهای /auth/otp/request و /auth/otp/verify و صفحه /bluevpn-login/ اضافه شدند.
+* مقدار OTP دیتابیس از ۵ به ۶ ارتقا داده می‌شود و auth_mode به phone_otp همگرا می‌شود.
+
 = 4.0.15 =
 * انتقال Runtime ربات تلگرام از Railway به WordPress/MySQL با Telegram Webhook.
 * انتقال خودکار BOT_TOKEN / GITHUB_TOKEN / ADMIN_IDS از Migration Bridge امن.

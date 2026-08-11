@@ -11,6 +11,7 @@ final class BlueVPN_API {
         register_rest_route('bluevpn-system/v1','/app-connection',['methods'=>'GET','callback'=>[self::class,'app_connection'],'permission_callback'=>'__return_true']);
         $routes = [
             ['/mobile/config','GET','mobile_config'], ['/auth/register','POST','register'], ['/auth/login','POST','login'],
+            ['/auth/otp/request','POST','otp_request'], ['/auth/otp/verify','POST','otp_verify'],
             ['/auth/refresh','POST','refresh'], ['/auth/logout','POST','logout'], ['/plans','GET','plans'],
             ['/account','GET','account'], ['/account/sync','POST','account'], ['/server-locations/resolve','POST','resolve_locations'],
             ['/server-locations/verify','POST','verify_location'], ['/sub/(?P<token>[A-Za-z0-9_-]{10,100})','GET','subscription'],
@@ -41,6 +42,9 @@ final class BlueVPN_API {
             'mobile_config_url' => $site . '/api/v1/mobile/config',
             'login_url' => $site . '/api/v1/auth/login',
             'register_url' => $site . '/api/v1/auth/register',
+            'otp_request_url' => $site . '/api/v1/auth/otp/request',
+            'otp_verify_url' => $site . '/api/v1/auth/otp/verify',
+            'web_login_url' => $site . '/bluevpn-login/',
             'static_api_key_required' => false,
             'cutover_ready' => get_option('bluevpn_manager_cutover_ready','0') === '1',
             'app_cutover_enabled' => get_option('bluevpn_manager_app_cutover_enabled','0') === '1',
@@ -84,7 +88,7 @@ final class BlueVPN_API {
             'github_error'=>(string)($s['github_error']??''),
             'release_cache_seconds'=>(int)($s['release_cache_seconds']??15),
             'release_refresh_forced'=>$forced,
-            'auth'=>['mode'=>$s['auth_mode'],'password_login'=>$s['auth_mode']==='email_password','sms_provider'=>'iranpayamak','sms_ready'=>false],
+            'auth'=>array_merge(['mode'=>'phone_otp','password_login'=>false],BlueVPN_SMS_OTP::public_config(),['request_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/request','verify_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/verify']),
             'blueai'=>['enabled'=>(bool)$s['blueai_enabled'],'collective'=>(bool)$s['blueai_collective'],'auto_heal'=>(bool)$s['blueai_auto_heal'],'min_samples'=>(int)$s['blueai_min_samples'],'privacy_message'=>$s['blueai_privacy_message']],
             'announcement'=>['enabled'=>(bool)$s['announcement_enabled'],'id'=>$s['announcement_id'],'title'=>$s['announcement_title'],'message'=>$s['announcement_message']],
             'advertising'=>['enabled'=>(bool)$s['ads_enabled'],'autoplay'=>(bool)$s['ads_autoplay'],'loop'=>(bool)$s['ads_loop'],'interval_seconds'=>(int)$s['ads_interval_seconds'],'height_dp'=>(int)$s['ads_height_dp'],'items'=>$s['ads_items']],
@@ -93,6 +97,8 @@ final class BlueVPN_API {
             'calendar'=>'jalali','timezone'=>'Asia/Tehran','migration_phase'=>2,'migration_state'=>BlueVPN_Migration::state()['phase'],'cutover_ready'=>get_option('bluevpn_manager_cutover_ready','0')==='1'
         ]);
     }
+    public static function otp_request(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);return self::ok(BlueVPN_SMS_OTP::request((string)($b['phone']??''),(string)($b['device_id']??'')));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
+    public static function otp_verify(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);return self::ok(BlueVPN_SMS_OTP::verify((string)($b['phone']??''),(string)($b['challenge_id']??''),(string)($b['code']??''),(string)($b['device_id']??''),(string)($b['device_name']??'')));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
     public static function register(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);$email=BlueVPN_Auth::normalize_email((string)($b['email']??''));$pass=BlueVPN_Auth::validate_password((string)($b['password']??''));$c=BlueVPN_Auth::create_customer($email,$pass);$tok=BlueVPN_Auth::issue_session($c,(string)($b['device_id']??''),(string)($b['device_name']??''));return self::ok(['success'=>true,'is_new_account'=>true,'token'=>$tok['token'],'refresh_token'=>$tok['refresh_token'],'account'=>BlueVPN_Auth::account_payload($c)]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
     public static function login(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);$email=BlueVPN_Auth::normalize_email((string)($b['email']??''));$c=BlueVPN_Auth::customer_by_email($email);if(!$c||!BlueVPN_Auth::password_verify_compat((string)($b['password']??''),(string)$c['password_hash'])) throw new BlueVPN_Auth_Exception(401,'INVALID_CREDENTIALS','ایمیل یا رمز عبور نادرست است.');if(!(int)$c['active']) throw new BlueVPN_Auth_Exception(401,'ACCOUNT_DISABLED','این حساب غیرفعال شده است.');$tok=BlueVPN_Auth::issue_session($c,(string)($b['device_id']??''),(string)($b['device_name']??''));return self::ok(['success'=>true,'is_new_account'=>false,'token'=>$tok['token'],'refresh_token'=>$tok['refresh_token'],'account'=>BlueVPN_Auth::account_payload($c)]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
     public static function refresh(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);$x=BlueVPN_Auth::refresh_session((string)($b['phone']??$b['identity']??$b['email']??''),(string)($b['device_id']??''),(string)($b['refresh_token']??''),(string)($b['device_name']??''));return self::ok(['success'=>true,'token'=>$x['tokens']['token'],'refresh_token'=>$x['tokens']['refresh_token'],'account'=>BlueVPN_Auth::account_payload($x['customer'])]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }

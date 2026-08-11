@@ -23,6 +23,7 @@ final class BlueVPN_DB {
     public static function activate(): void {
         self::install_schema();
         self::seed_defaults();
+        self::enforce_six_digit_otp();
         update_option('bluevpn_manager_schema_version', BLUEVPN_MANAGER_SCHEMA_VERSION, false);
         update_option('bluevpn_manager_cutover_ready', '0', false);
     }
@@ -32,6 +33,7 @@ final class BlueVPN_DB {
         if ($installed !== BLUEVPN_MANAGER_SCHEMA_VERSION) {
             self::install_schema();
             self::seed_defaults();
+            self::enforce_six_digit_otp();
             update_option('bluevpn_manager_schema_version', BLUEVPN_MANAGER_SCHEMA_VERSION, false);
             // 1.1.1 fixes optional UNIQUE customer sentinels. Re-open only the
             // customer convergence gate; never reset copied tables/progress.
@@ -267,7 +269,7 @@ final class BlueVPN_DB {
             from_number varchar(32) NOT NULL DEFAULT '',
             pattern_code varchar(120) NOT NULL DEFAULT '',
             parameter_name varchar(80) NOT NULL DEFAULT 'code',
-            otp_length int NOT NULL DEFAULT 5,
+            otp_length int NOT NULL DEFAULT 6,
             otp_ttl_seconds int NOT NULL DEFAULT 120,
             resend_seconds int NOT NULL DEFAULT 60,
             active tinyint(1) NOT NULL DEFAULT 0,
@@ -580,6 +582,21 @@ final class BlueVPN_DB {
         $wpdb->query("ALTER TABLE {$table} MODIFY `subscription_token` varchar(100) NULL DEFAULT NULL");
     }
 
+
+    public static function enforce_six_digit_otp(): void {
+        global $wpdb;
+        $sms = self::table('sms_settings');
+        $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $sms));
+        if ((string)$exists === $sms) {
+            $wpdb->update($sms, ['otp_length' => 6, 'updated_at' => BlueVPN_Utils::now_mysql()], ['id' => 1]);
+        }
+        $settings = self::settings();
+        if (($settings['auth_mode'] ?? '') === 'email_password' || empty($settings['auth_mode'])) {
+            $settings['auth_mode'] = 'phone_otp';
+            self::save_settings($settings);
+        }
+    }
+
     public static function default_settings(): array {
         return [
             'app_name' => 'BlueVPN',
@@ -619,7 +636,7 @@ final class BlueVPN_DB {
             'ads_interval_seconds' => 6,
             'ads_height_dp' => 146,
             'ads_items' => [],
-            'auth_mode' => 'email_password',
+            'auth_mode' => 'phone_otp',
             'updated_at' => BlueVPN_Utils::iso_now(),
         ];
     }
@@ -648,7 +665,7 @@ final class BlueVPN_DB {
                 'from_number' => '',
                 'pattern_code' => '',
                 'parameter_name' => 'code',
-                'otp_length' => 5,
+                'otp_length' => 6,
                 'otp_ttl_seconds' => 120,
                 'resend_seconds' => 60,
                 'active' => 0,

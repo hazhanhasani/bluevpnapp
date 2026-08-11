@@ -1,0 +1,16 @@
+BlueVPN 4.0.16 — Unified UI + 6-Digit OTP
+
+تغییرات اصلی:
+- استفاده از طراحی Archive.zip برای صفحه ورود BlueVPN با جریان واقعی شماره موبایل و OTP.
+- OTP ورود BlueVPN به‌صورت ثابت و سراسری ۶ رقمی شد.
+- اضافه شدن APIهای /api/v1/auth/otp/request و /api/v1/auth/otp/verify.
+- اتصال مستقیم OTP به IranPayamak از WordPress/MySQL با Hash کد، TTL، Resend cooldown و محدودیت تلاش.
+- ساخت خودکار حساب phone_otp و Session پس از تأیید موفق.
+- صفحه مستقل /bluevpn-login/ و shortcode با نام [bluevpn_otp_login].
+- استفاده از زبان بصری admin.zip برای Control Center بدون حذف قابلیت‌های فعلی WordPress.
+- پوسته یکپارچه برای کاربران، پلن‌ها، پرداخت‌ها، Providerها، SMS/OTP، اپ، مهاجرت و ربات تلگرام.
+- Migration ورودی sms_settings را به otp_length=6 و app_settings را به auth_mode=phone_otp همگرا می‌کند.
+- Schema به 1.3.0 ارتقا یافت.
+
+نکته:
+فونت‌های باینری نمونه‌ها وارد افزونه نشده‌اند؛ UI از فونت‌های سیستم استفاده می‌کند.

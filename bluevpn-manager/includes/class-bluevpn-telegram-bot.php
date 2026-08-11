@@ -908,7 +908,8 @@ final class BlueVPN_Telegram_Bot {
 
     public static function admin_page(): void {
         self::admin_guard(); $s = self::settings();
-        echo '<div class="wrap" dir="rtl"><h1>ربات تلگرام BlueVPN</h1><style>.bvb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;max-width:1200px}.bvb-card{background:#fff;border:1px solid #dcdcde;border-radius:12px;padding:16px}.bvb-ok{color:#087c2c;font-weight:700}.bvb-bad{color:#b32d2e;font-weight:700}.bvb-code{direction:ltr;text-align:left;background:#f6f7f7;padding:9px;border-radius:7px;word-break:break-all}</style>';
+        BlueVPN_Unified_UI::shell_open('ربات تلگرام');
+        echo '<div class="wrap" dir="rtl"><style>.bvb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;max-width:1200px}.bvb-card{background:#fff;border:1px solid #dcdcde;border-radius:12px;padding:16px}.bvb-ok{color:#087c2c;font-weight:700}.bvb-bad{color:#b32d2e;font-weight:700}.bvb-code{direction:ltr;text-align:left;background:#f6f7f7;padding:9px;border-radius:7px;word-break:break-all}</style>';
         if (isset($_GET['bot_msg'])) echo '<div class="notice notice-success"><p>' . esc_html(sanitize_text_field(wp_unslash($_GET['bot_msg']))) . '</p></div>';
         if (isset($_GET['bot_error'])) echo '<div class="notice notice-error"><p>' . esc_html(sanitize_text_field(wp_unslash($_GET['bot_error']))) . '</p></div>';
         echo '<div class="bvb-grid"><div class="bvb-card"><h3>Runtime</h3><p class="' . (self::runtime_ready() ? 'bvb-ok' : 'bvb-bad') . '">' . (self::runtime_ready() ? '✅ آماده روی WordPress' : '❌ تنظیمات ناقص') . '</p></div>';
@@ -938,5 +939,6 @@ final class BlueVPN_Telegram_Bot {
         echo '<h2>آخرین عملیات‌ها</h2><table class="widefat striped"><tr><th>نوع</th><th>وضعیت</th><th>Chat</th><th>Commit</th><th>Run</th><th>خطا</th><th>زمان</th></tr>';
         foreach ($jobs as $j) echo '<tr><td>' . esc_html((string)$j['kind']) . '</td><td>' . esc_html((string)$j['status']) . '</td><td>' . esc_html((string)$j['chat_id']) . '</td><td><code>' . esc_html(substr((string)$j['commit_sha'],0,12)) . '</code></td><td>' . (!empty($j['run_url']) ? '<a href="' . esc_url((string)$j['run_url']) . '" target="_blank" rel="noopener">GitHub</a>' : '') . '</td><td>' . esc_html(mb_substr((string)$j['last_error'],0,160)) . '</td><td>' . esc_html((string)$j['created_at']) . '</td></tr>';
         echo '</table></div>';
+        BlueVPN_Unified_UI::shell_close();
     }
 }

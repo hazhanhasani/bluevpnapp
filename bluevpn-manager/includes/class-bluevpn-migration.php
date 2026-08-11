@@ -915,6 +915,19 @@ final class BlueVPN_Migration {
             BlueVPN_DB::ensure_customer_nullable_unique_columns();
             $rows = array_map([self::class, 'normalize_customer_optional_unique_values'], $rows);
         }
+        if ($logicalTable === 'sms_settings') {
+            foreach ($rows as &$row) if (is_array($row)) $row['otp_length'] = 6;
+            unset($row);
+        }
+        if ($logicalTable === 'app_settings') {
+            foreach ($rows as &$row) {
+                if (!is_array($row) || !isset($row['payload'])) continue;
+                $payload = BlueVPN_Utils::json_decode_array((string)$row['payload'], []);
+                $payload['auth_mode'] = 'phone_otp';
+                $row['payload'] = BlueVPN_Utils::json_encode($payload);
+            }
+            unset($row);
+        }
         $table = BlueVPN_DB::table($logicalTable);
         $columns = self::table_columns($logicalTable);
         if (!$columns) return false;

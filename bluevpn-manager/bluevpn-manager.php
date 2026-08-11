@@ -3,7 +3,7 @@
  * Plugin Name: BlueVPN Manager
  * Plugin URI: https://bluevpn.local/
  * Description: Backend/API foundation for migrating BlueVPN from Railway/PostgreSQL to WordPress/MySQL.
- * Version: 4.0.9
+ * Version: 4.0.11
  * Author: BlueVPN
  * Requires at least: 6.2
  * Requires PHP: 8.0
@@ -15,8 +15,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('BLUEVPN_MANAGER_VERSION', '4.0.9');
-define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.1.0');
+define('BLUEVPN_MANAGER_VERSION', '4.0.11');
+define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.1.1');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
 define('BLUEVPN_MANAGER_URL', plugin_dir_url(__FILE__));
@@ -48,6 +48,19 @@ register_deactivation_hook(__FILE__, function () {
     BlueVPN_GitHub_Updater::unschedule();
     flush_rewrite_rules(false);
 });
+
+
+// Refresh compatibility rewrite rules once per plugin version. Plugin updates do
+// not run the activation hook, so /api/v1/* could otherwise remain unavailable
+// until Permalinks were saved manually.
+add_action('init', function () {
+    $key = 'bluevpn_manager_rewrite_version';
+    if ((string)get_option($key, '') !== BLUEVPN_MANAGER_VERSION) {
+        BlueVPN_Compat::register_rewrites();
+        flush_rewrite_rules(false);
+        update_option($key, BLUEVPN_MANAGER_VERSION, false);
+    }
+}, 99);
 
 add_action('plugins_loaded', function () {
     BlueVPN_DB::maybe_upgrade();

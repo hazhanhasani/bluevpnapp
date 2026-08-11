@@ -1,0 +1,10 @@
+BlueVPN 4.0.11
+
+- Adds WordPress admin page: BlueVPN > اتصال اپلیکیشن
+- Shows the exact Android api_base_url and all compatibility endpoints
+- Server-side API self-test for /health, /api/v1/mobile/config and direct REST
+- Adds public diagnostic endpoint /wp-json/bluevpn-system/v1/app-connection
+- Flushes compatibility rewrites once after plugin update
+- Dashboard and migration Ready state link directly to App Connection
+- Platform patch sets branding/app.json api_base_url to https://bot.blluepanel.ir
+- Railway must remain available until the 4.0.11 APK passes real login/account/plans tests

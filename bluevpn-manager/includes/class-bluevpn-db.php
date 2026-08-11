@@ -33,6 +33,11 @@ final class BlueVPN_DB {
             self::install_schema();
             self::seed_defaults();
             update_option('bluevpn_manager_schema_version', BLUEVPN_MANAGER_SCHEMA_VERSION, false);
+            // 1.1.1 fixes optional UNIQUE customer sentinels. Re-open only the
+            // customer convergence gate; never reset copied tables/progress.
+            if (class_exists('BlueVPN_Migration')) {
+                BlueVPN_Migration::resume_customer_repair_after_schema_fix();
+            }
         }
     }
 
@@ -154,7 +159,7 @@ final class BlueVPN_DB {
 
         $queries[] = "CREATE TABLE {$t('customers')} (
             id bigint unsigned NOT NULL AUTO_INCREMENT,
-            email varchar(255) NOT NULL DEFAULT '',
+            email varchar(255) NULL DEFAULT NULL,
             password_hash longtext NOT NULL,
             phone varchar(20) NULL,
             phone_verified_at datetime NULL,
@@ -183,7 +188,7 @@ final class BlueVPN_DB {
             guardcore_data_limit_bytes bigint unsigned NOT NULL DEFAULT 0,
             guardcore_used_traffic_bytes bigint unsigned NOT NULL DEFAULT 0,
             guardcore_last_error longtext NULL,
-            subscription_token varchar(100) NOT NULL DEFAULT '',
+            subscription_token varchar(100) NULL DEFAULT NULL,
             subscription_url longtext NULL,
             subscription_status varchar(40) NOT NULL DEFAULT 'inactive',
             subscription_expire datetime NULL,
@@ -502,6 +507,31 @@ final class BlueVPN_DB {
         foreach ($queries as $sql) {
             dbDelta($sql);
         }
+        self::ensure_customer_nullable_unique_columns();
+    }
+
+    /**
+     * Optional customer identities must be NULL, not empty strings.
+     * MySQL UNIQUE indexes allow multiple NULL values but only one ''.
+     * The old schema therefore collapsed phone-only / token-less customers
+     * during REPLACE-based migration. This upgrade is idempotent and safe.
+     */
+    public static function ensure_customer_nullable_unique_columns(): void {
+        global $wpdb;
+        $table = self::table('customers');
+        $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+        if ((string)$exists !== $table) return;
+
+        // Convert legacy sentinels before changing/using unique indexes.
+        $wpdb->query("UPDATE {$table} SET `email`=NULL WHERE `email` IS NOT NULL AND TRIM(`email`)=''");
+        $wpdb->query("UPDATE {$table} SET `phone`=NULL WHERE `phone` IS NOT NULL AND TRIM(`phone`)=''");
+        $wpdb->query("UPDATE {$table} SET `subscription_token`=NULL WHERE `subscription_token` IS NOT NULL AND TRIM(`subscription_token`)=''");
+
+        // dbDelta is not reliable for NULL/DEFAULT attribute-only changes.
+        // Apply them explicitly; these ALTERs are idempotent.
+        $wpdb->query("ALTER TABLE {$table} MODIFY `email` varchar(255) NULL DEFAULT NULL");
+        $wpdb->query("ALTER TABLE {$table} MODIFY `phone` varchar(20) NULL DEFAULT NULL");
+        $wpdb->query("ALTER TABLE {$table} MODIFY `subscription_token` varchar(100) NULL DEFAULT NULL");
     }
 
     public static function default_settings(): array {

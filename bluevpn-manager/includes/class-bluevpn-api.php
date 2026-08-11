@@ -8,6 +8,7 @@ final class BlueVPN_API {
     }
     public static function register_routes(): void {
         register_rest_route('bluevpn-system/v1','/health',['methods'=>'GET','callback'=>[self::class,'health'],'permission_callback'=>'__return_true']);
+        register_rest_route('bluevpn-system/v1','/app-connection',['methods'=>'GET','callback'=>[self::class,'app_connection'],'permission_callback'=>'__return_true']);
         $routes = [
             ['/mobile/config','GET','mobile_config'], ['/auth/register','POST','register'], ['/auth/login','POST','login'],
             ['/auth/refresh','POST','refresh'], ['/auth/logout','POST','logout'], ['/plans','GET','plans'],
@@ -26,6 +27,25 @@ final class BlueVPN_API {
     private static function fail(BlueVPN_Auth_Exception $e): WP_REST_Response { return self::ok(['detail'=>array_merge(['code'=>$e->error_code,'message'=>$e->getMessage()],$e->extra)],$e->http_status); }
     private static function body(WP_REST_Request $r): array { $b=$r->get_json_params(); return is_array($b)?$b:[]; }
     public static function health(): WP_REST_Response { $db=BlueVPN_DB::status(); return self::ok(['status'=>$db['ready']?'ok':'error','service'=>'bluevpn-wordpress-platform','version'=>BLUEVPN_MANAGER_VERSION,'server_time'=>BlueVPN_Utils::iso_now(),'server_time_fa'=>BlueVPN_Utils::tehran_datetime_fa(),'calendar'=>'jalali','timezone'=>'Asia/Tehran','database'=>$db,'counts'=>$db['ready']?BlueVPN_DB::counts():[],'migration'=>['phase'=>2,'state'=>BlueVPN_Migration::state()['phase'],'cutover_ready'=>get_option('bluevpn_manager_cutover_ready','0')==='1']]); }
+    public static function app_connection(): WP_REST_Response {
+        $site = untrailingslashit(home_url('/'));
+        return self::ok([
+            'status' => 'ok',
+            'service' => 'bluevpn-wordpress-app-connection',
+            'version' => BLUEVPN_MANAGER_VERSION,
+            // Android appends /api/v1/* to this root URL.
+            'api_base_url' => $site,
+            'compat_api_prefix' => '/api/v1',
+            'rest_api_base_url' => untrailingslashit(rest_url('bluevpn/v1')),
+            'health_url' => $site . '/health',
+            'mobile_config_url' => $site . '/api/v1/mobile/config',
+            'login_url' => $site . '/api/v1/auth/login',
+            'register_url' => $site . '/api/v1/auth/register',
+            'static_api_key_required' => false,
+            'cutover_ready' => get_option('bluevpn_manager_cutover_ready','0') === '1',
+            'app_cutover_enabled' => get_option('bluevpn_manager_app_cutover_enabled','0') === '1',
+        ]);
+    }
     public static function mobile_config(): WP_REST_Response {
         $s=BlueVPN_DB::settings();
         return self::ok(['app_name'=>$s['app_name'],'maintenance'=>(bool)$s['maintenance'],'support_url'=>$s['support_url'],'minimum_version'=>$s['minimum_version'],'force_update'=>(bool)$s['force_update'],'auto_update'=>(bool)$s['auto_update'],'account_required'=>true,'latest_version'=>$s['latest_version'],'latest_version_code'=>(int)$s['latest_version_code'],'apk_url'=>$s['apk_url'],'apk_assets'=>[],'apk_asset_meta'=>[],'update_title'=>$s['update_title'],'update_message'=>$s['update_message'],'release_url'=>'','release_published_at'=>'','release_published_at_fa'=>'','release_build_number'=>0,'release_commit'=>'','update_source'=>'wordpress_settings','github_repository'=>'','github_error'=>'','release_cache_seconds'=>15,'release_refresh_forced'=>false,'auth'=>['mode'=>$s['auth_mode'],'password_login'=>$s['auth_mode']==='email_password','sms_provider'=>'iranpayamak','sms_ready'=>false],'blueai'=>['enabled'=>(bool)$s['blueai_enabled'],'collective'=>(bool)$s['blueai_collective'],'auto_heal'=>(bool)$s['blueai_auto_heal'],'min_samples'=>(int)$s['blueai_min_samples'],'privacy_message'=>$s['blueai_privacy_message']],'announcement'=>['enabled'=>(bool)$s['announcement_enabled'],'id'=>$s['announcement_id'],'title'=>$s['announcement_title'],'message'=>$s['announcement_message']],'advertising'=>['enabled'=>(bool)$s['ads_enabled'],'autoplay'=>(bool)$s['ads_autoplay'],'loop'=>(bool)$s['ads_loop'],'interval_seconds'=>(int)$s['ads_interval_seconds'],'height_dp'=>(int)$s['ads_height_dp'],'items'=>$s['ads_items']],'updated_at'=>$s['updated_at'],'updated_at_fa'=>BlueVPN_Utils::tehran_datetime_fa(),'calendar'=>'jalali','timezone'=>'Asia/Tehran','migration_phase'=>2,'migration_state'=>BlueVPN_Migration::state()['phase'],'cutover_ready'=>get_option('bluevpn_manager_cutover_ready','0')==='1']);

@@ -24,6 +24,9 @@ final class BlueVPN_GitHub_Updater {
     private const CACHE_TTL = 5 * MINUTE_IN_SECONDS;
     private const CRON_HOOK = 'bluevpn_manager_github_update_check';
     private const LAST_CHECK_OPTION = 'bluevpn_github_updater_last_background_check';
+    private const AUTO_STATUS_OPTION = 'bluevpn_github_updater_auto_status_v3';
+    private const KICK_LOCK = 'bluevpn_github_update_kick_lock_v3';
+    private const UPDATE_LOCK = 'bluevpn_github_update_install_lock_v3';
 
     public static function init(): void {
         add_filter('pre_set_site_transient_update_plugins', [self::class, 'inject_update']);
@@ -33,21 +36,24 @@ final class BlueVPN_GitHub_Updater {
         add_action(self::CRON_HOOK, [self::class, 'background_update_check']);
         add_action('admin_init', [self::class, 'ensure_schedule']);
         add_action('admin_init', [self::class, 'maybe_force_refresh']);
+        add_action('init', [self::class, 'maybe_kick_background_check'], 20);
         self::ensure_schedule();
     }
 
     public static function ensure_schedule(): void {
         add_filter('cron_schedules', [self::class, 'cron_schedules']);
+        $event = function_exists('wp_get_scheduled_event') ? wp_get_scheduled_event(self::CRON_HOOK) : null;
+        if ($event && (string)($event->schedule ?? '') !== 'bluevpn_two_minutes') self::unschedule();
         if (!wp_next_scheduled(self::CRON_HOOK)) {
-            wp_schedule_event(time() + 60, 'bluevpn_five_minutes', self::CRON_HOOK);
+            wp_schedule_event(time() + 30, 'bluevpn_two_minutes', self::CRON_HOOK);
         }
     }
 
     public static function cron_schedules(array $schedules): array {
-        if (!isset($schedules['bluevpn_five_minutes'])) {
-            $schedules['bluevpn_five_minutes'] = [
-                'interval' => 5 * MINUTE_IN_SECONDS,
-                'display' => 'BlueVPN every 5 minutes',
+        if (!isset($schedules['bluevpn_two_minutes'])) {
+            $schedules['bluevpn_two_minutes'] = [
+                'interval' => 2 * MINUTE_IN_SECONDS,
+                'display' => 'BlueVPN every 2 minutes',
             ];
         }
         return $schedules;
@@ -59,20 +65,117 @@ final class BlueVPN_GitHub_Updater {
         }
     }
 
-    public static function background_update_check(): void {
+    public static function maybe_kick_background_check(): void {
+        $cfg = self::settings();
+        if (empty($cfg['auto_update'])) return;
+        $last = self::last_background_check();
+        if ($last > 0 && (time() - $last) < 2 * MINUTE_IN_SECONDS) return;
+        if (get_transient(self::KICK_LOCK)) return;
+        set_transient(self::KICK_LOCK, '1', 45);
+        // Schedule an immediate single run in addition to the recurring event.
+        // A direct non-blocking wp-cron request makes this work even when normal
+        // page-triggered cron spawning on the host is unreliable.
+        wp_schedule_single_event(time() + 1, self::CRON_HOOK, ['auto-kick']);
+        $cronUrl = site_url('/wp-cron.php?doing_wp_cron=' . rawurlencode(sprintf('%.22F', microtime(true))));
+        wp_remote_post($cronUrl, [
+            'timeout' => 0.01,
+            'blocking' => false,
+            'sslverify' => apply_filters('https_local_ssl_verify', false),
+        ]);
+    }
+
+    private static function save_auto_status(string $status, string $message, string $target = ''): void {
+        update_option(self::AUTO_STATUS_OPTION, [
+            'status' => $status,
+            'message' => sanitize_text_field($message),
+            'target' => sanitize_text_field($target),
+            'at' => time(),
+        ], false);
+    }
+
+    public static function auto_update_status(): array {
+        $value = get_option(self::AUTO_STATUS_OPTION, []);
+        return is_array($value) ? wp_parse_args($value, ['status'=>'never','message'=>'','target'=>'','at'=>0]) : ['status'=>'never','message'=>'','target'=>'','at'=>0];
+    }
+
+    private static function install_available_release(array $release): array {
+        if (defined('DISALLOW_FILE_MODS') && DISALLOW_FILE_MODS) {
+            return ['success'=>false,'message'=>'وردپرس اجازه تغییر فایل افزونه‌ها را نمی‌دهد (DISALLOW_FILE_MODS).'];
+        }
+        if (!self::update_available($release)) return ['success'=>true,'message'=>'نسخه جدیدی برای نصب وجود ندارد.'];
+        if (!function_exists('wp_update_plugins')) require_once ABSPATH . 'wp-includes/update.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/plugin.php';
+        require_once ABSPATH . 'wp-admin/includes/class-wp-upgrader.php';
+
+        delete_site_transient('update_plugins');
+        self::clear_cache();
+        // Re-cache the exact release being installed, then let our transient
+        // filter expose it to Plugin_Upgrader.
+        set_site_transient(self::CACHE_KEY, $release, self::CACHE_TTL);
+        wp_update_plugins();
+        $updates = get_site_transient('update_plugins');
+        $plugin = self::plugin_basename();
+        if (!is_object($updates) || empty($updates->response[$plugin])) {
+            if (!is_object($updates)) $updates = new stdClass();
+            if (empty($updates->checked) || !is_array($updates->checked)) $updates->checked = [];
+            $updates->checked[$plugin] = BLUEVPN_MANAGER_VERSION;
+            $updates = self::inject_update($updates);
+            set_site_transient('update_plugins', $updates);
+        }
+        $updates = get_site_transient('update_plugins');
+        if (!is_object($updates) || empty($updates->response[$plugin])) {
+            return ['success'=>false,'message'=>'نسخه جدید در GitHub پیدا شد اما WordPress Update Transient آن را برای نصب آماده نکرد.'];
+        }
+
+        $skin = new Automatic_Upgrader_Skin();
+        $upgrader = new Plugin_Upgrader($skin);
+        $result = $upgrader->upgrade($plugin, ['clear_update_cache' => true]);
+        if (is_wp_error($result)) return ['success'=>false,'message'=>$result->get_error_message()];
+        if ($result === false) {
+            $errors = method_exists($skin, 'get_errors') ? $skin->get_errors() : null;
+            $message = is_wp_error($errors) ? $errors->get_error_message() : 'Plugin_Upgrader نتیجه ناموفق برگرداند.';
+            return ['success'=>false,'message'=>$message];
+        }
+        return ['success'=>true,'message'=>'BlueVPN Manager به‌صورت خودکار به '.self::base_version($release).' بروزرسانی شد.'];
+    }
+
+    public static function background_update_check($kick = null): void {
         if (get_transient('bluevpn_github_update_check_lock')) return;
         set_transient('bluevpn_github_update_check_lock', '1', 4 * MINUTE_IN_SECONDS);
         try {
             self::clear_cache();
             delete_site_transient('update_plugins');
             update_option(self::LAST_CHECK_OPTION, time(), false);
-            if (!function_exists('wp_update_plugins')) require_once ABSPATH . 'wp-includes/update.php';
-            wp_update_plugins();
-            if (!empty(self::settings()['auto_update']) && function_exists('wp_maybe_auto_update')) {
-                wp_maybe_auto_update();
+            $release = self::latest_release(true);
+            if (is_wp_error($release)) {
+                self::save_auto_status('check_error', $release->get_error_message());
+                return;
+            }
+            if (!is_array($release)) {
+                self::save_auto_status('no_release', 'Release مخصوص BlueVPN Manager پیدا نشد.');
+                return;
+            }
+            $target = self::base_version($release);
+            if (!self::update_available($release)) {
+                self::save_auto_status('up_to_date', 'BlueVPN Manager به‌روز است.', $target);
+                return;
+            }
+            if (empty(self::settings()['auto_update'])) {
+                self::save_auto_status('available', 'نسخه '.$target.' موجود است ولی نصب خودکار غیرفعال است.', $target);
+                return;
+            }
+            if (get_transient(self::UPDATE_LOCK)) return;
+            set_transient(self::UPDATE_LOCK, '1', 10 * MINUTE_IN_SECONDS);
+            try {
+                $result = self::install_available_release($release);
+                self::save_auto_status(!empty($result['success']) ? 'installed' : 'install_error', (string)($result['message'] ?? ''), $target);
+            } finally {
+                delete_transient(self::UPDATE_LOCK);
             }
         } finally {
             delete_transient('bluevpn_github_update_check_lock');
+            delete_transient(self::KICK_LOCK);
         }
     }
 

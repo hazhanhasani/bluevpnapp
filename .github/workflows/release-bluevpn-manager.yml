@@ -3,6 +3,9 @@ name: Release BlueVPN Manager
 on:
   push:
     branches: [main]
+    paths:
+      - 'bluevpn-manager/**'
+      - '.github/workflows/release-bluevpn-manager.yml'
   workflow_dispatch:
 
 permissions:
@@ -28,203 +31,119 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          MAIN_FILE="$({
-            find . -type f -name '*.php' \
-              -not -path './.git/*' \
-              -not -path './vendor/*' \
-              -not -path './node_modules/*' -print0 \
-            | xargs -0 -r grep -IlE 'Plugin Name:[[:space:]]*BlueVPN Manager' \
-            | head -n 1
-          } || true)"
-
-          if [ -z "$MAIN_FILE" ]; then
-            echo 'BlueVPN Manager main plugin file was not found.' >&2
+          MAIN_FILE="bluevpn-manager/bluevpn-manager.php"
+          if [ ! -f "$MAIN_FILE" ]; then
+            echo 'BlueVPN Manager main plugin file was not found at bluevpn-manager/bluevpn-manager.php' >&2
             exit 1
           fi
-
-          PLUGIN_DIR="$(dirname "$MAIN_FILE")"
           echo "main_file=$MAIN_FILE" >> "$GITHUB_OUTPUT"
-          echo "plugin_dir=$PLUGIN_DIR" >> "$GITHUB_OUTPUT"
-          echo "Found plugin: $MAIN_FILE"
+          echo "plugin_dir=bluevpn-manager" >> "$GITHUB_OUTPUT"
 
-      - name: Check whether plugin changed since last release
-        id: changed
+      - name: Read release state
+        id: state
         shell: bash
-        env:
-          PLUGIN_DIR: ${{ steps.plugin.outputs.plugin_dir }}
         run: |
           set -euo pipefail
-
+          git fetch --tags --force
           LATEST_TAG="$(git tag -l 'bluevpn-manager-v*' --sort=-v:refname | head -n 1 || true)"
           echo "latest_tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
 
-          if [ -z "$LATEST_TAG" ]; then
-            echo 'changed=true' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if git diff --quiet "$LATEST_TAG"..HEAD -- "$PLUGIN_DIR"; then
-            echo 'changed=false' >> "$GITHUB_OUTPUT"
-            echo "No BlueVPN Manager changes since $LATEST_TAG"
-          else
-            echo 'changed=true' >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Calculate next version
-        if: steps.changed.outputs.changed == 'true'
+      - name: Calculate release version
         id: version
         shell: bash
         env:
           MAIN_FILE: ${{ steps.plugin.outputs.main_file }}
-          LATEST_TAG: ${{ steps.changed.outputs.latest_tag }}
+          LATEST_TAG: ${{ steps.state.outputs.latest_tag }}
         run: |
           set -euo pipefail
-
           CURRENT_VERSION="$(python - "$MAIN_FILE" <<'PY'
           import re, sys
           text=open(sys.argv[1], encoding='utf-8').read()
           m=re.search(r'(?mi)^\s*\*?\s*Version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$', text)
-          if not m:
-              raise SystemExit('Version header not found')
+          if not m: raise SystemExit('Version header not found')
           print(m.group(1))
           PY
           )"
-
-          TAG_VERSION=""
-          if [ -n "$LATEST_TAG" ]; then
-            TAG_VERSION="${LATEST_TAG#bluevpn-manager-v}"
-          fi
-
-          NEW_VERSION="$(python - "$CURRENT_VERSION" "$TAG_VERSION" <<'PY'
+          NEW_VERSION="$(python - "$CURRENT_VERSION" "$LATEST_TAG" <<'PY'
           import re, sys
           def parse(v):
-              if not re.fullmatch(r'\d+\.\d+\.\d+', v or ''):
-                  return None
-              return tuple(map(int, v.split('.')))
-          current=parse(sys.argv[1])
-          tagged=parse(sys.argv[2])
-          base=(4,0,0)
-          if current is None:
-              raise SystemExit('Invalid plugin version')
-          if current < base:
-              current = base
-          if tagged is not None and tagged < base:
-              tagged = None
-          if tagged is None:
-              result=current
-          elif current > tagged:
+              v=(v or '').removeprefix('bluevpn-manager-v').removeprefix('v')
+              return tuple(map(int,v.split('.'))) if re.fullmatch(r'\d+\.\d+\.\d+',v) else None
+          current=parse(sys.argv[1]); tagged=parse(sys.argv[2]); base=(4,0,0)
+          if current is None: raise SystemExit('Invalid plugin version')
+          current=max(current,base)
+          if tagged is None or tagged < base or current > tagged:
               result=current
           else:
-              major, minor, patch = tagged
-              patch += 1
-              if patch >= 100:
-                  minor += 1
-                  patch = 0
-              result=(major, minor, patch)
-          print('.'.join(map(str, result)))
+              major,minor,patch=tagged
+              patch+=1
+              if patch>=100:
+                  minor+=1; patch=0
+              result=(major,minor,patch)
+          print('.'.join(map(str,result)))
           PY
           )"
-
           echo "current=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
           echo "new=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=bluevpn-manager-v$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          echo "BlueVPN Manager: $CURRENT_VERSION -> $NEW_VERSION"
 
-      - name: Persist version in plugin source
-        if: steps.changed.outputs.changed == 'true'
+      - name: Persist release version
         shell: bash
         env:
-          MAIN_FILE: ${{ steps.plugin.outputs.main_file }}
-          PLUGIN_DIR: ${{ steps.plugin.outputs.plugin_dir }}
           NEW_VERSION: ${{ steps.version.outputs.new }}
         run: |
           set -euo pipefail
-          python - "$MAIN_FILE" "$PLUGIN_DIR" "$NEW_VERSION" <<'PY'
-          import pathlib, re, sys
-          main=pathlib.Path(sys.argv[1])
-          root=pathlib.Path(sys.argv[2])
-          version=sys.argv[3]
-
+          python - "$NEW_VERSION" <<'PY'
+          from pathlib import Path
+          import re, sys
+          version=sys.argv[1]
+          main=Path('bluevpn-manager/bluevpn-manager.php')
           text=main.read_text(encoding='utf-8')
-          text2, n = re.subn(
-              r'(?mi)^(\s*\*?\s*Version:\s*)[0-9]+\.[0-9]+\.[0-9]+(\s*)$',
-              lambda m: m.group(1)+version+m.group(2),
-              text,
-              count=1,
-          )
-          if n != 1:
-              raise SystemExit('Could not update plugin Version header')
-          main.write_text(text2, encoding='utf-8')
-
-          define_re = re.compile(
-              r"define\(\s*(['\"])BLUEVPN_MANAGER_VERSION\1\s*,\s*(['\"])[^'\"]+\2\s*\)\s*;"
-          )
-          assignment_re = re.compile(
-              r"(BLUEVPN_MANAGER_VERSION\s*=\s*)(['\"])[^'\"]+\2"
-          )
-
-          updated=0
-          for path in root.rglob('*.php'):
-              t=path.read_text(encoding='utf-8', errors='ignore')
-              nt, a = define_re.subn(lambda m: f"define({m.group(1)}BLUEVPN_MANAGER_VERSION{m.group(1)}, {m.group(2)}{version}{m.group(2)});", t)
-              nt, b = assignment_re.subn(lambda m: f"{m.group(1)}{m.group(2)}{version}{m.group(2)}", nt)
-              if nt != t:
-                  path.write_text(nt, encoding='utf-8')
-                  updated += a + b
-          print(f'Updated BLUEVPN_MANAGER_VERSION occurrences: {updated}')
+          text,n=re.subn(r'(?mi)^(\s*\*?\s*Version:\s*)\d+\.\d+\.\d+(\s*)$',lambda m:m.group(1)+version+m.group(2),text,count=1)
+          if n != 1: raise SystemExit('Could not update Version header')
+          text,n2=re.subn(r"define\(\s*(['\"])BLUEVPN_MANAGER_VERSION\1\s*,\s*(['\"])[^'\"]+\2\s*\)\s*;",lambda m:f"define({m.group(1)}BLUEVPN_MANAGER_VERSION{m.group(1)}, {m.group(2)}{version}{m.group(2)});",text,count=1)
+          if n2 != 1: raise SystemExit('Could not update BLUEVPN_MANAGER_VERSION')
+          main.write_text(text,encoding='utf-8')
+          readme=Path('bluevpn-manager/readme.txt')
+          if readme.exists():
+              r=readme.read_text(encoding='utf-8')
+              r=re.sub(r'(?mi)^(Version:\s*)\d+\.\d+\.\d+(\s*)$',lambda m:m.group(1)+version+m.group(2),r,count=1)
+              r=re.sub(r'(?mi)^(Stable tag:\s*)\d+\.\d+\.\d+(\s*)$',lambda m:m.group(1)+version+m.group(2),r,count=1)
+              readme.write_text(r,encoding='utf-8')
           PY
 
       - name: Validate PHP syntax
-        if: steps.changed.outputs.changed == 'true'
         shell: bash
-        env:
-          PLUGIN_DIR: ${{ steps.plugin.outputs.plugin_dir }}
         run: |
           set -euo pipefail
-          while IFS= read -r -d '' file; do
-            php -l "$file" >/dev/null
-          done < <(find "$PLUGIN_DIR" -type f -name '*.php' -print0)
+          while IFS= read -r -d '' file; do php -l "$file" >/dev/null; done < <(find bluevpn-manager -type f -name '*.php' -print0)
 
-      - name: Commit version bump
-        if: steps.changed.outputs.changed == 'true'
+      - name: Commit version bump if needed
         shell: bash
         env:
-          PLUGIN_DIR: ${{ steps.plugin.outputs.plugin_dir }}
           NEW_VERSION: ${{ steps.version.outputs.new }}
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$PLUGIN_DIR"
-          if git diff --cached --quiet; then
-            echo "Version already persisted at $NEW_VERSION; no release commit needed."
-          else
-            git commit -m "chore(bluevpn-manager): release v$NEW_VERSION [skip ci]"
+          git add bluevpn-manager
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(bluevpn-manager): release v${NEW_VERSION} [skip ci]"
             git push origin HEAD:main
           fi
 
-      - name: Build bluevpn-manager.zip
-        if: steps.changed.outputs.changed == 'true'
+      - name: Build release ZIP
         shell: bash
-        env:
-          PLUGIN_DIR: ${{ steps.plugin.outputs.plugin_dir }}
         run: |
           set -euo pipefail
           rm -rf "$RUNNER_TEMP/bluevpn-manager-release"
           mkdir -p "$RUNNER_TEMP/bluevpn-manager-release/bluevpn-manager"
-          rsync -a \
-            --exclude='.git' \
-            --exclude='.github' \
-            --exclude='node_modules' \
-            --exclude='tests' \
-            "$PLUGIN_DIR/" "$RUNNER_TEMP/bluevpn-manager-release/bluevpn-manager/"
+          rsync -a --exclude='.git' --exclude='.github' --exclude='node_modules' --exclude='tests' bluevpn-manager/ "$RUNNER_TEMP/bluevpn-manager-release/bluevpn-manager/"
           cd "$RUNNER_TEMP/bluevpn-manager-release"
           zip -qr "$GITHUB_WORKSPACE/bluevpn-manager.zip" bluevpn-manager
           unzip -t "$GITHUB_WORKSPACE/bluevpn-manager.zip"
 
-      - name: Create tag and GitHub Release
-        if: steps.changed.outputs.changed == 'true'
+      - name: Publish GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -232,8 +151,11 @@ jobs:
           NEW_VERSION: ${{ steps.version.outputs.new }}
         run: |
           set -euo pipefail
-          git tag "$TAG"
-          git push origin "$TAG"
-          gh release create "$TAG" bluevpn-manager.zip \
-            --title "BlueVPN Manager $NEW_VERSION" \
-            --generate-notes
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists; replacing release asset only."
+            gh release upload "$TAG" bluevpn-manager.zip --clobber || true
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+            gh release create "$TAG" bluevpn-manager.zip --title "BlueVPN Manager $NEW_VERSION" --generate-notes
+          fi

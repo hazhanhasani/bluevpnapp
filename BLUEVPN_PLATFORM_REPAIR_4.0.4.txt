@@ -1,0 +1,2 @@
+BlueVPN platform repair 4.0.4
+This archive intentionally has multiple repository-root entries so .github/ and bluevpn-manager/ keep their exact paths.

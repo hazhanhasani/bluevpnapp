@@ -44,9 +44,10 @@ final class BlueVPN_Admin {
     public static function migration_page(): void {
         self::guard();
         $cfg = BlueVPN_Migration::settings();
+        $readiness = BlueVPN_Migration::reconcile_readiness(true);
         $state = BlueVPN_Migration::state();
-        $comparison = BlueVPN_Migration::compare_counts();
-        $cutover = get_option('bluevpn_manager_cutover_ready','0') === '1';
+        $comparison = $readiness['comparison'];
+        $cutover = !empty($readiness['ready']);
         self::head('مهاجرت Railway → WordPress');
         if (isset($_GET['msg'])) echo '<div class="notice notice-info"><p>'.esc_html(sanitize_text_field(wp_unslash($_GET['msg']))).'</p></div>';
         if (isset($_GET['error'])) echo '<div class="notice notice-error"><p>'.esc_html(sanitize_text_field(wp_unslash($_GET['error']))).'</p></div>';
@@ -60,7 +61,7 @@ final class BlueVPN_Admin {
         echo '<div class="bvp-grid">';
         echo '<div class="bvp-card"><h3>مرحله</h3><p><strong>'.esc_html((string)$state['phase']).'</strong></p><small>آخرین اجرا: '.esc_html((string)$state['last_run_at']).'</small></div>';
         echo '<div class="bvp-card"><h3>Backend مبدا</h3><p><strong>'.esc_html($state['source_version'] ?: 'نامشخص').'</strong></p><small>'.esc_html($state['source_database_mode'] ?: '—').'</small></div>';
-        echo '<div class="bvp-card"><h3>Cutover</h3><p class="'.($cutover?'bvp-ok':'bvp-warn').'">'.($cutover?'آماده علامت‌گذاری شده':'هنوز آماده نیست').'</p></div>';
+        echo '<div class="bvp-card"><h3>Cutover</h3><p class="'.($cutover?'bvp-ok':'bvp-warn').'">'.($cutover?'✅ آماده خودکار':'⏳ هنوز آماده نیست').'</p><small>بر اساس تطبیق واقعی Railway/MySQL</small></div>';
         echo '<div class="bvp-card"><h3>Auto / Dual Sync</h3><p class="'.(!empty($cfg['auto_sync'])?'bvp-ok':'bvp-warn').'">'.(!empty($cfg['auto_sync'])?'فعال':'غیرفعال').'</p></div>';
         echo '</div>';
 
@@ -105,22 +106,46 @@ final class BlueVPN_Admin {
         }
         echo '</div></div>';
 
-        echo '<h2>وضعیت انتقال جدول‌ها</h2><table class="widefat striped bvp-table"><thead><tr><th>جدول</th><th>Railway</th><th>MySQL</th><th>کل منتقل‌شده</th><th>وضعیت</th><th>خطا</th></tr></thead><tbody>';
+        echo '<h2>وضعیت انتقال جدول‌ها</h2>';
+        echo '<p class="description">معیار نهایی، شمار واقعی Railway و MySQL است. شمارنده تجمعی پردازش نمایش داده نمی‌شود چون Resync ممکن است همان رکوردها را دوباره بررسی کند و عدد آن دو برابر شود، بدون اینکه داده تکراری ساخته شود.</p>';
+        echo '<table class="widefat striped bvp-table"><thead><tr><th>جدول</th><th>Railway</th><th>MySQL</th><th>اختلاف</th><th>وضعیت واقعی</th><th>خطا</th></tr></thead><tbody>';
         foreach (BlueVPN_Migration::table_order() as $name) {
             $row=$state['tables'][$name]; $cmp=$comparison[$name];
-            $status=!empty($row['done'])?'✅ کامل':'⏳ در انتظار';
-            if ($state['phase']==='ready_for_cutover' && empty($row['last_error'])) $status='✅ تکمیل و تأیید';
-            if (!empty($row['last_error'])) $status='❌ خطا';
-            echo '<tr><td><code>'.esc_html($name).'</code></td><td>'.esc_html($cmp['source']===null?'—':(string)$cmp['source']).'</td><td>'.esc_html($cmp['local']===null?'—':(string)$cmp['local']).'</td><td>'.esc_html((string)$row['imported']).'</td><td>'.esc_html($status).'</td><td>'.esc_html((string)$row['last_error']).'</td></tr>';
+            $source=$cmp['source']; $local=$cmp['local'];
+            if (!empty($row['last_error'])) {
+                $status='❌ خطا';
+            } elseif ($source===null || $local===null) {
+                $status='⏳ در حال بررسی';
+            } elseif (!empty($cmp['covered'])) {
+                $status='✅ همگام';
+            } else {
+                $status='⏳ کسری '.max(0,(int)$source-(int)$local).' رکورد';
+            }
+            if ($source===null || $local===null) {
+                $delta='—';
+            } elseif ((int)$local < (int)$source) {
+                $delta='کسری '.((int)$source-(int)$local);
+            } elseif ((int)$local > (int)$source) {
+                $delta='+'.((int)$local-(int)$source).' محلی';
+            } else {
+                $delta='0';
+            }
+            echo '<tr><td><code>'.esc_html($name).'</code></td><td>'.esc_html($source===null?'—':(string)$source).'</td><td>'.esc_html($local===null?'—':(string)$local).'</td><td>'.esc_html($delta).'</td><td>'.esc_html($status).'</td><td>'.esc_html((string)$row['last_error']).'</td></tr>';
         }
         echo '</tbody></table>';
 
         echo '<div class="bvp-card" style="max-width:1000px;margin-top:18px"><h2>مرحله نهایی</h2>';
-        echo '<p>بعد از یک Resync کامل و برابر شدن داده‌های حیاتی، می‌توانی وضعیت Cutover را علامت بزنی. این دکمه Railway را خاموش نمی‌کند و فقط وضعیت داخلی افزونه را تغییر می‌دهد.</p>';
-        echo '<div style="display:flex;gap:8px;flex-wrap:wrap">';
-        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'; wp_nonce_field('bluevpn_migration_cutover'); echo '<input type="hidden" name="action" value="bluevpn_migration_cutover"><input type="hidden" name="ready" value="'.($cutover?'0':'1').'">'; submit_button($cutover?'لغو آمادگی Cutover':'علامت‌گذاری آماده Cutover','secondary','submit',false); echo '</form>';
+        if ($cutover) {
+            echo '<div class="notice notice-success inline"><p><strong>✅ انتقال و بررسی نهایی کامل است.</strong> Railway و MySQL بر اساس آخرین Manifest پوشش داده شده‌اند و Cutover به‌صورت خودکار آماده است.</p></div>';
+        } else {
+            $missing=array_keys((array)($readiness['mismatches']??[]));
+            echo '<div class="notice notice-warning inline"><p><strong>⏳ هنوز Cutover نکن.</strong> '.($missing?'جدول‌های نیازمند Sync: '.esc_html(implode(', ',$missing)):'Resync نهایی هنوز کامل نشده است.').'</p></div>';
+        }
+        echo '<p>آمادگی Cutover دیگر دستی نیست؛ افزونه بعد از Resync نهایی و تطبیق واقعی شمار رکوردها خودش آن را فعال می‌کند. Railway با این وضعیت به‌صورت خودکار خاموش نمی‌شود.</p>';
+        echo '<details style="margin-top:14px"><summary style="cursor:pointer;font-weight:600">تنظیمات پیشرفته / بازیابی</summary><div style="padding-top:12px">';
+        echo '<p class="description"><strong>هشدار:</strong> ریست Progress فقط برای بازیابی اضطراری است و برای ادامه انتقال معمولی لازم نیست.</p>';
         echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" onsubmit="return confirm(\'وضعیت مهاجرت از ابتدا شود؟ داده‌های MySQL حذف نمی‌شوند.\')">'; wp_nonce_field('bluevpn_migration_reset'); echo '<input type="hidden" name="action" value="bluevpn_migration_reset">'; submit_button('ریست Progress مهاجرت','delete','submit',false); echo '</form>';
-        echo '</div></div>';
+        echo '</div></details></div>';
         self::foot();
     }
 
@@ -186,8 +211,9 @@ final class BlueVPN_Admin {
         // Browser runner deliberately uses smaller chunks than cron so shared
         // hosting/FPM requests stay responsive while still making real progress.
         BlueVPN_Migration::auto_step(6);
+        $readiness = BlueVPN_Migration::reconcile_readiness(true);
         $state = BlueVPN_Migration::state();
-        $comparison = BlueVPN_Migration::compare_counts();
+        $comparison = $readiness['comparison'];
         $sourceTotal = 0; $localTotal = 0; $known = 0;
         foreach ($comparison as $row) {
             if ($row['source'] !== null) { $sourceTotal += (int)$row['source']; $known++; }
@@ -196,7 +222,7 @@ final class BlueVPN_Admin {
         $percent = $sourceTotal > 0 ? min(100, (int)floor(($localTotal * 100) / $sourceTotal)) : 0;
         wp_send_json_success([
             'stopped'=>false,
-            'complete'=>$state['phase'] === 'ready_for_cutover',
+            'complete'=>!empty($readiness['ready']),
             'phase'=>(string)$state['phase'],
             'message'=>(string)($state['auto_last_message'] ?: 'انتقال در حال اجراست.'),
             'progress'=>$percent,
@@ -215,7 +241,13 @@ final class BlueVPN_Admin {
         self::guard(); check_admin_referer('bluevpn_migration_reset'); BlueVPN_Migration::reset(true); BlueVPN_Migration::mark_cutover_ready(false); self::migration_redirect('Progress مهاجرت ریست شد؛ داده‌های MySQL حذف نشدند.');
     }
     public static function migration_cutover(): void {
-        self::guard(); check_admin_referer('bluevpn_migration_cutover'); BlueVPN_Migration::mark_cutover_ready(!empty($_POST['ready'])); self::migration_redirect('وضعیت Cutover به‌روزرسانی شد.');
+        self::guard(); check_admin_referer('bluevpn_migration_cutover');
+        $ready=!empty($_POST['ready']);
+        if ($ready && !BlueVPN_Migration::mark_cutover_ready(true)) {
+            self::migration_redirect('', 'Cutover فقط بعد از Resync نهایی و تطبیق واقعی Railway/MySQL فعال می‌شود.');
+        }
+        BlueVPN_Migration::mark_cutover_ready($ready);
+        self::migration_redirect($ready?'Cutover با بررسی ایمنی تأیید شد.':'آمادگی Cutover لغو شد.');
     }
 
 

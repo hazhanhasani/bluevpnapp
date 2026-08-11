@@ -19,6 +19,23 @@ if(clock){
   const tick=()=>{try{clock.textContent=new Intl.DateTimeFormat('fa-IR-u-ca-persian',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Tehran'}).format(new Date())}catch(_){}};
   tick(); setInterval(tick,30000);
 }
+// Convert Control Center data tables to labeled mobile cards without changing desktop markup.
+document.querySelectorAll('table.bvc-table').forEach(table=>{
+  const rows=Array.from(table.querySelectorAll('tr'));
+  if(rows.length<2)return;
+  const headerRow=rows.find(row=>row.querySelectorAll('th').length>0);
+  if(!headerRow)return;
+  const labels=Array.from(headerRow.querySelectorAll('th')).map(th=>(th.textContent||'').trim());
+  if(!labels.length)return;
+  table.classList.add('bvc-responsive-table');
+  rows.forEach(row=>{
+    if(row===headerRow)return;
+    Array.from(row.children).forEach((cell,index)=>{
+      if(cell.tagName==='TD' && labels[index])cell.dataset.label=labels[index];
+    });
+  });
+});
+
 // Better file name feedback for ad image uploads.
 document.querySelectorAll('.bluevpn-file-input input[type=file]').forEach(input=>{
   input.addEventListener('change',()=>{

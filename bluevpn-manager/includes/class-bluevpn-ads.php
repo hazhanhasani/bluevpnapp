@@ -266,7 +266,7 @@ final class BlueVPN_Ads {
         $remote = wp_remote_get((string)$source['url'], [
             'timeout' => 18,
             'redirection' => 5,
-            'headers' => ['Accept' => 'text/plain, application/octet-stream;q=0.9, */*;q=0.1', 'User-Agent' => 'BlueVPN-Free-Relay/4.0.20'],
+            'headers' => ['Accept' => 'text/plain, application/octet-stream;q=0.9, */*;q=0.1', 'User-Agent' => 'BlueVPN-Free-Relay/4.0.21'],
         ]);
         if (is_wp_error($remote) || (int)wp_remote_retrieve_response_code($remote) >= 400) {
             return new WP_REST_Response(['detail' => ['code' => 'FREE_SOURCE_UNAVAILABLE', 'message' => 'سرورهای رایگان موقتاً در دسترس نیستند']], 503);

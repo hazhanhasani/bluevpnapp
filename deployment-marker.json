@@ -1,7 +1,7 @@
 {
-  "release": "4.0.28-auto",
-  "version_name": "4.0.28",
-  "version_code": 40028,
+  "release": "4.0.29",
+  "version_name": "4.0.29",
+  "version_code": 40029,
   "changes": [
     "Add private scheduled backups with 7-version retention",
     "Add checksum-validated transactional restore with pre-restore rollback snapshot",
@@ -16,9 +16,9 @@
   "purpose": "شروع شاخه رسمی BlueVPN 4.x",
   "updated_at": "2026-08-11T21:14:00Z",
   "built_at": "2026-08-11T21:14:00Z",
-  "build_id": "20260812-v4.0.28-wordpress-release-autopilot",
+  "build_id": "20260812-v4.0.29-wordpress-release-barrier",
   "feature": "wordpress-manager-release-autopilot",
   "build_fix": "wordpress-manager-release-autopilot",
-  "version_source": "v4.0.28-wordpress-release-autopilot",
+  "version_source": "v4.0.29-wordpress-release-barrier",
   "summary": "Restore GitHub workflows and publish BlueVPN Manager automatically and independently so WordPress can self-update without waiting for a successful Android build."
 }

@@ -1,6 +1,6 @@
 {
   "version": "3.0.83",
-  "version_code": 40028,
+  "version_code": 40029,
   "feature": "selection-ownership-rotation",
   "tests": {
     "passed": 35,
@@ -131,6 +131,6 @@
     "generated_android_validation": true,
     "full_gradle_build": "delegated to GitHub Actions"
   },
-  "project_version": "4.0.28",
-  "release": "4.0.28"
+  "project_version": "4.0.29",
+  "release": "4.0.29"
 }

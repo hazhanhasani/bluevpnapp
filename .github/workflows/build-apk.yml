@@ -302,6 +302,173 @@ jobs:
           echo "repository_commit_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${LOCAL_SHA}" >> "$GITHUB_OUTPUT"
           echo "Verified GitHub metadata commit: $LOCAL_SHA"
 
+      - name: Publish synchronized BlueVPN Manager release barrier
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.config.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.persist_metadata.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+
+          # Production WordPress and the APK must move together. The previous
+          # design delegated this to a second workflow_run, so the APK could be
+          # delivered while WordPress was still several versions behind.
+          if [ "${BLUEVPN_TARGET_BRANCH}" != "main" ]; then
+            echo "Non-main build; BlueVPN Manager production release skipped."
+            exit 0
+          fi
+
+          while IFS= read -r -d '' file; do
+            php -l "$file" >/dev/null
+          done < <(find bluevpn-manager -type f -name '*.php' -print0)
+
+          rm -rf "$RUNNER_TEMP/bluevpn-manager-inline-release"
+          mkdir -p "$RUNNER_TEMP/bluevpn-manager-inline-release/bluevpn-manager"
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='tests' \
+            bluevpn-manager/ \
+            "$RUNNER_TEMP/bluevpn-manager-inline-release/bluevpn-manager/"
+
+          (
+            cd "$RUNNER_TEMP/bluevpn-manager-inline-release"
+            zip -qr "$GITHUB_WORKSPACE/bluevpn-manager.zip" bluevpn-manager
+          )
+          unzip -t bluevpn-manager.zip >/dev/null
+          sha256sum bluevpn-manager.zip > bluevpn-manager.zip.sha256
+
+          LOCAL_PLUGIN_VERSION="$(
+            unzip -p bluevpn-manager.zip bluevpn-manager/bluevpn-manager.php \
+              | sed -nE 's/^ \* Version: ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' \
+              | head -n 1
+          )"
+          if [ "$LOCAL_PLUGIN_VERSION" != "$VERSION" ]; then
+            echo "::error::Plugin package version mismatch. APK=$VERSION Plugin=$LOCAL_PLUGIN_VERSION"
+            exit 1
+          fi
+
+          TAG="bluevpn-manager-v${VERSION}"
+          NOTES="BlueVPN Manager ${VERSION} — نسخه همگام با APK ${VERSION}. انتشار این بسته بخشی از Release Barrier اصلی BlueVPN است."
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              bluevpn-manager.zip \
+              bluevpn-manager.zip.sha256 \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_COMMIT" \
+              --title "BlueVPN Manager ${VERSION}" \
+              --notes "$NOTES" \
+              --latest=false
+          else
+            gh release create "$TAG" \
+              bluevpn-manager.zip \
+              bluevpn-manager.zip.sha256 \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_COMMIT" \
+              --title "BlueVPN Manager ${VERSION}" \
+              --notes "$NOTES" \
+              --latest=false
+          fi
+
+          rm -rf "$RUNNER_TEMP/bluevpn-manager-inline-verify"
+          mkdir -p "$RUNNER_TEMP/bluevpn-manager-inline-verify"
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'bluevpn-manager.zip' \
+            --dir "$RUNNER_TEMP/bluevpn-manager-inline-verify" \
+            --clobber
+          REMOTE="$RUNNER_TEMP/bluevpn-manager-inline-verify/bluevpn-manager.zip"
+          unzip -t "$REMOTE" >/dev/null
+          REMOTE_VERSION="$(
+            unzip -p "$REMOTE" bluevpn-manager/bluevpn-manager.php \
+              | sed -nE 's/^ \* Version: ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' \
+              | head -n 1
+          )"
+          if [ "$REMOTE_VERSION" != "$VERSION" ]; then
+            echo "::error::Published manager release mismatch. Expected=$VERSION Remote=$REMOTE_VERSION"
+            exit 1
+          fi
+
+          echo "Manager release barrier passed: ${TAG} / bluevpn-manager.zip / ${REMOTE_VERSION}"
+
+      - name: Wait for WordPress control-plane auto-update
+        shell: bash
+        env:
+          VERSION: ${{ steps.config.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "${BLUEVPN_TARGET_BRANCH}" != "main" ]; then
+            echo "Non-main build; WordPress production convergence check skipped."
+            exit 0
+          fi
+
+          API_BASE_URL="$(python - <<'PY'
+          import json
+          from pathlib import Path
+          print(json.loads(Path('branding/app.json').read_text(encoding='utf-8')).get('api_base_url','').rstrip('/'))
+          PY
+          )"
+          if [ -z "$API_BASE_URL" ]; then
+            echo "::error::api_base_url is empty; cannot verify WordPress convergence."
+            exit 1
+          fi
+
+          EXPECTED_SCHEMA="$(sed -nE "s/^define\('BLUEVPN_MANAGER_SCHEMA_VERSION', '([^']+)'\);/\1/p" bluevpn-manager/bluevpn-manager.php | head -n 1)"
+          if [ -z "$EXPECTED_SCHEMA" ]; then
+            echo "::error::Could not read BLUEVPN_MANAGER_SCHEMA_VERSION."
+            exit 1
+          fi
+
+          HEALTH_URL="${API_BASE_URL}/health"
+          WP_CRON_URL="${API_BASE_URL}/wp-cron.php?doing_wp_cron=$(date +%s)"
+          LAST_VERSION="unknown"
+          LAST_SCHEMA="unknown"
+          LAST_READY="false"
+
+          # The updater checks every two minutes. Health traffic also kicks its
+          # non-blocking cron path, so four minutes is enough for two full cycles.
+          for attempt in $(seq 1 24); do
+            curl --silent --show-error --location --max-time 20 \
+              "$HEALTH_URL" -o "$RUNNER_TEMP/bluevpn-health.json" || true
+
+            if [ -s "$RUNNER_TEMP/bluevpn-health.json" ]; then
+              read -r LAST_VERSION LAST_SCHEMA LAST_READY < <(python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'bluevpn-health.json'
+          try:
+              d=json.loads(p.read_text(encoding='utf-8'))
+          except Exception:
+              print('invalid unknown false')
+          else:
+              db=d.get('database') or {}
+              print(str(d.get('version','unknown')), str(db.get('schema_version','unknown')), str(bool(db.get('ready',False))).lower())
+          PY
+              )
+            fi
+
+            echo "WordPress convergence ${attempt}/24: version=${LAST_VERSION} schema=${LAST_SCHEMA} ready=${LAST_READY}"
+            if [ "$LAST_VERSION" = "$VERSION" ] && [ "$LAST_SCHEMA" = "$EXPECTED_SCHEMA" ] && [ "$LAST_READY" = "true" ]; then
+              echo "WordPress control plane is synchronized with APK ${VERSION}."
+              exit 0
+            fi
+
+            # Force cron processing as a fallback for hosts where loopback cron
+            # spawning is delayed. This endpoint is standard WordPress cron.
+            curl --silent --show-error --location --max-time 20 \
+              "$WP_CRON_URL" -o /dev/null || true
+            sleep 10
+          done
+
+          echo "::error::WordPress did not auto-update to ${VERSION} before Android build. Current=${LAST_VERSION} Schema=${LAST_SCHEMA} Ready=${LAST_READY}"
+          exit 1
+
       - name: Checkout official v2rayNG source
         uses: actions/checkout@v6
         with:
@@ -986,10 +1153,9 @@ jobs:
           print("WordPress update_source:", data.get("update_source"))
           PY
 
-      # BlueVPN Manager is intentionally released by the dedicated
-      # release-bluevpn-manager.yml workflow. It runs on plugin pushes and again
-      # after this workflow completes, so a Gradle/signing failure can never
-      # block the WordPress control-plane update.
+      # BlueVPN Manager is already published and verified by the release barrier
+      # before Gradle starts. The dedicated bluevpn-manager-release.yml workflow
+      # remains only as a manual/fallback reconciler.
 
       - name: Send signed APK files to Telegram
         env:

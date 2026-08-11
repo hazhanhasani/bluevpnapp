@@ -670,7 +670,7 @@ private fun archiveTitle(textValue:String)=TextView(this).apply{
  text=textValue;textSize=23f;gravity=Gravity.CENTER;setTextColor(Color.WHITE);setTypeface(typeface,Typeface.BOLD);includeFontPadding=false
 }
 private fun archiveSubtitle(textValue:String)=TextView(this).apply{
- text=textValue;textSize=11.5f;gravity=Gravity.CENTER;setTextColor(authMuted());setLineSpacing(0,1.18f);setPadding(dp(4),dp(9),dp(4),0)
+ text=textValue;textSize=11.5f;gravity=Gravity.CENTER;setTextColor(authMuted());setLineSpacing(0f,1.18f);setPadding(dp(4),dp(9),dp(4),0)
 }
 private fun archiveLabel(textValue:String)=TextView(this).apply{
  text=textValue;textSize=11.5f;gravity=Gravity.END;setTextColor(Color.parseColor("#D4D4D8"));includeFontPadding=false

@@ -5,9 +5,9 @@ if (!defined('ABSPATH')) exit;
  * Native Telegram deploy/build bot for BlueVPN.
  *
  * Replaces the Railway polling runtime with a Telegram webhook hosted by the
- * same WordPress/MySQL backend. ZIP deployment uses the GitHub Git Data API,
- * so the WordPress host does not need git, Docker, Python or a long-running
- * worker process.
+ * same WordPress/MySQL backend. ZIP deployment first uses the same authenticated Git-over-HTTPS transport as
+ * the former Railway bot, with GitHub Git Data API as a fallback. No Docker,
+ * Python or long-running worker process is required.
  */
 final class BlueVPN_Telegram_Bot {
     private const PROCESS_HOOK = 'bluevpn_bot_process_job';
@@ -444,75 +444,339 @@ final class BlueVPN_Telegram_Bot {
     private static function deploy_zip_to_github(string $zipPath, array $s): array {
         $root = self::extract_zip_safely($zipPath, $s);
         try {
-            $entries = [];
-            $deletions = [];
+            $gitError = '';
+            if (self::git_cli_available()) {
+                try {
+                    $result = self::deploy_extracted_via_git($root, $s);
+                    $result['transport'] = 'git_https';
+                    return $result;
+                } catch (Throwable $e) {
+                    $gitError = self::redact($e->getMessage(), $s);
+                }
+            }
+
+            try {
+                $result = self::deploy_extracted_via_rest($root, $s);
+                $result['transport'] = 'github_git_data_api';
+                if ($gitError !== '') $result['git_cli_fallback_error'] = $gitError;
+                return $result;
+            } catch (Throwable $e) {
+                $restError = self::redact($e->getMessage(), $s);
+                if ($gitError !== '') {
+                    throw new RuntimeException(
+                        "ثبت ZIP روی GitHub با هر دو روش ناموفق بود.\n" .
+                        "Git HTTPS: " . $gitError . "\n" .
+                        "GitHub REST: " . $restError
+                    );
+                }
+                throw new RuntimeException($restError);
+            }
+        } finally {
+            $cleanupRoot = str_starts_with(basename($root), 'bluevpn-bot-') ? $root : dirname($root);
+            if (str_starts_with(basename($cleanupRoot), 'bluevpn-bot-')) self::rrmdir($cleanupRoot);
+        }
+    }
+
+    /**
+     * The Railway deploy bot used real `git clone` + `git push` over HTTPS.
+     * Keep that transport as the primary path because existing PATs that were
+     * already proven against the old bot continue to work without depending on
+     * GitHub's Git Data REST endpoints.
+     */
+    private static function deploy_extracted_via_git(string $root, array $s): array {
+        $repoName = trim((string)$s['github_repository']);
+        if (!preg_match('#^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$#', $repoName)) {
+            throw new RuntimeException('GITHUB_REPOSITORY باید OWNER/REPOSITORY باشد.');
+        }
+        $branch = (string)$s['git_branch'];
+        $token = self::github_token($s);
+        if ($token === '') throw new RuntimeException('GITHUB_TOKEN تنظیم نشده است.');
+
+        $tmp = trailingslashit(get_temp_dir()) . 'bluevpn-git-' . wp_generate_password(12, false, false);
+        $repo = $tmp . '/repo';
+        wp_mkdir_p($tmp);
+        $askpass = $tmp . '/askpass.sh';
+        $askpassScript = <<<'BLUEVPN_ASKPASS'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' 'x-access-token' ;;
+  *Password*) printf '%s\n' "$BLUEVPN_GH_TOKEN" ;;
+  *) printf '\n' ;;
+esac
+BLUEVPN_ASKPASS;
+        file_put_contents($askpass, $askpassScript . "\n");
+        @chmod($askpass, 0700);
+
+        $env = self::git_env($token, $askpass);
+        try {
+            $remote = 'https://github.com/' . $repoName . '.git';
+            self::run_git(['clone', '--depth', '50', '--branch', $branch, $remote, $repo], null, $env, 420, true, $s, 'clone');
+            self::run_git(['config', 'user.name', 'BlueVPN Deploy Bot'], $repo, $env, 30, true, $s, 'config user.name');
+            self::run_git(['config', 'user.email', 'bluevpn-bot@users.noreply.github.com'], $repo, $env, 30, true, $s, 'config user.email');
+
+            $copied = 0;
+            $deleted = 0;
             $deleteFile = $root . '/.bluevpn-delete';
             if (is_file($deleteFile)) {
                 foreach (preg_split('/\r?\n/', (string)file_get_contents($deleteFile)) ?: [] as $line) {
-                    $line = trim(str_replace('\\', '/', $line));
-                    if ($line === '' || str_starts_with($line, '#')) continue;
-                    if (self::safe_repo_path($line) && !self::protected_path($line)) $deletions[] = $line;
+                    $line = ltrim(trim(str_replace('\\', '/', $line)), '/');
+                    if ($line === '' || str_starts_with($line, '#') || !self::safe_repo_path($line) || self::protected_path($line)) continue;
+                    $dest = $repo . '/' . $line;
+                    $repoReal = realpath($repo) ?: $repo;
+                    $parentReal = realpath(dirname($dest));
+                    if ($parentReal !== false && !str_starts_with($parentReal . '/', rtrim($repoReal, '/') . '/')) continue;
+                    if (is_dir($dest) && !is_link($dest)) { self::rrmdir($dest); $deleted++; }
+                    elseif (file_exists($dest) || is_link($dest)) { @unlink($dest); $deleted++; }
                 }
             }
+
             $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
             foreach ($it as $file) {
                 if (!$file->isFile()) continue;
                 $rel = str_replace('\\', '/', substr($file->getPathname(), strlen($root) + 1));
                 if ($rel === '.bluevpn-delete' || str_starts_with($rel, '__MACOSX/') || str_starts_with($rel, '.git/')) continue;
                 if (!self::safe_repo_path($rel) || self::protected_path($rel)) continue;
-                $entries[] = ['path' => $rel, 'file' => $file->getPathname()];
+                $dest = $repo . '/' . $rel;
+                wp_mkdir_p(dirname($dest));
+                if (!@copy($file->getPathname(), $dest)) throw new RuntimeException('کپی فایل داخل Clone ناموفق بود: ' . $rel);
+                $copied++;
             }
-            if (!$entries && !$deletions) throw new RuntimeException('ZIP فایل قابل اعمال ندارد.');
-            $head = self::gh('GET', self::repo_path($s) . '/git/ref/heads/' . rawurlencode((string)$s['git_branch']), null, $s);
-            $parent = (string)($head['object']['sha'] ?? '');
-            if ($parent === '') throw new RuntimeException('SHA شاخه GitHub دریافت نشد.');
-            $commit = self::gh('GET', self::repo_path($s) . '/git/commits/' . rawurlencode($parent), null, $s);
-            $baseTree = (string)($commit['tree']['sha'] ?? '');
-            if ($baseTree === '') throw new RuntimeException('Tree پایه GitHub دریافت نشد.');
+            if ($copied === 0 && $deleted === 0) throw new RuntimeException('ZIP فایل قابل اعمال ندارد.');
 
-            $treeSha = $baseTree;
-            $batch = [];
-            $flush = static function () use (&$batch, &$treeSha, $s): void {
-                if (!$batch) return;
-                $created = self::gh('POST', self::repo_path($s) . '/git/trees', ['base_tree' => $treeSha, 'tree' => $batch], $s);
-                $treeSha = (string)($created['sha'] ?? '');
-                if ($treeSha === '') throw new RuntimeException('GitHub Tree ساخته نشد.');
-                $batch = [];
-            };
-            foreach ($entries as $entry) {
-                $bytes = (string)file_get_contents($entry['file']);
-                $item = ['path' => $entry['path'], 'mode' => '100644', 'type' => 'blob'];
-                if (strlen($bytes) <= 300000 && !str_contains($bytes, "\0") && preg_match('//u', $bytes)) {
-                    $item['content'] = $bytes;
-                } else {
-                    $blob = self::gh('POST', self::repo_path($s) . '/git/blobs', ['content' => base64_encode($bytes), 'encoding' => 'base64'], $s);
-                    $sha = (string)($blob['sha'] ?? '');
-                    if ($sha === '') throw new RuntimeException('آپلود Blob برای ' . $entry['path'] . ' ناموفق بود.');
-                    $item['sha'] = $sha;
+            self::run_git(['add', '-A'], $repo, $env, 120, true, $s, 'git add');
+            $diff = self::run_git(['diff', '--cached', '--quiet'], $repo, $env, 60, false, $s, 'git diff');
+            if ((int)$diff['code'] === 0) {
+                $head = trim((string)self::run_git(['rev-parse', 'HEAD'], $repo, $env, 30, true, $s, 'rev-parse')['stdout']);
+                $remoteSha = self::remote_branch_sha_git($repo, $branch, $env, $s);
+                if ($head === '' || $remoteSha === '' || !hash_equals($head, $remoteSha)) {
+                    throw new RuntimeException('Clone محلی با شاخه GitHub همگام نیست؛ عملیات برای جلوگیری از Build روی سورس اشتباه متوقف شد.');
                 }
-                $batch[] = $item;
-                if (count($batch) >= 70) $flush();
+                return ['commit' => $head, 'files' => $copied, 'deleted' => $deleted, 'changed' => false];
             }
-            foreach (array_values(array_unique($deletions)) as $path) {
-                $batch[] = ['path' => $path, 'mode' => '100644', 'type' => 'blob', 'sha' => null];
-                if (count($batch) >= 70) $flush();
+            if ((int)$diff['code'] !== 1) throw new RuntimeException('بررسی تغییرات Git ناموفق بود: ' . trim((string)$diff['stderr']));
+
+            $changedRaw = (string)self::run_git(['diff', '--cached', '--name-only'], $repo, $env, 60, true, $s, 'changed files')['stdout'];
+            $changedFiles = array_values(array_filter(array_map('trim', preg_split('/\r?\n/', $changedRaw) ?: []), 'strlen'));
+            self::run_git(['commit', '-m', 'deploy: persist BlueVPN project files from Telegram'], $repo, $env, 120, true, $s, 'git commit');
+
+            $push = self::run_git(['push', '--porcelain', 'origin', 'HEAD:' . $branch], $repo, $env, 420, false, $s, 'git push');
+            if ((int)$push['code'] !== 0) {
+                $combined = strtolower((string)$push['stderr'] . "\n" . (string)$push['stdout']);
+                $race = str_contains($combined, 'non-fast-forward') || str_contains($combined, 'fetch first') || str_contains($combined, 'failed to push some refs') || str_contains($combined, 'stale info');
+                if ($race) {
+                    self::run_git(['fetch', '--prune', 'origin', $branch], $repo, $env, 180, true, $s, 'git fetch');
+                    $rebase = self::run_git(['rebase', 'origin/' . $branch], $repo, $env, 180, false, $s, 'git rebase');
+                    if ((int)$rebase['code'] !== 0) {
+                        self::run_git(['rebase', '--abort'], $repo, $env, 30, false, $s, 'rebase abort');
+                        throw new RuntimeException('هم‌زمان تغییر دیگری روی GitHub ثبت شد و Rebase خودکار به تعارض خورد. ZIP را دوباره ارسال کن.');
+                    }
+                    $push = self::run_git(['push', '--porcelain', 'origin', 'HEAD:' . $branch], $repo, $env, 420, false, $s, 'git push retry');
+                }
+                if ((int)$push['code'] !== 0) {
+                    throw new RuntimeException('Push فایل‌ها به GitHub ناموفق بود: ' . trim((string)($push['stderr'] ?: $push['stdout'])));
+                }
             }
-            $flush();
-            $newCommit = self::gh('POST', self::repo_path($s) . '/git/commits', [
-                'message' => 'BlueVPN bot update ' . gmdate('Y-m-d H:i:s') . ' UTC',
-                'tree' => $treeSha,
-                'parents' => [$parent],
-            ], $s);
-            $newSha = (string)($newCommit['sha'] ?? '');
-            if ($newSha === '') throw new RuntimeException('Commit GitHub ساخته نشد.');
-            self::gh('PATCH', self::repo_path($s) . '/git/refs/heads/' . rawurlencode((string)$s['git_branch']), ['sha' => $newSha, 'force' => false], $s);
-            $verified = self::branch_head_sha($s);
-            if (!hash_equals($newSha, $verified)) throw new RuntimeException('SHA شاخه پس از Push تأیید نشد.');
-            return ['commit' => $newSha, 'files' => count($entries), 'deleted' => count($deletions)];
+
+            $commit = trim((string)self::run_git(['rev-parse', 'HEAD'], $repo, $env, 30, true, $s, 'rev-parse after push')['stdout']);
+            $remoteSha = '';
+            for ($i = 0; $i < 8; $i++) {
+                $remoteSha = self::remote_branch_sha_git($repo, $branch, $env, $s);
+                if ($commit !== '' && $remoteSha !== '' && hash_equals($commit, $remoteSha)) break;
+                usleep(750000);
+            }
+            if ($commit === '' || $remoteSha === '' || !hash_equals($commit, $remoteSha)) {
+                throw new RuntimeException('تأیید Push ناموفق بود؛ SHA محلی و GitHub یکسان نیستند.');
+            }
+            return ['commit' => $commit, 'files' => count($changedFiles), 'deleted' => $deleted, 'changed' => true, 'changed_files' => $changedFiles];
         } finally {
-            $cleanupRoot = str_starts_with(basename($root), 'bluevpn-bot-') ? $root : dirname($root);
-            if (str_starts_with(basename($cleanupRoot), 'bluevpn-bot-')) self::rrmdir($cleanupRoot);
+            @unlink($askpass);
+            self::rrmdir($tmp);
         }
+    }
+
+    private static function git_cli_available(): bool {
+        if (!function_exists('proc_open')) return false;
+        $disabled = array_map('trim', explode(',', (string)ini_get('disable_functions')));
+        if (in_array('proc_open', $disabled, true)) return false;
+        try {
+            $r = self::run_process(['git', '--version'], null, self::base_process_env(), 10);
+            return (int)$r['code'] === 0 && str_contains(strtolower((string)$r['stdout']), 'git version');
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    private static function base_process_env(): array {
+        $env = [];
+        foreach (['PATH','HOME','TMPDIR','LANG','LC_ALL','SSL_CERT_FILE','SSL_CERT_DIR'] as $key) {
+            $v = getenv($key);
+            if ($v !== false && $v !== '') $env[$key] = $v;
+        }
+        if (!isset($env['PATH'])) $env['PATH'] = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
+        if (!isset($env['HOME'])) $env['HOME'] = get_temp_dir();
+        return $env;
+    }
+
+    private static function git_env(string $token, string $askpass): array {
+        $env = self::base_process_env();
+        $env['GIT_TERMINAL_PROMPT'] = '0';
+        $env['GIT_ASKPASS'] = $askpass;
+        $env['GIT_ASKPASS_REQUIRE'] = 'force';
+        $env['BLUEVPN_GH_TOKEN'] = $token;
+        return $env;
+    }
+
+    private static function run_git(array $args, ?string $cwd, array $env, int $timeout, bool $check, array $s, string $stage): array {
+        $result = self::run_process(array_merge(['git'], $args), $cwd, $env, $timeout);
+        if ($check && (int)$result['code'] !== 0) {
+            $msg = trim((string)($result['stderr'] ?: $result['stdout']));
+            throw new RuntimeException('Git stage [' . $stage . '] failed (exit ' . (int)$result['code'] . '): ' . self::redact(mb_substr($msg, -2500), $s));
+        }
+        return $result;
+    }
+
+    private static function run_process(array $command, ?string $cwd, array $env, int $timeout): array {
+        $spec = [1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        $proc = @proc_open($command, $spec, $pipes, $cwd ?: null, $env);
+        if (!is_resource($proc)) throw new RuntimeException('امکان اجرای Git CLI روی این سرور وجود ندارد.');
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+        $stdout = '';
+        $stderr = '';
+        $started = microtime(true);
+        $timedOut = false;
+        $exitCode = null;
+        while (true) {
+            $stdout .= (string)stream_get_contents($pipes[1]);
+            $stderr .= (string)stream_get_contents($pipes[2]);
+            $status = proc_get_status($proc);
+            if (!$status['running']) { $exitCode = (int)$status['exitcode']; break; }
+            if ((microtime(true) - $started) > $timeout) {
+                $timedOut = true;
+                @proc_terminate($proc, 15);
+                usleep(250000);
+                $status = proc_get_status($proc);
+                if ($status['running']) @proc_terminate($proc, 9);
+                break;
+            }
+            usleep(100000);
+        }
+        $stdout .= (string)stream_get_contents($pipes[1]);
+        $stderr .= (string)stream_get_contents($pipes[2]);
+        fclose($pipes[1]); fclose($pipes[2]);
+        $closedCode = proc_close($proc);
+        $code = ($closedCode >= 0) ? $closedCode : (($exitCode !== null && $exitCode >= 0) ? $exitCode : $closedCode);
+        if ($timedOut) throw new RuntimeException('فرمان Git بعد از ' . $timeout . ' ثانیه Timeout شد.');
+        return ['code' => $code, 'stdout' => $stdout, 'stderr' => $stderr];
+    }
+
+    private static function remote_branch_sha_git(string $repo, string $branch, array $env, array $s): string {
+        $r = self::run_git(['ls-remote', 'origin', 'refs/heads/' . $branch], $repo, $env, 60, true, $s, 'ls-remote');
+        $line = trim((string)$r['stdout']);
+        if ($line === '') return '';
+        $parts = preg_split('/\s+/', $line) ?: [];
+        return isset($parts[0]) && preg_match('/^[a-f0-9]{40}$/i', $parts[0]) ? strtolower($parts[0]) : '';
+    }
+
+    private static function git_remote_head(array $s): string {
+        $repoName = trim((string)$s['github_repository']);
+        if (!preg_match('#^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$#', $repoName)) throw new RuntimeException('GITHUB_REPOSITORY نامعتبر است.');
+        $token = self::github_token($s);
+        if ($token === '') throw new RuntimeException('GITHUB_TOKEN تنظیم نشده است.');
+        $tmp = trailingslashit(get_temp_dir()) . 'bluevpn-git-check-' . wp_generate_password(10, false, false);
+        wp_mkdir_p($tmp);
+        $askpass = $tmp . '/askpass.sh';
+        $script = <<<'BLUEVPN_ASKPASS_CHECK'
+#!/bin/sh
+case "$1" in
+  *Username*) printf '%s\n' 'x-access-token' ;;
+  *Password*) printf '%s\n' "$BLUEVPN_GH_TOKEN" ;;
+  *) printf '\n' ;;
+esac
+BLUEVPN_ASKPASS_CHECK;
+        file_put_contents($askpass, $script . "\n");
+        @chmod($askpass, 0700);
+        try {
+            $env = self::git_env($token, $askpass);
+            $remote = 'https://github.com/' . $repoName . '.git';
+            $r = self::run_git(['ls-remote', $remote, 'refs/heads/' . (string)$s['git_branch']], null, $env, 60, true, $s, 'remote head');
+            $line = trim((string)$r['stdout']);
+            $parts = preg_split('/\s+/', $line) ?: [];
+            $sha = isset($parts[0]) && preg_match('/^[a-f0-9]{40}$/i', $parts[0]) ? strtolower($parts[0]) : '';
+            if ($sha === '') throw new RuntimeException('Git HTTPS برای شاخه مقصد SHA برنگرداند.');
+            return $sha;
+        } finally {
+            @unlink($askpass);
+            self::rrmdir($tmp);
+        }
+    }
+
+    private static function deploy_extracted_via_rest(string $root, array $s): array {
+        $entries = [];
+        $deletions = [];
+        $deleteFile = $root . '/.bluevpn-delete';
+        if (is_file($deleteFile)) {
+            foreach (preg_split('/\r?\n/', (string)file_get_contents($deleteFile)) ?: [] as $line) {
+                $line = trim(str_replace('\\', '/', $line));
+                if ($line === '' || str_starts_with($line, '#')) continue;
+                if (self::safe_repo_path($line) && !self::protected_path($line)) $deletions[] = $line;
+            }
+        }
+        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
+        foreach ($it as $file) {
+            if (!$file->isFile()) continue;
+            $rel = str_replace('\\', '/', substr($file->getPathname(), strlen($root) + 1));
+            if ($rel === '.bluevpn-delete' || str_starts_with($rel, '__MACOSX/') || str_starts_with($rel, '.git/')) continue;
+            if (!self::safe_repo_path($rel) || self::protected_path($rel)) continue;
+            $entries[] = ['path' => $rel, 'file' => $file->getPathname()];
+        }
+        if (!$entries && !$deletions) throw new RuntimeException('ZIP فایل قابل اعمال ندارد.');
+        $head = self::gh('GET', self::repo_path($s) . '/git/ref/heads/' . rawurlencode((string)$s['git_branch']), null, $s);
+        $parent = (string)($head['object']['sha'] ?? '');
+        if ($parent === '') throw new RuntimeException('SHA شاخه GitHub دریافت نشد.');
+        $commit = self::gh('GET', self::repo_path($s) . '/git/commits/' . rawurlencode($parent), null, $s);
+        $baseTree = (string)($commit['tree']['sha'] ?? '');
+        if ($baseTree === '') throw new RuntimeException('Tree پایه GitHub دریافت نشد.');
+
+        $treeSha = $baseTree;
+        $batch = [];
+        $flush = static function () use (&$batch, &$treeSha, $s): void {
+            if (!$batch) return;
+            $created = self::gh('POST', self::repo_path($s) . '/git/trees', ['base_tree' => $treeSha, 'tree' => $batch], $s);
+            $treeSha = (string)($created['sha'] ?? '');
+            if ($treeSha === '') throw new RuntimeException('GitHub Tree ساخته نشد.');
+            $batch = [];
+        };
+        foreach ($entries as $entry) {
+            $bytes = (string)file_get_contents($entry['file']);
+            $item = ['path' => $entry['path'], 'mode' => '100644', 'type' => 'blob'];
+            if (strlen($bytes) <= 300000 && !str_contains($bytes, "\0") && preg_match('//u', $bytes)) {
+                $item['content'] = $bytes;
+            } else {
+                $blob = self::gh('POST', self::repo_path($s) . '/git/blobs', ['content' => base64_encode($bytes), 'encoding' => 'base64'], $s);
+                $sha = (string)($blob['sha'] ?? '');
+                if ($sha === '') throw new RuntimeException('آپلود Blob برای ' . $entry['path'] . ' ناموفق بود.');
+                $item['sha'] = $sha;
+            }
+            $batch[] = $item;
+            if (count($batch) >= 70) $flush();
+        }
+        foreach (array_values(array_unique($deletions)) as $path) {
+            $batch[] = ['path' => $path, 'mode' => '100644', 'type' => 'blob', 'sha' => null];
+            if (count($batch) >= 70) $flush();
+        }
+        $flush();
+        $newCommit = self::gh('POST', self::repo_path($s) . '/git/commits', [
+            'message' => 'BlueVPN bot update ' . gmdate('Y-m-d H:i:s') . ' UTC',
+            'tree' => $treeSha,
+            'parents' => [$parent],
+        ], $s);
+        $newSha = (string)($newCommit['sha'] ?? '');
+        if ($newSha === '') throw new RuntimeException('Commit GitHub ساخته نشد.');
+        self::gh('PATCH', self::repo_path($s) . '/git/refs/heads/' . rawurlencode((string)$s['git_branch']), ['sha' => $newSha, 'force' => false], $s);
+        $verified = self::branch_head_sha($s);
+        if (!hash_equals($newSha, $verified)) throw new RuntimeException('SHA شاخه پس از Push تأیید نشد.');
+        return ['commit' => $newSha, 'files' => count($entries), 'deleted' => count($deletions), 'changed' => true];
     }
 
     private static function extract_zip_safely(string $zipPath, array $s): string {
@@ -599,10 +863,26 @@ final class BlueVPN_Telegram_Bot {
     }
 
     private static function branch_head_sha(array $s): string {
-        $ref = self::gh('GET', self::repo_path($s) . '/git/ref/heads/' . rawurlencode((string)$s['git_branch']), null, $s);
-        $sha = (string)($ref['object']['sha'] ?? '');
-        if ($sha === '') throw new RuntimeException('SHA شاخه GitHub پیدا نشد.');
-        return $sha;
+        $gitError = '';
+        if (self::git_cli_available()) {
+            try {
+                $sha = self::git_remote_head($s);
+                if ($sha !== '') return $sha;
+            } catch (Throwable $e) {
+                $gitError = self::redact($e->getMessage(), $s);
+            }
+        }
+        try {
+            $ref = self::gh('GET', self::repo_path($s) . '/git/ref/heads/' . rawurlencode((string)$s['git_branch']), null, $s);
+            $sha = (string)($ref['object']['sha'] ?? '');
+            if ($sha === '') throw new RuntimeException('SHA شاخه GitHub پیدا نشد.');
+            return $sha;
+        } catch (Throwable $e) {
+            if ($gitError !== '') {
+                throw new RuntimeException("خواندن HEAD با هر دو روش ناموفق بود.\nGit HTTPS: " . $gitError . "\nGitHub REST: " . self::redact($e->getMessage(), $s));
+            }
+            throw $e;
+        }
     }
 
     private static function dispatch_build(string $commitSha, array $s): array {
@@ -695,7 +975,7 @@ final class BlueVPN_Telegram_Bot {
     private static function fail_job(array $job, string $error, array $s): void {
         $error = self::redact($error, $s);
         self::update_job((string)$job['id'], ['status' => 'failed', 'last_error' => mb_substr($error, 0, 4000), 'finished_at' => BlueVPN_Utils::now_mysql()]);
-        self::send_message($job['chat_id'], "❌ عملیات ناموفق بود.\n<code>" . esc_html(mb_substr($error, -3000)) . '</code>', self::keyboard(), $s);
+        self::send_message($job['chat_id'], "❌ عملیات ناموفق بود.\nRuntime: <code>v" . esc_html(BLUEVPN_MANAGER_VERSION) . "</code>\n<code>" . esc_html(mb_substr($error, -3000)) . '</code>', self::keyboard(), $s);
     }
 
     private static function redact(string $text, array $s): string {
@@ -707,7 +987,7 @@ final class BlueVPN_Telegram_Bot {
         global $wpdb;
         $t = self::jobs_table();
         $job = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE chat_id=%s ORDER BY created_at DESC LIMIT 1", (string)$chatId), ARRAY_A);
-        $lines = ["📊 <b>وضعیت BlueVPN Bot</b>", 'Runtime: ' . (self::runtime_ready() ? '✅ آماده' : '❌ ناقص'), 'Webhook: <code>' . esc_html((string)$s['webhook_status']) . '</code>', 'Repository: <code>' . esc_html((string)$s['github_repository']) . '</code>'];
+        $lines = ["📊 <b>وضعیت BlueVPN Bot</b>", 'Runtime: ' . (self::runtime_ready() ? '✅ آماده' : '❌ ناقص'), 'Version: <code>' . esc_html(BLUEVPN_MANAGER_VERSION) . '</code>', 'Upload transport: <code>' . (self::git_cli_available() ? 'git_https' : 'rest_fallback') . '</code>', 'Webhook: <code>' . esc_html((string)$s['webhook_status']) . '</code>', 'Repository: <code>' . esc_html((string)$s['github_repository']) . '</code>'];
         if ($job) {
             $lines[] = '';
             $lines[] = 'آخرین عملیات: <code>' . esc_html((string)$job['status']) . '</code>';
@@ -945,8 +1225,8 @@ final class BlueVPN_Telegram_Bot {
         self::admin_guard(); check_admin_referer('bluevpn_bot_test'); $s = self::settings();
         $me = self::api('getMe', [], $s);
         if (is_wp_error($me)) self::admin_redirect($me->get_error_message(), true);
-        try { self::branch_head_sha($s); } catch (Throwable $e) { self::admin_redirect('Telegram سالم است اما GitHub خطا داد: ' . self::redact($e->getMessage(), $s), true); }
-        self::admin_redirect('Telegram و GitHub هر دو سالم هستند. @' . sanitize_text_field((string)($me['username'] ?? 'bot')));
+        try { self::branch_head_sha($s); } catch (Throwable $e) { self::admin_redirect('Telegram سالم است اما GitHub خطا داد [v' . BLUEVPN_MANAGER_VERSION . ']: ' . self::redact($e->getMessage(), $s), true); }
+        self::admin_redirect('Telegram و GitHub هر دو سالم هستند. Runtime v' . BLUEVPN_MANAGER_VERSION . ' / transport=' . (self::git_cli_available() ? 'git_https' : 'rest_fallback') . ' / @' . sanitize_text_field((string)($me['username'] ?? 'bot')));
     }
 
     public static function admin_page(): void {

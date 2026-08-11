@@ -1,4 +1,4 @@
-BlueVPN Platform 4.0.18 — GitHub Trigger Compatibility Fix
+BlueVPN Platform 4.0.19 — GitHub Trigger Compatibility Fix
 
 علت 403:
 در مهاجرت ربات Railway به WordPress، مسیر قدیمی repository_dispatch حذف و workflow_dispatch مستقیماً اجرا می‌شد. توکن قبلی کاربر با repository_dispatch کار می‌کرد و الزام جداگانه Actions:write نداشت.

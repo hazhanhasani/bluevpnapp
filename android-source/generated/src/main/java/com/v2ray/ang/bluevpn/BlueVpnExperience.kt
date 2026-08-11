@@ -1,9 +1,16 @@
 package com.v2ray.ang.bluevpn
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
+import android.os.SystemClock
+import android.util.Log
+import android.view.View
+import android.widget.Toast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.WeakHashMap
 
 enum class BlueVpnConnectionMode(
     val key: String,
@@ -135,106 +142,14 @@ object BlueVpnExperience {
     fun healthScore(
         context: Context,
         candidate: BlueVpnLocationUtil.Candidate,
-    ): Int {
-        if (
-            BlueVpnPreferences.isSessionInactive(
-                context,
-                candidate.guid,
-            )
-        ) {
-            return 8
-        }
-
-        val delay = candidate.delay
-        var score = when {
-            delay in 1..35 -> 98
-            delay in 36..60 -> 94
-            delay in 61..90 -> 88
-            delay in 91..130 -> 80
-            delay in 131..180 -> 70
-            delay in 181..250 -> 58
-            delay > 250 -> 42
-            delay < 0 -> 18
-            else -> 55
-        }
-
-        if (
-            BlueVpnPreferences.failedRecently(
-                context,
-                candidate.guid,
-            )
-        ) {
-            score -= 24
-        }
-
-        if (
-            isFavorite(
-                context,
-                candidate.location.key,
-            )
-        ) {
-            score += 4
-        }
-
-        score += when (mode(context)) {
-            BlueVpnConnectionMode.GAMING -> when {
-                delay in 1..50 -> 8
-                delay in 51..85 -> 4
-                delay > 150 -> -12
-                else -> 0
-            }
-
-            BlueVpnConnectionMode.STREAMING -> when {
-                delay in 1..180 -> 5
-                delay > 300 -> -8
-                else -> 0
-            }
-
-            BlueVpnConnectionMode.BALANCED -> 0
-        }
-
-        return BlueVpnAi.combinedScore(
-            context,
-            candidate,
-            score.coerceIn(0, 100),
-        ).coerceIn(0, 100)
-    }
+    ): Int = BlueVpnSmartSelector.score(context, candidate).score
 
     fun candidatePriority(
         context: Context,
         candidate: BlueVpnLocationUtil.Candidate,
     ): Int {
-        var priority = healthScore(context, candidate) * 100
-
-        if (
-            isFavorite(
-                context,
-                candidate.location.key,
-            )
-        ) {
-            priority += when (mode(context)) {
-                BlueVpnConnectionMode.BALANCED -> 450
-                BlueVpnConnectionMode.GAMING -> 180
-                BlueVpnConnectionMode.STREAMING -> 650
-            }
-        }
-
-        priority += when (mode(context)) {
-            BlueVpnConnectionMode.GAMING ->
-                if (candidate.delay in 1..80) 500 else 0
-
-            BlueVpnConnectionMode.STREAMING ->
-                if (candidate.delay in 1..220) 280 else 0
-
-            BlueVpnConnectionMode.BALANCED -> 0
-        }
-
-        priority += BlueVpnAi.priorityBoost(
-            context,
-            candidate,
-        )
-
-        return priority
+        val scored = BlueVpnSmartSelector.score(context, candidate)
+        return scored.score * 100 + scored.confidence
     }
 
     fun qualityLabel(score: Int): String =
@@ -371,4 +286,143 @@ object BlueVpnExperience {
         replace("\t", " ")
             .replace("\n", " ")
             .trim()
+}
+
+
+/**
+ * Small process-wide guard for UI actions.
+ *
+ * Older builds allowed several taps to launch the same screen, rebuild a large
+ * server list more than once, or start connect/disconnect concurrently. On low
+ * end phones that looked like a frozen screen and could end in an Activity
+ * crash. This guard only debounces UI events; it never changes VPN state.
+ */
+object BlueVpnUiGuard {
+    private const val PREFS = "bluevpn_stability"
+    private const val DEFAULT_CLICK_WINDOW_MS = 280L
+    private const val DEFAULT_NAVIGATION_WINDOW_MS = 360L
+    private const val SAFE_MODE_DURATION_MS = 24 * 60 * 60 * 1000L
+
+    private val clickTimes = WeakHashMap<View, Long>()
+    private val navigationTimes = WeakHashMap<Activity, Long>()
+    @Volatile private var crashLoggerInstalled = false
+
+    fun bind(
+        view: View,
+        intervalMs: Long = DEFAULT_CLICK_WINDOW_MS,
+        action: () -> Unit,
+    ) {
+        view.setOnClickListener {
+            if (!view.isEnabled || !view.isAttachedToWindow) return@setOnClickListener
+            val now = SystemClock.elapsedRealtime()
+            val accepted = synchronized(clickTimes) {
+                val previous = clickTimes[view] ?: 0L
+                if (now - previous < intervalMs) {
+                    false
+                } else {
+                    clickTimes[view] = now
+                    true
+                }
+            }
+            if (!accepted) return@setOnClickListener
+            run(view.context, "click") { action() }
+        }
+    }
+
+    fun run(
+        context: Context,
+        label: String,
+        action: () -> Unit,
+    ): Boolean = try {
+        action()
+        true
+    } catch (error: Exception) {
+        record(context, label, error)
+        Toast.makeText(
+            context,
+            "این بخش موقتاً آماده نشد؛ دوباره تلاش کنید",
+            Toast.LENGTH_SHORT,
+        ).show()
+        false
+    }
+
+    fun start(
+        activity: Activity,
+        intent: Intent,
+        intervalMs: Long = DEFAULT_NAVIGATION_WINDOW_MS,
+    ): Boolean {
+        if (activity.isFinishing || activity.isDestroyed) return false
+        val now = SystemClock.elapsedRealtime()
+        val accepted = synchronized(navigationTimes) {
+            val previous = navigationTimes[activity] ?: 0L
+            if (now - previous < intervalMs) {
+                false
+            } else {
+                navigationTimes[activity] = now
+                true
+            }
+        }
+        if (!accepted) return false
+        return run(activity, "navigation:${intent.component?.className.orEmpty()}") {
+            activity.startActivity(intent)
+        }
+    }
+
+    fun installCrashLogger(context: Context) {
+        if (crashLoggerInstalled) return
+        synchronized(this) {
+            if (crashLoggerInstalled) return
+            val app = context.applicationContext
+            val previous = Thread.getDefaultUncaughtExceptionHandler()
+            Thread.setDefaultUncaughtExceptionHandler { thread, error ->
+                runCatching {
+                    val summary = "${error.javaClass.simpleName}: ${error.message.orEmpty()}"
+                        .take(500)
+                    app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                        .edit()
+                        .putLong("last_fatal_at", System.currentTimeMillis())
+                        .putLong(
+                            "safe_mode_until",
+                            System.currentTimeMillis() + SAFE_MODE_DURATION_MS,
+                        )
+                        .putString("last_fatal_thread", thread.name.take(80))
+                        .putString("last_fatal_summary", summary)
+                        .commit()
+                }
+                previous?.uncaughtException(thread, error)
+            }
+            crashLoggerInstalled = true
+        }
+    }
+
+    fun safeMode(context: Context): Boolean =
+        context.applicationContext
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getLong("safe_mode_until", 0L) > System.currentTimeMillis()
+
+    fun consumeRecoveryNotice(context: Context): Boolean {
+        val preferences = context.applicationContext
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val fatalAt = preferences.getLong("last_fatal_at", 0L)
+        val shownAt = preferences.getLong("last_fatal_notice_at", 0L)
+        if (fatalAt <= 0L || fatalAt <= shownAt) return false
+        preferences.edit().putLong("last_fatal_notice_at", fatalAt).apply()
+        return true
+    }
+
+    private fun record(context: Context, label: String, error: Exception) {
+        Log.e("BlueVpnUiGuard", label, error)
+        runCatching {
+            context.applicationContext
+                .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putLong("last_ui_error_at", System.currentTimeMillis())
+                .putString("last_ui_error_action", label.take(120))
+                .putString(
+                    "last_ui_error_summary",
+                    "${error.javaClass.simpleName}: ${error.message.orEmpty()}".take(500),
+                )
+                .apply()
+        }
+    }
 }

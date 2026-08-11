@@ -84,6 +84,7 @@ final class BlueVPN_Migration {
                 'cursor' => '', 'imported' => 0, 'cycle_imported' => 0, 'source_count' => null,
                 'done' => false, 'last_error' => '', 'updated_at' => '',
                 'retry_count' => 0, 'last_batch_rows' => 0, 'last_batch_ms' => 0,
+                'key_audit_ok' => false, 'key_audit_at' => '', 'identity_repair' => '',
             ], $row);
         }
         return array_merge([
@@ -111,6 +112,10 @@ final class BlueVPN_Migration {
             'last_verified_at' => '',
             'final_verify_passes' => 0,
             'paused_from_phase' => '',
+            'exact_repair_attempts' => 0,
+            'exact_repair_last_table' => '',
+            'exact_repair_last_ids' => [],
+            'exact_repair_last_message' => '',
             'tables' => $tables,
         ], $raw, ['tables' => $tables]);
     }
@@ -135,6 +140,8 @@ final class BlueVPN_Migration {
             'final_resync_started_at' => '', 'verification_failures' => 0,
             'cycle_kind' => '', 'current_table' => '', 'last_progress_at' => '',
             'last_verified_at' => '', 'final_verify_passes' => 0, 'paused_from_phase' => '',
+            'exact_repair_attempts' => 0, 'exact_repair_last_table' => '',
+            'exact_repair_last_ids' => [], 'exact_repair_last_message' => '',
             'tables' => [],
         ];
         self::save_state($state);
@@ -320,6 +327,251 @@ final class BlueVPN_Migration {
         });
     }
 
+    private static function primary_key_name(string $logicalTable, ?array $state = null): string {
+        $state = $state ?? self::state();
+        $pk = (string)(($state['source_primary_keys'][$logicalTable] ?? '') ?: 'id');
+        return preg_match('/^[A-Za-z0-9_]+$/', $pk) ? $pk : '';
+    }
+
+    private static function local_primary_key_set(string $logicalTable, string $pk): array {
+        global $wpdb;
+        if ($pk === '' || !in_array($logicalTable, self::table_order(), true)) return [];
+        $table = BlueVPN_DB::table($logicalTable);
+        $columns = $wpdb->get_col("SHOW COLUMNS FROM {$table}", 0);
+        if (!is_array($columns) || !in_array($pk, $columns, true)) return [];
+        $values = $wpdb->get_col("SELECT `{$pk}` FROM {$table}");
+        $set = [];
+        foreach ((array)$values as $value) $set[(string)$value] = true;
+        return $set;
+    }
+
+    private static function clear_table_key_error(string $logicalTable, string $message = ''): void {
+        $state = self::state();
+        if (!isset($state['tables'][$logicalTable])) return;
+        $state['tables'][$logicalTable]['last_error'] = '';
+        $state['tables'][$logicalTable]['key_audit_ok'] = true;
+        $state['tables'][$logicalTable]['key_audit_at'] = BlueVPN_Utils::iso_now();
+        if ($message !== '') $state['tables'][$logicalTable]['identity_repair'] = $message;
+        if ((string)($state['exact_repair_last_table'] ?? '') === $logicalTable) {
+            $state['exact_repair_last_ids'] = [];
+        }
+        $hasOtherErrors = false;
+        foreach ($state['tables'] as $name => $row) {
+            if ($name !== $logicalTable && !empty($row['last_error'])) { $hasOtherErrors = true; break; }
+        }
+        if (!$hasOtherErrors) $state['last_error'] = '';
+        $state['last_progress_at'] = BlueVPN_Utils::iso_now();
+        self::save_state($state);
+    }
+
+    private static function customer_identity_candidates(array $sourceRow): array {
+        global $wpdb;
+        $table = BlueVPN_DB::table('customers');
+        $clauses = [];
+        $args = [];
+        $email = trim((string)($sourceRow['email'] ?? ''));
+        $phone = trim((string)($sourceRow['phone'] ?? ''));
+        $token = trim((string)($sourceRow['subscription_token'] ?? ''));
+        if ($email !== '') { $clauses[] = 'LOWER(`email`) = LOWER(%s)'; $args[] = $email; }
+        if ($phone !== '') { $clauses[] = '`phone` = %s'; $args[] = $phone; }
+        if ($token !== '') { $clauses[] = '`subscription_token` = %s'; $args[] = $token; }
+        if (!$clauses) return [];
+        $sql = "SELECT `id`,`email`,`phone`,`subscription_token` FROM {$table} WHERE ".implode(' OR ', $clauses);
+        $prepared = $wpdb->prepare($sql, ...$args);
+        $rows = $wpdb->get_results($prepared, ARRAY_A);
+        return is_array($rows) ? $rows : [];
+    }
+
+    private static function customer_reference_tables(): array {
+        global $wpdb;
+        $result = [];
+        foreach (self::table_order() as $logicalTable) {
+            if ($logicalTable === 'customers') continue;
+            $table = BlueVPN_DB::table($logicalTable);
+            $columns = $wpdb->get_col("SHOW COLUMNS FROM {$table}", 0);
+            if (is_array($columns) && in_array('customer_id', $columns, true)) $result[$logicalTable] = $table;
+        }
+        return $result;
+    }
+
+    /**
+     * Reconcile one Railway customer with a pre-existing MySQL identity.
+     * This prevents equal row counts with different primary-key identities.
+     */
+    private static function upsert_customer_identity(array $sourceRow): array {
+        global $wpdb;
+        $sourceId = (int)($sourceRow['id'] ?? 0);
+        if ($sourceId <= 0) return ['success'=>false,'error'=>'رکورد customers بدون ID معتبر از Railway دریافت شد.','action'=>'invalid'];
+        $table = BlueVPN_DB::table('customers');
+        $existing = $wpdb->get_var($wpdb->prepare("SELECT `id` FROM {$table} WHERE `id`=%d", $sourceId));
+        if ($existing !== null) {
+            if (!self::bulk_upsert('customers', [$sourceRow])) return ['success'=>false,'error'=>'به‌روزرسانی customer ID '.$sourceId.' در MySQL ناموفق بود: '.$wpdb->last_error,'action'=>'update'];
+            return ['success'=>true,'error'=>'','action'=>'updated','old_id'=>$sourceId,'new_id'=>$sourceId];
+        }
+
+        $candidates = self::customer_identity_candidates($sourceRow);
+        $byId = [];
+        foreach ($candidates as $row) $byId[(string)($row['id'] ?? '')] = $row;
+        unset($byId['']);
+        if (count($byId) > 1) {
+            $ids = implode(', ', array_keys($byId));
+            return ['success'=>false,'error'=>'تعارض هویت customer Railway ID '.$sourceId.': فیلدهای Unique به چند Customer محلی مختلف اشاره می‌کنند (MySQL IDs: '.$ids.'). برای جلوگیری از ادغام اشتباه، تغییر متوقف شد.','action'=>'conflict','candidate_ids'=>array_keys($byId)];
+        }
+
+        if (!$byId) {
+            if (!self::bulk_upsert('customers', [$sourceRow])) return ['success'=>false,'error'=>'درج customer Railway ID '.$sourceId.' در MySQL ناموفق بود: '.$wpdb->last_error,'action'=>'insert'];
+            return ['success'=>true,'error'=>'','action'=>'inserted','new_id'=>$sourceId];
+        }
+
+        $oldId = (int)array_key_first($byId);
+        if ($oldId <= 0 || $oldId === $sourceId) {
+            if (!self::bulk_upsert('customers', [$sourceRow])) return ['success'=>false,'error'=>'همگام‌سازی customer ID '.$sourceId.' ناموفق بود: '.$wpdb->last_error,'action'=>'update'];
+            return ['success'=>true,'error'=>'','action'=>'updated','old_id'=>$sourceId,'new_id'=>$sourceId];
+        }
+
+        $wpdb->query('START TRANSACTION');
+        try {
+            foreach (self::customer_reference_tables() as $logical => $refTable) {
+                $updated = $wpdb->query($wpdb->prepare("UPDATE {$refTable} SET `customer_id`=%d WHERE `customer_id`=%d", $sourceId, $oldId));
+                if ($updated === false) throw new RuntimeException('تعارض هنگام انتقال customer_id در جدول '.$logical.': '.$wpdb->last_error);
+            }
+            $changed = $wpdb->query($wpdb->prepare("UPDATE {$table} SET `id`=%d WHERE `id`=%d", $sourceId, $oldId));
+            if ($changed === false) throw new RuntimeException('تغییر ID مشتری '.$oldId.' به '.$sourceId.' ناموفق بود: '.$wpdb->last_error);
+            if (!self::bulk_upsert('customers', [$sourceRow])) throw new RuntimeException('اعمال داده Railway روی customer ID '.$sourceId.' ناموفق بود: '.$wpdb->last_error);
+            $wpdb->query('COMMIT');
+        } catch (Throwable $e) {
+            $wpdb->query('ROLLBACK');
+            return ['success'=>false,'error'=>$e->getMessage(),'action'=>'rekey_failed','old_id'=>$oldId,'new_id'=>$sourceId];
+        }
+        return ['success'=>true,'error'=>'','action'=>'rekeyed','old_id'=>$oldId,'new_id'=>$sourceId];
+    }
+
+    /** Fetch source primary keys using Migration Bridge protocol v3. */
+    public static function exact_missing_primary_keys(string $logicalTable, int $cap = 1000) {
+        if (!in_array($logicalTable, self::table_order(), true)) {
+            return new WP_Error('invalid_table', 'جدول مهاجرت معتبر نیست.');
+        }
+        $state = self::state();
+        $pk = self::primary_key_name($logicalTable, $state);
+        if ($pk === '') return new WP_Error('migration_pk_missing', 'کلید اصلی جدول '.$logicalTable.' قابل تشخیص نیست.');
+
+        $local = self::local_primary_key_set($logicalTable, $pk);
+        $missing = [];
+        $cursor = '';
+        $guard = 0;
+        do {
+            $query = ['limit' => 5000];
+            if ($cursor !== '') $query['after'] = $cursor;
+            $path = '/internal/migration/v1/keys/'.rawurlencode($logicalTable).'?'.http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+            $payload = self::request($path, ['timeout' => 35]);
+            if (is_wp_error($payload)) return $payload;
+            $keys = is_array($payload['keys'] ?? null) ? $payload['keys'] : [];
+            foreach ($keys as $key) {
+                $key = (string)$key;
+                if ($key !== '' && !isset($local[$key])) {
+                    $missing[] = $key;
+                    if (count($missing) >= max(1, $cap)) break 2;
+                }
+            }
+            $next = (string)($payload['next_cursor'] ?? '');
+            $done = !empty($payload['done']);
+            if (!$done && $next === $cursor) return new WP_Error('migration_key_cursor_stalled', 'Audit کلیدهای '.$logicalTable.' بدون پیشرفت متوقف شد.');
+            $cursor = $next;
+            $guard++;
+            if ($guard > 5000) return new WP_Error('migration_key_guard', 'Audit کلیدهای '.$logicalTable.' بیش از حد طولانی شد.');
+        } while (!$done);
+
+        return ['primary_key' => $pk, 'missing_ids' => array_values(array_unique($missing))];
+    }
+
+    /**
+     * Repair only rows whose primary keys are absent from MySQL. This is the
+     * convergence path for small live-write gaps such as the last few customers.
+     */
+    public static function repair_exact_missing(string $logicalTable, int $maxIds = 500): array {
+        $audit = self::exact_missing_primary_keys($logicalTable, max(1, min(1000, $maxIds)));
+        if (is_wp_error($audit)) {
+            return ['success' => false, 'error' => $audit->get_error_message(), 'missing_ids' => [], 'imported' => 0];
+        }
+        $ids = array_values((array)($audit['missing_ids'] ?? []));
+        if (!$ids) {
+            self::clear_table_key_error($logicalTable, 'Audit کلید اصلی کامل است؛ تمام IDهای Railway در MySQL وجود دارند.');
+            return ['success' => true, 'error' => '', 'missing_ids' => [], 'remaining_ids' => [], 'imported' => 0, 'resolved' => true];
+        }
+
+        $imported = 0;
+        $actions = [];
+        foreach (array_chunk($ids, 100) as $chunk) {
+            $path = '/internal/migration/v1/export-ids/'.rawurlencode($logicalTable).'?'.http_build_query(['ids'=>implode(',', $chunk)], '', '&', PHP_QUERY_RFC3986);
+            $payload = self::request($path, ['timeout' => 45]);
+            if (is_wp_error($payload)) {
+                return ['success' => false, 'error' => $payload->get_error_message(), 'missing_ids' => $ids, 'imported' => $imported];
+            }
+            $rows = is_array($payload['rows'] ?? null) ? $payload['rows'] : [];
+            $decoded = [];
+            foreach ($rows as $row) if (is_array($row)) $decoded[] = self::decode_row($row);
+
+            if ($logicalTable === 'customers') {
+                foreach ($decoded as $row) {
+                    $repair = self::upsert_customer_identity($row);
+                    $actions[] = $repair;
+                    if (empty($repair['success'])) {
+                        $state = self::state();
+                        $message = (string)($repair['error'] ?? 'تعارض هویت customers');
+                        $state['tables'][$logicalTable]['last_error'] = $message;
+                        $state['tables'][$logicalTable]['identity_repair'] = $message;
+                        $state['last_error'] = $message;
+                        $state['exact_repair_last_table'] = $logicalTable;
+                        $state['exact_repair_last_ids'] = array_slice($ids, 0, 30);
+                        $state['exact_repair_last_message'] = $message;
+                        self::save_state($state);
+                        return ['success'=>false,'error'=>$message,'missing_ids'=>$ids,'imported'=>$imported,'actions'=>$actions];
+                    }
+                    $imported++;
+                }
+            } else {
+                if ($decoded && self::bulk_upsert($logicalTable, $decoded) === false) {
+                    global $wpdb;
+                    return ['success' => false, 'error' => 'خطای MySQL در ترمیم دقیق '.$logicalTable.': '.$wpdb->last_error, 'missing_ids' => $ids, 'imported' => $imported];
+                }
+                $imported += count($decoded);
+            }
+        }
+
+        $verify = self::exact_missing_primary_keys($logicalTable, max(1, min(1000, $maxIds)));
+        $remaining = is_wp_error($verify) ? $ids : array_values((array)($verify['missing_ids'] ?? []));
+        $state = self::state();
+        $state['exact_repair_attempts'] = (int)($state['exact_repair_attempts'] ?? 0) + 1;
+        $state['exact_repair_last_table'] = $logicalTable;
+        $state['exact_repair_last_ids'] = array_slice($remaining, 0, 30);
+        if ($remaining) {
+            $message = 'ترمیم دقیق '.$logicalTable.' انجام شد اما '.count($remaining).' ID هنوز در MySQL نیست: '.implode(', ', array_slice($remaining, 0, 12)).'. برای customers این وضعیت معمولاً تعارض هویت/Unique است و دیگر با Resync کور تکرار نمی‌شود.';
+            $state['exact_repair_last_message'] = $message;
+            $state['tables'][$logicalTable]['last_error'] = $message;
+            $state['tables'][$logicalTable]['key_audit_ok'] = false;
+            $state['last_error'] = $message;
+            self::save_state($state);
+            return ['success' => false, 'error' => $message, 'missing_ids' => $ids, 'remaining_ids' => $remaining, 'imported' => $imported, 'actions'=>$actions];
+        }
+
+        $message = 'ترمیم دقیق '.$logicalTable.' موفق بود؛ '.count($ids).' ID Railway همگرا شد.';
+        if ($logicalTable === 'customers') {
+            $rekeyed = count(array_filter($actions, static fn($x) => ($x['action'] ?? '') === 'rekeyed'));
+            if ($rekeyed > 0) $message .= ' '.$rekeyed.' هویت Customer از ID محلی به ID اصلی Railway منتقل شد.';
+        }
+        $state['exact_repair_last_message'] = $message;
+        $state['tables'][$logicalTable]['last_error'] = '';
+        $state['tables'][$logicalTable]['key_audit_ok'] = true;
+        $state['tables'][$logicalTable]['key_audit_at'] = BlueVPN_Utils::iso_now();
+        $state['tables'][$logicalTable]['identity_repair'] = $message;
+        $state['tables'][$logicalTable]['updated_at'] = BlueVPN_Utils::iso_now();
+        $state['last_error'] = '';
+        $state['last_progress_at'] = BlueVPN_Utils::iso_now();
+        $state['verification_failures'] = 0;
+        self::save_state($state);
+        return ['success' => true, 'error' => '', 'missing_ids' => $ids, 'remaining_ids' => [], 'imported' => $imported, 'resolved'=>true, 'actions'=>$actions];
+    }
+
     /**
      * Derive Cutover readiness from real Railway/MySQL coverage instead of a
      * manually toggled/stale option. This also repairs state left by older
@@ -500,6 +752,10 @@ final class BlueVPN_Migration {
             'last_verified_at' => (string)($state['last_verified_at'] ?? ''),
             'message' => (string)($state['auto_last_message'] ?? ''),
             'last_error' => (string)($state['last_error'] ?? ''),
+            'exact_repair_attempts' => (int)($state['exact_repair_attempts'] ?? 0),
+            'exact_repair_last_table' => (string)($state['exact_repair_last_table'] ?? ''),
+            'exact_repair_last_ids' => array_values((array)($state['exact_repair_last_ids'] ?? [])),
+            'exact_repair_last_message' => (string)($state['exact_repair_last_message'] ?? ''),
             'tables' => $tables,
         ];
     }
@@ -904,6 +1160,23 @@ final class BlueVPN_Migration {
                     self::auto_error($manifest->get_error_message());
                     return;
                 }
+
+                // Count equality is not enough for customers. Always verify that
+                // Railway primary keys exist in MySQL and repair identity drift first.
+                $state = self::state();
+                $customerSourceCount = (int)($state['source_counts']['customers'] ?? 0);
+                if ($customerSourceCount <= 100000) {
+                    $critical = self::repair_exact_missing('customers', min(1000, max(50, $customerSourceCount + 20)));
+                    if (!empty($critical['success']) && (int)($critical['imported'] ?? 0) > 0) {
+                        $state = self::state();
+                        $state['phase'] = 'final_verify';
+                        $state['verification_failures'] = 0;
+                        $state['auto_last_message'] = (int)$critical['imported'].' هویت/رکورد customers با ID Railway همگرا شد؛ Verify نهایی دوباره اجرا می‌شود.';
+                        self::save_state($state);
+                        return;
+                    }
+                }
+
                 $readiness = self::reconcile_readiness(false);
                 $mismatches = (array)($readiness['mismatches'] ?? []);
                 $tableErrors = (array)($readiness['table_errors'] ?? []);
@@ -916,7 +1189,7 @@ final class BlueVPN_Migration {
                     $state['verification_failures'] = 0;
                     $state['auto_retry_count'] = 0;
                     $state['last_error'] = '';
-                    $state['auto_last_message'] = 'بررسی نهایی موفق بود؛ همه جدول‌ها Railway را پوشش می‌دهند و Cutover آماده است.';
+                    $state['auto_last_message'] = 'بررسی نهایی موفق بود؛ شمارش و هویت customers تأیید شد و Cutover آماده است.';
                     self::save_state($state);
                     self::reconcile_readiness(true);
                     self::sync_auto_schedule(false);
@@ -924,6 +1197,43 @@ final class BlueVPN_Migration {
                 }
 
                 $targets = array_values(array_unique(array_merge(array_keys($mismatches), array_keys($tableErrors))));
+                $comparison = (array)($readiness['comparison'] ?? []);
+                $exactImported = 0;
+                $exactResolved = 0;
+                $exactAttempted = false;
+                foreach ($targets as $target) {
+                    $cmp = $comparison[$target] ?? null;
+                    if (!is_array($cmp)) continue;
+                    $sourceCount = (int)($cmp['source'] ?? 0);
+                    $localCount = (int)($cmp['local'] ?? 0);
+                    $gap = max(0, $sourceCount - $localCount);
+                    $hasStoredError = array_key_exists($target, $tableErrors);
+                    $shouldExact = ($target === 'customers') || $hasStoredError || ($gap > 0 && $gap <= 500);
+                    if (!$shouldExact || $sourceCount > 100000) continue;
+                    $exact = self::repair_exact_missing($target, min(1000, max(50, $gap + 50)));
+                    if (empty($exact['success']) && str_contains((string)($exact['error'] ?? ''), 'HTTP 404')) continue;
+                    $exactAttempted = true;
+                    if (!empty($exact['success'])) {
+                        $exactImported += (int)($exact['imported'] ?? 0);
+                        $exactResolved++;
+                    }
+                }
+                if ($exactAttempted && $exactResolved > 0) {
+                    $manifest = self::refresh_manifest();
+                    if (is_wp_error($manifest)) {
+                        self::auto_error($manifest->get_error_message());
+                        return;
+                    }
+                    $state = self::state();
+                    $state['phase'] = 'final_verify';
+                    $state['verification_failures'] = 0;
+                    $state['auto_last_message'] = $exactImported > 0
+                        ? $exactImported.' رکورد/هویت با ID دقیق Railway ترمیم شد؛ Verify نهایی دوباره اجرا می‌شود.'
+                        : 'Audit کلیدهای جدول خطادار کامل شد و خطای قدیمی پاک شد؛ Verify نهایی دوباره اجرا می‌شود.';
+                    self::save_state($state);
+                    return;
+                }
+
                 $state = self::state();
                 $failures = (int)($state['verification_failures'] ?? 0) + 1;
                 $state['verification_failures'] = $failures;
@@ -932,8 +1242,8 @@ final class BlueVPN_Migration {
                     $state = self::state();
                     $state['phase'] = 'needs_attention';
                     $state['paused_from_phase'] = 'final_verify';
-                    $state['last_error'] = 'پس از چهار تلاش هنوز اختلاف باقی مانده است: '.implode(', ', $targets);
-                    $state['auto_last_message'] = 'Retry خودکار متوقف شد تا حلقه ایجاد نشود. فقط جدول‌های مشخص‌شده نیاز به ترمیم/بررسی دارند.';
+                    $state['last_error'] = 'پس از چهار تلاش هنوز اختلاف هویتی/داده‌ای باقی مانده است: '.implode(', ', $targets);
+                    $state['auto_last_message'] = 'Retry کور متوقف شد. جزئیات تعارض ID/Unique در ردیف جدول نمایش داده می‌شود.';
                     self::save_state($state);
                     self::sync_auto_schedule(false);
                     return;

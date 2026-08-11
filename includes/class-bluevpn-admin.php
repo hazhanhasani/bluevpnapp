@@ -97,7 +97,7 @@ final class BlueVPN_Admin {
             $etaText = $sec < 60 ? $sec.' ثانیه' : ($sec < 3600 ? ceil($sec/60).' دقیقه' : round($sec/3600,1).' ساعت');
         }
         echo '<div class="bvp-mig-metrics">';
-        echo '<div class="bvp-mig-metric"><small>جدول‌های همگام</small><strong id="bvp-mig-table-count">'.(int)$status['tables_synced'].' / '.(int)$status['tables_total'].'</strong></div>';
+        echo '<div class="bvp-mig-metric"><small>جدول‌های همگام</small><strong id="bvp-mig-table-count">'.(int)$status['tables_synced'].' از '.(int)$status['tables_total'].'</strong></div>';
         echo '<div class="bvp-mig-metric"><small>کسری واقعی</small><strong id="bvp-mig-missing">'.number_format_i18n((int)$status['missing_rows']).' رکورد</strong></div>';
         echo '<div class="bvp-mig-metric"><small>جدول جاری</small><strong id="bvp-mig-current">'.esc_html($status['current_table'] ?: '—').'</strong></div>';
         echo '<div class="bvp-mig-metric"><small>سرعت / ETA</small><strong id="bvp-mig-speed">'.($status['rows_per_second']>0?esc_html((string)$status['rows_per_second']).' ردیف/ث · ':'').esc_html($etaText).'</strong></div>';
@@ -105,11 +105,13 @@ final class BlueVPN_Admin {
 
         $liveClass = !empty($status['last_error']) ? ' error' : (!empty($status['stalled']) ? ' warn' : '');
         echo '<div id="bvp-mig-live-box" class="bvp-mig-live'.$liveClass.'">';
-        echo '<strong id="bvp-mig-live-title">'.($cutover?'✅ انتقال تکمیل شده':($autoActive?'🟢 Runner هوشمند فعال':'⏸ Runner متوقف/آماده')).'</strong>';
+        $needsAttention = in_array((string)($status['phase'] ?? ''), ['needs_attention','verification_failed','error'], true);
+        echo '<strong id="bvp-mig-live-title">'.($cutover?'✅ انتقال تکمیل شده':($needsAttention?'🟠 نیاز به ترمیم دقیق':($autoActive?'🟢 Runner هوشمند فعال':'⏸ Runner متوقف/آماده'))).'</strong>';
         echo '<p id="bluevpn-migration-live">'.esc_html((string)($status['message'] ?: 'در انتظار شروع انتقال')).'</p>';
         if (!empty($status['stalled'])) echo '<p id="bvp-mig-stall"><strong>⚠️ بیش از ۳ دقیقه Progress جدید ثبت نشده.</strong> ادامه امن را بزن؛ Cursorها پاک نمی‌شوند.</p>'; else echo '<p id="bvp-mig-stall" style="display:none"></p>';
         if (!empty($status['last_error'])) echo '<p id="bvp-mig-error"><code>'.esc_html((string)$status['last_error']).'</code></p>'; else echo '<p id="bvp-mig-error" style="display:none"></p>';
         echo '<small>آخرین Progress: <span id="bvp-mig-last-progress">'.esc_html((string)($status['last_progress_at'] ?: '—')).'</span> · آخرین Verify: <span id="bvp-mig-last-verify">'.esc_html((string)($status['last_verified_at'] ?: '—')).'</span></small>';
+        if (!empty($status['exact_repair_last_message'])) echo '<p style="margin-bottom:0"><small>🔎 '.esc_html((string)$status['exact_repair_last_message']).'</small></p>';
         echo '</div>';
 
         echo '<div class="bvp-mig-actions">';
@@ -122,7 +124,7 @@ final class BlueVPN_Admin {
         if ($autoActive && !$cutover) {
             $pumpNonce = wp_create_nonce('bluevpn_migration_pump');
             $ajaxUrl = admin_url('admin-ajax.php');
-            echo '<script>(function(){const url='.wp_json_encode($ajaxUrl).';const nonce='.wp_json_encode($pumpNonce).';let stopped=false,failures=0;function t(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}function render(d){t("bvp-mig-stage","مرحله "+(d.step||"—")+" از ۶ — "+(d.step_label||d.phase||""));t("bvp-mig-stage-desc",d.step_description||"");const bar=document.getElementById("bvp-mig-progress-bar");if(bar)bar.style.width=(d.data_percent||0)+"%";t("bvp-mig-progress-text","پوشش داده‌ها: "+(d.data_percent||0)+"٪ · "+(d.covered_total||0)+" / "+(d.source_total||0)+" رکورد");t("bvp-mig-table-count",(d.tables_synced||0)+" / "+(d.tables_total||0));t("bvp-mig-missing",(d.missing_rows||0)+" رکورد");t("bvp-mig-current",d.current_table||"—");let speed=d.rows_per_second>0?(d.rows_per_second+" ردیف/ث · "):"";let eta="—";if(d.eta_seconds!==null&&d.eta_seconds!==undefined){eta=d.eta_seconds<60?d.eta_seconds+" ثانیه":(d.eta_seconds<3600?Math.ceil(d.eta_seconds/60)+" دقیقه":(d.eta_seconds/3600).toFixed(1)+" ساعت");}t("bvp-mig-speed",speed+eta);t("bluevpn-migration-live",d.message||"در حال انتقال");t("bvp-mig-last-progress",d.last_progress_at||"—");t("bvp-mig-last-verify",d.last_verified_at||"—");const box=document.getElementById("bvp-mig-live-box");if(box)box.className="bvp-mig-live"+(d.last_error?" error":(d.stalled?" warn":""));const er=document.getElementById("bvp-mig-error");if(er){er.style.display=d.last_error?"block":"none";er.textContent=d.last_error||"";}const st=document.getElementById("bvp-mig-stall");if(st){st.style.display=d.stalled?"block":"none";st.textContent=d.stalled?"⚠️ بیش از ۳ دقیقه Progress جدید ثبت نشده؛ ادامه امن را بزن.":"";}if(d.tables){Object.keys(d.tables).forEach(function(name){const tr=document.querySelector("tr[data-mig-table=\""+CSS.escape(name)+"\"]");if(!tr)return;const x=d.tables[name]||{};const c=tr.querySelectorAll("[data-col]");c.forEach(function(el){const k=el.getAttribute("data-col");if(k==="source")el.textContent=x.source===null?"—":x.source;if(k==="local")el.textContent=x.local===null?"—":x.local;if(k==="missing")el.textContent=x.missing===null?"—":x.missing;if(k==="status")el.textContent=x.status==="synced"?"✅ همگام":(x.status==="error"?"❌ خطا":(x.status==="checking"?"⏳ بررسی":"⏳ نیاز به Sync"));if(k==="updated")el.textContent=x.updated_at||"—";if(k==="error")el.textContent=x.error||"";});});}}
+            echo '<script>(function(){const url='.wp_json_encode($ajaxUrl).';const nonce='.wp_json_encode($pumpNonce).';let stopped=false,failures=0;function t(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}function render(d){t("bvp-mig-stage","مرحله "+(d.step||"—")+" از ۶ — "+(d.step_label||d.phase||""));t("bvp-mig-stage-desc",d.step_description||"");const bar=document.getElementById("bvp-mig-progress-bar");if(bar)bar.style.width=(d.data_percent||0)+"%";t("bvp-mig-progress-text","پوشش داده‌ها: "+(d.data_percent||0)+"٪ · "+(d.covered_total||0)+" / "+(d.source_total||0)+" رکورد");t("bvp-mig-table-count",(d.tables_synced||0)+" از "+(d.tables_total||0));t("bvp-mig-missing",(d.missing_rows||0)+" رکورد");t("bvp-mig-current",d.current_table||"—");let speed=d.rows_per_second>0?(d.rows_per_second+" ردیف/ث · "):"";let eta="—";if(d.eta_seconds!==null&&d.eta_seconds!==undefined){eta=d.eta_seconds<60?d.eta_seconds+" ثانیه":(d.eta_seconds<3600?Math.ceil(d.eta_seconds/60)+" دقیقه":(d.eta_seconds/3600).toFixed(1)+" ساعت");}t("bvp-mig-speed",speed+eta);t("bluevpn-migration-live",d.message||"در حال انتقال");t("bvp-mig-last-progress",d.last_progress_at||"—");t("bvp-mig-last-verify",d.last_verified_at||"—");const box=document.getElementById("bvp-mig-live-box");if(box)box.className="bvp-mig-live"+(d.last_error?" error":(d.stalled?" warn":""));const er=document.getElementById("bvp-mig-error");if(er){er.style.display=d.last_error?"block":"none";er.textContent=d.last_error||"";}const st=document.getElementById("bvp-mig-stall");if(st){st.style.display=d.stalled?"block":"none";st.textContent=d.stalled?"⚠️ بیش از ۳ دقیقه Progress جدید ثبت نشده؛ ادامه امن را بزن.":"";}if(d.tables){Object.keys(d.tables).forEach(function(name){const tr=document.querySelector("tr[data-mig-table=\""+CSS.escape(name)+"\"]");if(!tr)return;const x=d.tables[name]||{};const c=tr.querySelectorAll("[data-col]");c.forEach(function(el){const k=el.getAttribute("data-col");if(k==="source")el.textContent=x.source===null?"—":x.source;if(k==="local")el.textContent=x.local===null?"—":x.local;if(k==="missing")el.textContent=x.missing===null?"—":x.missing;if(k==="status")el.textContent=x.status==="synced"?"✅ همگام":(x.status==="error"?"❌ خطا":(x.status==="checking"?"⏳ بررسی":"⏳ نیاز به Sync"));if(k==="updated")el.textContent=x.updated_at||"—";if(k==="error")el.textContent=x.error||"";});});}}
             async function pump(){if(stopped)return;try{const body=new URLSearchParams();body.set("action","bluevpn_migration_pump");body.set("_ajax_nonce",nonce);const r=await fetch(url,{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/x-www-form-urlencoded; charset=UTF-8"},body:body.toString()});const j=await r.json();if(!j||!j.success)throw new Error((j&&j.data&&j.data.message)||"پاسخ نامعتبر Runner");failures=0;const d=j.data||{};render(d);if(d.complete||d.stopped){stopped=true;if(d.complete)setTimeout(()=>location.reload(),1200);return;}setTimeout(pump,2500);}catch(e){failures++;t("bluevpn-migration-live","Runner مرورگر: "+e.message+" — تلاش مجدد "+failures);if(failures<12)setTimeout(pump,Math.min(15000,2000*failures));}}setTimeout(pump,900);})();</script>';
         }
 
@@ -223,10 +225,41 @@ final class BlueVPN_Admin {
             BlueVPN_Migration::auto_step(4);
             self::migration_redirect('اختلاف شمارشی پیدا نشد؛ فرایند از مرحله Verify فعلی ادامه پیدا کرد.');
         }
-        BlueVPN_Migration::start_resync(false, $targets, 'delta');
+
+        $exactImported = 0;
+        $remainingTargets = [];
+        foreach ($targets as $target) {
+            $cmp = (array)($status['readiness']['comparison'][$target] ?? []);
+            $sourceCount = (int)($cmp['source'] ?? 0);
+            $localCount = (int)($cmp['local'] ?? 0);
+            $gap = max(0, $sourceCount - $localCount);
+            if ($gap > 0 && $gap <= 500 && $sourceCount <= 100000) {
+                $exact = BlueVPN_Migration::repair_exact_missing($target, min(500, max(20, $gap + 20)));
+                if (!empty($exact['success'])) {
+                    $exactImported += (int)($exact['imported'] ?? 0);
+                    continue;
+                }
+            }
+            $remainingTargets[] = $target;
+        }
+
+        $manifest = BlueVPN_Migration::refresh_manifest();
+        if (is_wp_error($manifest)) self::migration_redirect('', $manifest->get_error_message());
+        $after = BlueVPN_Migration::dashboard_status(false);
+        $still = array_values(array_unique(array_merge(
+            array_keys((array)($after['readiness']['mismatches'] ?? [])),
+            array_keys((array)($after['readiness']['table_errors'] ?? []))
+        )));
+        if (!$still) {
+            BlueVPN_Migration::start_auto();
+            BlueVPN_Migration::auto_step(2);
+            self::migration_redirect('ترمیم دقیق موفق بود؛ '.$exactImported.' رکورد گمشده بازیابی شد و Verify نهایی ادامه دارد.');
+        }
+
+        BlueVPN_Migration::start_resync(false, $still, 'delta');
         BlueVPN_Migration::start_auto();
         BlueVPN_Migration::run(8);
-        self::migration_redirect('ترمیم هدفمند شروع شد؛ فقط '.count($targets).' جدول دارای اختلاف/خطا دوباره Sync می‌شوند.');
+        self::migration_redirect(($exactImported>0 ? $exactImported.' رکورد با ID دقیق بازیابی شد؛ ' : '').'برای '.count($still).' جدول باقی‌مانده ترمیم هدفمند ادامه دارد.');
     }
     public static function migration_auto_start(): void {
         self::guard();
@@ -322,13 +355,16 @@ final class BlueVPN_Admin {
         } else {
             echo '<div class="bvp-card"><h3>آخرین Release افزونه</h3><p class="bvp-warn">هنوز Release مخصوص افزونه پیدا نشد.</p></div>';
         }
-        echo '<div class="bvp-card"><h3>آپدیت خودکار</h3><p class="'.(!empty($cfg['auto_update'])?'bvp-ok':'bvp-warn').'">'.(!empty($cfg['auto_update'])?'فعال':'غیرفعال').'</p></div>';
+        echo '<div class="bvp-card"><h3>آپدیت خودکار واقعی</h3><p class="'.(!empty($cfg['auto_update'])?'bvp-ok':'bvp-warn').'">'.(!empty($cfg['auto_update'])?'فعال؛ بررسی و نصب بدون دخالت مدیر':'غیرفعال').'</p></div>';
         $last_bg = BlueVPN_GitHub_Updater::last_background_check();
-        echo '<div class="bvp-card"><h3>بررسی خودکار GitHub</h3><p class="bvp-ok"><strong>هر ۵ دقیقه</strong></p><small>'.($last_bg ? 'آخرین اجرا: '.esc_html(wp_date('Y-m-d H:i:s', $last_bg)) : 'در انتظار اولین اجرای پس‌زمینه').'</small></div>';
+        echo '<div class="bvp-card"><h3>بررسی خودکار GitHub</h3><p class="bvp-ok"><strong>هر ۲ دقیقه</strong></p><small>'.($last_bg ? 'آخرین اجرا: '.esc_html(wp_date('Y-m-d H:i:s', $last_bg)) : 'در انتظار اولین اجرای پس‌زمینه').'</small></div>';
+        $auto_status = BlueVPN_GitHub_Updater::auto_update_status();
+        $auto_class = in_array((string)$auto_status['status'], ['installed','up_to_date'], true) ? 'bvp-ok' : (((string)$auto_status['status'] === 'never') ? 'bvp-warn' : 'bvp-warn');
+        echo '<div class="bvp-card"><h3>آخرین نصب خودکار</h3><p class="'.esc_attr($auto_class).'"><strong>'.esc_html((string)$auto_status['status']).'</strong></p><small>'.esc_html((string)$auto_status['message']).($auto_status['at'] ? ' · '.esc_html(wp_date('Y-m-d H:i:s', (int)$auto_status['at'])) : '').'</small></div>';
         echo '</div>';
 
         echo '<div class="bvp-card" style="max-width:900px;margin-top:18px"><h2>تنظیمات Updater</h2>';
-        echo '<p>بررسی نسخه جدید به‌صورت خودکار در پس‌زمینه انجام می‌شود و دکمه بررسی دستی فقط برای مواقع اضطراری است. برای اینکه Releaseهای Android با افزونه قاطی نشوند، فقط Tagهایی با پیشوند تعیین‌شده و Asset دقیق زیر پذیرفته می‌شوند.</p>';
+        echo '<p>بررسی و نصب نسخه جدید به‌صورت خودکار در پس‌زمینه انجام می‌شود؛ دکمه بررسی دستی فقط برای عیب‌یابی اضطراری است. برای اینکه Releaseهای Android با افزونه قاطی نشوند، فقط Tagهایی با پیشوند تعیین‌شده و Asset دقیق زیر پذیرفته می‌شوند.</p>';
         echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
         wp_nonce_field('bluevpn_save_github_updater');
         echo '<input type="hidden" name="action" value="bluevpn_save_github_updater">';
@@ -337,7 +373,7 @@ final class BlueVPN_Admin {
         echo '<tr><th>Repository</th><td><input class="regular-text" dir="ltr" name="repo" value="'.esc_attr($cfg['repo']).'"></td></tr>';
         echo '<tr><th>Tag Prefix</th><td><input class="regular-text" dir="ltr" name="tag_prefix" value="'.esc_attr($cfg['tag_prefix']).'"><p class="description">مثال: bluevpn-manager-v4.0.0</p></td></tr>';
         echo '<tr><th>Release Asset</th><td><input class="regular-text" dir="ltr" name="asset_name" value="'.esc_attr($cfg['asset_name']).'"></td></tr>';
-        echo '<tr><th>آپدیت خودکار</th><td><label><input type="checkbox" name="auto_update" value="1" '.checked(!empty($cfg['auto_update']),true,false).'> وردپرس اجازه داشته باشد BlueVPN Manager را در پس‌زمینه آپدیت کند.</label></td></tr>';
+        echo '<tr><th>آپدیت خودکار</th><td><label><input type="checkbox" name="auto_update" value="1" '.checked(!empty($cfg['auto_update']),true,false).'> BlueVPN Manager نسخه جدید را خودش پیدا کند و بدون ورود مدیر همان لحظه نصب کند.</label></td></tr>';
         echo '</table>';
         submit_button('ذخیره تنظیمات GitHub');
         echo '</form>';

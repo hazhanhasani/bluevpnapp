@@ -14,8 +14,8 @@ android {
         buildConfigField("String", "BLUEVPN_API_BASE_URL", "\"https://bot.blluepanel.ir\"")
         minSdk = 24
         targetSdk = 37
-        versionCode = 40023
-        versionName = "4.0.23"
+        versionCode = 40024
+        versionName = "4.0.24"
         multiDexEnabled = true
 
         val abiFilterList = (properties["ABI_FILTERS"] as? String)?.split(';')

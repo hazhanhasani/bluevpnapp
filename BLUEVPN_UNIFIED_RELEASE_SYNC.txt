@@ -1,0 +1,12 @@
+BlueVPN unified release synchronization
+
+Purpose:
+- App and WordPress Manager must always use exactly the same 4.x version.
+- The APK workflow is the single source of truth for version increments.
+- Every successful APK release also publishes bluevpn-manager-vX.Y.Z with bluevpn-manager.zip.
+- WordPress plugin releases are marked latest=false so they never replace the APK release as the repository's latest app release.
+- The standalone WordPress workflow is manual recovery only and never increments a version independently.
+
+Current transition:
+- App is already 4.0.6 while WordPress release is 4.0.5.
+- The next synchronized successful build is expected to be 4.0.7 for both.

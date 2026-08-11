@@ -77,12 +77,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          LATEST_TAG="$(
-            gh api \
-              "repos/${GITHUB_REPOSITORY}/releases/latest" \
-              --jq '.tag_name' \
-              2>/dev/null || true
-          )"
+          # Only app tags participate in Android version resolution.
+          # WordPress releases use bluevpn-manager-vX.Y.Z and must never
+          # influence the next APK version.
+          git fetch --tags --force >/dev/null 2>&1 || true
+          LATEST_TAG="$(git tag -l 'v4.*' --sort=-v:refname | head -n 1 || true)"
 
           export LATEST_TAG
           python - <<'PY'
@@ -189,6 +188,59 @@ jobs:
           echo "upstream_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["upstream_ref"])')" >> "$GITHUB_OUTPUT"
           echo "sing_box_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["sing_box_ref"])')" >> "$GITHUB_OUTPUT"
 
+      - name: Synchronize WordPress Manager with BlueVPN version
+        shell: bash
+        env:
+          VERSION: ${{ steps.config.outputs.version }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          main = Path("bluevpn-manager/bluevpn-manager.php")
+          readme = Path("bluevpn-manager/readme.txt")
+          if not main.exists():
+              raise SystemExit("bluevpn-manager/bluevpn-manager.php is missing")
+
+          text = main.read_text(encoding="utf-8")
+          text, n1 = re.subn(
+              r"(?mi)^(\s*\*?\s*Version:\s*)\d+\.\d+\.\d+(\s*)$",
+              lambda m: m.group(1) + version + m.group(2),
+              text,
+              count=1,
+          )
+          text, n2 = re.subn(
+              r"define\(\s*(['\"])BLUEVPN_MANAGER_VERSION\1\s*,\s*(['\"])[^'\"]+\2\s*\)\s*;",
+              lambda m: f"define({m.group(1)}BLUEVPN_MANAGER_VERSION{m.group(1)}, {m.group(2)}{version}{m.group(2)});",
+              text,
+              count=1,
+          )
+          if n1 != 1 or n2 != 1:
+              raise SystemExit(f"Could not synchronize plugin version header/constant: header={n1} constant={n2}")
+          main.write_text(text, encoding="utf-8")
+
+          if readme.exists():
+              r = readme.read_text(encoding="utf-8")
+              r, n = re.subn(
+                  r"(?mi)^(Version:\s*)\d+\.\d+\.\d+(\s*)$",
+                  lambda m: m.group(1) + version + m.group(2),
+                  r,
+                  count=1,
+              )
+              if n != 1:
+                  raise SystemExit("Could not synchronize readme Version")
+              readme.write_text(r, encoding="utf-8")
+
+          print(f"BlueVPN Manager synchronized to {version}")
+          PY
+
+          while IFS= read -r -d '' file; do
+            php -l "$file" >/dev/null
+          done < <(find bluevpn-manager -type f -name '*.php' -print0)
+
       - name: Persist resolved version in repository
         id: persist_metadata
         shell: bash
@@ -204,7 +256,8 @@ jobs:
             branding/app.json \
             release.json \
             deployment-marker.json \
-            validation-report.json
+            validation-report.json \
+            bluevpn-manager
 
           if ! git diff --cached --quiet; then
             git commit -m "chore: persist BlueVPN ${{ steps.config.outputs.version }} metadata [skip ci]"
@@ -870,6 +923,90 @@ jobs:
             --notes-file dist/RELEASE_NOTES.md
 
           echo "GitHub Release published from persisted source: ${TAG} @ ${SOURCE_COMMIT}"
+
+      - name: Build synchronized BlueVPN Manager release
+        env:
+          VERSION: ${{ steps.config.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          expected = os.environ["VERSION"]
+          app = json.loads(Path("branding/app.json").read_text(encoding="utf-8"))
+          release = json.loads(Path("release.json").read_text(encoding="utf-8"))
+          plugin = Path("bluevpn-manager/bluevpn-manager.php").read_text(encoding="utf-8")
+
+          header = re.search(r"(?mi)^\s*\*?\s*Version:\s*(\d+\.\d+\.\d+)\s*$", plugin)
+          const = re.search(r"BLUEVPN_MANAGER_VERSION[^,]*,\s*['\"](\d+\.\d+\.\d+)['\"]", plugin)
+          values = {
+              "workflow": expected,
+              "app": str(app.get("version_name", "")),
+              "release": str(release.get("version", "")),
+              "plugin_header": header.group(1) if header else "",
+              "plugin_constant": const.group(1) if const else "",
+          }
+          if len(set(values.values())) != 1:
+              raise SystemExit(f"Platform version mismatch: {values}")
+          print(f"Unified platform version verified: {expected}")
+          PY
+
+          while IFS= read -r -d '' file; do
+            php -l "$file" >/dev/null
+          done < <(find bluevpn-manager -type f -name '*.php' -print0)
+
+          rm -rf "$RUNNER_TEMP/bluevpn-manager-release"
+          mkdir -p "$RUNNER_TEMP/bluevpn-manager-release/bluevpn-manager"
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='tests' \
+            bluevpn-manager/ \
+            "$RUNNER_TEMP/bluevpn-manager-release/bluevpn-manager/"
+
+          (
+            cd "$RUNNER_TEMP/bluevpn-manager-release"
+            zip -qr "$GITHUB_WORKSPACE/bluevpn-manager.zip" bluevpn-manager
+          )
+          unzip -t "$GITHUB_WORKSPACE/bluevpn-manager.zip" >/dev/null
+          sha256sum "$GITHUB_WORKSPACE/bluevpn-manager.zip"
+
+      - name: Publish synchronized BlueVPN Manager release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.config.outputs.version }}
+          SOURCE_COMMIT: ${{ steps.persist_generated.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="bluevpn-manager-v${VERSION}"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" bluevpn-manager.zip \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+          else
+            gh release create "$TAG" \
+              bluevpn-manager.zip \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_COMMIT" \
+              --title "BlueVPN Manager ${VERSION}" \
+              --notes "نسخه همگام BlueVPN Manager ${VERSION}؛ این Release همراه Build اپلیکیشن ${VERSION} تولید شده است." \
+              --latest=false
+          fi
+
+          REMOTE_ASSET="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | select(.name=="bluevpn-manager.zip") | .name' | head -n 1)"
+          if [ "$REMOTE_ASSET" != "bluevpn-manager.zip" ]; then
+            echo "::error::WordPress release asset was not published correctly for $TAG"
+            exit 1
+          fi
+          echo "WordPress release published and verified: $TAG / bluevpn-manager.zip"
 
       - name: Send signed APK files to Telegram
         env:

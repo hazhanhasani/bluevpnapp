@@ -1,161 +1,70 @@
-name: Release BlueVPN Manager
+name: Release BlueVPN Manager (manual recovery)
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'bluevpn-manager/**'
-      - '.github/workflows/release-bluevpn-manager.yml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: bluevpn-manager-release
+  group: bluevpn-manager-manual-release
   cancel-in-progress: false
 
 jobs:
   release:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Locate BlueVPN Manager plugin
-        id: plugin
-        shell: bash
-        run: |
-          set -euo pipefail
-          MAIN_FILE="bluevpn-manager/bluevpn-manager.php"
-          if [ ! -f "$MAIN_FILE" ]; then
-            echo 'BlueVPN Manager main plugin file was not found at bluevpn-manager/bluevpn-manager.php' >&2
-            exit 1
-          fi
-          echo "main_file=$MAIN_FILE" >> "$GITHUB_OUTPUT"
-          echo "plugin_dir=bluevpn-manager" >> "$GITHUB_OUTPUT"
-
-      - name: Read release state
-        id: state
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch --tags --force
-          LATEST_TAG="$(git tag -l 'bluevpn-manager-v*' --sort=-v:refname | head -n 1 || true)"
-          echo "latest_tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Calculate release version
+      - name: Read and validate synchronized version
         id: version
         shell: bash
-        env:
-          MAIN_FILE: ${{ steps.plugin.outputs.main_file }}
-          LATEST_TAG: ${{ steps.state.outputs.latest_tag }}
         run: |
           set -euo pipefail
-          CURRENT_VERSION="$(python - "$MAIN_FILE" <<'PY'
-          import re, sys
-          text=open(sys.argv[1], encoding='utf-8').read()
-          m=re.search(r'(?mi)^\s*\*?\s*Version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$', text)
-          if not m: raise SystemExit('Version header not found')
+          VERSION="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          text=Path('bluevpn-manager/bluevpn-manager.php').read_text(encoding='utf-8')
+          m=re.search(r'(?mi)^\s*\*?\s*Version:\s*(\d+\.\d+\.\d+)\s*$',text)
+          if not m: raise SystemExit('Plugin Version header not found')
           print(m.group(1))
           PY
           )"
-          NEW_VERSION="$(python - "$CURRENT_VERSION" "$LATEST_TAG" <<'PY'
-          import re, sys
-          def parse(v):
-              v=(v or '').removeprefix('bluevpn-manager-v').removeprefix('v')
-              return tuple(map(int,v.split('.'))) if re.fullmatch(r'\d+\.\d+\.\d+',v) else None
-          current=parse(sys.argv[1]); tagged=parse(sys.argv[2]); base=(4,0,0)
-          if current is None: raise SystemExit('Invalid plugin version')
-          current=max(current,base)
-          if tagged is None or tagged < base or current > tagged:
-              result=current
-          else:
-              major,minor,patch=tagged
-              patch+=1
-              if patch>=100:
-                  minor+=1; patch=0
-              result=(major,minor,patch)
-          print('.'.join(map(str,result)))
-          PY
-          )"
-          echo "current=$CURRENT_VERSION" >> "$GITHUB_OUTPUT"
-          echo "new=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=bluevpn-manager-v$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          if ! [[ "$VERSION" =~ ^4\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid synchronized 4.x version: $VERSION" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Persist release version
-        shell: bash
-        env:
-          NEW_VERSION: ${{ steps.version.outputs.new }}
-        run: |
-          set -euo pipefail
-          python - "$NEW_VERSION" <<'PY'
-          from pathlib import Path
-          import re, sys
-          version=sys.argv[1]
-          main=Path('bluevpn-manager/bluevpn-manager.php')
-          text=main.read_text(encoding='utf-8')
-          text,n=re.subn(r'(?mi)^(\s*\*?\s*Version:\s*)\d+\.\d+\.\d+(\s*)$',lambda m:m.group(1)+version+m.group(2),text,count=1)
-          if n != 1: raise SystemExit('Could not update Version header')
-          text,n2=re.subn(r"define\(\s*(['\"])BLUEVPN_MANAGER_VERSION\1\s*,\s*(['\"])[^'\"]+\2\s*\)\s*;",lambda m:f"define({m.group(1)}BLUEVPN_MANAGER_VERSION{m.group(1)}, {m.group(2)}{version}{m.group(2)});",text,count=1)
-          if n2 != 1: raise SystemExit('Could not update BLUEVPN_MANAGER_VERSION')
-          main.write_text(text,encoding='utf-8')
-          readme=Path('bluevpn-manager/readme.txt')
-          if readme.exists():
-              r=readme.read_text(encoding='utf-8')
-              r=re.sub(r'(?mi)^(Version:\s*)\d+\.\d+\.\d+(\s*)$',lambda m:m.group(1)+version+m.group(2),r,count=1)
-              r=re.sub(r'(?mi)^(Stable tag:\s*)\d+\.\d+\.\d+(\s*)$',lambda m:m.group(1)+version+m.group(2),r,count=1)
-              readme.write_text(r,encoding='utf-8')
-          PY
-
-      - name: Validate PHP syntax
+      - name: Build plugin ZIP
         shell: bash
         run: |
           set -euo pipefail
           while IFS= read -r -d '' file; do php -l "$file" >/dev/null; done < <(find bluevpn-manager -type f -name '*.php' -print0)
-
-      - name: Commit version bump if needed
-        shell: bash
-        env:
-          NEW_VERSION: ${{ steps.version.outputs.new }}
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add bluevpn-manager
-          if ! git diff --cached --quiet; then
-            git commit -m "chore(bluevpn-manager): release v${NEW_VERSION} [skip ci]"
-            git push origin HEAD:main
-          fi
-
-      - name: Build release ZIP
-        shell: bash
-        run: |
-          set -euo pipefail
           rm -rf "$RUNNER_TEMP/bluevpn-manager-release"
           mkdir -p "$RUNNER_TEMP/bluevpn-manager-release/bluevpn-manager"
-          rsync -a --exclude='.git' --exclude='.github' --exclude='node_modules' --exclude='tests' bluevpn-manager/ "$RUNNER_TEMP/bluevpn-manager-release/bluevpn-manager/"
-          cd "$RUNNER_TEMP/bluevpn-manager-release"
-          zip -qr "$GITHUB_WORKSPACE/bluevpn-manager.zip" bluevpn-manager
-          unzip -t "$GITHUB_WORKSPACE/bluevpn-manager.zip"
+          rsync -a bluevpn-manager/ "$RUNNER_TEMP/bluevpn-manager-release/bluevpn-manager/"
+          (cd "$RUNNER_TEMP/bluevpn-manager-release" && zip -qr "$GITHUB_WORKSPACE/bluevpn-manager.zip" bluevpn-manager)
+          unzip -t bluevpn-manager.zip >/dev/null
 
-      - name: Publish GitHub Release
-        shell: bash
+      - name: Publish recovery release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          NEW_VERSION: ${{ steps.version.outputs.new }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
         run: |
           set -euo pipefail
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists; replacing release asset only."
-            gh release upload "$TAG" bluevpn-manager.zip --clobber || true
+          TAG="bluevpn-manager-v${VERSION}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" bluevpn-manager.zip --repo "$GITHUB_REPOSITORY" --clobber
           else
-            git tag "$TAG"
-            git push origin "$TAG"
-            gh release create "$TAG" bluevpn-manager.zip --title "BlueVPN Manager $NEW_VERSION" --generate-notes
+            gh release create "$TAG" bluevpn-manager.zip \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "${GITHUB_SHA}" \
+              --title "BlueVPN Manager ${VERSION}" \
+              --notes "Manual recovery release for synchronized BlueVPN Manager ${VERSION}." \
+              --latest=false
           fi

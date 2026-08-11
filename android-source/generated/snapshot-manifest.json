@@ -1,8 +1,8 @@
 {
   "app": "BlueVPN",
-  "version": "4.0.9",
-  "version_code": 40009,
-  "workflow_source_commit": "b9a8dab02300485703d9ba14d2e12cb62cf535a3",
+  "version": "4.0.11",
+  "version_code": 40011,
+  "workflow_source_commit": "6296ff1d9e346115fb0e746e2e5c6215f72cc7ff",
   "upstream_ref": "2.2.6",
   "files": {
     "src/main/java/com/v2ray/ang/ui/BlueVpnHomeActivity.kt": "9a2be42bf1eedafb025f2bc27ec9cf549fab13e9a93acdb48bf2794530226485",
@@ -27,7 +27,7 @@
     "src/main/res/xml/bluevpn_update_paths.xml": "fd8e1c44efe522971fd3a97bd770da887ca9eabe498c97edb633e6940bd0fd98",
     "src/main/AndroidManifest.xml": "35c21953f625a76d528f4a723468faf188015ba581623cd3a15401c949531a81",
     "src/main/java/com/v2ray/ang/AngApplication.kt": "cac7ce1054f235f7561fc75fad15bec65654529175482bb63ecf53456a38f459",
-    "build.gradle.kts": "05899f8f3833bd1f0824f2e22f0cb81e3b957d8b31734e66c3183be7c6f1e8aa",
+    "build.gradle.kts": "8015af671c696af61aa89e9a27aac88e5f009e88a1746ae72d57e6bcccdf3da8",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnAdsCarouselView.kt": "300e22304498f009870f985bbb8a9770cebebfac767cc2b33f084e67e2aad168",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnTheme.kt": "454ba391ea529d0b5972d555486c39f5a13c5ca8a41d029d7ed81e3970d0c012",
     "src/main/java/com/v2ray/ang/bluevpn/BlueVpnLiveReporter.kt": "dd0c8282cc5084ca25ea99e6bbf7d920fddfcf0d2571fe225cc97866aa90bfc0",

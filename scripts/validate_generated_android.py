@@ -171,12 +171,20 @@ def main() -> None:
             'expireFa' in account_manager
             and 'اعتبار تا:' in subscriptions
             and 'BlueVpnPersianDate.formatIso' in subscriptions,
-        "email password listener after initialization":
-            'val password=authField("رمز عبور؛ حداقل ۸ کاراکتر").apply{' in subscriptions
-            and 'password.setOnEditorActionListener{' in subscriptions,
+        "email password listener safely registered":
+            (
+                (
+                    'val password=authField("رمز عبور؛ حداقل ۸ کاراکتر").apply{' in subscriptions
+                    and 'password.setOnEditorActionListener{' in subscriptions
+                )
+                or (
+                    'val password=archiveInput("حداقل ۸ کاراکتر"' in subscriptions
+                    and 'setOnEditorActionListener{' in subscriptions
+                )
+            ),
         "no password self reference in initializer":
             re.search(
-                r'val password=authField\([^\n]+\)\.apply\{[^\n]*password\.text',
+                r'val password=(?:authField|archiveInput)\([^\n]+\)\.apply\{[^\n]*password\.text',
                 subscriptions,
             ) is None,
     }

@@ -1,18 +1,21 @@
 {
-  "release": "4.0.24-auto",
-  "version_name": "4.0.24",
-  "version_code": 40024,
+  "release": "4.0.0",
+  "version_name": "4.0.0",
+  "version_code": 40000,
   "changes": [
-    "Add a searchable mobile navigation drawer for all admin sections",
-    "Render wide admin tables as labeled cards on phone screens",
-    "Make forms, actions, advertising controls and diagnostics touch friendly",
-    "Respect Android and iOS safe areas without horizontal page overflow",
-    "Keep the existing desktop dashboard layout unchanged above tablet width"
+    "Add engine-neutral semantic profile catalogue for V2Ray share links, Xray JSON, sing-box JSON and SSH URI sources",
+    "Collapse duplicate semantic nodes only in the selection catalogue while preserving physical subscription data",
+    "Rebind the selected semantic server after free or premium subscription refresh changes MMKV GUIDs",
+    "Backport Shadowsocks SIP002 transport/TLS query parsing and export preservation to pinned v2rayNG 2.2.6",
+    "Compile SSH and sing-box outbound sources into a native-validated local mixed-proxy profile without taking over Android TUN yet"
   ],
-  "generated_at_unix": 1786231800,
-  "purpose": "بازطراحی کامل پنل مدیریت برای استفاده مستقیم روی گوشی بدون حالت دسکتاپ",
-  "updated_at": "2026-08-09T07:30:00Z",
-  "built_at": "2026-08-09T07:30:00Z",
-  "build_id": "20260809-mobile-admin-v3043",
-  "feature": "mobile-first-admin"
+  "generated_at_unix": 1786307912,
+  "purpose": "شروع شاخه رسمی BlueVPN 4.x",
+  "updated_at": "2026-08-11T06:15:00Z",
+  "built_at": "2026-08-11T06:15:00Z",
+  "build_id": "20260810-unified-profile-subscription-management-v3083",
+  "feature": "unified-profile-subscription-management",
+  "build_fix": "semantic-config-catalogue-subscription-selection-rebind",
+  "version_source": "unified-profile-subscription-management-v3083",
+  "summary": "Semantic profile identity, non-destructive de-duplication, selection preservation on subscription refresh, JSON engine classification and staged SSH/sing-box support."
 }

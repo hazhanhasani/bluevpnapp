@@ -109,7 +109,7 @@ final class BlueVPN_API {
             'github_error'=>(string)($s['github_error']??''),
             'release_cache_seconds'=>(int)($s['release_cache_seconds']??15),
             'release_refresh_forced'=>$forced,
-            'auth'=>array_merge(['mode'=>'phone_otp','password_login'=>false],BlueVPN_SMS_OTP::public_config(),['request_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/request','verify_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/verify']),
+            'auth'=>array_merge(['mode'=>'phone_otp_or_email_password','password_login'=>true,'email_login'=>true,'email_registration'=>true],BlueVPN_SMS_OTP::public_config(),['request_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/request','verify_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/verify','login_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/login','register_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/register']),
             'blueai'=>['enabled'=>(bool)$s['blueai_enabled'],'collective'=>(bool)$s['blueai_collective'],'auto_heal'=>(bool)$s['blueai_auto_heal'],'min_samples'=>(int)$s['blueai_min_samples'],'privacy_message'=>$s['blueai_privacy_message']],
             'announcement'=>['enabled'=>(bool)$s['announcement_enabled'],'id'=>$s['announcement_id'],'title'=>$s['announcement_title'],'message'=>$s['announcement_message']],
             'advertising'=>BlueVPN_Ads::advertising_payload($s,$r),

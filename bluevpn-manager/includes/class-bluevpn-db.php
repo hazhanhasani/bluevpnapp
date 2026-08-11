@@ -353,6 +353,7 @@ final class BlueVPN_DB {
             response_json longtext NULL,
             last_error longtext NULL,
             next_attempt_at datetime NULL,
+            sending_started_at datetime NULL,
             sent_at datetime NULL,
             created_at datetime NULL,
             PRIMARY KEY  (id),

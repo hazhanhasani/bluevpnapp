@@ -7,10 +7,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_metadata_is_v373():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.83"
-    assert release["version_code"] == 30083
-    assert app["version_name"] == "3.0.83"
-    assert app["version_code"] == 30083
+    assert release["version"] == "4.0.0"
+    assert release["version_code"] == 40000
+    assert app["version_name"] == "4.0.0"
+    assert app["version_code"] == 40000
 
 
 def test_locations_copy_is_bound_to_entitlement_snapshot():

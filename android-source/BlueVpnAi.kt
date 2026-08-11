@@ -446,33 +446,63 @@ object BlueVpnAi {
         context: Context,
         force: Boolean = false,
     ): Result<Int> = runCatching {
-        if (!enabled(context) || !BlueVpnAccountManager.hasSession(context)) {
-            return@runCatching 0
-        }
+        if (!enabled(context)) return@runCatching 0
         val storage = prefs(context)
         if (!force && System.currentTimeMillis() - storage.getLong(KEY_LAST_SYNC, 0L) < SYNC_INTERVAL) {
             return@runCatching JSONObject(
                 storage.getString(KEY_RECOMMENDATIONS, "{}") ?: "{}"
             ).length()
         }
-        val network = network(context)
-        val response = BlueVpnAccountManager.aiRecommendations(
-            context,
-            network.operator,
-            network.networkType,
-            BlueVpnExperience.mode(context).key,
-        ).getOrThrow()
-        val rows = response.optJSONArray("recommendations") ?: JSONArray()
+
+        // Local intelligence is authoritative and works for both Free and Premium.
+        // The cloud model enriches it when an authenticated account is available;
+        // a server/network failure can never disable automatic selection.
+        val candidates = BlueVpnLocationUtil.cachedCandidates(context).ifEmpty {
+            BlueVpnLocationUtil.allCandidates(context, forceRefresh = force)
+        }
         val scores = JSONObject()
         val locationScores = mutableMapOf<String, MutableList<Int>>()
-        for (index in 0 until rows.length()) {
-            val row = rows.optJSONObject(index) ?: continue
-            val key = row.optString("config_key")
-            val score = row.optInt("score", 50)
-            if (key.isNotBlank()) scores.put(key, score)
-            val location = row.optString("location_key")
-            if (location.isNotBlank()) {
-                locationScores.getOrPut(location) { mutableListOf() }.add(score)
+        candidates
+            .filter { BlueVpnEntitlement.candidateAllowed(context, it) }
+            .forEach { candidate ->
+                val latency = when {
+                    candidate.delay in 1..60 -> 92
+                    candidate.delay in 61..120 -> 82
+                    candidate.delay in 121..220 -> 68
+                    candidate.delay > 220 -> 48
+                    candidate.delay == 0L -> 55
+                    else -> 20
+                }
+                val personal = personalScore(context, candidate)
+                val freshness = BlueVpnPreferences.successFreshnessScore(context, candidate.guid)
+                val failedPenalty = if (BlueVpnPreferences.failedRecently(context, candidate.guid)) 24 else 0
+                val local = (latency * 70 / 100 + personal * 20 / 100 + freshness.coerceIn(0, 34) * 10 / 34 - failedPenalty)
+                    .coerceIn(0, 100)
+                scores.put(fingerprint(candidate), local)
+                locationScores.getOrPut(candidate.location.key) { mutableListOf() }.add(local)
+            }
+
+        if (BlueVpnAccountManager.hasSession(context)) {
+            val network = network(context)
+            BlueVpnAccountManager.aiRecommendations(
+                context,
+                network.operator,
+                network.networkType,
+                BlueVpnExperience.mode(context).key,
+            ).getOrNull()?.optJSONArray("recommendations")?.let { rows ->
+                for (index in 0 until rows.length()) {
+                    val row = rows.optJSONObject(index) ?: continue
+                    val key = row.optString("config_key")
+                    val cloud = row.optInt("score", 50).coerceIn(0, 100)
+                    if (key.isNotBlank()) {
+                        val local = scores.optInt(key, 50)
+                        scores.put(key, (local * 70 + cloud * 30) / 100)
+                    }
+                    val location = row.optString("location_key")
+                    if (location.isNotBlank()) {
+                        locationScores.getOrPut(location) { mutableListOf() }.add(cloud)
+                    }
+                }
             }
         }
         locationScores.forEach { (key, values) ->
@@ -714,15 +744,34 @@ object BlueVpnAi {
     }
 
     fun localSummary(context: Context): String {
+        if (!enabled(context)) return "انتخاب‌گر هوشمند غیرفعال است"
         val network = network(context)
         val learned = runCatching {
             JSONObject(prefs(context).getString(KEY_RECOMMENDATIONS, "{}") ?: "{}").length()
         }.getOrDefault(0)
-        return if (enabled(context)) {
-            "${network.operator} • ${network.networkType} • $learned مسیر یادگرفته‌شده"
+        val decision = BlueVpnSmartSelector.lastSummary(context)
+        return if (learned > 0) {
+            "$decision\n${network.operator} • ${network.networkType} • $learned سیگنال"
         } else {
-            "BlueAI غیرفعال است"
+            "انتخاب‌گر هوشمند آماده • ${network.operator} • ${network.networkType}"
         }
+    }
+
+    fun onEntitlementChanged(context: Context, identity: String) {
+        val storage = prefs(context)
+        val previous = storage.getString("entitlement_identity", "").orEmpty()
+        if (previous == identity) return
+        storage.edit()
+            .putString("entitlement_identity", identity)
+            .remove(KEY_RECOMMENDATIONS)
+            .remove(KEY_SESSION)
+            .remove(KEY_LAST_SYNC)
+            .remove(KEY_LAST_HEARTBEAT)
+            .remove(KEY_LAST_PROBE_AT)
+            .remove(KEY_LAST_PROBE_SOURCE)
+            .remove(KEY_LAST_PROBE_LATENCY)
+            .apply()
+        BlueVpnSmartSelector.clear(context)
     }
 
     fun cachedTopRoutes(context: Context): List<Pair<String, Int>> {

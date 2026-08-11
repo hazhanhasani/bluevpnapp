@@ -363,6 +363,7 @@ final class BlueVPN_Auth {
     }
 
     public static function account_payload(array $c): array {
+        global $wpdb;
         $expiry = !empty($c['subscription_expire']) ? strtotime($c['subscription_expire'] . ' UTC') : false;
         $status = strtolower(trim((string)($c['subscription_status'] ?? 'inactive'))) ?: 'inactive';
         $terminal = in_array($status, ['disabled', 'expired', 'limited', 'blocked', 'deleted'], true);
@@ -375,9 +376,27 @@ final class BlueVPN_Auth {
         $active = (bool)((int)$c['active'] && $hasUrl && $withinExpiry && $withinTraffic && !$terminal && $status === 'active');
         $expireIso = $unlimited ? '2099-12-31T23:59:59Z' : ($expiry ? gmdate('Y-m-d\TH:i:s\Z', $expiry) : '');
         $remainingSeconds = $unlimited ? null : ($expiry ? max(0, $expiry - time()) : 0);
-        $email = !empty($c['phone']) ? '' : (string)$c['email'];
+        $email = (string)($c['email'] ?? '');
         $phone = (string)($c['phone'] ?? '');
         $display = $phone !== '' ? BlueVPN_Utils::local_phone($phone) : $email;
+        $entitlementOrderId = null;
+        $entitlementPlanId = $c['plan_id'] !== null ? (int)$c['plan_id'] : null;
+        $entitlementActive = (bool)($active && $entitlementPlanId);
+        if ($active) {
+            try {
+                $order = $wpdb->get_row($wpdb->prepare(
+                    "SELECT id,plan_id FROM ".BlueVPN_DB::table('orders')." WHERE customer_id=%d AND (status='activated' OR activated_at IS NOT NULL) ORDER BY activated_at DESC,created_at DESC LIMIT 1",
+                    (int)$c['id']
+                ), ARRAY_A);
+                if ($order) {
+                    $entitlementOrderId = (string)$order['id'];
+                    $entitlementPlanId = $order['plan_id'] !== null ? (int)$order['plan_id'] : $entitlementPlanId;
+                    $entitlementActive = true;
+                }
+            } catch (Throwable $e) {
+                // Migrated/manual subscriptions may not have a historical order.
+            }
+        }
         return [
             'id' => (int)$c['id'],
             'email' => $email,
@@ -396,9 +415,9 @@ final class BlueVPN_Auth {
                 'active' => $active,
                 'status' => $active ? 'active' : $status,
                 'active_reason' => $active ? 'stored_status' : 'inactive',
-                'entitlement_active' => false,
-                'entitlement_order_id' => null,
-                'entitlement_plan_id' => null,
+                'entitlement_active' => $entitlementActive,
+                'entitlement_order_id' => $entitlementOrderId,
+                'entitlement_plan_id' => $entitlementPlanId,
                 'url' => (string)($c['subscription_url'] ?? ''),
                 'expire' => $expireIso,
                 'expires_at' => $expireIso,

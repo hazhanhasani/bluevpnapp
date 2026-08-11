@@ -28,10 +28,10 @@ def test_v338_metadata_and_generated_sources_are_synchronized():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding" / "app.json").read_text(encoding="utf-8"))
 
-    assert release["version"] == "3.0.62"
-    assert release["version_code"] == 30062
-    assert app["version_name"] == "3.0.62"
-    assert app["version_code"] == 30062
+    assert release["version"] == "4.0.0"
+    assert release["version_code"] == 40000
+    assert app["version_name"] == "4.0.0"
+    assert app["version_code"] == 40000
 
     assert _embedded("BLUEVPN_HOME_ACTIVITY_B64") == (
         ROOT / "android-source" / "BlueVpnHomeActivity.kt"

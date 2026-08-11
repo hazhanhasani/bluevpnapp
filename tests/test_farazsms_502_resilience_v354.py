@@ -15,10 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_355_compat():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.62"
-    assert release["version_code"] == 30062
-    assert app["version_name"] == "3.0.62"
-    assert app["version_code"] == 30062
+    assert release["version"] == "4.0.0"
+    assert release["version_code"] == 40000
+    assert app["version_name"] == "4.0.0"
+    assert app["version_code"] == 40000
 
 
 def test_html_provider_error_is_never_exposed():

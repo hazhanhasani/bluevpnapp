@@ -11,10 +11,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_release_version_356():
     release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
     app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    assert release["version"] == "3.0.62"
-    assert release["version_code"] == 30062
-    assert app["version_name"] == "3.0.62"
-    assert app["version_code"] == 30062
+    assert release["version"] == "4.0.0"
+    assert release["version_code"] == 40000
+    assert app["version_name"] == "4.0.0"
+    assert app["version_code"] == 40000
 
 
 def test_low_ram_profile_disables_permanent_animation():
@@ -22,7 +22,7 @@ def test_low_ram_profile_disables_permanent_animation():
     home = (ROOT / "android-source/BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
     assert "object BlueVpnPerformance" in theme
     assert "isLowRamDevice" in theme
-    assert "BlueVpnPerformance.isLowEnd(context)" in theme
+    assert "repeatCount = ValueAnimator.INFINITE" not in theme
     assert "!enabled || BlueVpnPerformance.isLowEnd(this)" in home
     assert "BlueVpnPerformance.statsIntervalMs" in home
     assert "!BlueVpnPerformance.isLowEnd(this)" in home
@@ -31,7 +31,8 @@ def test_low_ram_profile_disables_permanent_animation():
 def test_expensive_server_work_is_cached_and_off_main_thread():
     source = (ROOT / "android-source/BlueVpnLocationUtil.kt").read_text(encoding="utf-8")
     home = (ROOT / "android-source/BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
-    assert "CANDIDATE_CACHE_TTL_MS = 10_000L" in source
+    assert "CANDIDATE_CACHE_TTL_MS = 60_000L" in source
+    assert "fun cachedCandidates(context: Context)" in source
     assert "contextCandidateCache" in source
     assert "cloudExecutor.execute" in source
     assert "Candidate decoding and SHA-256 identity generation" in source
@@ -53,8 +54,9 @@ def test_location_screen_uses_debounce_and_single_candidate_snapshot():
     servers = (ROOT / "android-source/BlueVpnServersActivity.kt").read_text(encoding="utf-8")
     assert "searchHandler.postDelayed" in servers
     assert "BlueVpnPerformance.locationSyncIntervalMs" in servers
-    assert "val candidates = BlueVpnLocationUtil.allCandidates(this)" in servers
-    assert servers.count("val candidates = BlueVpnLocationUtil.allCandidates(this)") == 1
+    assert "val candidates = BlueVpnLocationUtil.cachedCandidates(this)" in servers
+    assert "lifecycleScope.launch(Dispatchers.Default)" in servers
+    assert servers.count("val candidates = BlueVpnLocationUtil.cachedCandidates(this)") == 1
 
 
 def test_modified_android_snapshots_match_generator():

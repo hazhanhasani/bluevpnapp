@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_SMS_Notifications {
     public const HOOK_PROCESS = 'bluevpn_sms_process_queue';
     private const RETRY_DELAYS = [60, 300, 900, 1800];
-    private const CATALOG_VERSION = '2026-08-11-4.0.24';
+    private const CATALOG_VERSION = '2026-08-11-4.0.25';
     private static bool $shutdownRegistered = false;
 
     /**
@@ -235,7 +235,10 @@ final class BlueVPN_SMS_Notifications {
         try { self::process(12); } catch (Throwable $e) { error_log('BlueVPN SMS shutdown flush: '.$e->getMessage()); }
     }
 
-    public static function queue(string $eventKey, string $phone, array $params = [], ?int $customerId = null, ?string $orderId = null, string $dedupeSeed = '', bool $force = false): ?string {
+    /** Wake the worker after a caller commits a DB transaction containing outbox rows. */
+    public static function wake_queue(): void { self::kick_queue(); }
+
+    public static function queue(string $eventKey, string $phone, array $params = [], ?int $customerId = null, ?string $orderId = null, string $dedupeSeed = '', bool $force = false, bool $kick = true): ?string {
         global $wpdb;
         $spec = self::spec($eventKey);
         if (!$spec) return null;
@@ -253,14 +256,14 @@ final class BlueVPN_SMS_Notifications {
             'id'=>$id,'event_key'=>$eventKey,'customer_id'=>$customerId ?: null,'order_id'=>$orderId ?: null,
             'phone'=>$phone,'params_json'=>BlueVPN_Utils::json_encode($clean),'dedupe_key'=>$dedupe,'status'=>'pending','attempts'=>0,
             'max_attempts'=>max(1,min(5,(int)($s['retry_max_attempts'] ?? 3))),'provider_message_id'=>'','response_json'=>'','last_error'=>'',
-            'next_attempt_at'=>BlueVPN_Utils::now_mysql(),'sent_at'=>null,'created_at'=>BlueVPN_Utils::now_mysql(),
+            'next_attempt_at'=>BlueVPN_Utils::now_mysql(),'sending_started_at'=>null,'sent_at'=>null,'created_at'=>BlueVPN_Utils::now_mysql(),
         ]);
         if ($ok === false) {
             // Duplicate deliveries are intentionally ignored; other DB errors are logged.
             if (stripos((string)$wpdb->last_error,'duplicate') === false) error_log('BlueVPN SMS queue DB error: '.$wpdb->last_error);
             return null;
         }
-        self::kick_queue();
+        if ($kick) self::kick_queue();
         return $id;
     }
 
@@ -276,7 +279,7 @@ final class BlueVPN_SMS_Notifications {
         $now = BlueVPN_Utils::now_mysql();
         // Recover rows left in sending state if PHP/WP was terminated mid-request.
         $stale = gmdate('Y-m-d H:i:s', time()-10*MINUTE_IN_SECONDS);
-        $wpdb->query($wpdb->prepare("UPDATE {$table} SET status='retry',next_attempt_at=%s,last_error=CONCAT(IFNULL(last_error,''),' | recovered stale sending') WHERE status='sending' AND created_at<%s",$now,$stale));
+        $wpdb->query($wpdb->prepare("UPDATE {$table} SET status='retry',next_attempt_at=%s,sending_started_at=NULL,last_error=CONCAT(IFNULL(last_error,''),' | recovered stale sending') WHERE status='sending' AND sending_started_at IS NOT NULL AND sending_started_at<%s",$now,$stale));
         $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} WHERE status IN ('pending','retry') AND (next_attempt_at IS NULL OR next_attempt_at<=%s) ORDER BY created_at ASC LIMIT %d",$now,max(1,min(100,$limit))),ARRAY_A) ?: [];
         $sent=0;$failed=0;
         foreach ($rows as $row) {
@@ -291,15 +294,15 @@ final class BlueVPN_SMS_Notifications {
                     $wpdb->update($table,['status'=>'skipped','last_error'=>'پترن غیرفعال یا بدون کد پترن است.','next_attempt_at'=>null],['id'=>$fresh['id']]);$failed++;continue;
                 }
                 $attempts=(int)$fresh['attempts']+1;
-                $wpdb->update($table,['status'=>'sending','attempts'=>$attempts],['id'=>$fresh['id']]);
+                $wpdb->update($table,['status'=>'sending','attempts'=>$attempts,'sending_started_at'=>BlueVPN_Utils::now_mysql()],['id'=>$fresh['id']]);
                 try {
                     $params=BlueVPN_Utils::json_decode_array((string)$fresh['params_json'],[]);
                     $response=self::send_pattern((string)$fresh['phone'],(string)$template['pattern_code'],self::clean_params($spec,$params));
-                    $wpdb->update($table,['status'=>'sent','sent_at'=>BlueVPN_Utils::now_mysql(),'provider_message_id'=>self::provider_id($response),'response_json'=>mb_substr(BlueVPN_Utils::json_encode($response),0,8000),'last_error'=>'','next_attempt_at'=>null],['id'=>$fresh['id']]);$sent++;
+                    $wpdb->update($table,['status'=>'sent','sent_at'=>BlueVPN_Utils::now_mysql(),'provider_message_id'=>self::provider_id($response),'response_json'=>mb_substr(BlueVPN_Utils::json_encode($response),0,8000),'last_error'=>'','next_attempt_at'=>null,'sending_started_at'=>null],['id'=>$fresh['id']]);$sent++;
                 } catch (Throwable $e) {
                     $max=max(1,(int)$fresh['max_attempts']);
                     if($attempts>=$max){$status='failed';$next=null;}else{$status='retry';$delay=self::RETRY_DELAYS[min($attempts-1,count(self::RETRY_DELAYS)-1)];$next=gmdate('Y-m-d H:i:s',time()+$delay);}
-                    $wpdb->update($table,['status'=>$status,'last_error'=>mb_substr($e->getMessage(),0,2000),'next_attempt_at'=>$next],['id'=>$fresh['id']]);$failed++;
+                    $wpdb->update($table,['status'=>$status,'last_error'=>mb_substr($e->getMessage(),0,2000),'next_attempt_at'=>$next,'sending_started_at'=>null],['id'=>$fresh['id']]);$failed++;
                 }
             } finally { $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)',$lockName)); }
         }
@@ -314,22 +317,39 @@ final class BlueVPN_SMS_Notifications {
         } catch (Throwable $e) { error_log('BlueVPN SMS cron: '.$e->getMessage()); }
     }
 
-    /** Recover terminal order notifications even if a webhook/request died after DB commit. */
+    /**
+     * Reconcile durable order notifications. This is the safety net for the very
+     * small window between committing a payment/order state and PHP finishing the
+     * request. Dedupe keys make every recovery pass idempotent.
+     */
     public static function scan_order_notifications(): array {
         global $wpdb;
         $s=self::settings();
         if(empty($s['notification_active'])) return ['scanned'=>0,'queued'=>0];
-        $orders=BlueVPN_DB::table('orders');$customers=BlueVPN_DB::table('customers');
-        $rows=$wpdb->get_results("SELECT o.id,o.order_code,o.customer_id,o.amount_toman,o.status,c.phone FROM {$orders} o JOIN {$customers} c ON c.id=o.customer_id WHERE c.phone IS NOT NULL AND c.phone<>'' AND o.status IN ('expired','canceled','cancelled','failed','rejected','amount_mismatch','refunded','invoice_failed') ORDER BY o.created_at DESC LIMIT 500",ARRAY_A)?:[];
+        $orders=BlueVPN_DB::table('orders');$customers=BlueVPN_DB::table('customers');$plans=BlueVPN_DB::table('plans');$deliveries=BlueVPN_DB::table('sms_deliveries');
+        $rows=$wpdb->get_results("SELECT o.id,o.order_code,o.customer_id,o.plan_id,o.amount_toman,o.status,o.payment_id,o.payment_url,o.activated_at,c.phone,c.subscription_expire,p.title AS plan_title FROM {$orders} o JOIN {$customers} c ON c.id=o.customer_id LEFT JOIN {$plans} p ON p.id=o.plan_id WHERE c.phone IS NOT NULL AND c.phone<>'' ORDER BY o.created_at DESC LIMIT 700",ARRAY_A)?:[];
         $queued=0;
         foreach($rows as $row){
-            $status=strtolower((string)$row['status']);
-            if($status==='refunded'){
-                $queued+=self::queue('refund_success',(string)$row['phone'],['amount'=>(int)$row['amount_toman'],'invoice_id'=>mb_substr((string)$row['order_code'],0,40)],(int)$row['customer_id'],(string)$row['id'],'refund:'.$row['id'])?1:0;
+            $status=strtolower((string)$row['status']);$orderId=(string)$row['id'];$phone=(string)$row['phone'];$customerId=(int)$row['customer_id'];$invoice=mb_substr((string)$row['order_code'],0,40);
+            // Any valid remote invoice must have an invoice-created notification.
+            if(!empty($row['payment_id'])&&!empty($row['payment_url'])&&!in_array($status,['invoice_failed','amount_mismatch'],true)){
+                $queued+=self::queue('invoice_created',$phone,['invoice_id'=>$invoice,'amount'=>(int)$row['amount_toman']],$customerId,$orderId,'invoice-created:'.$orderId)?1:0;
+            }
+            if($status==='activated'||!empty($row['activated_at'])){
+                if((int)$row['amount_toman']>0)$queued+=self::queue('payment_success',$phone,['amount'=>(int)$row['amount_toman'],'invoice_id'=>$invoice],$customerId,$orderId,'payment-success:'.$orderId)?1:0;
+                // Preserve the original renewed/upgraded/changed message if it was
+                // already queued. Only synthesize generic activation if the request
+                // died before *any* subscription event reached the outbox.
+                $existing=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$deliveries} WHERE order_id=%s AND event_key IN ('subscription_activated','subscription_renewed','subscription_upgraded','subscription_plan_changed','admin_subscription_activated')",$orderId));
+                if($existing===0&&!empty($row['plan_title'])){
+                    $queued+=self::queue('subscription_activated',$phone,['plan'=>mb_substr((string)$row['plan_title'],0,40),'expire_date'=>self::jalali_date((string)($row['subscription_expire']??''))],$customerId,$orderId,'subscription:'.$orderId.':subscription_activated')?1:0;
+                }
+            }elseif($status==='refunded'){
+                $queued+=self::queue('refund_success',$phone,['amount'=>(int)$row['amount_toman'],'invoice_id'=>$invoice],$customerId,$orderId,'refund:'.$orderId)?1:0;
             }elseif(in_array($status,['expired','canceled','cancelled'],true)){
-                $queued+=self::queue('invoice_expired',(string)$row['phone'],['invoice_id'=>mb_substr((string)$row['order_code'],0,40)],(int)$row['customer_id'],(string)$row['id'],'invoice-expired:'.$row['id'])?1:0;
-            }else{
-                $queued+=self::queue('payment_failed',(string)$row['phone'],['invoice_id'=>mb_substr((string)$row['order_code'],0,40)],(int)$row['customer_id'],(string)$row['id'],'payment-failed-recovery:'.$row['id'].':'.$status)?1:0;
+                $queued+=self::queue('invoice_expired',$phone,['invoice_id'=>$invoice],$customerId,$orderId,'invoice-expired:'.$orderId)?1:0;
+            }elseif(in_array($status,['failed','rejected','amount_mismatch','invoice_failed'],true)){
+                $queued+=self::queue('payment_failed',$phone,['invoice_id'=>$invoice],$customerId,$orderId,'payment-failed-recovery:'.$orderId.':'.$status)?1:0;
             }
         }
         return ['scanned'=>count($rows),'queued'=>$queued];
@@ -363,7 +383,7 @@ final class BlueVPN_SMS_Notifications {
 
     public static function retry(string $deliveryId): bool {
         global $wpdb;
-        return $wpdb->update(BlueVPN_DB::table('sms_deliveries'),['status'=>'retry','attempts'=>0,'last_error'=>'','next_attempt_at'=>BlueVPN_Utils::now_mysql()],['id'=>$deliveryId])!==false;
+        return $wpdb->update(BlueVPN_DB::table('sms_deliveries'),['status'=>'retry','attempts'=>0,'last_error'=>'','next_attempt_at'=>BlueVPN_Utils::now_mysql(),'sending_started_at'=>null],['id'=>$deliveryId])!==false;
     }
 
     public static function broadcast(string $eventKey, array $params, bool $onlyActive=true): int {

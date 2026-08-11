@@ -57,7 +57,7 @@ def make_order(db: Session, customer: Customer, plan: Plan) -> Order:
     return order
 
 
-def test_remote_expired_invoice_is_hard_deleted(monkeypatch):
+def test_remote_expired_invoice_is_archived_for_late_callback(monkeypatch):
     engine = create_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(engine)
     with Session(engine) as db:
@@ -76,7 +76,10 @@ def test_remote_expired_invoice_is_hard_deleted(monkeypatch):
         monkeypatch.setattr("server.main.get_invoice", fake_get_invoice)
         state = asyncio.run(_validate_reusable_invoice(db, order, payment))
         assert state == "invalid"
-        assert db.get(Order, order_id) is None
+        preserved = db.get(Order, order_id)
+        assert preserved is not None
+        assert preserved.status == "expired_local"
+        assert "_bluevpn_archived_at" in preserved.gateway_json
 
 
 def test_remote_pending_invoice_with_future_expiry_can_be_reused(monkeypatch):

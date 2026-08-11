@@ -14,11 +14,11 @@ def test_release_metadata_v380():
     app = json.loads(text("branding/app.json"))
     release = json.loads(text("release.json"))
     marker = json.loads(text("deployment-marker.json"))
-    assert app["version_name"] == "3.0.83"
-    assert app["version_code"] == 30083
-    assert release["version"] == "3.0.83"
-    assert release["android_version_code"] == 30083
-    assert marker["release"] == "3.0.83"
+    assert app["version_name"] == "4.0.0"
+    assert app["version_code"] == 40000
+    assert release["version"] == "4.0.0"
+    assert release["android_version_code"] == 40000
+    assert marker["release"] == "4.0.0"
 
 
 def test_official_tapsell_sdk_is_injected_and_kept_for_r8():

@@ -7,6 +7,9 @@ import android.os.SystemClock
 import com.v2ray.ang.dto.entities.ProfileItem
 import com.v2ray.ang.handler.MmkvManager
 import org.json.JSONArray
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -19,10 +22,18 @@ data class BlueVpnLocation(
     val flag: String,
 )
 
+enum class BlueVpnSelectionMode {
+    AUTO,
+    MANUAL_LOCATION,
+    MANUAL_SERVER,
+}
+
 object BlueVpnPreferences {
     private const val PREFS = "bluevpn_customer_preferences"
     private const val KEY_SMART_BALANCE = "smart_balance"
+    private const val KEY_SELECTION_MODE = "selection_mode"
     private const val KEY_PREFERRED_LOCATION = "preferred_location"
+    private const val KEY_MANUAL_SERVER_GUID = "manual_server_guid"
     private const val KEY_CONNECTED_AT = "connected_at"
     private const val FAILED_PREFIX = "failed_server_"
     private const val SESSION_INACTIVE_PREFIX = "session_inactive_"
@@ -38,14 +49,66 @@ object BlueVpnPreferences {
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    fun selectionMode(context: Context): BlueVpnSelectionMode {
+        val storage = prefs(context)
+        val raw = storage.getString(KEY_SELECTION_MODE, "").orEmpty()
+        return runCatching { BlueVpnSelectionMode.valueOf(raw) }.getOrNull()
+            ?: if (storage.getBoolean(KEY_SMART_BALANCE, true)) {
+                BlueVpnSelectionMode.AUTO
+            } else {
+                BlueVpnSelectionMode.MANUAL_LOCATION
+            }
+    }
+
     fun smartBalance(context: Context): Boolean =
-        prefs(context).getBoolean(KEY_SMART_BALANCE, true)
+        selectionMode(context) == BlueVpnSelectionMode.AUTO
 
     fun setSmartBalance(context: Context, enabled: Boolean) {
+        if (enabled) {
+            setAutomaticSelection(context)
+            return
+        }
+        val storage = prefs(context)
+        val current = selectionMode(context)
+        if (current == BlueVpnSelectionMode.AUTO) {
+            storage.edit()
+                .putBoolean(KEY_SMART_BALANCE, false)
+                .putString(KEY_SELECTION_MODE, BlueVpnSelectionMode.MANUAL_LOCATION.name)
+                .apply()
+        } else {
+            storage.edit().putBoolean(KEY_SMART_BALANCE, false).apply()
+        }
+    }
+
+    fun setAutomaticSelection(context: Context) {
         prefs(context).edit()
-            .putBoolean(KEY_SMART_BALANCE, enabled)
+            .putBoolean(KEY_SMART_BALANCE, true)
+            .putString(KEY_SELECTION_MODE, BlueVpnSelectionMode.AUTO.name)
+            .remove(KEY_MANUAL_SERVER_GUID)
+            .putString(KEY_PREFERRED_LOCATION, "")
             .apply()
     }
+
+    fun setManualLocationSelection(context: Context, locationKey: String) {
+        prefs(context).edit()
+            .putBoolean(KEY_SMART_BALANCE, false)
+            .putString(KEY_SELECTION_MODE, BlueVpnSelectionMode.MANUAL_LOCATION.name)
+            .remove(KEY_MANUAL_SERVER_GUID)
+            .putString(KEY_PREFERRED_LOCATION, locationKey)
+            .apply()
+    }
+
+    fun setManualServerSelection(context: Context, locationKey: String, guid: String) {
+        prefs(context).edit()
+            .putBoolean(KEY_SMART_BALANCE, false)
+            .putString(KEY_SELECTION_MODE, BlueVpnSelectionMode.MANUAL_SERVER.name)
+            .putString(KEY_MANUAL_SERVER_GUID, guid)
+            .putString(KEY_PREFERRED_LOCATION, locationKey)
+            .apply()
+    }
+
+    fun manualServerGuid(context: Context): String =
+        prefs(context).getString(KEY_MANUAL_SERVER_GUID, "").orEmpty()
 
     fun preferredLocation(context: Context): String =
         prefs(context).getString(KEY_PREFERRED_LOCATION, "").orEmpty()
@@ -200,11 +263,13 @@ object BlueVpnPreferences {
         val storage = prefs(context)
         val editor = storage.edit()
 
+        // Session quarantine is intentionally temporary: a route that failed
+        // during the previous connect cycle is allowed back on the next user
+        // attempt. FAILED_PREFIX is kept so the scorer can still penalize a
+        // recently bad route for a few minutes instead of immediately picking
+        // it as the first candidate again.
         storage.all.keys
-            .filter {
-                it.startsWith(SESSION_INACTIVE_PREFIX) ||
-                    it.startsWith(FAILED_PREFIX)
-            }
+            .filter { it.startsWith(SESSION_INACTIVE_PREFIX) }
             .forEach { editor.remove(it) }
 
         editor.putLong(
@@ -246,7 +311,8 @@ object BlueVpnPreferences {
 
 object BlueVpnLocationUtil {
 
-    private const val CANDIDATE_CACHE_TTL_MS = 10_000L
+    private const val CANDIDATE_CACHE_TTL_MS = 60_000L
+    private const val CONTEXT_STALE_GRACE_MS = 120_000L
 
     @Volatile
     private var candidateCacheAt = 0L
@@ -259,6 +325,12 @@ object BlueVpnLocationUtil {
 
     @Volatile
     private var contextCandidateCache: List<Candidate> = emptyList()
+
+    @Volatile
+    private var contextCandidateCacheKey: String = ""
+
+    @Volatile
+    private var contextCandidateCacheDirty = false
 
     private val identityCache = ConcurrentHashMap<String, String>()
 
@@ -281,13 +353,13 @@ object BlueVpnLocationUtil {
     )
 
     private val rules = listOf(
-        rule("ca", "کانادا", "🇨🇦", "ca", "can", "canada", "کانادا", "toronto", "montreal", "vancouver"),
-        rule("de", "آلمان", "🇩🇪", "de", "ger", "germany", "deutschland", "آلمان", "frankfurt", "berlin"),
-        rule("nl", "هلند", "🇳🇱", "nl", "nld", "netherlands", "holland", "هلند", "amsterdam"),
+        rule("ca", "کانادا", "🇨🇦", "ca", "can", "canada", "کانادا", "toronto", "montreal", "vancouver", "quebec"),
+        rule("de", "آلمان", "🇩🇪", "de", "ger", "germany", "deutschland", "آلمان", "frankfurt", "berlin", "nuremberg", "falkenstein", "dusseldorf", "düsseldorf", "munich", "hamburg"),
+        rule("nl", "هلند", "🇳🇱", "nl", "nld", "netherlands", "holland", "هلند", "amsterdam", "rotterdam", "dronten", "meppel"),
         rule("fi", "فنلاند", "🇫🇮", "fi", "fin", "finland", "فنلاند", "helsinki"),
-        rule("fr", "فرانسه", "🇫🇷", "fr", "fra", "france", "فرانسه", "paris"),
-        rule("gb", "انگلیس", "🇬🇧", "gb", "uk", "united kingdom", "england", "انگلیس", "britain", "london"),
-        rule("us", "آمریکا", "🇺🇸", "us", "usa", "united states", "america", "آمریکا", "new york", "los angeles", "miami"),
+        rule("fr", "فرانسه", "🇫🇷", "fr", "fra", "france", "فرانسه", "paris", "marseille", "gravelines", "strasbourg", "roubaix", "lyon", "lille"),
+        rule("gb", "انگلیس", "🇬🇧", "gb", "uk", "united kingdom", "england", "انگلیس", "britain", "london", "manchester", "coventry"),
+        rule("us", "آمریکا", "🇺🇸", "us", "usa", "united states", "america", "آمریکا", "new york", "los angeles", "miami", "dallas", "chicago", "seattle", "ashburn", "phoenix"),
         rule("tr", "ترکیه", "🇹🇷", "tr", "tur", "turkey", "türkiye", "ترکیه", "istanbul"),
         rule("ae", "امارات", "🇦🇪", "ae", "uae", "united arab emirates", "امارات", "dubai"),
         rule("se", "سوئد", "🇸🇪", "se", "swe", "sweden", "سوئد", "stockholm"),
@@ -386,8 +458,34 @@ object BlueVpnLocationUtil {
         return " $source ".contains(" $normalizedPhrase ")
     }
 
+    private fun countryCodeFromFlag(value: String): String? {
+        var index = 0
+        while (index < value.length) {
+            val first = Character.codePointAt(value, index)
+            val firstSize = Character.charCount(first)
+            val secondIndex = index + firstSize
+            if (secondIndex < value.length) {
+                val second = Character.codePointAt(value, secondIndex)
+                if (
+                    first in 0x1F1E6..0x1F1FF &&
+                    second in 0x1F1E6..0x1F1FF
+                ) {
+                    val firstLetter = ('a'.code + first - 0x1F1E6).toChar()
+                    val secondLetter = ('a'.code + second - 0x1F1E6).toChar()
+                    return "${firstLetter}${secondLetter}"
+                }
+            }
+            index += firstSize
+        }
+        return null
+    }
+
     private fun detectKnown(remarks: String): BlueVpnLocation? {
         if (remarks.isBlank()) return null
+
+        countryCodeFromFlag(remarks)
+            ?.let(::locationForCountryCode)
+            ?.let { return it }
 
         rules.firstOrNull { rule ->
             rule.flags.any { remarks.contains(it) }
@@ -583,7 +681,18 @@ private fun unknownLocation(): BlueVpnLocation =
         }
     }
 
-    fun isUsable(profile: ProfileItem): Boolean {
+    /**
+     * Keep profile acceptance aligned with upstream v2rayNG.
+     *
+     * BlueVPN must not permanently drop a profile because of an option that
+     * upstream may migrate, ignore, or normalize during config generation.
+     * Runtime/core validation below is authoritative and failed routes are only
+     * quarantined for the current connect cycle.
+     */
+    fun isUsable(
+        profile: ProfileItem,
+        rawConfig: String? = null,
+    ): Boolean {
         val server = profile.server
             .orEmpty()
             .trim()
@@ -602,15 +711,16 @@ private fun unknownLocation(): BlueVpnLocation =
         synchronized(this) {
             candidateCacheAt = 0L
             candidateCache = emptyList()
-            contextCandidateCacheAt = 0L
-            contextCandidateCache = emptyList()
+            // Keep the last non-empty context cache visible while a refresh is
+            // running. The stable entitlement identity prevents a previous Free
+            // or Premium pool from leaking into a different account mode.
+            contextCandidateCacheDirty = true
         }
     }
 
     fun invalidateResolvedCache() {
         synchronized(this) {
-            contextCandidateCacheAt = 0L
-            contextCandidateCache = emptyList()
+            contextCandidateCacheDirty = true
         }
     }
 
@@ -628,25 +738,41 @@ private fun unknownLocation(): BlueVpnLocation =
             return cached
         }
 
-        val loaded = MmkvManager.decodeAllServerList()
-            .mapNotNull { guid ->
-                val profile =
-                    MmkvManager.decodeServerConfig(guid)
-                        ?: return@mapNotNull null
+        val allGuids = MmkvManager.decodeAllServerList()
+        val selectedGuid = MmkvManager.getSelectServer().orEmpty()
+        val orderedGuids = buildList {
+            if (selectedGuid.isNotBlank() && selectedGuid in allGuids) add(selectedGuid)
+            allGuids.forEach { guid -> if (guid != selectedGuid) add(guid) }
+        }
+        val seenFingerprints = HashSet<String>(orderedGuids.size)
+        val loaded = orderedGuids.mapNotNull { guid ->
+            val profile =
+                MmkvManager.decodeServerConfig(guid)
+                    ?: return@mapNotNull null
+            val raw = MmkvManager.decodeServerRaw(guid)
 
-                if (!isUsable(profile)) {
-                    return@mapNotNull null
-                }
-
-                Candidate(
-                    guid = guid,
-                    profile = profile,
-                    location = detect(profile.remarks, profile.server),
-                    delay = MmkvManager
-                        .decodeServerAffiliationInfo(guid)
-                        ?.testDelayMillis ?: 0L,
-                )
+            if (!isUsable(profile, raw)) {
+                return@mapNotNull null
             }
+
+            // Subscription providers often publish the same semantic endpoint
+            // under different remarks/GUIDs. Keep the currently selected copy
+            // first and collapse only the selection catalogue; the physical
+            // imported profiles remain untouched and can reappear after refresh.
+            val semanticKey = BlueVpnProfileManager.fingerprint(profile, raw)
+            if (!seenFingerprints.add(semanticKey)) {
+                return@mapNotNull null
+            }
+
+            Candidate(
+                guid = guid,
+                profile = profile,
+                location = detect(profile.remarks, profile.server),
+                delay = MmkvManager
+                    .decodeServerAffiliationInfo(guid)
+                    ?.testDelayMillis ?: 0L,
+            )
+        }
 
         synchronized(this) {
             candidateCache = loaded
@@ -655,27 +781,125 @@ private fun unknownLocation(): BlueVpnLocation =
         return loaded
     }
 
+    /**
+     * Returns only the already prepared context-aware cache. UI rendering must
+     * use this method so a screen never decodes hundreds of MMKV profiles on
+     * the main thread. Call allCandidates(context) from Dispatchers.Default to
+     * warm or refresh the cache.
+     */
+    fun cachedCandidates(context: Context): List<Candidate> {
+        // BlueVpnAccountManager.entitlementPoolFingerprint(context) used to include
+        // transient server GUIDs and is intentionally not the visible-cache key.
+        val cacheKey = BlueVpnAccountManager.entitlementIdentityFingerprint(context)
+        val cached = contextCandidateCache
+        val age = SystemClock.elapsedRealtime() - contextCandidateCacheAt
+        // Stale-while-revalidate: keep the last non-empty list visible for the
+        // same entitlement while v2rayNG clears and repopulates MMKV. A Free →
+        // Premium or URL change produces a different identity and is never shown.
+        return if (
+            contextCandidateCacheAt > 0L &&
+            contextCandidateCacheKey == cacheKey &&
+            age in 0L..CONTEXT_STALE_GRACE_MS
+        ) cached else emptyList()
+    }
+
+    fun hasCandidateCache(context: Context): Boolean = cachedCandidates(context).isNotEmpty()
+
     fun allCandidates(
         context: Context,
         forceRefresh: Boolean = false,
     ): List<Candidate> {
         val now = SystemClock.elapsedRealtime()
+        val cacheKey = BlueVpnAccountManager.entitlementIdentityFingerprint(context)
+        val previous = if (
+            contextCandidateCacheAt > 0L &&
+            contextCandidateCacheKey == cacheKey &&
+            now - contextCandidateCacheAt < CONTEXT_STALE_GRACE_MS
+        ) contextCandidateCache else emptyList()
         if (
             !forceRefresh &&
+            !contextCandidateCacheDirty &&
             contextCandidateCacheAt > 0L &&
+            contextCandidateCacheKey == cacheKey &&
             now - contextCandidateCacheAt < CANDIDATE_CACHE_TTL_MS
         ) {
             return contextCandidateCache
         }
-        val resolved = allCandidates(forceRefresh).map { candidate ->
-            val configKey = serverIdentity(candidate.profile)
-            val verified = BlueVpnPreferences.verifiedCountryKey(context, configKey)
-            val location = locationForCountryCode(verified) ?: candidate.location
-            if (location == candidate.location) candidate else candidate.copy(location = location)
+        val entitlementGuidList = BlueVpnAccountManager.preferredServerGuids(context)
+        val entitlementServerGuids = entitlementGuidList.toSet()
+        val selectedGuid = MmkvManager.getSelectServer().orEmpty().trim()
+        val orderedEntitlementGuids = buildList {
+            if (selectedGuid.isNotBlank() && selectedGuid in entitlementServerGuids) add(selectedGuid)
+            entitlementGuidList.forEach { guid -> if (guid != selectedGuid) add(guid) }
+        }
+
+        // Important: deduplicate *after* entitlement isolation. The global
+        // v2rayNG database can contain the same endpoint in both Free and Premium
+        // subscriptions. Global semantic dedupe used to keep the Free copy first,
+        // then the entitlement filter removed it and accidentally hid the valid
+        // Premium twin. Decode only the active/fallback entitlement pool here.
+        val seenEntitlementFingerprints = HashSet<String>(orderedEntitlementGuids.size)
+        val resolved = orderedEntitlementGuids
+            .mapNotNull { guid ->
+                val profile = MmkvManager.decodeServerConfig(guid) ?: return@mapNotNull null
+                val raw = MmkvManager.decodeServerRaw(guid)
+                if (!isUsable(profile, raw)) return@mapNotNull null
+                if (!BlueVpnAccountManager.candidateAllowed(
+                        context,
+                        guid,
+                        profile.subscriptionId,
+                        entitlementServerGuids,
+                    )) return@mapNotNull null
+                val semanticKey = BlueVpnProfileManager.fingerprint(profile, raw)
+                if (!seenEntitlementFingerprints.add(semanticKey)) return@mapNotNull null
+                Candidate(
+                    guid = guid,
+                    profile = profile,
+                    location = detect(profile.remarks, profile.server),
+                    delay = MmkvManager.decodeServerAffiliationInfo(guid)?.testDelayMillis ?: 0L,
+                )
+            }
+            .map { candidate ->
+                val configKey = serverIdentity(candidate.profile)
+                val verified = BlueVpnPreferences.verifiedCountryKey(context, configKey)
+                if (
+                    verified.isBlank() &&
+                    candidate.location.key != "unknown"
+                ) {
+                    // A visible country name, city alias, flag or country-code
+                    // hostname is already strong evidence. Persist it locally
+                    // immediately so a known route never remains under
+                    // «در حال شناسایی», then share it with the cloud when the
+                    // user has an account.
+                    BlueVpnPreferences.markVerifiedCountryKey(
+                        context,
+                        configKey,
+                        candidate.location.key,
+                    )
+                    reportVerifiedCountry(
+                        context.applicationContext,
+                        configKey,
+                        candidate.location.key,
+                    )
+                }
+                val resolvedCode = verified.ifBlank { candidate.location.key }
+                val location = locationForCountryCode(resolvedCode) ?: candidate.location
+                if (location == candidate.location) candidate else candidate.copy(location = location)
+            }
+        if (resolved.isEmpty() && previous.isNotEmpty()) {
+            // Never let a transient empty import replace a healthy visible pool.
+            // A later MMKV broadcast will retry; until then the engine guard still
+            // validates every selected GUID against the current entitlement.
+            synchronized(this) {
+                contextCandidateCacheDirty = true
+            }
+            return previous
         }
         synchronized(this) {
             contextCandidateCache = resolved
             contextCandidateCacheAt = SystemClock.elapsedRealtime()
+            contextCandidateCacheKey = cacheKey
+            contextCandidateCacheDirty = false
         }
         return resolved
     }
@@ -693,80 +917,118 @@ private fun unknownLocation(): BlueVpnLocation =
                 BlueVpnPreferences.preferredLocation(context)
             }
 
-        val automatic = BlueVpnPreferences.smartBalance(context)
+        val selectionMode = BlueVpnPreferences.selectionMode(context)
+        val manualGuid = BlueVpnPreferences.manualServerGuid(context)
 
-        // Automatic mode evaluates every usable server from every location.
-        // Manual mode stays restricted to the location selected by the user.
-        val scoped = if (automatic || wanted.isBlank()) {
-            candidates
-        } else {
-            candidates.filter { it.location.key == wanted }
+        // Selection ownership is strict:
+        // AUTO sees the whole entitlement pool, MANUAL_LOCATION never leaves the
+        // chosen country, and MANUAL_SERVER resolves to that exact GUID only.
+        val scoped = when (selectionMode) {
+            BlueVpnSelectionMode.AUTO -> candidates
+            BlueVpnSelectionMode.MANUAL_LOCATION ->
+                if (wanted.isBlank()) emptyList() else candidates.filter { it.location.key == wanted }
+            BlueVpnSelectionMode.MANUAL_SERVER ->
+                if (manualGuid.isBlank()) emptyList() else candidates.filter { it.guid == manualGuid }
         }
 
         if (scoped.isEmpty()) return emptyList()
 
-        // Routes that failed with the current user's network are removed
-        // from this foreground session. At the next app entry
-        // beginHealthSession() clears the exclusion and tests them again.
+        // Routes that failed in the current connect cycle are hard-quarantined
+        // for the rest of that cycle. Do not silently add them back when every
+        // route has failed; a fresh user attempt calls beginHealthSession() and
+        // gives them another chance with their recent-failure penalty intact.
         val sessionHealthy = scoped.filterNot { candidate ->
             BlueVpnPreferences.isSessionInactive(
                 context,
                 candidate.guid
             )
         }
-        val effective = sessionHealthy.ifEmpty { scoped }
+        if (sessionHealthy.isEmpty()) return emptyList()
+        val effective = sessionHealthy
 
-        data class RankedCandidate(
-            val candidate: Candidate,
-            val state: Int,
-            val priority: Int,
-        )
+        return BlueVpnSmartSelector.rank(context, effective)
+            .map { it.candidate }
+    }
 
-        val ranked = effective.map { candidate ->
-            val inactive = BlueVpnPreferences.isSessionInactive(
-                context,
-                candidate.guid,
-            )
-            val failed = if (inactive) {
-                false
-            } else {
-                BlueVpnPreferences.failedRecently(
-                    context,
-                    candidate.guid,
-                )
-            }
-
-            RankedCandidate(
-                candidate = candidate,
-                state = when {
-                    inactive -> 4
-                    failed -> 3
-                    candidate.delay > 0L -> 0
-                    candidate.delay == 0L -> 1
-                    else -> 2
-                },
-                priority = BlueVpnExperience.candidatePriority(
-                    context,
-                    candidate,
-                ) + BlueVpnPreferences.successFreshnessScore(
-                    context,
-                    candidate.guid,
-                ) * 100,
-            )
+    /**
+     * Builds a first-connect shortlist without decoding the entire server
+     * database. On a cold launch only the selected profile and a handful of
+     * following profiles are decoded; the complete candidate cache is warmed
+     * later on a background dispatcher.
+     */
+    fun fastCandidates(
+        context: Context,
+        preferredKey: String? = null,
+        maxCandidates: Int = 8,
+    ): List<Candidate> {
+        val cached = cachedCandidates(context)
+        if (cached.isNotEmpty()) {
+            return orderedCandidates(context, preferredKey).take(maxCandidates)
         }
 
-        return ranked.sortedWith(
-            compareBy<RankedCandidate> { it.state }
-                .thenByDescending { it.priority }
-                .thenBy {
-                    if (it.candidate.delay > 0L) {
-                        it.candidate.delay
-                    } else {
-                        Long.MAX_VALUE
-                    }
+        val selected = MmkvManager.getSelectServer().orEmpty()
+        val entitlementGuids = BlueVpnAccountManager.preferredServerGuids(context)
+        if (entitlementGuids.isEmpty()) return emptyList()
+
+        // Automatic selection is entitlement-isolated. Never append the global
+        // MMKV list: it contains free, expired Premium and manually imported
+        // profiles together. The selected profile is retained only if it belongs
+        // to the exact current pool.
+        val entitlementGuidSet = entitlementGuids.toSet()
+        val orderedGuids = buildList {
+            if (selected.isNotBlank() && selected in entitlementGuidSet) add(selected)
+            entitlementGuids.forEach { add(it) }
+        }.distinct()
+
+        val wanted = preferredKey.orEmpty().ifBlank {
+            BlueVpnPreferences.preferredLocation(context)
+        }
+        val selectionMode = BlueVpnPreferences.selectionMode(context)
+        val manualGuid = BlueVpnPreferences.manualServerGuid(context)
+
+        val entitlementServerGuidSet = entitlementGuidSet
+
+        fun scan(skipSessionInactive: Boolean): List<Candidate> {
+            val result = ArrayList<Candidate>(maxCandidates)
+            for (guid in orderedGuids) {
+                if (result.size >= maxCandidates) break
+                if (skipSessionInactive &&
+                    BlueVpnPreferences.isSessionInactive(context, guid)) continue
+                val profile = MmkvManager.decodeServerConfig(guid) ?: continue
+                if (!isUsable(profile, MmkvManager.decodeServerRaw(guid))) continue
+                if (!BlueVpnAccountManager.candidateAllowed(
+                        context,
+                        guid,
+                        profile.subscriptionId,
+                        entitlementServerGuidSet,
+                    )) continue
+                val location = detect(profile.remarks, profile.server)
+                when (selectionMode) {
+                    BlueVpnSelectionMode.AUTO -> Unit
+                    BlueVpnSelectionMode.MANUAL_LOCATION ->
+                        if (wanted.isBlank() || location.key != wanted) continue
+                    BlueVpnSelectionMode.MANUAL_SERVER ->
+                        if (manualGuid.isBlank() || guid != manualGuid) continue
                 }
-                .thenBy { it.candidate.location.title }
-        ).map { it.candidate }
+                result += Candidate(
+                    guid = guid,
+                    profile = profile,
+                    location = location,
+                    delay = MmkvManager.decodeServerAffiliationInfo(guid)?.testDelayMillis ?: 0L,
+                )
+            }
+            return result
+        }
+
+        // Current-cycle failures stay excluded until the next explicit connect
+        // attempt. Re-introducing them here caused BlueVPN to loop over the same
+        // dead configs and eventually trigger long "not responding" stalls.
+        val result = scan(skipSessionInactive = true)
+        // Legacy fallback `scan(skipSessionInactive = false)` is intentionally
+        // disabled: failed routes must not re-enter the same connect cycle.
+        if (result.isEmpty()) return emptyList()
+        return BlueVpnSmartSelector.rank(context, result)
+            .map { it.candidate }
     }
 
     /**
@@ -830,6 +1092,130 @@ private fun unknownLocation(): BlueVpnLocation =
             ?: 0
     }
 
+    data class CandidatePreflight(
+        val ok: Boolean,
+        val reason: String,
+        val latencyMs: Long = 0L,
+    )
+
+    /**
+     * Fast advisory preflight before Xray owns the TUN.
+     *
+     * Only deterministic local/config errors are rejected here. DNS and raw TCP
+     * checks are deliberately advisory because they are not equivalent to an
+     * Xray handshake: Android DNS can disagree with the core DNS strategy,
+     * IPv6 may be listed before a working IPv4 address, and several transports
+     * can look unreachable to a plain socket while still working in v2rayNG.
+     *
+     * The authoritative health decision is made after the core starts by a real
+     * HTTP request through the local Xray proxy. A route is quarantined for the
+     * current connect cycle only when that end-to-end verification fails.
+     */
+    fun preflightCandidate(
+        candidate: Candidate,
+        timeoutMs: Int = 450,
+    ): CandidatePreflight {
+        val profile = candidate.profile
+        val host = profile.server.orEmpty().trim()
+        if (host.isBlank()) {
+            return CandidatePreflight(false, "آدرس سرور خالی است")
+        }
+        if (!isUsable(profile, MmkvManager.decodeServerRaw(candidate.guid))) {
+            return CandidatePreflight(false, "کانفیگ با هسته فعلی سازگار نیست")
+        }
+
+        val port = profilePort(profile)
+        if (port != null && port !in 1..65535) {
+            return CandidatePreflight(false, "پورت کانفیگ نامعتبر است")
+        }
+
+        val started = SystemClock.elapsedRealtime()
+        val raw = MmkvManager.decodeServerRaw(candidate.guid).orEmpty()
+        val serialized = (
+            runCatching { profile.toString() }.getOrDefault("") + "\n" + raw
+        ).lowercase(Locale.ROOT)
+        val udpLike = serialized.contains("hysteria") ||
+            serialized.contains("hy2") ||
+            serialized.contains("tuic") ||
+            serialized.contains("\"network\":\"quic\"") ||
+            serialized.contains("network=quic") ||
+            serialized.contains("\"network\":\"kcp\"") ||
+            serialized.contains("network=kcp")
+
+        val addresses = runCatching { InetAddress.getAllByName(host).toList() }
+            .getOrElse {
+                // Do not discard a profile solely because Android's resolver
+                // failed. Xray can use a different DNS path and this exact
+                // profile may still work in upstream v2rayNG.
+                return CandidatePreflight(
+                    true,
+                    "DNS پیش‌تست نامشخص بود؛ بررسی با هسته ادامه دارد",
+                    (SystemClock.elapsedRealtime() - started).coerceAtLeast(1L),
+                )
+            }
+        if (addresses.isEmpty()) {
+            return CandidatePreflight(
+                true,
+                "DNS پیش‌تست پاسخی نداشت؛ بررسی با هسته ادامه دارد",
+                (SystemClock.elapsedRealtime() - started).coerceAtLeast(1L),
+            )
+        }
+
+        if (udpLike || port == null) {
+            return CandidatePreflight(
+                true,
+                "endpoint برای تست واقعی هسته آماده است",
+                (SystemClock.elapsedRealtime() - started).coerceAtLeast(1L),
+            )
+        }
+
+        // Prefer IPv4 first on mobile networks, but still try IPv6. Test more
+        // than two addresses because CDN domains commonly return several AAAA/A
+        // records and the first pair can be unreachable on the current carrier.
+        val orderedAddresses = addresses
+            .distinctBy { it.hostAddress.orEmpty() }
+            .sortedBy { if (it.address.size == 4) 0 else 1 }
+            .take(3)
+        val perAddressTimeout = timeoutMs.coerceIn(220, 260)
+        val connected = orderedAddresses.any { address ->
+            runCatching {
+                Socket().use { socket ->
+                    socket.tcpNoDelay = true
+                    socket.connect(
+                        InetSocketAddress(address, port),
+                        perAddressTimeout,
+                    )
+                }
+                true
+            }.getOrDefault(false)
+        }
+        return CandidatePreflight(
+            true,
+            if (connected) {
+                "endpoint در پیش‌تست پاسخ داد"
+            } else {
+                "TCP پیش‌تست قطعی نبود؛ تست واقعی Xray انجام می‌شود"
+            },
+            (SystemClock.elapsedRealtime() - started).coerceAtLeast(1L),
+        )
+    }
+
+    private fun profilePort(profile: ProfileItem): Int? {
+        val getter = profile.javaClass.methods.firstOrNull { method ->
+            method.parameterTypes.isEmpty() &&
+                (
+                    method.name.equals("getServerPort", ignoreCase = true) ||
+                        method.name.equals("getPort", ignoreCase = true)
+                    )
+        } ?: return null
+        val value = runCatching { getter.invoke(profile) }.getOrNull() ?: return null
+        return when (value) {
+            is Number -> value.toInt()
+            is String -> value.trim().toIntOrNull()
+            else -> value.toString().trim().toIntOrNull()
+        }
+    }
+
     fun activeCandidateCount(
         context: Context,
     ): Int =
@@ -844,10 +1230,10 @@ private fun unknownLocation(): BlueVpnLocation =
     fun selectBest(
         context: Context,
         preferredKey: String? = null,
-    ): String? =
-        orderedCandidates(context, preferredKey)
-            .firstOrNull()
-            ?.guid
+    ): String? = BlueVpnSmartSelector
+        .decide(context, orderedCandidates(context, preferredKey))
+        ?.candidate
+        ?.guid
 
     data class Candidate(
         val guid: String,

@@ -6,12 +6,12 @@ ROOT=Path(__file__).resolve().parents[1]
 def test_release_368():
     r=json.loads((ROOT/'release.json').read_text())
     a=json.loads((ROOT/'branding/app.json').read_text())
-    assert r['version']=='3.0.83'
-    assert r['version_code']==30083
-    assert r['android_version']=='3.0.83'
-    assert r['android_version_code']==30083
-    assert a['version_name']=='3.0.83'
-    assert a['version_code']==30083
+    assert r['version']=='4.0.0'
+    assert r['version_code']==40000
+    assert r['android_version']=='4.0.0'
+    assert r['android_version_code']==40000
+    assert a['version_name']=='4.0.0'
+    assert a['version_code']==40000
 
 def test_navigation_is_immediate_and_auto_unlocks():
     home=(ROOT/'android-source/BlueVpnHomeActivity.kt').read_text()

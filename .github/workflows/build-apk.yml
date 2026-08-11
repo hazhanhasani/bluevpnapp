@@ -497,12 +497,29 @@ jobs:
           grep -q 'archiveOtpRow' "$TARGET"
           echo "BlueVPN native auth redesign applied to Android source."
 
+      - name: BlueVPN stability completion regression gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BUILD_STAGE=release-regression-gate" >> "$GITHUB_ENV"
+          echo "release-regression-gate" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          {
+            python scripts/validate_generated_android.py
+            python scripts/validate_stability_completion.py
+            while IFS= read -r -d '' file; do
+              php -l "$file" >/dev/null
+            done < <(find bluevpn-manager -type f -name '*.php' -print0)
+            echo "BlueVPN release regression gate passed."
+          } 2>&1 | tee "$GITHUB_WORKSPACE/stability-gate.log"
+
       - name: Upload failed Android source preparation log
         if: ${{ failure() }}
         uses: actions/upload-artifact@v6
         with:
           name: BlueVPN-prepare-android-log
-          path: prepare-android.log
+          path: |
+            prepare-android.log
+            stability-gate.log
           if-no-files-found: ignore
           retention-days: 7
 
@@ -1115,6 +1132,8 @@ jobs:
               candidates.append(Path("singbox-build.log"))
           if stage == "prepare-android":
               candidates.append(Path("prepare-android.log"))
+          elif stage == "release-regression-gate":
+              candidates.append(Path("stability-gate.log"))
           elif stage == "gradle-compile":
               candidates.append(Path("android-build.log"))
           candidates.extend([

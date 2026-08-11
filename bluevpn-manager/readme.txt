@@ -1,5 +1,5 @@
 === BlueVPN Manager ===
-Version: 4.0.24
+Version: 4.0.25
 Requires PHP: 8.0
 
 زیرساخت مهاجرت Backend BlueVPN از Railway/PostgreSQL به WordPress/MySQL با Migration Bridge امن و قابل Resume.
@@ -122,6 +122,12 @@ Requires PHP: 8.0
 * Railway برای اجرای ربات دیگر لازم نیست.
 
 == Changelog ==
+= 4.0.25 =
+* ادغام طراحی جدید ورود Android با Guardهای پایداری و جلوگیری از Render قدیمی/همزمان.
+* همگام‌سازی Snapshot و Generator اندروید و اضافه‌شدن Release Regression Gate.
+* تکمیل صف SMS با زمان شروع ارسال، بازیابی امن‌تر و reconciliation رویدادهای سفارش/اشتراک.
+* اصلاح قرارداد mobile config و entitlement حساب کاربری.
+
 
 = 4.0.24 =
 * تکمیل موتور اعلان پیامکی WordPress/MySQL با ۳۸ پترن، صف ارسال، Retry و بازیابی پیام‌های گیرکرده.

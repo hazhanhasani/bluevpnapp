@@ -80,7 +80,7 @@ final class BlueVPN_Migration {
         foreach (self::table_order() as $name) {
             $row = isset($raw['tables'][$name]) && is_array($raw['tables'][$name]) ? $raw['tables'][$name] : [];
             $tables[$name] = array_merge([
-                'cursor' => '', 'imported' => 0, 'source_count' => null,
+                'cursor' => '', 'imported' => 0, 'cycle_imported' => 0, 'source_count' => null,
                 'done' => false, 'last_error' => '', 'updated_at' => '',
             ], $row);
         }
@@ -101,6 +101,8 @@ final class BlueVPN_Migration {
             'auto_last_message' => '',
             'auto_retry_count' => 0,
             'auto_resync_cycles' => 0,
+            'final_resync_started_at' => '',
+            'verification_failures' => 0,
             'tables' => $tables,
         ], $raw, ['tables' => $tables]);
     }
@@ -121,7 +123,8 @@ final class BlueVPN_Migration {
             'last_manifest_at' => $keepManifest ? $old['last_manifest_at'] : '',
             'last_run_at' => '', 'last_error' => '', 'initial_completed_at' => '',
             'last_full_sync_at' => '', 'auto_started_at' => '', 'auto_completed_at' => '',
-            'auto_last_message' => '', 'auto_retry_count' => 0, 'auto_resync_cycles' => 0, 'tables' => [],
+            'auto_last_message' => '', 'auto_retry_count' => 0, 'auto_resync_cycles' => 0,
+            'final_resync_started_at' => '', 'verification_failures' => 0, 'tables' => [],
         ];
         self::save_state($state);
     }
@@ -201,9 +204,24 @@ final class BlueVPN_Migration {
         return ['success' => !$errors, 'complete' => false, 'batches' => $batches, 'rows_imported' => $rowsImported, 'errors' => $errors];
     }
 
-    public static function start_resync(bool $incremental = true): void {
+    public static function start_resync(bool $incremental = true, ?array $onlyTables = null): void {
         $state = self::state();
+        $filter = null;
+        if (is_array($onlyTables)) {
+            $filter = array_fill_keys(array_values(array_intersect(self::table_order(), $onlyTables)), true);
+        }
         foreach ($state['tables'] as $name => &$row) {
+            // Progress in `imported` is intentionally cumulative. Older releases reset it
+            // to zero at every verification pass, which made a completed migration look
+            // as if it had restarted or lost data. `cycle_imported` is the per-pass counter.
+            $row['cycle_imported'] = 0;
+            $row['last_error'] = '';
+
+            if ($filter !== null && !isset($filter[$name])) {
+                $row['done'] = true;
+                continue;
+            }
+
             // ai_connection_events is append-only and can be very large. Resume from the
             // highest local primary key instead of retransferring the entire history.
             if ($incremental && $name === 'ai_connection_events') {
@@ -211,14 +229,13 @@ final class BlueVPN_Migration {
             } else {
                 $row['cursor'] = '';
             }
-            $row['imported'] = 0;
             $row['done'] = false;
-            $row['last_error'] = '';
         }
         unset($row);
         $state['phase'] = 'resyncing';
         $state['last_error'] = '';
         $state['auto_resync_cycles'] = (int)($state['auto_resync_cycles'] ?? 0) + 1;
+        if (empty($state['final_resync_started_at'])) $state['final_resync_started_at'] = BlueVPN_Utils::iso_now();
         self::save_state($state);
         update_option('bluevpn_manager_cutover_ready', '0', false);
     }
@@ -241,13 +258,103 @@ final class BlueVPN_Migration {
         foreach (self::table_order() as $name) {
             $s = array_key_exists($name, $source) ? (int)$source[$name] : null;
             $l = array_key_exists($name, $local) ? (int)$local[$name] : null;
-            $result[$name] = ['source' => $s, 'local' => $l, 'delta' => ($s !== null && $l !== null) ? $l - $s : null, 'match' => $s !== null && $l !== null && $s === $l];
+            $result[$name] = [
+                'source' => $s,
+                'local' => $l,
+                'delta' => ($s !== null && $l !== null) ? $l - $s : null,
+                'match' => $s !== null && $l !== null && $s === $l,
+                // WordPress may legitimately have local-only rows (defaults, sessions,
+                // health/runtime records). Exact equality therefore must not force an
+                // endless full resync. A completed import covers Railway when MySQL has
+                // at least the source row count.
+                'covered' => $s !== null && $l !== null && $l >= $s,
+            ];
         }
         return $result;
     }
 
-    public static function mark_cutover_ready(bool $ready): void {
-        update_option('bluevpn_manager_cutover_ready', $ready ? '1' : '0', false);
+    private static function coverage_mismatches(array $comparison): array {
+        return array_filter($comparison, static function ($row): bool {
+            return empty($row['covered']);
+        });
+    }
+
+    /**
+     * Derive Cutover readiness from real Railway/MySQL coverage instead of a
+     * manually toggled/stale option. This also repairs state left by older
+     * plugin versions as soon as the migration page/runner is opened.
+     */
+    public static function reconcile_readiness(bool $mutate = true): array {
+        $state = self::state();
+        $comparison = self::compare_counts();
+        $mismatches = self::coverage_mismatches($comparison);
+        $finalPassCompleted = (
+            !empty($state['initial_completed_at'])
+            && (int)($state['auto_resync_cycles'] ?? 0) >= 1
+            && in_array((string)$state['phase'], ['sync_complete', 'ready_for_cutover'], true)
+        );
+        $ready = $finalPassCompleted && !$mismatches;
+
+        if ($mutate) {
+            $storedReady = get_option('bluevpn_manager_cutover_ready', '0') === '1';
+            if ($ready) {
+                if (!$storedReady) update_option('bluevpn_manager_cutover_ready', '1', false);
+                if ($state['phase'] !== 'ready_for_cutover') {
+                    $state['phase'] = 'ready_for_cutover';
+                    $state['auto_completed_at'] = $state['auto_completed_at'] ?: BlueVPN_Utils::iso_now();
+                    $state['auto_last_message'] = 'انتقال و بررسی نهایی کامل است؛ شمار Railway و MySQL پوشش داده شده و Cutover به‌صورت خودکار آماده است.';
+                    $state['last_error'] = '';
+                    self::save_state($state);
+                }
+            } else {
+                if ($storedReady) update_option('bluevpn_manager_cutover_ready', '0', false);
+                if ($state['phase'] === 'ready_for_cutover') {
+                    $state['phase'] = 'verification_needed';
+                    $state['auto_completed_at'] = '';
+                    $state['auto_last_message'] = $mismatches
+                        ? 'پس از آخرین Manifest تغییر جدیدی در Railway دیده شد؛ فقط جدول‌های دارای کسری دوباره همگام می‌شوند.'
+                        : 'بررسی نهایی هنوز کامل نشده است.';
+                    self::save_state($state);
+                }
+            }
+        }
+
+        $sourceTotal = 0;
+        $coveredTotal = 0;
+        foreach ($comparison as $row) {
+            if ($row['source'] === null) continue;
+            $source = max(0, (int)$row['source']);
+            $local = max(0, (int)($row['local'] ?? 0));
+            $sourceTotal += $source;
+            $coveredTotal += min($source, $local);
+        }
+        $percent = $sourceTotal > 0
+            ? min(100, (int)floor(($coveredTotal * 100) / $sourceTotal))
+            : ($ready ? 100 : 0);
+
+        return [
+            'ready' => $ready,
+            'final_pass_completed' => $finalPassCompleted,
+            'mismatches' => $mismatches,
+            'comparison' => $comparison,
+            'source_total' => $sourceTotal,
+            'covered_total' => $coveredTotal,
+            'percent' => $percent,
+        ];
+    }
+
+    public static function mark_cutover_ready(bool $ready): bool {
+        if (!$ready) {
+            update_option('bluevpn_manager_cutover_ready', '0', false);
+            return true;
+        }
+        $status = self::reconcile_readiness(false);
+        if (empty($status['ready'])) {
+            update_option('bluevpn_manager_cutover_ready', '0', false);
+            return false;
+        }
+        update_option('bluevpn_manager_cutover_ready', '1', false);
+        return true;
     }
 
     private static function next_table(array $state): ?string {
@@ -310,6 +417,7 @@ final class BlueVPN_Migration {
         }
         $state['tables'][$table]['cursor'] = $nextCursor;
         $state['tables'][$table]['imported'] = (int)$state['tables'][$table]['imported'] + $imported;
+        $state['tables'][$table]['cycle_imported'] = (int)($state['tables'][$table]['cycle_imported'] ?? 0) + $imported;
         $state['tables'][$table]['done'] = !empty($payload['done']);
         $state['tables'][$table]['last_error'] = '';
         $state['tables'][$table]['updated_at'] = BlueVPN_Utils::iso_now();
@@ -476,7 +584,7 @@ final class BlueVPN_Migration {
         $state = self::state();
         if (empty($state['auto_started_at'])) $state['auto_started_at'] = BlueVPN_Utils::iso_now();
         $state['auto_completed_at'] = '';
-        $state['auto_last_message'] = 'انتقال خودکار فعال شد.';
+        $state['auto_last_message'] = 'انتقال خودکار فعال شد؛ WP-Cron و Runner صفحه مدیریت آماده‌اند.';
         $state['auto_retry_count'] = 0;
         self::save_state($state);
         self::sync_auto_schedule(true);
@@ -498,10 +606,12 @@ final class BlueVPN_Migration {
         if (empty($settings['auto_migrate']) || empty($settings['source_url']) || !self::has_token()) return;
         $state = self::state();
         $hasProgress = !empty($state['source_counts']) && $state['phase'] !== 'not_started';
-        if ($hasProgress && $state['phase'] !== 'ready_for_cutover') self::sync_auto_schedule(true);
+        if (!$hasProgress) return;
+        $readiness = self::reconcile_readiness(true);
+        if (empty($readiness['ready'])) self::sync_auto_schedule(true);
     }
 
-    public static function auto_step(): void {
+    public static function auto_step(int $maxBatches = 40): void {
         $settings = self::settings();
         if (empty($settings['auto_migrate']) || empty($settings['source_url']) || !self::has_token()) return;
         if (get_transient(self::AUTO_LOCK)) return;
@@ -528,12 +638,18 @@ final class BlueVPN_Migration {
                     self::auto_error($manifest->get_error_message());
                     return;
                 }
-                self::start_resync(true);
-                $state = self::state();
-                $state['auto_last_message'] = 'انتقال اولیه تمام شد؛ Resync نهایی خودکار شروع شد.';
-                self::save_state($state);
+                // Exactly one final verification pass is useful for rows that changed
+                // while the first long transfer was running. Keep cumulative progress
+                // intact so the UI never jumps back to zero.
+                if ((int)($state['auto_resync_cycles'] ?? 0) < 1) {
+                    self::start_resync(true);
+                    $state = self::state();
+                    $state['auto_last_message'] = 'انتقال اولیه ۱۰۰٪ شد؛ یک دور نهاییِ بررسی اختلافات در حال اجراست و Progress صفر نمی‌شود.';
+                    self::save_state($state);
+                }
             }
 
+            $state = self::state();
             if ($state['phase'] === 'sync_complete') {
                 $manifest = self::refresh_manifest();
                 if (is_wp_error($manifest)) {
@@ -541,25 +657,45 @@ final class BlueVPN_Migration {
                     return;
                 }
                 $comparison = self::compare_counts();
-                $mismatches = array_filter($comparison, static fn($row) => empty($row['match']));
+                $mismatches = self::coverage_mismatches($comparison);
                 if (!$mismatches) {
-                    self::mark_cutover_ready(true);
                     $state = self::state();
-                    $state['phase'] = 'ready_for_cutover';
+                    $state['phase'] = 'sync_complete';
                     $state['auto_completed_at'] = BlueVPN_Utils::iso_now();
-                    $state['auto_last_message'] = 'همه جدول‌ها برابر شدند؛ آماده Cutover است.';
+                    $state['auto_last_message'] = 'انتقال و بررسی نهایی کامل شد؛ شمار واقعی Railway و MySQL تأیید شد و Progress روی ۱۰۰٪ می‌ماند.';
                     $state['auto_retry_count'] = 0;
+                    $state['verification_failures'] = 0;
+                    $state['last_error'] = '';
+                    self::save_state($state);
+                    self::reconcile_readiness(true);
+                    self::sync_auto_schedule(false);
+                    return;
+                }
+
+                $state = self::state();
+                $failures = (int)($state['verification_failures'] ?? 0) + 1;
+                $state['verification_failures'] = $failures;
+                self::save_state($state);
+                if ($failures >= 3) {
+                    $names = implode(', ', array_keys($mismatches));
+                    $state = self::state();
+                    $state['phase'] = 'verification_failed';
+                    $state['last_error'] = 'پس از سه تلاش، این جدول‌ها هنوز از Railway رکورد کمتری دارند: '.$names;
+                    $state['auto_last_message'] = 'انتقال متوقف شد تا از حلقه تکرار جلوگیری شود. فقط جدول‌های دارای کسری نیاز به بررسی دارند: '.$names;
                     self::save_state($state);
                     self::sync_auto_schedule(false);
                     return;
                 }
-                self::start_resync(true);
+
+                // Retry only tables that are actually missing source rows. Do not
+                // retransmit every completed table and do not reset cumulative counters.
+                self::start_resync(false, array_keys($mismatches));
                 $state = self::state();
-                $state['auto_last_message'] = count($mismatches).' جدول هنوز اختلاف دارد؛ Resync خودکار ادامه دارد.';
+                $state['auto_last_message'] = count($mismatches).' جدول کسری واقعی دارد؛ فقط همان جدول‌ها دوباره بررسی می‌شوند (تلاش '.$failures.'/3).';
                 self::save_state($state);
             }
 
-            $result = self::run(40);
+            $result = self::run(max(1, min(40, $maxBatches)));
             if (empty($result['success'])) {
                 $errors = $result['errors'] ?? [];
                 self::auto_error($errors ? implode(' | ', $errors) : 'خطای نامشخص در انتقال خودکار');
@@ -589,14 +725,22 @@ final class BlueVPN_Migration {
         $settings = self::settings();
         if (empty($settings['auto_sync'])) return;
         $state = self::state();
-        if ($state['phase'] !== 'ready_for_cutover') return; // initial migration is handled by AUTO_HOOK
+        if (!in_array((string)$state['phase'], ['ready_for_cutover', 'verification_needed'], true)) return;
         $manifest = self::refresh_manifest();
         if (is_wp_error($manifest)) {
             self::auto_error($manifest->get_error_message());
             return;
         }
-        self::start_resync(true);
-        self::sync_auto_schedule(true); // let the one-minute runner finish the dual-sync cycle
+
+        // If Railway did not gain any rows, keep the verified state stable and
+        // do not start a pointless resync that makes the UI flicker/reset.
+        $readiness = self::reconcile_readiness(true);
+        if (!empty($readiness['ready'])) return;
+        $mismatches = array_keys((array)($readiness['mismatches'] ?? []));
+        if (!$mismatches) return;
+
+        self::start_resync(true, $mismatches);
+        self::sync_auto_schedule(true); // one-minute runner finishes only the changed tables
         self::run(6);
     }
 }

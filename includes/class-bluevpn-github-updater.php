@@ -22,13 +22,62 @@ final class BlueVPN_GitHub_Updater {
     private const DEFAULT_PREFIX = 'bluevpn-manager-v';
     private const DEFAULT_ASSET = 'bluevpn-manager.zip';
     private const CACHE_TTL = 5 * MINUTE_IN_SECONDS;
+    private const CRON_HOOK = 'bluevpn_manager_github_update_check';
+    private const LAST_CHECK_OPTION = 'bluevpn_github_updater_last_background_check';
 
     public static function init(): void {
         add_filter('pre_set_site_transient_update_plugins', [self::class, 'inject_update']);
         add_filter('plugins_api', [self::class, 'plugin_info'], 20, 3);
         add_filter('auto_update_plugin', [self::class, 'auto_update'], 20, 2);
         add_action('upgrader_process_complete', [self::class, 'after_upgrade'], 10, 2);
+        add_action(self::CRON_HOOK, [self::class, 'background_update_check']);
+        add_action('admin_init', [self::class, 'ensure_schedule']);
         add_action('admin_init', [self::class, 'maybe_force_refresh']);
+        self::ensure_schedule();
+    }
+
+    public static function ensure_schedule(): void {
+        add_filter('cron_schedules', [self::class, 'cron_schedules']);
+        if (!wp_next_scheduled(self::CRON_HOOK)) {
+            wp_schedule_event(time() + 60, 'bluevpn_five_minutes', self::CRON_HOOK);
+        }
+    }
+
+    public static function cron_schedules(array $schedules): array {
+        if (!isset($schedules['bluevpn_five_minutes'])) {
+            $schedules['bluevpn_five_minutes'] = [
+                'interval' => 5 * MINUTE_IN_SECONDS,
+                'display' => 'BlueVPN every 5 minutes',
+            ];
+        }
+        return $schedules;
+    }
+
+    public static function unschedule(): void {
+        while ($timestamp = wp_next_scheduled(self::CRON_HOOK)) {
+            wp_unschedule_event($timestamp, self::CRON_HOOK);
+        }
+    }
+
+    public static function background_update_check(): void {
+        if (get_transient('bluevpn_github_update_check_lock')) return;
+        set_transient('bluevpn_github_update_check_lock', '1', 4 * MINUTE_IN_SECONDS);
+        try {
+            self::clear_cache();
+            delete_site_transient('update_plugins');
+            update_option(self::LAST_CHECK_OPTION, time(), false);
+            if (!function_exists('wp_update_plugins')) require_once ABSPATH . 'wp-includes/update.php';
+            wp_update_plugins();
+            if (!empty(self::settings()['auto_update']) && function_exists('wp_maybe_auto_update')) {
+                wp_maybe_auto_update();
+            }
+        } finally {
+            delete_transient('bluevpn_github_update_check_lock');
+        }
+    }
+
+    public static function last_background_check(): int {
+        return (int)get_option(self::LAST_CHECK_OPTION, 0);
     }
 
     public static function defaults(): array {

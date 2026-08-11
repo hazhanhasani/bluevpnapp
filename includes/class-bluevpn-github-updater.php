@@ -4,24 +4,31 @@ if (!defined('ABSPATH')) exit;
 /**
  * GitHub Releases updater for BlueVPN Manager.
  *
- * Release contract:
- *   tag:   bluevpn-manager-v1.2.3
+ * Normal release contract:
+ *   tag:   bluevpn-manager-v1.2.4
  *   asset: bluevpn-manager.zip
- * The ZIP must contain a single top-level folder named bluevpn-manager/.
+ *
+ * Compatibility recovery:
+ * If an asset is replaced under the same semantic tag (for example 1.2.3),
+ * the updater can still detect the changed asset by its GitHub fingerprint and
+ * offer a one-time repair update. Future releases should still bump SemVer.
  */
 final class BlueVPN_GitHub_Updater {
     private const OPTION = 'bluevpn_github_updater_settings';
-    private const CACHE_KEY = 'bluevpn_github_release_cache_v1';
+    private const CACHE_KEY = 'bluevpn_github_release_cache_v2';
+    private const INSTALLED_RELEASE_KEY = 'bluevpn_github_installed_release_v2';
     private const DEFAULT_OWNER = 'hazhanhasani';
     private const DEFAULT_REPO = 'bluevpnapp';
     private const DEFAULT_PREFIX = 'bluevpn-manager-v';
     private const DEFAULT_ASSET = 'bluevpn-manager.zip';
+    private const CACHE_TTL = 5 * MINUTE_IN_SECONDS;
 
     public static function init(): void {
         add_filter('pre_set_site_transient_update_plugins', [self::class, 'inject_update']);
         add_filter('plugins_api', [self::class, 'plugin_info'], 20, 3);
         add_filter('auto_update_plugin', [self::class, 'auto_update'], 20, 2);
         add_action('upgrader_process_complete', [self::class, 'after_upgrade'], 10, 2);
+        add_action('admin_init', [self::class, 'maybe_force_refresh']);
     }
 
     public static function defaults(): array {
@@ -85,6 +92,54 @@ final class BlueVPN_GitHub_Updater {
     }
 
     /**
+     * When WordPress itself asks for a forced plugin refresh, bypass our own
+     * GitHub cache too. This prevents the custom updater from staying stale.
+     */
+    public static function maybe_force_refresh(): void {
+        if (!is_admin() || !current_user_can('update_plugins')) return;
+        $force = isset($_GET['force-check']) || isset($_GET['bluevpn_force_check']);
+        if (!$force) return;
+        self::clear_cache();
+        delete_site_transient('update_plugins');
+    }
+
+    private static function release_fingerprint(array $release): string {
+        return hash('sha256', implode('|', [
+            (string)($release['tag'] ?? ''),
+            (string)($release['release_id'] ?? ''),
+            (string)($release['release_updated_at'] ?? ''),
+            (string)($release['asset_id'] ?? ''),
+            (string)($release['asset_updated_at'] ?? ''),
+            (string)($release['asset_size'] ?? ''),
+            (string)($release['package'] ?? ''),
+        ]));
+    }
+
+    private static function base_version(array $release): string {
+        return (string)($release['base_version'] ?? $release['version'] ?? '0.0.0');
+    }
+
+    private static function same_version_asset_changed(array $release): bool {
+        $base = self::base_version($release);
+        if (version_compare($base, BLUEVPN_MANAGER_VERSION, '!=')) return false;
+
+        $installed = self::installed_release();
+        $installed_fp = (string)($installed['fingerprint'] ?? '');
+        $remote_fp = (string)($release['fingerprint'] ?? '');
+        if ($installed_fp !== '' && $remote_fp !== '' && !hash_equals($installed_fp, $remote_fp)) return true;
+
+        return $installed_fp === '' && self::remote_asset_is_newer_than_local_files($release);
+    }
+
+    private static function effective_version(array $release): string {
+        $base = self::base_version($release);
+        if (!self::same_version_asset_changed($release)) return $base;
+        $stamp = strtotime((string)($release['asset_updated_at'] ?? $release['release_updated_at'] ?? ''));
+        if ($stamp <= 0) $stamp = time();
+        return $base . '.' . gmdate('YmdHis', $stamp);
+    }
+
+    /**
      * @return array|WP_Error|null Normalized release, error, or null when no plugin release exists.
      */
     public static function latest_release(bool $force = false) {
@@ -120,34 +175,80 @@ final class BlueVPN_GitHub_Updater {
             $version = substr($tag, strlen($s['tag_prefix']));
             if (!preg_match('/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/', $version)) continue;
 
-            $package = '';
+            $asset_data = null;
             foreach ((array)($release['assets'] ?? []) as $asset) {
                 if (($asset['name'] ?? '') === $s['asset_name'] && !empty($asset['browser_download_url'])) {
-                    $package = esc_url_raw((string)$asset['browser_download_url']);
+                    $asset_data = $asset;
                     break;
                 }
             }
-            if ($package === '') continue;
+            if (!is_array($asset_data)) continue;
 
-            $candidates[] = [
+            $candidate = [
+                'base_version' => $version,
                 'version' => $version,
                 'tag' => $tag,
-                'package' => $package,
+                'package' => esc_url_raw((string)$asset_data['browser_download_url']),
                 'url' => esc_url_raw((string)($release['html_url'] ?? self::repository_url())),
                 'published_at' => sanitize_text_field((string)($release['published_at'] ?? '')),
+                'release_updated_at' => sanitize_text_field((string)($release['updated_at'] ?? '')),
+                'release_id' => (string)($release['id'] ?? ''),
+                'asset_id' => (string)($asset_data['id'] ?? ''),
+                'asset_updated_at' => sanitize_text_field((string)($asset_data['updated_at'] ?? '')),
+                'asset_size' => (string)($asset_data['size'] ?? ''),
                 'body' => wp_kses_post((string)($release['body'] ?? '')),
             ];
+            $candidate['fingerprint'] = self::release_fingerprint($candidate);
+            $candidates[] = $candidate;
         }
 
         if (!$candidates) {
-            set_site_transient(self::CACHE_KEY, 'none', 30 * MINUTE_IN_SECONDS);
+            set_site_transient(self::CACHE_KEY, 'none', self::CACHE_TTL);
             return null;
         }
 
         usort($candidates, static fn($a, $b) => version_compare($b['version'], $a['version']));
         $latest = $candidates[0];
-        set_site_transient(self::CACHE_KEY, $latest, 30 * MINUTE_IN_SECONDS);
+        $latest['version'] = self::effective_version($latest);
+        set_site_transient(self::CACHE_KEY, $latest, self::CACHE_TTL);
         return $latest;
+    }
+
+    private static function installed_release(): array {
+        $value = get_site_option(self::INSTALLED_RELEASE_KEY, []);
+        return is_array($value) ? $value : [];
+    }
+
+    private static function remote_asset_is_newer_than_local_files(array $release): bool {
+        $remote = strtotime((string)($release['asset_updated_at'] ?? $release['release_updated_at'] ?? ''));
+        $local = defined('BLUEVPN_MANAGER_FILE') && is_file(BLUEVPN_MANAGER_FILE)
+            ? (int)@filemtime(BLUEVPN_MANAGER_FILE)
+            : 0;
+        return $remote > 0 && $local > 0 && $remote > ($local + 60);
+    }
+
+    /**
+     * Returns true for a normal semantic-version update, or for a replaced
+     * GitHub release asset that has the same semantic version.
+     */
+    public static function update_available(?array $release = null): bool {
+        if ($release === null) {
+            $release = self::latest_release(false);
+            if (!is_array($release)) return false;
+        }
+
+        $base = self::base_version($release);
+        if (version_compare($base, BLUEVPN_MANAGER_VERSION, '>')) return true;
+        if (version_compare($base, BLUEVPN_MANAGER_VERSION, '<')) return false;
+        return self::same_version_asset_changed($release);
+    }
+
+    /**
+     * WordPress wants a version string in its update response. For same-version
+     * recovery updates, synthesize a sortable build suffix from GitHub time.
+     */
+    public static function advertised_version(array $release): string {
+        return (string)($release['version'] ?? self::base_version($release));
     }
 
     public static function inject_update($transient) {
@@ -161,7 +262,7 @@ final class BlueVPN_GitHub_Updater {
             'id' => self::repository_url(),
             'slug' => 'bluevpn-manager',
             'plugin' => self::plugin_basename(),
-            'new_version' => $release['version'],
+            'new_version' => self::advertised_version($release),
             'url' => $release['url'],
             'package' => $release['package'],
             'requires' => '6.2',
@@ -171,10 +272,13 @@ final class BlueVPN_GitHub_Updater {
             'banners' => [],
         ];
 
-        if (version_compare($release['version'], BLUEVPN_MANAGER_VERSION, '>')) {
+        if (self::update_available($release)) {
             $transient->response[self::plugin_basename()] = $item;
             unset($transient->no_update[self::plugin_basename()]);
         } else {
+            // In the no-update response WordPress should see the real plugin
+            // version, not the synthetic recovery suffix.
+            $item->new_version = self::base_version($release);
             $transient->no_update[self::plugin_basename()] = $item;
             unset($transient->response[self::plugin_basename()]);
         }
@@ -189,7 +293,7 @@ final class BlueVPN_GitHub_Updater {
         return (object)[
             'name' => 'BlueVPN Manager',
             'slug' => 'bluevpn-manager',
-            'version' => $release['version'],
+            'version' => self::advertised_version($release),
             'author' => '<a href="' . esc_url(self::repository_url()) . '">BlueVPN</a>',
             'homepage' => $release['url'],
             'requires' => '6.2',
@@ -215,7 +319,20 @@ final class BlueVPN_GitHub_Updater {
         $plugins = (array)($hook_extra['plugins'] ?? []);
         if (!$plugins && !empty($hook_extra['plugin'])) $plugins = [(string)$hook_extra['plugin']];
         if (!in_array(self::plugin_basename(), $plugins, true)) return;
+
         self::clear_cache();
         delete_site_transient('update_plugins');
+
+        $release = self::latest_release(true);
+        if (is_array($release) && !empty($release['fingerprint'])) {
+            update_site_option(self::INSTALLED_RELEASE_KEY, [
+                'fingerprint' => (string)$release['fingerprint'],
+                'tag' => (string)($release['tag'] ?? ''),
+                'version' => self::base_version($release),
+                'asset_id' => (string)($release['asset_id'] ?? ''),
+                'asset_updated_at' => (string)($release['asset_updated_at'] ?? ''),
+                'installed_at' => gmdate('c'),
+            ]);
+        }
     }
 }

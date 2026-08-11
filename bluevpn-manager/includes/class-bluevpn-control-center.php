@@ -525,7 +525,7 @@ final class BlueVPN_Control_Center {
         try{BlueVPN_SMS_Notifications::process(10);}catch(Throwable $e){}
         self::redirect('sms','پیام برای ارسال مجدد فعال شد.');
     }
-    public static function sync_customer(): void { self::guard();$id=(int)($_GET['customer_id']??0);check_admin_referer('bluevpn_cc_sync_customer_'.$id);$r=BlueVPN_Providers::sync_customer($id);self::redirect('customers',$r['message'],!$r['ok']); }
+    public static function sync_customer(): void { self::guard();$id=(int)($_GET['customer_id']??0);check_admin_referer('bluevpn_cc_sync_customer_'.$id);$r=BlueVPN_Providers::sync_customer($id,true);self::redirect('customers',$r['message'],!$r['ok']); }
     public static function manual_activate(): void {
         self::guard();check_admin_referer('bluevpn_cc_manual_activate');global $wpdb;
         $customerId=(int)($_POST['customer_id']??0);$planId=(int)($_POST['plan_id']??0);$r=BlueVPN_Providers::provision_customer($customerId,$planId);

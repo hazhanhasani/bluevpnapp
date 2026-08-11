@@ -134,21 +134,29 @@ final class BlueVPN_API {
 
     public static function ai_event(WP_REST_Request $r): WP_REST_Response {
         try {
-            $c=BlueVPN_Auth::current_customer($r); $s=BlueVPN_DB::settings();
+            $s=BlueVPN_DB::settings();
             if(empty($s['blueai_enabled'])) return self::ok(['success'=>true,'accepted'=>false,'reason'=>'disabled']);
             $b=self::body($r); if(($b['consent']??null)!==true) return self::ok(['success'=>true,'accepted'=>false,'reason'=>'consent_required']);
+            $bearer=BlueVPN_Auth::bearer_token($r);
+            if($bearer!==''){
+                $c=BlueVPN_Auth::current_customer($r);
+            }else{
+                $device=substr(sanitize_text_field((string)($b['device_id']??$r->get_header('x-device-id'))),0,80);
+                if($device==='')throw new BlueVPN_Auth_Exception(422,'AI_DEVICE_REQUIRED','شناسه دستگاه لازم است');
+                $key='bluevpn_ai_guest_'.sha1($device.'|'.($_SERVER['REMOTE_ADDR']??''));$count=(int)get_transient($key);
+                if($count>=120)throw new BlueVPN_Auth_Exception(429,'AI_RATE_LIMIT','تعداد درخواست BlueAI بیش از حد مجاز است');
+                set_transient($key,$count+1,HOUR_IN_SECONDS);$c=['id'=>0];$b['device_id']=$device;
+            }
             try { $result=BlueVPN_AI::submit_event($c,$b); } catch(InvalidArgumentException $e) { throw new BlueVPN_Auth_Exception(422,'AI_EVENT_INVALID',$e->getMessage()); }
-            return self::ok(array_merge(['success'=>true],$result));
+            return self::ok(array_merge(['success'=>true,'guest'=>(int)$c['id']===0],$result));
         } catch(BlueVPN_Auth_Exception $e){ return self::fail($e); }
     }
     public static function ai_recommendations(WP_REST_Request $r): WP_REST_Response {
-        try {
-            BlueVPN_Auth::current_customer($r); $s=BlueVPN_DB::settings(); $enabled=!empty($s['blueai_enabled']);
-            $rows=$enabled?BlueVPN_AI::recommendations((string)($r->get_param('operator')??'unknown'),(string)($r->get_param('network_type')??'unknown'),(string)($r->get_param('mode')??'balanced'),$r->get_param('hour'),30):[];
-            return self::ok(['success'=>true,'enabled'=>$enabled,'collective'=>!empty($s['blueai_collective']),'recommendations'=>$rows,'generated_at'=>BlueVPN_Utils::iso_now(),'generated_at_fa'=>BlueVPN_Utils::tehran_datetime_fa(),'calendar'=>'jalali','timezone'=>'Asia/Tehran']);
-        } catch(BlueVPN_Auth_Exception $e){ return self::fail($e); }
+        $s=BlueVPN_DB::settings(); $enabled=!empty($s['blueai_enabled']);
+        $rows=$enabled?BlueVPN_AI::recommendations((string)($r->get_param('operator')??'unknown'),(string)($r->get_param('network_type')??'unknown'),(string)($r->get_param('mode')??'balanced'),$r->get_param('hour'),30):[];
+        return self::ok(['success'=>true,'enabled'=>$enabled,'collective'=>!empty($s['blueai_collective']),'recommendations'=>$rows,'generated_at'=>BlueVPN_Utils::iso_now(),'generated_at_fa'=>BlueVPN_Utils::tehran_datetime_fa(),'calendar'=>'jalali','timezone'=>'Asia/Tehran']);
     }
-    public static function ai_dashboard(WP_REST_Request $r): WP_REST_Response { try{$c=BlueVPN_Auth::current_customer($r);return self::ok(['success'=>true,'dashboard'=>BlueVPN_AI::dashboard((int)$c['id'])]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
+    public static function ai_dashboard(WP_REST_Request $r): WP_REST_Response { try{$bearer=BlueVPN_Auth::bearer_token($r);if($bearer!==''){$c=BlueVPN_Auth::current_customer($r);$data=BlueVPN_AI::dashboard((int)$c['id']);$guest=false;}else{$device=substr(sanitize_text_field((string)$r->get_header('x-device-id')),0,80);if($device==='')throw new BlueVPN_Auth_Exception(422,'AI_DEVICE_REQUIRED','شناسه دستگاه لازم است');$data=BlueVPN_AI::dashboard_device($device);$guest=true;}return self::ok(['success'=>true,'guest'=>$guest,'dashboard'=>$data]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
     public static function feedback(WP_REST_Request $r): WP_REST_Response { try{$c=BlueVPN_Auth::current_customer($r);return self::ok(array_merge(['success'=>true],BlueVPN_AI::feedback((int)$c['id'],self::body($r))));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
 
     public static function create_order(WP_REST_Request $r): WP_REST_Response { try{$c=BlueVPN_Auth::current_customer($r);return self::ok(BlueVPN_Payments::create($c,self::body($r)));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
@@ -183,8 +191,8 @@ final class BlueVPN_API {
     public static function refresh(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);$x=BlueVPN_Auth::refresh_session((string)($b['phone']??$b['identity']??$b['email']??''),(string)($b['device_id']??''),(string)($b['refresh_token']??''),(string)($b['device_name']??''));return self::ok(['success'=>true,'token'=>$x['tokens']['token'],'refresh_token'=>$x['tokens']['refresh_token'],'account'=>BlueVPN_Auth::account_payload($x['customer'])]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
     public static function logout(WP_REST_Request $r): WP_REST_Response { BlueVPN_Auth::logout($r); return self::ok(['success'=>true]); }
     public static function plans(WP_REST_Request $r): WP_REST_Response { try{BlueVPN_Auth::current_customer($r);global $wpdb;$t=BlueVPN_DB::table('plans');$rows=$wpdb->get_results("SELECT id,title,description,price_toman,duration_days,data_limit_gb,device_limit FROM {$t} WHERE active=1 AND deleted=0 ORDER BY sort_order,price_toman",ARRAY_A);foreach($rows as &$x){foreach(['id','price_toman','duration_days','data_limit_gb','device_limit'] as $k)$x[$k]=(int)$x[$k];}return self::ok(['success'=>true,'plans'=>$rows]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
-    public static function account(WP_REST_Request $r): WP_REST_Response { try{$c=BlueVPN_Auth::current_customer($r);BlueVPN_Providers::sync_customer((int)$c['id']);$fresh=BlueVPN_Auth::get_customer((int)$c['id']);return self::ok(['success'=>true,'account'=>BlueVPN_Auth::account_payload($fresh)]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
-    public static function account_sync(WP_REST_Request $r): WP_REST_Response { try{$c=BlueVPN_Auth::current_customer($r);$sync=BlueVPN_Providers::sync_customer((int)$c['id']);$fresh=BlueVPN_Auth::get_customer((int)$c['id']);return self::ok(['success'=>true,'sync'=>$sync,'account'=>BlueVPN_Auth::account_payload($fresh)]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
+    public static function account(WP_REST_Request $r): WP_REST_Response { try{$c=BlueVPN_Auth::current_customer($r);$fresh=BlueVPN_Auth::get_customer((int)$c['id']);return self::ok(['success'=>true,'account'=>BlueVPN_Auth::account_payload($fresh),'source'=>'wordpress_snapshot']);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
+    public static function account_sync(WP_REST_Request $r): WP_REST_Response { try{$c=BlueVPN_Auth::current_customer($r);$queued=BlueVPN_Providers::request_background_sync((int)$c['id']);$fresh=BlueVPN_Auth::get_customer((int)$c['id']);return self::ok(['success'=>true,'sync'=>['queued'=>$queued,'mode'=>'background','message'=>'Provider sync در پس‌زمینه انجام می‌شود.'],'account'=>BlueVPN_Auth::account_payload($fresh)]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
     public static function resolve_locations(WP_REST_Request $r): WP_REST_Response { try{BlueVPN_Auth::current_customer($r);$b=self::body($r);$keys=array_values(array_unique(array_filter(array_map(fn($v)=>strtolower(trim((string)$v)),is_array($b['keys']??null)?array_slice($b['keys'],0,600):[]),fn($v)=>preg_match('/^[a-f0-9]{40}$/',$v))));if(!$keys)return self::ok(['success'=>true,'locations'=>[],'count'=>0]);global $wpdb;$t=BlueVPN_DB::table('server_locations');$ph=implode(',',array_fill(0,count($keys),'%s'));$rows=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$t} WHERE config_key IN ($ph)",...$keys),ARRAY_A);$out=[];foreach($rows as $x)$out[]=self::location_payload($x);return self::ok(['success'=>true,'locations'=>$out,'count'=>count($out)]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
     public static function verify_location(WP_REST_Request $r): WP_REST_Response { try{BlueVPN_Auth::current_customer($r);$b=self::body($r);$key=strtolower(trim((string)($b['config_key']??'')));$cc=strtolower(trim((string)($b['country_code']??'')));if(!preg_match('/^[a-f0-9]{40}$/',$key))throw new BlueVPN_Auth_Exception(422,'SERVER_LOCATION_KEY_INVALID','شناسه سرور معتبر نیست');if(!preg_match('/^[a-z]{2}$/',$cc))throw new BlueVPN_Auth_Exception(422,'SERVER_COUNTRY_INVALID','کد کشور معتبر نیست');global $wpdb;$t=BlueVPN_DB::table('server_locations');$now=BlueVPN_Utils::now_mysql();$wpdb->replace($t,['config_key'=>$key,'country_code'=>$cc,'source'=>mb_substr(sanitize_key((string)($b['source']??'client_trace')),0,40),'confidence'=>100,'verified_at'=>$now,'updated_at'=>$now]);$row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE config_key=%s",$key),ARRAY_A);return self::ok(['success'=>true,'location'=>self::location_payload($row)]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
     private static function location_payload(array $x): array { return ['config_key'=>$x['config_key'],'country_code'=>$x['country_code'],'source'=>$x['source'],'confidence'=>(int)$x['confidence'],'verified_at'=>BlueVPN_Utils::iso_from_mysql($x['verified_at']??null),'updated_at'=>BlueVPN_Utils::iso_from_mysql($x['updated_at']??null)]; }

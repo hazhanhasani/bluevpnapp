@@ -1743,8 +1743,9 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
 
         mainViewModel.updateTestResultAction.observe(this) { result ->
+            // Ping results update the existing pool; they must not trigger a
+            // subscription rebuild or candidate warm-up while connecting.
             BlueVpnLocationUtil.invalidateCache()
-            warmCandidatesThenRefresh(force = true)
 
             val upstreamDelay = parseV2rayNgDelayMs(result)
             if (upstreamDelay != null && mainViewModel.isRunning.value == true) {
@@ -1776,8 +1777,11 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
 
         mainViewModel.updateListAction.observe(this) {
+            // v2rayNG list notifications are frequent during import/testing.
+            // Keep this observer lightweight; the owner that changed the
+            // subscription explicitly performs one warm-up when needed.
             BlueVpnLocationUtil.invalidateCache()
-            warmCandidatesThenRefresh(force = true)
+            requestDashboardRefresh(force = false)
 
             if (
                 startupOptimizationActive &&
@@ -1888,16 +1892,18 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         scheduleStartupPipeline()
         if (BlueVpnAccountManager.hasSession(this)) {
             val now = SystemClock.elapsedRealtime()
-            if (now - lastForegroundAccountSyncAt > 2_000L) {
+            if (now - lastForegroundAccountSyncAt > 120_000L) {
                 lastForegroundAccountSyncAt = now
-                // Manual admin activation and completed payments must become
-                // visible without logging out. A forced foreground refresh is
-                // cheap and also reconciles the free/premium server sources.
+                // Foreground resume is cache-first. Do not poll providers or
+                // rebuild subscriptions while a tunnel is connecting/running.
                 handler.postDelayed({
-                    if (!isFinishing && !isDestroyed) {
-                        syncManagedAccount(force = true)
+                    if (!isFinishing && !isDestroyed &&
+                        !failoverActive && !userDisconnecting &&
+                        mainViewModel.isRunning.value != true
+                    ) {
+                        syncManagedAccount(force = false)
                     }
-                }, 280L)
+                }, 450L)
             }
         }
 
@@ -4272,6 +4278,11 @@ private fun dpHome(value: Int): Int =
 
     private fun syncManagedAccount(force: Boolean) {
         if (!BlueVpnAccountManager.hasSession(this)) return
+        if (!force && (
+                failoverActive || userDisconnecting ||
+                    mainViewModel.isRunning.value == true
+            )
+        ) return
         if (accountSyncInProgress) {
             accountSyncForcePending = accountSyncForcePending || force
             return
@@ -4290,14 +4301,16 @@ private fun dpHome(value: Int): Int =
                 result.onSuccess { after ->
                     val entitlementChanged =
                         before.subscriptionActive != after.subscriptionActive ||
-                            before.subscriptionUrl != after.subscriptionUrl ||
-                            before.status != after.status ||
-                            before.expire != after.expire
-                    BlueVpnLocationUtil.invalidateCache()
-                    mainViewModel.reloadServerList()
-                    requestDashboardRefresh(force = true)
-                    refreshSubscriptionInfo(force = true)
-                    warmCandidatesThenRefresh(force = entitlementChanged || force)
+                            before.subscriptionUrl != after.subscriptionUrl
+                    val accountMetaChanged =
+                        before.status != after.status || before.expire != after.expire
+                    if (entitlementChanged) {
+                        BlueVpnLocationUtil.invalidateCache()
+                        mainViewModel.reloadServerList()
+                        warmCandidatesThenRefresh(force = true)
+                    }
+                    requestDashboardRefresh(force = entitlementChanged)
+                    refreshSubscriptionInfo(force = entitlementChanged || accountMetaChanged)
                 }.onFailure {
                     refreshSubscriptionInfo(force = true)
 

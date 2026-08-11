@@ -2,8 +2,14 @@
 if (!defined('ABSPATH')) exit;
 
 final class BlueVPN_Providers {
+    private const SYNC_TTL_SECONDS = 300;
+    private const SNAPSHOT_FRESH_SECONDS = 300;
+    private const SNAPSHOT_STALE_SECONDS = 21600;
+
     public static function init(): void {
         add_action('template_redirect',[self::class,'serve_subscription'],0);
+        add_action('bluevpn_refresh_subscription_snapshot',[self::class,'refresh_subscription_snapshot'],10,1);
+        add_action('bluevpn_sync_customer_async',[self::class,'async_sync_customer'],10,1);
     }
 
     private static function panel(string $provider,int $id): ?array {
@@ -181,33 +187,127 @@ final class BlueVPN_Providers {
         }
         if(empty($c['subscription_token']))$update['subscription_token']=BlueVPN_Utils::random_token(30);else$update['subscription_token']=$c['subscription_token'];$update['subscription_url']=home_url('/sub/'.$update['subscription_token']);$update['subscription_status']=$success>0?'active':'inactive';$update['last_sync_at']=BlueVPN_Utils::now_mysql();$update['last_sync_error']=implode(' | ',$errors);
         $wpdb->update($ct,$update,['id'=>$customerId]);
+        if($success>0)self::request_background_snapshot($customerId);
         return ['ok'=>$success>0&&count($errors)===0,'partial'=>$success>0&&count($errors)>0,'message'=>$errors?implode(' | ',$errors):'فعال‌سازی Providerها انجام شد.','success_count'=>$success];
     }
-    public static function sync_customer(int $customerId): array {
+    public static function request_background_sync(int $customerId): bool {
+        if($customerId<=0)return false;
+        if(wp_next_scheduled('bluevpn_sync_customer_async',[$customerId]))return false;
+        $ok=wp_schedule_single_event(time()+2,'bluevpn_sync_customer_async',[$customerId]);
+        if($ok!==false&&function_exists('spawn_cron'))spawn_cron(time());
+        return $ok!==false;
+    }
+    public static function async_sync_customer(int $customerId): void {
+        self::sync_customer($customerId,false);
+    }
+
+    public static function sync_customer(int $customerId,bool $force=false): array {
         global $wpdb;
         $ct=BlueVPN_DB::table('customers');
         $c=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$ct} WHERE id=%d",$customerId),ARRAY_A);
         if(!$c)return ['ok'=>false,'message'=>'کاربر پیدا نشد.'];
-        $u=[];$errors=[];$active=false;$used=0;$exp=[];
-        if(!empty($c['panel_id'])&&!empty($c['pg_username']))try{$p=self::panel('pasarguard',(int)$c['panel_id']);if($p){$r=self::pg_user($p,(string)$c['pg_username']);if($r){$active=$active||in_array(strtolower((string)($r['status']??'active')),['active','enabled'],true);$u['pasarguard_subscription_url']=self::remote_sub_url($r,(string)$p['base_url'])?:$c['pasarguard_subscription_url'];$used+=max(0,(int)($r['used_traffic']??$r['used_traffic_bytes']??0));$exp[]=self::remote_expiry($r['expire']??null);}}}catch(Throwable $e){$errors[]='PasarGuard: '.$e->getMessage();}
-        if(!empty($c['marzban_panel_id'])&&!empty($c['marzban_username']))try{$p=self::panel('marzban',(int)$c['marzban_panel_id']);if($p){$r=self::mz_user($p,(string)$c['marzban_username']);if($r){$active=$active||in_array(strtolower((string)($r['status']??'active')),['active','enabled'],true);$u['marzban_subscription_url']=self::remote_sub_url($r,(string)$p['base_url'])?:$c['marzban_subscription_url'];$u['marzban_status']=(string)($r['status']??'active');$u['marzban_used_traffic_bytes']=max(0,(int)($r['used_traffic']??0));$used+=max(0,(int)($r['used_traffic']??0));$exp[]=self::remote_expiry($r['expire']??null);}}}catch(Throwable $e){$errors[]='Marzban: '.$e->getMessage();$u['marzban_last_error']=mb_substr($e->getMessage(),0,1800);}
-        if(!empty($c['guardcore_panel_id'])&&!empty($c['guardcore_username']))try{$p=self::panel('guardcore',(int)$c['guardcore_panel_id']);if($p&&($p['auth_mode']??'manual')!=='manual'){$r=self::gc_user($p,(string)$c['guardcore_username']);if($r){$active=$active||($r['status']==='active');$u['guardcore_subscription_id']=is_numeric($r['id']??null)?(int)$r['id']:$c['guardcore_subscription_id'];$u['guardcore_subscription_url']=(string)($r['subscription_url']?:$c['guardcore_subscription_url']);$u['guardcore_status']=(string)$r['status'];$u['guardcore_expire']=$r['expire'];$u['guardcore_data_limit_bytes']=(int)$r['data_limit'];$u['guardcore_used_traffic_bytes']=(int)$r['used_traffic'];$u['guardcore_last_error']='';$used+=max(0,(int)$r['used_traffic']);$exp[]=$r['expire'];}}elseif(!empty($c['guardcore_subscription_url']))$active=true;}catch(Throwable $e){$errors[]='GuardCore: '.$e->getMessage();$u['guardcore_last_error']=mb_substr($e->getMessage(),0,1800);}
-        elseif(!empty($c['guardcore_subscription_url']))$active=true;
-        $valid=array_values(array_filter($exp));if($valid)$u['subscription_expire']=max($valid);$u['used_traffic_bytes']=$used;$u['subscription_status']=$active?'active':'inactive';$u['last_sync_at']=BlueVPN_Utils::now_mysql();$u['last_sync_error']=implode(' | ',$errors);$wpdb->update($ct,$u,['id'=>$customerId]);return ['ok'=>!$errors,'message'=>$errors?implode(' | ',$errors):'همگام‌سازی انجام شد.'];
+        $last=!empty($c['last_sync_at'])?(strtotime((string)$c['last_sync_at'].' UTC')?:0):0;
+        if(!$force&&$last>0&&(time()-$last)<self::SYNC_TTL_SECONDS){
+            return ['ok'=>true,'cached'=>true,'message'=>'وضعیت ذخیره‌شده WordPress معتبر است.'];
+        }
+
+        $u=[];$errors=[];$active=false;$used=0;$exp=[];$responses=0;$configured=0;
+        if(!empty($c['panel_id'])&&!empty($c['pg_username'])){
+            $configured++;
+            try{$p=self::panel('pasarguard',(int)$c['panel_id']);if($p){$r=self::pg_user($p,(string)$c['pg_username']);$responses++;if($r){$active=$active||in_array(strtolower((string)($r['status']??'active')),['active','enabled'],true);$u['pasarguard_subscription_url']=self::remote_sub_url($r,(string)$p['base_url'])?:$c['pasarguard_subscription_url'];$used+=max(0,(int)($r['used_traffic']??$r['used_traffic_bytes']??0));$exp[]=self::remote_expiry($r['expire']??null);}}}catch(Throwable $e){$errors[]='PasarGuard: '.$e->getMessage();}
+        }
+        if(!empty($c['marzban_panel_id'])&&!empty($c['marzban_username'])){
+            $configured++;
+            try{$p=self::panel('marzban',(int)$c['marzban_panel_id']);if($p){$r=self::mz_user($p,(string)$c['marzban_username']);$responses++;if($r){$active=$active||in_array(strtolower((string)($r['status']??'active')),['active','enabled'],true);$u['marzban_subscription_url']=self::remote_sub_url($r,(string)$p['base_url'])?:$c['marzban_subscription_url'];$u['marzban_status']=(string)($r['status']??'active');$u['marzban_used_traffic_bytes']=max(0,(int)($r['used_traffic']??0));$used+=max(0,(int)($r['used_traffic']??0));$exp[]=self::remote_expiry($r['expire']??null);}}}catch(Throwable $e){$errors[]='Marzban: '.$e->getMessage();$u['marzban_last_error']=mb_substr($e->getMessage(),0,1800);}
+        }
+        if(!empty($c['guardcore_panel_id'])&&!empty($c['guardcore_username'])){
+            $configured++;
+            try{$p=self::panel('guardcore',(int)$c['guardcore_panel_id']);if($p&&($p['auth_mode']??'manual')!=='manual'){$r=self::gc_user($p,(string)$c['guardcore_username']);$responses++;if($r){$active=$active||($r['status']==='active');$u['guardcore_subscription_id']=is_numeric($r['id']??null)?(int)$r['id']:$c['guardcore_subscription_id'];$u['guardcore_subscription_url']=(string)($r['subscription_url']?:$c['guardcore_subscription_url']);$u['guardcore_status']=(string)$r['status'];$u['guardcore_expire']=$r['expire'];$u['guardcore_data_limit_bytes']=(int)$r['data_limit'];$u['guardcore_used_traffic_bytes']=(int)$r['used_traffic'];$u['guardcore_last_error']='';$used+=max(0,(int)$r['used_traffic']);$exp[]=$r['expire'];}}elseif(!empty($c['guardcore_subscription_url'])){$responses++;$active=true;}}catch(Throwable $e){$errors[]='GuardCore: '.$e->getMessage();$u['guardcore_last_error']=mb_substr($e->getMessage(),0,1800);}
+        } elseif(!empty($c['guardcore_subscription_url'])){$configured++;$responses++;$active=true;}
+
+        $valid=array_values(array_filter($exp));
+        if($valid)$u['subscription_expire']=max($valid);
+        if($responses>0)$u['used_traffic_bytes']=$used;
+        // Fail open on transport/provider errors. A timeout must never turn a
+        // paid user into Free. We only write inactive when every configured
+        // provider answered and none reported an active subscription.
+        if($active){
+            $u['subscription_status']='active';
+        } elseif($configured>0&&$responses>0&&$responses===$configured&&count($errors)===0){
+            $u['subscription_status']='inactive';
+        }
+        $u['last_sync_at']=BlueVPN_Utils::now_mysql();
+        $u['last_sync_error']=implode(' | ',$errors);
+        $wpdb->update($ct,$u,['id'=>$customerId]);
+        return [
+            'ok'=>count($errors)===0,
+            'cached'=>false,
+            'preserved_status'=>!isset($u['subscription_status']),
+            'message'=>$errors?implode(' | ',$errors):'همگام‌سازی انجام شد.'
+        ];
     }
     public static function attach_guardcore(int $customerId,string $url): array {
-        global $wpdb;$url=esc_url_raw(trim($url));if($url==='')return ['ok'=>false,'message'=>'لینک اشتراک معتبر نیست.'];$t=BlueVPN_DB::table('customers');$ok=$wpdb->update($t,['guardcore_subscription_url'=>$url,'guardcore_status'=>'active','last_sync_at'=>BlueVPN_Utils::now_mysql()],['id'=>$customerId]);return ['ok'=>$ok!==false,'message'=>$ok===false?'ذخیره نشد.':'لینک GuardCore ثبت شد.'];
+        global $wpdb;$url=esc_url_raw(trim($url));if($url==='')return ['ok'=>false,'message'=>'لینک اشتراک معتبر نیست.'];$t=BlueVPN_DB::table('customers');$ok=$wpdb->update($t,['guardcore_subscription_url'=>$url,'guardcore_status'=>'active','last_sync_at'=>BlueVPN_Utils::now_mysql()],['id'=>$customerId]);if($ok!==false)self::request_background_snapshot($customerId);return ['ok'=>$ok!==false,'message'=>$ok===false?'ذخیره نشد.':'لینک GuardCore ثبت شد.'];
     }
     private static function subscription_lines(string $text): array {
         $text=trim($text);if($text==='')return [];$decoded=base64_decode(preg_replace('/\s+/','',$text),true);if($decoded!==false&&preg_match('~(?:vless|vmess|trojan|ss|hysteria2|tuic)://~i',$decoded))$text=$decoded;
         $lines=preg_split('/\R+/',trim($text))?:[];return array_values(array_filter(array_map('trim',$lines),fn($x)=>preg_match('~^(?:vless|vmess|trojan|ss|hysteria2|tuic)://~i',$x)));
     }
+    private static function snapshot_option(int $customerId): string { return 'bluevpn_sub_snapshot_'.$customerId; }
+    private static function snapshot_load(int $customerId): array {
+        $raw=get_option(self::snapshot_option($customerId),[]);return is_array($raw)?$raw:[];
+    }
+    private static function snapshot_store(int $customerId,array $lines,array $errors=[]): void {
+        if(!$lines)return;
+        update_option(self::snapshot_option($customerId),[
+            'lines'=>array_values($lines),'updated_at'=>time(),'errors'=>array_values($errors),
+        ],false);
+    }
+    private static function customer_sources(array $c): array {
+        $out=[];foreach(['pasarguard_subscription_url','marzban_subscription_url','guardcore_subscription_url'] as $k){$url=trim((string)($c[$k]??''));if($url!==''&&!in_array($url,$out,true))$out[]=$url;}return $out;
+    }
+    public static function refresh_subscription_snapshot(int $customerId): array {
+        global $wpdb;$t=BlueVPN_DB::table('customers');$c=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%d AND active=1 LIMIT 1",$customerId),ARRAY_A);if(!$c)return ['ok'=>false,'message'=>'customer not found'];
+        $sources=self::customer_sources($c);$lines=[];$seen=[];$errors=[];$successSources=0;
+        foreach($sources as $url){
+            $r=wp_remote_get($url,['timeout'=>8,'redirection'=>2,'sslverify'=>true,'headers'=>['User-Agent'=>'BlueVPN-WordPress/'.BLUEVPN_MANAGER_VERSION,'Accept'=>'text/plain,*/*']]);
+            if(is_wp_error($r)){$errors[]=$r->get_error_message();continue;}
+            $code=(int)wp_remote_retrieve_response_code($r);if($code>=400){$errors[]='HTTP '.$code;continue;}
+            $successSources++;
+            foreach(self::subscription_lines((string)wp_remote_retrieve_body($r)) as $line){$key=sha1($line);if(isset($seen[$key]))continue;$seen[$key]=1;$lines[]=$line;}
+        }
+        $old=self::snapshot_load($customerId);
+        // Never replace a complete last-good pool with a partial response caused
+        // by a temporarily unavailable panel. First bootstrap may use partial.
+        $complete=$successSources===count($sources)&&count($errors)===0;
+        if($lines&&($complete||empty($old['lines'])))self::snapshot_store($customerId,$lines,$errors);
+        $effective=$complete||empty($old['lines'])?$lines:(array)$old['lines'];
+        return ['ok'=>!empty($effective),'fresh'=>$complete,'lines'=>$effective,'errors'=>$errors];
+    }
+    public static function request_background_snapshot(int $customerId): bool {
+        if($customerId<=0)return false;
+        if(wp_next_scheduled('bluevpn_refresh_subscription_snapshot',[$customerId]))return false;
+        $ok=wp_schedule_single_event(time()+2,'bluevpn_refresh_subscription_snapshot',[$customerId]);
+        if($ok!==false&&function_exists('spawn_cron'))spawn_cron(time());
+        return $ok!==false;
+    }
     public static function serve_subscription(): void {
         $path=(string)(parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH)??'');if(!preg_match('~^/sub/([A-Za-z0-9_-]{10,100})/?$~',$path,$m))return;
         global $wpdb;$t=BlueVPN_DB::table('customers');$c=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE subscription_token=%s AND active=1 LIMIT 1",$m[1]),ARRAY_A);if(!$c){status_header(404);header('Content-Type: text/plain; charset=utf-8');echo 'subscription not found';exit;}
-        $sources=[];foreach(['pasarguard_subscription_url','marzban_subscription_url','guardcore_subscription_url'] as $k)if(!empty($c[$k]))$sources[]=(string)$c[$k];$lines=[];$seen=[];$errors=[];
-        foreach($sources as $url){$r=wp_remote_get($url,['timeout'=>20,'redirection'=>3,'sslverify'=>true,'headers'=>['User-Agent'=>'BlueVPN-WordPress/'.BLUEVPN_MANAGER_VERSION]]);if(is_wp_error($r)){$errors[]=$r->get_error_message();continue;}if((int)wp_remote_retrieve_response_code($r)>=400){$errors[]='HTTP '.wp_remote_retrieve_response_code($r);continue;}foreach(self::subscription_lines((string)wp_remote_retrieve_body($r)) as $line){$key=sha1($line);if(isset($seen[$key]))continue;$seen[$key]=1;$lines[]=$line;}}
-        if(!$lines){status_header(502);header('Content-Type: text/plain; charset=utf-8');echo 'No usable configs. '.implode(' | ',$errors);exit;}
-        header('Content-Type: text/plain; charset=utf-8');header('Cache-Control: no-store, no-cache, must-revalidate');header('profile-title: base64:'.base64_encode('BlueVPN'));header('profile-update-interval: 1');$expiry=!empty($c['subscription_expire'])?strtotime((string)$c['subscription_expire'].' UTC'):0;header('subscription-userinfo: upload=0; download='.(int)$c['used_traffic_bytes'].'; total='.(int)$c['data_limit_bytes'].'; expire='.(int)$expiry);header('X-BlueVPN-Config-Count: '.count($lines));echo base64_encode(implode("\n",$lines)."\n");exit;
+        $snapshot=self::snapshot_load((int)$c['id']);$age=!empty($snapshot['updated_at'])?time()-(int)$snapshot['updated_at']:PHP_INT_MAX;$lines=is_array($snapshot['lines']??null)?$snapshot['lines']:[];
+        if(!$lines){$result=self::refresh_subscription_snapshot((int)$c['id']);$lines=(array)($result['lines']??[]);}elseif($age>self::SNAPSHOT_FRESH_SECONDS){self::request_background_snapshot((int)$c['id']);}
+        if(!$lines){status_header(502);header('Content-Type: text/plain; charset=utf-8');echo 'No usable configs';exit;}
+        header('Content-Type: text/plain; charset=utf-8');
+        header('Cache-Control: private, max-age=60, stale-while-revalidate=300');
+        header('profile-title: base64:'.base64_encode('BlueVPN'));
+        // BlueVPN Android owns refresh policy. Do not instruct upstream v2rayNG
+        // to refresh the managed subscription every hour.
+        header('profile-update-interval: 24');
+        $expiry=!empty($c['subscription_expire'])?strtotime((string)$c['subscription_expire'].' UTC'):0;
+        header('subscription-userinfo: upload=0; download='.(int)$c['used_traffic_bytes'].'; total='.(int)$c['data_limit_bytes'].'; expire='.(int)$expiry);
+        header('X-BlueVPN-Config-Count: '.count($lines));
+        header('X-BlueVPN-Snapshot-Age: '.($age===PHP_INT_MAX?0:max(0,$age)));
+        echo base64_encode(implode("\n",$lines)."\n");exit;
     }
+
 }

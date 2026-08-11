@@ -1,7 +1,7 @@
 {
-  "release": "4.0.26-auto",
-  "version_name": "4.0.26",
-  "version_code": 40026,
+  "release": "4.0.27",
+  "version_name": "4.0.27",
+  "version_code": 40027,
   "changes": [
     "Add private scheduled backups with 7-version retention",
     "Add checksum-validated transactional restore with pre-restore rollback snapshot",
@@ -13,9 +13,9 @@
   "purpose": "شروع شاخه رسمی BlueVPN 4.x",
   "updated_at": "2026-08-11T20:15:00Z",
   "built_at": "2026-08-11T20:15:00Z",
-  "build_id": "20260811-v4.0.26-production-completion",
-  "feature": "production-completion",
-  "build_fix": "wordpress-production-completion",
-  "version_source": "v4.0.26-production-completion",
+  "build_id": "20260812-v4.0.27-wordpress-connectivity-hotfix",
+  "feature": "wordpress-connectivity-hotfix",
+  "build_fix": "wordpress-connectivity-hotfix",
+  "version_source": "v4.0.27-wordpress-connectivity-hotfix",
   "summary": "Production completion for WordPress/MySQL: private backups, transactional restore, health center, plan CRUD, session/device controls, rate limiting, SMS provider state, and final cutover cleanup."
 }

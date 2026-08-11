@@ -441,7 +441,14 @@ final class BlueVPN_Auth {
         $limitBytes = (int)($c['data_limit_bytes'] ?? 0);
         $usedBytes = (int)($c['used_traffic_bytes'] ?? 0);
         $withinTraffic = $limitBytes <= 0 || $usedBytes < $limitBytes;
-        $active = (bool)((int)$c['active'] && $hasUrl && $withinExpiry && $withinTraffic && !$terminal && $status === 'active');
+        $syncError = trim((string)($c['last_sync_error'] ?? ''));
+        $hasEntitlementRecord = !empty($c['plan_id']);
+        // Provider/network uncertainty is fail-open for an otherwise valid paid
+        // entitlement. This repairs accounts that older builds temporarily wrote
+        // as inactive after a remote timeout without ever exposing an expired or
+        // quota-exhausted subscription.
+        $providerUncertain = $syncError !== '' && $hasEntitlementRecord;
+        $active = (bool)((int)$c['active'] && $hasUrl && $withinExpiry && $withinTraffic && !$terminal && ($status === 'active' || $providerUncertain));
         $expireIso = $unlimited ? '2099-12-31T23:59:59Z' : ($expiry ? gmdate('Y-m-d\TH:i:s\Z', $expiry) : '');
         $remainingSeconds = $unlimited ? null : ($expiry ? max(0, $expiry - time()) : 0);
         $email = (string)($c['email'] ?? '');
@@ -482,7 +489,7 @@ final class BlueVPN_Auth {
             'subscription' => [
                 'active' => $active,
                 'status' => $active ? 'active' : $status,
-                'active_reason' => $active ? 'stored_status' : 'inactive',
+                'active_reason' => $active ? ($status === 'active' ? 'stored_status' : 'provider_fail_open') : 'inactive',
                 'entitlement_active' => $entitlementActive,
                 'entitlement_order_id' => $entitlementOrderId,
                 'entitlement_plan_id' => $entitlementPlanId,

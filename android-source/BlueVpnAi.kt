@@ -482,7 +482,7 @@ object BlueVpnAi {
                 locationScores.getOrPut(candidate.location.key) { mutableListOf() }.add(local)
             }
 
-        if (BlueVpnAccountManager.hasSession(context)) {
+        run {
             val network = network(context)
             BlueVpnAccountManager.aiRecommendations(
                 context,

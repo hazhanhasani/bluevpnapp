@@ -225,8 +225,17 @@ final class BlueVPN_AI {
         $out=array_values($combined);usort($out,static fn($a,$b)=>[$b['score'],$b['samples']]<=>[$a['score'],$a['samples']]);return array_slice($out,0,$limit);
     }
 
+    private static function dashboard_rows(array $rows): array {
+        $successes=array_values(array_filter($rows,static fn($x)=>(int)$x['success']===1));$duration=0;$ping=0;$pingN=0;$routes=[];
+        foreach($successes as $x){$duration+=(int)$x['duration_seconds'];if((int)$x['ping_ms']>0){$ping+=(int)$x['ping_ms'];$pingN++;}$k=(string)$x['config_key'];if(!isset($routes[$k]))$routes[$k]=['duration'=>0,'count'=>0,'title'=>$x['location_title'],'key'=>$x['location_key']];$routes[$k]['duration']+=(int)$x['duration_seconds'];$routes[$k]['count']++;}
+        $best=[];foreach($routes as $x)if(!$best||[$x['duration'],$x['count']]>[$best['duration'],$best['count']])$best=$x;
+        return ['learning_events'=>count($rows),'successful_sessions'=>count($successes),'total_duration_seconds'=>$duration,'average_ping_ms'=>round($ping/max(1,$pingN),1),'success_rate'=>round(count($successes)*100/max(1,count($rows)),1),'best_location'=>$best,'privacy'=>['content_collected'=>false,'destination_ips_collected'=>false,'technical_metrics_only'=>true]];
+    }
     public static function dashboard(int $customerId): array {
-        global $wpdb;$t=BlueVPN_DB::table('ai_connection_events');$rows=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$t} WHERE customer_id=%d ORDER BY created_at DESC LIMIT 500",$customerId),ARRAY_A);$successes=array_values(array_filter($rows,static fn($x)=>(int)$x['success']===1));$duration=0;$ping=0;$pingN=0;$routes=[];foreach($successes as $x){$duration+=(int)$x['duration_seconds'];if((int)$x['ping_ms']>0){$ping+=(int)$x['ping_ms'];$pingN++;}$k=(string)$x['config_key'];if(!isset($routes[$k]))$routes[$k]=['duration'=>0,'count'=>0,'title'=>$x['location_title'],'key'=>$x['location_key']];$routes[$k]['duration']+=(int)$x['duration_seconds'];$routes[$k]['count']++;} $best=[];foreach($routes as $x)if(!$best||[$x['duration'],$x['count']]>[$best['duration'],$best['count']])$best=$x;return ['learning_events'=>count($rows),'successful_sessions'=>count($successes),'total_duration_seconds'=>$duration,'average_ping_ms'=>round($ping/max(1,$pingN),1),'success_rate'=>round(count($successes)*100/max(1,count($rows)),1),'best_location'=>$best,'privacy'=>['content_collected'=>false,'destination_ips_collected'=>false,'technical_metrics_only'=>true]];
+        global $wpdb;$t=BlueVPN_DB::table('ai_connection_events');$rows=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$t} WHERE customer_id=%d ORDER BY created_at DESC LIMIT 500",$customerId),ARRAY_A);return self::dashboard_rows($rows);
+    }
+    public static function dashboard_device(string $deviceId): array {
+        global $wpdb;$deviceId=mb_substr(trim($deviceId),0,80);if($deviceId==='')return self::dashboard_rows([]);$t=BlueVPN_DB::table('ai_connection_events');$rows=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$t} WHERE customer_id=0 AND device_id=%s ORDER BY created_at DESC LIMIT 500",$deviceId),ARRAY_A);return self::dashboard_rows($rows);
     }
 
     public static function feedback(int $customerId,array $p): array {

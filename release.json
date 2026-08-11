@@ -1,11 +1,11 @@
 {
-  "version": "4.0.26",
+  "version": "4.0.27",
   "channel": "stable",
-  "build_id": "20260811-v4.0.26-production-completion",
+  "build_id": "20260812-v4.0.27-wordpress-connectivity-hotfix",
   "built_at": "2026-08-11T20:15:00Z",
-  "android_version": "4.0.26",
-  "android_version_code": 40026,
-  "description": "BlueVPN 4.0.26: تکمیل Production WordPress/MySQL با Backup/Restore واقعی، Health Center، CRUD کامل پلن، مدیریت دستگاه و نشست، Rate Limit و وضعیت دقیق پذیرش SMS.",
+  "android_version": "4.0.27",
+  "android_version_code": 40027,
+  "description": "BlueVPN 4.0.27: WordPress Connectivity Hotfix — جداسازی قطعی Free/Premium، حذف Sync بی‌دلیل، اتصال cache-first، snapshot پایدار Subscription و بازگشت BlueAI برای مهمان و Premium.",
   "features": [
     "v2rayng-exact-guid-core-start",
     "service-state-stop-before-route-switch",
@@ -553,7 +553,7 @@
     "final-railway-cutover-cleanup",
     "production-regression-gate"
   ],
-  "version_code": 40026,
+  "version_code": 40027,
   "notes": "Unified profile/subscription management inspired by mature multi-protocol clients; invalid current-session routes remain temporarily quarantined rather than permanently deleted. SSH/sing-box sources can be compiled and natively validated, while Android TUN ownership remains on Xray until the dedicated bridge/TUN hand-off is implemented.",
-  "version_source": "v4.0.26-production-completion"
+  "version_source": "v4.0.27-wordpress-connectivity-hotfix"
 }

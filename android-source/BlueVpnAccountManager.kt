@@ -479,14 +479,14 @@ object BlueVpnAccountManager {
                 remarks = remark,
                 url = source.url,
                 enabled = true,
-                autoUpdate = true,
+                autoUpdate = false,
                 userAgent = old.subscription.userAgent
                     ?: BlueVpnSubscriptionIntelligence.recommendedUserAgent(c, source.url),
             ) ?: SubscriptionItem(
                 remarks = remark,
                 url = source.url,
                 enabled = true,
-                autoUpdate = true,
+                autoUpdate = false,
                 userAgent = BlueVpnSubscriptionIntelligence.recommendedUserAgent(c, source.url),
             )
             if (!recent || !unchanged) {
@@ -710,45 +710,16 @@ object BlueVpnAccountManager {
     }
 
     /**
-     * Return the current entitlement's usable server GUIDs.
+     * Return only the server GUIDs that belong to the current entitlement.
      *
-     * Premium has a compatibility ladder intentionally modelled after the
-     * pre-Free BlueVPN/v2rayNG behaviour:
-     *   1) exact current Premium subscription;
-     *   2) preserved BlueVPN Premium rows from a previous URL/renewal;
-     *   3) any remaining usable local v2rayNG profile except known Free rows.
-     *
-     * This makes the account/subscription layer advisory for availability
-     * instead of a single point of failure. Free mode stays strictly isolated.
+     * BlueVPN used to fall back from a missing Premium import to every local
+     * v2rayNG profile. Once a Free pool was introduced that compatibility path
+     * became unsafe: stale Premium rows, imported profiles and Free routes could
+     * be observed by the same automatic selector. WordPress is now the control
+     * plane, therefore pool ownership is strict and deterministic.
      */
-    fun preferredServerGuids(c: Context): List<String> {
-        val exact = usableServerGuids(entitlementSubscriptionGuids(c))
-        if (exact.isNotEmpty() || !active(c)) return exact
-
-        val freeServerGuids = allFreeServerGuids()
-        val premiumRows = MmkvManager.decodeSubscriptions()
-            .asSequence()
-            .filter { it.subscription.remarks == SUB }
-            .map { it.guid.trim() }
-            .filter { it.isNotBlank() }
-            .toList()
-
-        val preservedPremium = usableServerGuids(premiumRows)
-            .filterNot { it in freeServerGuids }
-        if (preservedPremium.isNotEmpty()) return preservedPremium
-
-        // Final compatibility fallback: before the Free tier existed BlueVPN
-        // simply consumed v2rayNG's global profile database. Retain that safety
-        // net for authenticated Premium users only, excluding every known Free
-        // server GUID so tier isolation is never weakened.
-        return MmkvManager.decodeAllServerList()
-            .asSequence()
-            .map { it.trim() }
-            .filter { it.isNotBlank() && it !in freeServerGuids }
-            .filter { MmkvManager.decodeServerConfig(it) != null }
-            .distinct()
-            .toList()
-    }
+    fun preferredServerGuids(c: Context): List<String> =
+        usableServerGuids(entitlementSubscriptionGuids(c))
 
     fun entitlementPoolFingerprint(c: Context): String {
         val mode = when {
@@ -807,16 +778,10 @@ object BlueVpnAccountManager {
 
         val id = subscriptionId.orEmpty().trim()
         if (id.isBlank()) return false
-        if (id in entitlementSubscriptionGuids(c)) return true
-        if (!active(c)) return false
-
-        // During an interrupted/legacy v2rayNG import the ProfileItem can be
-        // published before its GUID list. Premium may keep using old BlueVPN
-        // Account rows, but a known Free row is never accepted here.
-        if (id in allFreeSubscriptionGuids()) return false
-        return MmkvManager.decodeSubscriptions().any { row ->
-            row.guid == id && row.subscription.remarks == SUB
-        }
+        // Never accept a stale BlueVPN Account row merely because it is marked
+        // as managed. The subscription id must be owned by the exact active URL
+        // (Premium) or by the configured enabled Free pool.
+        return id in entitlementSubscriptionGuids(c)
     }
 
     /**
@@ -914,14 +879,14 @@ object BlueVpnAccountManager {
                     remarks = SUB,
                     url = normalizedPremiumUrl,
                     enabled = true,
-                    autoUpdate = true,
+                    autoUpdate = false,
                     userAgent = managed.subscription.userAgent
                         ?: BlueVpnSubscriptionIntelligence.recommendedUserAgent(c, normalizedPremiumUrl),
                 ) ?: SubscriptionItem(
                     remarks = SUB,
                     url = normalizedPremiumUrl,
                     enabled = true,
-                    autoUpdate = true,
+                    autoUpdate = false,
                     userAgent = BlueVpnSubscriptionIntelligence.recommendedUserAgent(c, normalizedPremiumUrl),
                 )
                 MmkvManager.encodeSubscription(
@@ -1608,25 +1573,27 @@ object BlueVpnAccountManager {
         val last = prefs(c).getLong("last_sync", 0)
         val local = snapshot(c)
         val appUpdated = accountCacheVersion(c) != currentAppVersion()
-        val entitlementUnknown =
-            !local.subscriptionActive ||
-                local.subscriptionUrl.isBlank() ||
-                local.status.equals("inactive", ignoreCase = true)
+        // An inactive/free account is a valid stable state. Treat only an active
+        // Premium account with a missing URL as incomplete; otherwise routine
+        // foreground resumes would hit WordPress and the remote panels forever.
+        val entitlementIncomplete =
+            local.subscriptionActive && local.subscriptionUrl.isBlank()
         if (
             !force &&
             !appUpdated &&
-            !entitlementUnknown &&
-            System.currentTimeMillis() - last <
-            AUTO_SYNC_INTERVAL_MS
+            !entitlementIncomplete &&
+            System.currentTimeMillis() - last < AUTO_SYNC_INTERVAL_MS
         ) {
             return@runCatching local
         }
 
+        // Routine refresh reads the WordPress snapshot only. Provider polling is
+        // reserved for explicit/forced sync and is throttled server-side.
         val response = authenticatedRequest(
             c,
-            "POST",
-            "/api/v1/account/sync",
-            JSONObject(),
+            if (force) "POST" else "GET",
+            if (force) "/api/v1/account/sync" else "/api/v1/account",
+            if (force) JSONObject() else null,
         )
 
         applyAccount(
@@ -1705,12 +1672,11 @@ object BlueVpnAccountManager {
         c: Context,
         payload: JSONObject,
     ): Result<JSONObject> = runCatching {
-        authenticatedRequest(
-            c,
-            "POST",
-            "/api/v1/ai/events",
-            payload,
-        )
+        if (hasSession(c)) {
+            authenticatedRequest(c, "POST", "/api/v1/ai/events", payload)
+        } else {
+            request(c, "POST", "/api/v1/ai/events", payload, false)
+        }
     }
 
 
@@ -1756,16 +1722,19 @@ object BlueVpnAccountManager {
             "?operator=" + java.net.URLEncoder.encode(operator, "UTF-8") +
             "&network_type=" + java.net.URLEncoder.encode(networkType, "UTF-8") +
             "&mode=" + java.net.URLEncoder.encode(mode, "UTF-8")
-        authenticatedRequest(c, "GET", path, null)
+        if (hasSession(c)) {
+            authenticatedRequest(c, "GET", path, null)
+        } else {
+            request(c, "GET", path, null, false)
+        }
     }
 
     fun aiDashboard(c: Context): Result<JSONObject> = runCatching {
-        authenticatedRequest(
-            c,
-            "GET",
-            "/api/v1/ai/dashboard",
-            null,
-        )
+        if (hasSession(c)) {
+            authenticatedRequest(c, "GET", "/api/v1/ai/dashboard", null)
+        } else {
+            request(c, "GET", "/api/v1/ai/dashboard", null, false)
+        }
     }
 
     fun submitFeedback(
@@ -1799,7 +1768,7 @@ object BlueVpnAccountManager {
     ): BlueVpnAccountSnapshot {
         val subscription =
             account.optJSONObject("subscription") ?: JSONObject()
-        val url = subscription.optString("url")
+        val incomingUrl = subscription.optString("url").trim()
         val previous = snapshot(c)
 
         c.getSharedPreferences(
@@ -1814,7 +1783,22 @@ object BlueVpnAccountManager {
                 }
             }
         }
-        val effectiveActive = effectiveSubscriptionActive(subscription)
+        val incomingActive = effectiveSubscriptionActive(subscription)
+        val incomingStatus = subscription.optString("status", "inactive").trim().lowercase(Locale.US)
+        val syncError = subscription.optString("sync_error").trim()
+        val terminalStatuses = setOf("expired", "disabled", "blocked", "deleted", "cancelled", "canceled")
+        val preserveLastGoodPremium =
+            previous.subscriptionActive &&
+                previous.subscriptionUrl.trim().startsWith("http") &&
+                !incomingActive &&
+                syncError.isNotBlank() &&
+                incomingStatus !in terminalStatuses
+        val effectiveActive = incomingActive || preserveLastGoodPremium
+        val url = if (preserveLastGoodPremium && incomingUrl.isBlank()) {
+            previous.subscriptionUrl.trim()
+        } else {
+            incomingUrl
+        }
         val entitlementChanged =
             previous.subscriptionActive != effectiveActive ||
                 previous.subscriptionUrl.trim() != url.trim()
@@ -1828,10 +1812,7 @@ object BlueVpnAccountManager {
             )
             .putString(
                 "status",
-                subscription.optString(
-                    "status",
-                    "inactive"
-                )
+                if (preserveLastGoodPremium) previous.status else subscription.optString("status", "inactive")
             )
             .putString(
                 "expire",
@@ -1866,7 +1847,7 @@ object BlueVpnAccountManager {
             )
             .putString(
                 "sync_error",
-                subscription.optString("sync_error")
+                syncError
             )
             .putString(
                 "active_reason",
@@ -1899,12 +1880,13 @@ object BlueVpnAccountManager {
                     forceRefresh = entitlementChanged || poolMissing,
                 )
             } else if (url.startsWith("http")) {
-                // Login/registration returns immediately; foreground/order
-                // refreshes pass forceSubscriptions=true and wait for the
-                // entitlement hot-swap before updating the UI. Keep an
-                // application Context with the queued install so desktop-style
-                // subscription intelligence can persist per-network metadata.
-                scheduleInstall(c, url)
+                // A routine account payload must not re-import a healthy pool.
+                // Install only when the entitlement URL actually changed or the
+                // exact Premium pool does not exist locally.
+                val exactPoolMissing = preferredServerGuids(c).isEmpty()
+                if (entitlementChanged || exactPoolMissing) {
+                    scheduleInstall(c, url)
+                }
             }
         } else {
             reconcileSubscriptionMode(
@@ -1976,14 +1958,14 @@ object BlueVpnAccountManager {
             remarks = SUB,
             url = url,
             enabled = true,
-            autoUpdate = true,
+            autoUpdate = false,
             userAgent = old.subscription.userAgent
                 ?: BlueVpnSubscriptionIntelligence.recommendedUserAgent(context = c, url = url),
         ) ?: SubscriptionItem(
             remarks = SUB,
             url = url,
             enabled = true,
-            autoUpdate = true,
+            autoUpdate = false,
             userAgent = BlueVpnSubscriptionIntelligence.recommendedUserAgent(context = c, url = url),
         )
 

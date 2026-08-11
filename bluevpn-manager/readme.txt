@@ -1,5 +1,5 @@
 === BlueVPN Manager ===
-Version: 4.0.23
+Version: 4.0.24
 Requires PHP: 8.0
 
 زیرساخت مهاجرت Backend BlueVPN از Railway/PostgreSQL به WordPress/MySQL با Migration Bridge امن و قابل Resume.
@@ -33,7 +33,7 @@ Requires PHP: 8.0
 - Cron پاکسازی پایه
 
 مهم:
-نسخه 4.0.22 مسیرهای عملیاتی اپ، تبلیغات، BlueAI، BluePay، Providerها، OTP و ربات را روی WordPress/MySQL در اختیار دارد. Railway فقط تا زمانی نگه داشته شود که Final Verify مهاجرت و تست End-to-End APK جدید سبز شوند؛ بعد از آن Backend اصلی می‌تواند WordPress باشد.
+نسخه 4.0.24 مسیرهای عملیاتی اپ، تبلیغات، BlueAI، BluePay، Providerها، OTP، اعلان‌های پیامکی و ربات را روی WordPress/MySQL در اختیار دارد. Railway فقط تا زمانی نگه داشته شود که Final Verify مهاجرت و تست End-to-End APK جدید سبز شوند؛ بعد از آن Backend اصلی می‌تواند WordPress باشد.
 
 - Runner زنجیره‌ای داخل صفحه مدیریت برای ادامه مهاجرت حتی در صورت اختلال WP-Cron
 
@@ -120,3 +120,13 @@ Requires PHP: 8.0
 * نصب ZIP روی GitHub از طریق Git Data API بدون نیاز به git/Python/Docker روی هاست وردپرس.
 * دستورات Status / Build / Unlock / Latest APK / Signing Status و صف دستی GuardCore.
 * Railway برای اجرای ربات دیگر لازم نیست.
+
+== Changelog ==
+
+= 4.0.24 =
+* تکمیل موتور اعلان پیامکی WordPress/MySQL با ۳۸ پترن، صف ارسال، Retry و بازیابی پیام‌های گیرکرده.
+* رفع ارسال‌نشدن پترن‌های بدون متغیر با ارسال attributes به شکل Object خالی.
+* پردازش صف در پایان درخواست علاوه بر WP-Cron برای جلوگیری از وابستگی کامل به ترافیک سایت.
+* افزودن تست پترن، ارسال عمومی، Retry دستی، گزارش صف و بازیابی اعلان‌های سفارش/اشتراک.
+* اتصال رویدادهای پرداخت، فعال‌سازی دستی، ورود دستگاه جدید، تغییر شماره و قفل امنیتی به سیستم پیام.
+* حفظ Fix کامپایل Android برای setLineSpacing با مقدار Float.

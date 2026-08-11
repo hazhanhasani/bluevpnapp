@@ -271,6 +271,9 @@ final class BlueVPN_SMS_OTP {
             $update = ['attempts' => $attempts];
             if ($attempts >= $maxAttempts) $update['consumed_at'] = BlueVPN_Utils::now_mysql();
             $wpdb->update($table, $update, ['id' => $challengeId]);
+            if ($attempts >= $maxAttempts && class_exists('BlueVPN_SMS_Notifications')) {
+                try { $owner=$wpdb->get_row($wpdb->prepare('SELECT id,phone FROM '.BlueVPN_DB::table('customers').' WHERE phone=%s LIMIT 1',$phone),ARRAY_A);if($owner)BlueVPN_SMS_Notifications::queue('suspicious_login',$phone,[],(int)$owner['id'],null,'otp-lock:'.$challengeId); } catch(Throwable $e) { error_log('BlueVPN suspicious login SMS: '.$e->getMessage()); }
+            }
             throw new BlueVPN_Auth_Exception(401, 'INVALID_OTP', 'کد تأیید نادرست است.', ['remaining_attempts' => max(0, $maxAttempts - $attempts)]);
         }
         $wpdb->update($table, ['attempts' => $attempts, 'consumed_at' => BlueVPN_Utils::now_mysql()], ['id' => $challengeId]);
@@ -308,6 +311,9 @@ final class BlueVPN_SMS_OTP {
             $customer = BlueVPN_Auth::get_customer((int)$customer['id']);
         }
         $tokens = BlueVPN_Auth::issue_session($customer, $deviceId, $deviceName);
+        if ($isNew && !empty($customer['phone']) && class_exists('BlueVPN_SMS_Notifications')) {
+            BlueVPN_SMS_Notifications::queue('welcome', (string)$customer['phone'], ['name'=>BlueVPN_Utils::local_phone((string)$customer['phone'])], (int)$customer['id'], null, 'welcome:'.(int)$customer['id']);
+        }
         return [
             'success' => true,
             'is_new_account' => $isNew,
@@ -379,6 +385,7 @@ final class BlueVPN_SMS_OTP {
         $customers=BlueVPN_DB::table('customers');$owner=$wpdb->get_var($wpdb->prepare("SELECT id FROM {$customers} WHERE phone=%s AND id<>%d LIMIT 1",$phone,$customerId));if($owner)throw new BlueVPN_Auth_Exception(409,'PHONE_ALREADY_USED','این شماره قبلاً به حساب دیگری متصل شده است.');
         $wpdb->update($table,['attempts'=>$attempts,'consumed_at'=>BlueVPN_Utils::now_mysql()],['id'=>$challengeId]);
         $wpdb->update($customers,['phone'=>$phone,'phone_verified_at'=>BlueVPN_Utils::now_mysql(),'auth_method'=>'phone_otp'],['id'=>$customerId]);
+        if (class_exists('BlueVPN_SMS_Notifications')) BlueVPN_SMS_Notifications::queue('phone_changed',$phone,[],$customerId,null,'phone-changed:'.$customerId.':'.$phone);
         return ['success'=>true,'account'=>BlueVPN_Auth::account_payload(BlueVPN_Auth::get_customer($customerId))];
     }
 

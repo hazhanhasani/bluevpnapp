@@ -154,6 +154,7 @@ final class BlueVPN_Auth {
             $customer_id,
             $device_id
         ), ARRAY_A);
+        $is_new_device = !$device;
         $active_count = (int)$wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM {$devices} WHERE customer_id=%d AND active=1",
             $customer_id
@@ -220,6 +221,15 @@ final class BlueVPN_Auth {
                 $update['previous_refresh_expires_at'] = gmdate('Y-m-d H:i:s', time() + MINUTE_IN_SECONDS * self::PREVIOUS_REFRESH_MINUTES);
             }
             $wpdb->update($devices, $update, ['id' => (int)$device['id']]);
+        }
+        if ($is_new_device && !empty($customer['phone']) && class_exists('BlueVPN_SMS_Notifications')) {
+            $date = str_replace('، ', ' ', BlueVPN_Utils::tehran_datetime_fa(null, false));
+            BlueVPN_SMS_Notifications::queue(
+                'new_device_login',
+                (string)$customer['phone'],
+                ['device'=>mb_substr($device_name !== '' ? $device_name : 'دستگاه جدید',0,30),'date'=>mb_substr($date,0,16)],
+                $customer_id, null, 'new-device:'.$customer_id.':'.$device_id
+            );
         }
         return ['token' => $session_raw, 'refresh_token' => $refresh_raw];
     }

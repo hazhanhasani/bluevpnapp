@@ -128,7 +128,19 @@ final class BlueVPN_Payments {
         if (!empty($invoice['payment_id'])) $update['payment_id'] = mb_substr((string)$invoice['payment_id'], 0, 180);
         if (!empty($invoice['payment_url']) && wp_http_validate_url((string)$invoice['payment_url'])) $update['payment_url'] = esc_url_raw((string)$invoice['payment_url']);
         $wpdb->update($t, $update, ['id' => $order['id']]);
-        return array_merge($order, $update);
+        $merged = array_merge($order, $update);
+        if (class_exists('BlueVPN_SMS_Notifications') && in_array((string)($merged['status'] ?? ''), self::FAILED, true) && !in_array($localStatus, self::FAILED, true)) {
+            try {
+                $customer = BlueVPN_Auth::get_customer((int)$order['customer_id']);
+                if (!empty($customer['phone'])) {
+                    $terminal=(string)$merged['status'];$invoice=mb_substr((string)$order['order_code'],0,40);
+                    if($terminal==='refunded') BlueVPN_SMS_Notifications::queue('refund_success',(string)$customer['phone'],['amount'=>(int)$order['amount_toman'],'invoice_id'=>$invoice],(int)$customer['id'],(string)$order['id'],'refund:'.$order['id']);
+                    elseif(in_array($terminal,['expired','canceled','cancelled'],true)) BlueVPN_SMS_Notifications::queue('invoice_expired',(string)$customer['phone'],['invoice_id'=>$invoice],(int)$customer['id'],(string)$order['id'],'invoice-expired:'.$order['id']);
+                    else BlueVPN_SMS_Notifications::queue('payment_failed',(string)$customer['phone'],['invoice_id'=>$invoice],(int)$customer['id'],(string)$order['id'],'payment-failed-recovery:'.$order['id'].':'.$terminal);
+                }
+            } catch (Throwable $e) { /* notification must never break payment state */ }
+        }
+        return $merged;
     }
 
     private static function activate_if_paid(array $order): array {
@@ -161,6 +173,11 @@ final class BlueVPN_Payments {
             $meta['_bluevpn_activation_attempted_at'] = BlueVPN_Utils::iso_now();
             $wpdb->update(BlueVPN_DB::table('orders'), ['gateway_json' => BlueVPN_Utils::json_encode($meta)], ['id' => $order['id']]);
 
+            $beforeCustomer = null; $beforePlan = null;
+            try {
+                $beforeCustomer = BlueVPN_Auth::get_customer((int)$order['customer_id']);
+                if (!empty($beforeCustomer['plan_id'])) $beforePlan = $wpdb->get_row($wpdb->prepare('SELECT * FROM '.BlueVPN_DB::table('plans').' WHERE id=%d LIMIT 1',(int)$beforeCustomer['plan_id']),ARRAY_A);
+            } catch (Throwable $e) { $beforeCustomer = null; }
             $result = BlueVPN_Providers::provision_customer((int)$order['customer_id'], (int)$order['plan_id']);
             $status = !empty($result['ok']) ? 'activated' : (!empty($result['partial']) ? 'partial_needs_sync' : 'paid_needs_sync');
             $meta['_bluevpn_activation_status'] = $status;
@@ -172,6 +189,33 @@ final class BlueVPN_Payments {
             ];
             if ($status === 'activated') $update['activated_at'] = BlueVPN_Utils::now_mysql();
             $wpdb->update(BlueVPN_DB::table('orders'), $update, ['id' => $order['id']]);
+            if ($status === 'activated' && class_exists('BlueVPN_SMS_Notifications')) {
+                try {
+                    $customer = BlueVPN_Auth::get_customer((int)$order['customer_id']);
+                    $plan = $wpdb->get_row($wpdb->prepare('SELECT * FROM '.BlueVPN_DB::table('plans').' WHERE id=%d LIMIT 1',(int)$order['plan_id']),ARRAY_A);
+                    if ($plan && !empty($customer['phone'])) {
+                        $event = 'subscription_activated';
+                        $samePlan = $beforeCustomer && (int)($beforeCustomer['plan_id'] ?? 0) === (int)$order['plan_id'];
+                        $beforeExpiry = $beforeCustomer && !empty($beforeCustomer['subscription_expire']) ? (strtotime((string)$beforeCustomer['subscription_expire'].' UTC') ?: 0) : 0;
+                        if ($samePlan && $beforeExpiry > time()) $event = 'subscription_renewed';
+                        elseif ($beforeCustomer && !empty($beforeCustomer['plan_id']) && !$samePlan) {
+                            $upgraded = $beforePlan && (
+                                (int)($plan['price_toman'] ?? 0) > (int)($beforePlan['price_toman'] ?? 0) ||
+                                (int)($plan['duration_days'] ?? 0) > (int)($beforePlan['duration_days'] ?? 0) ||
+                                (int)($plan['data_limit_gb'] ?? 0) > (int)($beforePlan['data_limit_gb'] ?? 0)
+                            );
+                            $event = $upgraded ? 'subscription_upgraded' : 'subscription_plan_changed';
+                        }
+                        BlueVPN_SMS_Notifications::queue($event,(string)$customer['phone'],[
+                            'plan'=>(string)$plan['title'],
+                            'expire_date'=>BlueVPN_SMS_Notifications::jalali_date($customer['subscription_expire'] ?? null),
+                        ],(int)$customer['id'],(string)$order['id'],'subscription:'.$order['id'].':'.$event);
+                        if ((int)($order['amount_toman'] ?? 0) > 0) BlueVPN_SMS_Notifications::queue('payment_success',(string)$customer['phone'],[
+                            'amount'=>(int)$order['amount_toman'],'invoice_id'=>mb_substr((string)$order['order_code'],0,40)
+                        ],(int)$customer['id'],(string)$order['id'],'payment-success:'.$order['id']);
+                    }
+                } catch (Throwable $e) { error_log('BlueVPN SMS activation notification: '.$e->getMessage()); }
+            }
             return array_merge($order, $update);
         } finally {
             $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lockName));
@@ -200,7 +244,7 @@ final class BlueVPN_Payments {
         $paymentId=trim((string)($invoice['payment_id']??''));$url=trim((string)($invoice['payment_url']??''));$status=self::normalize_status($invoice['status']??'pending');$remoteAmount=self::parse_remote_amount($invoice);
         if($remoteAmount!==null&&$remoteAmount!==$amount){$wpdb->update($ot,['status'=>'amount_mismatch','activation_error'=>'مبلغ فاکتور BluePay با سفارش برابر نیست.','gateway_json'=>BlueVPN_Utils::json_encode($invoice)],['id'=>$id]);throw new BlueVPN_Auth_Exception(502,'BLUEPAY_AMOUNT_MISMATCH','مبلغ فاکتور BluePay با مبلغ پلن برابر نیست.');}
         if($paymentId===''||!wp_http_validate_url($url)){ $wpdb->update($ot,['status'=>'invoice_failed','activation_error'=>'BluePay شناسه یا لینک پرداخت معتبر برنگرداند.','gateway_json'=>BlueVPN_Utils::json_encode($invoice)],['id'=>$id]); throw new BlueVPN_Auth_Exception(502,'BLUEPAY_INVALID_RESPONSE','BluePay شناسه یا لینک پرداخت معتبر برنگرداند.'); }
-        $wpdb->update($ot,['payment_id'=>mb_substr($paymentId,0,180),'payment_url'=>esc_url_raw($url),'status'=>$status,'gateway_json'=>BlueVPN_Utils::json_encode($invoice),'activation_error'=>''],['id'=>$id]);$order=self::order_row($id,(int)$customer['id']);if($status==='paid')$order=self::activate_if_paid($order);return ['success'=>true,'reused'=>false,'order'=>self::order_payload($order),'check_after_success_url'=>'/api/v1/orders/'.$id.'/check-after-success','poll_interval_seconds'=>5,'poll_timeout_seconds'=>30];
+        $wpdb->update($ot,['payment_id'=>mb_substr($paymentId,0,180),'payment_url'=>esc_url_raw($url),'status'=>$status,'gateway_json'=>BlueVPN_Utils::json_encode($invoice),'activation_error'=>''],['id'=>$id]);$order=self::order_row($id,(int)$customer['id']);if(class_exists('BlueVPN_SMS_Notifications')&&!empty($customer['phone']))BlueVPN_SMS_Notifications::queue('invoice_created',(string)$customer['phone'],['invoice_id'=>mb_substr($code,0,40),'amount'=>$amount],(int)$customer['id'],$id,'invoice-created:'.$id);if($status==='paid')$order=self::activate_if_paid($order);return ['success'=>true,'reused'=>false,'order'=>self::order_payload($order),'check_after_success_url'=>'/api/v1/orders/'.$id.'/check-after-success','poll_interval_seconds'=>5,'poll_timeout_seconds'=>30];
     }
 
     private static function refresh_remote(array $order): array {

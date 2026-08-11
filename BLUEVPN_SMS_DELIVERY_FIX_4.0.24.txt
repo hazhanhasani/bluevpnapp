@@ -1,0 +1,17 @@
+BlueVPN 4.0.24 — SMS Delivery Reliability
+
+مشکل اصلی:
+- بعد از انتقال Backend به WordPress، فقط مسیر OTP ارسال واقعی داشت و اعلان‌های عمومی/سیستمی کامل به Worker صف متصل نبودند.
+- پترن‌های بدون متغیر با attributes=[] ارسال می‌شدند؛ ایران‌پیامک برای این حالت Object خالی ({}) می‌خواهد و بعضی پیام‌ها رد می‌شدند.
+- اگر اجرای PHP وسط ارسال قطع می‌شد، Delivery می‌توانست در status=sending گیر کند.
+- WP-Cron به تنهایی در سایت کم‌ترافیک تضمین نمی‌کند پیام بلافاصله پردازش شود.
+
+اصلاحات:
+- 38 قرارداد پیام Railway به WordPress/MySQL منتقل و پترن‌های قبلی حفظ می‌شوند.
+- صف pending/retry/sending/sent/failed/skipped با Retry و backoff فعال است.
+- بازیابی sendingهای stale و MySQL advisory lock برای جلوگیری از ارسال همزمان/تکراری.
+- پردازش یک batch کوچک در shutdown هر درخواست + Cron یک‌دقیقه‌ای.
+- attributes پترن بدون متغیر به صورت {} ارسال می‌شود.
+- ارسال تست مستقیم، ارسال عمومی، Retry دستی و گزارش 100 ارسال اخیر در Control Center.
+- رویدادهای welcome، new_device_login، suspicious_login، phone_changed، invoice_created، invoice_expired، refund_success، payment_failed، payment_success، subscription activated/renewed/upgraded/changed، admin activation، reminder/expired/low-volume متصل شده‌اند.
+- Fix کامپایل 4.0.23 (setLineSpacing(0f,...)) نیز داخل همین نسخه حفظ شده است.

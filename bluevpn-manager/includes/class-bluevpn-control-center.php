@@ -26,7 +26,7 @@ final class BlueVPN_Control_Center {
     public static function init(): void {
         foreach([
             'bluevpn_cc_save_provider'=>'save_provider','bluevpn_cc_toggle_provider'=>'toggle_provider','bluevpn_cc_test_provider'=>'test_provider',
-            'bluevpn_cc_save_payment'=>'save_payment','bluevpn_cc_save_sms'=>'save_sms','bluevpn_cc_sync_customer'=>'sync_customer','bluevpn_cc_save_plan_routing'=>'save_plan_routing',
+            'bluevpn_cc_save_payment'=>'save_payment','bluevpn_cc_save_sms'=>'save_sms','bluevpn_cc_save_sms_templates'=>'save_sms_templates','bluevpn_cc_test_sms_template'=>'test_sms_template','bluevpn_cc_process_sms'=>'process_sms','bluevpn_cc_broadcast_sms'=>'broadcast_sms','bluevpn_cc_retry_sms'=>'retry_sms','bluevpn_cc_sync_customer'=>'sync_customer','bluevpn_cc_save_plan_routing'=>'save_plan_routing',
             'bluevpn_cc_manual_activate'=>'manual_activate','bluevpn_cc_attach_guardcore'=>'attach_guardcore','bluevpn_cc_export_backup'=>'export_backup',
             'bluevpn_cc_save_app_update_policy'=>'save_app_update_policy','bluevpn_cc_sync_app_release'=>'sync_app_release'
         ] as $hook=>$method)add_action('admin_post_'.$hook,[self::class,$method]);
@@ -280,8 +280,26 @@ final class BlueVPN_Control_Center {
     }
 
     private static function tab_sms(): void {
-        global $wpdb;$t=BlueVPN_DB::table('sms_settings');$s=$wpdb->get_row("SELECT * FROM {$t} WHERE id=1",ARRAY_A)?:[];$d=BlueVPN_DB::table('sms_deliveries');$recent=$wpdb->get_results("SELECT event_key,phone,status,attempts,last_error,created_at FROM {$d} ORDER BY created_at DESC LIMIT 50",ARRAY_A);
-        echo '<div class="bvc-card"><h2>SMS / OTP</h2><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_sms');echo '<input type="hidden" name="action" value="bluevpn_cc_save_sms"><div class="bvc-form-grid">';self::input('provider','Provider',$s['provider']??'iranpayamak');self::input('base_url','Base URL',$s['base_url']??'');self::input('api_key','API Key (خالی = حفظ)','',false,'password');self::input('from_number','شماره ارسال',$s['from_number']??'');self::input('pattern_code','Pattern',$s['pattern_code']??'');self::input('parameter_name','نام پارامتر',$s['parameter_name']??'code');echo '<label>طول OTP<input type="number" value="6" readonly disabled><small style="display:block;margin-top:5px">ورود BlueVPN همیشه ۶ رقمی است.</small></label>';echo '<input type="hidden" name="otp_length" value="6">';self::input('otp_ttl_seconds','TTL ثانیه',$s['otp_ttl_seconds']??120,true,'number');self::input('resend_seconds','ارسال مجدد بعد از (ثانیه)',$s['resend_seconds']??60,true,'number');echo '<label><input type="checkbox" name="active" value="1" '.checked((int)($s['active']??0),1,false).'> OTP فعال</label><label><input type="checkbox" name="notification_active" value="1" '.checked((int)($s['notification_active']??0),1,false).'> اعلان‌ها فعال</label></div>';submit_button('ذخیره SMS','primary','submit',false);echo '</form></div><table class="widefat striped bvc-table"><tr><th>رویداد</th><th>موبایل</th><th>وضعیت</th><th>تلاش</th><th>خطا</th><th>زمان</th></tr>';foreach($recent as $x)echo '<tr><td>'.self::esc($x['event_key']).'</td><td>'.self::esc($x['phone']).'</td><td>'.self::esc($x['status']).'</td><td>'.self::esc($x['attempts']).'</td><td>'.self::esc($x['last_error']).'</td><td>'.self::esc($x['created_at']).'</td></tr>';echo '</table>';
+        global $wpdb;
+        $t=BlueVPN_DB::table('sms_settings');$s=$wpdb->get_row("SELECT * FROM {$t} WHERE id=1",ARRAY_A)?:[];
+        BlueVPN_SMS_Notifications::seed_templates();
+        $templates=BlueVPN_SMS_Notifications::templates();
+        $d=BlueVPN_DB::table('sms_deliveries');
+        $recent=$wpdb->get_results("SELECT id,event_key,phone,status,attempts,max_attempts,last_error,created_at FROM {$d} ORDER BY created_at DESC LIMIT 100",ARRAY_A)?:[];
+        $stats=[];foreach(['pending','retry','sending','sent','failed','skipped'] as $st)$stats[$st]=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$d} WHERE status=%s",$st));
+        echo '<div class="bvc-grid"><div class="bvc-card bvc-kpi"><span>در صف</span><strong>'.number_format($stats['pending']+$stats['retry']+$stats['sending']).'</strong></div><div class="bvc-card bvc-kpi"><span>موفق</span><strong>'.number_format($stats['sent']).'</strong></div><div class="bvc-card bvc-kpi"><span>ناموفق</span><strong>'.number_format($stats['failed']).'</strong></div><div class="bvc-card bvc-kpi"><span>ردشده/غیرفعال</span><strong>'.number_format($stats['skipped']).'</strong></div></div>';
+        echo '<div class="bvc-card"><h2>SMS / OTP</h2><p class="bvc-note">ارسال پیام‌های غیر OTP از این نسخه کاملاً روی WordPress/MySQL اجرا می‌شود؛ صف، Retry، بازیابی پیام‌های گیرکرده و پترن‌های بدون متغیر نیز پشتیبانی می‌شوند.</p><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_sms');echo '<input type="hidden" name="action" value="bluevpn_cc_save_sms"><div class="bvc-form-grid">';self::input('provider','Provider',$s['provider']??'iranpayamak');self::input('base_url','Base URL',$s['base_url']??'');self::input('api_key','API Key (خالی = حفظ)','',false,'password');self::input('from_number','شماره ارسال',$s['from_number']??'');self::input('pattern_code','Pattern ورود / OTP',$s['pattern_code']??'');self::input('parameter_name','نام پارامتر OTP',$s['parameter_name']??'code');echo '<label>طول OTP<input type="number" value="6" readonly disabled><small style="display:block;margin-top:5px">ورود BlueVPN همیشه ۶ رقمی است.</small></label><input type="hidden" name="otp_length" value="6">';self::input('otp_ttl_seconds','TTL ثانیه',$s['otp_ttl_seconds']??120,true,'number');self::input('resend_seconds','ارسال مجدد بعد از (ثانیه)',$s['resend_seconds']??60,true,'number');self::input('reminder_days','یادآوری روزهای باقی‌مانده',implode(',',BlueVPN_Utils::json_decode_array((string)($s['reminder_days_json']??'[3,2,1]'),[3,2,1])));self::input('low_volume_threshold_gb','هشدار حجم کمتر از GB',$s['low_volume_threshold_gb']??5,true,'number');self::input('retry_max_attempts','حداکثر تلاش ارسال',$s['retry_max_attempts']??3,true,'number');echo '<label><input type="checkbox" name="active" value="1" '.checked((int)($s['active']??0),1,false).'> OTP فعال</label><label><input type="checkbox" name="notification_active" value="1" '.checked((int)($s['notification_active']??0),1,false).'> اعلان‌ها فعال</label><label><input type="checkbox" name="verify_tls" value="1" '.checked(!isset($s['verify_tls'])||(int)$s['verify_tls']===1,true,false).'> بررسی TLS</label></div>';submit_button('ذخیره تنظیمات SMS','primary','submit',false);echo '</form></div>';
+
+        echo '<div class="bvc-card"><h2>پترن‌های پیام</h2><p>کد هر پترن را دقیقاً مطابق UID فعال ایران‌پیامک وارد کن. پیام‌هایی که فعال نیستند یا Pattern ندارند عمداً وارد صف نمی‌شوند.</p><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_sms_templates');echo '<input type="hidden" name="action" value="bluevpn_cc_save_sms_templates"><div class="table-wrap"><table class="widefat striped bvc-table"><tr><th>فعال</th><th>پیام</th><th>متغیرها</th><th>Pattern UID</th></tr>';
+        foreach($templates as $row){$vars=BlueVPN_Utils::json_decode_array((string)($row['variables_json']??'[]'),[]);$names=[];foreach($vars as $v)if(!empty($v['name']))$names[]='%'.$v['name'].'%';echo '<tr><td><input type="checkbox" name="enabled['.esc_attr($row['key']).']" value="1" '.checked((int)$row['enabled'],1,false).'></td><td><strong>'.self::esc($row['title']).'</strong><br><small>'.self::esc($row['category']).'</small></td><td><code>'.self::esc(implode(' ، ',$names)?:'بدون متغیر').'</code></td><td><input style="width:100%;min-width:220px" name="pattern['.esc_attr($row['key']).']" value="'.esc_attr((string)$row['pattern_code']).'" placeholder="Pattern UID"></td></tr>';}
+        echo '</table></div>';submit_button('ذخیره همه پترن‌ها','primary','submit',false);echo '</form></div>';
+
+        echo '<div class="bvc-grid"><div class="bvc-card"><h3>تست یک پیام</h3><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_test_sms_template');echo '<input type="hidden" name="action" value="bluevpn_cc_test_sms_template"><label>پترن<select name="event_key" style="width:100%">';foreach($templates as $row)echo '<option value="'.esc_attr($row['key']).'">'.self::esc($row['title']).'</option>';echo '</select></label><label>شماره تست<input name="test_phone" placeholder="09123456789" required style="width:100%"></label><label>پارامترها JSON<textarea name="params_json" rows="4" style="width:100%" placeholder=\'{"plan":"یک ماهه","expire_date":"1405/06/20"}\'>{}</textarea></label>';submit_button('ارسال تست','secondary','submit',false);echo '</form></div>';
+        $broadcast=array_values(array_filter($templates,fn($x)=>(int)($x['broadcast']??0)===1));echo '<div class="bvc-card"><h3>ارسال عمومی</h3><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_broadcast_sms');echo '<input type="hidden" name="action" value="bluevpn_cc_broadcast_sms"><label>نوع پیام<select name="event_key" style="width:100%">';foreach($broadcast as $row)echo '<option value="'.esc_attr($row['key']).'">'.self::esc($row['title']).'</option>';echo '</select></label><label>مخاطب<select name="audience" style="width:100%"><option value="active">فقط کاربران فعال</option><option value="all">همه کاربران دارای شماره</option></select></label><label>پارامترها JSON<textarea name="params_json" rows="4" style="width:100%">{}</textarea></label>';submit_button('قرار دادن در صف','secondary','submit',false);echo '</form></div></div>';
+
+        echo '<div class="bvc-card"><div class="bvc-actions"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_process_sms');echo '<input type="hidden" name="action" value="bluevpn_cc_process_sms">';submit_button('پردازش فوری صف و یادآوری‌ها','secondary','submit',false);echo '</form></div><h2>گزارش ارسال</h2><table class="widefat striped bvc-table"><tr><th>رویداد</th><th>موبایل</th><th>وضعیت</th><th>تلاش</th><th>خطا</th><th>زمان</th><th>عملیات</th></tr>';
+        foreach($recent as $x){echo '<tr><td>'.self::esc($x['event_key']).'</td><td>'.self::esc($x['phone']).'</td><td>'.self::esc($x['status']).'</td><td>'.self::esc($x['attempts']).'/'.self::esc($x['max_attempts']).'</td><td>'.self::esc(mb_substr((string)$x['last_error'],0,220)).'</td><td>'.self::esc($x['created_at']).'</td><td>';if(in_array($x['status'],['failed','skipped'],true)){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_retry_sms_'.$x['id']);echo '<input type="hidden" name="action" value="bluevpn_cc_retry_sms"><input type="hidden" name="delivery_id" value="'.esc_attr($x['id']).'"><button class="button">ارسال مجدد</button></form>';}echo '</td></tr>';}
+        echo '</table></div>';
     }
     public static function save_provider(): void {
         self::guard();check_admin_referer('bluevpn_cc_save_provider');global $wpdb;$provider=sanitize_key((string)($_POST['provider']??''));$maps=['pasarguard'=>'pasarguard_panels','marzban'=>'marzban_panels','guardcore'=>'guardcore_panels'];if(!isset($maps[$provider]))self::redirect('overview','Provider نامعتبر است.',true);$id=(int)($_POST['id']??0);$t=BlueVPN_DB::table($maps[$provider]);$old=$id?$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%d",$id),ARRAY_A):[];$data=['name'=>sanitize_text_field(wp_unslash($_POST['name']??'')),'base_url'=>untrailingslashit(esc_url_raw(wp_unslash($_POST['base_url']??''))),'verify_tls'=>isset($_POST['verify_tls'])?1:0,'active'=>isset($_POST['active'])?1:0];
@@ -303,9 +321,79 @@ final class BlueVPN_Control_Center {
         $ok=$wpdb->update($pt,['panel_id'=>$pg?:null,'marzban_panel_id'=>$mz?:null,'guardcore_panel_id'=>$gc?:null,'group_ids_json'=>BlueVPN_Utils::json_encode($groups),'guardcore_service_ids_json'=>BlueVPN_Utils::json_encode($services),'marzban_quota_mode'=>$mode,'multi_provider_quota_mode'=>$mode],['id'=>$id]);self::redirect('plans',$ok===false?'ذخیره Routing ناموفق بود.':'Routing پلن ذخیره شد.',$ok===false);
     }
     public static function save_payment(): void { self::guard();check_admin_referer('bluevpn_cc_save_payment');global $wpdb;$t=BlueVPN_DB::table('payment_settings');$old=$wpdb->get_row("SELECT * FROM {$t} WHERE id=1",ARRAY_A)?:[];$api=trim((string)wp_unslash($_POST['api_key']??''));$cb=trim((string)wp_unslash($_POST['callback_secret']??''));$wpdb->replace($t,['id'=>1,'base_url'=>untrailingslashit(esc_url_raw(wp_unslash($_POST['base_url']??''))),'api_key_enc'=>$api!==''?BlueVPN_Utils::encrypt_secret($api):(string)($old['api_key_enc']??''),'callback_secret_enc'=>$cb!==''?BlueVPN_Utils::encrypt_secret($cb):(string)($old['callback_secret_enc']??''),'fee_mode'=>sanitize_key((string)($_POST['fee_mode']??'default')),'ttl_minutes'=>max(5,min(60,(int)($_POST['ttl_minutes']??30))),'active'=>isset($_POST['active'])?1:0,'updated_at'=>BlueVPN_Utils::now_mysql()]);self::redirect('bluepay','تنظیمات BluePay ذخیره شد.'); }
-    public static function save_sms(): void { self::guard();check_admin_referer('bluevpn_cc_save_sms');global $wpdb;$t=BlueVPN_DB::table('sms_settings');$old=$wpdb->get_row("SELECT * FROM {$t} WHERE id=1",ARRAY_A)?:[];$api=trim((string)wp_unslash($_POST['api_key']??''));$data=$old;$data['id']=1;$data['provider']=sanitize_key((string)($_POST['provider']??'iranpayamak'));$data['base_url']=esc_url_raw(wp_unslash($_POST['base_url']??''));$data['api_key_enc']=$api!==''?BlueVPN_Utils::encrypt_secret($api):(string)($old['api_key_enc']??'');$data['from_number']=sanitize_text_field(wp_unslash($_POST['from_number']??''));$data['pattern_code']=sanitize_text_field(wp_unslash($_POST['pattern_code']??''));$data['parameter_name']=sanitize_key((string)($_POST['parameter_name']??'code'));$data['otp_length']=6;$data['otp_ttl_seconds']=max(60,min(600,(int)($_POST['otp_ttl_seconds']??120)));$data['resend_seconds']=max(30,min(600,(int)($_POST['resend_seconds']??60)));$data['active']=isset($_POST['active'])?1:0;$data['notification_active']=isset($_POST['notification_active'])?1:0;$data['updated_at']=BlueVPN_Utils::now_mysql();$wpdb->replace($t,$data);self::redirect('sms','تنظیمات SMS ذخیره شد.'); }
+    public static function save_sms(): void {
+        self::guard();check_admin_referer('bluevpn_cc_save_sms');global $wpdb;
+        $t=BlueVPN_DB::table('sms_settings');$old=$wpdb->get_row("SELECT * FROM {$t} WHERE id=1",ARRAY_A)?:[];
+        $api=trim((string)wp_unslash($_POST['api_key']??''));
+        $base=untrailingslashit(esc_url_raw(wp_unslash($_POST['base_url']??'https://api.iranpayamak.com/ws/v1')));
+        if($base===''||stripos($base,'edge.ippanel.com')!==false)$base='https://api.iranpayamak.com/ws/v1';
+        $days=[];foreach(preg_split('/[,،;\s]+/',strtr((string)wp_unslash($_POST['reminder_days']??'3,2,1'),'۰۱۲۳۴۵۶۷۸۹','0123456789'))?:[] as $v){$n=(int)$v;if($n>=1&&$n<=30&&!in_array($n,$days,true))$days[]=$n;}if(!$days)$days=[3,2,1];sort($days,SORT_NUMERIC);$days=array_reverse($days);
+        $data=$old+['id'=>1];$data['id']=1;$data['provider']='iranpayamak';$data['base_url']=$base;
+        $data['api_key_enc']=$api!==''?BlueVPN_Utils::encrypt_secret($api):(string)($old['api_key_enc']??'');
+        $data['from_number']=sanitize_text_field(wp_unslash($_POST['from_number']??''));
+        $data['pattern_code']=sanitize_text_field(wp_unslash($_POST['pattern_code']??''));
+        $data['parameter_name']=sanitize_key((string)($_POST['parameter_name']??'code'))?:'code';$data['otp_length']=6;
+        $data['otp_ttl_seconds']=max(60,min(600,(int)($_POST['otp_ttl_seconds']??120)));$data['resend_seconds']=max(30,min(600,(int)($_POST['resend_seconds']??60)));
+        $data['active']=isset($_POST['active'])?1:0;$data['notification_active']=isset($_POST['notification_active'])?1:0;
+        $data['reminder_days_json']=BlueVPN_Utils::json_encode($days);$data['low_volume_threshold_gb']=max(1,min(9999,(int)($_POST['low_volume_threshold_gb']??5)));
+        $data['retry_max_attempts']=max(1,min(5,(int)($_POST['retry_max_attempts']??3)));$data['verify_tls']=isset($_POST['verify_tls'])?1:0;$data['updated_at']=BlueVPN_Utils::now_mysql();
+        $ok=$wpdb->replace($t,$data);
+        if($ok===false)self::redirect('sms','ذخیره تنظیمات SMS ناموفق بود: '.mb_substr((string)$wpdb->last_error,0,180),true);
+        BlueVPN_SMS_Notifications::seed_templates();
+        $wpdb->update(BlueVPN_DB::table('sms_templates'),['pattern_code'=>$data['pattern_code'],'enabled'=>$data['active'],'updated_at'=>BlueVPN_Utils::now_mysql()],['key'=>'auth_otp']);
+        BlueVPN_SMS_Notifications::schedule();
+        self::redirect('sms','تنظیمات SMS ذخیره شد و صف ارسال فعال است.');
+    }
+
+    private static function sms_params_from_post(): array {
+        $raw=trim((string)wp_unslash($_POST['params_json']??'{}'));if($raw==='')$raw='{}';$decoded=json_decode($raw,true);
+        if(!is_array($decoded)||json_last_error()!==JSON_ERROR_NONE)throw new RuntimeException('JSON پارامترهای پیام معتبر نیست.');
+        return $decoded;
+    }
+
+    public static function save_sms_templates(): void {
+        self::guard();check_admin_referer('bluevpn_cc_save_sms_templates');global $wpdb;
+        BlueVPN_SMS_Notifications::seed_templates();$table=BlueVPN_DB::table('sms_templates');
+        $patterns=is_array($_POST['pattern']??null)?wp_unslash($_POST['pattern']):[];$enabled=is_array($_POST['enabled']??null)?$_POST['enabled']:[];$count=0;
+        foreach(BlueVPN_SMS_Notifications::templates() as $row){$key=(string)$row['key'];$pattern=sanitize_text_field((string)($patterns[$key]??''));$on=isset($enabled[$key])?1:0;$wpdb->update($table,['pattern_code'=>$pattern,'enabled'=>$on,'updated_at'=>BlueVPN_Utils::now_mysql()],['key'=>$key]);$count++;}
+        $auth=$wpdb->get_row($wpdb->prepare("SELECT pattern_code,enabled FROM {$table} WHERE `key`=%s LIMIT 1",'auth_otp'),ARRAY_A);
+        if($auth)$wpdb->update(BlueVPN_DB::table('sms_settings'),['pattern_code'=>(string)$auth['pattern_code'],'active'=>(int)$auth['enabled'],'parameter_name'=>'code','updated_at'=>BlueVPN_Utils::now_mysql()],['id'=>1]);
+        BlueVPN_SMS_Notifications::schedule();self::redirect('sms',number_format($count).' پترن ذخیره شد.');
+    }
+
+    public static function test_sms_template(): void {
+        self::guard();check_admin_referer('bluevpn_cc_test_sms_template');
+        try{$event=sanitize_key((string)($_POST['event_key']??''));$phone=sanitize_text_field(wp_unslash($_POST['test_phone']??''));$params=self::sms_params_from_post();$r=BlueVPN_SMS_Notifications::send_template_now($event,$phone,$params);self::redirect('sms','پیام تست با موفقیت به Provider تحویل شد'.(!empty($r['message_id'])?'؛ ID: '.sanitize_text_field((string)$r['message_id']):'').'.');}
+        catch(Throwable $e){self::redirect('sms','ارسال تست ناموفق: '.$e->getMessage(),true);}
+    }
+
+    public static function process_sms(): void {
+        self::guard();check_admin_referer('bluevpn_cc_process_sms');
+        try{$a=BlueVPN_SMS_Notifications::scan_subscription_notifications();$o=BlueVPN_SMS_Notifications::scan_order_notifications();$r=BlueVPN_SMS_Notifications::process(100);self::redirect('sms','صف پردازش شد؛ ارسال موفق: '.(int)$r['sent'].'، خطا/Retry: '.(int)$r['failed'].'، اعلان جدید: '.((int)$a['queued']+(int)$o['queued']).'.');}
+        catch(Throwable $e){self::redirect('sms','پردازش صف ناموفق: '.$e->getMessage(),true);}
+    }
+
+    public static function broadcast_sms(): void {
+        self::guard();check_admin_referer('bluevpn_cc_broadcast_sms');
+        try{$event=sanitize_key((string)($_POST['event_key']??''));$params=self::sms_params_from_post();$only=(string)($_POST['audience']??'active')!=='all';$count=BlueVPN_SMS_Notifications::broadcast($event,$params,$only);self::redirect('sms',number_format($count).' پیام در صف ارسال عمومی قرار گرفت.');}
+        catch(Throwable $e){self::redirect('sms','ارسال عمومی ناموفق: '.$e->getMessage(),true);}
+    }
+
+    public static function retry_sms(): void {
+        self::guard();$id=sanitize_text_field(wp_unslash($_POST['delivery_id']??''));check_admin_referer('bluevpn_cc_retry_sms_'.$id);
+        if($id===''||!BlueVPN_SMS_Notifications::retry($id))self::redirect('sms','پیام برای Retry پیدا نشد.',true);
+        try{BlueVPN_SMS_Notifications::process(10);}catch(Throwable $e){}
+        self::redirect('sms','پیام برای ارسال مجدد فعال شد.');
+    }
     public static function sync_customer(): void { self::guard();$id=(int)($_GET['customer_id']??0);check_admin_referer('bluevpn_cc_sync_customer_'.$id);$r=BlueVPN_Providers::sync_customer($id);self::redirect('customers',$r['message'],!$r['ok']); }
-    public static function manual_activate(): void { self::guard();check_admin_referer('bluevpn_cc_manual_activate');$r=BlueVPN_Providers::provision_customer((int)($_POST['customer_id']??0),(int)($_POST['plan_id']??0));self::redirect('manual',$r['message'],!$r['ok']&&!($r['partial']??false)); }
+    public static function manual_activate(): void {
+        self::guard();check_admin_referer('bluevpn_cc_manual_activate');global $wpdb;
+        $customerId=(int)($_POST['customer_id']??0);$planId=(int)($_POST['plan_id']??0);$r=BlueVPN_Providers::provision_customer($customerId,$planId);
+        if(($r['ok']||($r['partial']??false))&&class_exists('BlueVPN_SMS_Notifications')){
+            try{$c=$wpdb->get_row($wpdb->prepare('SELECT id,phone,subscription_expire FROM '.BlueVPN_DB::table('customers').' WHERE id=%d',$customerId),ARRAY_A);$p=$wpdb->get_row($wpdb->prepare('SELECT title FROM '.BlueVPN_DB::table('plans').' WHERE id=%d',$planId),ARRAY_A);if($c&&!empty($c['phone'])&&$p)BlueVPN_SMS_Notifications::queue('admin_subscription_activated',(string)$c['phone'],['plan'=>mb_substr((string)$p['title'],0,40),'expire_date'=>BlueVPN_SMS_Notifications::jalali_date((string)($c['subscription_expire']??''))],$customerId,null,'admin-subscription:'.$customerId.':'.$planId.':'.(string)($c['subscription_expire']??''));}catch(Throwable $e){error_log('BlueVPN manual activation SMS: '.$e->getMessage());}
+        }
+        self::redirect('manual',$r['message'],!$r['ok']&&!($r['partial']??false));
+    }
     public static function attach_guardcore(): void { self::guard();$id=(int)($_POST['customer_id']??0);check_admin_referer('bluevpn_cc_attach_guardcore_'.$id);$r=BlueVPN_Providers::attach_guardcore($id,(string)wp_unslash($_POST['subscription_url']??''));self::redirect('guardcore-manual',$r['message'],!$r['ok']); }
     public static function save_app_update_policy(): void {
         self::guard();check_admin_referer('bluevpn_cc_save_app_update_policy');

@@ -190,7 +190,13 @@ final class BlueVPN_Admin {
     }
     public static function toggle_plan(): void { self::guard();$id=(int)($_GET['id']??0);check_admin_referer('bluevpn_toggle_plan_'.$id);global $wpdb;$t=BlueVPN_DB::table('plans');$v=(int)$wpdb->get_var($wpdb->prepare("SELECT active FROM {$t} WHERE id=%d",$id));$wpdb->update($t,['active'=>$v?0:1],['id'=>$id]);wp_safe_redirect(admin_url('admin.php?page=bluevpn-plans'));exit; }
     public static function customers_page(): void { self::guard();global $wpdb;$t=BlueVPN_DB::table('customers');$rows=$wpdb->get_results("SELECT id,email,phone,active,plan_id,subscription_status,created_at FROM {$t} ORDER BY id DESC LIMIT 200",ARRAY_A);self::head('کاربران BlueVPN');echo '<table class="widefat striped bvp-table"><tr><th>ID</th><th>کاربر</th><th>پلن</th><th>اشتراک</th><th>وضعیت</th></tr>';foreach($rows as $x){$u=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_toggle_customer&id='.(int)$x['id']),'bluevpn_toggle_customer_'.$x['id']);echo '<tr><td>'.$x['id'].'</td><td>'.esc_html($x['phone']?:$x['email']).'</td><td>'.esc_html((string)$x['plan_id']).'</td><td>'.esc_html($x['subscription_status']).'</td><td><a href="'.esc_url($u).'">'.((int)$x['active']?'فعال':'غیرفعال').'</a></td></tr>';}echo '</table>';self::foot(); }
-    public static function toggle_customer(): void { self::guard();$id=(int)($_GET['id']??0);check_admin_referer('bluevpn_toggle_customer_'.$id);global $wpdb;$t=BlueVPN_DB::table('customers');$v=(int)$wpdb->get_var($wpdb->prepare("SELECT active FROM {$t} WHERE id=%d",$id));$wpdb->update($t,['active'=>$v?0:1],['id'=>$id]);wp_safe_redirect(admin_url('admin.php?page=bluevpn-customers'));exit; }
+    public static function toggle_customer(): void {
+        self::guard();$id=(int)($_GET['id']??0);check_admin_referer('bluevpn_toggle_customer_'.$id);global $wpdb;$t=BlueVPN_DB::table('customers');
+        $c=$wpdb->get_row($wpdb->prepare("SELECT id,phone,active FROM {$t} WHERE id=%d",$id),ARRAY_A);if(!$c){wp_safe_redirect(admin_url('admin.php?page=bluevpn-customers'));exit;}
+        $new=(int)$c['active']?0:1;$wpdb->update($t,['active'=>$new],['id'=>$id]);
+        if(!empty($c['phone'])&&class_exists('BlueVPN_SMS_Notifications')){try{BlueVPN_SMS_Notifications::queue($new?'account_unblocked':'account_temporarily_blocked',(string)$c['phone'],[],$id,null,'account-status:'.$id.':'.$new.':'.gmdate('YmdHi'));}catch(Throwable $e){error_log('BlueVPN account status SMS: '.$e->getMessage());}}
+        wp_safe_redirect(admin_url('admin.php?page=bluevpn-customers'));exit;
+    }
     public static function migration_page(): void {
         self::guard();
         $cfg = BlueVPN_Migration::settings();

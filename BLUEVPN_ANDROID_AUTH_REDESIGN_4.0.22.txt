@@ -1,0 +1,15 @@
+BlueVPN 4.0.22 — Native Android Login/Register Redesign
+
+این آپدیت بخش ورود/ثبت‌نام داخل APK را واقعاً در کد Android تغییر می‌دهد.
+
+- فایل Native جدید: android-source/BlueVpnSubscriptionsActivity.kt
+- دیزاین مطابق زبان بصری Archive: مشکی/Glass + نارنجی (#F97316 / #EA580C)
+- تب‌های پیامک و ایمیل
+- ورود و ثبت‌نام ایمیلی
+- شماره ایران با +98 و نرمال‌سازی 09xxxxxxxxx برای API
+- OTP ثابت ۶ رقمی با ۶ باکس مجزا
+- فوکوس نارنجی روی ورودی‌ها، دکمه Gradient و Success سبز با انیمیشن
+- حالت Dark اختصاصی Login؛ پس از ورود، صفحه حساب با Theme عادی BlueVPN بازسازی می‌شود
+- Build workflow پس از prepare_android.py فایل Activity جدید را روی سورس تولیدشده اعمال می‌کند تا دیزاین دوباره با نسخه قدیمی جایگزین نشود.
+
+Backend/API موجود دست نخورده است؛ تغییرات روی UI و جریان Native احراز هویت انجام شده‌اند.

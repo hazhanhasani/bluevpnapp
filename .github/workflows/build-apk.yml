@@ -484,6 +484,19 @@ jobs:
           set -o pipefail
           python scripts/prepare_android.py 2>&1 | tee "$GITHUB_WORKSPACE/prepare-android.log"
 
+      - name: Apply BlueVPN login and registration redesign
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="android-source/BlueVpnSubscriptionsActivity.kt"
+          TARGET="upstream/V2rayNG/app/src/main/java/com/v2ray/ang/ui/BlueVpnSubscriptionsActivity.kt"
+          test -f "$SOURCE"
+          test -d "$(dirname "$TARGET")"
+          cp "$SOURCE" "$TARGET"
+          grep -q 'ورود به حساب کاربری' "$TARGET"
+          grep -q 'archiveOtpRow' "$TARGET"
+          echo "BlueVPN native auth redesign applied to Android source."
+
       - name: Upload failed Android source preparation log
         if: ${{ failure() }}
         uses: actions/upload-artifact@v6

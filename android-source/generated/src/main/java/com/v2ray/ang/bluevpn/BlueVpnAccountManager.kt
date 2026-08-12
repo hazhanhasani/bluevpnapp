@@ -143,7 +143,6 @@ object BlueVpnAccountManager {
     private val refreshLock = Any()
     private val subscriptionReconcileLock = Any()
     @Volatile private var subscriptionRefreshRunning = false
-    @Volatile private var lastEntitlementRepairAt = 0L
     private val backgroundExecutor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "bluevpn-account-background").apply { isDaemon = true }
     }
@@ -172,6 +171,7 @@ object BlueVpnAccountManager {
     private const val SUB = "BlueVPN Account"
     private const val FREE_SUB = "BlueVPN Free"
     private const val FREE_PREFS = "bluevpn_free_access"
+    private const val PREMIUM_LKG_PREFS = "bluevpn_premium_lkg"
     private const val FREE_ALARM_ACTION = "com.v2ray.ang.bluevpn.FREE_SESSION_EXPIRED"
     private const val AUTO_SYNC_INTERVAL_MS = 5 * 60_000L
     private const val FREE_SUB_REFRESH_INTERVAL_MS = 60 * 60_000L
@@ -180,7 +180,6 @@ object BlueVpnAccountManager {
     private const val ACCOUNT_SNAPSHOT_CACHE_MS = 5_000L
     private const val MOBILE_CONFIG_CACHE_MS = 60_000L
     private const val PLANS_CACHE_MS = 2 * 60_000L
-    private const val ENTITLEMENT_REPAIR_COOLDOWN_MS = 20_000L
 
     private fun prefs(c: Context) =
         c.getSharedPreferences(P, Context.MODE_PRIVATE)
@@ -440,10 +439,12 @@ object BlueVpnAccountManager {
                 .orEmpty()
             val localReady = hasInstalledFreeServers(appContext)
             if (force || !localReady || installedFingerprint != fingerprint) {
-                installFreeSubscriptions(appContext, snapshot.subscriptions, force)
-                storage.edit()
-                    .putString("installed_sources_fingerprint", fingerprint)
-                    .apply()
+                if (!BlueVpnRuntimeGate.connectionActive(appContext)) {
+                    installFreeSubscriptions(appContext, snapshot.subscriptions, force)
+                    storage.edit()
+                        .putString("installed_sources_fingerprint", fingerprint)
+                        .apply()
+                }
             }
             BlueVpnPreferences.setAutomaticSelection(appContext)
             true
@@ -459,6 +460,7 @@ object BlueVpnAccountManager {
         sources: List<BlueVpnFreeSubscription>,
         force: Boolean,
     ) {
+        if (BlueVpnRuntimeGate.connectionActive(c)) return
         val storage = freePrefs(c)
         val existing = MmkvManager.decodeSubscriptions()
             .filter { it.subscription.remarks.startsWith(FREE_SUB) }
@@ -610,10 +612,6 @@ object BlueVpnAccountManager {
         else -> emptySet()
     }
 
-    /** Exact decoded servers owned by the currently active entitlement row(s). */
-    fun exactEntitlementServerGuids(c: Context): List<String> =
-        usableServerGuids(entitlementSubscriptionGuids(c))
-
     private fun isBlueVpnManagedSubscription(remarks: String?): Boolean {
         val value = remarks.orEmpty().trim()
         return value == SUB || value.startsWith(FREE_SUB)
@@ -642,6 +640,56 @@ object BlueVpnAccountManager {
             .filter { it.isNotBlank() }
             .toSet()
 
+    private fun sha256(value: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+
+    private fun premiumOwnerKey(c: Context): String {
+        if (!active(c)) return ""
+        val identity = snapshot(c).email.trim().lowercase(Locale.ROOT)
+        if (identity.isBlank()) return ""
+        return sha256(identity).take(24)
+    }
+
+    private fun rememberPremiumLastKnownGood(c: Context, serverGuids: Collection<String>) {
+        if (!active(c)) return
+        val owner = premiumOwnerKey(c)
+        if (owner.isBlank()) return
+        val free = allFreeServerGuids()
+        val safe = serverGuids
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it !in free }
+            .filter { MmkvManager.decodeServerConfig(it) != null }
+            .distinct()
+            .toSet()
+        if (safe.isEmpty()) return
+        val storage = c.applicationContext.getSharedPreferences(PREMIUM_LKG_PREFS, Context.MODE_PRIVATE)
+        if (storage.getStringSet("servers_$owner", emptySet()).orEmpty() == safe) return
+        storage.edit()
+            .putStringSet("servers_$owner", safe)
+            .putLong("saved_at_$owner", System.currentTimeMillis())
+            .apply()
+    }
+
+    private fun premiumLastKnownGoodServerGuids(c: Context): List<String> {
+        if (!active(c)) return emptyList()
+        val owner = premiumOwnerKey(c)
+        if (owner.isBlank()) return emptyList()
+        val free = allFreeServerGuids()
+        return c.applicationContext
+            .getSharedPreferences(PREMIUM_LKG_PREFS, Context.MODE_PRIVATE)
+            .getStringSet("servers_$owner", emptySet())
+            .orEmpty()
+            .asSequence()
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it !in free }
+            .filter { MmkvManager.decodeServerConfig(it) != null }
+            .distinct()
+            .toList()
+    }
+
     private fun usableServerGuids(subscriptionGuids: Collection<String>): List<String> =
         subscriptionGuids
             .flatMap { subscriptionGuid ->
@@ -666,6 +714,10 @@ object BlueVpnAccountManager {
      * being selected, so cleanup is now metadata-only.
      */
     fun pruneInactiveManagedPools(c: Context): Int {
+        // Defensive guard: this helper has several callers. Even if a future
+        // caller forgets the outer runtime check, never rewrite subscription
+        // metadata while Xray owns the MMKV pool.
+        if (BlueVpnRuntimeGate.connectionActive(c)) return 0
         val keep = entitlementSubscriptionGuids(c)
         MmkvManager.decodeSubscriptions().forEach { row ->
             if (!isBlueVpnManagedSubscription(row.subscription.remarks)) return@forEach
@@ -694,6 +746,12 @@ object BlueVpnAccountManager {
      */
     fun ensureEntitlementSelection(c: Context): String? {
         val selected = MmkvManager.getSelectServer().orEmpty().trim()
+        // The selected MMKV key is shared with the daemon process. During an
+        // active/starting connection it is immutable; the exact running GUID is
+        // tracked by MainViewModel instead of rewriting global selection.
+        if (BlueVpnRuntimeGate.connectionActive(c)) {
+            return selected.takeIf { it.isNotBlank() && MmkvManager.decodeServerConfig(it) != null }
+        }
         if (selected.isNotBlank()) {
             val profile = MmkvManager.decodeServerConfig(selected)
             if (profile != null && candidateAllowed(c, selected, profile.subscriptionId)) {
@@ -716,50 +774,27 @@ object BlueVpnAccountManager {
     }
 
     /**
-     * Return the current entitlement's usable server GUIDs.
+     * Return only the server GUIDs that belong to the current entitlement.
      *
-     * Free mode is strict: it can only see the explicitly configured Free pool.
-     * Premium is resilient: v2rayNG briefly empties/rebuilds a subscription while
-     * importing, so an authenticated Premium account may keep using its previous
-     * non-Free BlueVPN pool until the exact current URL has at least one decoded
-     * profile. As a final pre-Free compatibility fallback, locally decoded
-     * v2rayNG profiles are accepted for Premium only after every known Free
-     * subscription/server has been excluded. This is availability fallback, not
-     * tier mixing.
+     * BlueVPN used to fall back from a missing Premium import to every local
+     * v2rayNG profile. Once a Free pool was introduced that compatibility path
+     * became unsafe: stale Premium rows, imported profiles and Free routes could
+     * be observed by the same automatic selector. WordPress is now the control
+     * plane, therefore pool ownership is strict and deterministic.
      */
     fun preferredServerGuids(c: Context): List<String> {
         val exact = usableServerGuids(entitlementSubscriptionGuids(c))
-        if (exact.isNotEmpty() || !active(c)) return exact
-
-        val freeSubscriptionGuids = allFreeSubscriptionGuids()
-        val freeServerGuids = allFreeServerGuids()
-        val premiumRows = MmkvManager.decodeSubscriptions()
-            .asSequence()
-            .filter { it.subscription.remarks == SUB }
-            .map { it.guid.trim() }
-            .filter { it.isNotBlank() }
-            .toList()
-
-        val preservedPremium = usableServerGuids(premiumRows)
-            .filterNot { it in freeServerGuids }
-            .filter { guid ->
-                val subscriptionId = MmkvManager.decodeServerConfig(guid)
-                    ?.subscriptionId.orEmpty().trim()
-                subscriptionId.isBlank() || subscriptionId !in freeSubscriptionGuids
-            }
-        if (preservedPremium.isNotEmpty()) return preservedPremium
-
-        return MmkvManager.decodeAllServerList()
-            .asSequence()
-            .map { it.trim() }
-            .filter { it.isNotBlank() && it !in freeServerGuids }
-            .filter { guid ->
-                val profile = MmkvManager.decodeServerConfig(guid) ?: return@filter false
-                val subscriptionId = profile.subscriptionId.orEmpty().trim()
-                subscriptionId.isBlank() || subscriptionId !in freeSubscriptionGuids
-            }
-            .distinct()
-            .toList()
+        if (!active(c)) return exact
+        if (exact.isNotEmpty()) {
+            // Snapshot the last complete exact Premium pool before any later
+            // v2rayNG import can rotate/delete volatile server GUIDs.
+            rememberPremiumLastKnownGood(c, exact)
+            return exact
+        }
+        // Premium may temporarily lose its exact MMKV list while an import is
+        // rebuilding it. Fall back only to this account identity's own saved
+        // non-Free pool; never to the global local-profile catalogue or another account.
+        return premiumLastKnownGoodServerGuids(c)
     }
 
     fun entitlementPoolFingerprint(c: Context): String {
@@ -819,15 +854,10 @@ object BlueVpnAccountManager {
 
         val id = subscriptionId.orEmpty().trim()
         if (id.isBlank()) return false
-        if (id in entitlementSubscriptionGuids(c)) return true
-        if (!active(c)) return false
-
-        // Premium can keep a disabled previous BlueVPN Account row during an
-        // atomic subscription swap, but a known Free row is never accepted.
-        if (id in allFreeSubscriptionGuids()) return false
-        return MmkvManager.decodeSubscriptions().any { row ->
-            row.guid == id && row.subscription.remarks == SUB
-        }
+        // Never accept a stale BlueVPN Account row merely because it is marked
+        // as managed. The subscription id must be owned by the exact active URL
+        // (Premium) or by the configured enabled Free pool.
+        return id in entitlementSubscriptionGuids(c)
     }
 
     /**
@@ -837,47 +867,37 @@ object BlueVpnAccountManager {
      */
     fun awaitEntitlementServers(
         c: Context,
-        timeoutMs: Long = 7_000L,
+        timeoutMs: Long = 14_000L,
     ): Result<Int> = runCatching {
         val appContext = c.applicationContext
-
-        // Last-known-good is immediately usable. Never rebuild a subscription
-        // merely because a screen or BlueAI asked for candidates.
-        preferredServerGuids(appContext).takeIf { it.isNotEmpty() }?.let { guids ->
-            ensureEntitlementSelection(appContext)
-            return@runCatching guids.size
-        }
-
-        // Connecting/connected traffic owns a frozen entitlement snapshot. Pool
-        // mutation during that window can invalidate the exact GUID being started.
-        if (BlueVpnEngineManager.isPoolMutationBlocked()) {
+        // Never turn a locations/AI repair request into a subscription mutation
+        // while the daemon is connecting or connected. Return the frozen local
+        // entitlement pool and let an explicit refresh happen after disconnect.
+        if (BlueVpnRuntimeGate.connectionActive(appContext)) {
             return@runCatching preferredServerGuids(appContext).size
         }
-
-        val now = android.os.SystemClock.elapsedRealtime()
-        val repairAllowed = now - lastEntitlementRepairAt >= ENTITLEMENT_REPAIR_COOLDOWN_MS
-        if (repairAllowed) {
-            lastEntitlementRepairAt = now
-            if (hasSession(appContext)) {
-                val current = snapshot(appContext)
-                if (current.subscriptionActive && current.subscriptionUrl.startsWith("http")) {
-                    // Repair only the local subscription importer. Provider/account
-                    // polling belongs to WordPress background sync, not this UI path.
-                    reconcileSubscriptionMode(
-                        c = appContext,
-                        premiumActive = true,
-                        premiumUrl = current.subscriptionUrl,
-                        forceRefresh = true,
-                    )
-                }
+        if (hasSession(appContext)) {
+            val current = snapshot(appContext)
+            if (current.subscriptionActive && current.subscriptionUrl.startsWith("http")) {
+                reconcileSubscriptionMode(
+                    c = appContext,
+                    premiumActive = true,
+                    premiumUrl = current.subscriptionUrl,
+                    forceRefresh = preferredServerGuids(appContext).isEmpty(),
+                )
             } else {
-                prepareFreeAccess(appContext, force = false).getOrThrow()
+                sync(appContext, force = true).getOrThrow()
             }
+        } else {
+            prepareFreeAccess(appContext, force = true).getOrThrow()
         }
-
+        val premiumPoolReady = !active(appContext) || preferredServerGuids(appContext).isNotEmpty()
+        if (premiumPoolReady) {
+            pruneInactiveManagedPools(appContext)
+        }
         ensureEntitlementSelection(appContext)
-        val deadline = android.os.SystemClock.elapsedRealtime() +
-            timeoutMs.coerceIn(1_500L, 10_000L)
+
+        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs.coerceIn(2_000L, 30_000L)
         var lastCount = 0
         do {
             val guids = preferredServerGuids(appContext)
@@ -886,9 +906,10 @@ object BlueVpnAccountManager {
                 BlueVpnLocationUtil.invalidateCache()
                 return@runCatching lastCount
             }
-            Thread.sleep(250L)
+            Thread.sleep(350L)
         } while (android.os.SystemClock.elapsedRealtime() < deadline)
 
+        BlueVpnLocationUtil.invalidateCache()
         lastCount
     }
 
@@ -898,9 +919,9 @@ object BlueVpnAccountManager {
         premiumUrl: String,
         forceRefresh: Boolean,
     ) = synchronized(subscriptionReconcileLock) {
-        if (BlueVpnEngineManager.isPoolMutationBlocked()) return@synchronized
-        subscriptionRefreshRunning = true
-        try {
+        // Account refresh may continue while connected, but subscription rows and
+        // MMKV profile ownership are immutable until the tunnel releases them.
+        if (BlueVpnRuntimeGate.connectionActive(c)) return@synchronized
         val existing = MmkvManager.decodeSubscriptions()
         var changed = false
         var mustRefresh = forceRefresh
@@ -996,6 +1017,8 @@ object BlueVpnAccountManager {
         // Free/Premium isolation, so destructive MMKV cleanup is unnecessary.
         pruneInactiveManagedPools(c)
         if (mustRefresh) {
+            subscriptionRefreshRunning = true
+            try {
                 val activeRows = MmkvManager.decodeSubscriptions().filter { row ->
                     row.subscription.enabled && when {
                         premiumActive ->
@@ -1013,9 +1036,12 @@ object BlueVpnAccountManager {
                         runCatching { MmkvManager.decodeServerList(row.guid).isEmpty() }.getOrDefault(true)
                     },
                 )
+            } finally {
+                subscriptionRefreshRunning = false
+            }
         }
         if (changed || mustRefresh) {
-            val currentPoolReady = !premiumActive || exactEntitlementServerGuids(c).isNotEmpty()
+            val currentPoolReady = !premiumActive || preferredServerGuids(c).isNotEmpty()
             if (currentPoolReady) {
                 // Transactional swap complete: only now delete stale Premium
                 // rows. Until this point they are disabled and invisible to
@@ -1024,9 +1050,6 @@ object BlueVpnAccountManager {
             }
             BlueVpnLocationUtil.invalidateCache()
             ensureEntitlementSelection(c)
-        }
-        } finally {
-            subscriptionRefreshRunning = false
         }
     }
 
@@ -1632,6 +1655,10 @@ object BlueVpnAccountManager {
     ): Result<BlueVpnAccountSnapshot> = runCatching {
         if (!hasSession(c)) error("AUTH_REQUIRED")
 
+        // A forced /account/sync is allowed only while idle.  While connecting or
+        // connected we still may read the fast WordPress snapshot, but we never
+        // ask the backend/providers to rotate the active subscription pool.
+        val effectiveForce = force && !BlueVpnRuntimeGate.connectionActive(c)
         val last = prefs(c).getLong("last_sync", 0)
         val local = snapshot(c)
         val appUpdated = accountCacheVersion(c) != currentAppVersion()
@@ -1641,7 +1668,7 @@ object BlueVpnAccountManager {
         val entitlementIncomplete =
             local.subscriptionActive && local.subscriptionUrl.isBlank()
         if (
-            !force &&
+            !effectiveForce &&
             !appUpdated &&
             !entitlementIncomplete &&
             System.currentTimeMillis() - last < AUTO_SYNC_INTERVAL_MS
@@ -1653,15 +1680,15 @@ object BlueVpnAccountManager {
         // reserved for explicit/forced sync and is throttled server-side.
         val response = authenticatedRequest(
             c,
-            if (force) "POST" else "GET",
-            if (force) "/api/v1/account/sync" else "/api/v1/account",
-            if (force) JSONObject() else null,
+            if (effectiveForce) "POST" else "GET",
+            if (effectiveForce) "/api/v1/account/sync" else "/api/v1/account",
+            if (effectiveForce) JSONObject() else null,
         )
 
         applyAccount(
             c,
             response.getJSONObject("account"),
-            forceSubscriptions = force,
+            forceSubscriptions = effectiveForce,
         )
     }
 
@@ -1832,6 +1859,14 @@ object BlueVpnAccountManager {
             account.optJSONObject("subscription") ?: JSONObject()
         val incomingUrl = subscription.optString("url").trim()
         val previous = snapshot(c)
+        if (previous.subscriptionActive) {
+            // Capture the old exact pool under the old account identity before
+            // an entitlement URL rotation rewrites local account metadata.
+            val previousExact = usableServerGuids(managedSubscriptionGuids(c))
+            if (previousExact.isNotEmpty()) {
+                rememberPremiumLastKnownGood(c, previousExact)
+            }
+        }
 
         c.getSharedPreferences(
             "bluevpn_subscription_info",
@@ -1934,7 +1969,7 @@ object BlueVpnAccountManager {
                 // A forced account refresh must not re-import a healthy unchanged
                 // subscription. Re-importing on every screen entry clears MMKV for
                 // a short window and makes locations flash in and out.
-                val poolMissing = exactEntitlementServerGuids(c).isEmpty()
+                val poolMissing = preferredServerGuids(c).isEmpty()
                 reconcileSubscriptionMode(
                     c = c.applicationContext,
                     premiumActive = true,
@@ -1945,7 +1980,7 @@ object BlueVpnAccountManager {
                 // A routine account payload must not re-import a healthy pool.
                 // Install only when the entitlement URL actually changed or the
                 // exact Premium pool does not exist locally.
-                val exactPoolMissing = exactEntitlementServerGuids(c).isEmpty()
+                val exactPoolMissing = preferredServerGuids(c).isEmpty()
                 if (entitlementChanged || exactPoolMissing) {
                     scheduleInstall(c, url)
                 }
@@ -1964,6 +1999,7 @@ object BlueVpnAccountManager {
     }
 
     private fun scheduleInstall(context: Context, url: String) {
+        if (BlueVpnRuntimeGate.connectionActive(context)) return
         val now = System.currentTimeMillis()
         if (url == lastScheduledSubscriptionUrl && now - lastScheduledSubscriptionAt < 5_000L) {
             return
@@ -1977,9 +2013,7 @@ object BlueVpnAccountManager {
     }
 
     private fun install(c: Context, url: String) = synchronized(subscriptionReconcileLock) {
-        if (BlueVpnEngineManager.isPoolMutationBlocked()) return@synchronized
-        subscriptionRefreshRunning = true
-        try {
+        if (BlueVpnRuntimeGate.connectionActive(c)) return@synchronized
         val subscriptions = MmkvManager.decodeSubscriptions()
         val old = subscriptions.firstOrNull {
             it.subscription.remarks == SUB &&
@@ -2039,6 +2073,8 @@ object BlueVpnAccountManager {
                 old?.guid.orEmpty(),
                 item,
             )
+            subscriptionRefreshRunning = true
+            try {
                 val refreshRows = MmkvManager.decodeSubscriptions().filter { row ->
                     row.subscription.enabled &&
                         row.subscription.remarks == SUB &&
@@ -2049,6 +2085,9 @@ object BlueVpnAccountManager {
                     refreshRows,
                     aggressiveRepair = true,
                 )
+            } finally {
+                subscriptionRefreshRunning = false
+            }
         }
         val activePremiumRow = MmkvManager.decodeSubscriptions().firstOrNull { row ->
             row.subscription.enabled &&
@@ -2080,9 +2119,6 @@ object BlueVpnAccountManager {
         }
         ensureEntitlementSelection(c)
         BlueVpnLocationUtil.invalidateCache()
-        } finally {
-            subscriptionRefreshRunning = false
-        }
     }
 
     private fun request(

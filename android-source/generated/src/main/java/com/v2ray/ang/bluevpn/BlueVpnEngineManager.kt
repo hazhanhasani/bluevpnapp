@@ -61,7 +61,6 @@ object BlueVpnEngineManager {
     private val commandExecutor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "bluevpn-engine-command").apply { isDaemon = true }
     }
-    private val frozenEntitlementServerGuids = AtomicReference<Set<String>>(emptySet())
     private val snapshotRef = AtomicReference(
         Snapshot(
             state = State.IDLE,
@@ -71,50 +70,6 @@ object BlueVpnEngineManager {
     )
 
     fun snapshot(): Snapshot = snapshotRef.get()
-
-    /**
-     * Freeze the exact candidate ownership for one connect/switch cycle. v2rayNG
-     * can replace subscription GUID lists while importing; the route that was
-     * valid when the user pressed Connect must not become invalid mid-start.
-     */
-    fun freezeEntitlementPool(serverGuids: Collection<String>) {
-        frozenEntitlementServerGuids.set(
-            serverGuids.asSequence()
-                .map { it.trim() }
-                .filter { it.isNotBlank() }
-                .toSet()
-        )
-    }
-
-    fun clearEntitlementPoolFreeze() {
-        frozenEntitlementServerGuids.set(emptySet())
-    }
-
-    fun frozenEntitlementPool(): Set<String> = frozenEntitlementServerGuids.get()
-
-    fun candidateAllowedForConnection(
-        context: Context,
-        serverGuid: String,
-        subscriptionId: String?,
-    ): Boolean {
-        val guid = serverGuid.trim()
-        val frozen = frozenEntitlementServerGuids.get()
-        if (guid.isNotBlank() && frozen.isNotEmpty()) return guid in frozen
-        return BlueVpnAccountManager.candidateAllowed(context, guid, subscriptionId)
-    }
-
-    fun isPoolMutationBlocked(): Boolean {
-        if (frozenEntitlementServerGuids.get().isNotEmpty()) return true
-        return when (snapshot().state) {
-            State.PREPARING,
-            State.STARTING,
-            State.VERIFYING,
-            State.CONNECTED,
-            State.SWITCHING,
-            State.STOPPING -> true
-            State.IDLE, State.FAILED -> false
-        }
-    }
 
     fun addListener(listener: Listener) {
         listeners += listener
@@ -169,7 +124,7 @@ object BlueVpnEngineManager {
                 ?.let { MmkvManager.decodeServerConfig(it) }
             if (
                 profile == null ||
-                !candidateAllowedForConnection(
+                !BlueVpnAccountManager.candidateAllowed(
                     app,
                     targetGuid,
                     profile.subscriptionId,
@@ -209,7 +164,9 @@ object BlueVpnEngineManager {
                 // Use the exact official v2rayNG entry point. Passing the GUID
                 // closes the race where BlueVPN changed global MMKV selection
                 // before the previous CoreVpnService had actually stopped.
-                CoreServiceManager.startVService(app, targetGuid)
+                check(CoreServiceManager.startVServiceExact(app, targetGuid)) {
+                    "Xray service rejected the exact candidate start"
+                }
             }.onFailure { error ->
                 Log.e(TAG, "Xray start failed", error)
                 if (generation == commandGeneration.get()) {
@@ -240,19 +197,25 @@ object BlueVpnEngineManager {
             runCatching {
                 CoreServiceManager.stopVService(app)
             }.onFailure { error ->
-                Log.e(TAG, "Xray stop failed", error)
+                Log.e(TAG, "Xray stop request failed", error)
+                if (generation == commandGeneration.get()) {
+                    publish(
+                        State.FAILED,
+                        current.requestedMode,
+                        current.activeEngine,
+                        error.message ?: "Xray stop request failed",
+                    )
+                }
             }
-            if (generation == commandGeneration.get()) {
-                publish(
-                    State.IDLE,
-                    current.requestedMode,
-                    current.activeEngine,
-                    current.fallbackReason,
-                )
-            }
+            // CoreVpnService runs in :RunSoLibV2RayDaemon. The CoreServiceManager
+            // singleton in the UI process cannot authoritatively answer
+            // isRunning(), so never publish a fake IDLE from this process.
+            // MainViewModel receives daemon STOP_SUCCESS/NOT_RUNNING and the
+            // Activity calls markIdle() only after that cross-process handshake.
         }
     }
 
+    fun markIdle() = transition(State.IDLE)
     fun markVerifying() = transition(State.VERIFYING)
     fun markConnected() = transition(State.CONNECTED)
     fun markSwitching() = transition(State.SWITCHING)

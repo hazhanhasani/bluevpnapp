@@ -1,7 +1,7 @@
 {
-  "release": "4.0.33",
-  "version_name": "4.0.33",
-  "version_code": 40033,
+  "release": "4.0.35-auto",
+  "version_name": "4.0.35",
+  "version_code": 40035,
   "changes": [
     "Add private scheduled backups with 7-version retention",
     "Add checksum-validated transactional restore with pre-restore rollback snapshot",

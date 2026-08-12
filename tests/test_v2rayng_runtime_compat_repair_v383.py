@@ -49,7 +49,7 @@ def test_health_verification_is_multi_round_and_non_destructive_for_existing_cor
     verify = home[home.index("private fun verifyTunnelThroughCore"):
                   home.index("private fun waitForLocalProxyReady")]
     assert "verificationRound += 1" in verify
-    assert "round < 3" in verify
+    assert "round < 2" in verify
     assert "mainViewModel.testCurrentServerRealPing()" in verify
 
     existing = home[home.index("private fun verifyExistingRunningSession"):

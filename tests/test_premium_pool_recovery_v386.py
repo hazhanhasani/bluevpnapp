@@ -47,6 +47,6 @@ def test_smart_selector_summary_cannot_show_previous_entitlement_route():
 def test_premium_pool_swap_is_transactional():
     text = read("android-source/BlueVpnAccountManager.kt")
     assert "Do not delete the previous Premium physical pool before the new" in text
-    assert "val currentPoolReady = !premiumActive || preferredServerGuids(c).isNotEmpty()" in text
+    assert "val currentPoolReady = !premiumActive || exactEntitlementServerGuids(c).isNotEmpty()" in text
     assert "val stalePremiumRows = subscriptions" in text
     assert "if (activePremiumReady)" in text

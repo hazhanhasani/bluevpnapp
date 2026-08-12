@@ -1,8 +1,13 @@
 {
-  "release": "4.0.31-auto",
-  "version_name": "4.0.31",
-  "version_code": 40031,
+  "release": "4.0.32",
+  "version_name": "4.0.32",
+  "version_code": 40032,
   "changes": [
+    "Restore Premium last-known-good subscription pool without exposing known Free rows",
+    "Freeze entitlement candidate ownership for each connection/switch cycle",
+    "Remove forced account/provider sync from startup, locations entry and BlueAI selection",
+    "Bound failover to five candidates and two independent verification rounds",
+    "Keep BlueVpnEngine runtime state CONNECTED after verified tunnel proof",
     "Add private scheduled backups with 7-version retention",
     "Add checksum-validated transactional restore with pre-restore rollback snapshot",
     "Add production health center and final Railway cutover cleanup",
@@ -20,9 +25,9 @@
   "purpose": "شروع شاخه رسمی BlueVPN 4.x",
   "updated_at": "2026-08-11T22:35:00Z",
   "built_at": "2026-08-11T22:35:00Z",
-  "build_id": "20260812-v4.0.31-authenticated-wordpress-updater",
-  "feature": "authenticated-wordpress-updater",
-  "build_fix": "authenticated-wordpress-updater",
-  "version_source": "v4.0.31-authenticated-wordpress-updater",
-  "summary": "Authenticate WordPress GitHub release checks/downloads with the migrated token and report the true release-barrier failure."
+  "build_id": "20260812-v4.0.32-connectivity-core-stabilization",
+  "feature": "connectivity-core-stabilization",
+  "build_fix": "subscription-sync-connection-stability",
+  "version_source": "v4.0.32-connectivity-core-stabilization",
+  "summary": "Stabilize Premium/Free pool ownership, stop background sync races, and freeze each connection candidate set."
 }

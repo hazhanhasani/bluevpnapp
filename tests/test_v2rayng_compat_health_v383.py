@@ -27,11 +27,11 @@ def test_real_xray_tunnel_proof_is_authoritative_and_waits_for_proxy_ready():
     probe = home[home.index("private fun waitForLocalProxyReady"): home.index("private fun completeFailover")]
 
     assert 'InetSocketAddress("127.0.0.1", httpPort)' in probe
-    assert "maxWaitMs: Long = 2_400L" in probe
+    assert "maxWaitMs: Long = 1_800L" in probe
     assert "if (!waitForLocalProxyReady(httpPort))" in probe
-    assert "SystemClock.elapsedRealtime() + 3_600L" in probe
-    assert "connection.connectTimeout = 1_800" in probe
-    assert "connection.readTimeout = 1_800" in probe
+    assert "SystemClock.elapsedRealtime() + 3_200L" in probe
+    assert "connection.connectTimeout = 1_500" in probe
+    assert "connection.readTimeout = 1_500" in probe
     assert 'add("http://1.1.1.1/cdn-cgi/trace")' in probe
 
 

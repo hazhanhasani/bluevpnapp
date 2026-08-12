@@ -1,5 +1,5 @@
 === BlueVPN Manager ===
-Version: 4.0.31
+Version: 4.0.32
 Requires PHP: 8.0
 
 زیرساخت مهاجرت Backend BlueVPN از Railway/PostgreSQL به WordPress/MySQL با Migration Bridge امن و قابل Resume.
@@ -169,3 +169,10 @@ Requires PHP: 8.0
 * افزودن تست پترن، ارسال عمومی، Retry دستی، گزارش صف و بازیابی اعلان‌های سفارش/اشتراک.
 * اتصال رویدادهای پرداخت، فعال‌سازی دستی، ورود دستگاه جدید، تغییر شماره و قفل امنیتی به سیستم پیام.
 * حفظ Fix کامپایل Android برای setLineSpacing با مقدار Float.
+
+== 4.0.32 ==
+* Android: Premium Last-Known-Good pool restored while known Free subscriptions remain strictly excluded.
+* Android: entitlement pool is frozen for each connect/switch cycle so subscription imports cannot invalidate an in-flight GUID.
+* Android: startup, Locations entry and BlueAI no longer force provider/account synchronization.
+* Android: connection failover is bounded to five candidates and two verification rounds for faster recovery.
+* WordPress schema is unchanged; this release keeps Manager/app version parity for automatic deployment.

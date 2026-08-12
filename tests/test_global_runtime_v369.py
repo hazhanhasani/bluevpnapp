@@ -74,7 +74,7 @@ def test_account_sync_does_not_block_form_editing() -> None:
     assert "syncInProgress" in source
     assert "if(syncInProgress)return" in source
     assert "currentFocus !is EditText" in source
-    assert "handler.postDelayed({if(!isFinishing&&!isDestroyed)sync(true)},320L)" in source.replace(" ", "")
+    assert "handler.postDelayed({if(!isFinishing&&!isDestroyed)sync(false)},320L)" in source.replace(" ", "")
 
 
 def test_modified_android_snapshots_match_generator_payloads() -> None:

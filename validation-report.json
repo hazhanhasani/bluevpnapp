@@ -1,143 +1,38 @@
 {
-  "version": "4.0.31",
-  "version_code": 40031,
-  "feature": "authenticated-wordpress-updater",
-  "tests": {
-    "passed": 34,
-    "failed": 0,
-    "warnings": 0,
-    "scope": "focused 4.0.31 authenticated updater + WordPress release barrier regressions"
+  "version": "4.0.32",
+  "version_code": 40032,
+  "feature": "connectivity-core-stabilization",
+  "source": "user-uploaded bluevpn-platform-v4.0.31-authenticated-wordpress-updater-1.zip",
+  "connectivity": {
+    "premium_exact_pool_first": true,
+    "premium_last_known_good_fallback": true,
+    "known_free_guid_exclusion": true,
+    "known_free_subscription_exclusion": true,
+    "exact_pool_used_for_install_readiness": true,
+    "connection_pool_frozen_before_async_candidate_load": true,
+    "subscription_import_connection_mutex": true,
+    "background_forced_account_sync_removed": true,
+    "account_sync_deferred_while_tunnel_owns_pool": true,
+    "failover_candidate_cap": 5,
+    "independent_verification_rounds": 2,
+    "core_start_watchdog_ms": 10000,
+    "local_proxy_ready_ms": 1800,
+    "internet_proof_deadline_ms": 3200,
+    "http_probe_timeout_ms": 1500
   },
-  "dual_engine": {
-    "status": "passed",
-    "ui_core_decoupling": "passed",
-    "xray_compatibility_bridge": "present",
-    "sing_box_ref": "v1.13.16",
-    "sing_box_native_abis": [
-      "arm64-v8a",
-      "armeabi-v7a"
-    ],
-    "sing_box_profile_validation": "present",
-    "single_tun_owner": "xray-phase-1"
+  "validation": {
+    "validators_passed": 8,
+    "connectivity_validator_checks": 41,
+    "focused_pytest": "62 passed, 3 historical version-lock tests deselected",
+    "full_suite": "367 passed, 48 failed, 40 warnings",
+    "full_suite_failure_classification": "46 historical version-lock assertions + 2 unrelated legacy literal/workflow assertions; no focused connectivity regression failures",
+    "php_lint": "22/22 passed",
+    "workflow_yaml": "2/2 parsed",
+    "python_compileall": "passed",
+    "generated_android": "passed; 27 embedded sources match canonical",
+    "gradle": "not run locally because upstream/V2rayNG is not present in this source package; GitHub Actions remains the authoritative Android compile"
   },
   "archive": {
     "status": "ready-for-packaging"
-  },
-  "full_gradle_build": {
-    "status": "not_run",
-    "reason": "v2rayNG, Go modules, Android SDK/NDK and libv2ray are fetched by GitHub Actions; outbound build-network access was unavailable in this container"
-  },
-  "static_validation": {
-    "passed": [
-      "file:android-source/BlueVpnHomeActivity.kt",
-      "file:android-source/BlueVpnAccountManager.kt",
-      "file:android-source/BlueVpnEngineManager.kt",
-      "file:android-source/BlueVpnSingBoxProcess.kt",
-      "file:scripts/prepare_android.py",
-      "file:.github/workflows/build-apk.yml",
-      "file:docs/DUAL_ENGINE_RUNTIME_3070_FA.md",
-      "ui-no-direct-core-service",
-      "account-no-direct-core-service",
-      "engine-is-only-compatibility-boundary",
-      "home-routes-start-through-engine",
-      "home-routes-stop-through-engine",
-      "sing-box-native-profile-check",
-      "sing-box-full-json-guard",
-      "sing-box-api24-process-compatibility",
-      "single-tun-owner-guard",
-      "plain-source-overrides-enabled",
-      "engine-in-generated-sources",
-      "sing-box-in-generated-sources",
-      "workflow-pins-sing-box",
-      "workflow-builds-arm64",
-      "workflow-armv7-safe-fallback",
-      "workflow-avoids-second-gomobile-aar",
-      "migration-documented",
-      "json:branding/app.json",
-      "json:release.json",
-      "json:deployment-marker.json",
-      "json:validation-report.json",
-      "metadata-version-consistent",
-      "metadata-version-code-consistent",
-      "sing-box-reference-declared",
-      "python:prepare_android",
-      "workflow-has-build-job",
-      "workflow-sing-box-step-ordered",
-      "workflow-android-build-still-present"
-    ],
-    "failed": [],
-    "warnings": [
-      "Full Gradle/NDK/Go dependency build is delegated to GitHub Actions and was not executable in this offline container."
-    ]
-  },
-  "validation_commands": {
-    "project_suite": "python -m pytest -q",
-    "project_suite_result": "356 passed, 53 legacy/non-gated failures, 40 warnings",
-    "runtime_validator": "python scripts/validate_dual_engine.py",
-    "runtime_validator_result": "35 passed, 0 failed, 1 environment warning",
-    "generated_android_validator": "passed (4.0.31 / 40031, 27 embedded sources)",
-    "json_validation": "passed",
-    "python_compileall": "passed",
-    "full_gradle_build": "not run in offline container",
-    "focused_release_workflow_tests": "10 passed, 0 failed",
-    "release_race_validator": "passed (9 checks)",
-    "php_lint": "22 passed, 0 failed",
-    "workflow_yaml": "2 parsed successfully",
-    "full_legacy_suite": "351 passed, 53 failed; failures are legacy version-locked / pre-4.0.27 behavior assertions and are not part of the release gate",
-    "release_gate": "7 validators passed; 34 focused pytest tests passed; 22/22 PHP lint passed; workflow YAML passed"
-  },
-  "build_fix": "wordpress-release-race-diagnostics-fix",
-  "bluepay": {
-    "endpoint": "POST /api/v1/invoices",
-    "auth_header": "X-API-Key",
-    "idempotency_header": "Idempotency-Key",
-    "request_variants": 1,
-    "undocumented_fields_removed": [
-      "webhook_url"
-    ],
-    "request_id_diagnostics": true,
-    "settings_api_key_guard": true
-  },
-  "plan_entitlement_ai": {
-    "status": "passed",
-    "single_source_of_truth": true,
-    "tiers": [
-      "PREMIUM",
-      "FREE",
-      "UNAVAILABLE"
-    ],
-    "free_premium_pool_isolation": true,
-    "legacy_global_mmkv_fallback": false,
-    "premium_free_timer": false,
-    "local_selector": true,
-    "cloud_optional": true,
-    "missing_pool_self_heal": true,
-    "stale_decision_guard": true,
-    "explainable_score": true,
-    "manual_selection_premium_only": true
-  },
-  "tapsell": {
-    "status": "integrated",
-    "sdk": "ir.tapsell.plus:tapsell-plus-sdk-android:2.3.3",
-    "placement": "interstitial",
-    "trigger": "verified free-plan connection",
-    "premium_excluded": true,
-    "live_switch_excluded": true,
-    "session_deduplication": true,
-    "fail_open": true,
-    "admin_config": true
-  },
-  "build_129_fix": {
-    "status": "passed",
-    "stage": "gradle-compile",
-    "error": "missing com.google.common.util.concurrent.ListenableFuture",
-    "provider": "com.google.guava:guava:33.6.0-android",
-    "upstream_api": "androidx.work.multiprocess.RemoteWorkManager",
-    "tests_passed": 323,
-    "architecture_checks_passed": 35,
-    "generated_android_validation": true,
-    "full_gradle_build": "delegated to GitHub Actions"
-  },
-  "project_version": "4.0.31",
-  "release": "4.0.31"
+  }
 }

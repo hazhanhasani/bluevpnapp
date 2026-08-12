@@ -19,9 +19,10 @@ def test_release_metadata_is_v377():
 
 def test_healthy_premium_pool_is_not_reimported_on_account_refresh():
     account = (ROOT / "android-source/BlueVpnAccountManager.kt").read_text(encoding="utf-8")
-    assert "val poolMissing = preferredServerGuids(c).isEmpty()" in account
+    assert "val poolMissing = exactEntitlementServerGuids(c).isEmpty()" in account
     assert "forceRefresh = entitlementChanged || poolMissing" in account
-    assert "forceRefresh = preferredServerGuids(appContext).isEmpty()" in account
+    assert "val exactPoolMissing = exactEntitlementServerGuids(c).isEmpty()" in account
+    assert "if (entitlementChanged || exactPoolMissing)" in account
     assert "private val subscriptionReconcileLock = Any()" in account
     assert ") = synchronized(subscriptionReconcileLock) {" in account
     assert "subscriptionRefreshRunning = true" in account

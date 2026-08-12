@@ -752,6 +752,7 @@ jobs:
             python scripts/validate_stability_completion.py
             python scripts/validate_production_completion.py
             python scripts/validate_wordpress_connectivity_hotfix.py
+            python scripts/validate_connectivity_core_v4032.py
             python scripts/validate_wordpress_release_autopilot.py
             python scripts/validate_release_race_fix.py
             python scripts/validate_authenticated_wordpress_updater.py

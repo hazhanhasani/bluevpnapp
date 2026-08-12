@@ -18,8 +18,8 @@ api = text('bluevpn-manager/includes/class-bluevpn-api.php')
 build = text('.github/workflows/build-apk.yml')
 
 checks = [
-    ('Version: 4.0.31' in plugin, 'manager header must be 4.0.31'),
-    ("BLUEVPN_MANAGER_VERSION', '4.0.31'" in plugin, 'manager constant must be 4.0.31'),
+    ('Version: 4.0.32' in plugin, 'manager header must be 4.0.32'),
+    ("BLUEVPN_MANAGER_VERSION', '4.0.32'" in plugin, 'manager constant must be 4.0.32'),
     ('github_token_for_internal_requests' in bot, 'bot must expose internal-only GitHub token accessor'),
     ('BlueVPN_Telegram_Bot::github_token_for_internal_requests()' in updater, 'updater must reuse migrated GitHub token'),
     ("'Authorization'] = 'Bearer ' . $token" in updater, 'updater must authenticate GitHub HTTP requests'),

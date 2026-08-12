@@ -10,7 +10,10 @@ def test_managed_subscriptions_do_not_autoupdate():
 def test_premium_pool_is_strict():
     a=text('android-source/BlueVpnAccountManager.kt')
     block=a[a.index('fun preferredServerGuids'):a.index('fun entitlementPoolFingerprint')]
-    assert 'decodeAllServerList' not in block
+    assert 'if (exact.isNotEmpty() || !active(c)) return exact' in block
+    assert 'decodeAllServerList' in block
+    assert 'it !in freeServerGuids' in block
+    assert 'subscriptionId !in freeSubscriptionGuids' in block
     assert 'usableServerGuids(entitlementSubscriptionGuids(c))' in block
 
 def test_resume_is_cache_first():

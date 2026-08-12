@@ -252,8 +252,11 @@ object BlueVpnSmartSelector {
         if (guid.isBlank() || reason.isBlank() || age !in 0..30 * 60_000L) {
             return "انتخاب‌گر هوشمند آماده تحلیل است"
         }
-        val profile = MmkvManager.decodeServerConfig(guid)
+        val currentPool = BlueVpnLocationUtil.cachedCandidates(context)
+        val currentCandidate = currentPool.firstOrNull { it.guid == guid }
+        val profile = currentCandidate?.profile
         if (
+            currentPool.isEmpty() ||
             profile == null ||
             !BlueVpnAccountManager.candidateAllowed(
                 context,

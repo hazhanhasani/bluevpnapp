@@ -84,8 +84,8 @@ def main() -> None:
         raise AssertionError("locationHealthScore still executes deep scoring on main")
 
     cfg = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    if cfg.get("version_name") != "4.0.34" or cfg.get("version_code") != 40034:
-        raise AssertionError("4.0.34 version metadata is not aligned")
+    if cfg.get("version_name") != "4.0.35" or cfg.get("version_code") != 40035:
+        raise AssertionError("4.0.35 version metadata is not aligned")
 
     if "validate_main_thread_anr_fix.py" not in workflow.read_text(encoding="utf-8"):
         raise AssertionError("GitHub Actions does not gate main-thread ANR regressions")

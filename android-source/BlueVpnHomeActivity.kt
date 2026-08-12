@@ -2104,6 +2104,16 @@ private fun refreshExperienceDashboard(
     refreshModeButtons()
 
     val all = cachedCandidates ?: BlueVpnLocationUtil.cachedCandidates(this)
+    if (all.isEmpty()) {
+        activeRoutesValue.text = "0"
+        qualityValue.text = "در انتظار دریافت Pool"
+        qualityValue.setTextColor(Color.parseColor(BlueVpnExperience.qualityColor(0)))
+        historyValue.text = BlueVpnExperience.recentSummary(this)
+        if (::aiSummaryValue.isInitialized) {
+            aiSummaryValue.text = "در انتظار دریافت سرورهای مجاز پلن فعلی"
+        }
+        return
+    }
     val active = all.count {
         it.delay >= 0L &&
             !BlueVpnPreferences.isSessionInactive(
@@ -3937,16 +3947,26 @@ private fun dpHome(value: Int): Int =
         connectButton.isEnabled = true
         updateConnectLabel("تلاش دوباره")
         applyOrbVisual(OrbVisualState.ERROR)
-        statusText.text = "لوکیشن در دسترس نیست"
+        val mode = BlueVpnPreferences.selectionMode(this)
+        val checked = failoverQueue.size.coerceAtLeast(failoverIndex.coerceAtLeast(0))
+        statusText.text = when (mode) {
+            BlueVpnSelectionMode.AUTO -> "مسیر قابل اتصال پیدا نشد"
+            BlueVpnSelectionMode.MANUAL_LOCATION -> "لوکیشن در دسترس نیست"
+            BlueVpnSelectionMode.MANUAL_SERVER -> "سرور انتخاب‌شده در دسترس نیست"
+        }
         statusCaption.visibility = View.VISIBLE
-        statusCaption.text = reason
-            ?: "همه مسیرهای این لوکیشن بررسی شدند؛ بعداً دوباره امتحان کنید"
+        val defaultReason = when (mode) {
+            BlueVpnSelectionMode.AUTO -> "$checked مسیر مجاز بررسی شد؛ در تلاش بعدی Pool تازه دوباره ارزیابی می‌شود"
+            BlueVpnSelectionMode.MANUAL_LOCATION -> "همه مسیرهای همین لوکیشن بررسی شدند؛ بعداً دوباره امتحان کنید"
+            BlueVpnSelectionMode.MANUAL_SERVER -> "این سرور در تست واقعی اتصال پاسخ نداد"
+        }
+        statusCaption.text = reason ?: defaultReason
         statusDot.backgroundTintList =
             ColorStateList.valueOf(Color.parseColor("#FFB44A"))
 
         Toast.makeText(
             this,
-            reason ?: "هیچ‌کدام از مسیرهای این لوکیشن پاسخ ندادند",
+            reason ?: defaultReason,
             Toast.LENGTH_LONG
         ).show()
     }
@@ -4065,10 +4085,10 @@ private fun dpHome(value: Int): Int =
         val selected = candidates.firstOrNull {
             it.guid == selectedGuid
         }
-        val selectedAllowed = BlueVpnAccountManager.selectedServerAllowed(this)
-        val profile = selected?.profile ?: selectedGuid
-            ?.takeIf { it.isNotBlank() && selectedAllowed }
-            ?.let { MmkvManager.decodeServerConfig(it) }
+        // Home must render the same candidate generation used by the selector.
+        // Never resurrect a stale MMKV selection when the current pool snapshot
+        // does not contain it; that produced contradictory Turkey/Poland/0-route UI.
+        val profile = selected?.profile
         val automaticSelection =
             BlueVpnPreferences.smartBalance(this)
 

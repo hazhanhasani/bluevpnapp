@@ -56,7 +56,7 @@ def test_selector_resolves_entitlement_once_per_batch():
 
 def test_version_4034_is_real_runtime_change():
     app = text("branding/app.json")
-    assert '"version_name": "4.0.34"' in app
-    assert '"version_code": 40034' in app
+    assert '"version_name": "4.0.35"' in app
+    assert '"version_code": 40035' in app
     workflow = text(".github/workflows/build-apk.yml")
     assert "validate_main_thread_anr_fix.py" in workflow

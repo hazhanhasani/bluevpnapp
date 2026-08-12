@@ -1,6 +1,6 @@
 {
   "version": "4.0.33",
-  "version_code": 40034,
+  "version_code": 40033,
   "feature": "exact-runtime-lifecycle-fix",
   "tests": {
     "passed": 0,
@@ -138,8 +138,8 @@
     "generated_android_validation": true,
     "full_gradle_build": "delegated to GitHub Actions"
   },
-  "project_version": "4.0.34",
-  "release": "4.0.34",
+  "project_version": "4.0.31",
+  "release": "4.0.31",
   "schema_version": "1.5.0",
   "focus": "exact-runtime-lifecycle",
   "focused_tests": {

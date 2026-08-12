@@ -757,6 +757,7 @@ jobs:
             python scripts/validate_authenticated_wordpress_updater.py
             python scripts/validate_exact_runtime_lifecycle.py
             python scripts/validate_main_thread_anr_fix.py
+            python scripts/validate_single_pool_snapshot_v4035.py
             while IFS= read -r -d '' file; do
               php -l "$file" >/dev/null
             done < <(find bluevpn-manager -type f -name '*.php' -print0)

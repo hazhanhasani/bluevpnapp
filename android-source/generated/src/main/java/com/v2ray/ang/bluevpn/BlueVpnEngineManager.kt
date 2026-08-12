@@ -61,6 +61,7 @@ object BlueVpnEngineManager {
     private val commandExecutor = Executors.newSingleThreadExecutor { task ->
         Thread(task, "bluevpn-engine-command").apply { isDaemon = true }
     }
+    private val frozenEntitlementServerGuids = AtomicReference<Set<String>>(emptySet())
     private val snapshotRef = AtomicReference(
         Snapshot(
             state = State.IDLE,
@@ -70,6 +71,50 @@ object BlueVpnEngineManager {
     )
 
     fun snapshot(): Snapshot = snapshotRef.get()
+
+    /**
+     * Freeze the exact candidate ownership for one connect/switch cycle. v2rayNG
+     * can replace subscription GUID lists while importing; the route that was
+     * valid when the user pressed Connect must not become invalid mid-start.
+     */
+    fun freezeEntitlementPool(serverGuids: Collection<String>) {
+        frozenEntitlementServerGuids.set(
+            serverGuids.asSequence()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .toSet()
+        )
+    }
+
+    fun clearEntitlementPoolFreeze() {
+        frozenEntitlementServerGuids.set(emptySet())
+    }
+
+    fun frozenEntitlementPool(): Set<String> = frozenEntitlementServerGuids.get()
+
+    fun candidateAllowedForConnection(
+        context: Context,
+        serverGuid: String,
+        subscriptionId: String?,
+    ): Boolean {
+        val guid = serverGuid.trim()
+        val frozen = frozenEntitlementServerGuids.get()
+        if (guid.isNotBlank() && frozen.isNotEmpty()) return guid in frozen
+        return BlueVpnAccountManager.candidateAllowed(context, guid, subscriptionId)
+    }
+
+    fun isPoolMutationBlocked(): Boolean {
+        if (frozenEntitlementServerGuids.get().isNotEmpty()) return true
+        return when (snapshot().state) {
+            State.PREPARING,
+            State.STARTING,
+            State.VERIFYING,
+            State.CONNECTED,
+            State.SWITCHING,
+            State.STOPPING -> true
+            State.IDLE, State.FAILED -> false
+        }
+    }
 
     fun addListener(listener: Listener) {
         listeners += listener
@@ -124,7 +169,7 @@ object BlueVpnEngineManager {
                 ?.let { MmkvManager.decodeServerConfig(it) }
             if (
                 profile == null ||
-                !BlueVpnAccountManager.candidateAllowed(
+                !candidateAllowedForConnection(
                     app,
                     targetGuid,
                     profile.subscriptionId,

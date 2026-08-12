@@ -28,6 +28,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
+import com.v2ray.ang.bluevpn.BlueVpnEngineManager
 import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnPersianDate
@@ -54,7 +55,7 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   if(returnedOrder.isBlank()&&BlueVpnAccountManager.hasSession(this)){
    // Refresh entitlements after returning from payment/admin activation without
    // interrupting a user who is currently editing an auth field.
-   handler.postDelayed({if(!isFinishing&&!isDestroyed)sync(true)},320L)
+   handler.postDelayed({if(!isFinishing&&!isDestroyed)sync(false)},320L)
   }
   handler.removeCallbacks(poll)
   handler.post(poll)
@@ -561,6 +562,13 @@ private fun loadPlans(generation:Int){
  }
  private fun sync(force:Boolean){
   if(syncInProgress)return
+  if(BlueVpnEngineManager.isPoolMutationBlocked()){
+   // Account/subscription state must never mutate the active candidate pool.
+   // Keep the current screen responsive and defer entitlement refresh until
+   // the engine returns to an idle state.
+   if(currentFocus !is EditText)render()
+   return
+  }
   syncInProgress=true
   val before=BlueVpnAccountManager.snapshot(this)
   lifecycleScope.launch(Dispatchers.IO){

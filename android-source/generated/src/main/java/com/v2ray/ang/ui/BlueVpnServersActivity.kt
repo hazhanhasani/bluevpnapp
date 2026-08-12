@@ -27,6 +27,7 @@ import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
 import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnEntitlement
+import com.v2ray.ang.bluevpn.BlueVpnEngineManager
 import com.v2ray.ang.bluevpn.BlueVpnPlanTier
 import com.v2ray.ang.bluevpn.BlueVpnSelectionMode
 import com.v2ray.ang.bluevpn.BlueVpnSmartSelector
@@ -119,7 +120,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         setContentView(createScreen())
         updateTabs()
         updateEntitlementUi()
-        refreshEntitlementState(force = true)
+        refreshEntitlementState(force = false)
 
         mainViewModel.startListenBroadcast()
         mainViewModel.updateListAction.observe(this) {
@@ -214,7 +215,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     loaded.isEmpty() &&
                     BlueVpnAccountManager.active(this@BlueVpnServersActivity) &&
                     !accountSyncInProgress &&
-                    !entitlementRepairAttempted
+                    !entitlementRepairAttempted &&
+                    !BlueVpnEngineManager.isPoolMutationBlocked()
                 ) {
                     entitlementRepairAttempted = true
                     BlueVpnAccountManager.awaitEntitlementServers(
@@ -477,6 +479,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private fun refreshEntitlementState(force: Boolean) {
         updateEntitlementUi()
         if (!BlueVpnAccountManager.hasSession(this)) return
+        if (BlueVpnEngineManager.isPoolMutationBlocked()) return
 
         val now = SystemClock.elapsedRealtime()
         if (!force && now - lastAccountSyncAt < 15_000L) return
@@ -491,7 +494,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             val result = BlueVpnAccountManager.sync(
                 this@BlueVpnServersActivity,
-                force = true,
+                force = force,
             )
             withContext(Dispatchers.Main) {
                 accountSyncInProgress = false

@@ -1,0 +1,28 @@
+BlueVPN 4.0.33 - Prepare Android hotfix
+
+خطای رفع‌شده:
+RuntimeError: Could not patch v2rayNG runtime: exact start entry point
+
+علت:
+patch_v2rayng_runtime_lifecycle در scripts/prepare_android.py بدنه کامل تابع Kotlin
+startVService را با یک رشته چندخطی exact تطبیق می‌داد. این روش در مرحله prepare-android
+شکننده بود و با هر اختلاف بی‌ضرر در فاصله/کامنت/بدنه upstream قبل از Gradle متوقف می‌شد.
+
+اصلاح:
+- نسخه برنامه عمداً همان 4.0.33 / 40033 باقی مانده است.
+- تغییرات Runtime اتصال 4.0.33 حذف یا Rollback نشده‌اند.
+- جایگزینی توابع اصلی Runtime از exact whole-body match به structural Kotlin function patch تغییر کرد.
+- matcher امضای تابع را پیدا می‌کند و closing brace واقعی را با درنظرگرفتن string/comment پیدا می‌کند.
+- patch برای startVService، stopCoreLoop، CoreVpnService.onStartCommand، setupVpnService و stopAllService مقاوم شد.
+- idempotency حفظ شده تا اجرای مجدد prepare باعث duplicate function نشود.
+- خطای بعدی در صورت تغییر واقعی امضا، declarationهای نزدیک را در log نشان می‌دهد.
+
+اعتبارسنجی محلی:
+- python -m py_compile scripts/prepare_android.py : PASS
+- scripts/validate_exact_runtime_lifecycle.py : PASS (35 checks)
+- scripts/validate_generated_android.py : PASS
+- tests/test_exact_runtime_lifecycle_v4033.py + test_prepare_android_runtime_structural_patch.py : 10 PASS
+
+نکته:
+این Hotfix فقط Build preparation را اصلاح می‌کند؛ شماره نسخه و منطق اتصال 4.0.33 را تغییر نمی‌دهد.
+Compile نهایی Kotlin/Gradle همچنان باید در GitHub Actions اجرا شود چون upstream/V2rayNG در CI checkout می‌شود.

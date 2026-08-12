@@ -451,6 +451,124 @@ def patch_shadowsocks_transport_queries() -> None:
 
     path.write_text(text, encoding="utf-8")
 
+def _replace_kotlin_function(
+    text: str,
+    signature_pattern: str,
+    replacement: str,
+    label: str,
+    already_marker: str | None = None,
+) -> str:
+    """Replace one Kotlin function without depending on its exact upstream body.
+
+    GitHub Actions checks out the pinned upstream source fresh for every build.
+    Exact multi-line string replacements are brittle because harmless upstream
+    whitespace/comment changes make the prepare step fail before Gradle.  This
+    helper locates the function signature and then finds the matching closing
+    brace while ignoring braces inside Kotlin strings and comments.
+    """
+    if already_marker and already_marker in text:
+        return text
+
+    match = re.search(signature_pattern, text, flags=re.MULTILINE)
+    if not match:
+        nearby = "\n".join(
+            line for line in text.splitlines()
+            if any(token in line for token in ("startVService", "stopCoreLoop", "onStartCommand", "setupVpnService", "stopAllService"))
+        )[:2400]
+        raise RuntimeError(
+            f"Could not patch v2rayNG runtime: {label}; signature not found. "
+            f"Nearby runtime declarations:\n{nearby}"
+        )
+
+    brace_start = text.find("{", match.start(), match.end())
+    if brace_start < 0:
+        raise RuntimeError(f"Could not patch v2rayNG runtime: {label}; opening brace not found")
+
+    depth = 0
+    i = brace_start
+    state = "code"
+    block_comment_depth = 0
+    while i < len(text):
+        if state == "code":
+            if text.startswith("//", i):
+                state = "line_comment"
+                i += 2
+                continue
+            if text.startswith("/*", i):
+                state = "block_comment"
+                block_comment_depth = 1
+                i += 2
+                continue
+            if text.startswith('"""', i):
+                state = "triple_string"
+                i += 3
+                continue
+            ch = text[i]
+            if ch == '"':
+                state = "string"
+                i += 1
+                continue
+            if ch == "'":
+                state = "char"
+                i += 1
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i + 1
+                    # Preserve the upstream newline after the function so the
+                    # replacement stays stable regardless of CRLF/LF checkout.
+                    if end < len(text) and text[end] == "\r":
+                        end += 1
+                    if end < len(text) and text[end] == "\n":
+                        end += 1
+                    return text[:match.start()] + replacement.rstrip("\n") + "\n" + text[end:]
+            i += 1
+            continue
+
+        if state == "line_comment":
+            if text[i] == "\n":
+                state = "code"
+            i += 1
+            continue
+
+        if state == "block_comment":
+            if text.startswith("/*", i):
+                block_comment_depth += 1
+                i += 2
+                continue
+            if text.startswith("*/", i):
+                block_comment_depth -= 1
+                i += 2
+                if block_comment_depth == 0:
+                    state = "code"
+                continue
+            i += 1
+            continue
+
+        if state == "triple_string":
+            if text.startswith('"""', i):
+                state = "code"
+                i += 3
+            else:
+                i += 1
+            continue
+
+        if state in {"string", "char"}:
+            ch = text[i]
+            if ch == "\\":
+                i += 2
+                continue
+            if (state == "string" and ch == '"') or (state == "char" and ch == "'"):
+                state = "code"
+            i += 1
+            continue
+
+    raise RuntimeError(f"Could not patch v2rayNG runtime: {label}; closing brace not found")
+
+
 def patch_v2rayng_runtime_lifecycle() -> None:
     """Patch pinned v2rayNG 2.2.6 for exact-candidate lifecycle semantics.
 
@@ -540,7 +658,13 @@ def patch_v2rayng_runtime_lifecycle() -> None:
         }
     }
 '''
-    core = replace_exact(core, old_start, new_start, "exact start entry point")
+    core = _replace_kotlin_function(
+        core,
+        r"^[ \t]*fun[ \t]+startVService[ \t]*\([ \t]*context[ \t]*:[ \t]*Context[ \t]*,[ \t]*guid[ \t]*:[ \t]*String\?[ \t]*=[ \t]*null[ \t]*\)[ \t]*\{",
+        new_start,
+        "exact start entry point",
+        already_marker="fun startVServiceExact(",
+    )
     core = replace_exact(
         core,
         "    fun getRunningServerName() = currentConfig?.remarks.orEmpty()\n",
@@ -684,7 +808,13 @@ def patch_v2rayng_runtime_lifecycle() -> None:
         }
     }
 '''
-    core = replace_exact(core, old_stop, new_stop, "authoritative synchronous core stop")
+    core = _replace_kotlin_function(
+        core,
+        r"^[ \t]*fun[ \t]+stopCoreLoop[ \t]*\([ \t]*\)[ \t]*:[ \t]*Boolean[ \t]*\{",
+        new_stop,
+        "authoritative synchronous core stop",
+        already_marker="@Synchronized\n    fun stopCoreLoop(): Boolean",
+    )
     core = replace_exact(
         core,
         '''        override fun shutdown(): Long {
@@ -713,18 +843,7 @@ def patch_v2rayng_runtime_lifecycle() -> None:
             "CoreVpnService MessageUtil import",
         )
 
-    vpn = replace_exact(
-        vpn,
-        '''    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        LogUtil.i(AppConfig.TAG, "StartCore-VPN: Service command received")
-        NotificationManager.showNotification(null)
-        setupVpnService()
-        startService()
-        return START_STICKY
-        //return super.onStartCommand(intent, flags, startId)
-    }
-''',
-        '''    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    new_vpn_start = '''    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         LogUtil.i(AppConfig.TAG, "StartCore-VPN: Service command received")
         val requestedGuid = intent?.getStringExtra("bluevpn_target_guid")
             ?.trim()
@@ -753,8 +872,13 @@ def patch_v2rayng_runtime_lifecycle() -> None:
         return START_STICKY
         //return super.onStartCommand(intent, flags, startId)
     }
-''',
+'''
+    vpn = _replace_kotlin_function(
+        vpn,
+        r"^[ \t]*override[ \t]+fun[ \t]+onStartCommand[ \t]*\([^{\n]*\)[ \t]*:[ \t]*Int[ \t]*\{",
+        new_vpn_start,
         "CoreVpnService exact intent/start gating",
+        already_marker='getStringExtra("bluevpn_target_guid")',
     )
     vpn = replace_exact(
         vpn,
@@ -772,25 +896,7 @@ def patch_v2rayng_runtime_lifecycle() -> None:
 ''',
         "CoreVpnService missing-interface failure",
     )
-    vpn = replace_exact(
-        vpn,
-        '''    private fun setupVpnService() {
-        val prepare = prepare(this)
-        if (prepare != null) {
-            LogUtil.e(AppConfig.TAG, "StartCore-VPN: Permission not granted")
-            stopSelf()
-            return
-        }
-        if (configureVpnService() != true) {
-            LogUtil.e(AppConfig.TAG, "StartCore-VPN: Configuration failed")
-            stopSelf()
-            return
-        }
-
-        runTun2socks()
-    }
-''',
-        '''    private fun setupVpnService(): Boolean {
+    new_setup_vpn = '''    private fun setupVpnService(): Boolean {
         val prepare = prepare(this)
         if (prepare != null) {
             LogUtil.e(AppConfig.TAG, "StartCore-VPN: Permission not granted")
@@ -808,8 +914,13 @@ def patch_v2rayng_runtime_lifecycle() -> None:
         runTun2socks()
         return true
     }
-''',
+'''
+    vpn = _replace_kotlin_function(
+        vpn,
+        r"^[ \t]*private[ \t]+fun[ \t]+setupVpnService[ \t]*\([ \t]*\)[ \t]*\{",
+        new_setup_vpn,
         "CoreVpnService setup result",
+        already_marker="private fun setupVpnService(): Boolean",
     )
 
     old_vpn_stop = '''    private fun stopAllService(isForced: Boolean = true) {
@@ -895,7 +1006,13 @@ def patch_v2rayng_runtime_lifecycle() -> None:
         }
     }
 '''
-    vpn = replace_exact(vpn, old_vpn_stop, new_vpn_stop, "CoreVpnService stop ordering")
+    vpn = _replace_kotlin_function(
+        vpn,
+        r"^[ \t]*private[ \t]+fun[ \t]+stopAllService[ \t]*\([ \t]*isForced[ \t]*:[ \t]*Boolean[ \t]*=[ \t]*true[ \t]*\)[ \t]*\{",
+        new_vpn_stop,
+        "CoreVpnService stop ordering",
+        already_marker="Core did not stop before timeout",
+    )
     vpn_path.write_text(vpn, encoding="utf-8")
 
     vm = vm_path.read_text(encoding="utf-8")

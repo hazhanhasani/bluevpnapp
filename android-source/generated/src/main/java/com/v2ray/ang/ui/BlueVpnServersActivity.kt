@@ -436,7 +436,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     // Previous builds used BlueVpnAccountManager.snapshot(this).subscriptionActive
     // directly; the unified entitlement snapshot now owns this decision.
     private fun premiumMode(): Boolean =
-        BlueVpnEntitlement.resolve(this).tier == BlueVpnPlanTier.PREMIUM
+        BlueVpnEntitlement.resolveUi(this).tier == BlueVpnPlanTier.PREMIUM
 
     /**
      * The locations screen used to contain a hard-coded «free automatic» label.
@@ -448,7 +448,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     // «انتخاب خودکار هوشمند • انتخاب دستی همه مکان‌ها»
     // «انتخاب خودکار رایگان • انتخاب دستی ویژه مشترکین»
     private fun updateEntitlementUi() {
-        val entitlement = BlueVpnEntitlement.reconcile(this)
+        val entitlement = BlueVpnEntitlement.resolveUi(this)
         if (::entitlementSubtitle.isInitialized) {
             entitlementSubtitle.text = when (entitlement.tier) {
                 BlueVpnPlanTier.PREMIUM -> "Premium • انتخاب هوشمند و انتخاب دستی همه مکان‌ها"
@@ -560,6 +560,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val automatic = BlueVpnPreferences.smartBalance(this)
         val preferred = BlueVpnPreferences.preferredLocation(this)
         val selected = MmkvManager.getSelectServer()
+        val uiEntitlement = BlueVpnEntitlement.resolveUi(this)
+        val manualSelectionAllowed = uiEntitlement.manualSelectionAllowed
         val candidates = BlueVpnLocationUtil.cachedCandidates(this)
         if (candidates.isEmpty()) {
             // Do not destroy already rendered rows while an entitlement import is
@@ -570,7 +572,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 return
             }
             listContainer.removeAllViews()
-            val entitlement = BlueVpnEntitlement.resolve(this)
+            val entitlement = uiEntitlement
             emptyText.text = when {
                 candidateLoadError.isNotBlank() -> candidateLoadError
                 candidateLoadInProgress && entitlement.isPremium ->
@@ -649,7 +651,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                             (preferred.isBlank() && group.location.key == selectedLocation)
                         )
                     listContainer.addView(
-                        createLocationSection(group, active),
+                        createLocationSection(group, active, manualSelectionAllowed),
                         LinearLayout.LayoutParams(-1, -2).apply {
                             bottomMargin = dp(8)
                         },
@@ -666,8 +668,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private fun createLocationSection(
         group: LocationGroup,
         active: Boolean,
+        premium: Boolean,
     ): View {
-        val premium = BlueVpnEntitlement.resolve(this).manualSelectionAllowed
         val expanded = group.location.key in expandedLocations
         val outer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -890,37 +892,56 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun selectAutomatic() {
-        val entitlement = BlueVpnEntitlement.reconcile(this)
+        val entitlement = BlueVpnEntitlement.resolveUi(this)
         if (!entitlement.canConnect) {
             Toast.makeText(this, entitlement.connectionNotice, Toast.LENGTH_LONG).show()
             return
         }
         val changed = !BlueVpnPreferences.smartBalance(this)
-        BlueVpnPreferences.setAutomaticSelection(this)
-        val candidates = BlueVpnLocationUtil.instantCandidates(this, maxCandidates = 24)
-        val decision = BlueVpnSmartSelector.decide(this, candidates)
-        if (decision == null) {
-            Toast.makeText(this, "سرور مجاز و سالمی در Pool فعلی پیدا نشد", Toast.LENGTH_LONG).show()
-            scheduleCandidateReload(force = true)
+        val cachedPool = BlueVpnLocationUtil.cachedCandidates(this)
+        if (cachedPool.isEmpty()) {
+            Toast.makeText(this, "Pool هنوز آماده نیست؛ در حال بارگذاری سرورها", Toast.LENGTH_SHORT).show()
+            loadCandidates(force = false, selectAutomaticAfterLoad = true)
             return
         }
-        if (!BlueVpnRuntimeGate.connectionActive(this)) {
-            MmkvManager.setSelectServer(decision.candidate.guid)
+        // Ranking reads historical/AI/MMKV metadata. Keep that work off the UI
+        // thread; only commit the chosen GUID after the worker returns.
+        lifecycleScope.launch(Dispatchers.Default) {
+            val decision = BlueVpnSmartSelector.decide(
+                this@BlueVpnServersActivity,
+                cachedPool,
+            )
+            withContext(Dispatchers.Main) {
+                if (isFinishing || isDestroyed) return@withContext
+                if (decision == null) {
+                    Toast.makeText(
+                        this@BlueVpnServersActivity,
+                        "سرور مجاز و سالمی در Pool فعلی پیدا نشد",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    loadCandidates(force = true)
+                    return@withContext
+                }
+                BlueVpnPreferences.setAutomaticSelection(this@BlueVpnServersActivity)
+                if (!BlueVpnRuntimeGate.connectionActive(this@BlueVpnServersActivity)) {
+                    MmkvManager.setSelectServer(decision.candidate.guid)
+                }
+                setResult(Activity.RESULT_OK, Intent()
+                    .putExtra(EXTRA_LOCATION_CHANGED, changed)
+                    .putExtra(EXTRA_LOCATION_KEY, "")
+                    .putExtra(EXTRA_LOCATION_TITLE, "انتخاب هوشمند"))
+                Toast.makeText(
+                    this@BlueVpnServersActivity,
+                    "${decision.candidate.location.flag} ${decision.candidate.location.title} • امتیاز ${decision.score}",
+                    Toast.LENGTH_LONG,
+                ).show()
+                finish()
+            }
         }
-        setResult(Activity.RESULT_OK, Intent()
-            .putExtra(EXTRA_LOCATION_CHANGED, changed)
-            .putExtra(EXTRA_LOCATION_KEY, "")
-            .putExtra(EXTRA_LOCATION_TITLE, "انتخاب هوشمند"))
-        Toast.makeText(
-            this,
-            "${decision.candidate.location.flag} ${decision.candidate.location.title} • امتیاز ${decision.score}",
-            Toast.LENGTH_LONG,
-        ).show()
-        finish()
     }
 
     private fun selectGroup(group: LocationGroup, automatic: Boolean, selectedLocation: String?) {
-        if (BlueVpnEntitlement.resolve(this).tier != BlueVpnPlanTier.PREMIUM) {
+        if (BlueVpnEntitlement.resolveUi(this).tier != BlueVpnPlanTier.PREMIUM) {
             openSubscriptionForPremium()
             return
         }
@@ -928,8 +949,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val changed = automatic || currentPreferred != group.location.key
         BlueVpnPreferences.setManualLocationSelection(this, group.location.key)
         if (!BlueVpnRuntimeGate.connectionActive(this)) {
-            BlueVpnLocationUtil.instantCandidates(this, group.location.key)
-                .firstOrNull()
+            BlueVpnLocationUtil.cachedCandidates(this)
+                .firstOrNull { it.location.key == group.location.key }
                 ?.let { MmkvManager.setSelectServer(it.guid) }
         }
         setResult(Activity.RESULT_OK, Intent()

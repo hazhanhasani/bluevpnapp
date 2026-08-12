@@ -140,6 +140,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
     private var failoverActive = false
     private var failoverQueue: List<String> = emptyList()
+    private var connectionEntitlementGuids: Set<String> = emptySet()
+    private var connectionPreparationGeneration: Int = 0
     private var failoverIndex = -1
     private var attemptedGuid = ""
     private var waitingForPingResult = false
@@ -833,7 +835,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             palette.surface,
         )
         connectingNotice = uiText(
-            BlueVpnEntitlement.resolve(this).connectionNotice,
+            BlueVpnEntitlement.resolveUi(this).connectionNotice,
             10.5f,
             palette.textSecondary,
             gravity = Gravity.CENTER,
@@ -1917,7 +1919,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
         navigationLocked = false
         BlueVpnUpdateManager.resumePendingInstall(this)
-        applyEntitlementPresentation(BlueVpnEntitlement.reconcile(this))
+        applyEntitlementPresentation(BlueVpnEntitlement.resolveUi(this))
         BlueVpnAccountManager.enforceFreeSession(this)
         if (BlueVpnAccountManager.consumeFreeExpiredNotice(this)) {
             Toast.makeText(
@@ -2605,7 +2607,7 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun applyEntitlementPresentation(
-        entitlement: com.v2ray.ang.bluevpn.BlueVpnEntitlementSnapshot = BlueVpnEntitlement.resolve(this),
+        entitlement: com.v2ray.ang.bluevpn.BlueVpnEntitlementSnapshot = BlueVpnEntitlement.resolveUi(this),
     ) {
         if (::subscriptionSummary.isInitialized) {
             subscriptionSummary.text = entitlement.accountLabel
@@ -2620,7 +2622,7 @@ private fun dpHome(value: Int): Int =
 
     private fun runSmartSelection() {
         if (!BlueVpnAi.enabled(this)) BlueVpnAi.setEnabled(this, true)
-        val initialEntitlement = BlueVpnEntitlement.reconcile(this)
+        val initialEntitlement = BlueVpnEntitlement.resolveUi(this)
         if (!initialEntitlement.canConnect) {
             Toast.makeText(this, initialEntitlement.connectionNotice, Toast.LENGTH_LONG).show()
             return
@@ -2738,7 +2740,7 @@ private fun dpHome(value: Int): Int =
         connectingCaption.text = caption
         connectingLocation.text = location
         if (::connectingNotice.isInitialized) {
-            connectingNotice.text = BlueVpnEntitlement.resolve(this).connectionNotice
+            connectingNotice.text = BlueVpnEntitlement.resolveUi(this).connectionNotice
         }
         connectingOverlay.visibility = View.VISIBLE
         connectingOverlay.alpha = 1f
@@ -2756,7 +2758,7 @@ private fun dpHome(value: Int): Int =
         val remaining = BlueVpnAccountManager.freeSessionRemainingMillis(this)
         val show =
             (connectionVerified || mainViewModel.isRunning.value == true || failoverActive) &&
-                BlueVpnEntitlement.resolve(this).timeLimited &&
+                BlueVpnEntitlement.resolveUi(this).timeLimited &&
                 remaining in 1 until Long.MAX_VALUE
         if (!show) {
             freeTimerBadge.visibility = View.GONE
@@ -2870,14 +2872,13 @@ private fun dpHome(value: Int): Int =
         // allowed back only on a later user attempt.
         BlueVpnPreferences.beginHealthSession(this)
 
-        // Enforce the account boundary before any legacy v2rayNG state is
-        // consulted. Disabled subscriptions remain in decodeAllServerList()
-        // unless their physical profiles are pruned.
-        BlueVpnAccountManager.ensureEntitlementSelection(this)
+        // Exact entitlement/MMKV selection validation is intentionally deferred
+        // to the background connection-preparation worker below. Never enumerate
+        // subscription/server rows on Android's main thread.
 
         if (BlueVpnUpdateManager.blockInteraction(this)) return
 
-        val entitlement = BlueVpnEntitlement.reconcile(this)
+        val entitlement = BlueVpnEntitlement.resolveUi(this)
         applyEntitlementPresentation(entitlement)
         if (!entitlement.canConnect) {
             hideConnectingOverlay()
@@ -3016,7 +3017,6 @@ private fun dpHome(value: Int): Int =
                 .ifBlank { selectedGuid }
             if (manualGuid.isBlank()) return null
             val profile = MmkvManager.decodeServerConfig(manualGuid) ?: return null
-            if (!BlueVpnAccountManager.candidateAllowed(this, manualGuid, profile.subscriptionId)) return null
             if (!BlueVpnLocationUtil.isUsable(profile, MmkvManager.decodeServerRaw(manualGuid))) return null
             return BlueVpnLocationUtil.Candidate(
                 guid = manualGuid,
@@ -3063,59 +3063,105 @@ private fun dpHome(value: Int): Int =
             return
         }
 
-        startSmartConnectionWithCandidates(
-            BlueVpnLocationUtil.instantCandidates(this, preferredLocation, maxCandidates = 12),
-            selectionMode,
-        )
+        val visibleCache = BlueVpnLocationUtil.cachedCandidates(this)
+        val scopedCache = when (selectionMode) {
+            BlueVpnSelectionMode.AUTO -> visibleCache
+            BlueVpnSelectionMode.MANUAL_LOCATION -> visibleCache.filter {
+                preferredLocation.isBlank() || it.location.key == preferredLocation
+            }
+            BlueVpnSelectionMode.MANUAL_SERVER -> visibleCache.filter {
+                it.guid == BlueVpnPreferences.manualServerGuid(this)
+            }
+        }.take(18)
+        startSmartConnectionWithCandidates(scopedCache, selectionMode)
     }
 
     private fun startSmartConnectionWithCandidates(
         candidates: List<BlueVpnLocationUtil.Candidate>,
         selectionMode: BlueVpnSelectionMode,
     ) {
-        val entitlementGuids = BlueVpnAccountManager.preferredServerGuids(this).toSet()
-        val isolatedCandidates = candidates.filter { candidate ->
-            !BlueVpnPreferences.isSessionInactive(this, candidate.guid) &&
-                BlueVpnAccountManager.candidateAllowed(
-                    this,
-                    candidate.guid,
-                    candidate.profile.subscriptionId,
-                    entitlementGuids,
+        // MMKV entitlement enumeration and smart scoring are intentionally
+        // background-only. Previous builds repeated preferredServerGuids()/
+        // candidateAllowed() on the UI thread for every route, which could block
+        // Android long enough to show the system "BlueVPN is not responding" ANR.
+        val generation = ++connectionPreparationGeneration
+        statusCaption.text = "در حال آماده‌سازی سریع Pool اتصال"
+        lifecycleScope.launch(Dispatchers.Default) {
+            val prepared = runCatching {
+                BlueVpnAccountManager.ensureEntitlementSelection(this@BlueVpnHomeActivity)
+                val entitlementGuids = BlueVpnAccountManager
+                    .preferredServerGuids(this@BlueVpnHomeActivity)
+                    .toSet()
+                val isolated = candidates.filter { candidate ->
+                    !BlueVpnPreferences.isSessionInactive(this@BlueVpnHomeActivity, candidate.guid) &&
+                        BlueVpnAccountManager.candidateAllowed(
+                            this@BlueVpnHomeActivity,
+                            candidate.guid,
+                            candidate.profile.subscriptionId,
+                            entitlementGuids,
+                        )
+                }
+                val scored = when (selectionMode) {
+                    BlueVpnSelectionMode.AUTO -> BlueVpnSmartSelector.connectionOrderTrusted(
+                        this@BlueVpnHomeActivity, isolated,
+                    )
+                    BlueVpnSelectionMode.MANUAL_LOCATION -> BlueVpnSmartSelector.rankTrusted(
+                        this@BlueVpnHomeActivity, isolated,
+                    )
+                    BlueVpnSelectionMode.MANUAL_SERVER -> {
+                        val manualGuid = BlueVpnPreferences.manualServerGuid(this@BlueVpnHomeActivity)
+                            .ifBlank { MmkvManager.getSelectServer().orEmpty() }
+                        val exact = isolated.firstOrNull { it.guid == manualGuid }
+                        if (exact == null) emptyList() else listOf(
+                            BlueVpnSmartSelector.scoreTrusted(this@BlueVpnHomeActivity, exact),
+                        )
+                    }
+                }
+                Triple(entitlementGuids, isolated.size, scored)
+            }.getOrElse {
+                Triple(emptySet<String>(), 0, emptyList())
+            }
+
+            withContext(Dispatchers.Main) {
+                if (
+                    generation != connectionPreparationGeneration ||
+                    userDisconnecting ||
+                    isFinishing ||
+                    isDestroyed
+                ) {
+                    BlueVpnRuntimeGate.endConnection(this@BlueVpnHomeActivity)
+                    return@withContext
+                }
+                connectionEntitlementGuids = prepared.first
+                applyPreparedConnectionQueue(
+                    scoredQueue = prepared.third,
+                    selectionMode = selectionMode,
+                    isolatedCount = prepared.second,
                 )
+            }
         }
-        if (isolatedCandidates.isEmpty()) {
+    }
+
+    private fun applyPreparedConnectionQueue(
+        scoredQueue: List<BlueVpnSmartSelector.ScoredCandidate>,
+        selectionMode: BlueVpnSelectionMode,
+        isolatedCount: Int,
+    ) {
+        if (scoredQueue.isEmpty()) {
+            connectionEntitlementGuids = emptySet()
             BlueVpnRuntimeGate.endConnection(this)
             hideConnectingOverlay()
             liveLocationSwitch = false
             switchTargetTitle = ""
+            failoverActive = false
+            connectButton.isEnabled = true
             statusText.text = when (selectionMode) {
                 BlueVpnSelectionMode.AUTO -> "سرور قابل اتصال نیست"
                 BlueVpnSelectionMode.MANUAL_LOCATION -> "لوکیشن قابل اتصال نیست"
                 BlueVpnSelectionMode.MANUAL_SERVER -> "سرور انتخاب‌شده قابل اتصال نیست"
             }
             statusCaption.text = "فقط مسیرهای مجاز پلن فعلی بررسی شدند"
-            connectButton.isEnabled = true
             Toast.makeText(this, "سرور سالم و سازگار پیدا نشد", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val scoredQueue = when (selectionMode) {
-            BlueVpnSelectionMode.AUTO -> BlueVpnSmartSelector.connectionOrder(this, isolatedCandidates)
-            BlueVpnSelectionMode.MANUAL_LOCATION -> BlueVpnSmartSelector.rank(this, isolatedCandidates)
-            BlueVpnSelectionMode.MANUAL_SERVER -> {
-                val manualGuid = BlueVpnPreferences.manualServerGuid(this)
-                    .ifBlank { MmkvManager.getSelectServer().orEmpty() }
-                val exact = isolatedCandidates.firstOrNull { it.guid == manualGuid }
-                if (exact == null) emptyList() else listOf(BlueVpnSmartSelector.score(this, exact))
-            }
-        }
-        if (scoredQueue.isEmpty()) {
-            BlueVpnRuntimeGate.endConnection(this)
-            hideConnectingOverlay()
-            failoverActive = false
-            connectButton.isEnabled = true
-            statusText.text = "انتخاب معتبر نیست"
-            statusCaption.text = "سرور یا لوکیشن را دوباره انتخاب کنید"
             return
         }
 
@@ -3124,13 +3170,11 @@ private fun dpHome(value: Int): Int =
             else -> scoredQueue.take(5)
         }.map { it.candidate.guid }
         val chosen = scoredQueue.first()
-        // Do not mutate v2rayNG's global selected GUID until the previous core
-        // has fully stopped. The exact candidate is committed at core start.
         if (selectionMode == BlueVpnSelectionMode.AUTO) {
             BlueVpnSmartSelector.recordAutomaticConnectionChoice(
                 this,
                 chosen,
-                isolatedCandidates.size,
+                isolatedCount,
             )
             aiSummaryValue.text = BlueVpnSmartSelector.lastSummary(this)
         }
@@ -3190,7 +3234,13 @@ private fun dpHome(value: Int): Int =
         val profile = MmkvManager.decodeServerConfig(guid)
         if (
             profile == null ||
-            !BlueVpnAccountManager.candidateAllowed(this, guid, profile.subscriptionId)
+            guid !in connectionEntitlementGuids ||
+            !BlueVpnAccountManager.candidateAllowed(
+                this,
+                guid,
+                profile.subscriptionId,
+                connectionEntitlementGuids,
+            )
         ) {
             BlueVpnPreferences.markSessionInactive(this, guid)
             BlueVpnPreferences.markServerFailure(this, guid)
@@ -3776,7 +3826,7 @@ private fun dpHome(value: Int): Int =
         // Interstitial ads are a Free-plan benefit exchange, never a gate for
         // VPN connectivity. Trigger only after a real verified connection;
         // live location switches and Premium sessions do not show an ad.
-        if (!completedLiveSwitch && BlueVpnEntitlement.resolve(this).isFree) {
+        if (!completedLiveSwitch && BlueVpnEntitlement.resolveUi(this).isFree) {
             BlueVpnTapsellManager.onVerifiedConnection(
                 this,
                 BlueVpnPreferences.connectedAt(this),
@@ -3910,6 +3960,7 @@ private fun dpHome(value: Int): Int =
         failoverActive = false
         pendingConnectionRequest = false
         failoverQueue = emptyList()
+        connectionEntitlementGuids = emptySet()
         failoverIndex = -1
         attemptedGuid = ""
         waitingForPingResult = false
@@ -4087,7 +4138,7 @@ private fun dpHome(value: Int): Int =
             .distinct()
             .size
 
-        val entitlement = BlueVpnEntitlement.reconcile(this)
+        val entitlement = BlueVpnEntitlement.resolveUi(this)
         applyEntitlementPresentation(entitlement)
         subscriptionSummary.text = when (entitlement.tier) {
             BlueVpnPlanTier.PREMIUM ->
@@ -4169,7 +4220,7 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun refreshSubscriptionInfo(force: Boolean) {
-        val entitlement = BlueVpnEntitlement.reconcile(this)
+        val entitlement = BlueVpnEntitlement.resolveUi(this)
         val managed = BlueVpnAccountManager.snapshot(this)
         applyEntitlementPresentation(entitlement)
         when (entitlement.tier) {

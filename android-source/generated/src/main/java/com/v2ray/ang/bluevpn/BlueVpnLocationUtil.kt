@@ -1074,22 +1074,24 @@ private fun unknownLocation(): BlueVpnLocation =
     ): Int {
         if (candidates.isEmpty()) return 0
 
+        // This value is rendered for every visible country. Do not invoke the
+        // full SmartSelector here: that path reads entitlement/AI/history state
+        // and previously multiplied MMKV work by every server on the main thread.
+        // Use the already-cached ping plus the lightweight session quarantine.
         val usable = candidates.filter {
-            !BlueVpnPreferences.isSessionInactive(
-                context,
-                it.guid,
-            )
+            !BlueVpnPreferences.isSessionInactive(context, it.guid)
         }.ifEmpty { candidates }
-
-        return usable
-            .map {
-                BlueVpnExperience.healthScore(
-                    context,
-                    it,
-                )
+        return usable.maxOfOrNull { candidate ->
+            when {
+                candidate.delay in 1..60 -> 95
+                candidate.delay in 61..120 -> 85
+                candidate.delay in 121..220 -> 72
+                candidate.delay in 221..400 -> 55
+                candidate.delay > 400 -> 35
+                candidate.delay == 0L -> 50
+                else -> 15
             }
-            .maxOrNull()
-            ?: 0
+        } ?: 0
     }
 
     data class CandidatePreflight(

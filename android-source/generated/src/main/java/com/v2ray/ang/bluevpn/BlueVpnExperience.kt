@@ -142,13 +142,13 @@ object BlueVpnExperience {
     fun healthScore(
         context: Context,
         candidate: BlueVpnLocationUtil.Candidate,
-    ): Int = BlueVpnSmartSelector.score(context, candidate).score
+    ): Int = BlueVpnSmartSelector.scoreTrusted(context, candidate).score
 
     fun candidatePriority(
         context: Context,
         candidate: BlueVpnLocationUtil.Candidate,
     ): Int {
-        val scored = BlueVpnSmartSelector.score(context, candidate)
+        val scored = BlueVpnSmartSelector.scoreTrusted(context, candidate)
         return scored.score * 100 + scored.confidence
     }
 

@@ -18,6 +18,7 @@ import java.net.HttpURLConnection
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.net.URL
+import java.net.URI
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -591,19 +592,90 @@ object BlueVpnAccountManager {
      * Premium URL. Older BlueVPN Account rows can remain in MMKV after renewal
      * or provider migration; they must never be merged into the active pool.
      */
+    private fun canonicalSubscriptionUrl(raw: String): String {
+        val value = raw.trim()
+        if (!value.startsWith("http", ignoreCase = true)) return value.trimEnd('/')
+        return runCatching {
+            val uri = URI(value)
+            val scheme = uri.scheme.orEmpty().lowercase(Locale.ROOT)
+            val host = uri.host.orEmpty().lowercase(Locale.ROOT)
+            if (scheme.isBlank() || host.isBlank()) return@runCatching value.trimEnd('/')
+            val port = when {
+                uri.port < 0 -> ""
+                scheme == "http" && uri.port == 80 -> ""
+                scheme == "https" && uri.port == 443 -> ""
+                else -> ":${uri.port}"
+            }
+            val normalizedPath = uri.rawPath.orEmpty().ifBlank { "/" }.let { path ->
+                if (path.length > 1) path.trimEnd('/') else path
+            }
+            buildString {
+                append(scheme).append("://").append(host).append(port).append(normalizedPath)
+                uri.rawQuery?.takeIf { it.isNotBlank() }?.let { append('?').append(it) }
+            }
+        }.getOrDefault(value.trimEnd('/'))
+    }
+
+    private fun sameSubscriptionUrl(a: String, b: String): Boolean =
+        canonicalSubscriptionUrl(a) == canonicalSubscriptionUrl(b)
+
+    private fun premiumOwnedSubscriptionPrefs(c: Context) =
+        c.applicationContext.getSharedPreferences(PREMIUM_LKG_PREFS, Context.MODE_PRIVATE)
+
+    private fun rememberPremiumOwnerSubscriptions(c: Context, guids: Collection<String>) {
+        if (!active(c)) return
+        val owner = premiumOwnerKey(c)
+        if (owner.isBlank()) return
+        val safe = guids.asSequence().map { it.trim() }.filter { it.isNotBlank() }.distinct().toSet()
+        if (safe.isEmpty()) return
+        premiumOwnedSubscriptionPrefs(c).edit()
+            .putStringSet("subscriptions_$owner", safe)
+            .apply()
+    }
+
+    private fun premiumOwnedSubscriptionGuids(c: Context): Set<String> {
+        if (!active(c)) return emptySet()
+        val owner = premiumOwnerKey(c)
+        if (owner.isBlank()) return emptySet()
+        val rows = MmkvManager.decodeSubscriptions()
+            .filter { it.subscription.remarks == SUB }
+        val rowGuids = rows.map { it.guid.trim() }.filter { it.isNotBlank() }.toSet()
+        val stored = premiumOwnedSubscriptionPrefs(c)
+            .getStringSet("subscriptions_$owner", emptySet())
+            .orEmpty()
+            .map { it.trim() }
+            .filter { it.isNotBlank() && it in rowGuids }
+            .toSet()
+        if (stored.isNotEmpty()) return stored
+
+        // Legacy recovery: before owner mapping existed there was normally one
+        // BlueVPN Account row. Adopt it only when the choice is unambiguous.
+        val legacy = rows.filter { row ->
+            row.guid.isNotBlank() && usableServerGuids(listOf(row.guid)).isNotEmpty()
+        }
+        if (legacy.size == 1) {
+            val guid = legacy.single().guid.trim()
+            rememberPremiumOwnerSubscriptions(c, listOf(guid))
+            return setOf(guid)
+        }
+        return emptySet()
+    }
+
     private fun managedSubscriptionGuids(c: Context): Set<String> {
         val expectedUrl = snapshot(c).subscriptionUrl.trim()
         if (!expectedUrl.startsWith("http")) return emptySet()
-        return MmkvManager.decodeSubscriptions()
+        val exact = MmkvManager.decodeSubscriptions()
             .asSequence()
             .filter {
                 it.subscription.remarks == SUB &&
                     it.subscription.enabled &&
-                    it.subscription.url.trim() == expectedUrl
+                    sameSubscriptionUrl(it.subscription.url, expectedUrl)
             }
-            .map { it.guid }
+            .map { it.guid.trim() }
             .filter { it.isNotBlank() }
             .toSet()
+        if (exact.isNotEmpty()) rememberPremiumOwnerSubscriptions(c, exact)
+        return exact
     }
 
     fun entitlementSubscriptionGuids(c: Context): Set<String> = when {
@@ -719,6 +791,9 @@ object BlueVpnAccountManager {
         // metadata while Xray owns the MMKV pool.
         if (BlueVpnRuntimeGate.connectionActive(c)) return 0
         val keep = entitlementSubscriptionGuids(c)
+        // A transient URL/import mismatch must never disable every Premium row.
+        // Preserve the old row until the replacement pool is proven non-empty.
+        if (active(c) && keep.isEmpty()) return 0
         MmkvManager.decodeSubscriptions().forEach { row ->
             if (!isBlueVpnManagedSubscription(row.subscription.remarks)) return@forEach
             if (row.guid in keep) return@forEach
@@ -783,18 +858,31 @@ object BlueVpnAccountManager {
      * plane, therefore pool ownership is strict and deterministic.
      */
     fun preferredServerGuids(c: Context): List<String> {
-        val exact = usableServerGuids(entitlementSubscriptionGuids(c))
+        val exactSubscriptions = entitlementSubscriptionGuids(c)
+        val exact = usableServerGuids(exactSubscriptions)
         if (!active(c)) return exact
         if (exact.isNotEmpty()) {
+            rememberPremiumOwnerSubscriptions(c, exactSubscriptions)
             // Snapshot the last complete exact Premium pool before any later
             // v2rayNG import can rotate/delete volatile server GUIDs.
             rememberPremiumLastKnownGood(c, exact)
             return exact
         }
-        // Premium may temporarily lose its exact MMKV list while an import is
-        // rebuilding it. Fall back only to this account identity's own saved
-        // non-Free pool; never to the global local-profile catalogue or another account.
-        return premiumLastKnownGoodServerGuids(c)
+
+        // First keep the last exact server GUIDs while v2rayNG is between clear
+        // and repopulate. They are tied to the current account identity.
+        val lkg = premiumLastKnownGoodServerGuids(c)
+        if (lkg.isNotEmpty()) return lkg
+
+        // If GUID churn already invalidated the saved server keys, recover from
+        // the account-owned subscription row itself. Never scan the global
+        // v2rayNG catalogue and never borrow a Free pool.
+        val owned = usableServerGuids(premiumOwnedSubscriptionGuids(c))
+        if (owned.isNotEmpty()) {
+            rememberPremiumLastKnownGood(c, owned)
+            return owned
+        }
+        return emptyList()
     }
 
     fun entitlementPoolFingerprint(c: Context): String {
@@ -942,21 +1030,13 @@ object BlueVpnAccountManager {
         val normalizedPremiumUrl = premiumUrl.trim()
         if (premiumActive && normalizedPremiumUrl.startsWith("http")) {
             val managed = managedRows.firstOrNull {
-                it.subscription.url.trim() == normalizedPremiumUrl
+                sameSubscriptionUrl(it.subscription.url, normalizedPremiumUrl)
             }
 
-            // Disable stale Premium rows from an older panel, renewal or URL.
-            // Keeping several enabled "BlueVPN Account" rows is what caused the
-            // automatic selector to combine free/old/premium routes in MMKV.
-            managedRows.filter {
-                it.guid != managed?.guid && it.subscription.enabled
-            }.forEach { row ->
-                MmkvManager.encodeSubscription(
-                    row.guid,
-                    row.subscription.copy(enabled = false),
-                )
-                changed = true
-            }
+            // Do not disable the previous Premium row before the replacement
+            // has imported at least one usable server. Entitlement filtering is
+            // URL/account scoped, so keeping the old row enabled cannot leak it
+            // into the active selector, but it gives us a rollback source.
 
             val needsManagedWrite = managed == null || !managed.subscription.enabled
             if (needsManagedWrite) {
@@ -986,7 +1066,7 @@ object BlueVpnAccountManager {
                 .filter {
                     it.subscription.remarks == SUB &&
                         it.subscription.enabled &&
-                        it.subscription.url.trim() == normalizedPremiumUrl
+                        sameSubscriptionUrl(it.subscription.url, normalizedPremiumUrl)
                 }
                 .map { it.guid }
                 .filter { it.isNotBlank() }
@@ -1023,7 +1103,7 @@ object BlueVpnAccountManager {
                     row.subscription.enabled && when {
                         premiumActive ->
                             row.subscription.remarks == SUB &&
-                                row.subscription.url.trim() == normalizedPremiumUrl
+                                sameSubscriptionUrl(row.subscription.url, normalizedPremiumUrl)
                         else ->
                             row.subscription.remarks.startsWith(FREE_SUB) &&
                                 row.guid in configuredFreeSubscriptionGuids(c)
@@ -1042,10 +1122,30 @@ object BlueVpnAccountManager {
         }
         if (changed || mustRefresh) {
             val currentPoolReady = !premiumActive || preferredServerGuids(c).isNotEmpty()
+            if (premiumActive && currentPoolReady) {
+                val exactRows = MmkvManager.decodeSubscriptions().filter { row ->
+                    row.subscription.remarks == SUB &&
+                        row.subscription.enabled &&
+                        sameSubscriptionUrl(row.subscription.url, normalizedPremiumUrl)
+                }
+                rememberPremiumOwnerSubscriptions(c, exactRows.map { it.guid })
+                // Transactional swap: stale Premium rows are disabled only after
+                // the replacement row has at least one usable route.
+                val exactGuids = exactRows.map { it.guid }.toSet()
+                MmkvManager.decodeSubscriptions()
+                    .filter { row ->
+                        row.subscription.remarks == SUB &&
+                            row.subscription.enabled &&
+                            row.guid !in exactGuids
+                    }
+                    .forEach { row ->
+                        MmkvManager.encodeSubscription(
+                            row.guid,
+                            row.subscription.copy(enabled = false),
+                        )
+                    }
+            }
             if (currentPoolReady) {
-                // Transactional swap complete: only now delete stale Premium
-                // rows. Until this point they are disabled and invisible to
-                // BlueVPN's entitlement-aware selector, but remain recoverable.
                 pruneInactiveManagedPools(c)
             }
             BlueVpnLocationUtil.invalidateCache()

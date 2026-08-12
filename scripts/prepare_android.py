@@ -1030,33 +1030,9 @@ def patch_v2rayng_runtime_lifecycle() -> None:
         "        isRunning.value = false\n        runningServerGuid.value = null\n        coreStartError.value = null\n        val mFilter = IntentFilter(AppConfig.BROADCAST_ACTION_ACTIVITY)\n",
         "MainViewModel initial running GUID",
     )
-    vm = replace_exact(
-        vm,
-        '''                AppConfig.MSG_STATE_RUNNING -> {
-                    isRunning.value = true
-                }
-                AppConfig.MSG_STATE_NOT_RUNNING -> {
-                    isRunning.value = false
-                }
-
-                AppConfig.MSG_STATE_START_SUCCESS -> {
-                    getApplication<AngApplication>().toastSuccess(R.string.toast_services_success)
-                    isRunning.value = true
-                }
-                AppConfig.MSG_STATE_START_FAILURE -> {
-                    val errorMessage = intent.getStringExtra("content")
-                    if (!errorMessage.isNullOrBlank()) {
-                        getApplication<AngApplication>().toastError(errorMessage)
-                    } else {
-                        getApplication<AngApplication>().toastError(R.string.toast_services_failure)
-                    }
-                    isRunning.value = false
-                }
-                AppConfig.MSG_STATE_STOP_SUCCESS -> {
-                    isRunning.value = false
-                }
-''',
-        '''                AppConfig.MSG_STATE_RUNNING -> {
+    new_vm_on_receive = r'''        override fun onReceive(ctx: Context?, intent: Intent?) {
+            when (intent?.getIntExtra("key", 0)) {
+                AppConfig.MSG_STATE_RUNNING -> {
                     coreStartError.value = null
                     runningServerGuid.value = intent.getStringExtra("content")?.trim()?.takeIf { it.isNotBlank() }
                     isRunning.value = true
@@ -1088,8 +1064,35 @@ def patch_v2rayng_runtime_lifecycle() -> None:
                     runningServerGuid.value = null
                     isRunning.value = false
                 }
-''',
-        "MainViewModel exact runtime identity receiver",
+
+                AppConfig.MSG_MEASURE_DELAY_SUCCESS -> {
+                    updateTestResultAction.value = intent.getStringExtra("content")
+                }
+
+                AppConfig.MSG_MEASURE_CONFIG_SUCCESS -> {
+                    val content = intent.getStringExtra("content")
+                    updateListAction.value = getPosition(content ?: "")
+                }
+                AppConfig.MSG_MEASURE_CONFIG_NOTIFY -> {
+                    val content = intent.getStringExtra("content")
+                    updateTestResultAction.value =
+                        getApplication<AngApplication>().getString(R.string.connection_runing_task_left, content)
+                }
+                AppConfig.MSG_MEASURE_CONFIG_FINISH -> {
+                    val content = intent.getStringExtra("content")
+                    if (content == "0") {
+                        onTestsFinished()
+                    }
+                }
+            }
+        }
+'''
+    vm = _replace_kotlin_function(
+        vm,
+        r"^[ \t]*override[ \t]+fun[ \t]+onReceive[ \t]*\([ \t]*ctx[ \t]*:[ \t]*Context\?[ \t]*,[ \t]*intent[ \t]*:[ \t]*Intent\?[ \t]*\)[ \t]*\{",
+        new_vm_on_receive,
+        "MainViewModel runtime identity receiver",
+        already_marker='coreStartError.value = errorMessage?.trim()?.takeIf { it.isNotBlank() }',
     )
     vm_path.write_text(vm, encoding="utf-8")
 

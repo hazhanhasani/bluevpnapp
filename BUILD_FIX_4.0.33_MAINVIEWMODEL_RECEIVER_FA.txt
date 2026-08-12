@@ -1,0 +1,31 @@
+BlueVPN 4.0.33 - Prepare Android MainViewModel Receiver Hotfix
+===============================================================
+
+Build affected:
+- #196
+- Stage: prepare-android
+- Error: Could not patch v2rayNG runtime: MainViewModel exact runtime identity receiver
+
+Root cause:
+The first 4.0.33 prepare hotfix made the CoreServiceManager/CoreVpnService function patches structural,
+but the MainViewModel BroadcastReceiver was still patched by one long exact multi-line string match.
+That meant any harmless upstream whitespace/comment/body difference could fail the build before Gradle.
+
+Fix:
+- Removed the exact multi-line receiver-body replacement.
+- MainViewModel.onReceive(...) is now located structurally by its Kotlin function signature.
+- The existing brace-aware Kotlin scanner replaces only the onReceive function body while preserving
+  the surrounding BroadcastReceiver object.
+- Braces inside comments, strings, nested when/case blocks and Kotlin interpolation do not break matching.
+- Runtime GUID/error semantics from 4.0.33 are unchanged.
+- No version bump: version remains 4.0.33 / 40033.
+
+Validation:
+- python -m py_compile scripts/prepare_android.py: PASS
+- pytest focused runtime + receiver regression: 10/10 PASS
+- validate_exact_runtime_lifecycle.py: PASS (35 checks)
+- validate_generated_android.py: PASS
+- Generated Android version: 4.0.33 (40033)
+- Embedded BlueVPN sources: 27
+
+This hotfix changes build preparation only; it does not roll back the 4.0.33 runtime lifecycle fix.

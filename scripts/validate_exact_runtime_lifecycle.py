@@ -81,8 +81,8 @@ def main() -> None:
         raise AssertionError("EngineManager still polls the UI-process CoreServiceManager singleton")
 
     config = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-    if config.get("version_name") != "4.0.33" or config.get("version_code") != 40033:
-        raise AssertionError("4.0.33 version metadata is not aligned")
+    if config.get("version_name") != "4.0.34" or config.get("version_code") != 40034:
+        raise AssertionError("4.0.34 version metadata is not aligned")
 
     if "validate_exact_runtime_lifecycle.py" not in workflow.read_text(encoding="utf-8"):
         raise AssertionError("GitHub Actions does not gate exact runtime lifecycle regressions")

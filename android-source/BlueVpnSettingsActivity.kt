@@ -112,7 +112,7 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
 
         sectionLabel(content, "حساب کاربری")
         val snapshot = BlueVpnAccountManager.snapshot(this)
-        val entitlement = BlueVpnEntitlement.resolve(this)
+        val entitlement = BlueVpnEntitlement.resolveUi(this)
         content.addView(
             settingRow(
                 title = "حساب BlueVPN",

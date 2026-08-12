@@ -64,12 +64,12 @@ object BlueVpnTapsellManager {
 
     fun warmUp(context: Context) {
         val app = context.applicationContext
-        if (!BlueVpnEntitlement.resolve(app).isFree) {
+        if (!BlueVpnEntitlement.resolveUi(app).isFree) {
             cancelPending()
             return
         }
         loadConfig(app, force = false) { loaded ->
-            if (loaded.valid && BlueVpnEntitlement.resolve(app).isFree) {
+            if (loaded.valid && BlueVpnEntitlement.resolveUi(app).isFree) {
                 ensureInitialized(app, loaded)
             }
         }
@@ -78,14 +78,14 @@ object BlueVpnTapsellManager {
     fun onVerifiedConnection(activity: Activity, sessionId: Long) {
         if (activity.isFinishing || activity.isDestroyed || sessionId <= 0L) return
         val app = activity.applicationContext
-        if (!BlueVpnEntitlement.resolve(app).isFree) {
+        if (!BlueVpnEntitlement.resolveUi(app).isFree) {
             cancelPending()
             return
         }
         pendingSessionId = sessionId
         pendingActivity = WeakReference(activity)
         loadConfig(app, force = false) { loaded ->
-            if (!loaded.valid || !BlueVpnEntitlement.resolve(app).isFree) {
+            if (!loaded.valid || !BlueVpnEntitlement.resolveUi(app).isFree) {
                 cancelPending()
                 return@loadConfig
             }
@@ -106,7 +106,7 @@ object BlueVpnTapsellManager {
     }
 
     fun onEntitlementChanged(context: Context) {
-        if (!BlueVpnEntitlement.resolve(context).isFree) cancelPending()
+        if (!BlueVpnEntitlement.resolveUi(context).isFree) cancelPending()
     }
 
     private fun loadConfig(
@@ -149,7 +149,7 @@ object BlueVpnTapsellManager {
     )
 
     private fun ensureInitialized(context: Context, loaded: Config) {
-        if (!loaded.valid || !BlueVpnEntitlement.resolve(context).isFree) return
+        if (!loaded.valid || !BlueVpnEntitlement.resolveUi(context).isFree) return
         if (initializedKey == loaded.appKey && !initializing) {
             requestInterstitial(context, loaded)
             return
@@ -198,7 +198,7 @@ object BlueVpnTapsellManager {
 
     private fun requestInterstitial(context: Context, loaded: Config) {
         if (!loaded.valid || readyResponseId.isNotBlank()) return
-        if (!BlueVpnEntitlement.resolve(context).isFree) return
+        if (!BlueVpnEntitlement.resolveUi(context).isFree) return
         if (!adRequesting.compareAndSet(false, true)) return
 
         runCatching {
@@ -244,7 +244,7 @@ object BlueVpnTapsellManager {
         val responseId = readyResponseId
         val sessionId = pendingSessionId
         if (responseId.isBlank() || sessionId <= 0L) return
-        if (!BlueVpnEntitlement.resolve(activity).isFree) {
+        if (!BlueVpnEntitlement.resolveUi(activity).isFree) {
             cancelPending()
             return
         }

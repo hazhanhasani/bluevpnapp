@@ -1,6 +1,7 @@
 package com.v2ray.ang.bluevpn
 
 import android.content.Context
+import android.os.Looper
 
 enum class BlueVpnPlanTier {
     PREMIUM,
@@ -29,23 +30,32 @@ data class BlueVpnEntitlementSnapshot(
 /**
  * Single source of truth for every Free/Premium decision in the Android UI.
  *
- * Older builds independently read `active`, free-access preferences and MMKV
- * subscriptions from several Activities. That let stale Free UI, timers and
- * server pools survive after a Premium activation. All user-facing plan logic
- * now goes through this immutable snapshot.
+ * IMPORTANT: resolving the exact server GUID pool touches v2rayNG MMKV and may
+ * decode many rows.  UI rendering must use [resolveUi], while workers/connection
+ * preparation use [resolve].  This keeps the main thread completely out of the
+ * subscription database and prevents ANRs on the locations/home screens.
  */
 object BlueVpnEntitlement {
     private const val PREFS = "bluevpn_entitlement_runtime"
     private const val KEY_IDENTITY = "last_identity"
     private const val KEY_TIER = "last_tier"
 
-    fun resolve(context: Context): BlueVpnEntitlementSnapshot {
+    @Volatile
+    private var lastDeepSnapshot: BlueVpnEntitlementSnapshot? = null
+
+    private data class Base(
+        val tier: BlueVpnPlanTier,
+        val identity: String,
+        val account: BlueVpnAccountSnapshot,
+        val free: BlueVpnFreeAccessSnapshot,
+    )
+
+    private fun base(context: Context): Base {
         val account = BlueVpnAccountManager.snapshot(context)
         val free = BlueVpnAccountManager.freeAccessSnapshot(context)
         val premiumReady = account.subscriptionActive &&
             account.subscriptionUrl.trim().startsWith("http")
         val freeReady = !premiumReady && free.enabled && free.subscriptions.isNotEmpty()
-
         val tier = when {
             premiumReady -> BlueVpnPlanTier.PREMIUM
             freeReady -> BlueVpnPlanTier.FREE
@@ -58,17 +68,17 @@ object BlueVpnEntitlement {
                 .joinToString("|") { "${it.id}:${it.url.trim()}" }
             BlueVpnPlanTier.UNAVAILABLE -> "unavailable"
         }
-        val guids = when (tier) {
-            BlueVpnPlanTier.PREMIUM,
-            BlueVpnPlanTier.FREE -> BlueVpnAccountManager.preferredServerGuids(context)
-            BlueVpnPlanTier.UNAVAILABLE -> emptyList()
-        }
-        val label = account.email.ifBlank { "کاربر مهمان" }
+        return Base(tier, identity, account, free)
+    }
 
-        return when (tier) {
+    private fun build(base: Base, guids: List<String>): BlueVpnEntitlementSnapshot {
+        val account = base.account
+        val free = base.free
+        val label = account.email.ifBlank { "کاربر مهمان" }
+        return when (base.tier) {
             BlueVpnPlanTier.PREMIUM -> BlueVpnEntitlementSnapshot(
-                tier = tier,
-                identity = identity,
+                tier = base.tier,
+                identity = base.identity,
                 accountLabel = "Premium فعال • $label",
                 poolLabel = "سرورهای اختصاصی اشتراک",
                 connectionNotice = "اتصال Premium بدون محدودیت زمانی و فقط از سرورهای اشتراک شما برقرار می‌شود.",
@@ -80,8 +90,8 @@ object BlueVpnEntitlement {
                 serverGuids = guids,
             )
             BlueVpnPlanTier.FREE -> BlueVpnEntitlementSnapshot(
-                tier = tier,
-                identity = identity,
+                tier = base.tier,
+                identity = base.identity,
                 accountLabel = if (account.email.isBlank()) {
                     "مهمان • دسترسی رایگان"
                 } else {
@@ -97,8 +107,8 @@ object BlueVpnEntitlement {
                 serverGuids = guids,
             )
             BlueVpnPlanTier.UNAVAILABLE -> BlueVpnEntitlementSnapshot(
-                tier = tier,
-                identity = identity,
+                tier = base.tier,
+                identity = base.identity,
                 accountLabel = if (account.email.isBlank()) "حساب آماده نیست" else "${account.email} • بدون اشتراک فعال",
                 poolLabel = "بدون سرور مجاز",
                 connectionNotice = "برای اتصال، دسترسی رایگان فعال یا اشتراک Premium تهیه کنید.",
@@ -113,8 +123,37 @@ object BlueVpnEntitlement {
     }
 
     /**
-     * Reconcile a plan transition once. This clears UI/AI state that belongs to
-     * the previous entitlement, but never logs the user out.
+     * Full entitlement resolution. This may scan/decode v2rayNG MMKV and must be
+     * called from Dispatchers.IO/Default or another worker thread.
+     */
+    fun resolve(context: Context): BlueVpnEntitlementSnapshot {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return resolveUi(context)
+        }
+        val base = base(context.applicationContext)
+        val guids = when (base.tier) {
+            BlueVpnPlanTier.PREMIUM,
+            BlueVpnPlanTier.FREE -> BlueVpnAccountManager.preferredServerGuids(context.applicationContext)
+            BlueVpnPlanTier.UNAVAILABLE -> emptyList()
+        }
+        return build(base, guids).also { lastDeepSnapshot = it }
+    }
+
+    /**
+     * Main-thread safe entitlement snapshot. It never enumerates subscriptions,
+     * server lists or server configs. If a deep worker snapshot for the same
+     * identity exists, its already-resolved GUIDs are reused without touching MMKV.
+     */
+    fun resolveUi(context: Context): BlueVpnEntitlementSnapshot {
+        val base = base(context.applicationContext)
+        val cached = lastDeepSnapshot
+            ?.takeIf { it.identity == base.identity && it.tier == base.tier }
+        return build(base, cached?.serverGuids.orEmpty())
+    }
+
+    /**
+     * Reconcile a plan transition once. This is deliberately the deep/background
+     * variant because manual-server validity depends on the exact entitlement pool.
      */
     fun reconcile(context: Context): BlueVpnEntitlementSnapshot {
         val app = context.applicationContext
@@ -136,9 +175,6 @@ object BlueVpnEntitlement {
             val manualLocationStillAllowed = mode == BlueVpnSelectionMode.MANUAL_LOCATION &&
                 current.isPremium && BlueVpnPreferences.preferredLocation(app).isNotBlank()
 
-            // A background entitlement refresh must never silently flip an explicit
-            // Premium manual choice back to AUTO. Only a real tier transition, Free
-            // mode, or a no-longer-valid manual target resets selection ownership.
             if (current.isFree || current.isUnavailable || tierChanged ||
                 (!manualServerStillAllowed && !manualLocationStillAllowed && mode != BlueVpnSelectionMode.AUTO)
             ) {
@@ -151,7 +187,7 @@ object BlueVpnEntitlement {
             storage.edit()
                 .putString(KEY_IDENTITY, current.identity)
                 .putString(KEY_TIER, current.tier.name)
-                .commit()
+                .apply()
         } else if (previousTier.isBlank()) {
             storage.edit().putString(KEY_TIER, current.tier.name).apply()
         }
@@ -161,15 +197,21 @@ object BlueVpnEntitlement {
     fun candidateAllowed(
         context: Context,
         candidate: BlueVpnLocationUtil.Candidate,
+    ): Boolean = candidateAllowed(context, candidate, resolve(context))
+
+    fun candidateAllowed(
+        context: Context,
+        candidate: BlueVpnLocationUtil.Candidate,
+        snapshot: BlueVpnEntitlementSnapshot,
     ): Boolean {
-        val snapshot = resolve(context)
         if (!snapshot.canConnect || candidate.guid.isBlank()) return false
-        return candidate.guid in snapshot.serverGuids &&
+        val allowed = snapshot.serverGuids.toSet()
+        return candidate.guid in allowed &&
             BlueVpnAccountManager.candidateAllowed(
                 context,
                 candidate.guid,
                 candidate.profile.subscriptionId,
-                snapshot.serverGuids.toSet(),
+                allowed,
             )
     }
 }

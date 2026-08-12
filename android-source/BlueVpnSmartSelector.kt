@@ -42,13 +42,10 @@ object BlueVpnSmartSelector {
         else -> 12
     }
 
-    fun score(
+    private fun scoreKnownAllowed(
         context: Context,
         candidate: BlueVpnLocationUtil.Candidate,
     ): ScoredCandidate {
-        if (!BlueVpnEntitlement.candidateAllowed(context, candidate)) {
-            return ScoredCandidate(candidate, 0, 100, "خارج از پلن فعال")
-        }
         val inactive = BlueVpnPreferences.isSessionInactive(context, candidate.guid)
         val failed = BlueVpnPreferences.failedRecently(context, candidate.guid)
         val freshness = BlueVpnPreferences.successFreshnessScore(context, candidate.guid)
@@ -89,13 +86,46 @@ object BlueVpnSmartSelector {
         return ScoredCandidate(candidate, score, confidence, evidence)
     }
 
+    /** Score one arbitrary candidate with one entitlement resolution. */
+    fun score(
+        context: Context,
+        candidate: BlueVpnLocationUtil.Candidate,
+    ): ScoredCandidate {
+        val entitlement = BlueVpnEntitlement.resolve(context)
+        if (!BlueVpnEntitlement.candidateAllowed(context, candidate, entitlement)) {
+            return ScoredCandidate(candidate, 0, 100, "خارج از پلن فعال")
+        }
+        return scoreKnownAllowed(context, candidate)
+    }
+
+    /**
+     * UI/catalogue scoring path. The caller already obtained the candidate from
+     * the isolated entitlement cache, so re-enumerating MMKV for every visible
+     * row would be both redundant and an ANR risk.
+     */
+    fun scoreTrusted(
+        context: Context,
+        candidate: BlueVpnLocationUtil.Candidate,
+    ): ScoredCandidate = scoreKnownAllowed(context, candidate)
+
     fun rank(
         context: Context,
         candidates: List<BlueVpnLocationUtil.Candidate>,
-    ): List<ScoredCandidate> = candidates
+    ): List<ScoredCandidate> {
+        if (candidates.isEmpty()) return emptyList()
+        val entitlement = BlueVpnEntitlement.resolve(context)
+        val allowed = entitlement.serverGuids.toSet()
+        return candidates
         .asSequence()
-        .filter { BlueVpnEntitlement.candidateAllowed(context, it) }
-        .map { score(context, it) }
+        .filter { candidate ->
+            candidate.guid in allowed && BlueVpnAccountManager.candidateAllowed(
+                context,
+                candidate.guid,
+                candidate.profile.subscriptionId,
+                allowed,
+            )
+        }
+        .map { scoreKnownAllowed(context, it) }
         .sortedWith(
             compareByDescending<ScoredCandidate> { it.score }
                 .thenByDescending { it.confidence }
@@ -105,6 +135,40 @@ object BlueVpnSmartSelector {
                 .thenBy { it.candidate.location.title }
         )
         .toList()
+    }
+
+    /** Rank a pool that was already isolated against one frozen entitlement set. */
+    fun rankTrusted(
+        context: Context,
+        candidates: List<BlueVpnLocationUtil.Candidate>,
+    ): List<ScoredCandidate> = candidates
+        .asSequence()
+        .map { scoreKnownAllowed(context, it) }
+        .sortedWith(
+            compareByDescending<ScoredCandidate> { it.score }
+                .thenByDescending { it.confidence }
+                .thenBy {
+                    if (it.candidate.delay > 0L) it.candidate.delay else Long.MAX_VALUE
+                }
+                .thenBy { it.candidate.location.title }
+        )
+        .toList()
+
+    fun connectionOrderTrusted(
+        context: Context,
+        candidates: List<BlueVpnLocationUtil.Candidate>,
+    ): List<ScoredCandidate> {
+        val ranked = rankTrusted(context, candidates)
+        if (ranked.size < 2) return ranked
+        val sticky = BlueVpnRouteIntelligence.stickyCandidate(context, ranked)
+        if (sticky != null && sticky.candidate.guid != ranked.first().candidate.guid) {
+            return buildList {
+                add(sticky)
+                ranked.forEach { if (it.candidate.guid != sticky.candidate.guid) add(it) }
+            }
+        }
+        return ranked
+    }
 
     /**
      * Orders candidates for an AUTO connection without permanently sticking to
@@ -145,7 +209,7 @@ object BlueVpnSmartSelector {
             reason = chosen.reason,
             evaluated = evaluated,
         )
-        val identity = BlueVpnEntitlement.resolve(context).identity
+        val identity = BlueVpnEntitlement.resolveUi(context).identity
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_LAST_AUTO_GUID, decision.candidate.guid)
             .putString(KEY_LAST_AUTO_IDENTITY, identity)

@@ -27,10 +27,10 @@ def test_fast_free_connection_timer_and_probe():
     home=(ROOT/'android-source/BlueVpnHomeActivity.kt').read_text()
     assert 'beginFreeTimerOnCoreStart()' not in home
     assert 'BlueVpnAccountManager.startFreeSession(this)' in home
-    assert 'SystemClock.elapsedRealtime() + 3_200L' in home
-    assert 'connection.connectTimeout = 1_500' in home
-    assert 'connection.readTimeout = 1_500' in home
-    assert 'handler.postDelayed(attemptTimeout, 10_000L)' in home
+    assert 'SystemClock.elapsedRealtime() + 3_600L' in home
+    assert 'connection.connectTimeout = 1_800' in home
+    assert 'connection.readTimeout = 1_800' in home
+    assert 'handler.postDelayed(attemptTimeout, 12_000L)' in home
     assert 'waitForLocalProxyReady(httpPort)' in home
     assert 'handler.removeCallbacks(attemptTimeout)' in home
 

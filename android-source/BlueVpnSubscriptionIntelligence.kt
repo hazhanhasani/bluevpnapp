@@ -86,6 +86,28 @@ object BlueVpnSubscriptionIntelligence {
     ): RefreshOutcome {
         if (rows.isEmpty()) return RefreshOutcome(0, 0, 0, 0, 0)
 
+        // Never let v2rayNG replace MMKV profile GUIDs while a candidate is
+        // starting or while Xray owns the current profile.  The current pool is
+        // already usable, so a blocked refresh is a preserved/deferred refresh,
+        // not a provider failure.
+        if (!BlueVpnRuntimeGate.beginSubscriptionMutation(context)) {
+            val currentCount = rows.sumOf { row ->
+                runCatching {
+                    MmkvManager.decodeServerList(row.guid).count { guid ->
+                        guid.isNotBlank() && MmkvManager.decodeServerConfig(guid) != null
+                    }
+                }.getOrDefault(0)
+            }
+            return RefreshOutcome(
+                configCount = currentCount,
+                successCount = 0,
+                failureCount = 0,
+                preservedPools = rows.size,
+                usedFallbacks = 0,
+            )
+        }
+
+        try {
         var totalConfigs = 0
         var successes = 0
         var failures = 0
@@ -161,6 +183,9 @@ object BlueVpnSubscriptionIntelligence {
             preservedPools = preservedPools,
             usedFallbacks = fallbackUses,
         )
+        } finally {
+            BlueVpnRuntimeGate.endSubscriptionMutation()
+        }
     }
 
     private fun compatibilityUserAgents(

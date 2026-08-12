@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -17,9 +18,11 @@ bot = text('bluevpn-manager/includes/class-bluevpn-telegram-bot.php')
 api = text('bluevpn-manager/includes/class-bluevpn-api.php')
 build = text('.github/workflows/build-apk.yml')
 
+version = json.loads(text('branding/app.json'))['version_name']
+
 checks = [
-    ('Version: 4.0.32' in plugin, 'manager header must be 4.0.32'),
-    ("BLUEVPN_MANAGER_VERSION', '4.0.32'" in plugin, 'manager constant must be 4.0.32'),
+    (f'Version: {version}' in plugin, 'manager header must match branding version'),
+    (f"BLUEVPN_MANAGER_VERSION', '{version}'" in plugin, 'manager constant must match branding version'),
     ('github_token_for_internal_requests' in bot, 'bot must expose internal-only GitHub token accessor'),
     ('BlueVPN_Telegram_Bot::github_token_for_internal_requests()' in updater, 'updater must reuse migrated GitHub token'),
     ("'Authorization'] = 'Bearer ' . $token" in updater, 'updater must authenticate GitHub HTTP requests'),

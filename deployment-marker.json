@@ -1,13 +1,8 @@
 {
-  "release": "4.0.32-auto",
-  "version_name": "4.0.32",
-  "version_code": 40032,
+  "release": "4.0.33",
+  "version_name": "4.0.33",
+  "version_code": 40033,
   "changes": [
-    "Restore Premium last-known-good subscription pool without exposing known Free rows",
-    "Freeze entitlement candidate ownership for each connection/switch cycle",
-    "Remove forced account/provider sync from startup, locations entry and BlueAI selection",
-    "Bound failover to five candidates and two independent verification rounds",
-    "Keep BlueVpnEngine runtime state CONNECTED after verified tunnel proof",
     "Add private scheduled backups with 7-version retention",
     "Add checksum-validated transactional restore with pre-restore rollback snapshot",
     "Add production health center and final Railway cutover cleanup",
@@ -19,15 +14,20 @@
     "Authenticate BlueVPN Manager GitHub release checks with the migrated GITHUB_TOKEN",
     "Download private release assets through GitHub release asset API",
     "Expose safe updater diagnostics in /health",
-    "Report WordPress barrier timeout/bootstrap errors instead of benign git push retries"
+    "Report WordPress barrier timeout/bootstrap errors instead of benign git push retries",
+    "Patch v2rayNG CoreServiceManager with exact GUID start/running broadcasts",
+    "Make Xray STOP_SUCCESS authoritative only after the old core is actually stopped",
+    "Serialize subscription MMKV imports against connect/connected lifecycle",
+    "Preserve account-bound Premium last-known-good pool without Free fallback",
+    "Stop Locations and BlueAI from triggering implicit forced account/provider syncs"
   ],
   "generated_at_unix": 1786307912,
   "purpose": "شروع شاخه رسمی BlueVPN 4.x",
-  "updated_at": "2026-08-11T22:35:00Z",
-  "built_at": "2026-08-11T22:35:00Z",
-  "build_id": "20260812-v4.0.32-connectivity-core-stabilization",
-  "feature": "connectivity-core-stabilization",
-  "build_fix": "subscription-sync-connection-stability",
-  "version_source": "v4.0.32-connectivity-core-stabilization",
-  "summary": "Stabilize Premium/Free pool ownership, stop background sync races, and freeze each connection candidate set."
+  "updated_at": "2026-08-12T04:10:00Z",
+  "built_at": "2026-08-12T04:10:00Z",
+  "build_id": "20260812-v4.0.33-exact-runtime-lifecycle-fix",
+  "feature": "exact-runtime-lifecycle-fix",
+  "build_fix": "exact-runtime-lifecycle-fix",
+  "version_source": "v4.0.33-exact-runtime-lifecycle-fix",
+  "summary": "Patch the real pinned v2rayNG/Xray service lifecycle, serialize subscription import vs connect, and preserve an account-bound Premium last-known-good pool."
 }

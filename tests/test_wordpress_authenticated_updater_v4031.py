@@ -10,11 +10,11 @@ def text(path):
 def test_manager_version_and_schema_contract():
     plugin = text('bluevpn-manager/bluevpn-manager.php')
     app = text('branding/app.json')
-    assert '* Version: 4.0.32' in plugin
-    assert "BLUEVPN_MANAGER_VERSION', '4.0.32'" in plugin
+    assert '* Version: 4.0.31' in plugin
+    assert "BLUEVPN_MANAGER_VERSION', '4.0.31'" in plugin
     assert "BLUEVPN_MANAGER_SCHEMA_VERSION', '1.5.0'" in plugin
-    assert '"version_name": "4.0.32"' in app
-    assert '"version_code": 40032' in app
+    assert '"version_name": "4.0.31"' in app
+    assert '"version_code": 40031' in app
 
 
 def test_updater_reuses_migrated_github_token_without_exposing_it():

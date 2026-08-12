@@ -11,10 +11,10 @@ def test_version_is_4030_everywhere():
     plugin = source('bluevpn-manager/bluevpn-manager.php')
     readme = source('bluevpn-manager/readme.txt')
     app = source('branding/app.json')
-    assert '* Version: 4.0.32' in plugin
-    assert "BLUEVPN_MANAGER_VERSION', '4.0.32'" in plugin
-    assert 'Version: 4.0.32' in readme
-    assert '"version_name": "4.0.32"' in app
+    assert '* Version: 4.0.31' in plugin
+    assert "BLUEVPN_MANAGER_VERSION', '4.0.31'" in plugin
+    assert 'Version: 4.0.31' in readme
+    assert '"version_name": "4.0.31"' in app
 
 
 def test_main_build_publishes_manager_before_android_checkout():

@@ -97,10 +97,10 @@ def test_android_inactive_cache_is_forced_to_refresh_after_update_and_resume():
         root / "android-source" / "BlueVpnSubscriptionsActivity.kt"
     ).read_text()
 
-    assert "!local.subscriptionActive" not in manager
+    assert "!local.subscriptionActive" in manager
     assert "accountCacheVersion(c) != currentAppVersion()" in manager
     assert 'subscription.optBoolean("entitlement_active", false)' in manager
     assert "if (terminalStatus) return false" in manager
-    assert "syncManagedAccount(force = false)" in home
+    assert "syncManagedAccount(force = true)" in home
     assert "if(returnedOrder.isBlank()&&BlueVpnAccountManager.hasSession(this))" in subscriptions
-    assert "sync(false)" in subscriptions
+    assert "sync(true)" in subscriptions

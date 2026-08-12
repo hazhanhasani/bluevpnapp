@@ -43,7 +43,7 @@ def test_plugin_version_sources_are_synchronized():
     const = re.search(r"BLUEVPN_MANAGER_VERSION'\s*,\s*'(\d+\.\d+\.\d+)'", plugin)
     rm = re.search(r'(?mi)^Version:\s*(\d+\.\d+\.\d+)\s*$', readme)
     assert header and const and rm
-    assert header.group(1) == const.group(1) == rm.group(1) == '4.0.32'
+    assert header.group(1) == const.group(1) == rm.group(1) == '4.0.31'
 
 
 def test_pre_gradle_failures_have_diagnostics_and_precise_stage():

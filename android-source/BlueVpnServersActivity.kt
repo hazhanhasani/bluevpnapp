@@ -27,7 +27,6 @@ import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
 import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnEntitlement
-import com.v2ray.ang.bluevpn.BlueVpnEngineManager
 import com.v2ray.ang.bluevpn.BlueVpnPlanTier
 import com.v2ray.ang.bluevpn.BlueVpnSelectionMode
 import com.v2ray.ang.bluevpn.BlueVpnSmartSelector
@@ -37,6 +36,7 @@ import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
 import com.v2ray.ang.bluevpn.BlueVpnRouteIntelligence
+import com.v2ray.ang.bluevpn.BlueVpnRuntimeGate
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import com.v2ray.ang.handler.MmkvManager
@@ -214,9 +214,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 if (
                     loaded.isEmpty() &&
                     BlueVpnAccountManager.active(this@BlueVpnServersActivity) &&
+                    !BlueVpnRuntimeGate.connectionActive(this@BlueVpnServersActivity) &&
                     !accountSyncInProgress &&
-                    !entitlementRepairAttempted &&
-                    !BlueVpnEngineManager.isPoolMutationBlocked()
+                    !entitlementRepairAttempted
                 ) {
                     entitlementRepairAttempted = true
                     BlueVpnAccountManager.awaitEntitlementServers(
@@ -255,7 +255,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     selectAutomaticAfterLoad &&
                     BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity)
                 ) {
-                    loaded.firstOrNull()?.let { MmkvManager.setSelectServer(it.guid) }
+                    if (!BlueVpnRuntimeGate.connectionActive(this@BlueVpnServersActivity)) {
+                        loaded.firstOrNull()?.let { MmkvManager.setSelectServer(it.guid) }
+                    }
                 }
                 renderLocations()
 
@@ -479,7 +481,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private fun refreshEntitlementState(force: Boolean) {
         updateEntitlementUi()
         if (!BlueVpnAccountManager.hasSession(this)) return
-        if (BlueVpnEngineManager.isPoolMutationBlocked()) return
 
         val now = SystemClock.elapsedRealtime()
         if (!force && now - lastAccountSyncAt < 15_000L) return
@@ -873,7 +874,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             group.location.key,
             candidate.guid,
         )
-        MmkvManager.setSelectServer(candidate.guid)
+        // While a live tunnel owns MMKV, keep the daemon's selected GUID
+        // untouched. The requested switch is stored in BlueVpnPreferences and
+        // Home performs stop -> exact GUID start after the old core confirms
+        // STOP_SUCCESS.
+        if (!BlueVpnRuntimeGate.connectionActive(this)) {
+            MmkvManager.setSelectServer(candidate.guid)
+        }
         setResult(Activity.RESULT_OK, Intent()
             .putExtra(EXTRA_LOCATION_CHANGED, changed)
             .putExtra(EXTRA_LOCATION_KEY, group.location.key)
@@ -897,7 +904,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             scheduleCandidateReload(force = true)
             return
         }
-        MmkvManager.setSelectServer(decision.candidate.guid)
+        if (!BlueVpnRuntimeGate.connectionActive(this)) {
+            MmkvManager.setSelectServer(decision.candidate.guid)
+        }
         setResult(Activity.RESULT_OK, Intent()
             .putExtra(EXTRA_LOCATION_CHANGED, changed)
             .putExtra(EXTRA_LOCATION_KEY, "")
@@ -918,7 +927,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val currentPreferred = BlueVpnPreferences.preferredLocation(this).ifBlank { selectedLocation.orEmpty() }
         val changed = automatic || currentPreferred != group.location.key
         BlueVpnPreferences.setManualLocationSelection(this, group.location.key)
-        BlueVpnLocationUtil.instantCandidates(this, group.location.key).firstOrNull()?.let { MmkvManager.setSelectServer(it.guid) }
+        if (!BlueVpnRuntimeGate.connectionActive(this)) {
+            BlueVpnLocationUtil.instantCandidates(this, group.location.key)
+                .firstOrNull()
+                ?.let { MmkvManager.setSelectServer(it.guid) }
+        }
         setResult(Activity.RESULT_OK, Intent()
             .putExtra(EXTRA_LOCATION_CHANGED, changed)
             .putExtra(EXTRA_LOCATION_KEY, group.location.key)

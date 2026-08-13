@@ -4,33 +4,29 @@ import com.v2ray.ang.dto.entities.ProfileItem
 import com.v2ray.ang.handler.MmkvManager
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.URI
 import java.security.MessageDigest
 import java.util.Locale
 
 /**
- * Unified, engine-neutral profile catalogue for BlueVPN.
+ * v2rayNG-native profile metadata catalogue for BlueVPN.
  *
  * The upstream importer remains the authority for turning V2Ray share links into
  * ProfileItem objects. This layer deliberately sits *after* parsing and gives
- * BlueVPN stable identity, de-duplication, format detection and engine routing
+ * BlueVPN stable identity, de-duplication and display metadata
  * without depending on volatile MMKV GUIDs or display remarks.
  *
  * Design ideas mirrored from mature clients such as v2rayNG/NekoBox and from
- * sing-box's typed outbound model:
+ * v2rayNG/Xray's imported profile model:
  *  - source format and runtime protocol are separate concepts;
  *  - subscription refresh must not change the selected semantic server merely
  *    because a new GUID was generated;
  *  - duplicate nodes from multiple subscriptions are collapsed for selection;
- *  - JSON is classified as Xray or sing-box before runtime validation;
- *  - SSH is a first-class sing-box outbound instead of being forced into Xray.
+ *  - JSON is treated as Xray only when it matches v2rayNG/Xray semantics;
  */
 object BlueVpnProfileManager {
     enum class SourceFormat {
         SHARE_LINK,
         XRAY_JSON,
-        SING_BOX_JSON,
-        SSH_URI,
         UNKNOWN,
     }
 
@@ -41,7 +37,6 @@ object BlueVpnProfileManager {
         SHADOWSOCKS,
         SOCKS,
         HTTP,
-        SSH,
         HYSTERIA2,
         TUIC,
         WIREGUARD,
@@ -50,17 +45,9 @@ object BlueVpnProfileManager {
         UNKNOWN,
     }
 
-    enum class EngineRoute {
-        XRAY,
-        SING_BOX,
-        XRAY_OR_SING_BOX,
-        UNKNOWN,
-    }
-
     data class Descriptor(
         val sourceFormat: SourceFormat,
         val protocol: Protocol,
-        val engineRoute: EngineRoute,
         val fingerprint: String,
     )
 
@@ -128,7 +115,6 @@ object BlueVpnProfileManager {
         return Descriptor(
             sourceFormat = format,
             protocol = protocol,
-            engineRoute = engineFor(protocol, format),
             fingerprint = fingerprint(profile, raw),
         )
     }
@@ -137,7 +123,6 @@ object BlueVpnProfileManager {
         val raw = rawConfig.orEmpty().trim()
         if (raw.isBlank()) return SourceFormat.SHARE_LINK
         val lower = raw.lowercase(Locale.ROOT)
-        if (lower.startsWith("ssh://")) return SourceFormat.SSH_URI
         if (
             lower.startsWith("vless://") || lower.startsWith("vmess://") ||
             lower.startsWith("trojan://") || lower.startsWith("ss://") ||
@@ -150,11 +135,7 @@ object BlueVpnProfileManager {
             return SourceFormat.SHARE_LINK
         }
         if (raw.startsWith("{") || raw.startsWith("[")) {
-            return when {
-                looksLikeSingBoxJson(raw) -> SourceFormat.SING_BOX_JSON
-                looksLikeXrayJson(raw) -> SourceFormat.XRAY_JSON
-                else -> SourceFormat.UNKNOWN
-            }
+            return if (looksLikeXrayJson(raw)) SourceFormat.XRAY_JSON else SourceFormat.UNKNOWN
         }
         return SourceFormat.UNKNOWN
     }
@@ -173,21 +154,13 @@ object BlueVpnProfileManager {
                 }
             }
 
-            // Custom JSON/SSH may carry details that ProfileItem cannot model.
+            // Custom Xray JSON may carry details that ProfileItem cannot model.
             // Canonicalize before hashing so whitespace/key ordering never creates
             // a duplicate node after a subscription refresh.
             if (raw.isNotBlank()) {
-                when (sourceFormat(raw)) {
-                    SourceFormat.XRAY_JSON,
-                    SourceFormat.SING_BOX_JSON -> {
-                        append("rawjson=")
-                        append(canonicalizeJson(raw))
-                    }
-                    SourceFormat.SSH_URI -> {
-                        append("ssh=")
-                        append(canonicalizeUri(raw))
-                    }
-                    else -> Unit
+                if (sourceFormat(raw) == SourceFormat.XRAY_JSON) {
+                    append("rawjson=")
+                    append(canonicalizeJson(raw))
                 }
             }
         }
@@ -244,7 +217,6 @@ object BlueVpnProfileManager {
     private fun detectProtocol(profile: ProfileItem, raw: String): Protocol {
         val lowerRaw = raw.lowercase(Locale.ROOT)
         when {
-            lowerRaw.startsWith("ssh://") -> return Protocol.SSH
             lowerRaw.startsWith("vless://") -> return Protocol.VLESS
             lowerRaw.startsWith("vmess://") -> return Protocol.VMESS
             lowerRaw.startsWith("trojan://") -> return Protocol.TROJAN
@@ -269,29 +241,9 @@ object BlueVpnProfileManager {
             "TUIC" in configType -> Protocol.TUIC
             "WIREGUARD" in configType -> Protocol.WIREGUARD
             "ANYTLS" in configType -> Protocol.ANYTLS
-            sourceFormat(raw) == SourceFormat.SING_BOX_JSON && jsonHasOutboundType(raw, "ssh") -> Protocol.SSH
-            sourceFormat(raw) in setOf(SourceFormat.XRAY_JSON, SourceFormat.SING_BOX_JSON) -> Protocol.CUSTOM_JSON
+            sourceFormat(raw) == SourceFormat.XRAY_JSON -> Protocol.CUSTOM_JSON
             else -> Protocol.UNKNOWN
         }
-    }
-
-    private fun engineFor(protocol: Protocol, sourceFormat: SourceFormat): EngineRoute = when {
-        protocol == Protocol.SSH -> EngineRoute.SING_BOX
-        sourceFormat == SourceFormat.SING_BOX_JSON -> EngineRoute.SING_BOX
-        sourceFormat == SourceFormat.XRAY_JSON -> EngineRoute.XRAY
-        protocol in setOf(
-            Protocol.VLESS,
-            Protocol.VMESS,
-            Protocol.TROJAN,
-            Protocol.SHADOWSOCKS,
-            Protocol.SOCKS,
-            Protocol.HTTP,
-            Protocol.HYSTERIA2,
-            Protocol.TUIC,
-            Protocol.WIREGUARD,
-            Protocol.ANYTLS,
-        ) -> EngineRoute.XRAY_OR_SING_BOX
-        else -> EngineRoute.UNKNOWN
     }
 
     private fun jsonObjects(raw: String): List<JSONObject> = runCatching {
@@ -316,13 +268,7 @@ object BlueVpnProfileManager {
     private fun looksLikeXrayJson(raw: String): Boolean =
         outboundObjects(raw).any { it.has("protocol") }
 
-    private fun looksLikeSingBoxJson(raw: String): Boolean =
-        outboundObjects(raw).any { it.has("type") }
 
-    private fun jsonHasOutboundType(raw: String, type: String): Boolean =
-        outboundObjects(raw).any { outbound ->
-            outbound.optString("type").equals(type, ignoreCase = true)
-        }
 
     private fun readGetter(profile: ProfileItem, name: String): String {
         val method = profile.javaClass.methods.firstOrNull {
@@ -338,31 +284,6 @@ object BlueVpnProfileManager {
         else -> value.trim()
     }
 
-    private fun canonicalizeUri(raw: String): String = runCatching {
-        val uri = URI(raw)
-        val scheme = uri.scheme.orEmpty().lowercase(Locale.ROOT)
-        val host = uri.host.orEmpty().lowercase(Locale.ROOT)
-        val port = if (uri.port > 0) ":${uri.port}" else ""
-        val authority = if (host.isNotBlank()) {
-            val user = uri.rawUserInfo?.let { "$it@" }.orEmpty()
-            "$user$host$port"
-        } else {
-            uri.rawAuthority.orEmpty()
-        }
-        val query = uri.rawQuery.orEmpty()
-            .split('&')
-            .filter { it.isNotBlank() }
-            .sorted()
-            .joinToString("&")
-        buildString {
-            append(scheme)
-            append("://")
-            append(authority)
-            append(uri.rawPath.orEmpty())
-            if (query.isNotBlank()) append('?').append(query)
-            // fragment is display-only in common proxy URI formats.
-        }
-    }.getOrDefault(raw.substringBefore('#').trim())
 
     private fun canonicalizeJson(raw: String): String = runCatching {
         val trimmed = raw.trimStart()

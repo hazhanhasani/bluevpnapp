@@ -1,82 +1,69 @@
-# BlueVPN 4.1.6
+# BlueVPN 4.1.8
 
-BlueVPN is an Android VPN client with a WordPress/MySQL control plane. The repository intentionally keeps only current production source, build automation, and release validation; historical release reports and generated Android snapshots are not source of truth.
+BlueVPN is now rebased as a **custom product/UI on top of official v2rayNG**, instead of treating v2rayNG as a replaceable compatibility bridge.
 
-## Current production baseline
+## Runtime baseline
 
-- BlueVPN: `4.1.6` (`versionCode 40106`)
-- WordPress Manager schema: `1.6.0`
-- v2rayNG production pin: `2.2.6` (reviewed stable base)
-- Xray / AndroidLibXrayLite: `v26.6.27` (exact pairing shipped by v2rayNG 2.2.6)
-- sing-box source pin: `v1.13.16` (staged validator/runtime; Xray remains Android TUN owner)
-- Android ABI: `arm64-v8a`, `armeabi-v7a`
+- v2rayNG: `2.2.6` (current stable release selected for production)
+- v2rayNG release commit: `15b4fff`
+- Xray / AndroidLibXrayLite: `v26.6.27`
+- Android target from upstream: SDK 37
+- Production VPN engines: **v2rayNG/Xray only**
+- sing-box: **removed**
 
-v2rayNG `2.3.3` was reviewed but remains outside the production runtime baseline. BlueVPN keeps the reviewed `2.2.6` lifecycle and now also restores its exact AndroidLibXrayLite/Xray pairing (`v26.6.27`). The experimental `v26.7.28` backport used by 4.1.0 was removed after connection regressions were observed; upstream also has an open core/geosite startup regression report in the newer v2rayNG line.
+The newer v2rayNG `2.3.3` is a pre-release and includes the Jetpack Compose migration, so it is not used as the production base for this rebase.
 
-## Runtime rules
+## Architecture
 
-- Connection compatibility is fail-open toward v2rayNG semantics: every hidden route in a manually selected location remains eligible, while AUTO uses progressive ranked batches without discarding lower-ranked configs.
-- Xray start gets a 24-second cold-start window; deterministic daemon failures still fail immediately.
-- Tunnel verification uses the canonical local SOCKS port, waits up to five seconds for the inbound, accepts real remote 2xx/3xx/4xx responses as Internet proof, supports local proxy Basic auth, and has a SOCKS compatibility fallback.
-- Dynamic SOCKS ports are disabled in BlueVPN because CoreVpnService runs in a separate process; this prevents UI and daemon from independently choosing different runtime localhost ports.
-- Profile deduplication includes browser dialer, proxy-chain and policy-group fields so semantically different v2rayNG profiles are not collapsed into one route.
-- Home UI uses one unified location/status card; internal AI/route intelligence has no public card or Activity and remains background-only.
-- Public server selection is location-only: internal routes/GUIDs never appear in the locations UI; choosing a location scopes the hidden candidate pool and the engine ranks/failovers inside it automatically.
-- Legacy `MANUAL_SERVER` preferences migrate to their parent location so older installs cannot keep exposing/pinning a concrete route.
-- Terminal failover failure is latched until CoreVpnService is actually stopped; a stale RUNNING broadcast or late ping cannot reopen the connecting overlay.
-- Runtime Gate ownership remains held until the daemon reports stopped, so subscription MMKV cannot mutate under a still-running Xray process.
-- The final candidate failure reason is preserved and surfaced to the UI instead of being replaced with a generic location error.
-- Free and Premium pools have separate ownership. WordPress emits a stable `pool_identity`; Android uses it as an entitlement boundary.
-- Managed v2rayNG subscriptions have `autoUpdate = false`. Routine account reads never rebuild subscriptions.
-- `GET /api/v1/account` is the routine/cache-first account path. `POST /api/v1/account/sync` is reserved for an explicit refresh/payment return and is coalesced.
-- A real entitlement/pool identity change causes exactly one authoritative subscription refresh, even when the subscription URL itself did not change.
-- Subscription mutation is blocked while a connection owns the MMKV/Xray profile pool.
-- Connection-gate waiting is bounded; the UI cannot remain indefinitely in `CONNECTING` because a subscription mutation is still active.
-- Internal route intelligence selects locally first and never imports/repairs subscriptions from the home UI. Cloud enrichment is background-only, has no public AI surface, and is not run on app startup.
+The GitHub workflow first checks out the official v2rayNG tag and then overlays BlueVPN product code. BlueVPN does not fork the core lifecycle.
 
-## Repository
+`v2rayNG source -> BlueVPN branding/UI/account/location overlay -> official v2rayNG CoreServiceManager/CoreVpnService -> Xray`
 
-- `android-source/` — canonical BlueVPN Android Kotlin/resources injected into official upstream.
-- `bluevpn-manager/` — WordPress/MySQL control plane and REST API.
-- `branding/` — app metadata and icon.
-- `scripts/prepare_android.py` — applies BlueVPN to the pinned upstream checkout.
-- `scripts/validate_release.py` — release contract/regression gate.
-- `.github/workflows/` — Android and WordPress release workflows.
-- `tests/test_current_release.py` — focused current-release regression tests.
-- `release.json` — release metadata consumed by the app/control plane.
+BlueVPN continues to show only locations to users. Hidden route GUIDs are selected by BlueVPN, but once a GUID is chosen it is committed to `MmkvManager` and started through the stock `CoreServiceManager.startVService(context, guid)` path. No alternate engine, custom TUN owner, custom config compiler or authoritative BlueVPN network pre-check sits between the selected v2rayNG profile and Xray.
 
-Generated source, APK/AAB files, Gradle output, logs, local caches, historical validation reports, and legacy Railway backend source are intentionally excluded from the repository.
+## What BlueVPN still owns
+
+- Custom Home and location-only UI
+- Hidden routes behind each location
+- Free/Premium entitlement isolation
+- WordPress/MySQL account and plan control plane
+- Update manager
+- Advertising
+- Local route history used only for ranking; it is not a second VPN engine
+
+## What v2rayNG owns again
+
+- Subscription/profile parsing semantics
+- Profile/MMKV representation
+- Runtime config generation
+- Protocol and transport handling
+- Core start/stop lifecycle
+- Android VPN service
+- TUN
+- Xray runtime
+- Connection service broadcasts consumed by BlueVPN UI
+
+## Repository layout
+
+- `android-source/` — BlueVPN UI/product overlay copied into the official v2rayNG checkout
+- `bluevpn-manager/` — WordPress/MySQL control plane
+- `branding/` — application identity and release pin
+- `scripts/prepare_android.py` — branding/UI overlay only; **no core lifecycle or protocol parser patches**
+- `.github/workflows/build-apk.yml` — checks out official v2rayNG and builds/signs BlueVPN
+- `tests/` — current release contracts
 
 ## Versioning
 
-Patch numbers are short by policy:
+Patch numbers remain short: `x.y.0 ... x.y.10`, then the next minor version.
 
-`x.y.0` → `x.y.1` → … → `x.y.10` → `x.(y+1).0`
+## 4.1.8 rebase
 
-Historical versions such as `4.0.36` are rolled forward rather than renumbered backward, so the stabilization line starts at `4.1.0`. This preserves monotonic Android/WordPress update comparison.
+- Removed `BlueVpnEngineManager`.
+- Removed sing-box native build/runtime/profile compiler.
+- Removed Dual Engine mode/state.
+- Restored direct BlueVPN Home -> v2rayNG `CoreServiceManager` start/stop calls.
+- Removed read-only MainViewModel runtime patch too; MainViewModel remains upstream.
+- Removed the Shadowsocks/parser compatibility patch so profile semantics are exactly those of the pinned v2rayNG release.
+- Removed the authoritative BlueVPN DNS/TCP/config-hydration gate before starting a route. Imported profiles are accepted/rejected by the official v2rayNG runtime.
 
-## Validation
-
-Before release:
-
-```bash
-python -m py_compile scripts/prepare_android.py scripts/validate_release.py
-python scripts/validate_release.py
-pytest -q
-find bluevpn-manager -type f -name '*.php' -print0 | xargs -0 -n1 php -l
-```
-
-The GitHub Android workflow builds/signs APKs first, publishes the synchronized WordPress control-plane release only after a successful Android build, then publishes the APK release. It does not commit generated source or version metadata back to the source branch.
-
-## License
-
-See `LICENSE` and `NOTICE.md`. Upstream components retain their own licenses and attribution requirements.
-
-
-## 4.1.7 compatibility restore
-
-- Restores CoreServiceManager/CoreVpnService lifecycle to pinned upstream v2rayNG 2.2.6 behavior.
-- Treats upstream START_SUCCESS/RUNNING as connection success; BlueVPN HTTP/DNS probes are non-authoritative.
-- Removes hidden AI auto-heal reconnects from the home runtime loop.
-- Leaves dynamic SOCKS/local proxy behavior under upstream v2rayNG ownership.
-- Keeps only read-only START_FAILURE diagnostics in MainViewModel.
+See `LICENSE` and `NOTICE.md` for licensing and attribution.

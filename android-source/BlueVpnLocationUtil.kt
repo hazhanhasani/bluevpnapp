@@ -703,28 +703,10 @@ private fun unknownLocation(): BlueVpnLocation =
         profile: ProfileItem,
         rawConfig: String? = null,
     ): Boolean {
-        val server = profile.server
-            .orEmpty()
-            .trim()
-            .lowercase(Locale.ROOT)
-        val raw = rawConfig.orEmpty().trim()
-        val sourceFormat = BlueVpnProfileManager.sourceFormat(raw)
-
-        // Full custom Xray JSON is valid upstream even when ProfileItem cannot
-        // expose a single top-level `server` field (for example multi-outbound,
-        // proxy-chain, balancer or hand-written configs). Let the official
-        // CoreConfigManager validate these profiles instead of dropping them from
-        // BlueVPN's location/auto pool before Xray ever sees them.
-        if (sourceFormat == BlueVpnProfileManager.SourceFormat.XRAY_JSON) {
-            return raw.isNotBlank()
-        }
-
-        if (server.isBlank()) return false
-        if (server == "127.0.0.1") return false
-        if (server == "::1") return false
-        if (server == "localhost") return false
-        if (server.startsWith("127.")) return false
-
+        // If v2rayNG decoded a ProfileItem, BlueVPN must not reject it before
+        // upstream CoreServiceManager/CoreConfigManager gets the opportunity to
+        // validate/migrate it. Complex/custom profiles may intentionally have no
+        // single top-level server field.
         return true
     }
 
@@ -765,7 +747,6 @@ private fun unknownLocation(): BlueVpnLocation =
             if (selectedGuid.isNotBlank() && selectedGuid in allGuids) add(selectedGuid)
             allGuids.forEach { guid -> if (guid != selectedGuid) add(guid) }
         }
-        val seenFingerprints = HashSet<String>(orderedGuids.size)
         val loaded = orderedGuids.mapNotNull { guid ->
             val profile =
                 MmkvManager.decodeServerConfig(guid)
@@ -773,15 +754,6 @@ private fun unknownLocation(): BlueVpnLocation =
             val raw = MmkvManager.decodeServerRaw(guid)
 
             if (!isUsable(profile, raw)) {
-                return@mapNotNull null
-            }
-
-            // Subscription providers often publish the same semantic endpoint
-            // under different remarks/GUIDs. Keep the currently selected copy
-            // first and collapse only the selection catalogue; the physical
-            // imported profiles remain untouched and can reappear after refresh.
-            val semanticKey = BlueVpnProfileManager.fingerprint(profile, raw)
-            if (!seenFingerprints.add(semanticKey)) {
                 return@mapNotNull null
             }
 
@@ -854,12 +826,9 @@ private fun unknownLocation(): BlueVpnLocation =
             entitlementGuidList.forEach { guid -> if (guid != selectedGuid) add(guid) }
         }
 
-        // Important: deduplicate *after* entitlement isolation. The global
-        // v2rayNG database can contain the same endpoint in both Free and Premium
-        // subscriptions. Global semantic dedupe used to keep the Free copy first,
-        // then the entitlement filter removed it and accidentally hid the valid
-        // Premium twin. Decode only the active/fallback entitlement pool here.
-        val seenEntitlementFingerprints = HashSet<String>(orderedEntitlementGuids.size)
+        // Preserve every imported GUID from the active entitlement pool. Two
+        // profiles that look semantically similar can still differ in upstream
+        // fields not modeled by BlueVPN; v2rayNG must get a chance to try both.
         val resolved = orderedEntitlementGuids
             .mapNotNull { guid ->
                 val profile = MmkvManager.decodeServerConfig(guid) ?: return@mapNotNull null
@@ -871,8 +840,6 @@ private fun unknownLocation(): BlueVpnLocation =
                         profile.subscriptionId,
                         entitlementServerGuids,
                     )) return@mapNotNull null
-                val semanticKey = BlueVpnProfileManager.fingerprint(profile, raw)
-                if (!seenEntitlementFingerprints.add(semanticKey)) return@mapNotNull null
                 Candidate(
                     guid = guid,
                     profile = profile,

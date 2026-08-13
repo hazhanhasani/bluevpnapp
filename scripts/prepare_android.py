@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import re
 import shutil
@@ -15,6 +16,42 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
 ANDROID = ROOT / "upstream" / "V2rayNG"
 APP = ANDROID / "app"
+
+# Files below are the upstream runtime compatibility boundary. BlueVPN may call
+# these APIs, but prepare_android.py must never rewrite them. This turns the
+# architectural rule "v2rayNG owns the runtime" into a build-time invariant.
+UPSTREAM_RUNTIME_GUARD = (
+    "src/main/java/com/v2ray/ang/core/CoreServiceManager.kt",
+    "src/main/java/com/v2ray/ang/core/CoreConfigManager.kt",
+    "src/main/java/com/v2ray/ang/service/CoreVpnService.kt",
+    "src/main/java/com/v2ray/ang/viewmodel/MainViewModel.kt",
+    "src/main/java/com/v2ray/ang/handler/AngConfigManager.kt",
+)
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+def snapshot_upstream_runtime() -> dict[str, str]:
+    snapshot: dict[str, str] = {}
+    for relative in UPSTREAM_RUNTIME_GUARD:
+        path = APP / relative
+        if not path.exists():
+            raise RuntimeError(f"Pinned v2rayNG runtime file is missing: {relative}")
+        snapshot[relative] = _sha256(path)
+    return snapshot
+
+def assert_upstream_runtime_unchanged(snapshot: dict[str, str]) -> None:
+    changed = []
+    for relative, expected in snapshot.items():
+        path = APP / relative
+        actual = _sha256(path) if path.exists() else "missing"
+        if actual != expected:
+            changed.append(relative)
+    if changed:
+        raise RuntimeError(
+            "BlueVPN overlay modified official v2rayNG runtime files: " +
+            ", ".join(changed)
+        )
 BOOTSTRAP_B64 = "cGFja2FnZSBjb20udjJyYXkuYW5nLmJsdWV2cG4KCmltcG9ydCBhbmRyb2lkLmNvbnRlbnQuQ29udGV4dAoKb2JqZWN0IEJsdWVWcG5Cb290c3RyYXAgewogICAgZnVuIHN0YXJ0KGNvbnRleHQ6IENvbnRleHQpIHsKICAgICAgICB2YWwgYXBwID0gY29udGV4dC5hcHBsaWNhdGlvbkNvbnRleHQKICAgICAgICBCbHVlVnBuVWlHdWFyZC5pbnN0YWxsQ3Jhc2hMb2dnZXIoYXBwKQogICAgICAgIEJsdWVWcG5MaXZlUmVwb3J0ZXIuc3RhcnQoYXBwKQogICAgfQp9Cg=="
 BLUEVPN_UPDATE_PATHS_B64 = "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPHBhdGhzIHhtbG5zOmFuZHJvaWQ9Imh0dHA6Ly9zY2hlbWFzLmFuZHJvaWQuY29tL2Fway9yZXMvYW5kcm9pZCI+CiAgICA8ZXh0ZXJuYWwtZmlsZXMtcGF0aAogICAgICAgIG5hbWU9ImJsdWV2cG5fdXBkYXRlcyIKICAgICAgICBwYXRoPSJEb3dubG9hZC8iIC8+CiAgICA8ZmlsZXMtcGF0aAogICAgICAgIG5hbWU9ImJsdWV2cG5faW50ZXJuYWxfdXBkYXRlcyIKICAgICAgICBwYXRoPSJ1cGRhdGVzLyIgLz4KPC9wYXRocz4K"
 BLUEVPN_IDS_B64 = "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPHJlc291cmNlcz4KICAgIDxpdGVtIHR5cGU9ImlkIiBuYW1lPSJibHVldnBuX2FjdGlvbl9zZXJ2ZXJzIiAvPgogICAgPGl0ZW0gdHlwZT0iaWQiIG5hbWU9ImJsdWV2cG5fYWN0aW9uX3NldHRpbmdzIiAvPgogICAgPGl0ZW0gdHlwZT0iaWQiIG5hbWU9ImJsdWV2cG5fYWN0aW9uX3N1YnNjcmlwdGlvbiIgLz4KICAgIDxpdGVtIHR5cGU9ImlkIiBuYW1lPSJibHVldnBuX2FjdGl2ZV9yb3V0ZXNfdmFsdWUiIC8+CiAgICA8aXRlbSB0eXBlPSJpZCIgbmFtZT0iYmx1ZXZwbl9haV9jYXJkIiAvPgogICAgPGl0ZW0gdHlwZT0iaWQiIG5hbWU9ImJsdWV2cG5fYWlfc3VtbWFyeSIgLz4KICAgIDxpdGVtIHR5cGU9ImlkIiBuYW1lPSJibHVldnBuX2Nvbm5lY3RfYnV0dG9uIiAvPgogICAgPGl0ZW0gdHlwZT0iaWQiIG5hbWU9ImJsdWV2cG5fZG93bmxvYWRfc3BlZWQiIC8+CiAgICA8aXRlbSB0eXBlPSJpZCIgbmFtZT0iYmx1ZXZwbl9kdXJhdGlvbl92YWx1ZSIgLz4KICAgIDxpdGVtIHR5cGU9ImlkIiBuYW1lPSJibHVldnBuX2hpc3RvcnlfdmFsdWUiIC8+CiAgICA8aXRlbSB0eXBlPSJpZCIgbmFtZT0iYmx1ZXZwbl9sb2NhdGlvbl92YWx1ZSIgLz4KICAgIDxpdGVtIHR5cGU9ImlkIiBuYW1lPSJibHVldnBuX21vZGVfYmFsYW5jZWQiIC8+CiAgICA8aXRlbSB0eXBlPSJpZCIgbmFtZT0iYmx1ZXZwbl9tb2RlX2dhbWluZyIgLz4KICAgIDxpdGVtIHR5cGU9ImlkIiBuYW1lPSJibHVldnBuX21vZGVfc3RyZWFtaW5nIiAvPgogICAgPGl0ZW0gdHlwZT0iaWQiIG5hbWU9ImJsdWV2cG5fbW9kZV92YWx1ZSIgLz4KICAgIDxpdGVtIHR5cGU9ImlkIiBuYW1lPSJibHVldnBuX3BpbmdfdmFsdWUiIC8+CiAgICA8aXRlbSB0eXBlPSJpZCIgbmFtZT0iYmx1ZXZwbl9wcmVtaXVtX2JhZGdlIiAvPgogICAgPGl0ZW0gdHlwZT0iaWQiIG5hbWU9ImJsdWV2cG5fcXVhbGl0eV92YWx1ZSIgLz4KICAgIDxpdGVtIHR5cGU9ImlkIiBuYW1lPSJibHVldnBuX3JlZnJlc2hfc3Vic2NyaXB0aW9uIiAvPgogICAgPGl0ZW0gdHlwZT0iaWQiIG5hbWU9ImJsdWV2cG5fcmVtYWluaW5nX3RpbWUiIC8+CiAgICA8aXRlbSB0eXBlPSJpZCIgbmFtZT0iYmx1ZXZwbl9yZW1haW5pbmdfdm9sdW1lIiAvPgogICAgPGl0ZW0gdHlwZT0iaWQiIG5hbWU9ImJsdWV2cG5fc2VydmVyX2NhcmQiIC8+CiAgICA8aXRlbSB0eXBlPSJpZCIgbmFtZT0iYmx1ZXZwbl9zZXJ2ZXJfbWV0YSIgLz4KICAgIDxpdGVtIHR5cGU9ImlkIiBuYW1lPSJibHVldnBuX3NlcnZlcl9uYW1lIiAvPgogICAgPGl0ZW0gdHlwZT0iaWQiIG5hbWU9ImJsdWV2cG5fc3RhdHVzX2NhcHRpb24iIC8+CiAgICA8aXRlbSB0eXBlPSJpZCIgbmFtZT0iYmx1ZXZwbl9zdGF0dXNfZG90IiAvPgogICAgPGl0ZW0gdHlwZT0iaWQiIG5hbWU9ImJsdWV2cG5fc3RhdHVzX3RleHQiIC8+CiAgICA8aXRlbSB0eXBlPSJpZCIgbmFtZT0iYmx1ZXZwbl9zdWJzY3JpcHRpb25fc3VtbWFyeSIgLz4KICAgIDxpdGVtIHR5cGU9ImlkIiBuYW1lPSJibHVldnBuX3VwbG9hZF9zcGVlZCIgLz4KPC9yZXNvdXJjZXM+Cg=="
@@ -391,238 +428,6 @@ def patch_app_config() -> None:
         text = re.sub(r'const val TG_CHANNEL_URL = ".*?"', f'const val TG_CHANNEL_URL = "{support}"', text, count=1)
     path.write_text(text, encoding="utf-8")
 
-def patch_legacy_tls_profiles() -> None:
-    """Keep upstream v2rayNG TLS/profile parsing unchanged.
-
-    Earlier BlueVPN builds injected extra allowInsecure filters into
-    AngConfigManager. That could silently remove subscription profiles before
-    the upstream parser/core had a chance to normalize or validate them.
-    Runtime tunnel verification now owns invalid-route quarantine instead.
-    """
-    return
-
-def patch_shadowsocks_transport_queries() -> None:
-    """Backport SIP002 transport-query preservation to pinned v2rayNG 2.2.6.
-
-    The 2.2.6 Shadowsocks parser reads the URI query for plugin handling but
-    does not feed the normal transport/TLS query fields into the shared profile
-    mapper. That can turn an otherwise valid ss://?type=ws|grpc|xhttp... link
-    into a plain TCP profile in BlueVPN. Keep the upstream parser and apply the
-    narrow compatibility fix at build preparation time.
-    """
-    path = APP / "src/main/java/com/v2ray/ang/fmt/ShadowsocksFmt.kt"
-    if not path.exists():
-        raise RuntimeError("Pinned ShadowsocksFmt.kt was not found")
-    text = path.read_text(encoding="utf-8")
-
-    marker = "getItemFormQuery(config, queryParam)"
-    if marker not in text:
-        pattern = r"(?P<indent>^[ \t]*)val queryParam = getQueryParam\(uri\)\s*$"
-        match = re.search(pattern, text, flags=re.MULTILINE)
-        if not match:
-            raise RuntimeError("Could not locate SIP002 query parsing in ShadowsocksFmt.kt")
-        insertion = match.group(0) + "\n" + match.group("indent") + marker
-        text = text[:match.start()] + insertion + text[match.end():]
-
-    legacy_export = "return toUri(config, Utils.encode(pw, true), null)"
-    if legacy_export in text:
-        text = text.replace(
-            legacy_export,
-            "return toUri(config, Utils.encode(pw, true), getQueryDic(config))",
-            1,
-        )
-    elif "getQueryDic(config)" not in text:
-        raise RuntimeError("Could not preserve Shadowsocks transport query on export")
-
-    path.write_text(text, encoding="utf-8")
-
-def _replace_kotlin_function(
-    text: str,
-    signature_pattern: str,
-    replacement: str,
-    label: str,
-    already_marker: str | None = None,
-) -> str:
-    """Replace one Kotlin function without depending on its exact upstream body.
-
-    GitHub Actions checks out the pinned upstream source fresh for every build.
-    Exact multi-line string replacements are brittle because harmless upstream
-    whitespace/comment changes make the prepare step fail before Gradle.  This
-    helper locates the function signature and then finds the matching closing
-    brace while ignoring braces inside Kotlin strings and comments.
-    """
-    if already_marker and already_marker in text:
-        return text
-
-    match = re.search(signature_pattern, text, flags=re.MULTILINE)
-    if not match:
-        nearby = "\n".join(
-            line for line in text.splitlines()
-            if any(token in line for token in ("startVService", "stopCoreLoop", "onStartCommand", "setupVpnService", "stopAllService"))
-        )[:2400]
-        raise RuntimeError(
-            f"Could not patch v2rayNG runtime: {label}; signature not found. "
-            f"Nearby runtime declarations:\n{nearby}"
-        )
-
-    brace_start = text.find("{", match.start(), match.end())
-    if brace_start < 0:
-        raise RuntimeError(f"Could not patch v2rayNG runtime: {label}; opening brace not found")
-
-    depth = 0
-    i = brace_start
-    state = "code"
-    block_comment_depth = 0
-    while i < len(text):
-        if state == "code":
-            if text.startswith("//", i):
-                state = "line_comment"
-                i += 2
-                continue
-            if text.startswith("/*", i):
-                state = "block_comment"
-                block_comment_depth = 1
-                i += 2
-                continue
-            if text.startswith('"""', i):
-                state = "triple_string"
-                i += 3
-                continue
-            ch = text[i]
-            if ch == '"':
-                state = "string"
-                i += 1
-                continue
-            if ch == "'":
-                state = "char"
-                i += 1
-                continue
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    end = i + 1
-                    # Preserve the upstream newline after the function so the
-                    # replacement stays stable regardless of CRLF/LF checkout.
-                    if end < len(text) and text[end] == "\r":
-                        end += 1
-                    if end < len(text) and text[end] == "\n":
-                        end += 1
-                    return text[:match.start()] + replacement.rstrip("\n") + "\n" + text[end:]
-            i += 1
-            continue
-
-        if state == "line_comment":
-            if text[i] == "\n":
-                state = "code"
-            i += 1
-            continue
-
-        if state == "block_comment":
-            if text.startswith("/*", i):
-                block_comment_depth += 1
-                i += 2
-                continue
-            if text.startswith("*/", i):
-                block_comment_depth -= 1
-                i += 2
-                if block_comment_depth == 0:
-                    state = "code"
-                continue
-            i += 1
-            continue
-
-        if state == "triple_string":
-            if text.startswith('"""', i):
-                state = "code"
-                i += 3
-            else:
-                i += 1
-            continue
-
-        if state in {"string", "char"}:
-            ch = text[i]
-            if ch == "\\":
-                i += 2
-                continue
-            if (state == "string" and ch == '"') or (state == "char" and ch == "'"):
-                state = "code"
-            i += 1
-            continue
-
-    raise RuntimeError(f"Could not patch v2rayNG runtime: {label}; closing brace not found")
-
-
-def patch_v2rayng_runtime_lifecycle() -> None:
-    """Keep v2rayNG 2.2.6 CoreServiceManager/CoreVpnService upstream-exact.
-
-    Only START_FAILURE diagnostics are added to MainViewModel. This is
-    intentionally read-only and does not change core, TUN, stop/start, ports,
-    or service lifecycle behavior.
-    """
-    vm_path = APP / "src/main/java/com/v2ray/ang/viewmodel/MainViewModel.kt"
-    if not vm_path.exists():
-        raise RuntimeError(f"Pinned v2rayNG MainViewModel missing: {vm_path}")
-    vm = vm_path.read_text(encoding="utf-8")
-
-    if "val coreStartError by lazy" not in vm:
-        anchor = "    val isRunning by lazy { MutableLiveData<Boolean>() }\n"
-        if anchor not in vm:
-            raise RuntimeError("Could not patch diagnostics: isRunning anchor missing")
-        vm = vm.replace(anchor, anchor + "    val coreStartError by lazy { MutableLiveData<String?>() }\n", 1)
-
-    init_anchor = "        isRunning.value = false\n        val mFilter = IntentFilter(AppConfig.BROADCAST_ACTION_ACTIVITY)\n"
-    if "coreStartError.value = null\n        val mFilter" not in vm:
-        if init_anchor not in vm:
-            raise RuntimeError("Could not patch diagnostics: startListenBroadcast anchor missing")
-        vm = vm.replace(init_anchor, "        isRunning.value = false\n        coreStartError.value = null\n        val mFilter = IntentFilter(AppConfig.BROADCAST_ACTION_ACTIVITY)\n", 1)
-
-    success_anchor = """                AppConfig.MSG_STATE_START_SUCCESS -> {
-                    getApplication<AngApplication>().toastSuccess(R.string.toast_services_success)
-                    isRunning.value = true
-                }
-"""
-    success_repl = """                AppConfig.MSG_STATE_START_SUCCESS -> {
-                    getApplication<AngApplication>().toastSuccess(R.string.toast_services_success)
-                    coreStartError.value = null
-                    isRunning.value = true
-                }
-"""
-    if success_repl not in vm:
-        if success_anchor not in vm:
-            raise RuntimeError("Could not patch diagnostics: START_SUCCESS anchor missing")
-        vm = vm.replace(success_anchor, success_repl, 1)
-
-    failure_anchor = """                AppConfig.MSG_STATE_START_FAILURE -> {
-                    val errorMessage = intent.getStringExtra("content")
-                    if (!errorMessage.isNullOrBlank()) {
-                        getApplication<AngApplication>().toastError(errorMessage)
-                    } else {
-                        getApplication<AngApplication>().toastError(R.string.toast_services_failure)
-                    }
-                    isRunning.value = false
-                }
-"""
-    failure_repl = """                AppConfig.MSG_STATE_START_FAILURE -> {
-                    val errorMessage = intent.getStringExtra("content")
-                    if (!errorMessage.isNullOrBlank()) {
-                        getApplication<AngApplication>().toastError(errorMessage)
-                    } else {
-                        getApplication<AngApplication>().toastError(R.string.toast_services_failure)
-                    }
-                    coreStartError.value = errorMessage?.trim()?.takeIf { it.isNotBlank() }
-                        ?: "Xray core start failed"
-                    isRunning.value = false
-                }
-"""
-    if failure_repl not in vm:
-        if failure_anchor not in vm:
-            raise RuntimeError("Could not patch diagnostics: START_FAILURE anchor missing")
-        vm = vm.replace(failure_anchor, failure_repl, 1)
-
-    vm_path.write_text(vm, encoding="utf-8")
-
 def inject_bootstrap() -> None:
     source_dir = APP / "src/main/java/com/v2ray/ang/bluevpn"
     source_dir.mkdir(parents=True, exist_ok=True)
@@ -698,16 +503,13 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnAi.kt": ROOT / "android-source/BlueVpnAi.kt",
         bluevpn_dir / "BlueVpnLiveReporter.kt": ROOT / "android-source/BlueVpnLiveReporter.kt",
         bluevpn_dir / "BlueVpnBootstrap.kt": ROOT / "android-source/BlueVpnBootstrap.kt",
-        bluevpn_dir / "BlueVpnEngineManager.kt": ROOT / "android-source/BlueVpnEngineManager.kt",
         bluevpn_dir / "BlueVpnRuntimeGate.kt": ROOT / "android-source/BlueVpnRuntimeGate.kt",
         bluevpn_dir / "BlueVpnEntitlement.kt": ROOT / "android-source/BlueVpnEntitlement.kt",
         bluevpn_dir / "BlueVpnSmartSelector.kt": ROOT / "android-source/BlueVpnSmartSelector.kt",
         bluevpn_dir / "BlueVpnTapsellManager.kt": ROOT / "android-source/BlueVpnTapsellManager.kt",
-        bluevpn_dir / "BlueVpnSingBoxProcess.kt": ROOT / "android-source/BlueVpnSingBoxProcess.kt",
         bluevpn_dir / "BlueVpnProfileManager.kt": ROOT / "android-source/BlueVpnProfileManager.kt",
         bluevpn_dir / "BlueVpnRouteIntelligence.kt": ROOT / "android-source/BlueVpnRouteIntelligence.kt",
         bluevpn_dir / "BlueVpnSubscriptionIntelligence.kt": ROOT / "android-source/BlueVpnSubscriptionIntelligence.kt",
-        bluevpn_dir / "BlueVpnSingBoxProfileCompiler.kt": ROOT / "android-source/BlueVpnSingBoxProfileCompiler.kt",
         java_dir / "BlueVpnServersActivity.kt": ROOT / "android-source/BlueVpnServersActivity.kt",
         java_dir / "BlueVpnSubscriptionsActivity.kt": ROOT / "android-source/BlueVpnSubscriptionsActivity.kt",
         java_dir / "BlueVpnSettingsActivity.kt": ROOT / "android-source/BlueVpnSettingsActivity.kt",
@@ -717,15 +519,13 @@ def inject_bluevpn_home() -> None:
             raise RuntimeError(f"Canonical BlueVPN source is missing: {source}")
         shutil.copy2(source, target)
 
-    engine_source = (bluevpn_dir / "BlueVpnEngineManager.kt").read_text(encoding="utf-8")
-    if "CoreServiceManager" not in engine_source:
-        raise RuntimeError("BlueVPN engine boundary was not generated")
-    if "CoreServiceManager.startVService(app, targetGuid)" not in engine_source:
-        raise RuntimeError("BlueVPN upstream-compatible v2rayNG start was not generated")
-    if "startVServiceExact" in engine_source:
-        raise RuntimeError("BlueVPN must not depend on a forked v2rayNG start lifecycle")
-    if "CoreServiceManager" in (java_dir / "BlueVpnHomeActivity.kt").read_text(encoding="utf-8"):
-        raise RuntimeError("BlueVPN UI still depends directly on CoreServiceManager")
+    home_runtime = (java_dir / "BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
+    if "CoreServiceManager.startVService(this, guid)" not in home_runtime:
+        raise RuntimeError("BlueVPN Home is not mounted directly on v2rayNG CoreServiceManager")
+    if "CoreServiceManager.stopVService" not in home_runtime:
+        raise RuntimeError("BlueVPN Home is not using v2rayNG stop lifecycle")
+    if "BlueVpnEngineManager" in home_runtime or "BlueVpnSingBox" in home_runtime:
+        raise RuntimeError("Legacy dual-engine runtime still leaked into BlueVPN Home")
 
     home_source = (java_dir / "BlueVpnHomeActivity.kt").read_text(
         encoding="utf-8",
@@ -784,25 +584,25 @@ def add_source_notice() -> None:
     assets = APP / "src/main/assets"
     assets.mkdir(parents=True, exist_ok=True)
     (assets / "BLUEVPN_SOURCE.txt").write_text(
-        "BlueVPN Android build uses the v2rayNG 2.2.6 compatibility bridge and a pinned sing-box v1.13.16 native runtime under GNU GPL v3.\n"
-        "Xray-core is provided through AndroidLibXrayLite under MPL 2.0.\n"
-        "Build scripts and modifications are in the BlueVPN repository.\n"
-        "Upstream sources: https://github.com/2dust/v2rayNG and https://github.com/SagerNet/sing-box\n",
+        "BlueVPN Android is a branded/custom UI distribution built directly on the official v2rayNG 2.2.6 Android source under GNU GPL v3.\n"
+        "The runtime path (import, config generation, CoreServiceManager, CoreVpnService, TUN and Xray startup) remains v2rayNG-owned.\n"
+        "Xray-core is provided through the exact AndroidLibXrayLite v26.6.27 pairing used by v2rayNG 2.2.6 under MPL 2.0.\n"
+        "BlueVPN adds its own account, location, entitlement, updater and UI layers without an alternate VPN core.\n"
+        "Upstream source: https://github.com/2dust/v2rayNG\n",
         encoding="utf-8",
     )
 
 def main() -> None:
     if not APP.exists():
         raise RuntimeError("Upstream project not found at upstream/V2rayNG")
+    runtime_snapshot = snapshot_upstream_runtime()
     patch_build_gradle()
     patch_strings()
     patch_manifest()
     patch_app_config()
-    patch_legacy_tls_profiles()
-    patch_shadowsocks_transport_queries()
-    patch_v2rayng_runtime_lifecycle()
     inject_bootstrap()
     inject_bluevpn_home()
+    assert_upstream_runtime_unchanged(runtime_snapshot)
     generate_icons()
     add_source_notice()
     print("BlueVPN branding applied successfully.")

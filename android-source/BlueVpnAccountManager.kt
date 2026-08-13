@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import android.provider.Settings
 import com.v2ray.ang.BuildConfig
+import com.v2ray.ang.core.CoreServiceManager
 import com.v2ray.ang.dto.entities.SubscriptionItem
 import com.v2ray.ang.handler.MmkvManager
 import org.json.JSONArray
@@ -495,20 +496,21 @@ object BlueVpnAccountManager {
             val old = existing.firstOrNull {
                 it.subscription.remarks == remark || it.subscription.url == source.url
             }
-            val unchanged = old?.subscription?.url == source.url && old.subscription.enabled
+            val unchanged = old?.subscription?.url == source.url &&
+                old.subscription.enabled &&
+                old.subscription.userAgent == null
             val item = old?.subscription?.copy(
                 remarks = remark,
                 url = source.url,
                 enabled = true,
                 autoUpdate = false,
-                userAgent = old.subscription.userAgent
-                    ?: BlueVpnSubscriptionIntelligence.recommendedUserAgent(c, source.url),
+                userAgent = null,
             ) ?: SubscriptionItem(
                 remarks = remark,
                 url = source.url,
                 enabled = true,
                 autoUpdate = false,
-                userAgent = BlueVpnSubscriptionIntelligence.recommendedUserAgent(c, source.url),
+                userAgent = null,
             )
             if (!recent || !unchanged) {
                 MmkvManager.encodeSubscription(old?.guid.orEmpty(), item)
@@ -987,21 +989,23 @@ object BlueVpnAccountManager {
                 changed = true
             }
 
-            val needsManagedWrite = managed == null || !managed.subscription.enabled
+            val needsManagedWrite = managed == null ||
+                !managed.subscription.enabled ||
+                managed.subscription.userAgent != null ||
+                managed.subscription.autoUpdate
             if (needsManagedWrite) {
                 val item = managed?.subscription?.copy(
                     remarks = SUB,
                     url = normalizedPremiumUrl,
                     enabled = true,
                     autoUpdate = false,
-                    userAgent = managed.subscription.userAgent
-                        ?: BlueVpnSubscriptionIntelligence.recommendedUserAgent(c, normalizedPremiumUrl),
+                    userAgent = null,
                 ) ?: SubscriptionItem(
                     remarks = SUB,
                     url = normalizedPremiumUrl,
                     enabled = true,
                     autoUpdate = false,
-                    userAgent = BlueVpnSubscriptionIntelligence.recommendedUserAgent(c, normalizedPremiumUrl),
+                    userAgent = null,
                 )
                 MmkvManager.encodeSubscription(
                     managed?.guid.orEmpty(),
@@ -1158,8 +1162,7 @@ object BlueVpnAccountManager {
         val storage = freePrefs(appContext)
         if (!storage.getBoolean("session_active", false)) return false
         if (freeSessionRemainingMillis(appContext) > 0L) return false
-        // Legacy direct call replaced: CoreServiceManager.stopVService(appContext)
-        runCatching { BlueVpnEngineManager.stop(appContext) }
+        runCatching { CoreServiceManager.stopVService(appContext) }
         runCatching { BlueVpnPreferences.clearConnected(appContext) }
         stopFreeSession(appContext, expired = false)
         stopFreeSession(appContext, expired = true)
@@ -1385,8 +1388,7 @@ object BlueVpnAccountManager {
         // Logout must be immediate from the user's perspective. Stop the tunnel
         // before deleting credentials so an authenticated VPN session can never
         // remain active after the account has been left.
-        // Legacy direct call replaced: CoreServiceManager.stopVService(appContext)
-        runCatching { BlueVpnEngineManager.stop(appContext) }
+        runCatching { CoreServiceManager.stopVService(appContext) }
         runCatching { BlueVpnPreferences.clearConnected(appContext) }
 
         prefs(appContext).edit()

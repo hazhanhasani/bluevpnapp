@@ -1,22 +1,13 @@
-# BlueVPN — اطلاعیه مجوز و منابع بالادستی
+# BlueVPN — upstream/runtime notice
 
-بخش Android هنگام اجرای GitHub Actions از منابع زیر استفاده می‌کند:
+BlueVPN Android 4.1.8 is built directly on the official **v2rayNG 2.2.6** Android source (GNU GPL v3).
 
-- v2rayNG نسخه `2.2.6` به‌عنوان لایه سازگاری موقت — GNU GPL v3
-- sing-box نسخه `v1.13.16` به‌صورت Native Runtime ایزوله — GNU GPL v3 یا نسخه‌های بعدی
-- Xray-core از طریق AndroidLibXrayLite — Mozilla Public License 2.0
+Runtime ownership is intentionally simple:
 
-در این مرحله `libbox.aar` کنار `libv2ray.aar` قرار نمی‌گیرد. sing-box به‌صورت فایل Native مستقل ساخته می‌شود تا کلاس‌ها و Runtime تکراری gomobile وارد یک APK نشوند.
+- v2rayNG owns profile import/parsing, MMKV profile storage, `CoreConfigManager`, `CoreServiceManager`, `CoreVpnService`, Android `VpnService`, TUN and Xray startup/stop lifecycle.
+- Xray is the exact **v26.6.27** / AndroidLibXrayLite pairing used by v2rayNG 2.2.6 (MPL 2.0).
+- BlueVPN owns branding, its custom Home/Locations/Account/Settings UI, Free/Premium entitlement, WordPress API integration, updater, advertising and location grouping.
+- **sing-box and the previous Dual Engine runtime have been removed from the Android production path.**
+- BlueVPN no longer patches v2rayNG CoreServiceManager/CoreVpnService/MainViewModel or protocol parsers.
 
-اسکریپت تغییرات BlueVPN در `scripts/prepare_android.py` و Validator مهاجرت در `scripts/validate_release.py` قرار دارد.
-
-BlueVPN وابسته یا مورد تأیید توسعه‌دهندگان رسمی v2rayNG، sing-box یا Xray نیست. نام‌ها و نشان‌های پروژه‌های بالادستی متعلق به صاحبان همان پروژه‌ها هستند.
-
-
-## 4.1.7 compatibility restore
-
-- Restores CoreServiceManager/CoreVpnService lifecycle to pinned upstream v2rayNG 2.2.6 behavior.
-- Treats upstream START_SUCCESS/RUNNING as connection success; BlueVPN HTTP/DNS probes are non-authoritative.
-- Removes hidden AI auto-heal reconnects from the home runtime loop.
-- Leaves dynamic SOCKS/local proxy behavior under upstream v2rayNG ownership.
-- Keeps only read-only START_FAILURE diagnostics in MainViewModel.
+BlueVPN is an independent modified distribution and is not endorsed by the upstream v2rayNG/Xray maintainers.

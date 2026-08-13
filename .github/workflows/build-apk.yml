@@ -185,7 +185,6 @@ jobs:
 
           echo "upstream_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["upstream_ref"])')" >> "$GITHUB_OUTPUT"
           echo "xray_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["xray_ref"])')" >> "$GITHUB_OUTPUT"
-          echo "sing_box_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["sing_box_ref"])')" >> "$GITHUB_OUTPUT"
 
       - name: Synchronize WordPress Manager with BlueVPN version
         shell: bash
@@ -280,20 +279,6 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
-      - name: Checkout pinned sing-box core
-        uses: actions/checkout@v6
-        with:
-          repository: SagerNet/sing-box
-          ref: ${{ steps.config.outputs.sing_box_ref }}
-          path: sing-box-core
-          fetch-depth: 1
-
-      - name: Setup Go for sing-box
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: sing-box-core/go.mod
-          cache-dependency-path: sing-box-core/go.sum
-
       - name: Setup Android SDK 37
         uses: android-actions/setup-android@v4
         with:
@@ -337,13 +322,16 @@ jobs:
           bash compile-hevtun.sh
           cp -r libs V2rayNG/app/
 
-      - name: Fetch AndroidLibXrayLite release tag
+      - name: Verify v2rayNG AndroidLibXrayLite pairing
         id: xray
         working-directory: upstream/AndroidLibXrayLite
         shell: bash
         run: |
           set -euo pipefail
 
+          # Never move the core submodule away from the commit pinned by the
+          # checked-out v2rayNG release. Fetch tags only so we can prove that
+          # the configured Xray tag resolves to the exact same commit.
           git fetch origin \
             --force \
             --prune \
@@ -355,16 +343,23 @@ jobs:
             echo "Pinned AndroidLibXrayLite release tag is missing."
             exit 1
           fi
-          git checkout --force "$XRAY_REF"
-          CURRENT_TAG="$(git tag --points-at HEAD | sort -V | tail -n 1)"
-          if [ "$CURRENT_TAG" != "$XRAY_REF" ]; then
-            echo "AndroidLibXrayLite pin mismatch: requested=$XRAY_REF actual=$CURRENT_TAG"
+
+          CURRENT_COMMIT="$(git rev-parse HEAD)"
+          PINNED_COMMIT="$(git rev-list -n 1 "$XRAY_REF" 2>/dev/null || true)"
+          if [ -z "$PINNED_COMMIT" ]; then
+            echo "Configured AndroidLibXrayLite tag does not exist: $XRAY_REF"
+            exit 1
+          fi
+          if [ "$CURRENT_COMMIT" != "$PINNED_COMMIT" ]; then
+            echo "AndroidLibXrayLite pairing mismatch."
+            echo "v2rayNG submodule commit: $CURRENT_COMMIT"
+            echo "configured $XRAY_REF commit: $PINNED_COMMIT"
             exit 1
           fi
 
-          echo "AndroidLibXrayLite commit: $(git rev-parse --short HEAD)"
-          echo "AndroidLibXrayLite tag: $CURRENT_TAG"
-          echo "tag=$CURRENT_TAG" >> "$GITHUB_OUTPUT"
+          echo "AndroidLibXrayLite commit: ${CURRENT_COMMIT:0:12}"
+          echo "AndroidLibXrayLite verified tag: $XRAY_REF"
+          echo "tag=$XRAY_REF" >> "$GITHUB_OUTPUT"
 
       - name: Download libv2ray
         uses: robinraju/release-downloader@v1.13
@@ -373,65 +368,6 @@ jobs:
           tag: ${{ steps.xray.outputs.tag }}
           fileName: libv2ray.aar
           out-file-path: upstream/V2rayNG/app/libs/
-
-      - name: Build isolated sing-box Android runtime
-        working-directory: sing-box-core
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "BUILD_STAGE=sing-box-native-build" >> "$GITHUB_ENV"
-          echo "sing-box-native-build" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
-
-          SINGBOX_LOG="$GITHUB_WORKSPACE/singbox-build.log"
-          : > "$SINGBOX_LOG"
-          exec > >(tee -a "$SINGBOX_LOG") 2>&1
-
-          TAGS="$(tr '\n' ' ' < release/DEFAULT_BUILD_TAGS_OTHERS | xargs)"
-          LDFLAGS="$(cat release/LDFLAGS) -s -w -buildid="
-          ARM64_OUTPUT="$GITHUB_WORKSPACE/upstream/V2rayNG/app/libs/arm64-v8a/libbluevpn_singbox.so"
-          ARMV7_OUTPUT="$GITHUB_WORKSPACE/upstream/V2rayNG/app/libs/armeabi-v7a/libbluevpn_singbox.so"
-
-          mkdir -p "$(dirname "$ARM64_OUTPUT")" "$(dirname "$ARMV7_OUTPUT")"
-          rm -f "$ARM64_OUTPUT" "$ARMV7_OUTPUT"
-
-          # Go supports an internally linked Android/arm64 PIE without cgo.
-          # Android/arm (armeabi-v7a) always requires external cgo linking and
-          # has repeatedly failed before Gradle on GitHub runners. BlueVPN keeps
-          # the 32-bit APK fully functional through its Xray safety fallback,
-          # while sing-box is enabled on the modern arm64 runtime.
-          env \
-            CGO_ENABLED=0 \
-            GOOS=android \
-            GOARCH=arm64 \
-            GOFLAGS= \
-            go build -trimpath -buildvcs=false \
-              -tags "$TAGS" -ldflags "$LDFLAGS" \
-              -o "$ARM64_OUTPUT" \
-              ./cmd/sing-box
-
-          test -s "$ARM64_OUTPUT"
-          file "$ARM64_OUTPUT"
-          if ! file "$ARM64_OUTPUT" | grep -Eq 'ELF 64-bit.*ARM aarch64'; then
-            echo "::error::The generated sing-box runtime is not Android arm64."
-            exit 1
-          fi
-
-          echo "sing-box ${{ steps.config.outputs.sing_box_ref }} built for arm64-v8a."
-          echo "armeabi-v7a intentionally uses the Xray fallback; no broken sing-box binary is packaged."
-
-          # The native build is complete. Any later failure must not be
-          # misreported as a sing-box failure.
-          echo "BUILD_STAGE=prepare-android" >> "$GITHUB_ENV"
-          echo "prepare-android" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
-
-      - name: Upload failed sing-box build log
-        if: ${{ failure() }}
-        uses: actions/upload-artifact@v6
-        with:
-          name: BlueVPN-sing-box-build-log
-          path: singbox-build.log
-          if-no-files-found: ignore
-          retention-days: 7
 
       - name: Mark Android source preparation stage
         shell: bash
@@ -450,7 +386,7 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check pillow
 
-      - name: Apply BlueVPN custom UI and features
+      - name: Overlay BlueVPN UI and control plane on v2rayNG
         shell: bash
         run: |
           set -o pipefail
@@ -1102,8 +1038,6 @@ jobs:
               else os.getenv("BUILD_STAGE", "pre-gradle")
           ) or "pre-gradle"
           candidates = []
-          if stage == "sing-box-native-build":
-              candidates.append(Path("singbox-build.log"))
           if stage == "prepare-android":
               candidates.append(Path("prepare-android.log"))
           elif stage == "release-regression-gate":
@@ -1111,7 +1045,6 @@ jobs:
           elif stage == "gradle-compile":
               candidates.append(Path("android-build.log"))
           candidates.extend([
-              Path("singbox-build.log"),
               Path("android-build.log"),
           ])
           log_path = next(
@@ -1228,9 +1161,6 @@ jobs:
           if [ "$STAGE" = "prepare-android" ] && [ -f prepare-android.log ]; then
             LOG_FILE="prepare-android.log"
             LOG_CAPTION="📎 لاگ آماده‌سازی سورس Android | Build #${GITHUB_RUN_NUMBER} | ${SHORT_SHA}"
-          elif [ "$STAGE" = "sing-box-native-build" ] && [ -f singbox-build.log ]; then
-            LOG_FILE="singbox-build.log"
-            LOG_CAPTION="📎 لاگ کامل ساخت sing-box | Build #${GITHUB_RUN_NUMBER} | ${SHORT_SHA}"
           elif [ -f android-build.log ]; then
             LOG_FILE="android-build.log"
             LOG_CAPTION="📎 لاگ کامل خطای Android | Build #${GITHUB_RUN_NUMBER} | ${SHORT_SHA}"

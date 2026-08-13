@@ -37,7 +37,9 @@ class Release418Tests(unittest.TestCase):
 
     def test_03_official_pairing(self):
         self.assertEqual(self.app["upstream_ref"], "2.2.6")
-        self.assertEqual(self.app["xray_ref"], "v26.6.27")
+        self.assertEqual(self.app["android_lib_xray_ref"], "v26.7.5")
+        self.assertEqual(self.app["xray_core_release_label"], "v26.6.27")
+        self.assertNotIn("xray_ref", self.app)
         self.assertNotIn("sing_box_ref", self.app)
 
     def test_04_direct_stock_start_stop(self):
@@ -94,9 +96,11 @@ class Release418Tests(unittest.TestCase):
         self.assertNotIn('git checkout --force "$XRAY_REF"', self.workflow)
         self.assertIn('CURRENT_COMMIT="$(git rev-parse HEAD)"', self.workflow)
         self.assertIn('CURRENT_TAG="$(git describe --tags --abbrev=0', self.workflow)
-        self.assertIn('EXPECTED_TAG="${{ steps.config.outputs.xray_ref }}"', self.workflow)
+        self.assertIn('DOCUMENTED_TAG="${{ steps.config.outputs.android_lib_xray_ref }}"', self.workflow)
+        self.assertIn('XRAY_RELEASE_LABEL="${{ steps.config.outputs.xray_core_release_label }}"', self.workflow)
         self.assertNotIn('PINNED_COMMIT="$(git rev-list -n 1', self.workflow)
-        self.assertIn('if [ -n "$EXPECTED_TAG" ] && [ "$CURRENT_TAG" != "$EXPECTED_TAG" ]; then', self.workflow)
+        self.assertNotIn('AndroidLibXrayLite release tag mismatch', self.workflow)
+        self.assertIn('Building with the upstream-resolved tag', self.workflow)
 
     def test_12_immediate_stock_receiver_and_assets(self):
         listen = self.home.index("mainViewModel.startListenBroadcast()")

@@ -5,7 +5,8 @@ BlueVPN Android 4.1.8 is built directly on the official **v2rayNG 2.2.6** Androi
 Runtime ownership is intentionally simple:
 
 - v2rayNG owns profile import/parsing, MMKV profile storage, `CoreConfigManager`, `CoreServiceManager`, `CoreVpnService`, Android `VpnService`, TUN and Xray startup/stop lifecycle.
-- Xray is the exact **v26.6.27** / AndroidLibXrayLite pairing used by v2rayNG 2.2.6 (MPL 2.0).
+- BlueVPN uses the AndroidLibXrayLite release resolved by the exact v2rayNG 2.2.6 submodule, currently **v26.7.5** (MPL 2.0).
+- The official v2rayNG 2.2.6 release notes label the bundled Xray-core as **v26.6.27**. AndroidLibXrayLite and Xray-core use separate version namespaces and must not be compared as if they were the same tag.
 - BlueVPN owns branding, its custom Home/Locations/Account/Settings UI, Free/Premium entitlement, WordPress API integration, updater, advertising and location grouping.
 - **sing-box and the previous Dual Engine runtime have been removed from the Android production path.**
 - BlueVPN no longer patches v2rayNG CoreServiceManager/CoreVpnService/MainViewModel or protocol parsers.

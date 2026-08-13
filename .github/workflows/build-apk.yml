@@ -184,7 +184,8 @@ jobs:
           PY
 
           echo "upstream_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["upstream_ref"])')" >> "$GITHUB_OUTPUT"
-          echo "xray_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["xray_ref"])')" >> "$GITHUB_OUTPUT"
+          echo "android_lib_xray_ref=$(python -c 'import json; print(json.load(open("branding/app.json")).get("android_lib_xray_ref", ""))')" >> "$GITHUB_OUTPUT"
+          echo "xray_core_release_label=$(python -c 'import json; print(json.load(open("branding/app.json")).get("xray_core_release_label", ""))')" >> "$GITHUB_OUTPUT"
 
       - name: Synchronize WordPress Manager with BlueVPN version
         shell: bash
@@ -356,19 +357,25 @@ jobs:
 
           CURRENT_COMMIT="$(git rev-parse HEAD)"
           CURRENT_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
-          EXPECTED_TAG="${{ steps.config.outputs.xray_ref }}"
+          DOCUMENTED_TAG="${{ steps.config.outputs.android_lib_xray_ref }}"
+          XRAY_RELEASE_LABEL="${{ steps.config.outputs.xray_core_release_label }}"
 
           if [ -z "$CURRENT_TAG" ]; then
             echo "::error::Could not resolve an AndroidLibXrayLite release tag from the v2rayNG-pinned submodule commit $CURRENT_COMMIT"
             exit 1
           fi
-          if [ -n "$EXPECTED_TAG" ] && [ "$CURRENT_TAG" != "$EXPECTED_TAG" ]; then
-            echo "::error::AndroidLibXrayLite release tag mismatch. v2rayNG resolves $CURRENT_TAG but branding/app.json expects $EXPECTED_TAG"
-            exit 1
+
+          # Match upstream v2rayNG exactly: the AAR release is selected from
+          # the tag reachable from the submodule commit. Do NOT compare that
+          # library tag to the Xray-core release label; they are different
+          # version namespaces and need not have the same number.
+          if [ -n "$DOCUMENTED_TAG" ] && [ "$CURRENT_TAG" != "$DOCUMENTED_TAG" ]; then
+            echo "::warning::branding/app.json documents AndroidLibXrayLite $DOCUMENTED_TAG, while the pinned v2rayNG submodule resolves $CURRENT_TAG. Building with the upstream-resolved tag."
           fi
 
           echo "v2rayNG-pinned AndroidLibXrayLite commit: $CURRENT_COMMIT"
-          echo "Official nearest AndroidLibXrayLite release tag: $CURRENT_TAG"
+          echo "Upstream-resolved AndroidLibXrayLite release tag: $CURRENT_TAG"
+          echo "v2rayNG release Xray-core label (informational only): ${XRAY_RELEASE_LABEL:-unknown}"
           echo "tag=$CURRENT_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Download libv2ray

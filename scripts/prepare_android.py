@@ -586,7 +586,7 @@ def add_source_notice() -> None:
     (assets / "BLUEVPN_SOURCE.txt").write_text(
         "BlueVPN Android is a branded/custom UI distribution built directly on the official v2rayNG 2.2.6 Android source under GNU GPL v3.\n"
         "The runtime path (import, config generation, CoreServiceManager, CoreVpnService, TUN and Xray startup) remains v2rayNG-owned.\n"
-        "Xray-core is provided through the exact AndroidLibXrayLite v26.6.27 pairing used by v2rayNG 2.2.6 under MPL 2.0.\n"
+        "AndroidLibXrayLite is resolved from the exact v2rayNG 2.2.6 submodule (currently v26.7.5); v2rayNG 2.2.6 release notes label its Xray-core as v26.6.27. These are separate version namespaces.\n"
         "BlueVPN adds its own account, location, entitlement, updater and UI layers without an alternate VPN core.\n"
         "Upstream source: https://github.com/2dust/v2rayNG\n",
         encoding="utf-8",

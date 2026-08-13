@@ -6,7 +6,8 @@ BlueVPN is now rebased as a **custom product/UI on top of official v2rayNG**, in
 
 - v2rayNG: `2.2.6` (current stable release selected for production)
 - v2rayNG release commit: `15b4fff`
-- Xray / AndroidLibXrayLite: `v26.6.27`
+- AndroidLibXrayLite (resolved from v2rayNG 2.2.6 submodule): `v26.7.5`
+- Xray-core label in the official v2rayNG 2.2.6 release notes: `v26.6.27`
 - Android target from upstream: SDK 37
 - Production VPN engines: **v2rayNG/Xray only**
 - sing-box: **removed**

@@ -55,7 +55,7 @@ Requires PHP: 8.0
 - جلوگیری از قبول Ping دیررس پس از خطای نهایی و جلوگیری از زنده‌شدن دوباره Verification.
 - نگه‌داشتن Runtime Gate تا دریافت توقف واقعی CoreVpnService و جلوگیری از تغییر Subscription در زمان آزادسازی Xray.
 - نمایش علت واقعی شکست آخرین Candidate به‌جای خطای عمومی و مبهم.
-- بازگردانی AndroidLibXrayLite/Xray به v26.6.27 برای جفت‌شدن دقیق با v2rayNG 2.2.6 و حذف backport آزمایشی 26.7.28.
+- همگام‌سازی Runtime با v2rayNG 2.2.6؛ AndroidLibXrayLite از ساب‌ماژول رسمی resolve می‌شود و برچسب آن با نسخه Xray-core اشتباه گرفته نمی‌شود.
 
 = 4.1.0 =
 - سخت‌سازی جداسازی Free/Premium و حذف Refreshهای ناخواسته.

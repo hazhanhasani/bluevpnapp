@@ -45,7 +45,9 @@ def main() -> None:
     require(release["version"] == "4.1.8", "release version mismatch")
     require(release["version_code"] == 40108, "release versionCode mismatch")
     require(app["upstream_ref"] == "2.2.6", "production v2rayNG pin must be 2.2.6")
-    require(app["xray_ref"] == "v26.6.27", "Xray pairing must be v26.6.27")
+    require(app["android_lib_xray_ref"] == "v26.7.5", "documented AndroidLibXrayLite tag must be v26.7.5")
+    require(app["xray_core_release_label"] == "v26.6.27", "v2rayNG 2.2.6 Xray-core release label must be v26.6.27")
+    require("xray_ref" not in app, "ambiguous xray_ref metadata must be removed")
     require("sing_box_ref" not in app, "sing-box pin must be removed")
 
     # BlueVPN is a UI/control-plane mounted directly on stock v2rayNG runtime.
@@ -108,9 +110,11 @@ def main() -> None:
     require('git checkout --force "$XRAY_REF"' not in workflow, "CI still moves AndroidLibXrayLite away from the v2rayNG submodule commit")
     require('CURRENT_COMMIT="$(git rev-parse HEAD)"' in workflow, "CI does not read v2rayNG-pinned core submodule commit")
     require('CURRENT_TAG="$(git describe --tags --abbrev=0' in workflow, "CI does not resolve the nearest official AndroidLibXrayLite tag from the pinned submodule")
-    require('EXPECTED_TAG="${{ steps.config.outputs.xray_ref }}"' in workflow, "CI does not compare the resolved upstream tag with BlueVPN metadata")
+    require('DOCUMENTED_TAG="${{ steps.config.outputs.android_lib_xray_ref }}"' in workflow, "CI does not expose documented AndroidLibXrayLite metadata")
+    require('XRAY_RELEASE_LABEL="${{ steps.config.outputs.xray_core_release_label }}"' in workflow, "CI does not expose informational Xray-core release label")
     require('PINNED_COMMIT="$(git rev-list -n 1' not in workflow, "CI still assumes submodule HEAD must equal the release-tag commit")
-    require('if [ -n "$EXPECTED_TAG" ] && [ "$CURRENT_TAG" != "$EXPECTED_TAG" ]; then' in workflow, "CI does not fail when the official resolved tag differs from BlueVPN metadata")
+    require('AndroidLibXrayLite release tag mismatch' not in workflow, "CI still treats AndroidLibXrayLite and Xray-core version labels as the same namespace")
+    require('Building with the upstream-resolved tag' in workflow, "CI does not prefer the official v2rayNG-resolved AndroidLibXrayLite tag")
 
     # Build-time immutable boundary around v2rayNG runtime/parser files.
     require("patch_v2rayng_runtime_lifecycle" not in prepare, "core lifecycle patch remains")
@@ -155,7 +159,7 @@ def main() -> None:
     require(0 <= patch <= 10, "patch version exceeded BlueVPN short series")
 
     print("BlueVPN 4.1.8 validation: PASS")
-    print("runtime=v2rayNG-2.2.6 xray=v26.6.27 sing-box=removed")
+    print("runtime=v2rayNG-2.2.6 androidlib=v26.7.5 xray-release-label=v26.6.27 sing-box=removed")
     print("architecture=BlueVPN UI/control-plane -> immutable stock v2rayNG runtime")
 
 

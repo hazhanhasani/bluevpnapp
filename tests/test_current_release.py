@@ -52,6 +52,7 @@ class Release418Tests(unittest.TestCase):
             "android-source/BlueVpnEngineManager.kt",
             "android-source/BlueVpnSingBoxProcess.kt",
             "android-source/BlueVpnSingBoxProfileCompiler.kt",
+            "android-source/BlueVpnAiActivity.kt",
         ):
             self.assertFalse((ROOT / rel).exists(), rel)
 
@@ -177,6 +178,20 @@ class Release418Tests(unittest.TestCase):
     def test_27_no_old_release_number(self):
         for rel in ("branding/app.json", "release.json", "README.md", "NOTICE.md"):
             self.assertNotIn("4.1.7", text(rel))
+
+    def test_repository_cleanup_handles_overlay_stale_files(self):
+        cleanup = (ROOT / "scripts/cleanup_repository.py").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/build-apk.yml").read_text(encoding="utf-8")
+        for token in (
+            "BlueVpnEngineManager.kt",
+            "BlueVpnSingBoxProcess.kt",
+            "BlueVpnSingBoxProfileCompiler.kt",
+            "BlueVpnAiActivity.kt",
+            "android-source/generated",
+        ):
+            self.assertIn(token, cleanup)
+        self.assertIn("Remove retired BlueVPN runtime files", workflow)
+        self.assertIn("python scripts/cleanup_repository.py", workflow)
 
 
 if __name__ == "__main__":

@@ -96,8 +96,21 @@ def main() -> None:
         "android-source/BlueVpnEngineManager.kt",
         "android-source/BlueVpnSingBoxProcess.kt",
         "android-source/BlueVpnSingBoxProfileCompiler.kt",
+        "android-source/BlueVpnAiActivity.kt",
     ):
         require(not (ROOT / rel).exists(), f"legacy dual-engine file still present: {rel}")
+    cleanup = read("scripts/cleanup_repository.py")
+    for token in (
+        "BlueVpnEngineManager.kt",
+        "BlueVpnSingBoxProcess.kt",
+        "BlueVpnSingBoxProfileCompiler.kt",
+        "BlueVpnAiActivity.kt",
+        "android-source/generated",
+    ):
+        require(token in cleanup, f"repository cleanup does not retire: {token}")
+    require("Remove retired BlueVPN runtime files" in workflow, "CI repository cleanup step missing")
+    require("python scripts/cleanup_repository.py" in workflow, "CI does not execute repository cleanup")
+
     require("sing-box" not in workflow.lower(), "workflow still builds sing-box")
     require("SING_BOX" not in profile and "SING_BOX_JSON" not in profile, "profile catalogue still routes to sing-box")
 

@@ -403,10 +403,20 @@ jobs:
           set -euo pipefail
           python -m pip install --disable-pip-version-check pillow
 
+      - name: Remove retired BlueVPN runtime files
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BUILD_STAGE=repository-cleanup" >> "$GITHUB_ENV"
+          echo "repository-cleanup" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          python scripts/cleanup_repository.py
+
       - name: Overlay BlueVPN UI and control plane on v2rayNG
         shell: bash
         run: |
           set -o pipefail
+          echo "BUILD_STAGE=overlay-bluevpn" >> "$GITHUB_ENV"
+          echo "overlay-bluevpn" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           python scripts/prepare_android.py 2>&1 | tee "$GITHUB_WORKSPACE/prepare-android.log"
 
       - name: Apply BlueVPN login and registration redesign

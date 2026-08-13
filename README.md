@@ -68,3 +68,7 @@ Patch numbers remain short: `x.y.0 ... x.y.10`, then the next minor version.
 - Removed the authoritative BlueVPN DNS/TCP/config-hydration gate before starting a route. Imported profiles are accepted/rejected by the official v2rayNG runtime.
 
 See `LICENSE` and `NOTICE.md` for licensing and attribution.
+
+## Overlay-safe repository cleanup
+
+Some deployments copy a release bundle over an existing GitHub checkout instead of replacing the tree. Deleted files from older releases can therefore remain tracked in the repository. The Android workflow now runs `scripts/cleanup_repository.py` before applying the BlueVPN overlay. It removes retired dual-engine/sing-box files, the removed AI activity, and historical generated Android snapshots from the build workspace before the regression gate runs.

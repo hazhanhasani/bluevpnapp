@@ -142,3 +142,10 @@ Theme `1.0.3` replaces the previous generic card layout with a product-focused R
 - Installation: `Theme_Upgrader` replaces only `bluevpn-site/`; Android/v2rayNG and BlueVPN Manager are untouched.
 - Manual diagnostics: WordPress → Appearance → `آپدیت BlueVPN Site`.
 - GitHub publication is isolated in `.github/workflows/bluevpn-site-theme-release.yml`, so changing website styling no longer needs an Android APK build.
+
+
+## 4.2.3
+- اصلاح نمایش اشتراک واقعی حساب وب با قرارداد canonical `subscription`.
+- نمایش صحیح شماره محلی و اطلاعات پلن جاری.
+- داشبورد حساب یکپارچه و حذف محتوای معرفی پس از ورود.
+- Runtime رسمی v2rayNG/Xray بدون تغییر.

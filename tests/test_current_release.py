@@ -380,5 +380,27 @@ class CurrentReleaseTests(unittest.TestCase):
         for term in ("GitHub", "hazhanhasani", "BlueVPN Manager", "v2rayNG Runtime", "Xray", "BluePay", "Build #", "WordPress"):
             self.assertNotIn(term, public)
 
+
+    def test_web_account_uses_canonical_subscription_contract(self):
+        js = text("bluevpn-site/assets/js/site.js")
+        auth = text("bluevpn-manager/includes/class-bluevpn-auth.php")
+        page = text("bluevpn-site/page-account.php")
+        self.assertIn("function subscriptionOf(account)", js)
+        self.assertIn("sub.entitlement_plan_id||sub.plan_id", js)
+        self.assertIn("a.phone_display||a.display_identity||a.phone", js)
+        self.assertNotIn("a.entitlement?.active", js)
+        self.assertIn("'plan_title' => $planTitle", auth)
+        self.assertIn("'current_plan' => $currentPlan", auth)
+        self.assertIn("data-current-plan-title", page)
+
+    def test_authenticated_account_hides_login_marketing_and_uses_unified_dashboard(self):
+        js = text("bluevpn-site/assets/js/site.js")
+        css = text("bluevpn-site/assets/css/site.css")
+        page = text("bluevpn-site/page-account.php")
+        self.assertIn("classList.add('is-authenticated')", js)
+        self.assertIn(".bv-account-layout.is-authenticated .bv-account-intro{display:none}", css)
+        self.assertIn("bv-current-subscription", page)
+        self.assertIn("bv-dashboard-plans", page)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

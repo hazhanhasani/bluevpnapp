@@ -34,3 +34,10 @@ The SMS/OTP hardening changes only BlueVPN Android account networking and the Wo
 ## 4.2.0 SMS pattern discovery
 
 BlueVPN Manager retrieves the authenticated account's active SMS patterns from the IranPayamak/FarazSMS REST API and presents them as controlled selections in WordPress. No SMS API key is written to the pattern cache. This change is limited to the WordPress control plane and does not alter the frozen v2rayNG/Xray runtime.
+
+
+## 4.2.3
+- اصلاح نمایش اشتراک واقعی حساب وب با قرارداد canonical `subscription`.
+- نمایش صحیح شماره محلی و اطلاعات پلن جاری.
+- داشبورد حساب یکپارچه و حذف محتوای معرفی پس از ورود.
+- Runtime رسمی v2rayNG/Xray بدون تغییر.

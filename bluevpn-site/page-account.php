@@ -1,8 +1,16 @@
 <?php get_header(); ?>
 <section class="bv-account-page">
   <div class="bv-account-orb a1"></div><div class="bv-account-orb a2"></div>
-  <div class="bv-shell bv-account-layout">
-    <aside class="bv-account-intro" data-bv-reveal><span class="bv-kicker bv-kicker-light">MY BLUEVPN</span><h1>حسابت، اشتراکت، همه در یکجا.</h1><p>با موبایل یا ایمیل وارد شو؛ وضعیت اشتراک، پلن‌ها و خرید از همین صفحه مدیریت می‌شود.</p><div class="bv-account-benefits"><div><i>✓</i><span><b>OTP موبایل</b><small>ورود سریع؛ نشست وب از دستگاه‌های VPN جداست</small></span></div><div><i>✓</i><span><b>ایمیل و رمز</b><small>ورود یا ثبت‌نام مستقیم</small></span></div><div><i>✓</i><span><b>خرید یکپارچه</b><small>مدیریت پلن و پرداخت از همان حساب</small></span></div></div></aside>
+  <div class="bv-shell bv-account-layout" data-bv-account-layout>
+    <aside class="bv-account-intro" data-bv-reveal>
+      <span class="bv-kicker bv-kicker-light">حساب BlueVPN</span>
+      <h1>اشتراک و حساب، ساده و یکپارچه.</h1>
+      <p>با موبایل یا ایمیل وارد شو و وضعیت اشتراک و پلن‌ها را از همین صفحه مدیریت کن.</p>
+      <div class="bv-account-benefits">
+        <div><i>✓</i><span><b>ورود سریع</b><small>با شماره موبایل یا ایمیل</small></span></div>
+        <div><i>✓</i><span><b>اشتراک یکپارچه</b><small>همان حسابی که در اپ استفاده می‌کنی</small></span></div>
+      </div>
+    </aside>
     <div id="bv-account-app" class="bv-account-app" data-bv-account data-bv-reveal>
       <div class="bv-auth-shell" data-bv-auth>
         <div class="bv-auth-header"><span class="bv-app-logo">B</span><div><h2>ورود به BlueVPN</h2><p>روش ورود را انتخاب کن.</p></div></div>
@@ -14,7 +22,28 @@
         <div class="bv-auth-panel" data-auth-panel="email"><label>ایمیل</label><input type="email" placeholder="name@example.com" data-email><label>رمز عبور</label><input type="password" placeholder="••••••••" data-password><div class="bv-auth-actions"><button class="bv-btn bv-btn-primary" data-email-login>ورود</button><button class="bv-btn bv-btn-ghost" data-email-register>ثبت‌نام</button></div></div>
         <div class="bv-form-message" data-auth-message></div>
       </div>
-      <div class="bv-hidden" data-bv-dashboard><div class="bv-dashboard-head"><div><span class="bv-kicker">ACCOUNT</span><h2 data-account-identity>BlueVPN</h2></div><button class="bv-btn bv-btn-ghost bv-btn-small" data-logout>خروج</button></div><div class="bv-account-stats"><article><small>وضعیت</small><strong data-account-status>—</strong></article><article><small>پلن</small><strong data-account-plan>—</strong></article><article><small>اعتبار</small><strong data-account-expire>—</strong></article></div><div class="bv-dashboard-grid"><section class="bv-dashboard-panel"><div class="bv-card-title"><h3>پلن‌ها</h3><button class="bv-link-btn" data-refresh-account>بروزرسانی</button></div><div class="bv-plans" data-account-plans></div></section><aside class="bv-account-card"><h3>اشتراک فعلی</h3><div data-account-detail></div></aside></div></div>
+
+      <div class="bv-hidden bv-account-dashboard" data-bv-dashboard>
+        <div class="bv-dashboard-head">
+          <div><span class="bv-kicker">حساب کاربری</span><h2 data-account-identity>BlueVPN</h2></div>
+          <div class="bv-dashboard-actions"><button class="bv-link-btn" data-refresh-account>بروزرسانی</button><button class="bv-btn bv-btn-ghost bv-btn-small" data-logout>خروج</button></div>
+        </div>
+
+        <section class="bv-current-subscription" data-account-current>
+          <div class="bv-current-subscription-head"><span class="bv-status-dot"></span><div><small>اشتراک فعلی</small><h3 data-current-plan-title>بدون اشتراک</h3></div><span class="bv-current-badge" data-current-badge>—</span></div>
+          <div class="bv-current-subscription-grid">
+            <div><small>وضعیت</small><strong data-account-status>—</strong></div>
+            <div><small>اعتبار</small><strong data-account-expire>—</strong></div>
+            <div><small>دستگاه مجاز</small><strong data-account-devices>—</strong></div>
+          </div>
+          <div class="bv-current-identity" data-account-detail></div>
+        </section>
+
+        <section class="bv-dashboard-panel bv-dashboard-plans">
+          <div class="bv-card-title"><div><small>انتخاب اشتراک</small><h3>پلن‌ها</h3></div></div>
+          <div class="bv-plans" data-account-plans></div>
+        </section>
+      </div>
     </div>
   </div>
 </section>

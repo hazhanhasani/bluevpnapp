@@ -495,6 +495,33 @@ final class BlueVPN_Auth {
             (string)($c['marzban_panel_id'] ?? 0),
             (string)($c['guardcore_panel_id'] ?? 0),
         ]));
+
+        // Keep the public account contract self-contained. Web and Android are
+        // different session clients, but they resolve the exact same customer
+        // entitlement. The plan lookup is presentation metadata only and never
+        // changes provider ownership or the VPN device limit accounting.
+        $plan = null;
+        if ($entitlementPlanId) {
+            try {
+                $plan = $wpdb->get_row($wpdb->prepare(
+                    "SELECT id,title,description,price_toman,duration_days,data_limit_gb,device_limit FROM ".BlueVPN_DB::table('plans')." WHERE id=%d LIMIT 1",
+                    (int)$entitlementPlanId
+                ), ARRAY_A) ?: null;
+            } catch (Throwable $e) {
+                $plan = null;
+            }
+        }
+        $planTitle = $plan ? (string)($plan['title'] ?? '') : '';
+        $resolvedDeviceLimit = max(1, (int)($c['device_limit'] ?? ($plan['device_limit'] ?? 1)));
+        $currentPlan = $entitlementPlanId ? [
+            'id' => (int)$entitlementPlanId,
+            'title' => $planTitle,
+            'description' => $plan ? (string)($plan['description'] ?? '') : '',
+            'price_toman' => $plan ? (int)($plan['price_toman'] ?? 0) : 0,
+            'duration_days' => $plan ? (int)($plan['duration_days'] ?? 0) : 0,
+            'data_limit_gb' => $plan ? (int)($plan['data_limit_gb'] ?? 0) : 0,
+            'device_limit' => $resolvedDeviceLimit,
+        ] : null;
         return [
             'id' => (int)$c['id'],
             'email' => $email,
@@ -504,7 +531,11 @@ final class BlueVPN_Auth {
             'auth_method' => (string)($c['auth_method'] ?: 'legacy_email'),
             'display_identity' => $display,
             'active' => (bool)(int)$c['active'],
-            'plan_id' => $c['plan_id'] !== null ? (int)$c['plan_id'] : null,
+            'plan_id' => $entitlementPlanId,
+            'plan_title' => $planTitle,
+            'device_limit' => $resolvedDeviceLimit,
+            'expires_at_fa' => $unlimited ? 'نامحدود' : (!empty($c['subscription_expire']) ? BlueVPN_Utils::tehran_datetime_fa((string)$c['subscription_expire'], false) : ''),
+            'current_plan' => $currentPlan,
             'server_time' => BlueVPN_Utils::iso_now(),
             'server_time_fa' => BlueVPN_Utils::tehran_datetime_fa(),
             'calendar' => 'jalali',
@@ -516,6 +547,8 @@ final class BlueVPN_Auth {
                 'entitlement_active' => $entitlementActive,
                 'entitlement_order_id' => $entitlementOrderId,
                 'entitlement_plan_id' => $entitlementPlanId,
+                'plan_id' => $entitlementPlanId,
+                'plan_title' => $planTitle,
                 'pool_identity' => $poolIdentity,
                 'url' => (string)($c['subscription_url'] ?? ''),
                 'expire' => $expireIso,
@@ -531,7 +564,7 @@ final class BlueVPN_Auth {
                 'data_limit_bytes' => $limitBytes,
                 'used_traffic_bytes' => $usedBytes,
                 'remaining_bytes' => $limitBytes > 0 ? max(0, $limitBytes - $usedBytes) : 0,
-                'device_limit' => max(1, (int)($c['device_limit'] ?? 1)),
+                'device_limit' => $resolvedDeviceLimit,
                 'last_sync_at' => BlueVPN_Utils::iso_from_mysql($c['last_sync_at'] ?? null),
                 'last_sync_at_fa' => !empty($c['last_sync_at']) ? BlueVPN_Utils::tehran_datetime_fa((string)$c['last_sync_at']) : '',
                 'sync_error' => (string)($c['last_sync_error'] ?? ''),

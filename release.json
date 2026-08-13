@@ -1,12 +1,12 @@
 {
-  "version": "4.2.2",
-  "version_code": 40202,
+  "version": "4.2.3",
+  "version_code": 40203,
   "channel": "stable",
-  "build_id": "20260813-v4.2.1-release-validator-dynamic-version-fix",
-  "built_at": "2026-08-13T15:30:00Z",
-  "android_version": "4.2.2",
-  "android_version_code": 40202,
-  "description": "BlueVPN 4.2.1: اصلاح Release Regression Gate و حذف نسخه‌های hard-coded از validator؛ اعتبارسنجی نسخه اکنون پویا و مبتنی بر همگامی app/release/WordPress است؛ Runtime پایدار v2rayNG/Xray بدون تغییر.",
+  "build_id": "20260813-v4.2.3-web-account-entitlement-ui-fix",
+  "built_at": "2026-08-13T18:10:00Z",
+  "android_version": "4.2.3",
+  "android_version_code": 40203,
+  "description": "BlueVPN 4.2.3: اصلاح نمایش اشتراک واقعی در وب، یکسان‌سازی قرارداد subscription بین API و پوسته، نمایش صحیح شماره موبایل، و بازطراحی داشبورد حساب بدون تغییر Runtime پایدار v2rayNG/Xray.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -25,7 +25,7 @@
     "hidden-route-pool-per-location",
     "strict-free-premium-pool-identity",
     "serialized-subscription-mutation",
-    "wordpress-mysql-schema-1.6.0",
+    "wordpress-mysql-schema-1.7.0",
     "no-public-ai-ui",
     "short-semver-patch-0-to-10",
     "official-v2rayng-submodule-tag-resolution",
@@ -45,7 +45,12 @@
     "sms-pattern-active-cache",
     "sms-pattern-dropdown-admin",
     "sms-pattern-stale-selection-reconcile",
-    "otp-pattern-variable-auto-map"
+    "otp-pattern-variable-auto-map",
+    "web-account-canonical-subscription-contract",
+    "web-account-plan-title-payload",
+    "web-phone-display-normalization",
+    "authenticated-account-intro-hidden",
+    "account-dashboard-dark-unified-ui"
   ],
-  "version_source": "v4.2.1-release-validator-dynamic-version-fix"
+  "version_source": "v4.2.3-web-account-entitlement-ui-fix"
 }

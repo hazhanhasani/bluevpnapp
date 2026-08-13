@@ -1228,7 +1228,6 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnRouteIntelligence.kt": ROOT / "android-source/BlueVpnRouteIntelligence.kt",
         bluevpn_dir / "BlueVpnSubscriptionIntelligence.kt": ROOT / "android-source/BlueVpnSubscriptionIntelligence.kt",
         bluevpn_dir / "BlueVpnSingBoxProfileCompiler.kt": ROOT / "android-source/BlueVpnSingBoxProfileCompiler.kt",
-        java_dir / "BlueVpnAiActivity.kt": ROOT / "android-source/BlueVpnAiActivity.kt",
         java_dir / "BlueVpnServersActivity.kt": ROOT / "android-source/BlueVpnServersActivity.kt",
         java_dir / "BlueVpnSubscriptionsActivity.kt": ROOT / "android-source/BlueVpnSubscriptionsActivity.kt",
         java_dir / "BlueVpnSettingsActivity.kt": ROOT / "android-source/BlueVpnSettingsActivity.kt",

@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_SMS_Notifications {
     public const HOOK_PROCESS = 'bluevpn_sms_process_queue';
     private const RETRY_DELAYS = [60, 300, 900, 1800];
-    private const CATALOG_VERSION = '2026-08-13-4.1.3';
+    private const CATALOG_VERSION = '2026-08-13-4.1.6';
     private static bool $shutdownRegistered = false;
 
     /**

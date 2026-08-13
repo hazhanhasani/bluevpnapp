@@ -1,10 +1,10 @@
-# BlueVPN 4.1.3
+# BlueVPN 4.1.6
 
 BlueVPN is an Android VPN client with a WordPress/MySQL control plane. The repository intentionally keeps only current production source, build automation, and release validation; historical release reports and generated Android snapshots are not source of truth.
 
 ## Current production baseline
 
-- BlueVPN: `4.1.3` (`versionCode 40103`)
+- BlueVPN: `4.1.6` (`versionCode 40106`)
 - WordPress Manager schema: `1.6.0`
 - v2rayNG production pin: `2.2.6` (reviewed stable base)
 - Xray / AndroidLibXrayLite: `v26.6.27` (exact pairing shipped by v2rayNG 2.2.6)
@@ -15,8 +15,12 @@ v2rayNG `2.3.3` was reviewed but remains outside the production runtime baseline
 
 ## Runtime rules
 
-- Location cards are presentation-only; the selected hidden route is compiled with v2rayNG `CoreConfigManager.getV2rayConfig(context, guid)` before TUN/Core start. A partial/imported profile that cannot produce real Xray JSON is skipped immediately.
-- The chosen hidden-route GUID is carried directly through `CoreVpnService` into `CoreServiceManager.startCoreLoop(..., requestedGuid)`; the daemon no longer re-resolves the candidate from shared MMKV as its primary source.
+- Connection compatibility is fail-open toward v2rayNG semantics: every hidden route in a manually selected location remains eligible, while AUTO uses progressive ranked batches without discarding lower-ranked configs.
+- Xray start gets a 24-second cold-start window; deterministic daemon failures still fail immediately.
+- Tunnel verification uses the canonical local SOCKS port, waits up to five seconds for the inbound, accepts real remote 2xx/3xx/4xx responses as Internet proof, supports local proxy Basic auth, and has a SOCKS compatibility fallback.
+- Dynamic SOCKS ports are disabled in BlueVPN because CoreVpnService runs in a separate process; this prevents UI and daemon from independently choosing different runtime localhost ports.
+- Profile deduplication includes browser dialer, proxy-chain and policy-group fields so semantically different v2rayNG profiles are not collapsed into one route.
+- Home UI uses one unified location/status card; internal AI/route intelligence has no public card or Activity and remains background-only.
 - Public server selection is location-only: internal routes/GUIDs never appear in the locations UI; choosing a location scopes the hidden candidate pool and the engine ranks/failovers inside it automatically.
 - Legacy `MANUAL_SERVER` preferences migrate to their parent location so older installs cannot keep exposing/pinning a concrete route.
 - Terminal failover failure is latched until CoreVpnService is actually stopped; a stale RUNNING broadcast or late ping cannot reopen the connecting overlay.
@@ -28,7 +32,7 @@ v2rayNG `2.3.3` was reviewed but remains outside the production runtime baseline
 - A real entitlement/pool identity change causes exactly one authoritative subscription refresh, even when the subscription URL itself did not change.
 - Subscription mutation is blocked while a connection owns the MMKV/Xray profile pool.
 - Connection-gate waiting is bounded; the UI cannot remain indefinitely in `CONNECTING` because a subscription mutation is still active.
-- BlueAI selects locally first and does not import/repair subscriptions on an AI tap. Cloud enrichment is background-only and is not run on app startup.
+- Internal route intelligence selects locally first and never imports/repairs subscriptions from the home UI. Cloud enrichment is background-only, has no public AI surface, and is not run on app startup.
 
 ## Repository
 

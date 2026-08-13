@@ -245,26 +245,41 @@ object BlueVpnSmartSelector {
 
     fun lastSummary(context: Context): String {
         val storage = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val guid = storage.getString(KEY_LAST_GUID, "").orEmpty()
-        val reason = storage.getString(KEY_LAST_REASON, "").orEmpty()
-        val score = storage.getInt(KEY_LAST_SCORE, 0)
+        val storedGuid = storage.getString(KEY_LAST_GUID, "").orEmpty()
         val age = System.currentTimeMillis() - storage.getLong(KEY_LAST_AT, 0L)
-        if (guid.isBlank() || reason.isBlank() || age !in 0..30 * 60_000L) {
+
+        // Public UI is location-only. The scorer may keep per-route health
+        // history internally, but stale route evidence (ping/score/failure
+        // streaks) must never leak back onto Home after routes were hidden.
+        // Prefer the concrete GUID currently selected by v2rayNG so the AI
+        // summary cannot describe an old Poland decision while Home shows UK.
+        val selectedGuid = MmkvManager.getSelectServer().orEmpty()
+        val currentGuid = sequenceOf(selectedGuid, storedGuid)
+            .filter { it.isNotBlank() }
+            .firstOrNull { guid ->
+                val profile = MmkvManager.decodeServerConfig(guid)
+                profile != null &&
+                    BlueVpnAccountManager.candidateAllowed(
+                        context,
+                        guid,
+                        profile.subscriptionId,
+                    )
+            }
+            .orEmpty()
+
+        if (currentGuid.isBlank()) {
             return "انتخاب‌گر هوشمند آماده تحلیل است"
         }
-        val profile = MmkvManager.decodeServerConfig(guid)
-        if (
-            profile == null ||
-            !BlueVpnAccountManager.candidateAllowed(
-                context,
-                guid,
-                profile.subscriptionId,
-            )
-        ) {
-            return "انتخاب‌گر هوشمند در انتظار دریافت سرورهای مجاز است"
-        }
+
+        val profile = MmkvManager.decodeServerConfig(currentGuid)
+            ?: return "انتخاب‌گر هوشمند در انتظار دریافت سرورهای مجاز است"
         val location = BlueVpnLocationUtil.detect(profile.remarks, profile.server)
-        return "${location.flag} ${location.title} • امتیاز $score • $reason".trim()
+        val label = when {
+            currentGuid == selectedGuid && selectedGuid.isNotBlank() -> "لوکیشن انتخاب‌شده"
+            currentGuid == storedGuid && age in 0..30 * 60_000L -> "پیشنهاد هوشمند"
+            else -> "آماده اتصال"
+        }
+        return "${location.flag} ${location.title} • $label".trim()
     }
 
     fun clear(context: Context) {

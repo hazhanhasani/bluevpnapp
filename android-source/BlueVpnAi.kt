@@ -759,15 +759,16 @@ object BlueVpnAi {
     fun localSummary(context: Context): String {
         if (!enabled(context)) return "انتخاب‌گر هوشمند غیرفعال است"
         val network = network(context)
-        val learned = runCatching {
-            JSONObject(prefs(context).getString(KEY_RECOMMENDATIONS, "{}") ?: "{}").length()
-        }.getOrDefault(0)
         val decision = BlueVpnSmartSelector.lastSummary(context)
-        return if (learned > 0) {
-            "$decision\n${network.operator} • ${network.networkType} • $learned سیگنال"
-        } else {
-            "انتخاب‌گر هوشمند آماده • ${network.operator} • ${network.networkType}"
+        val networkType = when (network.networkType.trim().lowercase()) {
+            "mobile", "cellular" -> "دیتای موبایل"
+            "wifi", "wi-fi" -> "Wi‑Fi"
+            else -> network.networkType.trim().ifBlank { "شبکه فعال" }
         }
+        val networkLabel = listOf(network.operator.trim(), networkType)
+            .filter { it.isNotBlank() }
+            .joinToString(" • ")
+        return if (networkLabel.isBlank()) decision else "$decision\n$networkLabel"
     }
 
     fun onEntitlementChanged(context: Context, identity: String) {

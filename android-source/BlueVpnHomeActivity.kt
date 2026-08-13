@@ -21,6 +21,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Base64
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -112,6 +113,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private lateinit var statusDot: View
     private lateinit var serverName: TextView
     private lateinit var serverMeta: TextView
+    private lateinit var serverStatusValue: TextView
     private lateinit var subscriptionSummary: TextView
     private lateinit var pingValue: TextView
     private lateinit var durationValue: TextView
@@ -140,6 +142,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
     private var failoverActive = false
     private var failoverQueue: List<String> = emptyList()
+    private var failoverReserveQueue: List<String> = emptyList()
     private var connectionEntitlementGuids: Set<String> = emptySet()
     private var connectionPreparationGeneration: Int = 0
     private var failoverIndex = -1
@@ -658,19 +661,15 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 bottomMargin = dpHome(10)
             },
         )
+        // Location selection and connection status are intentionally one surface.
+        // Internal route scoring/AI remains background-only and is never exposed
+        // as a separate card in the public UI.
         content.addView(
             createServerCard(),
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dpHome(88),
+                dpHome(108),
             ),
-        )
-        content.addView(
-            createAiCard(),
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dpHome(58),
-            ).apply { topMargin = dpHome(8) },
         )
         content.addView(
             createActionRow(),
@@ -1085,26 +1084,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         return card
     }
 
-    private fun createAiCard(): View {
-        val card = glassCard(18, Color.parseColor("#292B34"), Color.argb(220, 18, 18, 24)).apply {
-            id = R.id.bluevpn_ai_card
-            isClickable = true
-            isFocusable = true
-        }
-        aiSummaryValue = uiText(
-            "پایش هوشمند در پس‌زمینه فعال است",
-            10f,
-            Color.parseColor("#8C8F9A"),
-            gravity = Gravity.CENTER,
-        ).apply {
-            id = R.id.bluevpn_ai_summary
-            maxLines = 2
-            setPadding(dpHome(12), dpHome(6), dpHome(12), dpHome(6))
-        }
-        card.addView(aiSummaryValue)
-        return card
-    }
-
     private fun createServerCard(): View {
         val card = glassCard(
             24,
@@ -1141,13 +1120,19 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
-        serverMeta = uiText("بهترین سرور در لحظه", 10f, palette.textMuted).apply {
+        serverMeta = uiText("بهترین مسیر همان لوکیشن به‌صورت خودکار انتخاب می‌شود", 10f, palette.textMuted).apply {
             id = R.id.bluevpn_server_meta
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
+        serverStatusValue = uiText("آماده اتصال", 9.5f, Color.parseColor("#747886")).apply {
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, dpHome(3), 0, 0)
+        }
         details.addView(serverName)
         details.addView(serverMeta)
+        details.addView(serverStatusValue)
         row.addView(details, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
 
         val arrow = HeaderGlyphView(this, "menu") { palette.textMuted }.apply {
@@ -1234,6 +1219,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         modeValue = hiddenText(R.id.bluevpn_mode_value)
         activeRoutesValue = hiddenText(R.id.bluevpn_active_routes_value)
         historyValue = hiddenText(R.id.bluevpn_history_value)
+        aiSummaryValue = hiddenText(R.id.bluevpn_ai_summary)
         pingValue = hiddenText(R.id.bluevpn_ping_value)
         durationValue = hiddenText(R.id.bluevpn_duration_value)
         downloadSpeed = hiddenText(R.id.bluevpn_download_speed)
@@ -1247,6 +1233,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             modeValue,
             activeRoutesValue,
             historyValue,
+            aiSummaryValue,
             pingValue,
             durationValue,
             downloadSpeed,
@@ -1662,9 +1649,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
         BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_action_settings), intervalMs = 220L) {
             openSettings()
-        }
-        BlueVpnUiGuard.bind(findViewById<View>(R.id.bluevpn_ai_card), intervalMs = 900L) {
-            runSmartSelection()
         }
         findViewById<MaterialButton>(
             R.id.bluevpn_refresh_subscription
@@ -2619,12 +2603,16 @@ private fun dpHome(value: Int): Int =
                 if (latency != null) {
                     aiConsecutiveFailures = 0
                     lastVerifiedLatency = latency
-                    aiSummaryValue.text =
-                        "BlueAI • اتصال سالم • ${latency} ms"
+                    aiSummaryValue.text = "healthy:${latency}"
+                    if (::serverStatusValue.isInitialized) {
+                        serverStatusValue.text = "اتصال سالم • ${latency} ms"
+                    }
                 } else {
                     aiConsecutiveFailures += 1
-                    aiSummaryValue.text =
-                        "BlueAI • افت کیفیت ${aiConsecutiveFailures}/2"
+                    aiSummaryValue.text = "quality_drop:${aiConsecutiveFailures}"
+                    if (::serverStatusValue.isInitialized) {
+                        serverStatusValue.text = "کیفیت اتصال در حال بررسی است"
+                    }
                     if (aiConsecutiveFailures >= 2) {
                         aiConsecutiveFailures = 0
                         lifecycleScope.launch(Dispatchers.IO) {
@@ -2636,9 +2624,9 @@ private fun dpHome(value: Int): Int =
                                 uploadBytes = sessionUploadBytes,
                             )
                         }
-                        statusText.text = "ترمیم هوشمند اتصال"
+                        statusText.text = "بهبود اتصال"
                         statusCaption.text =
-                            "BlueAI افت کیفیت را تشخیص داد؛ اتصال جایگزین بررسی می‌شود"
+                            "کیفیت مسیر کاهش یافته؛ مسیر جایگزین بررسی می‌شود"
                         beginSmartConnection()
                     }
                 }
@@ -3181,11 +3169,23 @@ private fun dpHome(value: Int): Int =
             candidateLoadInProgress = true
             pendingConnectionRequest = true
             lifecycleScope.launch(Dispatchers.Default) {
-                val fast = BlueVpnLocationUtil.fastCandidates(
+                // Reliability first: load the complete entitlement-isolated pool
+                // off the main thread. Ranking still keeps the first attempt fast,
+                // while routes below the old top-10 cutoff remain available as
+                // progressive failover candidates.
+                val fast = BlueVpnLocationUtil.allCandidates(
                     this@BlueVpnHomeActivity,
-                    preferredLocation,
-                    maxCandidates = 10,
-                )
+                ).let { loaded ->
+                    when (selectionMode) {
+                        BlueVpnSelectionMode.AUTO -> loaded
+                        BlueVpnSelectionMode.MANUAL_LOCATION -> loaded.filter {
+                            preferredLocation.isBlank() || it.location.key == preferredLocation
+                        }
+                        BlueVpnSelectionMode.MANUAL_SERVER -> loaded.filter {
+                            it.guid == BlueVpnPreferences.manualServerGuid(this@BlueVpnHomeActivity)
+                        }
+                    }
+                }
                 withContext(Dispatchers.Main) {
                     candidateLoadInProgress = false
                     if (isFinishing || isDestroyed || !pendingConnectionRequest) return@withContext
@@ -3206,7 +3206,7 @@ private fun dpHome(value: Int): Int =
             BlueVpnSelectionMode.MANUAL_SERVER -> visibleCache.filter {
                 it.guid == BlueVpnPreferences.manualServerGuid(this)
             }
-        }.take(18)
+        }
         startSmartConnectionWithCandidates(scopedCache, selectionMode)
     }
 
@@ -3299,10 +3299,27 @@ private fun dpHome(value: Int): Int =
             return
         }
 
-        failoverQueue = when (selectionMode) {
-            BlueVpnSelectionMode.MANUAL_SERVER -> scoredQueue.take(1)
-            else -> scoredQueue.take(5)
-        }.map { it.candidate.guid }
+        val orderedGuids = scoredQueue.map { it.candidate.guid }.distinct()
+        when (selectionMode) {
+            BlueVpnSelectionMode.MANUAL_SERVER -> {
+                failoverQueue = orderedGuids.take(1)
+                failoverReserveQueue = emptyList()
+            }
+            BlueVpnSelectionMode.MANUAL_LOCATION -> {
+                // A location is the public selection; every hidden route behind it
+                // must remain eligible before declaring that location unavailable.
+                failoverQueue = orderedGuids
+                failoverReserveQueue = emptyList()
+            }
+            BlueVpnSelectionMode.AUTO -> {
+                // Start with a small ranked batch for speed, but never discard the
+                // rest of the entitlement pool. More candidates are appended only
+                // if the first batch cannot establish a verified tunnel.
+                val initialBatchSize = 8
+                failoverQueue = orderedGuids.take(initialBatchSize)
+                failoverReserveQueue = orderedGuids.drop(initialBatchSize)
+            }
+        }
         val chosen = scoredQueue.first()
         if (selectionMode == BlueVpnSelectionMode.AUTO) {
             BlueVpnSmartSelector.recordAutomaticConnectionChoice(
@@ -3349,7 +3366,13 @@ private fun dpHome(value: Int): Int =
     private fun startCurrentCandidate() {
         if (!failoverActive) return
 
-        val guid = failoverQueue.getOrNull(failoverIndex)
+        var guid = failoverQueue.getOrNull(failoverIndex)
+        if (guid.isNullOrBlank() && failoverReserveQueue.isNotEmpty()) {
+            val nextBatch = failoverReserveQueue.take(8)
+            failoverReserveQueue = failoverReserveQueue.drop(nextBatch.size)
+            failoverQueue = failoverQueue + nextBatch
+            guid = failoverQueue.getOrNull(failoverIndex)
+        }
         if (guid.isNullOrBlank()) {
             finishFailoverWithError()
             return
@@ -3497,7 +3520,7 @@ private fun dpHome(value: Int): Int =
             if (!isFinishing && !isDestroyed) requestDashboardRefresh()
         }, 60L)
         handler.removeCallbacks(attemptTimeout)
-        handler.postDelayed(attemptTimeout, 12_000L)
+        handler.postDelayed(attemptTimeout, 24_000L)
     }
 
     private fun scheduleConnectionVerification() {
@@ -3575,6 +3598,15 @@ private fun dpHome(value: Int): Int =
         MmkvManager.encodeSettings(
             AppConfig.PREF_ENABLE_LOCAL_PROXY,
             true
+        )
+
+        // CoreVpnService runs in a separate process. A process-local dynamic
+        // SOCKS port can make the UI verifier probe a different localhost port
+        // than the daemon actually opened. BlueVPN keeps a fixed shared port so
+        // the exact v2rayNG core and the UI health verifier always agree.
+        MmkvManager.encodeSettings(
+            AppConfig.PREF_DYNAMIC_SOCKS_PORT,
+            false
         )
     }
 
@@ -3762,7 +3794,7 @@ private fun dpHome(value: Int): Int =
 
     private fun waitForLocalProxyReady(
         httpPort: Int,
-        maxWaitMs: Long = 2_400L,
+        maxWaitMs: Long = 5_000L,
     ): Boolean {
         val deadline = SystemClock.elapsedRealtime() + maxWaitMs
         do {
@@ -3771,110 +3803,118 @@ private fun dpHome(value: Int): Int =
                     socket.tcpNoDelay = true
                     socket.connect(
                         InetSocketAddress("127.0.0.1", httpPort),
-                        140,
+                        220,
                     )
                 }
                 true
             }.getOrDefault(false)
             if (ready) return true
             if (SystemClock.elapsedRealtime() >= deadline) break
-            runCatching { Thread.sleep(90L) }
+            runCatching { Thread.sleep(120L) }
         } while (!Thread.currentThread().isInterrupted)
         return false
     }
 
     private suspend fun probeInternetThroughCore(): Long? =
         withContext(Dispatchers.IO) {
-            val httpPort = SettingsManager.getHttpPort()
+            // v2rayNG 2.2.6 maps getHttpPort() to the SOCKS port on Xray.
+            // Use the canonical SOCKS port explicitly so dynamic-port refreshes
+            // and local-proxy readiness are tied to the same runtime inbound.
+            val localPort = SettingsManager.getSocksPort()
 
-            if (httpPort !in 1..65535) {
+            if (localPort !in 1..65535) {
                 return@withContext null
             }
 
-            // CoreService RUNNING can arrive a little before the local HTTP
-            // inbound is actually accepting sockets. Waiting for localhost
-            // readiness prevents a perfectly valid v2rayNG profile from being
-            // discarded during that startup race.
-            if (!waitForLocalProxyReady(httpPort)) {
+            // CoreService RUNNING can be emitted slightly before the local inbound
+            // accepts sockets. Give REALITY/TLS/WS/gRPC cold starts a realistic
+            // bounded window instead of rejecting an otherwise valid profile.
+            if (!waitForLocalProxyReady(localPort)) {
                 return@withContext null
             }
 
-            // Race several independent Internet proofs through Xray and return
-            // on first success. Initial TLS/REALITY/WS/gRPC handshakes on mobile
-            // networks can legitimately exceed one second, so the verifier has
-            // a bounded but realistic window instead of the former 1050 ms.
             val endpoints = buildList {
-                add("http://cp.cloudflare.com/generate_204")
+                add("https://www.google.com/generate_204")
+                add("https://cp.cloudflare.com/generate_204")
                 add("http://connectivitycheck.gstatic.com/generate_204")
-                add("http://1.1.1.1/cdn-cgi/trace")
+                add("https://1.1.1.1/cdn-cgi/trace")
                 add("${BuildConfig.BLUEVPN_API_BASE_URL.trimEnd('/')}/health")
                 if (!BlueVpnPerformance.isLowEnd(this@BlueVpnHomeActivity)) {
                     add("https://check-host.net/cdn-cgi/trace")
                 }
             }
 
-            val executor = Executors.newFixedThreadPool(
-                BlueVpnPerformance.maxProbeWorkers(this@BlueVpnHomeActivity)
-                    .coerceAtMost(endpoints.size)
-                    .coerceAtLeast(1)
-            )
-            val completion = ExecutorCompletionService<Long?>(executor)
-            val futures = endpoints.map { endpoint ->
-                completion.submit {
-                    requestThroughLocalXrayProxy(
-                        endpoint = endpoint,
-                        httpPort = httpPort,
+            fun race(proxyType: Proxy.Type): Long? {
+                    val executor = Executors.newFixedThreadPool(
+                        BlueVpnPerformance.maxProbeWorkers(this@BlueVpnHomeActivity)
+                            .coerceAtMost(endpoints.size)
+                            .coerceAtLeast(1)
                     )
-                }
+                    val completion = ExecutorCompletionService<Long?>(executor)
+                    val futures = endpoints.map { endpoint ->
+                        completion.submit {
+                            requestThroughLocalXrayProxy(
+                                endpoint = endpoint,
+                                localPort = localPort,
+                                proxyType = proxyType,
+                            )
+                        }
+                    }
+
+                    try {
+                        val deadline = SystemClock.elapsedRealtime() + 6_500L
+                        repeat(futures.size) {
+                            val remaining = (
+                                deadline - SystemClock.elapsedRealtime()
+                            ).coerceAtLeast(1L)
+                            val completed = completion.poll(
+                                remaining,
+                                TimeUnit.MILLISECONDS,
+                            ) ?: return null
+
+                            val latency = runCatching { completed.get() }.getOrNull()
+                            if (latency != null) return latency
+                        }
+                        return null
+                    } finally {
+                        futures.forEach { it.cancel(true) }
+                        executor.shutdownNow()
+                    }
             }
 
-            try {
-                val deadline =
-                    SystemClock.elapsedRealtime() + 3_600L
-
-                repeat(futures.size) {
-                    val remaining = (
-                        deadline - SystemClock.elapsedRealtime()
-                    ).coerceAtLeast(1L)
-                    val completed = completion.poll(
-                        remaining,
-                        TimeUnit.MILLISECONDS,
-                    ) ?: return@withContext null
-
-                    val latency = runCatching {
-                        completed.get()
-                    }.getOrNull()
-
-                    if (latency != null) {
-                        return@withContext latency
-                    }
+            // HTTP semantics are what upstream v2rayNG uses for its own local
+            // requests. Xray's SOCKS inbound is HTTP-compatible. SOCKS is only a
+            // compatibility fallback for devices/cores where HTTP proxy handling
+            // behaves differently; it is not treated as a separate route.
+            race(Proxy.Type.HTTP) ?: run {
+                val username = SettingsManager.getSocksUsername()
+                val password = SettingsManager.getSocksPassword()
+                if (username.isNullOrBlank() && password.isNullOrBlank()) {
+                    race(Proxy.Type.SOCKS)
+                } else {
+                    null
                 }
-
-                null
-            } finally {
-                futures.forEach { it.cancel(true) }
-                executor.shutdownNow()
             }
         }
 
     private fun requestThroughLocalXrayProxy(
         endpoint: String,
-        httpPort: Int,
+        localPort: Int,
+        proxyType: Proxy.Type = Proxy.Type.HTTP,
         countryGuid: String = attemptedGuid,
     ): Long? =
         runCatching {
             val proxy = Proxy(
-                Proxy.Type.HTTP,
-                InetSocketAddress("127.0.0.1", httpPort)
+                proxyType,
+                InetSocketAddress("127.0.0.1", localPort)
             )
-            val connection =
-                URL(endpoint).openConnection(proxy) as HttpURLConnection
+            val connection = URL(endpoint).openConnection(proxy) as HttpURLConnection
             val startedAt = SystemClock.elapsedRealtime()
 
             try {
                 connection.instanceFollowRedirects = false
-                connection.connectTimeout = 1_800
-                connection.readTimeout = 1_800
+                connection.connectTimeout = 3_000
+                connection.readTimeout = 3_000
                 connection.requestMethod = "GET"
                 connection.useCaches = false
                 connection.setRequestProperty("Connection", "close")
@@ -3883,35 +3923,44 @@ private fun dpHome(value: Int): Int =
                     "BlueVPN/${BuildConfig.VERSION_NAME}"
                 )
 
+                // Xray applies the SOCKS username/password to HTTP requests sent
+                // to the same local inbound. Preserve that upstream-compatible
+                // behavior instead of falsely classifying authenticated local
+                // proxies as dead.
+                if (proxyType == Proxy.Type.HTTP) {
+                    val username = SettingsManager.getSocksUsername()
+                    val password = SettingsManager.getSocksPassword()
+                    if (!username.isNullOrBlank() && !password.isNullOrBlank()) {
+                        val token = Base64.encodeToString(
+                            "$username:$password".toByteArray(Charsets.UTF_8),
+                            Base64.NO_WRAP,
+                        )
+                        connection.setRequestProperty(
+                            "Proxy-Authorization",
+                            "Basic $token",
+                        )
+                    }
+                }
+
                 val code = connection.responseCode
-                val body = if (code == 200) {
+                val body = if (code in 200..499) {
                     runCatching {
-                        connection.inputStream.bufferedReader().use {
-                            it.readText().take(4096)
-                        }
+                        val stream = if (code >= 400) connection.errorStream else connection.inputStream
+                        stream?.bufferedReader()?.use { it.readText().take(4096) }.orEmpty()
                     }.getOrDefault("")
                 } else {
                     ""
                 }
-                val valid = when {
-                    endpoint.endsWith("/health") ->
-                        code == 200 &&
-                            body.contains(
-                                "bluevpn-platform",
-                                ignoreCase = true,
-                            )
-                    endpoint.contains("generate_204") ->
-                        code == 204
-                    endpoint.contains("cdn-cgi/trace") ->
-                        code == 200 &&
-                            body.lineSequence().any {
-                                it.startsWith("ip=")
-                            }
-                    else -> false
-                }
+
+                // A real remote 2xx/3xx/4xx response proves that the selected
+                // Xray route can reach the Internet. Do not reject a working VPN
+                // merely because a public generate_204/trace endpoint changed its
+                // body or returned a policy status. 407 is local proxy auth failure;
+                // 5xx is kept inconclusive because some local proxy errors use it.
+                val valid = code in 200..499 && code != 407
 
                 if (valid) {
-                    if (endpoint.contains("/cdn-cgi/trace")) {
+                    if (endpoint.contains("/cdn-cgi/trace") && body.isNotBlank()) {
                         BlueVpnRouteIntelligence.recordExitTrace(
                             this@BlueVpnHomeActivity,
                             countryGuid,
@@ -3965,6 +4014,7 @@ private fun dpHome(value: Int): Int =
         BlueVpnAccountManager.startFreeSession(this)
 
         failoverActive = false
+        failoverReserveQueue = emptyList()
         runtimeGateWaitStartedAt = 0L
         waitingForPingResult = false
         healthProbeInProgress = false
@@ -4004,17 +4054,17 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun refreshVerifiedExitLocation() {
-        val port = SettingsManager.getHttpPort()
+        val port = SettingsManager.getSocksPort()
         val guid = attemptedGuid
         if (port !in 1..65535 || guid.isBlank()) return
         lifecycleScope.launch(Dispatchers.IO) {
             val resolved = requestThroughLocalXrayProxy(
                 endpoint = "https://check-host.net/cdn-cgi/trace",
-                httpPort = port,
+                localPort = port,
                 countryGuid = guid,
             ) ?: requestThroughLocalXrayProxy(
                 endpoint = "http://1.1.1.1/cdn-cgi/trace",
-                httpPort = port,
+                localPort = port,
                 countryGuid = guid,
             )
             if (resolved != null) {
@@ -4067,6 +4117,15 @@ private fun dpHome(value: Int): Int =
         coreStopRetryCount = 0
         verificationRound = 0
 
+        if (failoverIndex >= failoverQueue.size && failoverReserveQueue.isNotEmpty()) {
+            // Progressive AUTO failover: keep first connection fast while still
+            // guaranteeing that lower-ranked but valid configs are eventually
+            // tried before the location/pool is declared unavailable.
+            val nextBatch = failoverReserveQueue.take(8)
+            failoverReserveQueue = failoverReserveQueue.drop(nextBatch.size)
+            failoverQueue = failoverQueue + nextBatch
+        }
+
         if (failoverIndex >= failoverQueue.size) {
             finishFailoverWithError(lastCandidateFailureReason)
             return
@@ -4098,6 +4157,7 @@ private fun dpHome(value: Int): Int =
         terminalFailureReason = finalReason
 
         failoverActive = false
+        failoverReserveQueue = emptyList()
         pendingConnectionRequest = false
         runtimeGateWaitStartedAt = 0L
         waitingForPingResult = false
@@ -4153,6 +4213,7 @@ private fun dpHome(value: Int): Int =
         pendingConnectionRequest = false
         runtimeGateWaitStartedAt = 0L
         failoverQueue = emptyList()
+        failoverReserveQueue = emptyList()
         connectionEntitlementGuids = emptySet()
         failoverIndex = -1
         attemptedGuid = ""
@@ -4280,6 +4341,7 @@ private fun dpHome(value: Int): Int =
                 }
             locationValue.text = "—"
             pingValue.text = "—"
+            serverStatusValue.text = "یک لوکیشن انتخاب کنید؛ مسیرها پشت همان لوکیشن مدیریت می‌شوند"
         } else {
             val location = selected?.location
                 ?: BlueVpnLocationUtil.detect(profile.remarks, profile.server)
@@ -4307,6 +4369,18 @@ private fun dpHome(value: Int): Int =
                 delay > 0L -> "${delay} ms"
                 delay < 0L -> "ناموفق"
                 else -> "تست نشده"
+            }
+            serverStatusValue.text = when {
+                mainViewModel.isRunning.value == true && connectionVerified ->
+                    "متصل • مسیر فعال در پس‌زمینه مدیریت می‌شود"
+                failoverActive ->
+                    "در حال بررسی مسیرهای مخفی ${location.title}"
+                delay > 0L ->
+                    "آماده اتصال • پاسخ ${delay} ms"
+                automaticSelection ->
+                    "آماده اتصال • انتخاب مسیر کاملاً خودکار است"
+                else ->
+                    "آماده اتصال • مسیرهای این لوکیشن مخفی هستند"
             }
         }
 

@@ -707,6 +707,17 @@ private fun unknownLocation(): BlueVpnLocation =
             .orEmpty()
             .trim()
             .lowercase(Locale.ROOT)
+        val raw = rawConfig.orEmpty().trim()
+        val sourceFormat = BlueVpnProfileManager.sourceFormat(raw)
+
+        // Full custom Xray JSON is valid upstream even when ProfileItem cannot
+        // expose a single top-level `server` field (for example multi-outbound,
+        // proxy-chain, balancer or hand-written configs). Let the official
+        // CoreConfigManager validate these profiles instead of dropping them from
+        // BlueVPN's location/auto pool before Xray ever sees them.
+        if (sourceFormat == BlueVpnProfileManager.SourceFormat.XRAY_JSON) {
+            return raw.isNotBlank()
+        }
 
         if (server.isBlank()) return false
         if (server == "127.0.0.1") return false

@@ -24,8 +24,8 @@ def test_release_validator_passes() -> None:
 
 def test_short_version_and_core_pins() -> None:
     app = json.loads(text("branding/app.json"))
-    assert app["version_name"] == "4.1.3"
-    assert app["version_code"] == 40103
+    assert app["version_name"] == "4.1.6"
+    assert app["version_code"] == 40106
     assert int(app["version_name"].split(".")[-1]) <= 10
     assert app["upstream_ref"] == "2.2.6"
     assert app["xray_ref"] == "v26.6.27"
@@ -168,3 +168,105 @@ def test_hidden_route_is_hydrated_by_v2rayng_before_tun_start() -> None:
     assert "doStartCoreLoop(service, vpnInterface, requestedGuid)" in prepare
     assert "CoreServiceManager.startCoreLoop(mInterface, requestedGuid)" in prepare
     assert "blueVpnTargetGuid = requestedGuid" in prepare
+
+
+def test_home_ai_summary_is_location_only_and_cannot_show_stale_route_errors() -> None:
+    selector = text("android-source/BlueVpnSmartSelector.kt")
+    ai = text("android-source/BlueVpnAi.kt")
+    start = selector.index("    fun lastSummary(context: Context): String")
+    end = selector.index("    fun clear(context: Context)", start)
+    block = selector[start:end]
+    assert "val selectedGuid = MmkvManager.getSelectServer().orEmpty()" in block
+    assert "sequenceOf(selectedGuid, storedGuid)" in block
+    assert "امتیاز $score" not in block
+    assert "$reason" not in block
+    assert "خطای پیاپی" not in block
+    local_start = ai.index("    fun localSummary(context: Context): String")
+    local_end = ai.index("    fun onEntitlementChanged", local_start)
+    local = ai[local_start:local_end]
+    assert "سیگنال" not in local
+    assert "دیتای موبایل" in local
+
+
+def test_home_merges_location_and_status_and_exposes_no_ai_section() -> None:
+    home = text("android-source/BlueVpnHomeActivity.kt")
+    prepare = text("scripts/prepare_android.py")
+    ids = text("android-source/bluevpn_ids.xml")
+
+    screen_start = home.index("    private fun createScreen(): View")
+    screen_end = home.index("    private fun createHeader(): View", screen_start)
+    screen = home[screen_start:screen_end]
+    server_start = home.index("    private fun createServerCard(): View")
+    server_end = home.index("    private fun createModeRow(): View", server_start)
+    server = home[server_start:server_end]
+
+    assert screen.count("createServerCard()") == 1
+    assert "createAiCard()" not in home
+    assert "bluevpn_ai_card" not in ids
+    assert "R.id.bluevpn_ai_card" not in home
+    assert "serverStatusValue" in server
+    assert "مسیرهای این لوکیشن مخفی هستند" in home
+    assert "BlueVpnAiActivity.kt" not in prepare
+    assert not (ROOT / "android-source/BlueVpnAiActivity.kt").exists()
+
+
+def test_internal_intelligence_stays_background_only() -> None:
+    home = text("android-source/BlueVpnHomeActivity.kt")
+    assert "BlueVpnAi.verifyTunnel" in home
+    assert "BlueVpnAi.startSession" in home
+    assert '"BlueAI •' not in home
+    assert '"BlueAI افت کیفیت' not in home
+
+
+def test_v2rayng_compatibility_failover_never_discards_hidden_routes() -> None:
+    home = text("android-source/BlueVpnHomeActivity.kt")
+    assert "scoredQueue.take(5)" not in home
+    assert ".take(18)" not in home
+    assert "maxCandidates = 10" not in home
+    assert "BlueVpnLocationUtil.allCandidates(" in home
+    assert "failoverReserveQueue" in home
+    assert "failoverReserveQueue.take(8)" in home
+    assert "BlueVpnSelectionMode.MANUAL_LOCATION ->" in home
+    assert "failoverQueue = orderedGuids" in home
+
+
+def test_xray_cold_start_and_local_proxy_windows_are_not_over_aggressive() -> None:
+    home = text("android-source/BlueVpnHomeActivity.kt")
+    assert "handler.postDelayed(attemptTimeout, 24_000L)" in home
+    assert "maxWaitMs: Long = 5_000L" in home
+    assert "SystemClock.elapsedRealtime() + 6_500L" in home
+    assert "connectTimeout = 3_000" in home
+    assert "readTimeout = 3_000" in home
+
+
+def test_tunnel_verifier_follows_v2rayng_local_proxy_semantics_without_brittle_endpoint_contracts() -> None:
+    home = text("android-source/BlueVpnHomeActivity.kt")
+    assert "SettingsManager.getSocksPort()" in home
+    assert "AppConfig.PREF_DYNAMIC_SOCKS_PORT" in home
+    assert "Proxy.Type.HTTP" in home
+    assert "Proxy.Type.SOCKS" in home
+    assert "Proxy-Authorization" in home
+    assert "SettingsManager.getSocksUsername()" in home
+    assert "SettingsManager.getSocksPassword()" in home
+    assert "code in 200..499 && code != 407" in home
+    assert 'body.contains(\n                                "bluevpn-platform"' not in home
+    assert "code == 204" not in home
+
+
+def test_profile_dedupe_keeps_v2rayng_runtime_affecting_variants_distinct() -> None:
+    profile = text("android-source/BlueVpnProfileManager.kt")
+    for getter in (
+        "getBrowserDialerMode",
+        "getProxyChainProfiles",
+        "getPolicyGroupType",
+        "getPolicyGroupSubscriptionId",
+        "getPolicyGroupFilter",
+    ):
+        assert getter in profile
+
+
+def test_custom_xray_json_is_not_dropped_before_upstream_runtime_validation() -> None:
+    location = text("android-source/BlueVpnLocationUtil.kt")
+    assert "sourceFormat == BlueVpnProfileManager.SourceFormat.XRAY_JSON" in location
+    assert "CoreConfigManager validate these profiles" in location
+    assert "return raw.isNotBlank()" in location

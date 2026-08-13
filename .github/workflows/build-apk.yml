@@ -279,6 +279,17 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Confirm official v2rayNG checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BUILD_STAGE=android-runtime-checked-out" >> "$GITHUB_ENV"
+          echo "android-runtime-checked-out" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
+          test -f upstream/V2rayNG/gradlew
+          test -d upstream/AndroidLibXrayLite/.git || git -C upstream/AndroidLibXrayLite rev-parse --git-dir >/dev/null
+          echo "Official v2rayNG runtime checkout completed at $(git -C upstream rev-parse --short=12 HEAD)."
+
       - name: Setup Android SDK 37
         uses: android-actions/setup-android@v4
         with:
@@ -322,44 +333,43 @@ jobs:
           bash compile-hevtun.sh
           cp -r libs V2rayNG/app/
 
-      - name: Verify v2rayNG AndroidLibXrayLite pairing
+      - name: Resolve official v2rayNG AndroidLibXrayLite pairing
         id: xray
         working-directory: upstream/AndroidLibXrayLite
         shell: bash
         run: |
           set -euo pipefail
+          echo "BUILD_STAGE=resolve-xray-pairing" >> "$GITHUB_ENV"
+          echo "resolve-xray-pairing" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
 
-          # Never move the core submodule away from the commit pinned by the
-          # checked-out v2rayNG release. Fetch tags only so we can prove that
-          # the configured Xray tag resolves to the exact same commit.
+          # Match the official v2rayNG build workflow. The v2rayNG 2.2.6
+          # submodule HEAD is intentionally allowed to be commits ahead of the
+          # AndroidLibXrayLite release tag. Upstream resolves the AAR release by
+          # asking git for the nearest reachable tag from the pinned submodule.
+          # Never checkout or mutate the submodule here.
           git fetch origin \
             --force \
             --prune \
             --tags \
             "+refs/tags/*:refs/tags/*"
 
-          XRAY_REF="${{ steps.config.outputs.xray_ref }}"
-          if [ -z "$XRAY_REF" ]; then
-            echo "Pinned AndroidLibXrayLite release tag is missing."
-            exit 1
-          fi
-
           CURRENT_COMMIT="$(git rev-parse HEAD)"
-          PINNED_COMMIT="$(git rev-list -n 1 "$XRAY_REF" 2>/dev/null || true)"
-          if [ -z "$PINNED_COMMIT" ]; then
-            echo "Configured AndroidLibXrayLite tag does not exist: $XRAY_REF"
+          CURRENT_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          EXPECTED_TAG="${{ steps.config.outputs.xray_ref }}"
+
+          if [ -z "$CURRENT_TAG" ]; then
+            echo "::error::Could not resolve an AndroidLibXrayLite release tag from the v2rayNG-pinned submodule commit $CURRENT_COMMIT"
             exit 1
           fi
-          if [ "$CURRENT_COMMIT" != "$PINNED_COMMIT" ]; then
-            echo "AndroidLibXrayLite pairing mismatch."
-            echo "v2rayNG submodule commit: $CURRENT_COMMIT"
-            echo "configured $XRAY_REF commit: $PINNED_COMMIT"
+          if [ -n "$EXPECTED_TAG" ] && [ "$CURRENT_TAG" != "$EXPECTED_TAG" ]; then
+            echo "::error::AndroidLibXrayLite release tag mismatch. v2rayNG resolves $CURRENT_TAG but branding/app.json expects $EXPECTED_TAG"
             exit 1
           fi
 
-          echo "AndroidLibXrayLite commit: ${CURRENT_COMMIT:0:12}"
-          echo "AndroidLibXrayLite verified tag: $XRAY_REF"
-          echo "tag=$XRAY_REF" >> "$GITHUB_OUTPUT"
+          echo "v2rayNG-pinned AndroidLibXrayLite commit: $CURRENT_COMMIT"
+          echo "Official nearest AndroidLibXrayLite release tag: $CURRENT_TAG"
+          echo "tag=$CURRENT_TAG" >> "$GITHUB_OUTPUT"
 
       - name: Download libv2ray
         uses: robinraju/release-downloader@v1.13

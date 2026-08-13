@@ -2,11 +2,11 @@
   "version": "4.1.8",
   "version_code": 40108,
   "channel": "stable",
-  "build_id": "20260813-v4.1.8-v2rayng-full-rebase",
-  "built_at": "2026-08-13T08:30:00Z",
+  "build_id": "20260813-v4.1.8-v2rayng-official-pairing-buildfix",
+  "built_at": "2026-08-13T10:05:00Z",
   "android_version": "4.1.8",
   "android_version_code": 40108,
-  "description": "BlueVPN 4.1.8: بازگشت کامل Android runtime به سورس رسمی v2rayNG 2.2.6. لایه Dual Engine و sing-box حذف شد؛ BlueVPN فقط UI، حساب، لوکیشن‌های مخفی و کنترل پلن را نگه می‌دارد و تمام Import/Config/VpnService/TUN/Xray lifecycle به v2rayNG واگذار می‌شود.",
+  "description": "BlueVPN 4.1.8 build fix: اصلاح CI برای تطبیق دقیق با روش رسمی build در v2rayNG 2.2.6؛ AndroidLibXrayLite tag از git describe ساب‌ماژول pin‌شده استخراج می‌شود و HEAD دیگر به اشتباه مجبور نیست دقیقاً برابر commit خود tag باشد.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "xray-core-v26.6.27-exact-upstream-pairing",
@@ -26,7 +26,10 @@
     "serialized-subscription-mutation",
     "wordpress-mysql-schema-1.6.0",
     "no-public-ai-ui",
-    "short-semver-patch-0-to-10"
+    "short-semver-patch-0-to-10",
+    "official-v2rayng-submodule-tag-resolution",
+    "no-invalid-submodule-head-equality-check",
+    "accurate-build-stage-diagnostics"
   ],
-  "version_source": "v4.1.8-v2rayng-full-rebase"
+  "version_source": "v4.1.8-v2rayng-official-pairing-buildfix"
 }

@@ -107,8 +107,10 @@ def main() -> None:
     require("actions/setup-go" not in workflow, "Go/sing-box setup still exists")
     require('git checkout --force "$XRAY_REF"' not in workflow, "CI still moves AndroidLibXrayLite away from the v2rayNG submodule commit")
     require('CURRENT_COMMIT="$(git rev-parse HEAD)"' in workflow, "CI does not read v2rayNG-pinned core submodule commit")
-    require('PINNED_COMMIT="$(git rev-list -n 1 "$XRAY_REF"' in workflow, "CI does not verify configured Xray tag against the submodule commit")
-    require('if [ "$CURRENT_COMMIT" != "$PINNED_COMMIT" ]; then' in workflow, "CI does not fail on Xray pairing mismatch")
+    require('CURRENT_TAG="$(git describe --tags --abbrev=0' in workflow, "CI does not resolve the nearest official AndroidLibXrayLite tag from the pinned submodule")
+    require('EXPECTED_TAG="${{ steps.config.outputs.xray_ref }}"' in workflow, "CI does not compare the resolved upstream tag with BlueVPN metadata")
+    require('PINNED_COMMIT="$(git rev-list -n 1' not in workflow, "CI still assumes submodule HEAD must equal the release-tag commit")
+    require('if [ -n "$EXPECTED_TAG" ] && [ "$CURRENT_TAG" != "$EXPECTED_TAG" ]; then' in workflow, "CI does not fail when the official resolved tag differs from BlueVPN metadata")
 
     # Build-time immutable boundary around v2rayNG runtime/parser files.
     require("patch_v2rayng_runtime_lifecycle" not in prepare, "core lifecycle patch remains")

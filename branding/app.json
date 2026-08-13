@@ -13,6 +13,6 @@
     "arm64-v8a",
     "armeabi-v7a"
   ],
-  "version_source": "v4.1.8-v2rayng-full-rebase",
+  "version_source": "v4.1.8-v2rayng-official-pairing-buildfix",
   "xray_ref": "v26.6.27"
 }

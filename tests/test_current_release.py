@@ -93,8 +93,10 @@ class Release418Tests(unittest.TestCase):
     def test_11_core_submodule_not_moved(self):
         self.assertNotIn('git checkout --force "$XRAY_REF"', self.workflow)
         self.assertIn('CURRENT_COMMIT="$(git rev-parse HEAD)"', self.workflow)
-        self.assertIn('PINNED_COMMIT="$(git rev-list -n 1 "$XRAY_REF"', self.workflow)
-        self.assertIn('if [ "$CURRENT_COMMIT" != "$PINNED_COMMIT" ]; then', self.workflow)
+        self.assertIn('CURRENT_TAG="$(git describe --tags --abbrev=0', self.workflow)
+        self.assertIn('EXPECTED_TAG="${{ steps.config.outputs.xray_ref }}"', self.workflow)
+        self.assertNotIn('PINNED_COMMIT="$(git rev-list -n 1', self.workflow)
+        self.assertIn('if [ -n "$EXPECTED_TAG" ] && [ "$CURRENT_TAG" != "$EXPECTED_TAG" ]; then', self.workflow)
 
     def test_12_immediate_stock_receiver_and_assets(self):
         listen = self.home.index("mainViewModel.startListenBroadcast()")

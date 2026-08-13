@@ -43,10 +43,10 @@ def main() -> None:
     sms_notifications = read("bluevpn-manager/includes/class-bluevpn-sms-notifications.php")
     api = read("bluevpn-manager/includes/class-bluevpn-api.php")
 
-    require(app["version_name"] == "4.1.10", "app version must be 4.1.10")
-    require(app["version_code"] == 40110, "app versionCode must be 40110")
-    require(release["version"] == "4.1.10", "release version mismatch")
-    require(release["version_code"] == 40110, "release versionCode mismatch")
+    require(app["version_name"] == "4.2.0", "app version must be 4.2.0")
+    require(app["version_code"] == 40200, "app versionCode must be 40200")
+    require(release["version"] == "4.2.0", "release version mismatch")
+    require(release["version_code"] == 40200, "release versionCode mismatch")
     require(app["upstream_ref"] == "2.2.6", "production v2rayNG pin must be 2.2.6")
     require(app["android_lib_xray_ref"] == "v26.7.5", "documented AndroidLibXrayLite tag must be v26.7.5")
     require(app["xray_core_release_label"] == "v26.6.27", "v2rayNG 2.2.6 Xray-core release label must be v26.6.27")
@@ -163,7 +163,7 @@ def main() -> None:
     settings_writes = re.findall(r"MmkvManager\.encodeSettings\(", home)
     require(len(settings_writes) == 1 and 'AppConfig.PREF_MODE, "VPN"' in home, "BlueVPN still force-overrides v2rayNG runtime settings")
 
-    # 4.1.10 performance freeze: optimize only BlueVPN presentation/control plane.
+    # 4.2.0 performance freeze: optimize only BlueVPN presentation/control plane.
     require("private var firstHomeResume = true" in home, "first-resume dedupe guard missing")
     resume_block = between(home, "override fun onResume()", "private fun scheduleStartupPipeline")
     require("if (!initialResume)" in resume_block, "initial onResume still repeats startup refresh work")
@@ -180,8 +180,8 @@ def main() -> None:
     # Plugin version stays synchronized.
     plugin = read("bluevpn-manager/bluevpn-manager.php")
     plugin_readme = read("bluevpn-manager/readme.txt")
-    require(re.search(r"Version:\s*4\.1\.10", plugin) is not None, "plugin header version mismatch")
-    # 4.1.10 SMS transport hardening: backend must fail before Android OTP budget
+    require(re.search(r"Version:\s*4\.2\.0", plugin) is not None, "plugin header version mismatch")
+    # 4.2.0 SMS transport hardening: backend must fail before Android OTP budget
     # and OTP endpoints must always return JSON even on unexpected PHP failures.
     require('val otpRequest = method == "POST"' in account, "Android OTP request classification missing")
     require("otpRequest -> 30_000" in account, "Android OTP read budget must be 30 seconds")
@@ -192,14 +192,26 @@ def main() -> None:
     require("catch(Throwable $e){return self::unexpected($e,'otp_request');}" in api, "OTP request does not catch unexpected PHP failures")
     require("'timeout'=>10" in sms_notifications, "notification SMS provider timeout is not bounded")
 
-    require("BLUEVPN_MANAGER_VERSION" in plugin and "4.1.10" in plugin, "plugin constant version mismatch")
-    require(re.search(r"Stable tag:\s*4\.1\.10", plugin_readme) is not None, "plugin stable tag mismatch")
+    require("BLUEVPN_MANAGER_VERSION" in plugin and "4.2.0" in plugin, "plugin constant version mismatch")
+    require(re.search(r"Stable tag:\s*4\.2\.0", plugin_readme) is not None, "plugin stable tag mismatch")
+
+    # 4.2.0 IranPayamak pattern discovery: the admin must fetch active
+    # patterns from the provider instead of asking for manual UID entry.
+    control = read("bluevpn-manager/includes/class-bluevpn-control-center.php")
+    require("$base . '/patterns'" in sms_otp, "IranPayamak pattern list endpoint missing")
+    require("'method' => 'GET'" in sms_otp and "'Api-Key' => $apiKey" in sms_otp, "pattern sync auth/method mismatch")
+    require("PATTERN_CACHE_OPTION" in sms_otp and "provider_pattern_candidates" in sms_otp, "pattern sync cache/normalizer missing")
+    require("'staus' => 'active'" in sms_otp and "'status' => 'active'" in sms_otp, "provider pattern active filter compatibility missing")
+    require("bluevpn_cc_refresh_sms_patterns" in control and "sms_pattern_select" in control, "admin pattern refresh/dropdown missing")
+    require('placeholder="Pattern UID"' not in control, "manual Pattern UID field still exposed")
+    require("reconcile_sms_pattern_selections" in control, "stale provider pattern reconciliation missing")
+    require("preferred_otp_parameter" in sms_otp and "SMS_PATTERN_INACTIVE" in sms_otp, "OTP pattern variable/stale protection missing")
 
     # Versioning contract: patch series is 0..10.
     _, _, patch = map(int, app["version_name"].split("."))
     require(0 <= patch <= 10, "patch version exceeded BlueVPN short series")
 
-    print("BlueVPN 4.1.10 validation: PASS")
+    print("BlueVPN 4.2.0 validation: PASS")
     print("runtime=v2rayNG-2.2.6 androidlib=v26.7.5 xray-release-label=v26.6.27 sing-box=removed")
     print("architecture=BlueVPN UI/control-plane -> immutable stock v2rayNG runtime")
 

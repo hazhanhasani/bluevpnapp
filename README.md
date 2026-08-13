@@ -1,4 +1,4 @@
-# BlueVPN 4.1.10
+# BlueVPN 4.2.0
 
 BlueVPN is now rebased as a **custom product/UI on top of official v2rayNG**, instead of treating v2rayNG as a replaceable compatibility bridge.
 
@@ -74,7 +74,7 @@ See `LICENSE` and `NOTICE.md` for licensing and attribution.
 Some deployments copy a release bundle over an existing GitHub checkout instead of replacing the tree. Deleted files from older releases can therefore remain tracked in the repository. The Android workflow now runs `scripts/cleanup_repository.py` before applying the BlueVPN overlay. It removes retired dual-engine/sing-box files, the removed AI activity, and historical generated Android snapshots from the build workspace before the regression gate runs.
 
 
-## 4.1.10 Stability/Performance Freeze
+## 4.2.0 Stability/Performance Freeze
 
 - Runtime اتصال موفق 4.1.8 فریز شده است: فایل‌های رسمی CoreServiceManager/CoreConfigManager/CoreVpnService/MainViewModel/AngConfigManager تغییر نمی‌کنند.
 - اولین onResume دیگر Refresh تکراری Startup را اجرا نمی‌کند.
@@ -82,7 +82,7 @@ Some deployments copy a release bundle over an existing GitHub checkout instead 
 - رندر صفحه اصلی برای نمایش سرور انتخاب‌شده از ownership check سبک استفاده می‌کند و لیست کامل سرورها را روی Main Thread باز نمی‌کند.
 - فیلدهای Compatibility/AI که در UI مخفی هستند دیگر در هر Refresh محاسبه نمی‌شوند.
 - پاک‌کردن SharedPreferences قدیمی subscription-info از مسیر رندر حذف شد؛ فقط تغییر واقعی حساب آن Cache را invalidate می‌کند.
-## 4.1.10 SMS / OTP Transport Hardening
+## 4.2.0 SMS / OTP Transport Hardening
 
 - Runtime VPN remains frozen on stock v2rayNG 2.2.6 / Xray path; no core file is changed.
 - Android OTP requests now have a 30-second read budget while WordPress gives IranPayamak at most 10 seconds. The backend therefore returns the real provider error before the app can time out first.
@@ -91,3 +91,14 @@ Some deployments copy a release bundle over an existing GitHub checkout instead 
 - SMS provider health is persisted in `sms_settings.last_test_*` and shown in the WordPress SMS control center.
 - Pattern requests still use the official `POST /ws/v1/sms/pattern` contract with `Api-Key`, `code`, `attributes`, `recipient`, `line_number`, and `number_format`.
 
+
+## 4.2.0 IranPayamak Pattern Sync
+
+The WordPress SMS / OTP control center now discovers active IranPayamak/FarazSMS patterns from the provider API instead of requiring manual Pattern UID entry. The provider API key remains encrypted in MySQL; only a one-way hash is stored beside the local pattern cache.
+
+- `GET /ws/v1/patterns` is authenticated with the exact `Api-Key` header.
+- Active patterns are cached for 15 minutes and can be refreshed explicitly from the SMS / OTP page.
+- OTP and notification templates use provider-backed dropdowns.
+- OTP parameter names are aligned with discovered provider variables when possible.
+- A successful refresh reconciles stale pattern selections so removed/inactive provider patterns cannot silently remain enabled.
+- The stable v2rayNG/Xray runtime boundary is unchanged by this release.

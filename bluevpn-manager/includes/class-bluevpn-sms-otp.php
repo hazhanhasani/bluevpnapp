@@ -6,6 +6,8 @@ final class BlueVPN_SMS_OTP {
     private const PURPOSE_AUTH = 'auth';
     private const PURPOSE_BIND = 'bind_phone';
     private const MAX_ATTEMPTS = 5;
+    private const PATTERN_CACHE_OPTION = 'bluevpn_sms_pattern_cache_v2';
+    private const PATTERN_CACHE_TTL = 15 * MINUTE_IN_SECONDS;
 
     public static function settings(): array {
         global $wpdb;
@@ -16,6 +18,200 @@ final class BlueVPN_SMS_OTP {
             $row['otp_length'] = self::OTP_LENGTH;
         }
         return is_array($row) ? $row : [];
+    }
+
+    private static function provider_context(): array {
+        $s = self::settings();
+        $apiKey = BlueVPN_Utils::decrypt_secret((string)($s['api_key_enc'] ?? ''));
+        $base = untrailingslashit((string)($s['base_url'] ?? 'https://api.iranpayamak.com/ws/v1'));
+        if ($base === '' || stripos($base, 'edge.ippanel.com') !== false) $base = 'https://api.iranpayamak.com/ws/v1';
+        return [$s, $apiKey, $base];
+    }
+
+    private static function pattern_cache_key_hash(string $apiKey, string $base): string {
+        return substr(hash('sha256', $apiKey . '|' . strtolower($base)), 0, 24);
+    }
+
+    public static function clear_pattern_cache(): void {
+        delete_option(self::PATTERN_CACHE_OPTION);
+    }
+
+    public static function pattern_cache(): array {
+        [$s, $apiKey, $base] = self::provider_context();
+        $raw = get_option(self::PATTERN_CACHE_OPTION, []);
+        if (!is_array($raw) || $apiKey === '') return ['patterns'=>[], 'fetched_at'=>'', 'fresh'=>false, 'message'=>''];
+        $expected = self::pattern_cache_key_hash($apiKey, $base);
+        if (!hash_equals($expected, (string)($raw['key_hash'] ?? ''))) return ['patterns'=>[], 'fetched_at'=>'', 'fresh'=>false, 'message'=>''];
+        $patterns = is_array($raw['patterns'] ?? null) ? array_values($raw['patterns']) : [];
+        $ts = (int)($raw['fetched_ts'] ?? 0);
+        return [
+            'patterns' => $patterns,
+            'fetched_at' => (string)($raw['fetched_at'] ?? ''),
+            'fresh' => $ts > 0 && (time() - $ts) < self::PATTERN_CACHE_TTL,
+            'message' => (string)($raw['message'] ?? ''),
+        ];
+    }
+
+    private static function provider_pattern_candidates($node, array &$out, int $depth = 0): void {
+        if ($depth > 7) return;
+        if (is_string($node)) {
+            $trimmed = trim($node);
+            if ($trimmed !== '' && (($trimmed[0] ?? '') === '{' || ($trimmed[0] ?? '') === '[')) {
+                $decoded = json_decode($trimmed, true);
+                if (is_array($decoded)) self::provider_pattern_candidates($decoded, $out, $depth + 1);
+            }
+            return;
+        }
+        if (!is_array($node)) return;
+        $hasCode = isset($node['code']) && is_scalar($node['code']) && trim((string)$node['code']) !== '';
+        if ($hasCode) {
+            $out[] = $node;
+            return;
+        }
+        foreach ($node as $value) {
+            if (is_array($value)) self::provider_pattern_candidates($value, $out, $depth + 1);
+        }
+    }
+
+    private static function pattern_vars_from_row(array $row): array {
+        $names = [];
+        foreach (['vars','variables','attributes'] as $key) {
+            $raw = $row[$key] ?? null;
+            if (!is_array($raw)) continue;
+            foreach ($raw as $item) {
+                if (is_string($item)) $name = $item;
+                elseif (is_array($item)) $name = (string)($item['var'] ?? $item['name'] ?? $item['key'] ?? $item['attribute'] ?? '');
+                else $name = '';
+                $name = sanitize_key(trim($name));
+                if ($name !== '' && !in_array($name, $names, true)) $names[] = $name;
+            }
+        }
+        $text = (string)($row['text'] ?? $row['pattern'] ?? $row['body'] ?? '');
+        if ($text !== '' && preg_match_all('/%([A-Za-z0-9_\-]+)%/u', $text, $m)) {
+            foreach ($m[1] as $name) {
+                $name = sanitize_key((string)$name);
+                if ($name !== '' && !in_array($name, $names, true)) $names[] = $name;
+            }
+        }
+        return array_slice($names, 0, 30);
+    }
+
+    private static function normalize_provider_patterns(array $payload): array {
+        $rows = [];
+        self::provider_pattern_candidates($payload, $rows);
+        $patterns = [];
+        foreach ($rows as $row) {
+            $code = trim((string)($row['code'] ?? ''));
+            if ($code === '') continue;
+            $status = strtolower(trim((string)($row['status'] ?? $row['state'] ?? $row['pattern_status'] ?? 'active')));
+            if ($status !== '' && !in_array($status, ['active','approved','accept','accepted','1','true'], true)) continue;
+            $text = trim(wp_strip_all_tags((string)($row['text'] ?? $row['pattern'] ?? $row['body'] ?? $row['title'] ?? $row['description'] ?? '')));
+            $description = trim(wp_strip_all_tags((string)($row['description'] ?? $row['title'] ?? '')));
+            $vars = self::pattern_vars_from_row($row);
+            $patterns[$code] = [
+                'code' => mb_substr($code, 0, 160),
+                'text' => mb_substr($text, 0, 500),
+                'description' => mb_substr($description, 0, 220),
+                'status' => $status !== '' ? $status : 'active',
+                'variables' => $vars,
+            ];
+        }
+        uasort($patterns, static function(array $a, array $b): int {
+            return strnatcasecmp(($a['description'] ?: $a['text'] ?: $a['code']), ($b['description'] ?: $b['text'] ?: $b['code']));
+        });
+        return array_values($patterns);
+    }
+
+    public static function refresh_patterns(bool $force = true): array {
+        [$s, $apiKey, $base] = self::provider_context();
+        if ($apiKey === '') throw new RuntimeException('ابتدا API Key ایران‌پیامک را ذخیره کنید.');
+        $cached = self::pattern_cache();
+        if (!$force && !empty($cached['fresh'])) return $cached + ['count'=>count($cached['patterns'])];
+
+        // FarazSMS documents GET /patterns with a request body. Some HTTP
+        // intermediaries strip GET bodies, so we send the same filters in both
+        // query parameters and JSON body for compatibility.
+        $query = [
+            'search' => '',
+            'status' => 'active',
+            'staus' => 'active', // spelling used in the current provider docs
+            'share' => 1,
+            'sort_by' => 'updated_at',
+            'sort_type' => 'desc',
+        ];
+        $url = add_query_arg($query, $base . '/patterns');
+        $res = wp_remote_request($url, [
+            'method' => 'GET',
+            'timeout' => 10,
+            'redirection' => 2,
+            'sslverify' => !isset($s['verify_tls']) || (bool)$s['verify_tls'],
+            'headers' => [
+                'Api-Key' => $apiKey,
+                'Accept' => 'application/json',
+                'Content-Type' => 'application/json',
+                'User-Agent' => 'BlueVPN-WordPress-SMS/' . BLUEVPN_MANAGER_VERSION,
+            ],
+            'body' => wp_json_encode($query, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        ]);
+        if (is_wp_error($res)) throw self::provider_transport_failure($res);
+        $status = (int)wp_remote_retrieve_response_code($res);
+        $body = trim((string)wp_remote_retrieve_body($res));
+        $decoded = $body !== '' ? json_decode($body, true) : null;
+        if ($status < 200 || $status >= 300) {
+            $data = is_array($decoded) ? $decoded : [];
+            $fallback = in_array($status, [401,403], true)
+                ? 'API Key ایران‌پیامک معتبر نیست یا اجازه مشاهده پترن‌ها را ندارد.'
+                : 'دریافت فهرست پترن‌های ایران‌پیامک ناموفق بود.';
+            $message = self::provider_error_message($data, $fallback);
+            self::record_provider_health(false, 'PATTERN_SYNC HTTP ' . $status . ': ' . $message);
+            throw new RuntimeException($message);
+        }
+        if (!is_array($decoded)) {
+            self::record_provider_health(false, 'PATTERN_SYNC_INVALID_RESPONSE: HTTP ' . $status . ' بدون JSON معتبر.');
+            throw new RuntimeException('ایران‌پیامک برای فهرست پترن‌ها پاسخ JSON معتبر برنگرداند.');
+        }
+        $patterns = self::normalize_provider_patterns($decoded);
+        $message = count($patterns) . ' پترن فعال از ایران‌پیامک دریافت شد.';
+        update_option(self::PATTERN_CACHE_OPTION, [
+            'key_hash' => self::pattern_cache_key_hash($apiKey, $base),
+            'fetched_ts' => time(),
+            'fetched_at' => BlueVPN_Utils::now_mysql(),
+            'patterns' => $patterns,
+            'message' => $message,
+        ], false);
+        self::record_provider_health(true, 'PATTERN_SYNC_OK: ' . $message);
+        return ['patterns'=>$patterns, 'fetched_at'=>BlueVPN_Utils::now_mysql(), 'fresh'=>true, 'message'=>$message, 'count'=>count($patterns)];
+    }
+
+    public static function active_pattern_codes(): array {
+        $cache = self::pattern_cache();
+        $codes = [];
+        foreach ($cache['patterns'] as $row) {
+            $code = trim((string)($row['code'] ?? ''));
+            if ($code !== '') $codes[] = $code;
+        }
+        return array_values(array_unique($codes));
+    }
+
+    public static function pattern_variables(string $code): array {
+        $code = trim($code);
+        if ($code === '') return [];
+        foreach (self::pattern_cache()['patterns'] as $row) {
+            if (hash_equals($code, (string)($row['code'] ?? ''))) {
+                return is_array($row['variables'] ?? null) ? array_values($row['variables']) : [];
+            }
+        }
+        return [];
+    }
+
+    public static function preferred_otp_parameter(string $patternCode, string $fallback = 'code'): string {
+        $vars = self::pattern_variables($patternCode);
+        $fallback = sanitize_key($fallback) ?: 'code';
+        if (!$vars) return $fallback;
+        if (in_array($fallback, $vars, true)) return $fallback;
+        if (in_array('code', $vars, true)) return 'code';
+        if (in_array('otp', $vars, true)) return 'otp';
+        return sanitize_key((string)$vars[0]) ?: $fallback;
     }
 
     public static function is_ready(): bool {
@@ -175,9 +371,18 @@ final class BlueVPN_SMS_OTP {
             self::record_provider_health(false, 'SMS_LINE_REQUIRED: شماره خط ارسال معتبر نیست.');
             throw new BlueVPN_Auth_Exception(503, 'SMS_LINE_REQUIRED', 'شماره خط ارسال ایران‌پیامک معتبر نیست.');
         }
-        $param = sanitize_key((string)($s['parameter_name'] ?? 'code')) ?: 'code';
+        $patternCode = trim((string)($s['pattern_code'] ?? ''));
+        $cache = self::pattern_cache();
+        if (!empty($cache['patterns'])) {
+            $activeCodes = self::active_pattern_codes();
+            if ($patternCode === '' || !in_array($patternCode, $activeCodes, true)) {
+                self::record_provider_health(false, 'SMS_PATTERN_INACTIVE: پترن OTP در کش فعال ایران‌پیامک پیدا نشد.');
+                throw new BlueVPN_Auth_Exception(503, 'SMS_PATTERN_INACTIVE', 'پترن OTP انتخاب‌شده دیگر فعال نیست؛ در پنل SMS فهرست پترن‌ها را تازه‌سازی و دوباره انتخاب کنید.');
+            }
+        }
+        $param = self::preferred_otp_parameter($patternCode, (string)($s['parameter_name'] ?? 'code'));
         $payload = [
-            'code' => trim((string)($s['pattern_code'] ?? '')),
+            'code' => $patternCode,
             'attributes' => [$param => $code],
             'recipient' => BlueVPN_Utils::local_phone($phone),
             'number_format' => 'english',

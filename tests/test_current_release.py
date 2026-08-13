@@ -16,7 +16,7 @@ def block(source: str, start: str, end: str) -> str:
     return source[i:j]
 
 
-class Release4110Tests(unittest.TestCase):
+class Release420Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = json.loads(text("branding/app.json"))
@@ -30,10 +30,10 @@ class Release4110Tests(unittest.TestCase):
         cls.profile = text("android-source/BlueVpnProfileManager.kt")
 
     def test_01_version(self):
-        self.assertEqual((self.app["version_name"], self.app["version_code"]), ("4.1.10", 40110))
+        self.assertEqual((self.app["version_name"], self.app["version_code"]), ("4.2.0", 40200))
 
     def test_02_release_version(self):
-        self.assertEqual((self.release["version"], self.release["version_code"]), ("4.1.10", 40110))
+        self.assertEqual((self.release["version"], self.release["version_code"]), ("4.2.0", 40200))
 
     def test_03_official_pairing(self):
         self.assertEqual(self.app["upstream_ref"], "2.2.6")
@@ -169,8 +169,8 @@ class Release4110Tests(unittest.TestCase):
         self.assertIn('append("rawjson=")', self.profile)
 
     def test_25_plugin_version(self):
-        self.assertRegex(text("bluevpn-manager/bluevpn-manager.php"), r"Version:\s*4\.1\.10")
-        self.assertRegex(text("bluevpn-manager/readme.txt"), r"Stable tag:\s*4\.1\.10")
+        self.assertRegex(text("bluevpn-manager/bluevpn-manager.php"), r"Version:\s*4\.2\.0")
+        self.assertRegex(text("bluevpn-manager/readme.txt"), r"Stable tag:\s*4\.2\.0")
 
     def test_26_short_semver(self):
         self.assertLessEqual(int(self.app["version_name"].split(".")[2]), 10)
@@ -224,6 +224,40 @@ class Release4110Tests(unittest.TestCase):
         sms = text("bluevpn-manager/includes/class-bluevpn-sms-notifications.php")
         self.assertIn("'timeout'=>10", sms)
         self.assertIn("record_provider_health", sms)
+
+    def test_36_sms_pattern_sync_uses_official_endpoint_and_api_key_header(self):
+        sms = text("bluevpn-manager/includes/class-bluevpn-sms-otp.php")
+        self.assertIn("$base . '/patterns'", sms)
+        self.assertIn("'method' => 'GET'", sms)
+        self.assertIn("'Api-Key' => $apiKey", sms)
+        self.assertIn("PATTERN_CACHE_OPTION", sms)
+
+    def test_37_sms_pattern_sync_is_resilient_to_get_body_and_nested_payloads(self):
+        sms = text("bluevpn-manager/includes/class-bluevpn-sms-otp.php")
+        self.assertIn("'staus' => 'active'", sms)
+        self.assertIn("'status' => 'active'", sms)
+        self.assertIn("provider_pattern_candidates", sms)
+        self.assertIn("json_decode($trimmed, true)", sms)
+
+    def test_38_sms_admin_uses_synced_pattern_dropdowns(self):
+        cc = text("bluevpn-manager/includes/class-bluevpn-control-center.php")
+        self.assertIn("bluevpn_cc_refresh_sms_patterns", cc)
+        self.assertIn("sms_pattern_select", cc)
+        self.assertIn("تازه‌سازی پترن‌ها", cc)
+        self.assertNotIn("placeholder=\"Pattern UID\"", cc)
+
+    def test_39_stale_patterns_are_reconciled_and_otp_variable_is_mapped(self):
+        sms = text("bluevpn-manager/includes/class-bluevpn-sms-otp.php")
+        cc = text("bluevpn-manager/includes/class-bluevpn-control-center.php")
+        self.assertIn("preferred_otp_parameter", sms)
+        self.assertIn("SMS_PATTERN_INACTIVE", sms)
+        self.assertIn("reconcile_sms_pattern_selections", cc)
+        self.assertIn("active_pattern_codes", cc)
+
+    def test_40_runtime_freeze_survives_sms_pattern_release(self):
+        self.assertIn("CoreServiceManager.startVService(this, guid)", self.home)
+        self.assertNotIn("BlueVpnEngineManager", self.home + self.account)
+        self.assertEqual(self.app["upstream_ref"], "2.2.6")
 
     def test_repository_cleanup_handles_overlay_stale_files(self):
         cleanup = (ROOT / "scripts/cleanup_repository.py").read_text(encoding="utf-8")

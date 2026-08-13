@@ -259,6 +259,45 @@ class Release420Tests(unittest.TestCase):
         self.assertNotIn("BlueVpnEngineManager", self.home + self.account)
         self.assertEqual(self.app["upstream_ref"], "2.2.6")
 
+
+    def test_41_site_theme_version_and_updater_are_synchronized(self):
+        style = text("bluevpn-site/style.css")
+        functions = text("bluevpn-site/functions.php")
+        updater = text("bluevpn-site/inc/class-bluevpn-site-updater.php")
+        self.assertRegex(style, r"(?m)^Version:\s*1\.0\.1\s*$")
+        self.assertIn("BLUEVPN_SITE_VERSION', '1.0.1", functions)
+        self.assertIn("BlueVPN_Site_Updater::init();", functions)
+        self.assertIn("pre_set_site_transient_update_themes", updater)
+        self.assertIn("Theme_Upgrader", updater)
+
+    def test_42_site_theme_uses_independent_release_asset_contract(self):
+        updater = text("bluevpn-site/inc/class-bluevpn-site-updater.php")
+        self.assertIn("bluevpn-site-theme-v", updater)
+        self.assertIn("releases?per_page=100", updater)
+        self.assertIn("BlueVPN_GitHub_Updater", updater)
+        self.assertIn("BlueVPN_Telegram_Bot", updater)
+
+    def test_43_site_theme_background_auto_update_is_enabled(self):
+        updater = text("bluevpn-site/inc/class-bluevpn-site-updater.php")
+        self.assertIn("bluevpn_ten_minutes", updater)
+        self.assertIn("background_update_check", updater)
+        self.assertIn("maybe_kick_background_check", updater)
+        self.assertIn("auto_update_theme", updater)
+
+    def test_44_site_theme_release_workflow_is_decoupled_from_android(self):
+        workflow = text(".github/workflows/bluevpn-site-theme-release.yml")
+        self.assertIn("Release BlueVPN Site Theme", workflow)
+        self.assertIn("bluevpn-site-theme-v${THEME_VERSION}.zip", workflow)
+        self.assertIn("bluevpn-site-v${THEME_VERSION}", workflow)
+        self.assertNotIn("gradlew", workflow)
+        self.assertNotIn("v2rayNG", workflow)
+
+    def test_45_site_theme_release_requires_version_bump(self):
+        workflow = text(".github/workflows/bluevpn-site-theme-release.yml")
+        self.assertIn("Enforce theme version bump on source changes", workflow)
+        self.assertIn("changed without a theme version bump", workflow)
+        self.assertIn("patch must stay within x.y.0..x.y.10", workflow)
+
     def test_repository_cleanup_handles_overlay_stale_files(self):
         cleanup = (ROOT / "scripts/cleanup_repository.py").read_text(encoding="utf-8")
         workflow = (ROOT / ".github/workflows/build-apk.yml").read_text(encoding="utf-8")

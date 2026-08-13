@@ -102,3 +102,31 @@ The WordPress SMS / OTP control center now discovers active IranPayamak/FarazSMS
 - OTP parameter names are aligned with discovered provider variables when possible.
 - A successful refresh reconciles stale pattern selections so removed/inactive provider patterns cannot silently remain enabled.
 - The stable v2rayNG/Xray runtime boundary is unchanged by this release.
+
+## BlueVPN Site theme
+
+The repository also includes `bluevpn-site/`, a dedicated WordPress theme for the public BlueVPN website. It is intentionally separate from the Android runtime and does not modify v2rayNG/Xray.
+
+Theme pages created on activation:
+
+- `/` — landing page
+- `/plans/` — authenticated plan list and BluePay purchase flow
+- `/download/` — current Android release from BlueVPN Manager settings
+- `/account/` — phone OTP or email/password login, account snapshot, plans and purchase
+- `/support/` — support entry point
+
+The theme consumes the existing `bluevpn/v1` and `bluevpn-system/v1` APIs from BlueVPN Manager. Set the exact BlueVPN logo as the WordPress Custom Logo; if none is configured the theme falls back to the BlueVPN wordmark.
+
+## BlueVPN Site automatic updates
+
+`bluevpn-site/` has its own SemVer lifecycle independent from the Android app and BlueVPN Manager. The theme ships with a GitHub Releases updater and is auto-updated by WordPress without manual ZIP installation after the one-time bootstrap install.
+
+- Current theme version: `1.0.1`
+- Release tag: `bluevpn-site-v<theme-version>`
+- Release asset: `bluevpn-site-theme-v<theme-version>.zip`
+- Update source: the same GitHub repository configured in BlueVPN Manager; if the manager is unavailable, the theme falls back to `hazhanhasani/bluevpnapp`.
+- Private GitHub authentication: when BlueVPN Manager has the migrated GitHub token, the theme reuses the same internal token source for API and release-asset downloads.
+- Background checks: every 10 minutes through WP-Cron, plus an immediate non-blocking cron kick when a stale frontend/admin request is seen.
+- Installation: `Theme_Upgrader` replaces only `bluevpn-site/`; Android/v2rayNG and BlueVPN Manager are untouched.
+- Manual diagnostics: WordPress → Appearance → `آپدیت BlueVPN Site`.
+- GitHub publication is isolated in `.github/workflows/bluevpn-site-theme-release.yml`, so changing website styling no longer needs an Android APK build.

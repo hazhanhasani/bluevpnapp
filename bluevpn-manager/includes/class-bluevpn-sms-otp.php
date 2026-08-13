@@ -123,28 +123,71 @@ final class BlueVPN_SMS_OTP {
         return $fallback;
     }
 
+    private static function record_provider_health(bool $ok, string $message): void {
+        global $wpdb;
+        $wpdb->update(
+            BlueVPN_DB::table('sms_settings'),
+            [
+                'last_test_ok' => $ok ? 1 : 0,
+                'last_test_message' => mb_substr(wp_strip_all_tags($message), 0, 1000),
+                'last_test_at' => BlueVPN_Utils::now_mysql(),
+                'updated_at' => BlueVPN_Utils::now_mysql(),
+            ],
+            ['id' => 1]
+        );
+    }
+
+    private static function provider_transport_failure(WP_Error $error): BlueVPN_Auth_Exception {
+        $providerCode = sanitize_key((string)$error->get_error_code()) ?: 'http_request_failed';
+        $raw = trim(wp_strip_all_tags((string)$error->get_error_message()));
+        $lower = strtolower($raw);
+        if (str_contains($lower, 'timed out') || str_contains($lower, 'timeout') || str_contains($lower, 'curl error 28')) {
+            $code = 'SMS_PROVIDER_TIMEOUT';
+            $message = 'ایران‌پیامک در مهلت مقرر پاسخ نداد؛ ارتباط خروجی سرور WordPress با سرویس پیامک را بررسی کنید.';
+        } elseif (str_contains($lower, 'resolve host') || str_contains($lower, 'could not resolve') || str_contains($lower, 'curl error 6')) {
+            $code = 'SMS_PROVIDER_DNS_FAILED';
+            $message = 'DNS سرور WordPress نتوانست آدرس ایران‌پیامک را پیدا کند.';
+        } elseif (str_contains($lower, 'ssl') || str_contains($lower, 'certificate') || str_contains($lower, 'curl error 60')) {
+            $code = 'SMS_PROVIDER_TLS_FAILED';
+            $message = 'بررسی TLS هنگام اتصال WordPress به ایران‌پیامک ناموفق بود.';
+        } else {
+            $code = 'SMS_PROVIDER_NETWORK_FAILED';
+            $message = 'ارتباط سرور WordPress با ایران‌پیامک برقرار نشد.';
+        }
+        self::record_provider_health(false, $code . ': ' . ($raw !== '' ? $raw : $providerCode));
+        return new BlueVPN_Auth_Exception(503, $code, $message, [
+            'retryable' => true,
+            'provider_error_code' => $providerCode,
+        ]);
+    }
+
     private static function send_code(string $phone, string $code): array {
         $s = self::settings();
         if (!self::is_ready()) {
+            self::record_provider_health(false, 'SMS_NOT_CONFIGURED: تنظیمات OTP کامل یا فعال نیست.');
             throw new BlueVPN_Auth_Exception(503, 'SMS_NOT_CONFIGURED', 'سامانه ایران‌پیامک هنوز در پنل مدیریت تنظیم یا فعال نشده است.');
         }
-        $apiKey = BlueVPN_Utils::decrypt_secret((string)$s['api_key_enc']);
-        $base = untrailingslashit((string)($s['base_url'] ?: 'https://api.iranpayamak.com/ws/v1'));
+        $apiKey = BlueVPN_Utils::decrypt_secret((string)($s['api_key_enc'] ?? ''));
+        $base = untrailingslashit((string)($s['base_url'] ?? 'https://api.iranpayamak.com/ws/v1'));
         if ($base === '' || stripos($base, 'edge.ippanel.com') !== false) $base = 'https://api.iranpayamak.com/ws/v1';
-        $line = preg_replace('/\s+/', '', strtr((string)$s['from_number'], '۰۱۲۳۴۵۶۷۸۹', '0123456789')) ?: '';
+        $line = preg_replace('/\s+/', '', strtr((string)($s['from_number'] ?? ''), '۰۱۲۳۴۵۶۷۸۹', '0123456789')) ?: '';
         if (!preg_match('/^[+0-9A-Za-z_-]{3,32}$/', $line)) {
+            self::record_provider_health(false, 'SMS_LINE_REQUIRED: شماره خط ارسال معتبر نیست.');
             throw new BlueVPN_Auth_Exception(503, 'SMS_LINE_REQUIRED', 'شماره خط ارسال ایران‌پیامک معتبر نیست.');
         }
-        $param = sanitize_key((string)($s['parameter_name'] ?: 'code')) ?: 'code';
+        $param = sanitize_key((string)($s['parameter_name'] ?? 'code')) ?: 'code';
         $payload = [
-            'code' => trim((string)$s['pattern_code']),
+            'code' => trim((string)($s['pattern_code'] ?? '')),
             'attributes' => [$param => $code],
             'recipient' => BlueVPN_Utils::local_phone($phone),
             'number_format' => 'english',
             'line_number' => $line,
         ];
         $res = wp_remote_post($base . '/sms/pattern', [
-            'timeout' => 15,
+            // Keep the provider timeout below Android's 30s OTP budget. This
+            // guarantees that the API can return a structured provider error
+            // instead of Android timing out first with a generic message.
+            'timeout' => 10,
             'redirection' => 2,
             'sslverify' => !isset($s['verify_tls']) || (bool)$s['verify_tls'],
             'headers' => [
@@ -156,22 +199,31 @@ final class BlueVPN_SMS_OTP {
             'body' => wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ]);
         if (is_wp_error($res)) {
-            throw new BlueVPN_Auth_Exception(503, 'SMS_PROVIDER_TEMPORARY_UNAVAILABLE', 'ارتباط با ایران‌پیامک موقتاً برقرار نشد؛ دوباره تلاش کنید.', ['retryable' => true]);
+            throw self::provider_transport_failure($res);
         }
         $status = (int)wp_remote_retrieve_response_code($res);
-        $body = (string)wp_remote_retrieve_body($res);
-        $decoded = json_decode($body, true);
+        $body = trim((string)wp_remote_retrieve_body($res));
+        $decoded = $body !== '' ? json_decode($body, true) : null;
         $data = is_array($decoded) ? $decoded : [];
         if ($status < 200 || $status >= 300) {
             $fallback = in_array($status, [401,403], true)
                 ? 'کلید API ایران‌پیامک معتبر نیست یا مجوز ارسال پترن ندارد.'
                 : 'ارسال کد ورود توسط ایران‌پیامک انجام نشد.';
-            throw new BlueVPN_Auth_Exception(in_array($status,[429,500,502,503,504],true) ? 503 : 502, 'SMS_SEND_FAILED', self::provider_error_message($data, $fallback), ['provider_status' => $status]);
+            $message = self::provider_error_message($data, $fallback);
+            self::record_provider_health(false, 'HTTP ' . $status . ': ' . $message);
+            throw new BlueVPN_Auth_Exception(in_array($status,[429,500,502,503,504],true) ? 503 : 502, 'SMS_SEND_FAILED', $message, ['provider_status' => $status]);
+        }
+        if ($body === '' || !is_array($decoded)) {
+            self::record_provider_health(false, 'SMS_PROVIDER_INVALID_RESPONSE: HTTP ' . $status . ' بدون JSON معتبر.');
+            throw new BlueVPN_Auth_Exception(502, 'SMS_PROVIDER_INVALID_RESPONSE', 'ایران‌پیامک پاسخ معتبر JSON برنگرداند؛ تنظیمات وب‌سرویس را بررسی کنید.', ['provider_status' => $status]);
         }
         if ((isset($data['success']) && $data['success'] === false) || (isset($data['status']) && $data['status'] === false) || (isset($data['meta']['status']) && $data['meta']['status'] === false)) {
-            throw new BlueVPN_Auth_Exception(502, 'SMS_SEND_FAILED', self::provider_error_message($data, 'ایران‌پیامک ارسال کد را رد کرد.'));
+            $message = self::provider_error_message($data, 'ایران‌پیامک ارسال کد را رد کرد.');
+            self::record_provider_health(false, 'PROVIDER_REJECTED: ' . $message);
+            throw new BlueVPN_Auth_Exception(502, 'SMS_SEND_FAILED', $message);
         }
-        return $data ?: ['success' => true, 'status_code' => $status];
+        self::record_provider_health(true, 'Provider accepted OTP pattern request (HTTP ' . $status . ').');
+        return $data;
     }
 
     public static function request(string $phoneRaw, string $deviceId): array {

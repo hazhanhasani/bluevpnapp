@@ -42,6 +42,11 @@ final class BlueVPN_API {
     }
     private static function ok(array $data,int $status=200): WP_REST_Response { return new WP_REST_Response($data,$status); }
     private static function fail(BlueVPN_Auth_Exception $e): WP_REST_Response { return self::ok(['detail'=>array_merge(['code'=>$e->error_code,'message'=>$e->getMessage()],$e->extra)],$e->http_status); }
+    private static function unexpected(Throwable $e,string $scope): WP_REST_Response {
+        $trace=substr(hash('sha256',$scope.'|'.microtime(true).'|'.wp_rand()),0,12);
+        error_log('BlueVPN '.$scope.' ['.$trace.']: '.$e->getMessage().' @ '.$e->getFile().':'.$e->getLine());
+        return self::ok(['detail'=>['code'=>'SERVER_INTERNAL_ERROR','message'=>'خطای داخلی سرور هنگام پردازش درخواست رخ داد.','trace_id'=>$trace]],500);
+    }
     private static function body(WP_REST_Request $r): array { $b=$r->get_json_params(); return is_array($b)?$b:[]; }
     public static function health(): WP_REST_Response {
         $db = BlueVPN_DB::status();
@@ -149,10 +154,12 @@ final class BlueVPN_API {
     public static function bind_phone_otp_request(WP_REST_Request $r): WP_REST_Response {
         try { $c=BlueVPN_Auth::current_customer($r); $b=self::body($r); return self::ok(BlueVPN_SMS_OTP::request_bind($c,(string)($b['phone']??''),(string)($b['device_id']??''))); }
         catch(BlueVPN_Auth_Exception $e){ return self::fail($e); }
+        catch(Throwable $e){ return self::unexpected($e,'bind_phone_otp_request'); }
     }
     public static function bind_phone_otp_verify(WP_REST_Request $r): WP_REST_Response {
         try { $c=BlueVPN_Auth::current_customer($r); $b=self::body($r); return self::ok(BlueVPN_SMS_OTP::verify_bind($c,(string)($b['phone']??''),(string)($b['challenge_id']??''),(string)($b['code']??''),(string)($b['device_id']??''))); }
         catch(BlueVPN_Auth_Exception $e){ return self::fail($e); }
+        catch(Throwable $e){ return self::unexpected($e,'bind_phone_otp_verify'); }
     }
 
     public static function ai_event(WP_REST_Request $r): WP_REST_Response {
@@ -192,8 +199,8 @@ final class BlueVPN_API {
     }
     public static function bluepay_webhook(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Payments::webhook($r); }
 
-    public static function otp_request(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);return self::ok(BlueVPN_SMS_OTP::request((string)($b['phone']??''),(string)($b['device_id']??'')));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
-    public static function otp_verify(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);return self::ok(BlueVPN_SMS_OTP::verify((string)($b['phone']??''),(string)($b['challenge_id']??''),(string)($b['code']??''),(string)($b['device_id']??''),(string)($b['device_name']??'')));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
+    public static function otp_request(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);return self::ok(BlueVPN_SMS_OTP::request((string)($b['phone']??''),(string)($b['device_id']??'')));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);}catch(Throwable $e){return self::unexpected($e,'otp_request');} }
+    public static function otp_verify(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);return self::ok(BlueVPN_SMS_OTP::verify((string)($b['phone']??''),(string)($b['challenge_id']??''),(string)($b['code']??''),(string)($b['device_id']??''),(string)($b['device_name']??'')));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);}catch(Throwable $e){return self::unexpected($e,'otp_verify');} }
     public static function register(WP_REST_Request $r): WP_REST_Response {
         $rl='';
         try{

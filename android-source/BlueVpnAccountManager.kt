@@ -2133,12 +2133,25 @@ object BlueVpnAccountManager {
         try {
             connection.requestMethod = method
             val invoiceRequest = method == "POST" && path == "/api/v1/orders"
-            connection.connectTimeout = if (invoiceRequest) 12_000 else 7_000
-            // Invoice creation includes one outbound call from the BlueVPN backend
-            // to BluePay. Twelve seconds was shorter than the backend/provider
-            // timeout and made Android report «no server response» while the
-            // invoice was still being created.
-            connection.readTimeout = if (invoiceRequest) 50_000 else 12_000
+            val otpRequest = method == "POST" && path in setOf(
+                "/api/v1/auth/otp/request",
+                "/api/v1/account/phone/otp/request",
+            )
+            connection.connectTimeout = when {
+                invoiceRequest -> 12_000
+                otpRequest -> 10_000
+                else -> 7_000
+            }
+            // OTP is synchronous by design: WordPress must wait for IranPayamak
+            // to accept/reject the pattern request before returning a challenge.
+            // The backend provider timeout is intentionally shorter than this
+            // client budget so Android receives the real provider error instead
+            // of timing out first with a generic "no server response" message.
+            connection.readTimeout = when {
+                invoiceRequest -> 50_000
+                otpRequest -> 30_000
+                else -> 12_000
+            }
             connection.useCaches = false
             connection.setRequestProperty("Cache-Control", "no-cache")
             connection.setRequestProperty(
@@ -2235,13 +2248,21 @@ object BlueVpnAccountManager {
             return response
         } catch (error: SocketTimeoutException) {
             val invoiceRequest = method == "POST" && path == "/api/v1/orders"
+            val otpRequest = method == "POST" && path in setOf(
+                "/api/v1/auth/otp/request",
+                "/api/v1/account/phone/otp/request",
+            )
             throw ApiException(
                 0,
-                if (invoiceRequest) "BLUEPAY_TIMEOUT" else "NETWORK_TIMEOUT",
-                if (invoiceRequest) {
-                    "ساخت فاکتور بیش از حد طول کشید؛ اتصال اینترنت را بررسی کرده و دوباره تلاش کنید. فاکتور تکراری ساخته نمی‌شود."
-                } else {
-                    "پاسخ سرور دیر دریافت شد؛ اتصال اینترنت را بررسی و دوباره تلاش کنید."
+                when {
+                    invoiceRequest -> "BLUEPAY_TIMEOUT"
+                    otpRequest -> "SMS_REQUEST_TIMEOUT"
+                    else -> "NETWORK_TIMEOUT"
+                },
+                when {
+                    invoiceRequest -> "ساخت فاکتور بیش از حد طول کشید؛ اتصال اینترنت را بررسی کرده و دوباره تلاش کنید. فاکتور تکراری ساخته نمی‌شود."
+                    otpRequest -> "سامانه پیامک در مهلت مقرر پاسخ نداد؛ چند لحظه دیگر دوباره تلاش کنید."
+                    else -> "پاسخ سرور دیر دریافت شد؛ اتصال اینترنت را بررسی و دوباره تلاش کنید."
                 },
             )
         } catch (error: UnknownHostException) {

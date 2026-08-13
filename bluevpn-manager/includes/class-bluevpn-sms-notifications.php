@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_SMS_Notifications {
     public const HOOK_PROCESS = 'bluevpn_sms_process_queue';
     private const RETRY_DELAYS = [60, 300, 900, 1800];
-    private const CATALOG_VERSION = '2026-08-13-4.1.6';
+    private const CATALOG_VERSION = '2026-08-13-4.1.10';
     private static bool $shutdownRegistered = false;
 
     /**
@@ -186,6 +186,16 @@ final class BlueVPN_SMS_Notifications {
         return $fallback;
     }
 
+    private static function record_provider_health(bool $ok, string $message): void {
+        global $wpdb;
+        $wpdb->update(BlueVPN_DB::table('sms_settings'), [
+            'last_test_ok'=>$ok?1:0,
+            'last_test_message'=>mb_substr(wp_strip_all_tags($message),0,1000),
+            'last_test_at'=>BlueVPN_Utils::now_mysql(),
+            'updated_at'=>BlueVPN_Utils::now_mysql(),
+        ], ['id'=>1]);
+    }
+
     public static function send_pattern(string $phone, string $patternCode, array $params): array {
         $s = self::settings();
         $apiKey = BlueVPN_Utils::decrypt_secret((string)($s['api_key_enc'] ?? ''));
@@ -206,22 +216,35 @@ final class BlueVPN_SMS_Notifications {
             'line_number'=>$line,
         ];
         $res = wp_remote_post($base.'/sms/pattern', [
-            'timeout'=>18,'redirection'=>2,'sslverify'=>!isset($s['verify_tls']) || (bool)$s['verify_tls'],
+            'timeout'=>10,'redirection'=>2,'sslverify'=>!isset($s['verify_tls']) || (bool)$s['verify_tls'],
             'headers'=>['Api-Key'=>$apiKey,'Content-Type'=>'application/json','Accept'=>'application/json','User-Agent'=>'BlueVPN-WordPress-SMS/'.BLUEVPN_MANAGER_VERSION],
             'body'=>wp_json_encode($payload, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES),
         ]);
-        if (is_wp_error($res)) throw new RuntimeException('ارتباط با ایران‌پیامک برقرار نشد: '.$res->get_error_message());
+        if (is_wp_error($res)) {
+            $msg='ارتباط با ایران‌پیامک برقرار نشد: '.$res->get_error_message();
+            self::record_provider_health(false,$msg);
+            throw new RuntimeException($msg);
+        }
         $status = (int)wp_remote_retrieve_response_code($res);
         $raw = (string)wp_remote_retrieve_body($res);
         $decoded = json_decode($raw,true); $data = is_array($decoded) ? $decoded : [];
         if ($status < 200 || $status >= 300) {
             $fallback = in_array($status,[401,403],true) ? 'API Key ایران‌پیامک معتبر نیست یا مجوز ارسال ندارد.' : 'ایران‌پیامک ارسال پیام را رد کرد (HTTP '.$status.').';
-            throw new RuntimeException(self::provider_message($data,$fallback));
+            $message=self::provider_message($data,$fallback);
+            self::record_provider_health(false,'HTTP '.$status.': '.$message);
+            throw new RuntimeException($message);
+        }
+        if ($raw === '' || !is_array($decoded)) {
+            self::record_provider_health(false,'پاسخ Provider معتبر نبود (HTTP '.$status.').');
+            throw new RuntimeException('ایران‌پیامک پاسخ معتبر JSON برنگرداند.');
         }
         if ((isset($data['success']) && $data['success'] === false) || (isset($data['status']) && $data['status'] === false) || (isset($data['meta']['status']) && $data['meta']['status'] === false)) {
-            throw new RuntimeException(self::provider_message($data,'ایران‌پیامک ارسال پیام را رد کرد.'));
+            $message=self::provider_message($data,'ایران‌پیامک ارسال پیام را رد کرد.');
+            self::record_provider_health(false,'Provider rejected: '.$message);
+            throw new RuntimeException($message);
         }
-        return $data ?: ['success'=>true,'status_code'=>$status];
+        self::record_provider_health(true,'Provider accepted SMS pattern request (HTTP '.$status.').');
+        return $data;
     }
 
     /** Send one configured template synchronously (admin test / diagnostics). */

@@ -16,7 +16,7 @@ def block(source: str, start: str, end: str) -> str:
     return source[i:j]
 
 
-class Release419Tests(unittest.TestCase):
+class Release4110Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = json.loads(text("branding/app.json"))
@@ -30,10 +30,10 @@ class Release419Tests(unittest.TestCase):
         cls.profile = text("android-source/BlueVpnProfileManager.kt")
 
     def test_01_version(self):
-        self.assertEqual((self.app["version_name"], self.app["version_code"]), ("4.1.9", 40109))
+        self.assertEqual((self.app["version_name"], self.app["version_code"]), ("4.1.10", 40110))
 
     def test_02_release_version(self):
-        self.assertEqual((self.release["version"], self.release["version_code"]), ("4.1.9", 40109))
+        self.assertEqual((self.release["version"], self.release["version_code"]), ("4.1.10", 40110))
 
     def test_03_official_pairing(self):
         self.assertEqual(self.app["upstream_ref"], "2.2.6")
@@ -169,8 +169,8 @@ class Release419Tests(unittest.TestCase):
         self.assertIn('append("rawjson=")', self.profile)
 
     def test_25_plugin_version(self):
-        self.assertRegex(text("bluevpn-manager/bluevpn-manager.php"), r"Version:\s*4\.1\.9")
-        self.assertRegex(text("bluevpn-manager/readme.txt"), r"Stable tag:\s*4\.1\.9")
+        self.assertRegex(text("bluevpn-manager/bluevpn-manager.php"), r"Version:\s*4\.1\.10")
+        self.assertRegex(text("bluevpn-manager/readme.txt"), r"Stable tag:\s*4\.1\.10")
 
     def test_26_short_semver(self):
         self.assertLessEqual(int(self.app["version_name"].split(".")[2]), 10)
@@ -204,6 +204,26 @@ class Release419Tests(unittest.TestCase):
     def test_32_subscription_render_has_no_disk_clear(self):
         info = block(self.home, "private fun refreshSubscriptionInfo", "private fun formatAccountRemainingTime")
         self.assertNotIn('getSharedPreferences("bluevpn_subscription_info"', info)
+
+
+    def test_33_sms_otp_timeout_budget_returns_provider_error_before_android_timeout(self):
+        self.assertIn('val otpRequest = method == "POST"', self.account)
+        self.assertIn('otpRequest -> 30_000', self.account)
+        sms = text("bluevpn-manager/includes/class-bluevpn-sms-otp.php")
+        self.assertIn("'timeout' => 10", sms)
+        self.assertIn("provider_transport_failure", sms)
+        self.assertIn("record_provider_health", sms)
+
+    def test_34_sms_otp_api_never_falls_back_to_html_fatal(self):
+        api = text("bluevpn-manager/includes/class-bluevpn-api.php")
+        self.assertIn("private static function unexpected(Throwable $e,string $scope)", api)
+        self.assertIn("catch(Throwable $e){return self::unexpected($e,'otp_request');}", api)
+        self.assertIn("catch(Throwable $e){ return self::unexpected($e,'bind_phone_otp_request'); }", api)
+
+    def test_35_sms_notification_provider_budget_is_bounded(self):
+        sms = text("bluevpn-manager/includes/class-bluevpn-sms-notifications.php")
+        self.assertIn("'timeout'=>10", sms)
+        self.assertIn("record_provider_health", sms)
 
     def test_repository_cleanup_handles_overlay_stale_files(self):
         cleanup = (ROOT / "scripts/cleanup_repository.py").read_text(encoding="utf-8")

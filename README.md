@@ -1,4 +1,4 @@
-# BlueVPN 4.2.0
+# BlueVPN 4.2.1
 
 BlueVPN is now rebased as a **custom product/UI on top of official v2rayNG**, instead of treating v2rayNG as a replaceable compatibility bridge.
 
@@ -74,6 +74,14 @@ See `LICENSE` and `NOTICE.md` for licensing and attribution.
 Some deployments copy a release bundle over an existing GitHub checkout instead of replacing the tree. Deleted files from older releases can therefore remain tracked in the repository. The Android workflow now runs `scripts/cleanup_repository.py` before applying the BlueVPN overlay. It removes retired dual-engine/sing-box files, the removed AI activity, and historical generated Android snapshots from the build workspace before the regression gate runs.
 
 
+## 4.2.1 Release Gate / Versioning Fix
+
+- Release validation no longer hard-codes a specific app version.
+- `version_name` is validated as short SemVer and `version_code` is derived from it.
+- `branding/app.json`, `release.json`, WordPress plugin header/constant and `Stable tag` must match dynamically.
+- The GitHub regression gate now runs the current-release unittest suite after version synchronization.
+- This prevents the automatic build bump (for example `4.2.0 -> 4.2.1`) from failing against stale validator literals.
+
 ## 4.2.0 Stability/Performance Freeze
 
 - Runtime اتصال موفق 4.1.8 فریز شده است: فایل‌های رسمی CoreServiceManager/CoreConfigManager/CoreVpnService/MainViewModel/AngConfigManager تغییر نمی‌کنند.
@@ -121,7 +129,7 @@ The theme consumes the existing `bluevpn/v1` and `bluevpn-system/v1` APIs from B
 
 `bluevpn-site/` has its own SemVer lifecycle independent from the Android app and BlueVPN Manager. The theme ships with a GitHub Releases updater and is auto-updated by WordPress without manual ZIP installation after the one-time bootstrap install.
 
-- Current theme version: `1.0.1`
+- Current theme version: `1.0.2`
 - Release tag: `bluevpn-site-v<theme-version>`
 - Release asset: `bluevpn-site-theme-v<theme-version>.zip`
 - Update source: the same GitHub repository configured in BlueVPN Manager; if the manager is unavailable, the theme falls back to `hazhanhasani/bluevpnapp`.

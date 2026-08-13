@@ -29,6 +29,6 @@ $('[data-email-login]',root).onclick=()=>emailAction('login');$('[data-email-reg
 $('[data-logout]',root).onclick=async()=>{try{await api('/auth/logout',{method:'POST',body:'{}'})}catch{}storage.del(TOKEN);storage.del(REFRESH);location.reload()};
 $('[data-refresh-account]',root).onclick=async()=>{try{await api('/account/sync',{method:'POST',body:'{}'});toast('بروزرسانی حساب در پس‌زمینه شروع شد.');setTimeout(()=>showDashboard().catch(()=>{}),1200)}catch(e){toast(e.message)}};
 if(token()){try{await showDashboard()}catch{storage.del(TOKEN);auth.classList.remove('bv-hidden');dash.classList.add('bv-hidden')}}}
-function menu(){const b=$('[data-bv-menu]'),p=$('[data-bv-menu-panel]');if(b&&p)b.onclick=()=>p.classList.toggle('is-open')}
+function menu(){const b=$('[data-bv-menu]'),p=$('[data-bv-menu-panel]');if(!b||!p)return;b.onclick=()=>{const open=p.classList.toggle('is-open');b.classList.toggle('is-open',open);b.setAttribute('aria-expanded',open?'true':'false')}}
 document.addEventListener('DOMContentLoaded',()=>{menu();initPlansPage();initAccount()});
 })();

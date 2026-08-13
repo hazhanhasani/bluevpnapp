@@ -16,7 +16,7 @@ def block(source: str, start: str, end: str) -> str:
     return source[i:j]
 
 
-class Release420Tests(unittest.TestCase):
+class CurrentReleaseTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = json.loads(text("branding/app.json"))
@@ -30,10 +30,18 @@ class Release420Tests(unittest.TestCase):
         cls.profile = text("android-source/BlueVpnProfileManager.kt")
 
     def test_01_version(self):
-        self.assertEqual((self.app["version_name"], self.app["version_code"]), ("4.2.0", 40200))
+        version = self.app["version_name"]
+        match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
+        self.assertIsNotNone(match)
+        major, minor, patch = map(int, match.groups())
+        self.assertLessEqual(patch, 10)
+        self.assertEqual(self.app["version_code"], major * 10000 + minor * 100 + patch)
 
     def test_02_release_version(self):
-        self.assertEqual((self.release["version"], self.release["version_code"]), ("4.2.0", 40200))
+        self.assertEqual(self.release["version"], self.app["version_name"])
+        self.assertEqual(self.release["version_code"], self.app["version_code"])
+        self.assertEqual(self.release["android_version"], self.app["version_name"])
+        self.assertEqual(self.release["android_version_code"], self.app["version_code"])
 
     def test_03_official_pairing(self):
         self.assertEqual(self.app["upstream_ref"], "2.2.6")
@@ -169,8 +177,9 @@ class Release420Tests(unittest.TestCase):
         self.assertIn('append("rawjson=")', self.profile)
 
     def test_25_plugin_version(self):
-        self.assertRegex(text("bluevpn-manager/bluevpn-manager.php"), r"Version:\s*4\.2\.0")
-        self.assertRegex(text("bluevpn-manager/readme.txt"), r"Stable tag:\s*4\.2\.0")
+        version = re.escape(self.app["version_name"])
+        self.assertRegex(text("bluevpn-manager/bluevpn-manager.php"), rf"Version:\s*{version}")
+        self.assertRegex(text("bluevpn-manager/readme.txt"), rf"Stable tag:\s*{version}")
 
     def test_26_short_semver(self):
         self.assertLessEqual(int(self.app["version_name"].split(".")[2]), 10)
@@ -264,8 +273,8 @@ class Release420Tests(unittest.TestCase):
         style = text("bluevpn-site/style.css")
         functions = text("bluevpn-site/functions.php")
         updater = text("bluevpn-site/inc/class-bluevpn-site-updater.php")
-        self.assertRegex(style, r"(?m)^Version:\s*1\.0\.1\s*$")
-        self.assertIn("BLUEVPN_SITE_VERSION', '1.0.1", functions)
+        self.assertRegex(style, r"(?m)^Version:\s*1\.0\.2\s*$")
+        self.assertIn("BLUEVPN_SITE_VERSION', '1.0.2", functions)
         self.assertIn("BlueVPN_Site_Updater::init();", functions)
         self.assertIn("pre_set_site_transient_update_themes", updater)
         self.assertIn("Theme_Upgrader", updater)
@@ -298,6 +307,20 @@ class Release420Tests(unittest.TestCase):
         self.assertIn("changed without a theme version bump", workflow)
         self.assertIn("patch must stay within x.y.0..x.y.10", workflow)
 
+
+    def test_46_site_theme_redesign_contract(self):
+        front = text("bluevpn-site/front-page.php")
+        css = text("bluevpn-site/assets/css/site.css")
+        self.assertIn("bv-connect-stage", front)
+        self.assertIn("bv-feature-grid", front)
+        self.assertIn("bv-how-section", front)
+        self.assertIn("bv-network-card", front)
+        self.assertIn("bv-final-cta", front)
+        self.assertNotIn("BlueAI", front)
+        self.assertNotIn("بخش AI", front)
+        self.assertIn(".bv-home-hero", css)
+        self.assertIn(".bv-feature-section", css)
+
     def test_repository_cleanup_handles_overlay_stale_files(self):
         cleanup = (ROOT / "scripts/cleanup_repository.py").read_text(encoding="utf-8")
         workflow = (ROOT / ".github/workflows/build-apk.yml").read_text(encoding="utf-8")
@@ -311,6 +334,15 @@ class Release420Tests(unittest.TestCase):
             self.assertIn(token, cleanup)
         self.assertIn("Remove retired BlueVPN runtime files", workflow)
         self.assertIn("python scripts/cleanup_repository.py", workflow)
+
+
+    def test_48_release_validator_has_no_hardcoded_app_version(self):
+        validator = text("scripts/validate_release.py")
+        self.assertNotRegex(validator, r'app\["version_name"\]\s*==\s*"\d+\.\d+\.\d+"')
+        self.assertNotRegex(validator, r'app\["version_code"\]\s*==\s*\d+')
+        self.assertIn('expected_version_code = major * 10000 + minor * 100 + patch', validator)
+        self.assertIn('plugin_header.group(1) == version', validator)
+        self.assertIn('stable_tag.group(1) == version', validator)
 
 
 if __name__ == "__main__":

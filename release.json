@@ -1,12 +1,12 @@
 {
-  "version": "4.2.0",
-  "version_code": 40200,
+  "version": "4.2.1",
+  "version_code": 40201,
   "channel": "stable",
-  "build_id": "20260813-v4.2.0-sms-pattern-sync",
+  "build_id": "20260813-v4.2.1-release-validator-dynamic-version-fix",
   "built_at": "2026-08-13T15:30:00Z",
-  "android_version": "4.2.0",
-  "android_version_code": 40200,
-  "description": "BlueVPN 4.2.0: همگام‌سازی واقعی پترن‌های ایران‌پیامک از API رسمی، انتخاب Dropdown برای OTP و اعلان‌ها، تطبیق خودکار متغیر OTP، حذف انتخاب‌های منقضی و حفظ Runtime پایدار v2rayNG/Xray بدون تغییر.",
+  "android_version": "4.2.1",
+  "android_version_code": 40201,
+  "description": "BlueVPN 4.2.1: اصلاح Release Regression Gate و حذف نسخه‌های hard-coded از validator؛ اعتبارسنجی نسخه اکنون پویا و مبتنی بر همگامی app/release/WordPress است؛ Runtime پایدار v2rayNG/Xray بدون تغییر.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -47,5 +47,5 @@
     "sms-pattern-stale-selection-reconcile",
     "otp-pattern-variable-auto-map"
   ],
-  "version_source": "v4.2.0-sms-pattern-sync"
+  "version_source": "v4.2.1-release-validator-dynamic-version-fix"
 }

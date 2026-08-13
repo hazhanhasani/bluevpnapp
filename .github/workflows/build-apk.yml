@@ -439,8 +439,9 @@ jobs:
           echo "BUILD_STAGE=release-regression-gate" >> "$GITHUB_ENV"
           echo "release-regression-gate" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           {
-            python -m py_compile scripts/prepare_android.py scripts/validate_release.py
+            python -m py_compile scripts/prepare_android.py scripts/validate_release.py tests/test_current_release.py
             python scripts/validate_release.py
+            python -m unittest tests.test_current_release -v
             while IFS= read -r -d '' file; do
               php -l "$file" >/dev/null
             done < <(find bluevpn-manager -type f -name '*.php' -print0)

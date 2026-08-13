@@ -1,6 +1,6 @@
 # BlueVPN — upstream/runtime notice
 
-BlueVPN Android 4.2.0 is built directly on the official **v2rayNG 2.2.6** Android source (GNU GPL v3).
+BlueVPN Android 4.2.1 is built directly on the official **v2rayNG 2.2.6** Android source (GNU GPL v3).
 
 Runtime ownership is intentionally simple:
 
@@ -13,6 +13,10 @@ Runtime ownership is intentionally simple:
 
 BlueVPN is an independent modified distribution and is not endorsed by the upstream v2rayNG/Xray maintainers.
 
+
+## 4.2.1 Release validation
+
+The release gate uses the resolved build version dynamically and verifies cross-file consistency instead of embedding a fixed release number.
 
 ## 4.2.0 Stability/Performance Freeze
 

@@ -43,10 +43,22 @@ def main() -> None:
     sms_notifications = read("bluevpn-manager/includes/class-bluevpn-sms-notifications.php")
     api = read("bluevpn-manager/includes/class-bluevpn-api.php")
 
-    require(app["version_name"] == "4.2.0", "app version must be 4.2.0")
-    require(app["version_code"] == 40200, "app versionCode must be 40200")
-    require(release["version"] == "4.2.0", "release version mismatch")
-    require(release["version_code"] == 40200, "release versionCode mismatch")
+    version = str(app.get("version_name", "")).strip()
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
+    require(match is not None, f"invalid app version_name: {version!r}")
+    major, minor, patch = map(int, match.groups())
+    expected_version_code = major * 10000 + minor * 100 + patch
+
+    require(int(app.get("version_code", -1)) == expected_version_code,
+            f"app versionCode mismatch: expected {expected_version_code} for {version}")
+    require(str(release.get("version", "")).strip() == version,
+            f"release version mismatch: app={version} release={release.get('version')}")
+    require(int(release.get("version_code", -1)) == expected_version_code,
+            f"release versionCode mismatch: expected {expected_version_code}")
+    require(str(release.get("android_version", "")).strip() == version,
+            "release android_version mismatch")
+    require(int(release.get("android_version_code", -1)) == expected_version_code,
+            "release android_version_code mismatch")
     require(app["upstream_ref"] == "2.2.6", "production v2rayNG pin must be 2.2.6")
     require(app["android_lib_xray_ref"] == "v26.7.5", "documented AndroidLibXrayLite tag must be v26.7.5")
     require(app["xray_core_release_label"] == "v26.6.27", "v2rayNG 2.2.6 Xray-core release label must be v26.6.27")
@@ -180,7 +192,9 @@ def main() -> None:
     # Plugin version stays synchronized.
     plugin = read("bluevpn-manager/bluevpn-manager.php")
     plugin_readme = read("bluevpn-manager/readme.txt")
-    require(re.search(r"Version:\s*4\.2\.0", plugin) is not None, "plugin header version mismatch")
+    plugin_header = re.search(r"(?mi)^\s*\*?\s*Version:\s*(\d+\.\d+\.\d+)\s*$", plugin)
+    require(plugin_header is not None and plugin_header.group(1) == version,
+            f"plugin header version mismatch: expected {version}")
     # 4.2.0 SMS transport hardening: backend must fail before Android OTP budget
     # and OTP endpoints must always return JSON even on unexpected PHP failures.
     require('val otpRequest = method == "POST"' in account, "Android OTP request classification missing")
@@ -192,8 +206,18 @@ def main() -> None:
     require("catch(Throwable $e){return self::unexpected($e,'otp_request');}" in api, "OTP request does not catch unexpected PHP failures")
     require("'timeout'=>10" in sms_notifications, "notification SMS provider timeout is not bounded")
 
-    require("BLUEVPN_MANAGER_VERSION" in plugin and "4.2.0" in plugin, "plugin constant version mismatch")
-    require(re.search(r"Stable tag:\s*4\.2\.0", plugin_readme) is not None, "plugin stable tag mismatch")
+    plugin_constant = re.search(
+        r"define\(\s*['\"]BLUEVPN_MANAGER_VERSION['\"]\s*,\s*['\"](\d+\.\d+\.\d+)['\"]\s*\)\s*;",
+        plugin,
+    )
+    require(plugin_constant is not None and plugin_constant.group(1) == version,
+            f"plugin constant version mismatch: expected {version}")
+    stable_tag = re.search(r"(?mi)^Stable tag:\s*(\d+\.\d+\.\d+)\s*$", plugin_readme)
+    require(stable_tag is not None and stable_tag.group(1) == version,
+            f"plugin stable tag mismatch: expected {version}")
+    readme_version = re.search(r"(?mi)^Version:\s*(\d+\.\d+\.\d+)\s*$", plugin_readme)
+    require(readme_version is not None and readme_version.group(1) == version,
+            f"plugin readme version mismatch: expected {version}")
 
     # 4.2.0 IranPayamak pattern discovery: the admin must fetch active
     # patterns from the provider instead of asking for manual UID entry.
@@ -208,10 +232,9 @@ def main() -> None:
     require("preferred_otp_parameter" in sms_otp and "SMS_PATTERN_INACTIVE" in sms_otp, "OTP pattern variable/stale protection missing")
 
     # Versioning contract: patch series is 0..10.
-    _, _, patch = map(int, app["version_name"].split("."))
     require(0 <= patch <= 10, "patch version exceeded BlueVPN short series")
 
-    print("BlueVPN 4.2.0 validation: PASS")
+    print(f"BlueVPN {version} validation: PASS")
     print("runtime=v2rayNG-2.2.6 androidlib=v26.7.5 xray-release-label=v26.6.27 sing-box=removed")
     print("architecture=BlueVPN UI/control-plane -> immutable stock v2rayNG runtime")
 

@@ -184,6 +184,9 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var pendingConnectionRequest = false
     private var runtimeGateRetryScheduled = false
     private var runtimeGateWaitStartedAt = 0L
+    private var terminalFailureStopping = false
+    private var terminalFailureReason = ""
+    private var lastCandidateFailureReason = ""
     private var userInteractedAt = 0L
 
     private lateinit var freeTimerBadge: TextView
@@ -824,7 +827,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         body.addView(connectingLocation, LinearLayout.LayoutParams(-1, dpHome(34)))
 
         connectingCaption = uiText(
-            "در حال انتخاب سریع بهترین مسیر",
+            "در حال انتخاب بهترین اتصال",
             11f,
             palette.textMuted,
             gravity = Gravity.CENTER,
@@ -940,7 +943,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         )
 
         statusCaption = uiText(
-            "بهترین مسیر به‌صورت خودکار انتخاب می‌شود",
+            "بهترین اتصال به‌صورت خودکار انتخاب می‌شود",
             10.5f,
             palette.textMuted,
             gravity = Gravity.CENTER,
@@ -1161,8 +1164,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             gravity = Gravity.CENTER
         }
         balancedModeButton = modeButton("خودکار", R.id.bluevpn_mode_balanced)
-        gamingModeButton = modeButton("مسیر دوم", R.id.bluevpn_mode_gaming)
-        streamingModeButton = modeButton("مسیر سوم", R.id.bluevpn_mode_streaming)
+        gamingModeButton = modeButton("حالت دوم", R.id.bluevpn_mode_gaming)
+        streamingModeButton = modeButton("حالت سوم", R.id.bluevpn_mode_streaming)
         row.addView(balancedModeButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         row.addView(gamingModeButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { marginStart = dpHome(6) })
         row.addView(streamingModeButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { marginStart = dpHome(6) })
@@ -1679,6 +1682,34 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 BlueVpnRuntimeGate.markConnectionActive(this)
             }
 
+            if (terminalFailureStopping) {
+                // A terminal failover error has already been rendered. The daemon
+                // may still report RUNNING until its asynchronous STOP_SUCCESS /
+                // NOT_RUNNING broadcast arrives. Never reinterpret that stale
+                // RUNNING state as an existing session that needs verification;
+                // doing so reopened the full-screen "connecting" UI after an
+                // explicit "location unavailable" result.
+                if (!active) {
+                    terminalFailureStopping = false
+                    BlueVpnRuntimeGate.endConnection(this)
+                    BlueVpnEngineManager.markIdle()
+                    connectButton.isEnabled = true
+                    updateConnectLabel("تلاش دوباره")
+                    reconcileDeferredEntitlementIfIdle()
+                } else {
+                    hideConnectingOverlay()
+                    connectButton.isEnabled = false
+                    updateConnectLabel("در حال توقف")
+                    applyOrbVisual(OrbVisualState.ERROR)
+                    statusText.text = "لوکیشن در دسترس نیست"
+                    statusCaption.visibility = View.VISIBLE
+                    statusCaption.text = terminalFailureReason.ifBlank {
+                        "این لوکیشن فعلاً پاسخ نداد؛ بعداً دوباره امتحان کنید"
+                    }
+                }
+                return@observe
+            }
+
             if (userDisconnecting) {
                 if (active) {
                     BlueVpnEngineManager.stop(this)
@@ -1702,7 +1733,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                     // the next GUID against traffic from the previous route.
                     updateConnectLabel("لغو اتصال")
                     connectButton.isEnabled = true
-                    statusText.text = "در حال تغییر مسیر"
+                    statusText.text = "در حال تغییر اتصال"
                     statusCaption.text = "در انتظار توقف کامل اتصال قبلی"
                 }
 
@@ -1735,7 +1766,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                     waitingForCoreStop = true
                     coreStopRetryCount = 0
                     BlueVpnEngineManager.markSwitching()
-                    statusText.text = "در حال تغییر مسیر"
+                    statusText.text = "در حال تغییر اتصال"
                     statusCaption.text = "در انتظار آزادشدن هسته قبلی"
                     BlueVpnEngineManager.stop(this)
                     handler.removeCallbacks(coreStopTimeout)
@@ -1812,7 +1843,14 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                     // proof through the running Xray core. Accept it as a valid
                     // compatibility proof instead of requiring BlueVPN-only URLs.
                     completeFailover(upstreamDelay)
-                } else if (!failoverActive && !connectionVerified) {
+                } else if (
+                    !failoverActive &&
+                    !connectionVerified &&
+                    !terminalFailureStopping &&
+                    !userDisconnecting
+                ) {
+                    // Ignore a late v2rayNG ping from the candidate that has
+                    // already terminally failed and is being stopped.
                     existingSessionRetryCount = 0
                     connectionVerified = true
                     BlueVpnPreferences.markConnected(this, resetTimer = false)
@@ -2358,7 +2396,7 @@ private fun showStartupOptimizationDialog() {
     box.addView(startupStageText)
 
     box.addView(TextView(this).apply {
-        text = "همگام‌سازی  •  ارزیابی شبکه  •  انتخاب مسیر"
+        text = "همگام‌سازی  •  ارزیابی شبکه  •  آماده‌سازی اتصال"
         textSize = 10f
         gravity = android.view.Gravity.CENTER
         setTextColor(Color.parseColor("#6F91BE"))
@@ -2448,7 +2486,7 @@ private fun updateStartupProgress(
             startupProgress < 82 ->
                 "تست سرورها با اینترنت شما"
             else ->
-                "انتخاب سریع‌ترین مسیرهای فعال"
+                "انتخاب بهترین اتصال موجود"
         }
     }
 }
@@ -2528,9 +2566,9 @@ private fun finishStartupOptimization(
         100,
         when {
             activeCount > 0 ->
-                "$activeCount مسیر آماده • $inactiveCount مسیر برای این نوبت کنار گذاشته شد"
+                "لوکیشن‌های آماده اتصال مشخص شدند"
             standbyCount > 0 ->
-                "$standbyCount مسیر آماده بررسی هنگام اتصال"
+                "اتصال‌ها هنگام درخواست نهایی بررسی می‌شوند"
             timedOut ->
                 "همگام‌سازی انجام شد؛ تست کامل در پس‌زمینه ادامه دارد"
             else ->
@@ -2582,7 +2620,7 @@ private fun dpHome(value: Int): Int =
                     aiConsecutiveFailures = 0
                     lastVerifiedLatency = latency
                     aiSummaryValue.text =
-                        "BlueAI • مسیر سالم • ${latency} ms"
+                        "BlueAI • اتصال سالم • ${latency} ms"
                 } else {
                     aiConsecutiveFailures += 1
                     aiSummaryValue.text =
@@ -2598,9 +2636,9 @@ private fun dpHome(value: Int): Int =
                                 uploadBytes = sessionUploadBytes,
                             )
                         }
-                        statusText.text = "ترمیم هوشمند مسیر"
+                        statusText.text = "ترمیم هوشمند اتصال"
                         statusCaption.text =
-                            "BlueAI افت کیفیت را تشخیص داد؛ مسیر جایگزین انتخاب می‌شود"
+                            "BlueAI افت کیفیت را تشخیص داد؛ اتصال جایگزین بررسی می‌شود"
                         beginSmartConnection()
                     }
                 }
@@ -2728,7 +2766,7 @@ private fun dpHome(value: Int): Int =
 
     private fun showConnectingOverlay(
         title: String = "در حال اتصال",
-        caption: String = "در حال انتخاب سریع بهترین مسیر",
+        caption: String = "در حال انتخاب بهترین اتصال",
         location: String = "انتخاب خودکار",
     ) {
         if (!::connectingOverlay.isInitialized) return
@@ -2808,6 +2846,8 @@ private fun dpHome(value: Int): Int =
                 uploadBytes = sessionUploadBytes,
             )
         }
+        terminalFailureStopping = false
+        terminalFailureReason = ""
         userDisconnecting = true
         pendingConnectionRequest = false
         runtimeGateWaitStartedAt = 0L
@@ -2910,6 +2950,18 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun beginSmartConnection() {
+        if (terminalFailureStopping && mainViewModel.isRunning.value == true) {
+            hideConnectingOverlay()
+            BlueVpnEngineManager.stop(this)
+            connectButton.isEnabled = false
+            updateConnectLabel("در حال توقف")
+            statusText.text = "در حال آزادسازی اتصال قبلی"
+            statusCaption.text = "پس از توقف کامل Xray می‌توانید دوباره تلاش کنید"
+            return
+        }
+        terminalFailureStopping = false
+        terminalFailureReason = ""
+        lastCandidateFailureReason = ""
         userDisconnecting = false
         disconnectRetry.reset()
         handler.removeCallbacks(disconnectRetry)
@@ -2956,7 +3008,7 @@ private fun dpHome(value: Int): Int =
             title = "در حال اتصال",
             caption = when (selectionMode) {
                 BlueVpnSelectionMode.AUTO -> "در حال آماده‌سازی انتخاب هوشمند"
-                BlueVpnSelectionMode.MANUAL_LOCATION -> "در حال آماده‌سازی مسیرهای همان لوکیشن"
+                BlueVpnSelectionMode.MANUAL_LOCATION -> "در حال آماده‌سازی لوکیشن انتخاب‌شده"
                 BlueVpnSelectionMode.MANUAL_SERVER -> "در حال اتصال دقیق به سرور انتخاب‌شده"
             },
             location = overlayLocation,
@@ -3242,7 +3294,7 @@ private fun dpHome(value: Int): Int =
                 BlueVpnSelectionMode.MANUAL_LOCATION -> "لوکیشن قابل اتصال نیست"
                 BlueVpnSelectionMode.MANUAL_SERVER -> "سرور انتخاب‌شده قابل اتصال نیست"
             }
-            statusCaption.text = "فقط مسیرهای مجاز پلن فعلی بررسی شدند"
+            statusCaption.text = "فقط منابع مجاز پلن فعلی بررسی شدند"
             Toast.makeText(this, "سرور سالم و سازگار پیدا نشد", Toast.LENGTH_SHORT).show()
             return
         }
@@ -3269,14 +3321,14 @@ private fun dpHome(value: Int): Int =
         healthProbeInProgress = false
         connectButton.isEnabled = false
         statusText.text = if (liveLocationSwitch) "در حال تغییر لوکیشن" else when (selectionMode) {
-            BlueVpnSelectionMode.AUTO -> "یافتن مسیر سالم"
+            BlueVpnSelectionMode.AUTO -> "بررسی بهترین اتصال"
             BlueVpnSelectionMode.MANUAL_LOCATION -> "اتصال به لوکیشن انتخاب‌شده"
             BlueVpnSelectionMode.MANUAL_SERVER -> "اتصال به سرور انتخاب‌شده"
         }
         statusCaption.text = if (liveLocationSwitch) {
             "اتصال به ${switchTargetTitle.ifBlank { "لوکیشن جدید" }}"
         } else when (selectionMode) {
-            BlueVpnSelectionMode.AUTO -> "مسیر سالم قبلی حفظ می‌شود و فقط در صورت افت کیفیت جابه‌جا می‌شویم"
+            BlueVpnSelectionMode.AUTO -> "اتصال پایدار قبلی حفظ می‌شود و فقط در صورت افت کیفیت جابه‌جا می‌شویم"
             BlueVpnSelectionMode.MANUAL_LOCATION -> "Failover فقط داخل همین لوکیشن انجام می‌شود"
             BlueVpnSelectionMode.MANUAL_SERVER -> "حالت دستی قفل است؛ Auto این انتخاب را تغییر نمی‌دهد"
         }
@@ -3335,7 +3387,7 @@ private fun dpHome(value: Int): Int =
 
         showConnectingOverlay(
             title = "در حال اتصال",
-            caption = "در حال بررسی و برقراری مسیر امن",
+            caption = "در حال بررسی و برقراری اتصال امن",
             location = locationName,
         )
         statusText.text = "در حال اتصال"
@@ -3394,7 +3446,7 @@ private fun dpHome(value: Int): Int =
                     waitingForCoreStop = true
                     coreStopRetryCount = 0
                     BlueVpnEngineManager.markSwitching()
-                    statusText.text = "در حال تغییر مسیر"
+                    statusText.text = "در حال تغییر اتصال"
                     statusCaption.text = "در انتظار توقف کامل اتصال قبلی"
                     BlueVpnEngineManager.stop(this@BlueVpnHomeActivity)
                     handler.removeCallbacks(coreStopTimeout)
@@ -3450,7 +3502,7 @@ private fun dpHome(value: Int): Int =
         handler.postDelayed({
             if (failoverActive && !waitingForCoreStop) {
                 verifyTunnelThroughCore(
-                    "این مسیر در چند تست واقعی اینترنت پاسخ نداد"
+                    "این اتصال در چند تست واقعی اینترنت پاسخ نداد"
                 )
             }
         }, 180L)
@@ -3539,7 +3591,17 @@ private fun dpHome(value: Int): Int =
     private fun verifyExistingRunningSession(
         preserveServiceOnFailure: Boolean = false,
     ) {
-        if (existingSessionCheckInProgress || connectionVerified) return
+        // Existing-session verification is only valid for a stable, non-terminal
+        // running service. A probe launched just before the final failover error
+        // may complete later; without these guards it could resurrect the
+        // connecting overlay or even mark a failed route CONNECTED.
+        if (
+            existingSessionCheckInProgress ||
+            connectionVerified ||
+            terminalFailureStopping ||
+            userDisconnecting ||
+            failoverActive
+        ) return
 
         existingSessionCheckInProgress = true
         renderVerifyingState()
@@ -3550,6 +3612,13 @@ private fun dpHome(value: Int): Int =
 
             withContext(Dispatchers.Main) {
                 existingSessionCheckInProgress = false
+
+                // The asynchronous probe is stale if a disconnect, a new
+                // failover cycle, or a terminal failure happened while it was
+                // running. It must have zero authority over UI/connection state.
+                if (terminalFailureStopping || userDisconnecting || failoverActive) {
+                    return@withContext
+                }
 
                 if (mainViewModel.isRunning.value != true) {
                     existingSessionRetryCount = 0
@@ -3605,7 +3674,10 @@ private fun dpHome(value: Int): Int =
                             mainViewModel.isRunning.value == true &&
                             !isFinishing &&
                             !isDestroyed &&
-                            !connectionVerified
+                            !connectionVerified &&
+                            !terminalFailureStopping &&
+                            !userDisconnecting &&
+                            !failoverActive
                         ) {
                             verifyExistingRunningSession(
                                 preserveServiceOnFailure = preserveServiceOnFailure,
@@ -3948,6 +4020,7 @@ private fun dpHome(value: Int): Int =
     private fun failCurrentAndTryNext(reason: String) {
         if (!failoverActive || userDisconnecting) return
 
+        lastCandidateFailureReason = reason.trim().ifBlank { "اتصال فعلی پاسخ نداد" }
         val failedGuid = attemptedGuid
         lifecycleScope.launch(Dispatchers.IO) {
             BlueVpnAi.recordFailure(
@@ -3981,16 +4054,16 @@ private fun dpHome(value: Int): Int =
         verificationRound = 0
 
         if (failoverIndex >= failoverQueue.size) {
-            finishFailoverWithError()
+            finishFailoverWithError(lastCandidateFailureReason)
             return
         }
 
-        statusText.text = "تغییر مسیر خودکار"
+        statusText.text = "تغییر اتصال خودکار"
         statusCaption.text =
-            "مسیر بهتر به‌صورت خودکار در حال انتخاب است"
+            "گزینه بهتر به‌صورت خودکار در حال بررسی است"
         showConnectingOverlay(
-            title = "در حال تغییر مسیر",
-            caption = "مسیر قبلی پاسخ نداد؛ بهترین مسیر بعدی بررسی می‌شود",
+            title = "در حال تغییر اتصال",
+            caption = "اتصال قبلی پاسخ نداد؛ گزینه بعدی بررسی می‌شود",
             location = "انتخاب خودکار",
         )
 
@@ -4004,10 +4077,15 @@ private fun dpHome(value: Int): Int =
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
         handler.removeCallbacks(coreStopTimeout)
-        BlueVpnEngineManager.stop(this)
-        BlueVpnRuntimeGate.endConnection(this)
+
+        val finalReason = reason?.trim().takeUnless { it.isNullOrBlank() }
+            ?: lastCandidateFailureReason.takeIf { it.isNotBlank() }
+            ?: "این لوکیشن فعلاً پاسخ نداد؛ بعداً دوباره امتحان کنید"
+        terminalFailureReason = finalReason
 
         failoverActive = false
+        pendingConnectionRequest = false
+        runtimeGateWaitStartedAt = 0L
         waitingForPingResult = false
         healthProbeInProgress = false
         waitingForCoreStop = false
@@ -4016,26 +4094,43 @@ private fun dpHome(value: Int): Int =
         connectionVerified = false
         liveLocationSwitch = false
         switchTargetTitle = ""
+        connectionEntitlementGuids = emptySet()
         BlueVpnPreferences.clearConnected(this)
-        connectButton.isEnabled = true
-        updateConnectLabel("تلاش دوباره")
+
+        // Keep RuntimeGate ownership until the daemon confirms that Xray/TUN is
+        // actually stopped. Releasing it here used to allow a subscription
+        // mutation to race the still-running final candidate.
+        terminalFailureStopping = mainViewModel.isRunning.value == true
+        if (terminalFailureStopping) {
+            BlueVpnEngineManager.stop(this)
+        } else {
+            BlueVpnRuntimeGate.endConnection(this)
+            BlueVpnEngineManager.markIdle()
+        }
+
+        connectButton.isEnabled = !terminalFailureStopping
+        updateConnectLabel(if (terminalFailureStopping) "در حال توقف" else "تلاش دوباره")
         applyOrbVisual(OrbVisualState.ERROR)
         statusText.text = "لوکیشن در دسترس نیست"
         statusCaption.visibility = View.VISIBLE
-        statusCaption.text = reason
-            ?: "همه مسیرهای این لوکیشن بررسی شدند؛ بعداً دوباره امتحان کنید"
+        statusCaption.text = finalReason
         statusDot.backgroundTintList =
             ColorStateList.valueOf(Color.parseColor("#FFB44A"))
 
         Toast.makeText(
             this,
-            reason ?: "هیچ‌کدام از مسیرهای این لوکیشن پاسخ ندادند",
+            finalReason,
             Toast.LENGTH_LONG
         ).show()
     }
 
     private fun cancelFailover() {
-        BlueVpnRuntimeGate.endConnection(this)
+        // Connection ownership is released only after CoreVpnService reports
+        // NOT_RUNNING/STOP_SUCCESS. If no core is active, releasing immediately
+        // is safe (for example VPN permission denial before the first start).
+        if (mainViewModel.isRunning.value != true) {
+            BlueVpnRuntimeGate.endConnection(this)
+        }
         hideConnectingOverlay()
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
@@ -4063,13 +4158,13 @@ private fun dpHome(value: Int): Int =
         if (failoverActive) {
             showConnectingOverlay(
                 title = "در حال اتصال",
-                caption = "بهترین مسیر به‌صورت خودکار در حال بررسی است",
+                caption = "بهترین اتصال به‌صورت خودکار در حال بررسی است",
                 location = "انتخاب خودکار",
             )
             updateConnectLabel("لغو اتصال")
             connectButton.isEnabled = true
             applyOrbVisual(OrbVisualState.CONNECTING)
-            statusText.text = "یافتن مسیر سالم"
+            statusText.text = "بررسی بهترین اتصال"
             statusDot.backgroundTintList =
                 ColorStateList.valueOf(Color.parseColor("#FFB44A"))
             updateLiveStats()
@@ -4104,7 +4199,7 @@ private fun dpHome(value: Int): Int =
             applyOrbVisual(OrbVisualState.IDLE)
             statusText.text = "آماده اتصال"
             statusCaption.visibility = View.VISIBLE
-            statusCaption.text = "بهترین مسیر به‌صورت خودکار انتخاب می‌شود"
+            statusCaption.text = "بهترین اتصال به‌صورت خودکار انتخاب می‌شود"
             statusDot.backgroundTintList =
                 ColorStateList.valueOf(Color.parseColor("#8FA7CA"))
         }
@@ -4175,14 +4270,6 @@ private fun dpHome(value: Int): Int =
             val location = selected?.location
                 ?: BlueVpnLocationUtil.detect(profile.remarks, profile.server)
             val delay = selected?.delay ?: 0L
-            val routeCount = if (automaticSelection) {
-                candidates.size
-            } else {
-                candidates.count {
-                    it.location.key == location.key
-                }
-            }
-
             serverName.text =
                 if (automaticSelection) {
                     "انتخاب خودکار سرور"
@@ -4195,12 +4282,9 @@ private fun dpHome(value: Int): Int =
                     "${location.flag} ${location.title} • انتخاب هوشمند"
                 } else {
                     when {
-                        failoverActive ->
-                            "در حال انتخاب مسیر بهتر"
-                        delay > 0L ->
-                            "$routeCount مسیر آماده"
-                        else ->
-                            "$routeCount سرور آماده"
+                        failoverActive -> "در حال بررسی بهترین اتصال"
+                        delay > 0L -> "آماده اتصال"
+                        else -> "در انتظار بررسی"
                     }
                 }
 
@@ -4212,7 +4296,6 @@ private fun dpHome(value: Int): Int =
             }
         }
 
-        val usableCount = candidates.size
         val locationCount = candidates
             .map { it.location.key }
             .distinct()
@@ -4226,7 +4309,7 @@ private fun dpHome(value: Int): Int =
         applyEntitlementPresentation(entitlement)
         subscriptionSummary.text = when (entitlement.tier) {
             BlueVpnPlanTier.PREMIUM ->
-                "${entitlement.accountLabel} • $locationCount مکان • $usableCount مسیر"
+                "${entitlement.accountLabel} • $locationCount لوکیشن"
             BlueVpnPlanTier.FREE ->
                 "${entitlement.accountLabel} • هر اتصال ${entitlement.sessionMinutes} دقیقه"
             BlueVpnPlanTier.UNAVAILABLE -> entitlement.accountLabel

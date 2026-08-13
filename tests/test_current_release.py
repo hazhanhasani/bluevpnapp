@@ -24,11 +24,11 @@ def test_release_validator_passes() -> None:
 
 def test_short_version_and_core_pins() -> None:
     app = json.loads(text("branding/app.json"))
-    assert app["version_name"] == "4.1.0"
-    assert app["version_code"] == 40100
+    assert app["version_name"] == "4.1.2"
+    assert app["version_code"] == 40102
     assert int(app["version_name"].split(".")[-1]) <= 10
     assert app["upstream_ref"] == "2.2.6"
-    assert app["xray_ref"] == "v26.7.28"
+    assert app["xray_ref"] == "v26.6.27"
 
 
 def test_free_premium_pool_isolation_contract() -> None:
@@ -96,3 +96,58 @@ def test_wordpress_account_read_is_snapshot_only_and_sync_is_background() -> Non
     assert "wp_next_scheduled('bluevpn_sync_customer_async'" in providers
     assert "self::sync_customer($customerId,false)" in providers
     assert "private const SYNC_TTL_SECONDS = 300" in providers
+
+
+def test_terminal_failure_cannot_reenter_connecting_or_release_gate_early() -> None:
+    home = text("android-source/BlueVpnHomeActivity.kt")
+    observer_start = home.index("        mainViewModel.isRunning.observe(this) { running ->")
+    observer_end = home.index("        mainViewModel.coreStartError.observe(this)", observer_start)
+    observer = home[observer_start:observer_end]
+    assert observer.index("if (terminalFailureStopping)") < observer.index("if (userDisconnecting)")
+    assert "return@observe" in observer[observer.index("if (terminalFailureStopping)"):observer.index("if (userDisconnecting)")]
+
+    finish_start = home.index("    private fun finishFailoverWithError(")
+    finish_end = home.index("    private fun cancelFailover()", finish_start)
+    finish = home[finish_start:finish_end]
+    assert "terminalFailureStopping = mainViewModel.isRunning.value == true" in finish
+    assert "if (terminalFailureStopping)" in finish
+    assert "BlueVpnRuntimeGate.endConnection(this)" in finish
+
+    verify_start = home.index("    private fun verifyExistingRunningSession(")
+    verify_end = home.index("    private fun verifyTunnelThroughCore(", verify_start)
+    verify = home[verify_start:verify_end]
+    assert "terminalFailureStopping" in verify
+    assert "if (terminalFailureStopping || userDisconnecting || failoverActive)" in verify
+
+    ping_start = home.index("        mainViewModel.updateTestResultAction.observe(this) { result ->")
+    ping_end = home.index("    private fun parseV2rayNgDelayMs", ping_start)
+    ping = home[ping_start:ping_end]
+    assert "!terminalFailureStopping" in ping
+    assert "!userDisconnecting" in ping
+
+
+def test_last_candidate_failure_reason_is_preserved() -> None:
+    home = text("android-source/BlueVpnHomeActivity.kt")
+    start = home.index("    private fun failCurrentAndTryNext(")
+    end = home.index("    private fun finishFailoverWithError(", start)
+    block = home[start:end]
+    assert "lastCandidateFailureReason = reason.trim()" in block
+    assert "finishFailoverWithError(lastCandidateFailureReason)" in block
+
+
+def test_internal_routes_are_hidden_behind_locations() -> None:
+    locations = text("android-source/BlueVpnServersActivity.kt")
+    preferences = text("android-source/BlueVpnLocationUtil.kt")
+    home = text("android-source/BlueVpnHomeActivity.kt")
+
+    assert "private fun createServerEntry(" not in locations
+    assert "private fun selectServer(" not in locations
+    assert "routeLabel(" not in locations
+    assert "selectGroup(" in locations
+    assert "Selecting a country never exposes or pins a concrete route" in locations
+    assert "parsed == BlueVpnSelectionMode.MANUAL_SERVER" in preferences
+    assert ".remove(KEY_MANUAL_SERVER_GUID)" in preferences
+    assert "fun setManualServerSelection(" not in preferences
+    assert "$locationCount لوکیشن" in home
+    assert "$usableCount مسیر" not in home
+    assert "$routeCount مسیر آماده" not in home

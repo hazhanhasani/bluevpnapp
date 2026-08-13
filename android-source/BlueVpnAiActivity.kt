@@ -80,7 +80,7 @@ class BlueVpnAiActivity : HelperBaseActivity() {
             gravity = Gravity.CENTER
         })
         heroBody.addView(TextView(this).apply {
-            text = "مسیریابی هوشمند فعال"
+            text = "انتخاب هوشمند فعال"
             textSize = 21f
             gravity = Gravity.CENTER
             setTextColor(Color.WHITE)
@@ -120,11 +120,11 @@ class BlueVpnAiActivity : HelperBaseActivity() {
         content.removeAllViews()
         content.addView(infoCard("شبکه فعلی", BlueVpnAi.localSummary(this), "اپراتور و نوع شبکه بدون ثبت شماره یا محتوای ترافیک"))
         content.addView(infoCard("حریم خصوصی", "فقط داده فنی", "محتوای ترافیک، سایت‌های مقصد و پیام‌های کاربر جمع‌آوری نمی‌شوند."))
-        content.addView(actionCard("بروزرسانی رتبه‌بندی", "دریافت بهترین مسیرها برای همین اپراتور و ساعت", "تحلیل") {
+        content.addView(actionCard("بروزرسانی رتبه‌بندی", "بهینه‌سازی اتصال برای همین اپراتور و ساعت", "تحلیل") {
             lifecycleScope.launch(Dispatchers.IO) {
                 val result = BlueVpnAi.refreshRecommendations(this@BlueVpnAiActivity, true)
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@BlueVpnAiActivity, result.fold({ "$it مسیر تحلیل شد" }, { it.message ?: "خطا" }), Toast.LENGTH_LONG).show()
+                    Toast.makeText(this@BlueVpnAiActivity, result.fold({ "$it گزینه تحلیل شد" }, { it.message ?: "خطا" }), Toast.LENGTH_LONG).show()
                     refreshDashboard()
                 }
             }
@@ -135,7 +135,7 @@ class BlueVpnAiActivity : HelperBaseActivity() {
             if (top.isEmpty()) "در انتظار داده" else top.joinToString("   ") { "${it.first.uppercase()} ${it.second}" },
             "امتیاز از ترکیب تجربه شخصی و کاربران مشابه ساخته می‌شود."
         ))
-        content.addView(actionCard("داشبورد حساب", "تعداد اتصال‌ها، مدت استفاده و بهترین مسیر شخصی", "دریافت") {
+        content.addView(actionCard("داشبورد حساب", "تعداد اتصال‌ها، مدت استفاده و بهترین لوکیشن شخصی", "دریافت") {
             lifecycleScope.launch(Dispatchers.IO) {
                 val result = BlueVpnAccountManager.aiDashboard(this@BlueVpnAiActivity)
                 withContext(Dispatchers.Main) {

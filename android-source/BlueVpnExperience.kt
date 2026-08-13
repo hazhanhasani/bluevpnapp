@@ -22,19 +22,19 @@ enum class BlueVpnConnectionMode(
         key = "balanced",
         title = "متعادل",
         shortTitle = "متعادل",
-        description = "ترکیب سرعت، پایداری و مسیر جایگزین",
+        description = "ترکیب سرعت، پایداری و اتصال جایگزین",
     ),
     GAMING(
         key = "gaming",
         title = "حالت بازی",
         shortTitle = "بازی",
-        description = "اولویت با کمترین پینگ و مسیر ثابت",
+        description = "اولویت با کمترین پینگ و اتصال پایدار",
     ),
     STREAMING(
         key = "streaming",
         title = "حالت پخش",
         shortTitle = "پخش",
-        description = "اولویت با مسیرهای پایدار برای ویدئو",
+        description = "اولویت با اتصال پایدار برای ویدئو",
     );
 
     companion object {

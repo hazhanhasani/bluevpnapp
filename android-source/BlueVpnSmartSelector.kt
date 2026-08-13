@@ -74,7 +74,7 @@ object BlueVpnSmartSelector {
                 freshness > 10 -> "موفقیت اخیر"
                 personal >= 65 -> "سابقه خوب روی این دستگاه"
                 cloud >= 65 -> "پیشنهاد جمعی مناسب"
-                else -> "مسیر سازگار"
+                else -> "اتصال سازگار"
             })
         }.joinToString(" • ")
         val confidence = when {

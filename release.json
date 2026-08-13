@@ -1,12 +1,12 @@
 {
-  "version": "4.1.0",
-  "version_code": 40100,
+  "version": "4.1.2",
+  "version_code": 40102,
   "channel": "stable",
-  "build_id": "20260813-v4.1.0-stability-entitlement-runtime-hardening",
-  "built_at": "2026-08-13T00:00:00Z",
-  "android_version": "4.1.0",
-  "android_version_code": 40100,
-  "description": "BlueVPN 4.1.0: جداسازی قطعی Free/Premium، حذف Refresh ناخواسته AI، اتصال bounded، Pool Identity وردپرس، ایندکس‌های MySQL و نسخه‌گذاری patch تا 10.",
+  "build_id": "20260813-v4.1.2-hidden-location-routes",
+  "built_at": "2026-08-13T03:05:00Z",
+  "android_version": "4.1.2",
+  "android_version_code": 40102,
+  "description": "BlueVPN 4.1.2: بازگردانی رابط Location-only؛ مسیرها/GUIDهای داخلی پشت هر لوکیشن مخفی‌اند و موتور اتصال بهترین گزینه همان لوکیشن را خودکار انتخاب و Failover می‌کند.",
   "features": [
     "strict-free-premium-pool-identity",
     "serialized-account-sync",
@@ -20,8 +20,17 @@
     "short-semver-patch-0-to-10",
     "v2rayng-2.2.6-production-pin",
     "v2rayng-2.3.3-compatibility-reviewed",
-    "xray-core-v26.7.28-backport",
-    "v2rayng-2.3.3-runtime-review-safe-backport"
+    "xray-core-v26.6.27-upstream-pairing",
+    "terminal-failure-stop-barrier",
+    "terminal-error-no-reverify",
+    "preserve-last-candidate-failure",
+    "runtime-gate-held-until-daemon-stop",
+    "late-ping-terminal-failure-guard",
+    "v2rayng-2.3.3-core-regression-avoided",
+    "location-only-public-selection",
+    "hidden-route-pool-per-location",
+    "legacy-manual-server-to-location-migration",
+    "no-route-counts-in-ui"
   ],
-  "version_source": "v4.1.0-stability-entitlement-runtime-hardening"
+  "version_source": "v4.1.2-hidden-location-routes"
 }

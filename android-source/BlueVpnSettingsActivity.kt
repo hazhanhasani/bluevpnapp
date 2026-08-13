@@ -140,7 +140,7 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
             settingRow(
                 title = "انتخاب خودکار بهترین سرور",
                 value = "فعال",
-                description = "کیفیت مسیرها در پس‌زمینه و به‌صورت لحظه‌ای بررسی می‌شود",
+                description = "کیفیت اتصال در پس‌زمینه و به‌صورت لحظه‌ای بررسی می‌شود",
                 showArrow = false,
             ),
         )
@@ -319,7 +319,7 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
         AlertDialog.Builder(this)
             .setTitle("حریم خصوصی")
             .setMessage(
-                "BlueVPN برای انتخاب مسیر بهتر فقط شاخص‌های فنی کوتاه‌مدت مانند موفق یا ناموفق بودن اتصال را پردازش می‌کند. محتوای وب‌گردی، پیام‌ها و فایل‌های شما خوانده یا ذخیره نمی‌شود."
+                "BlueVPN برای انتخاب اتصال بهتر فقط شاخص‌های فنی کوتاه‌مدت مانند موفق یا ناموفق بودن اتصال را پردازش می‌کند. محتوای وب‌گردی، پیام‌ها و فایل‌های شما خوانده یا ذخیره نمی‌شود."
             )
             .setPositiveButton("متوجه شدم", null)
             .show()

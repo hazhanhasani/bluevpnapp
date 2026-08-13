@@ -1,20 +1,25 @@
-# BlueVPN 4.1.0
+# BlueVPN 4.1.2
 
 BlueVPN is an Android VPN client with a WordPress/MySQL control plane. The repository intentionally keeps only current production source, build automation, and release validation; historical release reports and generated Android snapshots are not source of truth.
 
 ## Current production baseline
 
-- BlueVPN: `4.1.0` (`versionCode 40100`)
+- BlueVPN: `4.1.2` (`versionCode 40102`)
 - WordPress Manager schema: `1.6.0`
 - v2rayNG production pin: `2.2.6` (reviewed stable base)
-- Xray / AndroidLibXrayLite: `v26.7.28` (safe core backport from the 2.3.x line)
+- Xray / AndroidLibXrayLite: `v26.6.27` (exact pairing shipped by v2rayNG 2.2.6)
 - sing-box source pin: `v1.13.16` (staged validator/runtime; Xray remains Android TUN owner)
 - Android ABI: `arm64-v8a`, `armeabi-v7a`
 
-v2rayNG `2.3.3` was reviewed but is currently a pre-release and includes a major Jetpack Compose/runtime lifecycle migration. BlueVPN therefore does not blindly replace its stable upstream checkout with 2.3.3. The newer Xray core is pinned separately, while the BlueVPN exact-start/stop bridge remains on the reviewed stable v2rayNG lifecycle.
+v2rayNG `2.3.3` was reviewed but remains outside the production runtime baseline. BlueVPN keeps the reviewed `2.2.6` lifecycle and now also restores its exact AndroidLibXrayLite/Xray pairing (`v26.6.27`). The experimental `v26.7.28` backport used by 4.1.0 was removed after connection regressions were observed; upstream also has an open core/geosite startup regression report in the newer v2rayNG line.
 
 ## Runtime rules
 
+- Public server selection is location-only: internal routes/GUIDs never appear in the locations UI; choosing a location scopes the hidden candidate pool and the engine ranks/failovers inside it automatically.
+- Legacy `MANUAL_SERVER` preferences migrate to their parent location so older installs cannot keep exposing/pinning a concrete route.
+- Terminal failover failure is latched until CoreVpnService is actually stopped; a stale RUNNING broadcast or late ping cannot reopen the connecting overlay.
+- Runtime Gate ownership remains held until the daemon reports stopped, so subscription MMKV cannot mutate under a still-running Xray process.
+- The final candidate failure reason is preserved and surfaced to the UI instead of being replaced with a generic location error.
 - Free and Premium pools have separate ownership. WordPress emits a stable `pool_identity`; Android uses it as an entitlement boundary.
 - Managed v2rayNG subscriptions have `autoUpdate = false`. Routine account reads never rebuild subscriptions.
 - `GET /api/v1/account` is the routine/cache-first account path. `POST /api/v1/account/sync` is reserved for an explicit refresh/payment return and is coalesced.

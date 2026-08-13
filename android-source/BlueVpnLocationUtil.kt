@@ -52,12 +52,31 @@ object BlueVpnPreferences {
     fun selectionMode(context: Context): BlueVpnSelectionMode {
         val storage = prefs(context)
         val raw = storage.getString(KEY_SELECTION_MODE, "").orEmpty()
-        return runCatching { BlueVpnSelectionMode.valueOf(raw) }.getOrNull()
-            ?: if (storage.getBoolean(KEY_SMART_BALANCE, true)) {
+        val parsed = runCatching { BlueVpnSelectionMode.valueOf(raw) }.getOrNull()
+
+        // Route/GUID selection is no longer user-facing. Migrate any selection
+        // persisted by older builds to its parent location so internal routes
+        // remain hidden and can be ranked/failovered automatically.
+        if (parsed == BlueVpnSelectionMode.MANUAL_SERVER) {
+            val locationKey = storage.getString(KEY_PREFERRED_LOCATION, "").orEmpty()
+            val migrated = if (locationKey.isBlank()) {
                 BlueVpnSelectionMode.AUTO
             } else {
                 BlueVpnSelectionMode.MANUAL_LOCATION
             }
+            storage.edit()
+                .putBoolean(KEY_SMART_BALANCE, migrated == BlueVpnSelectionMode.AUTO)
+                .putString(KEY_SELECTION_MODE, migrated.name)
+                .remove(KEY_MANUAL_SERVER_GUID)
+                .apply()
+            return migrated
+        }
+
+        return parsed ?: if (storage.getBoolean(KEY_SMART_BALANCE, true)) {
+            BlueVpnSelectionMode.AUTO
+        } else {
+            BlueVpnSelectionMode.MANUAL_LOCATION
+        }
     }
 
     fun smartBalance(context: Context): Boolean =
@@ -94,15 +113,6 @@ object BlueVpnPreferences {
             .putBoolean(KEY_SMART_BALANCE, false)
             .putString(KEY_SELECTION_MODE, BlueVpnSelectionMode.MANUAL_LOCATION.name)
             .remove(KEY_MANUAL_SERVER_GUID)
-            .putString(KEY_PREFERRED_LOCATION, locationKey)
-            .apply()
-    }
-
-    fun setManualServerSelection(context: Context, locationKey: String, guid: String) {
-        prefs(context).edit()
-            .putBoolean(KEY_SMART_BALANCE, false)
-            .putString(KEY_SELECTION_MODE, BlueVpnSelectionMode.MANUAL_SERVER.name)
-            .putString(KEY_MANUAL_SERVER_GUID, guid)
             .putString(KEY_PREFERRED_LOCATION, locationKey)
             .apply()
     }

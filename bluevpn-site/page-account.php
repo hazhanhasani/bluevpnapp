@@ -1,3 +1,4 @@
+<?php if (class_exists('BlueVPN_Elementor_Integration') && BlueVPN_Elementor_Integration::page_ready()) { get_header(); while (have_posts()) { the_post(); the_content(); } get_footer(); return; } ?>
 <?php get_header(); ?>
 <section class="bv-account-page">
   <div class="bv-account-orb a1"></div><div class="bv-account-orb a2"></div>

@@ -402,5 +402,42 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("bv-current-subscription", page)
         self.assertIn("bv-dashboard-plans", page)
 
+    def test_site_defaults_to_desktop_layout_on_mobile(self):
+        header = text("bluevpn-site/header.php")
+        self.assertIn('name="viewport" content="width=1080,viewport-fit=cover"', header)
+        self.assertNotIn('width=device-width,initial-scale=1', header)
+
+
+
+class BlueVPNElementorThemeTests(unittest.TestCase):
+    def test_elementor_native_theme_contract(self):
+        integration = text("bluevpn-site/inc/class-bluevpn-elementor.php")
+        widgets = text("bluevpn-site/inc/elementor/widgets.php")
+        functions = text("bluevpn-site/functions.php")
+        self.assertIn("elementor/widgets/register", integration)
+        self.assertIn("elementor/theme/register_locations", integration)
+        self.assertIn("register_all_core_location", integration)
+        self.assertIn("_elementor_data", integration)
+        self.assertIn("elementor_library", integration)
+        self.assertIn("BlueVPN_Elementor_Integration::init();", integration)
+        self.assertIn("class-bluevpn-elementor.php", functions)
+        for widget in (
+            "bluevpn-header", "bluevpn-footer", "bluevpn-hero", "bluevpn-features",
+            "bluevpn-network", "bluevpn-how", "bluevpn-premium", "bluevpn-faq",
+            "bluevpn-plans", "bluevpn-download", "bluevpn-account", "bluevpn-support",
+        ):
+            self.assertIn(widget, widgets)
+
+    def test_elementor_pages_keep_legacy_fallback_and_runtime_contract(self):
+        for rel in ("bluevpn-site/front-page.php", "bluevpn-site/page-plans.php", "bluevpn-site/page-download.php", "bluevpn-site/page-account.php", "bluevpn-site/page-support.php"):
+            src = text(rel)
+            self.assertIn("BlueVPN_Elementor_Integration::page_ready", src)
+            self.assertIn("the_content()", src)
+        header = text("bluevpn-site/header.php")
+        footer = text("bluevpn-site/footer.php")
+        self.assertIn("render_location('header')", header)
+        self.assertIn("render_location('footer')", footer)
+        self.assertEqual(json.loads(text("branding/app.json"))["upstream_ref"], "2.2.6")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

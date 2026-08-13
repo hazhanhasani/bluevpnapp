@@ -1,3 +1,4 @@
+<?php if (class_exists('BlueVPN_Elementor_Integration') && BlueVPN_Elementor_Integration::page_ready()) { get_header(); while (have_posts()) { the_post(); the_content(); } get_footer(); return; } ?>
 <?php get_header(); $cfg=bluevpn_site_mobile_config(); $apk=(string)($cfg['apk_url']??''); $latest=(string)($cfg['latest_version']??'—'); ?>
 <section class="bv-subhero bv-download-hero">
   <div class="bv-shell bv-subhero-grid">

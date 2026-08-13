@@ -1,4 +1,5 @@
   </main>
+<?php $bluevpn_elementor_footer = class_exists('BlueVPN_Elementor_Integration') && BlueVPN_Elementor_Integration::render_location('footer'); if (!$bluevpn_elementor_footer): ?>
   <footer class="bv-footer">
     <div class="bv-shell">
       <div class="bv-footer-cta">
@@ -21,6 +22,7 @@
       <div class="bv-footer-bottom"><span>© <?php echo esc_html(date_i18n('Y')); ?> BlueVPN</span><span>BlueVPN • اتصال ساده، تجربه یکپارچه</span></div>
     </div>
   </footer>
+<?php endif; ?>
 </div>
 <div class="bv-toast" data-bv-toast></div>
 <?php wp_footer(); ?>

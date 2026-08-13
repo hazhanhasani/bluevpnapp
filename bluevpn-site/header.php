@@ -2,13 +2,14 @@
 <html <?php language_attributes(); ?> dir="rtl">
 <head>
 <meta charset="<?php bloginfo('charset'); ?>">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=1080,viewport-fit=cover">
 <meta name="theme-color" content="#06101f">
 <?php wp_head(); ?>
 </head>
 <body <?php body_class(); ?>>
 <?php wp_body_open(); ?>
 <div class="bv-site-frame">
+<?php $bluevpn_elementor_header = class_exists('BlueVPN_Elementor_Integration') && BlueVPN_Elementor_Integration::render_location('header'); if (!$bluevpn_elementor_header): ?>
   <div class="bv-announcement">
     <div class="bv-shell bv-announcement-inner">
       <span><i></i> BlueVPN برای Android</span>
@@ -32,4 +33,5 @@
       </div>
     </div>
   </header>
+<?php endif; ?>
   <main>

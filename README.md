@@ -149,3 +149,15 @@ Theme `1.0.3` replaces the previous generic card layout with a product-focused R
 - نمایش صحیح شماره محلی و اطلاعات پلن جاری.
 - داشبورد حساب یکپارچه و حذف محتوای معرفی پس از ورود.
 - Runtime رسمی v2rayNG/Xray بدون تغییر.
+
+## Elementor-native website theme
+
+BlueVPN Site Theme v1.0.7 is Elementor-native while preserving the existing BlueVPN Manager/API behavior.
+
+- Install and activate the free Elementor plugin.
+- Activate/update the BlueVPN Site theme.
+- On the first administrator request, the theme seeds Elementor documents for Home, Plans, Download, Account, and Support.
+- Go to **Appearance → BlueVPN Elementor** to open each page, Header, and Footer in Elementor or to rebuild the starter layouts.
+- Header/Footer are stored as Elementor Library templates and rendered by the theme. When Elementor Pro Theme Builder is present, standard Elementor theme locations are registered and can override the fallback templates.
+- Dynamic account, OTP, plans, payment, and download behavior remains backed by BlueVPN Manager; Elementor controls presentation only.
+- Subsequent theme auto-updates do not overwrite Elementor customizations unless the administrator explicitly selects rebuild.

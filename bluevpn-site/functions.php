@@ -1,13 +1,14 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-define('BLUEVPN_SITE_VERSION', '1.0.5');
+define('BLUEVPN_SITE_VERSION', '1.0.7');
 
 define('BLUEVPN_SITE_DIR', get_template_directory());
 define('BLUEVPN_SITE_URL', get_template_directory_uri());
 
 require_once BLUEVPN_SITE_DIR . '/inc/helpers.php';
 require_once BLUEVPN_SITE_DIR . '/inc/class-bluevpn-site-updater.php';
+require_once BLUEVPN_SITE_DIR . '/inc/class-bluevpn-elementor.php';
 
 BlueVPN_Site_Updater::init();
 
@@ -16,6 +17,7 @@ function bluevpn_site_setup(): void {
     add_theme_support('post-thumbnails');
     add_theme_support('custom-logo', ['height'=>120,'width'=>420,'flex-height'=>true,'flex-width'=>true]);
     add_theme_support('html5', ['search-form','gallery','caption','style','script']);
+    add_theme_support('elementor');
     register_nav_menus(['primary' => 'منوی اصلی BlueVPN']);
 }
 add_action('after_setup_theme', 'bluevpn_site_setup');

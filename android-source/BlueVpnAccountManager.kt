@@ -755,6 +755,28 @@ object BlueVpnAccountManager {
         return 0
     }
 
+    /**
+     * Main-thread-safe ownership check used only for presentation.
+     *
+     * It never enumerates subscription server lists. A previously resolved deep
+     * entitlement snapshot is preferred; otherwise the selected profile must at
+     * least belong to one of the exact enabled subscription rows for the current
+     * Free/Premium identity. Connection preparation still uses the strict deep
+     * [selectedServerAllowed]/[preferredServerGuids] path on a worker thread.
+     */
+    fun selectedServerAllowedUi(
+        c: Context,
+        serverGuid: String,
+        subscriptionId: String?,
+        cachedServerGuids: Collection<String> = BlueVpnEntitlement.resolveUi(c).serverGuids,
+    ): Boolean {
+        val guid = serverGuid.trim()
+        if (guid.isBlank()) return false
+        if (guid in cachedServerGuids) return true
+        val id = subscriptionId.orEmpty().trim()
+        return id.isNotBlank() && id in entitlementSubscriptionGuids(c)
+    }
+
     fun selectedServerAllowed(c: Context): Boolean {
         val selected = MmkvManager.getSelectServer().orEmpty().trim()
         if (selected.isBlank()) return false

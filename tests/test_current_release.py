@@ -16,7 +16,7 @@ def block(source: str, start: str, end: str) -> str:
     return source[i:j]
 
 
-class Release418Tests(unittest.TestCase):
+class Release419Tests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = json.loads(text("branding/app.json"))
@@ -30,10 +30,10 @@ class Release418Tests(unittest.TestCase):
         cls.profile = text("android-source/BlueVpnProfileManager.kt")
 
     def test_01_version(self):
-        self.assertEqual((self.app["version_name"], self.app["version_code"]), ("4.1.8", 40108))
+        self.assertEqual((self.app["version_name"], self.app["version_code"]), ("4.1.9", 40109))
 
     def test_02_release_version(self):
-        self.assertEqual((self.release["version"], self.release["version_code"]), ("4.1.8", 40108))
+        self.assertEqual((self.release["version"], self.release["version_code"]), ("4.1.9", 40109))
 
     def test_03_official_pairing(self):
         self.assertEqual(self.app["upstream_ref"], "2.2.6")
@@ -169,8 +169,8 @@ class Release418Tests(unittest.TestCase):
         self.assertIn('append("rawjson=")', self.profile)
 
     def test_25_plugin_version(self):
-        self.assertRegex(text("bluevpn-manager/bluevpn-manager.php"), r"Version:\s*4\.1\.8")
-        self.assertRegex(text("bluevpn-manager/readme.txt"), r"Stable tag:\s*4\.1\.8")
+        self.assertRegex(text("bluevpn-manager/bluevpn-manager.php"), r"Version:\s*4\.1\.9")
+        self.assertRegex(text("bluevpn-manager/readme.txt"), r"Stable tag:\s*4\.1\.9")
 
     def test_26_short_semver(self):
         self.assertLessEqual(int(self.app["version_name"].split(".")[2]), 10)
@@ -178,6 +178,32 @@ class Release418Tests(unittest.TestCase):
     def test_27_no_old_release_number(self):
         for rel in ("branding/app.json", "release.json", "README.md", "NOTICE.md"):
             self.assertNotIn("4.1.7", text(rel))
+
+    def test_28_first_resume_is_local_only(self):
+        self.assertIn("private var firstHomeResume = true", self.home)
+        resume = block(self.home, "override fun onResume()", "private fun scheduleStartupPipeline")
+        self.assertIn("val initialResume = firstHomeResume", resume)
+        self.assertIn("if (!initialResume)", resume)
+
+    def test_29_premium_startup_does_not_scan_free_pool(self):
+        pipeline = block(self.home, "private fun scheduleStartupPipeline", "private fun scheduleIdleCandidateWarmup")
+        self.assertIn("val needsGuestBootstrap = if (!hadSession)", pipeline)
+        self.assertNotIn("val hasFreeServer =", pipeline)
+
+    def test_30_dashboard_uses_ui_safe_entitlement_check(self):
+        dashboard = block(self.home, "private fun refreshDashboard", "private fun readTunnelTrafficBytes")
+        self.assertIn("selectedServerAllowedUi", dashboard)
+        self.assertNotIn("selectedServerAllowed(this)", dashboard)
+        self.assertIn("fun selectedServerAllowedUi(", self.account)
+
+    def test_31_hidden_compatibility_ui_does_no_ai_work(self):
+        experience = block(self.home, "private fun refreshExperienceDashboard", "private fun recordCurrentConnection")
+        self.assertIn("compatibilityParentVisible", experience)
+        self.assertIn("qualityValue.visibility != View.VISIBLE", experience)
+
+    def test_32_subscription_render_has_no_disk_clear(self):
+        info = block(self.home, "private fun refreshSubscriptionInfo", "private fun formatAccountRemainingTime")
+        self.assertNotIn('getSharedPreferences("bluevpn_subscription_info"', info)
 
     def test_repository_cleanup_handles_overlay_stale_files(self):
         cleanup = (ROOT / "scripts/cleanup_repository.py").read_text(encoding="utf-8")

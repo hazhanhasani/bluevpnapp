@@ -1,12 +1,12 @@
 {
-  "version": "4.1.8",
-  "version_code": 40108,
+  "version": "4.1.9",
+  "version_code": 40109,
   "channel": "stable",
-  "build_id": "20260813-v4.1.8-v2rayng-official-pairing-fix2",
-  "built_at": "2026-08-13T10:05:00Z",
-  "android_version": "4.1.8",
-  "android_version_code": 40108,
-  "description": "BlueVPN 4.1.8 build fix 2: تفکیک نسخه AndroidLibXrayLite از برچسب Xray-core. Workflow رسمی v2rayNG 2.2.6 کتابخانه را از Tag قابل‌دسترسی ساب‌ماژول (v26.7.5) resolve می‌کند؛ برچسب Xray-core اعلام‌شده در Release 2.2.6 برابر v26.6.27 است و دیگر این دو به اشتباه برابر فرض نمی‌شوند.",
+  "build_id": "20260813-v4.1.9-stability-performance-freeze",
+  "built_at": "2026-08-13T12:30:00Z",
+  "android_version": "4.1.9",
+  "android_version_code": 40109,
+  "description": "BlueVPN 4.1.9: حفظ Runtime متصل و رسمی v2rayNG 2.2.6 بدون هیچ تغییر Core؛ حذف refreshهای تکراری اولین Resume، جلوگیری از اسکن Free Pool برای کاربر لاگین‌شده، حذف MMKV deep-scan از رندر اصلی و توقف کارهای AI/compatibility نامرئی در UI.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -30,7 +30,13 @@
     "short-semver-patch-0-to-10",
     "official-v2rayng-submodule-tag-resolution",
     "no-invalid-submodule-head-equality-check",
-    "accurate-build-stage-diagnostics"
+    "accurate-build-stage-diagnostics",
+    "connected-v2rayng-runtime-frozen",
+    "first-resume-refresh-deduplicated",
+    "premium-startup-skips-free-pool-scan",
+    "ui-safe-selected-server-ownership-check",
+    "hidden-compatibility-dashboard-zero-work",
+    "no-subscription-info-disk-clear-on-render"
   ],
-  "version_source": "v4.1.8-v2rayng-official-pairing-buildfix"
+  "version_source": "v4.1.9-stable-runtime-ui-performance-freeze"
 }

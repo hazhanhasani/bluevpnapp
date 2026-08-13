@@ -1,4 +1,4 @@
-# BlueVPN 4.1.8
+# BlueVPN 4.1.9
 
 BlueVPN is now rebased as a **custom product/UI on top of official v2rayNG**, instead of treating v2rayNG as a replaceable compatibility bridge.
 
@@ -57,7 +57,7 @@ BlueVPN continues to show only locations to users. Hidden route GUIDs are select
 
 Patch numbers remain short: `x.y.0 ... x.y.10`, then the next minor version.
 
-## 4.1.8 rebase
+## 4.1.8 rebase baseline
 
 - Removed `BlueVpnEngineManager`.
 - Removed sing-box native build/runtime/profile compiler.
@@ -72,3 +72,13 @@ See `LICENSE` and `NOTICE.md` for licensing and attribution.
 ## Overlay-safe repository cleanup
 
 Some deployments copy a release bundle over an existing GitHub checkout instead of replacing the tree. Deleted files from older releases can therefore remain tracked in the repository. The Android workflow now runs `scripts/cleanup_repository.py` before applying the BlueVPN overlay. It removes retired dual-engine/sing-box files, the removed AI activity, and historical generated Android snapshots from the build workspace before the regression gate runs.
+
+
+## 4.1.9 Stability/Performance Freeze
+
+- Runtime اتصال موفق 4.1.8 فریز شده است: فایل‌های رسمی CoreServiceManager/CoreConfigManager/CoreVpnService/MainViewModel/AngConfigManager تغییر نمی‌کنند.
+- اولین onResume دیگر Refresh تکراری Startup را اجرا نمی‌کند.
+- کاربر لاگین‌شده/Premium دیگر هنگام Startup برای Free Pool اسکن MMKV انجام نمی‌دهد.
+- رندر صفحه اصلی برای نمایش سرور انتخاب‌شده از ownership check سبک استفاده می‌کند و لیست کامل سرورها را روی Main Thread باز نمی‌کند.
+- فیلدهای Compatibility/AI که در UI مخفی هستند دیگر در هر Refresh محاسبه نمی‌شوند.
+- پاک‌کردن SharedPreferences قدیمی subscription-info از مسیر رندر حذف شد؛ فقط تغییر واقعی حساب آن Cache را invalidate می‌کند.

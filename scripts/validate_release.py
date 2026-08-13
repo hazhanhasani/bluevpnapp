@@ -40,10 +40,10 @@ def main() -> None:
     notice = read("NOTICE.md")
     readme = read("README.md")
 
-    require(app["version_name"] == "4.1.8", "app version must be 4.1.8")
-    require(app["version_code"] == 40108, "app versionCode must be 40108")
-    require(release["version"] == "4.1.8", "release version mismatch")
-    require(release["version_code"] == 40108, "release versionCode mismatch")
+    require(app["version_name"] == "4.1.9", "app version must be 4.1.9")
+    require(app["version_code"] == 40109, "app versionCode must be 40109")
+    require(release["version"] == "4.1.9", "release version mismatch")
+    require(release["version_code"] == 40109, "release versionCode mismatch")
     require(app["upstream_ref"] == "2.2.6", "production v2rayNG pin must be 2.2.6")
     require(app["android_lib_xray_ref"] == "v26.7.5", "documented AndroidLibXrayLite tag must be v26.7.5")
     require(app["xray_core_release_label"] == "v26.6.27", "v2rayNG 2.2.6 Xray-core release label must be v26.6.27")
@@ -160,18 +160,32 @@ def main() -> None:
     settings_writes = re.findall(r"MmkvManager\.encodeSettings\(", home)
     require(len(settings_writes) == 1 and 'AppConfig.PREF_MODE, "VPN"' in home, "BlueVPN still force-overrides v2rayNG runtime settings")
 
+    # 4.1.9 performance freeze: optimize only BlueVPN presentation/control plane.
+    require("private var firstHomeResume = true" in home, "first-resume dedupe guard missing")
+    resume_block = between(home, "override fun onResume()", "private fun scheduleStartupPipeline")
+    require("if (!initialResume)" in resume_block, "initial onResume still repeats startup refresh work")
+    pipeline_block = between(home, "private fun scheduleStartupPipeline", "private fun scheduleIdleCandidateWarmup")
+    require("val needsGuestBootstrap = if (!hadSession)" in pipeline_block, "Premium startup still evaluates guest/free bootstrap work")
+    dashboard_block = between(home, "private fun refreshDashboard", "private fun readTunnelTrafficBytes")
+    require("selectedServerAllowedUi" in dashboard_block, "dashboard still performs deep selected-server ownership scan")
+    require("selectedServerAllowed(this)" not in dashboard_block, "dashboard still calls deep selectedServerAllowed on main thread")
+    experience_block = between(home, "private fun refreshExperienceDashboard", "private fun recordCurrentConnection")
+    require("compatibilityParentVisible" in experience_block, "hidden compatibility dashboard still performs invisible work")
+    subscription_info_block = between(home, "private fun refreshSubscriptionInfo", "private fun formatAccountRemainingTime")
+    require('getSharedPreferences("bluevpn_subscription_info"' not in subscription_info_block, "subscription UI still clears disk cache on each render")
+
     # Plugin version stays synchronized.
     plugin = read("bluevpn-manager/bluevpn-manager.php")
     plugin_readme = read("bluevpn-manager/readme.txt")
-    require(re.search(r"Version:\s*4\.1\.8", plugin) is not None, "plugin header version mismatch")
-    require("BLUEVPN_MANAGER_VERSION" in plugin and "4.1.8" in plugin, "plugin constant version mismatch")
-    require(re.search(r"Stable tag:\s*4\.1\.8", plugin_readme) is not None, "plugin stable tag mismatch")
+    require(re.search(r"Version:\s*4\.1\.9", plugin) is not None, "plugin header version mismatch")
+    require("BLUEVPN_MANAGER_VERSION" in plugin and "4.1.9" in plugin, "plugin constant version mismatch")
+    require(re.search(r"Stable tag:\s*4\.1\.9", plugin_readme) is not None, "plugin stable tag mismatch")
 
     # Versioning contract: patch series is 0..10.
     _, _, patch = map(int, app["version_name"].split("."))
     require(0 <= patch <= 10, "patch version exceeded BlueVPN short series")
 
-    print("BlueVPN 4.1.8 validation: PASS")
+    print("BlueVPN 4.1.9 validation: PASS")
     print("runtime=v2rayNG-2.2.6 androidlib=v26.7.5 xray-release-label=v26.6.27 sing-box=removed")
     print("architecture=BlueVPN UI/control-plane -> immutable stock v2rayNG runtime")
 

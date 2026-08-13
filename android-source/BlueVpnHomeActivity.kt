@@ -140,7 +140,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var lastTx = 0L
     private var lastTrafficAt = 0L
     private var lastPingRequestAt = 0L
-    private var lastAiHeartbeatAt = 0L
     private var sessionDownloadBytes = 0L
     private var sessionUploadBytes = 0L
 
@@ -168,8 +167,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var userDisconnecting = false
     private var navigationLocked = false
     private var lastHistoryGuid = ""
-    private var aiHealthCheckAt = 0L
-    private var aiConsecutiveFailures = 0
     private var lastDashboardRefreshAt = 0L
     private var updateCheckScheduled = false
     private var accountLaunchInProgress = false
@@ -196,6 +193,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var lastCandidateFailureReason = ""
     private var userInteractedAt = 0L
     private var coreFailureReceiverRegistered = false
+    private var firstHomeResume = true
 
     /**
      * BlueVPN observes the stock v2rayNG activity broadcast only to advance
@@ -1936,6 +1934,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             overridePendingTransition(0, 0)
             return
         }
+        val initialResume = firstHomeResume
+        firstHomeResume = false
         navigationLocked = false
         BlueVpnUpdateManager.resumePendingInstall(this)
         applyEntitlementPresentation(BlueVpnEntitlement.resolveUi(this))
@@ -1959,26 +1959,32 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
 
         scheduleStartupPipeline()
-        if (BlueVpnAccountManager.hasSession(this)) {
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastForegroundAccountSyncAt > 120_000L) {
-                lastForegroundAccountSyncAt = now
-                // Foreground resume is cache-first. Do not poll providers or
-                // rebuild subscriptions while a tunnel is connecting/running.
-                handler.postDelayed({
-                    if (!isFinishing && !isDestroyed &&
-                        !failoverActive && !userDisconnecting &&
-                        mainViewModel.isRunning.value != true
-                    ) {
-                        syncManagedAccount(force = false)
-                    }
-                }, 450L)
+        // onCreate already rendered the local entitlement/dashboard and owns the
+        // startup pipeline. Android immediately calls onResume after onCreate;
+        // repeating account/UI refresh work here doubled MMKV/JSON reads during
+        // the first visible frame. Only later foreground resumes need this path.
+        if (!initialResume) {
+            if (BlueVpnAccountManager.hasSession(this)) {
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastForegroundAccountSyncAt > 120_000L) {
+                    lastForegroundAccountSyncAt = now
+                    // Foreground resume is cache-first. Do not poll providers or
+                    // rebuild subscriptions while a tunnel is connecting/running.
+                    handler.postDelayed({
+                        if (!isFinishing && !isDestroyed &&
+                            !failoverActive && !userDisconnecting &&
+                            mainViewModel.isRunning.value != true
+                        ) {
+                            syncManagedAccount(force = false)
+                        }
+                    }, 450L)
+                }
             }
-        }
 
-        handler.post {
-            requestDashboardRefresh(force = false)
-            refreshSubscriptionInfo(force = false)
+            handler.post {
+                requestDashboardRefresh(force = false)
+                refreshSubscriptionInfo(force = false)
+            }
         }
     }
 
@@ -1989,10 +1995,15 @@ private fun scheduleStartupPipeline() {
         if (isFinishing || isDestroyed) return@post
         lifecycleScope.launch(Dispatchers.IO) {
             val hadSession = BlueVpnAccountManager.hasSession(this@BlueVpnHomeActivity)
-            val hasFreeServer = BlueVpnAccountManager
-                .hasInstalledFreeServers(this@BlueVpnHomeActivity)
-            val needsGuestBootstrap = !hadSession &&
-                (!BlueVpnAccountManager.freeAccessEnabled(this@BlueVpnHomeActivity) || !hasFreeServer)
+            // Premium/account startup must never scan the Free MMKV pool. The old
+            // eager `hasFreeServer` evaluation decoded Free subscription rows on
+            // every launch even when a logged-in Premium user could not use them.
+            val needsGuestBootstrap = if (!hadSession) {
+                !BlueVpnAccountManager.freeAccessEnabled(this@BlueVpnHomeActivity) ||
+                    !BlueVpnAccountManager.hasInstalledFreeServers(this@BlueVpnHomeActivity)
+            } else {
+                false
+            }
             val preparedGuest = if (needsGuestBootstrap) {
                 BlueVpnAccountManager.prepareFreeAccess(
                     this@BlueVpnHomeActivity,
@@ -2005,9 +2016,12 @@ private fun scheduleStartupPipeline() {
                 if (preparedGuest) {
                     BlueVpnLocationUtil.invalidateCache()
                     mainViewModel.reloadServerList()
+                    // Only a real guest bootstrap changed the local pool. A
+                    // normal logged-in launch was already rendered from cache in
+                    // onCreate and must not schedule another forced dashboard pass.
+                    requestDashboardRefresh(force = true)
+                    refreshSubscriptionInfo(force = false)
                 }
-                requestDashboardRefresh(force = true)
-                refreshSubscriptionInfo(force = true)
                 showWelcomeIfNeeded()
                 scheduleIdleCandidateWarmup()
                 if (hadSession && !startupOptimizationShown) {
@@ -2108,6 +2122,15 @@ private fun refreshExperienceDashboard(
         !::qualityValue.isInitialized ||
         !::modeValue.isInitialized
     ) {
+        return
+    }
+    // These fields are compatibility-only and live inside a GONE container in
+    // the current unified UI. Do not spend CPU/MMKV/AI reads updating invisible
+    // text on every dashboard refresh. If a future UI makes either area visible,
+    // the original calculations automatically become active again.
+    val compatibilityParentVisible =
+        (aiSummaryValue.parent as? View)?.visibility == View.VISIBLE
+    if (qualityValue.visibility != View.VISIBLE && !compatibilityParentVisible) {
         return
     }
 
@@ -4059,14 +4082,23 @@ private fun dpHome(value: Int): Int =
         lastDashboardRefreshAt = now
 
         val candidates = BlueVpnLocationUtil.cachedCandidates(this)
-        val selectedGuid = MmkvManager.getSelectServer()
+        val entitlement = BlueVpnEntitlement.resolveUi(this)
+        val selectedGuid = MmkvManager.getSelectServer().orEmpty().trim()
         val selected = candidates.firstOrNull {
             it.guid == selectedGuid
         }
-        val selectedAllowed = BlueVpnAccountManager.selectedServerAllowed(this)
-        val profile = selected?.profile ?: selectedGuid
-            ?.takeIf { it.isNotBlank() && selectedAllowed }
+        val selectedProfile = selected?.profile ?: selectedGuid
+            .takeIf { it.isNotBlank() }
             ?.let { MmkvManager.decodeServerConfig(it) }
+        val selectedAllowed = selected != null || selectedProfile?.let { profile ->
+            BlueVpnAccountManager.selectedServerAllowedUi(
+                this,
+                selectedGuid,
+                profile.subscriptionId,
+                entitlement.serverGuids,
+            )
+        } == true
+        val profile = selected?.profile ?: selectedProfile?.takeIf { selectedAllowed }
         val automaticSelection =
             BlueVpnPreferences.smartBalance(this)
 
@@ -4137,7 +4169,6 @@ private fun dpHome(value: Int): Int =
             .distinct()
             .size
 
-        val entitlement = BlueVpnEntitlement.resolveUi(this)
         applyEntitlementPresentation(entitlement)
         subscriptionSummary.text = when (entitlement.tier) {
             BlueVpnPlanTier.PREMIUM ->
@@ -4215,7 +4246,6 @@ private fun dpHome(value: Int): Int =
         lastTrafficAt = System.currentTimeMillis()
         sessionDownloadBytes = 0L
         sessionUploadBytes = 0L
-        lastAiHeartbeatAt = 0L
     }
 
     private fun refreshSubscriptionInfo(force: Boolean) {
@@ -4244,7 +4274,9 @@ private fun dpHome(value: Int): Int =
                 remainingTime.text = "نیاز به فعال‌سازی"
             }
         }
-        getSharedPreferences("bluevpn_subscription_info", MODE_PRIVATE).edit().clear().apply()
+        // No persistence here: account transitions already invalidate the legacy
+        // subscription-info cache in BlueVpnAccountManager.applyAccount/logout.
+        // Clearing SharedPreferences on every UI render added avoidable disk work.
     }
 
     private fun formatAccountRemainingTime(

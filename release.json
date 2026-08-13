@@ -1,12 +1,12 @@
 {
-  "version": "4.1.2",
-  "version_code": 40102,
+  "version": "4.1.3",
+  "version_code": 40103,
   "channel": "stable",
-  "build_id": "20260813-v4.1.2-hidden-location-routes",
+  "build_id": "20260813-v4.1.3-runtime-config-hydration",
   "built_at": "2026-08-13T03:05:00Z",
-  "android_version": "4.1.2",
-  "android_version_code": 40102,
-  "description": "BlueVPN 4.1.2: بازگردانی رابط Location-only؛ مسیرها/GUIDهای داخلی پشت هر لوکیشن مخفی‌اند و موتور اتصال بهترین گزینه همان لوکیشن را خودکار انتخاب و Failover می‌کند.",
+  "android_version": "4.1.3",
+  "android_version_code": 40103,
+  "description": "BlueVPN 4.1.3: مسیرهای هر لوکیشن همچنان مخفی‌اند، اما هر Candidate قبل از اتصال با CoreConfigManager رسمی v2rayNG به کانفیگ کامل Xray تبدیل و اعتبارسنجی می‌شود؛ GUID انتخابی نیز مستقیماً تا daemon حمل می‌شود.",
   "features": [
     "strict-free-premium-pool-identity",
     "serialized-account-sync",
@@ -30,7 +30,10 @@
     "location-only-public-selection",
     "hidden-route-pool-per-location",
     "legacy-manual-server-to-location-migration",
-    "no-route-counts-in-ui"
+    "no-route-counts-in-ui",
+    "v2rayng-runtime-config-hydration-before-connect",
+    "direct-guid-handoff-ui-to-daemon",
+    "skip-partial-imported-profiles-before-tun"
   ],
-  "version_source": "v4.1.2-hidden-location-routes"
+  "version_source": "v4.1.3-runtime-config-hydration"
 }

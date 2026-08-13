@@ -24,8 +24,8 @@ def test_release_validator_passes() -> None:
 
 def test_short_version_and_core_pins() -> None:
     app = json.loads(text("branding/app.json"))
-    assert app["version_name"] == "4.1.2"
-    assert app["version_code"] == 40102
+    assert app["version_name"] == "4.1.3"
+    assert app["version_code"] == 40103
     assert int(app["version_name"].split(".")[-1]) <= 10
     assert app["upstream_ref"] == "2.2.6"
     assert app["xray_ref"] == "v26.6.27"
@@ -151,3 +151,20 @@ def test_internal_routes_are_hidden_behind_locations() -> None:
     assert "$locationCount لوکیشن" in home
     assert "$usableCount مسیر" not in home
     assert "$routeCount مسیر آماده" not in home
+
+
+def test_hidden_route_is_hydrated_by_v2rayng_before_tun_start() -> None:
+    engine = text("android-source/BlueVpnEngineManager.kt")
+    home = text("android-source/BlueVpnHomeActivity.kt")
+    prepare = text("scripts/prepare_android.py")
+
+    assert "CoreConfigManager.getV2rayConfig(app, guid)" in engine
+    assert "result.status && result.guid == guid && result.content.isNotBlank()" in engine
+    preflight_pos = home.index("BlueVpnEngineManager.validateExactConfig(")
+    endpoint_pos = home.index("BlueVpnLocationUtil.preflightCandidate(", preflight_pos)
+    core_start_pos = home.index("startExactCandidateCore(guid)", endpoint_pos)
+    assert preflight_pos < endpoint_pos < core_start_pos
+    assert "startCoreLoop(vpnInterface: ParcelFileDescriptor?, requestedGuid: String? = null)" in prepare
+    assert "doStartCoreLoop(service, vpnInterface, requestedGuid)" in prepare
+    assert "CoreServiceManager.startCoreLoop(mInterface, requestedGuid)" in prepare
+    assert "blueVpnTargetGuid = requestedGuid" in prepare

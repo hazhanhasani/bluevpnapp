@@ -3409,10 +3409,24 @@ private fun dpHome(value: Int): Int =
         // advisory; the real Xray tunnel proof below is authoritative. This runs
         // off the main thread so a slow resolver/socket can never freeze the UI.
         lifecycleScope.launch(Dispatchers.IO) {
-            val preflight = BlueVpnLocationUtil.preflightCandidate(
-                candidate,
-                timeoutMs = 450,
+            // A visible location is only presentation metadata. Before touching
+            // TUN, ask v2rayNG to build the complete runtime config for this exact
+            // hidden route. Broken/partial imports are skipped by failover.
+            val configValidation = BlueVpnEngineManager.validateExactConfig(
+                this@BlueVpnHomeActivity,
+                guid,
             )
+            val preflight = if (configValidation.ready) {
+                BlueVpnLocationUtil.preflightCandidate(
+                    candidate,
+                    timeoutMs = 450,
+                )
+            } else {
+                BlueVpnLocationUtil.CandidatePreflight(
+                    ok = false,
+                    reason = configValidation.reason,
+                )
+            }
             withContext(Dispatchers.Main) {
                 if (
                     !failoverActive ||

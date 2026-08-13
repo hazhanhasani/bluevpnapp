@@ -1,6 +1,6 @@
 === BlueVPN Manager ===
-Version: 4.1.2
-Stable tag: 4.1.2
+Version: 4.1.3
+Stable tag: 4.1.3
 Requires PHP: 8.0
 
 کنترل‌پلین اصلی BlueVPN روی WordPress/MySQL.
@@ -13,7 +13,7 @@ Requires PHP: 8.0
 - Backup/Restore، Health dashboard و ابزارهای مدیریتی BlueVPN.
 - Migration Bridge فقط برای بازیابی/انتقال داده‌های قدیمی و نه به‌عنوان Runtime اصلی.
 
-== قرارداد نسخه 4.1.2 ==
+== قرارداد نسخه 4.1.3 ==
 - Free و Premium با Pool Identity مستقل می‌شوند؛ تغییر پلن/Provider حتی با URL یکسان دقیقاً یک Refresh واقعی ایجاد می‌کند.
 - Account Sync عادی فقط خواندنی است و Force Sync فقط در عملیات صریح کاربر انجام می‌شود.
 - Subscriptionهای مدیریت‌شده auto-update ندارند و تغییر Pool وسط Connect ممنوع است.
@@ -22,6 +22,11 @@ Requires PHP: 8.0
 - نسخه‌گذاری BlueVPN از الگوی x.y.0 تا x.y.10 پیروی می‌کند؛ بعد از x.y.10 نسخه بعدی x.(y+1).0 است.
 
 == Changelog ==
+= 4.1.3 =
+- قبل از شروع VPN، کانفیگ واقعی هر Route مخفی با سازنده رسمی v2rayNG تولید/اعتبارسنجی می‌شود؛ لوکیشن بدون کانفیگ قابل اجرا وارد اتصال نمی‌شود.
+- GUID انتخاب‌شده مستقیماً تا پروسه CoreVpnService/CoreServiceManager منتقل می‌شود تا daemon سرور دیگری را از MMKV انتخاب نکند.
+- Profile ناقص یا Import نیمه‌کاره قبل از ساخت TUN رد می‌شود و Failover سراغ Route بعدی همان لوکیشن می‌رود.
+
 = 4.1.2 =
 - نمایش فقط لوکیشن‌ها؛ Route/GUID و تعداد مسیرهای داخلی دیگر در رابط کاربر نمایش داده نمی‌شود.
 - انتخاب یک لوکیشن، موتور اتصال را به همان کشور محدود می‌کند و بهترین اتصال داخلی به‌صورت خودکار انتخاب می‌شود.

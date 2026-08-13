@@ -1,8 +1,8 @@
 {
   "app_name": "BlueVPN",
   "application_id": "ir.blluepanel.bluevpn",
-  "version_name": "4.1.2",
-  "version_code": 40102,
+  "version_name": "4.1.3",
+  "version_code": 40103,
   "deep_link_scheme": "bluevpn",
   "api_base_url": "https://bot.blluepanel.ir",
   "website_url": "https://bot.blluepanel.ir",
@@ -13,7 +13,7 @@
     "arm64-v8a",
     "armeabi-v7a"
   ],
-  "version_source": "v4.1.2-hidden-location-routes",
+  "version_source": "v4.1.3-runtime-config-hydration",
   "sing_box_ref": "v1.13.16",
   "xray_ref": "v26.6.27"
 }

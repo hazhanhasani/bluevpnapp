@@ -688,6 +688,32 @@ def patch_v2rayng_runtime_lifecycle() -> None:
     )
     core = replace_exact(
         core,
+        "    fun startCoreLoop(vpnInterface: ParcelFileDescriptor?): Boolean {\n",
+        "    fun startCoreLoop(vpnInterface: ParcelFileDescriptor?, requestedGuid: String? = null): Boolean {\n",
+        "startCoreLoop exact GUID parameter",
+    )
+    core = replace_exact(
+        core,
+        "            doStartCoreLoop(service, vpnInterface)\n",
+        "            doStartCoreLoop(service, vpnInterface, requestedGuid)\n",
+        "startCoreLoop exact GUID forwarding",
+    )
+    core = replace_exact(
+        core,
+        "    private fun doStartCoreLoop(service: Service, vpnInterface: ParcelFileDescriptor?) {\n",
+        "    private fun doStartCoreLoop(service: Service, vpnInterface: ParcelFileDescriptor?, requestedGuid: String? = null) {\n",
+        "doStartCoreLoop exact GUID parameter",
+    )
+    core = replace_exact(
+        core,
+        '        val guid = MmkvManager.getSelectServer() ?: error("No server selected")\n',
+        '        val guid = requestedGuid?.trim()?.takeIf { it.isNotBlank() }\n'
+        '            ?: MmkvManager.getSelectServer()\n'
+        '            ?: error("No server selected")\n',
+        "doStartCoreLoop exact GUID resolution",
+    )
+    core = replace_exact(
+        core,
         '''        if (!coreController.isRunning) {
             error("Core failed to start")
         }
@@ -820,6 +846,13 @@ def patch_v2rayng_runtime_lifecycle() -> None:
     core_path.write_text(core, encoding="utf-8")
 
     vpn = vpn_path.read_text(encoding="utf-8")
+    vpn = replace_exact(
+        vpn,
+        "    private var isRunning = false\n",
+        "    private var isRunning = false\n"
+        "    @Volatile private var blueVpnTargetGuid: String? = null\n",
+        "CoreVpnService exact target field",
+    )
     if "import com.v2ray.ang.util.MessageUtil" not in vpn:
         vpn = replace_exact(
             vpn,
@@ -850,6 +883,7 @@ def patch_v2rayng_runtime_lifecycle() -> None:
         }
 
         requestedGuid?.let { MmkvManager.setSelectServer(it) }
+        blueVpnTargetGuid = requestedGuid
         NotificationManager.showNotification(null)
         if (setupVpnService()) {
             startService()
@@ -865,22 +899,25 @@ def patch_v2rayng_runtime_lifecycle() -> None:
         "CoreVpnService exact intent/start gating",
         already_marker='getStringExtra("bluevpn_target_guid")',
     )
-    vpn = replace_exact(
-        vpn,
-        '''        if (!::mInterface.isInitialized) {
+    old_missing_interface = '''        if (!::mInterface.isInitialized) {
             LogUtil.e(AppConfig.TAG, "StartCore-VPN: Interface not initialized")
             return
         }
-''',
-        '''        if (!::mInterface.isInitialized) {
+'''
+    if old_missing_interface in vpn:
+        vpn = vpn.replace(
+            old_missing_interface,
+            '''        if (!::mInterface.isInitialized) {
             LogUtil.e(AppConfig.TAG, "StartCore-VPN: Interface not initialized")
             MessageUtil.sendMsg2UI(this, AppConfig.MSG_STATE_START_FAILURE, "VPN interface not initialized")
             stopSelf()
             return
         }
 ''',
-        "CoreVpnService missing-interface failure",
-    )
+            1,
+        )
+    elif 'AppConfig.MSG_STATE_START_FAILURE, "VPN interface not initialized"' not in vpn:
+        raise RuntimeError("Could not patch v2rayNG runtime: CoreVpnService missing-interface failure")
     new_setup_vpn = '''    private fun setupVpnService(): Boolean {
         val prepare = prepare(this)
         if (prepare != null) {
@@ -906,6 +943,35 @@ def patch_v2rayng_runtime_lifecycle() -> None:
         new_setup_vpn,
         "CoreVpnService setup result",
         already_marker="private fun setupVpnService(): Boolean",
+    )
+
+    new_vpn_start_service = '''    override fun startService() {
+        if (!::mInterface.isInitialized) {
+            LogUtil.e(AppConfig.TAG, "StartCore-VPN: Interface not initialized")
+            MessageUtil.sendMsg2UI(this, AppConfig.MSG_STATE_START_FAILURE, "VPN interface not initialized")
+            blueVpnTargetGuid = null
+            stopSelf()
+            return
+        }
+        val requestedGuid = blueVpnTargetGuid
+        if (!CoreServiceManager.startCoreLoop(mInterface, requestedGuid)) {
+            LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to start exact core loop guid=$requestedGuid")
+            blueVpnTargetGuid = null
+            stopAllService()
+            return
+        }
+        blueVpnTargetGuid = null
+
+        // Start LAN sharing if enabled in settings
+        RootLanSharing.startClientSharing(this)
+    }
+'''
+    vpn = _replace_kotlin_function(
+        vpn,
+        r"^[ \t]*override[ \t]+fun[ \t]+startService[ \t]*\([ \t]*\)[ \t]*\{",
+        new_vpn_start_service,
+        "CoreVpnService direct exact GUID core start",
+        already_marker="CoreServiceManager.startCoreLoop(mInterface, requestedGuid)",
     )
 
     old_vpn_stop = '''    private fun stopAllService(isForced: Boolean = true) {

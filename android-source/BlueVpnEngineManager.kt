@@ -2,6 +2,7 @@ package com.v2ray.ang.bluevpn
 
 import android.content.Context
 import android.util.Log
+import com.v2ray.ang.core.CoreConfigManager
 import com.v2ray.ang.core.CoreServiceManager
 import com.v2ray.ang.handler.MmkvManager
 import java.util.concurrent.CopyOnWriteArrayList
@@ -93,6 +94,45 @@ object BlueVpnEngineManager {
             .edit()
             .putString(KEY_MODE, mode.name)
             .apply()
+    }
+
+    data class ConfigValidation(
+        val ready: Boolean,
+        val reason: String = "",
+    )
+
+    /**
+     * Compile the exact hidden route through v2rayNG's own CoreConfigManager
+     * before a VPN/TUN start is attempted. A location row is presentation
+     * metadata; this proves that the underlying imported profile can become a
+     * complete Xray runtime configuration.
+     */
+    fun validateExactConfig(context: Context, serverGuid: String): ConfigValidation {
+        val app = context.applicationContext
+        val guid = serverGuid.trim()
+        if (guid.isBlank()) return ConfigValidation(false, "شناسه مسیر خالی است")
+
+        val profile = MmkvManager.decodeServerConfig(guid)
+            ?: return ConfigValidation(false, "کانفیگ مسیر در حافظه v2rayNG موجود نیست")
+        if (!BlueVpnAccountManager.candidateAllowed(app, guid, profile.subscriptionId)) {
+            return ConfigValidation(false, "کانفیگ مسیر متعلق به Pool فعال نیست")
+        }
+
+        return runCatching { CoreConfigManager.getV2rayConfig(app, guid) }
+            .fold(
+                onSuccess = { result ->
+                    if (result.status && result.guid == guid && result.content.isNotBlank()) {
+                        ConfigValidation(true)
+                    } else {
+                        Log.e(TAG, "v2rayNG config hydration failed guid=$guid: ${result.errorMessage}")
+                        ConfigValidation(false, "v2rayNG نتوانست کانفیگ کامل این مسیر را بسازد")
+                    }
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "v2rayNG config hydration crashed guid=$guid", error)
+                    ConfigValidation(false, "ساخت کانفیگ واقعی Xray برای این مسیر ناموفق بود")
+                },
+            )
     }
 
     /**

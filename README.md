@@ -1,10 +1,10 @@
-# BlueVPN 4.1.2
+# BlueVPN 4.1.3
 
 BlueVPN is an Android VPN client with a WordPress/MySQL control plane. The repository intentionally keeps only current production source, build automation, and release validation; historical release reports and generated Android snapshots are not source of truth.
 
 ## Current production baseline
 
-- BlueVPN: `4.1.2` (`versionCode 40102`)
+- BlueVPN: `4.1.3` (`versionCode 40103`)
 - WordPress Manager schema: `1.6.0`
 - v2rayNG production pin: `2.2.6` (reviewed stable base)
 - Xray / AndroidLibXrayLite: `v26.6.27` (exact pairing shipped by v2rayNG 2.2.6)
@@ -15,6 +15,8 @@ v2rayNG `2.3.3` was reviewed but remains outside the production runtime baseline
 
 ## Runtime rules
 
+- Location cards are presentation-only; the selected hidden route is compiled with v2rayNG `CoreConfigManager.getV2rayConfig(context, guid)` before TUN/Core start. A partial/imported profile that cannot produce real Xray JSON is skipped immediately.
+- The chosen hidden-route GUID is carried directly through `CoreVpnService` into `CoreServiceManager.startCoreLoop(..., requestedGuid)`; the daemon no longer re-resolves the candidate from shared MMKV as its primary source.
 - Public server selection is location-only: internal routes/GUIDs never appear in the locations UI; choosing a location scopes the hidden candidate pool and the engine ranks/failovers inside it automatically.
 - Legacy `MANUAL_SERVER` preferences migrate to their parent location so older installs cannot keep exposing/pinning a concrete route.
 - Terminal failover failure is latched until CoreVpnService is actually stopped; a stale RUNNING broadcast or late ping cannot reopen the connecting overlay.

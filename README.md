@@ -71,3 +71,12 @@ The GitHub Android workflow builds/signs APKs first, publishes the synchronized 
 ## License
 
 See `LICENSE` and `NOTICE.md`. Upstream components retain their own licenses and attribution requirements.
+
+
+## 4.1.7 compatibility restore
+
+- Restores CoreServiceManager/CoreVpnService lifecycle to pinned upstream v2rayNG 2.2.6 behavior.
+- Treats upstream START_SUCCESS/RUNNING as connection success; BlueVPN HTTP/DNS probes are non-authoritative.
+- Removes hidden AI auto-heal reconnects from the home runtime loop.
+- Leaves dynamic SOCKS/local proxy behavior under upstream v2rayNG ownership.
+- Keeps only read-only START_FAILURE diagnostics in MainViewModel.

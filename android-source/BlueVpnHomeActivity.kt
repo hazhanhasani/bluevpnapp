@@ -288,7 +288,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private val statsTicker = object : Runnable {
         override fun run() {
             updateLiveStats()
-            monitorBlueAiHealth()
             handler.postDelayed(
                 this,
                 BlueVpnPerformance.statsIntervalMs(this@BlueVpnHomeActivity),
@@ -1661,7 +1660,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
         mainViewModel.isRunning.observe(this) { running ->
             val active = running == true
-            val runningGuid = mainViewModel.runningServerGuid.value.orEmpty().trim()
             if (active) {
                 BlueVpnRuntimeGate.markConnectionActive(this)
             }
@@ -1731,50 +1729,35 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                     handler.removeCallbacks(coreStopTimeout)
                     val guid = attemptedGuid
                     if (guid.isNotBlank()) {
-                        handler.post { startExactCandidateCore(guid) }
+                        // v2rayNG 2.2.6 stops its core asynchronously. Keep a
+                        // short drain window before starting the next hidden route.
+                        handler.postDelayed({
+                            if (failoverActive && attemptedGuid == guid && !userDisconnecting) {
+                                startExactCandidateCore(guid)
+                            }
+                        }, 650L)
                     }
-                }
-
-                active && failoverActive && runningGuid == attemptedGuid -> {
-                    // The service reported RUNNING for the exact candidate.  MMKV's
-                    // selected GUID is not trusted here because subscription import
-                    // can rewrite it; service-process identity is authoritative.
-                    handler.removeCallbacks(attemptTimeout)
-                    renderVerifyingState()
-                    scheduleConnectionVerification()
                 }
 
                 active && failoverActive -> {
-                    // A stale RUNNING broadcast/core from the previous candidate
-                    // must never be accepted as success for the new GUID.
-                    waitingForCoreStop = true
-                    coreStopRetryCount = 0
-                    BlueVpnEngineManager.markSwitching()
-                    statusText.text = "در حال تغییر اتصال"
-                    statusCaption.text = "در انتظار آزادشدن هسته قبلی"
-                    BlueVpnEngineManager.stop(this)
-                    handler.removeCallbacks(coreStopTimeout)
-                    handler.postDelayed(coreStopTimeout, 3_000L)
-                }
-
-                active && isThemeConnectionGraceActive() -> {
-                    // Theme changes recreate only the screen. Keep the core
-                    // untouched and restore the verified UI immediately.
-                    if (connectionVerified || BlueVpnPreferences.connectedAt(this) > 0L) {
-                        connectionVerified = true
-                        renderConnectionState(true)
-                    } else {
-                        renderVerifyingState()
-                        verifyExistingRunningSession(preserveServiceOnFailure = true)
-                    }
-                }
-
-                active && connectionVerified -> {
-                    renderConnectionState(true)
+                    // Match stock v2rayNG: START_SUCCESS/RUNNING is authoritative.
+                    // Extra BlueVPN HTTP/DNS probes may observe quality, but they
+                    // must never reject or stop a tunnel that v2rayNG started.
+                    handler.removeCallbacks(attemptTimeout)
+                    completeFailover(null)
                 }
 
                 active -> {
-                    verifyExistingRunningSession()
+                    // Runtime parity with stock v2rayNG: a running CoreVpnService
+                    // is already the connection state. Quality checks may update
+                    // telemetry later but cannot hold the UI in CONNECTING or
+                    // tear down this upstream-successful session.
+                    connectionVerified = true
+                    BlueVpnPreferences.markConnected(this, resetTimer = false)
+                    BlueVpnRuntimeGate.markConnectionActive(this)
+                    BlueVpnEngineManager.markConnected()
+                    BlueVpnAccountManager.startFreeSession(this)
+                    renderConnectionState(true)
                 }
 
                 !failoverActive -> {
@@ -1818,28 +1801,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             val upstreamDelay = parseV2rayNgDelayMs(result)
             if (upstreamDelay != null && mainViewModel.isRunning.value == true) {
                 lastVerifiedLatency = upstreamDelay
-                if (
-                    failoverActive &&
-                    !waitingForCoreStop &&
-                    isExactAttemptRunning()
-                ) {
-                    // v2rayNG's own coreController.measureDelay() is an end-to-end
-                    // proof through the running Xray core. Accept it as a valid
-                    // compatibility proof instead of requiring BlueVPN-only URLs.
-                    completeFailover(upstreamDelay)
-                } else if (
-                    !failoverActive &&
-                    !connectionVerified &&
-                    !terminalFailureStopping &&
-                    !userDisconnecting
-                ) {
-                    // Ignore a late v2rayNG ping from the candidate that has
-                    // already terminally failed and is being stopped.
-                    existingSessionRetryCount = 0
-                    connectionVerified = true
-                    BlueVpnPreferences.markConnected(this, resetTimer = false)
-                    BlueVpnAccountManager.startFreeSession(this)
-                    renderConnectionState(true)
+                // Quality telemetry only; RUNNING already established connection.
+                if (!failoverActive && connectionVerified) {
                     recordCurrentConnection(upstreamDelay)
                 }
             }
@@ -3359,9 +3322,7 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun isExactAttemptRunning(): Boolean =
-        mainViewModel.isRunning.value == true &&
-            attemptedGuid.isNotBlank() &&
-            mainViewModel.runningServerGuid.value.orEmpty().trim() == attemptedGuid
+        mainViewModel.isRunning.value == true && attemptedGuid.isNotBlank()
 
     private fun startCurrentCandidate() {
         if (!failoverActive) return
@@ -3586,28 +3547,9 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun enforceReliableVpnSettings() {
-        // BlueVPN is a consumer VPN app. Proxy-only mode can start the core
-        // without routing Android applications, which looks connected but
-        // does not provide Internet to the device.
-        MmkvManager.encodeSettings(
-            AppConfig.PREF_MODE,
-            "VPN"
-        )
-
-        // Health checks and the TUN bridge depend on the local Xray inbound.
-        MmkvManager.encodeSettings(
-            AppConfig.PREF_ENABLE_LOCAL_PROXY,
-            true
-        )
-
-        // CoreVpnService runs in a separate process. A process-local dynamic
-        // SOCKS port can make the UI verifier probe a different localhost port
-        // than the daemon actually opened. BlueVPN keeps a fixed shared port so
-        // the exact v2rayNG core and the UI health verifier always agree.
-        MmkvManager.encodeSettings(
-            AppConfig.PREF_DYNAMIC_SOCKS_PORT,
-            false
-        )
+        // BlueVPN must be a device VPN, but all other local proxy/TUN runtime
+        // settings remain exactly under upstream v2rayNG ownership.
+        MmkvManager.encodeSettings(AppConfig.PREF_MODE, "VPN")
     }
 
     private fun renderVerifyingState() {

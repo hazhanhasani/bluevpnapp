@@ -1139,11 +1139,15 @@ private fun unknownLocation(): BlueVpnLocation =
         timeoutMs: Int = 450,
     ): CandidatePreflight {
         val profile = candidate.profile
+        val rawConfig = MmkvManager.decodeServerRaw(candidate.guid)
         val host = profile.server.orEmpty().trim()
         if (host.isBlank()) {
+            if (BlueVpnProfileManager.sourceFormat(rawConfig) == BlueVpnProfileManager.SourceFormat.XRAY_JSON) {
+                return CandidatePreflight(true, "کانفیگ سفارشی توسط هسته رسمی تأیید شد")
+            }
             return CandidatePreflight(false, "آدرس سرور خالی است")
         }
-        if (!isUsable(profile, MmkvManager.decodeServerRaw(candidate.guid))) {
+        if (!isUsable(profile, rawConfig)) {
             return CandidatePreflight(false, "کانفیگ با هسته فعلی سازگار نیست")
         }
 

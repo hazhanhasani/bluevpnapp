@@ -121,7 +121,7 @@ object BlueVpnEngineManager {
         return runCatching { CoreConfigManager.getV2rayConfig(app, guid) }
             .fold(
                 onSuccess = { result ->
-                    if (result.status && result.guid == guid && result.content.isNotBlank()) {
+                    if (result.status && result.content.isNotBlank()) {
                         ConfigValidation(true)
                     } else {
                         Log.e(TAG, "v2rayNG config hydration failed guid=$guid: ${result.errorMessage}")
@@ -201,20 +201,19 @@ object BlueVpnEngineManager {
             publish(State.STARTING, requested, Engine.XRAY, fallback)
 
             runCatching {
-                // Use the exact official v2rayNG entry point. Passing the GUID
-                // closes the race where BlueVPN changed global MMKV selection
-                // before the previous CoreVpnService had actually stopped.
-                check(CoreServiceManager.startVServiceExact(app, targetGuid)) {
-                    "Xray service rejected the exact candidate start"
-                }
+                // Compatibility-first: execute the exact same start path as the
+                // pinned stock v2rayNG 2.2.6 runtime. BlueVPN owns entitlement
+                // and GUID choice only; the VPN/core lifecycle stays upstream.
+                MmkvManager.setSelectServer(targetGuid)
+                CoreServiceManager.startVService(app, targetGuid)
             }.onFailure { error ->
-                Log.e(TAG, "Xray start failed", error)
+                Log.e(TAG, "Xray start request failed", error)
                 if (generation == commandGeneration.get()) {
                     publish(
                         State.FAILED,
                         requested,
                         Engine.XRAY,
-                        error.message ?: "core start failed",
+                        error.message ?: "core start request failed",
                     )
                 }
             }

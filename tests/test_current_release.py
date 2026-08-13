@@ -24,8 +24,8 @@ def test_release_validator_passes() -> None:
 
 def test_short_version_and_core_pins() -> None:
     app = json.loads(text("branding/app.json"))
-    assert app["version_name"] == "4.1.6"
-    assert app["version_code"] == 40106
+    assert app["version_name"] == "4.1.7"
+    assert app["version_code"] == 40107
     assert int(app["version_name"].split(".")[-1]) <= 10
     assert app["upstream_ref"] == "2.2.6"
     assert app["xray_ref"] == "v26.6.27"
@@ -113,18 +113,11 @@ def test_terminal_failure_cannot_reenter_connecting_or_release_gate_early() -> N
     assert "if (terminalFailureStopping)" in finish
     assert "BlueVpnRuntimeGate.endConnection(this)" in finish
 
-    verify_start = home.index("    private fun verifyExistingRunningSession(")
-    verify_end = home.index("    private fun verifyTunnelThroughCore(", verify_start)
-    verify = home[verify_start:verify_end]
-    assert "terminalFailureStopping" in verify
-    assert "if (terminalFailureStopping || userDisconnecting || failoverActive)" in verify
-
     ping_start = home.index("        mainViewModel.updateTestResultAction.observe(this) { result ->")
     ping_end = home.index("    private fun parseV2rayNgDelayMs", ping_start)
     ping = home[ping_start:ping_end]
-    assert "!terminalFailureStopping" in ping
-    assert "!userDisconnecting" in ping
-
+    assert "completeFailover(upstreamDelay)" not in ping
+    assert "Quality telemetry only" in ping
 
 def test_last_candidate_failure_reason_is_preserved() -> None:
     home = text("android-source/BlueVpnHomeActivity.kt")
@@ -159,16 +152,17 @@ def test_hidden_route_is_hydrated_by_v2rayng_before_tun_start() -> None:
     prepare = text("scripts/prepare_android.py")
 
     assert "CoreConfigManager.getV2rayConfig(app, guid)" in engine
-    assert "result.status && result.guid == guid && result.content.isNotBlank()" in engine
+    assert "result.status && result.content.isNotBlank()" in engine
     preflight_pos = home.index("BlueVpnEngineManager.validateExactConfig(")
     endpoint_pos = home.index("BlueVpnLocationUtil.preflightCandidate(", preflight_pos)
     core_start_pos = home.index("startExactCandidateCore(guid)", endpoint_pos)
     assert preflight_pos < endpoint_pos < core_start_pos
-    assert "startCoreLoop(vpnInterface: ParcelFileDescriptor?, requestedGuid: String? = null)" in prepare
-    assert "doStartCoreLoop(service, vpnInterface, requestedGuid)" in prepare
-    assert "CoreServiceManager.startCoreLoop(mInterface, requestedGuid)" in prepare
-    assert "blueVpnTargetGuid = requestedGuid" in prepare
-
+    runtime_patch = prepare[prepare.index("def patch_v2rayng_runtime_lifecycle() -> None:"):prepare.index("def inject_bootstrap() -> None:")]
+    assert "CoreVpnService.kt" not in runtime_patch
+    assert "CoreServiceManager.kt" not in runtime_patch
+    assert "coreStartError" in runtime_patch
+    assert "CoreServiceManager.startVService(app, targetGuid)" in engine
+    assert "startVServiceExact" not in engine
 
 def test_home_ai_summary_is_location_only_and_cannot_show_stale_route_errors() -> None:
     selector = text("android-source/BlueVpnSmartSelector.kt")
@@ -239,19 +233,23 @@ def test_xray_cold_start_and_local_proxy_windows_are_not_over_aggressive() -> No
     assert "readTimeout = 3_000" in home
 
 
-def test_tunnel_verifier_follows_v2rayng_local_proxy_semantics_without_brittle_endpoint_contracts() -> None:
+def test_connection_state_follows_upstream_v2rayng_and_quality_probes_are_non_authoritative() -> None:
     home = text("android-source/BlueVpnHomeActivity.kt")
+    engine = text("android-source/BlueVpnEngineManager.kt")
+    settings_start = home.index("    private fun enforceReliableVpnSettings()")
+    settings_end = home.index("    private fun renderVerifyingState", settings_start)
+    settings = home[settings_start:settings_end]
+    observer_start = home.index("        mainViewModel.isRunning.observe(this) { running ->")
+    observer_end = home.index("        mainViewModel.coreStartError.observe(this)", observer_start)
+    observer = home[observer_start:observer_end]
+    assert "CoreServiceManager.startVService(app, targetGuid)" in engine
+    assert "startVServiceExact" not in engine
+    assert "completeFailover(null)" in observer
+    assert "AppConfig.PREF_DYNAMIC_SOCKS_PORT" not in settings
+    assert "AppConfig.PREF_ENABLE_LOCAL_PROXY" not in settings
     assert "SettingsManager.getSocksPort()" in home
-    assert "AppConfig.PREF_DYNAMIC_SOCKS_PORT" in home
-    assert "Proxy.Type.HTTP" in home
-    assert "Proxy.Type.SOCKS" in home
-    assert "Proxy-Authorization" in home
-    assert "SettingsManager.getSocksUsername()" in home
-    assert "SettingsManager.getSocksPassword()" in home
-    assert "code in 200..499 && code != 407" in home
-    assert 'body.contains(\n                                "bluevpn-platform"' not in home
-    assert "code == 204" not in home
-
+    stats = home[home.index("    private val statsTicker"):home.index("    private val freeSessionTicker")]
+    assert "monitorBlueAiHealth()" not in stats
 
 def test_profile_dedupe_keeps_v2rayng_runtime_affecting_variants_distinct() -> None:
     profile = text("android-source/BlueVpnProfileManager.kt")

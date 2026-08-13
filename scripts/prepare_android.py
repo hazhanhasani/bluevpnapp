@@ -555,551 +555,56 @@ def _replace_kotlin_function(
 
 
 def patch_v2rayng_runtime_lifecycle() -> None:
-    """Patch pinned v2rayNG 2.2.6 for exact-candidate lifecycle semantics.
+    """Keep v2rayNG 2.2.6 CoreServiceManager/CoreVpnService upstream-exact.
 
-    BlueVPN keeps upstream parsers/config generation intact, but the 2.2.6
-    service lifecycle reports STOP_SUCCESS before the asynchronous core stop has
-    actually completed and RUNNING/START_SUCCESS do not identify which GUID is
-    running.  That makes fast failover vulnerable to stale-core/port races.
-    This narrow patch gives BlueVPN an exact GUID handshake and makes stop
-    completion authoritative before the next candidate is started.
+    Only START_FAILURE diagnostics are added to MainViewModel. This is
+    intentionally read-only and does not change core, TUN, stop/start, ports,
+    or service lifecycle behavior.
     """
-
-    def replace_exact(text: str, old: str, new: str, label: str) -> str:
-        if new in text:
-            return text
-        if old not in text:
-            raise RuntimeError(f"Could not patch v2rayNG runtime: {label}")
-        return text.replace(old, new, 1)
-
-    core_path = APP / "src/main/java/com/v2ray/ang/core/CoreServiceManager.kt"
-    vpn_path = APP / "src/main/java/com/v2ray/ang/service/CoreVpnService.kt"
     vm_path = APP / "src/main/java/com/v2ray/ang/viewmodel/MainViewModel.kt"
-    for runtime_path in (core_path, vpn_path, vm_path):
-        if not runtime_path.exists():
-            raise RuntimeError(f"Pinned v2rayNG runtime file missing: {runtime_path}")
-
-    core = core_path.read_text(encoding="utf-8")
-    core = replace_exact(
-        core,
-        "    private var currentConfig: ProfileItem? = null\n",
-        "    private var currentConfig: ProfileItem? = null\n"
-        "    @Volatile private var currentGuid: String? = null\n"
-        "    @Volatile private var stopInProgress = false\n",
-        "CoreServiceManager runtime identity fields",
-    )
-
-    old_start = '''    fun startVService(context: Context, guid: String? = null) {
-        LogUtil.i(AppConfig.TAG, "StartCore-Manager: startVService from ${context::class.java.simpleName}")
-
-        if (guid != null) {
-            MmkvManager.setSelectServer(guid)
-        }
-        try {
-            startContextService(context)
-        } catch (e: Exception) {
-            LogUtil.e(AppConfig.TAG, "StartCore-Manager: ${e.message}", e)
-            context.toast(e.message ?: e.javaClass.simpleName)
-        }
-    }
-'''
-    new_start = '''    fun startVService(context: Context, guid: String? = null) {
-        startVServiceExact(context, guid)
-    }
-
-    /**
-     * BlueVPN exact-candidate start handshake.
-     *
-     * The requested GUID is validated and copied into the service Intent so a
-     * subscription refresh cannot silently redirect the start to a different
-     * MMKV selection between Activity selection and CoreVpnService startup.
-     */
-    fun startVServiceExact(context: Context, guid: String? = null): Boolean {
-        LogUtil.i(AppConfig.TAG, "StartCore-Manager: startVServiceExact from ${context::class.java.simpleName}")
-        val requestedGuid = guid.orEmpty().trim().ifBlank {
-            MmkvManager.getSelectServer().orEmpty().trim()
-        }
-        if (requestedGuid.isBlank()) {
-            LogUtil.e(AppConfig.TAG, "StartCore-Manager: No exact server selected")
-            context.toast(R.string.app_tile_first_use)
-            return false
-        }
-        if (coreController.isRunning) {
-            val sameRoute = currentGuid == requestedGuid
-            LogUtil.w(
-                AppConfig.TAG,
-                "StartCore-Manager: Core already running guid=$currentGuid requested=$requestedGuid"
-            )
-            return sameRoute
-        }
-        MmkvManager.setSelectServer(requestedGuid)
-        return try {
-            startContextService(context, requestedGuid)
-            true
-        } catch (e: Exception) {
-            LogUtil.e(AppConfig.TAG, "StartCore-Manager: ${e.message}", e)
-            context.toast(e.message ?: e.javaClass.simpleName)
-            false
-        }
-    }
-'''
-    core = _replace_kotlin_function(
-        core,
-        r"^[ \t]*fun[ \t]+startVService[ \t]*\([ \t]*context[ \t]*:[ \t]*Context[ \t]*,[ \t]*guid[ \t]*:[ \t]*String\?[ \t]*=[ \t]*null[ \t]*\)[ \t]*\{",
-        new_start,
-        "exact start entry point",
-        already_marker="fun startVServiceExact(",
-    )
-    core = replace_exact(
-        core,
-        "    fun getRunningServerName() = currentConfig?.remarks.orEmpty()\n",
-        "    fun getRunningServerName() = currentConfig?.remarks.orEmpty()\n"
-        "    fun getRunningServerGuid() = currentGuid.orEmpty()\n",
-        "running GUID accessor",
-    )
-
-    core = replace_exact(
-        core,
-        "    private fun startContextService(context: Context) {\n",
-        "    private fun startContextService(context: Context, requestedGuid: String? = null) {\n",
-        "startContextService exact GUID parameter",
-    )
-    core = replace_exact(
-        core,
-        '''        val guid = MmkvManager.getSelectServer()
-            ?: run {
-''',
-        '''        val guid = requestedGuid?.trim()?.takeIf { it.isNotBlank() }
-            ?: MmkvManager.getSelectServer()
-            ?: run {
-''',
-        "startContextService exact GUID resolution",
-    )
-    core = replace_exact(
-        core,
-        '''        try {
-            ContextCompat.startForegroundService(context, intent)
-''',
-        '''        intent.putExtra("bluevpn_target_guid", guid)
-        try {
-            ContextCompat.startForegroundService(context, intent)
-''',
-        "service Intent exact GUID",
-    )
-    core = replace_exact(
-        core,
-        "    fun startCoreLoop(vpnInterface: ParcelFileDescriptor?): Boolean {\n",
-        "    fun startCoreLoop(vpnInterface: ParcelFileDescriptor?, requestedGuid: String? = null): Boolean {\n",
-        "startCoreLoop exact GUID parameter",
-    )
-    core = replace_exact(
-        core,
-        "            doStartCoreLoop(service, vpnInterface)\n",
-        "            doStartCoreLoop(service, vpnInterface, requestedGuid)\n",
-        "startCoreLoop exact GUID forwarding",
-    )
-    core = replace_exact(
-        core,
-        "    private fun doStartCoreLoop(service: Service, vpnInterface: ParcelFileDescriptor?) {\n",
-        "    private fun doStartCoreLoop(service: Service, vpnInterface: ParcelFileDescriptor?, requestedGuid: String? = null) {\n",
-        "doStartCoreLoop exact GUID parameter",
-    )
-    core = replace_exact(
-        core,
-        '        val guid = MmkvManager.getSelectServer() ?: error("No server selected")\n',
-        '        val guid = requestedGuid?.trim()?.takeIf { it.isNotBlank() }\n'
-        '            ?: MmkvManager.getSelectServer()\n'
-        '            ?: error("No server selected")\n',
-        "doStartCoreLoop exact GUID resolution",
-    )
-    core = replace_exact(
-        core,
-        '''        if (!coreController.isRunning) {
-            error("Core failed to start")
-        }
-''',
-        '''        if (!coreController.isRunning) {
-            error("Core failed to start")
-        }
-        currentGuid = guid
-''',
-        "running GUID capture",
-    )
-    core = replace_exact(
-        core,
-        '        MessageUtil.sendMsg2UI(service, AppConfig.MSG_STATE_START_SUCCESS, "")\n',
-        '        MessageUtil.sendMsg2UI(service, AppConfig.MSG_STATE_START_SUCCESS, guid)\n',
-        "START_SUCCESS exact GUID",
-    )
-
-    old_stop = '''    fun stopCoreLoop(): Boolean {
-        val service = getService() ?: return false
-        if (coreController.isRunning) {
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    coreController.stopLoop()
-                } catch (e: Exception) {
-                    LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to stop V2Ray loop", e)
-                }
-            }
-        }
-        // Close existing browser dialer
-        CoreNativeManager.reconcileBrowserDialer("")
-        if (browserDialer != null) {
-            browserDialer!!.stop()
-            browserDialer = null
-        }
-
-        MessageUtil.sendMsg2UI(service, AppConfig.MSG_STATE_STOP_SUCCESS, "")
-        NotificationManager.cancelNotification()
-        try {
-            service.unregisterReceiver(mMsgReceive)
-        } catch (e: Exception) {
-            LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to unregister receiver", e)
-        }
-
-        return true
-    }
-'''
-    new_stop = '''    @Synchronized
-    fun stopCoreLoop(): Boolean {
-        val service = getService() ?: return false
-        if (stopInProgress) {
-            LogUtil.w(AppConfig.TAG, "StartCore-Manager: Stop already in progress")
-            return !coreController.isRunning
-        }
-        stopInProgress = true
-        var stopped = !coreController.isRunning
-        try {
-            if (!stopped) {
-                try {
-                    // Deliberately synchronous: STOP_SUCCESS must mean the old
-                    // Xray loop has released its listeners/ports, not merely that
-                    // a background stop coroutine was scheduled.
-                    coreController.stopLoop()
-                } catch (e: Exception) {
-                    LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to stop V2Ray loop", e)
-                }
-                val deadline = android.os.SystemClock.elapsedRealtime() + 1_800L
-                while (coreController.isRunning && android.os.SystemClock.elapsedRealtime() < deadline) {
-                    try {
-                        Thread.sleep(25L)
-                    } catch (_: InterruptedException) {
-                        Thread.currentThread().interrupt()
-                        break
-                    }
-                }
-                stopped = !coreController.isRunning
-            }
-
-            // Close existing browser dialer only after the core stop request has
-            // completed so a new candidate cannot inherit stale runtime state.
-            CoreNativeManager.reconcileBrowserDialer("")
-            if (browserDialer != null) {
-                browserDialer!!.stop()
-                browserDialer = null
-            }
-            NotificationManager.cancelNotification()
-            try {
-                service.unregisterReceiver(mMsgReceive)
-            } catch (e: Exception) {
-                LogUtil.e(AppConfig.TAG, "StartCore-Manager: Failed to unregister receiver", e)
-            }
-
-            if (stopped) {
-                currentConfig = null
-                currentGuid = null
-                MessageUtil.sendMsg2UI(service, AppConfig.MSG_STATE_STOP_SUCCESS, "")
-            } else {
-                MessageUtil.sendMsg2UI(service, AppConfig.MSG_STATE_START_FAILURE, "Core stop timeout")
-            }
-            return stopped
-        } finally {
-            stopInProgress = false
-        }
-    }
-'''
-    core = _replace_kotlin_function(
-        core,
-        r"^[ \t]*fun[ \t]+stopCoreLoop[ \t]*\([ \t]*\)[ \t]*:[ \t]*Boolean[ \t]*\{",
-        new_stop,
-        "authoritative synchronous core stop",
-        already_marker="@Synchronized\n    fun stopCoreLoop(): Boolean",
-    )
-    core = replace_exact(
-        core,
-        '''        override fun shutdown(): Long {
-            val serviceControl = serviceControl?.get() ?: return -1
-''',
-        '''        override fun shutdown(): Long {
-            if (stopInProgress) return 0
-            val serviceControl = serviceControl?.get() ?: return -1
-''',
-        "shutdown recursion guard",
-    )
-    core = replace_exact(
-        core,
-        '                        MessageUtil.sendMsg2UI(serviceControl.getService(), AppConfig.MSG_STATE_RUNNING, "")\n',
-        '                        MessageUtil.sendMsg2UI(serviceControl.getService(), AppConfig.MSG_STATE_RUNNING, currentGuid.orEmpty())\n',
-        "RUNNING exact GUID",
-    )
-    core_path.write_text(core, encoding="utf-8")
-
-    vpn = vpn_path.read_text(encoding="utf-8")
-    vpn = replace_exact(
-        vpn,
-        "    private var isRunning = false\n",
-        "    private var isRunning = false\n"
-        "    @Volatile private var blueVpnTargetGuid: String? = null\n",
-        "CoreVpnService exact target field",
-    )
-    if "import com.v2ray.ang.util.MessageUtil" not in vpn:
-        vpn = replace_exact(
-            vpn,
-            "import com.v2ray.ang.util.LogUtil\n",
-            "import com.v2ray.ang.util.LogUtil\nimport com.v2ray.ang.util.MessageUtil\n",
-            "CoreVpnService MessageUtil import",
-        )
-
-    new_vpn_start = '''    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        LogUtil.i(AppConfig.TAG, "StartCore-VPN: Service command received")
-        val requestedGuid = intent?.getStringExtra("bluevpn_target_guid")
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?: MmkvManager.getSelectServer()?.trim()?.takeIf { it.isNotBlank() }
-
-        // CoreVpnService lives in :RunSoLibV2RayDaemon. Only this process can
-        // authoritatively know whether an old Xray loop is still alive. Never
-        // rebuild TUN or overwrite MMKV selection while that loop is running;
-        // report its exact GUID so the UI stops it before retrying.
-        if (CoreServiceManager.isRunning()) {
-            val runningGuid = CoreServiceManager.getRunningServerGuid()
-            LogUtil.w(
-                AppConfig.TAG,
-                "StartCore-VPN: Reject overlapping start running=$runningGuid requested=$requestedGuid"
-            )
-            MessageUtil.sendMsg2UI(this, AppConfig.MSG_STATE_RUNNING, runningGuid)
-            return START_STICKY
-        }
-
-        requestedGuid?.let { MmkvManager.setSelectServer(it) }
-        blueVpnTargetGuid = requestedGuid
-        NotificationManager.showNotification(null)
-        if (setupVpnService()) {
-            startService()
-        }
-        return START_STICKY
-        //return super.onStartCommand(intent, flags, startId)
-    }
-'''
-    vpn = _replace_kotlin_function(
-        vpn,
-        r"^[ \t]*override[ \t]+fun[ \t]+onStartCommand[ \t]*\([^{\n]*\)[ \t]*:[ \t]*Int[ \t]*\{",
-        new_vpn_start,
-        "CoreVpnService exact intent/start gating",
-        already_marker='getStringExtra("bluevpn_target_guid")',
-    )
-    old_missing_interface = '''        if (!::mInterface.isInitialized) {
-            LogUtil.e(AppConfig.TAG, "StartCore-VPN: Interface not initialized")
-            return
-        }
-'''
-    if old_missing_interface in vpn:
-        vpn = vpn.replace(
-            old_missing_interface,
-            '''        if (!::mInterface.isInitialized) {
-            LogUtil.e(AppConfig.TAG, "StartCore-VPN: Interface not initialized")
-            MessageUtil.sendMsg2UI(this, AppConfig.MSG_STATE_START_FAILURE, "VPN interface not initialized")
-            stopSelf()
-            return
-        }
-''',
-            1,
-        )
-    elif 'AppConfig.MSG_STATE_START_FAILURE, "VPN interface not initialized"' not in vpn:
-        raise RuntimeError("Could not patch v2rayNG runtime: CoreVpnService missing-interface failure")
-    new_setup_vpn = '''    private fun setupVpnService(): Boolean {
-        val prepare = prepare(this)
-        if (prepare != null) {
-            LogUtil.e(AppConfig.TAG, "StartCore-VPN: Permission not granted")
-            MessageUtil.sendMsg2UI(this, AppConfig.MSG_STATE_START_FAILURE, "VPN permission not granted")
-            stopSelf()
-            return false
-        }
-        if (configureVpnService() != true) {
-            LogUtil.e(AppConfig.TAG, "StartCore-VPN: Configuration failed")
-            MessageUtil.sendMsg2UI(this, AppConfig.MSG_STATE_START_FAILURE, "VPN configuration failed")
-            stopSelf()
-            return false
-        }
-
-        runTun2socks()
-        return true
-    }
-'''
-    vpn = _replace_kotlin_function(
-        vpn,
-        r"^[ \t]*private[ \t]+fun[ \t]+setupVpnService[ \t]*\([ \t]*\)[ \t]*\{",
-        new_setup_vpn,
-        "CoreVpnService setup result",
-        already_marker="private fun setupVpnService(): Boolean",
-    )
-
-    new_vpn_start_service = '''    override fun startService() {
-        if (!::mInterface.isInitialized) {
-            LogUtil.e(AppConfig.TAG, "StartCore-VPN: Interface not initialized")
-            MessageUtil.sendMsg2UI(this, AppConfig.MSG_STATE_START_FAILURE, "VPN interface not initialized")
-            blueVpnTargetGuid = null
-            stopSelf()
-            return
-        }
-        val requestedGuid = blueVpnTargetGuid
-        if (!CoreServiceManager.startCoreLoop(mInterface, requestedGuid)) {
-            LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to start exact core loop guid=$requestedGuid")
-            blueVpnTargetGuid = null
-            stopAllService()
-            return
-        }
-        blueVpnTargetGuid = null
-
-        // Start LAN sharing if enabled in settings
-        RootLanSharing.startClientSharing(this)
-    }
-'''
-    vpn = _replace_kotlin_function(
-        vpn,
-        r"^[ \t]*override[ \t]+fun[ \t]+startService[ \t]*\([ \t]*\)[ \t]*\{",
-        new_vpn_start_service,
-        "CoreVpnService direct exact GUID core start",
-        already_marker="CoreServiceManager.startCoreLoop(mInterface, requestedGuid)",
-    )
-
-    old_vpn_stop = '''    private fun stopAllService(isForced: Boolean = true) {
-//        val configName = defaultDPreference.getPrefString(PREF_CURR_CONFIG_GUID, "")
-//        val emptyInfo = VpnNetworkInfo()
-//        val info = loadVpnNetworkInfo(configName, emptyInfo)!! + (lastNetworkInfo ?: emptyInfo)
-//        saveVpnNetworkInfo(configName, info)
-        isRunning = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            try {
-                connectivity.unregisterNetworkCallback(defaultNetworkCallback)
-            } catch (e: Exception) {
-                LogUtil.w(AppConfig.TAG, "StartCore-VPN: Failed to unregister callback", e)
-            }
-        }
-        tun2SocksService?.stopTun2Socks()
-        tun2SocksService = null
-
-        RootLanSharing.stopClientSharing(this)
-
-        CoreServiceManager.stopCoreLoop()
-        if (isForced) {
-            //stopSelf has to be called ahead of mInterface.close(). otherwise v2ray core cannot be stooped
-            //It's strage but true.
-            //This can be verified by putting stopself() behind and call stopLoop and startLoop
-            //in a row for several times. You will find that later created v2ray core report port in use
-            //which means the first v2ray core somehow failed to stop and release the port.
-            stopSelf()
-            // Add a small delay to allow the async core stop operation to complete
-            // before closing the VPN interface, preventing a race condition that can
-            // leave the VPN icon in the status bar after stopping the service.
-            try {
-                Thread.sleep(100)
-            } catch (e: InterruptedException) {
-                LogUtil.w(AppConfig.TAG, "StartCore-VPN: Sleep interrupted", e)
-            }
-            try {
-                if (::mInterface.isInitialized) {
-                    mInterface.close()
-                    LogUtil.i(AppConfig.TAG, "StartCore-VPN: VPN interface closed")
-                }
-            } catch (e: Exception) {
-                LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to close interface", e)
-            }
-        }
-    }
-'''
-    new_vpn_stop = '''    private fun stopAllService(isForced: Boolean = true) {
-//        val configName = defaultDPreference.getPrefString(PREF_CURR_CONFIG_GUID, "")
-//        val emptyInfo = VpnNetworkInfo()
-//        val info = loadVpnNetworkInfo(configName, emptyInfo)!! + (lastNetworkInfo ?: emptyInfo)
-//        saveVpnNetworkInfo(configName, info)
-        isRunning = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            try {
-                connectivity.unregisterNetworkCallback(defaultNetworkCallback)
-            } catch (e: Exception) {
-                LogUtil.w(AppConfig.TAG, "StartCore-VPN: Failed to unregister callback", e)
-            }
-        }
-        tun2SocksService?.stopTun2Socks()
-        tun2SocksService = null
-        RootLanSharing.stopClientSharing(this)
-
-        // Keep upstream's proven order: stop the core first, then stopSelf
-        // before closing the TUN FD. stopCoreLoop is now synchronous, so the
-        // old fixed sleep is unnecessary and the next candidate cannot inherit
-        // an old listener/port that is still shutting down.
-        val coreStopped = CoreServiceManager.stopCoreLoop()
-        if (!coreStopped) {
-            LogUtil.e(AppConfig.TAG, "StartCore-VPN: Core did not stop before timeout")
-        }
-        if (isForced) {
-            stopSelf()
-            try {
-                if (::mInterface.isInitialized) {
-                    mInterface.close()
-                    LogUtil.i(AppConfig.TAG, "StartCore-VPN: VPN interface closed")
-                }
-            } catch (e: Exception) {
-                LogUtil.e(AppConfig.TAG, "StartCore-VPN: Failed to close interface", e)
-            }
-        }
-    }
-'''
-    vpn = _replace_kotlin_function(
-        vpn,
-        r"^[ \t]*private[ \t]+fun[ \t]+stopAllService[ \t]*\([ \t]*isForced[ \t]*:[ \t]*Boolean[ \t]*=[ \t]*true[ \t]*\)[ \t]*\{",
-        new_vpn_stop,
-        "CoreVpnService stop ordering",
-        already_marker="Core did not stop before timeout",
-    )
-    vpn_path.write_text(vpn, encoding="utf-8")
-
+    if not vm_path.exists():
+        raise RuntimeError(f"Pinned v2rayNG MainViewModel missing: {vm_path}")
     vm = vm_path.read_text(encoding="utf-8")
-    vm = replace_exact(
-        vm,
-        "    val isRunning by lazy { MutableLiveData<Boolean>() }\n",
-        "    val isRunning by lazy { MutableLiveData<Boolean>() }\n"
-        "    val runningServerGuid by lazy { MutableLiveData<String?>() }\n"
-        "    val coreStartError by lazy { MutableLiveData<String?>() }\n",
-        "MainViewModel running GUID LiveData",
-    )
-    vm = replace_exact(
-        vm,
-        "        isRunning.value = false\n        val mFilter = IntentFilter(AppConfig.BROADCAST_ACTION_ACTIVITY)\n",
-        "        isRunning.value = false\n        runningServerGuid.value = null\n        coreStartError.value = null\n        val mFilter = IntentFilter(AppConfig.BROADCAST_ACTION_ACTIVITY)\n",
-        "MainViewModel initial running GUID",
-    )
-    new_vm_on_receive = r'''        override fun onReceive(ctx: Context?, intent: Intent?) {
-            when (intent?.getIntExtra("key", 0)) {
-                AppConfig.MSG_STATE_RUNNING -> {
-                    coreStartError.value = null
-                    runningServerGuid.value = intent.getStringExtra("content")?.trim()?.takeIf { it.isNotBlank() }
+
+    if "val coreStartError by lazy" not in vm:
+        anchor = "    val isRunning by lazy { MutableLiveData<Boolean>() }\n"
+        if anchor not in vm:
+            raise RuntimeError("Could not patch diagnostics: isRunning anchor missing")
+        vm = vm.replace(anchor, anchor + "    val coreStartError by lazy { MutableLiveData<String?>() }\n", 1)
+
+    init_anchor = "        isRunning.value = false\n        val mFilter = IntentFilter(AppConfig.BROADCAST_ACTION_ACTIVITY)\n"
+    if "coreStartError.value = null\n        val mFilter" not in vm:
+        if init_anchor not in vm:
+            raise RuntimeError("Could not patch diagnostics: startListenBroadcast anchor missing")
+        vm = vm.replace(init_anchor, "        isRunning.value = false\n        coreStartError.value = null\n        val mFilter = IntentFilter(AppConfig.BROADCAST_ACTION_ACTIVITY)\n", 1)
+
+    success_anchor = """                AppConfig.MSG_STATE_START_SUCCESS -> {
+                    getApplication<AngApplication>().toastSuccess(R.string.toast_services_success)
                     isRunning.value = true
                 }
-                AppConfig.MSG_STATE_NOT_RUNNING -> {
-                    runningServerGuid.value = null
-                    isRunning.value = false
-                }
-
-                AppConfig.MSG_STATE_START_SUCCESS -> {
+"""
+    success_repl = """                AppConfig.MSG_STATE_START_SUCCESS -> {
                     getApplication<AngApplication>().toastSuccess(R.string.toast_services_success)
                     coreStartError.value = null
-                    runningServerGuid.value = intent.getStringExtra("content")?.trim()?.takeIf { it.isNotBlank() }
                     isRunning.value = true
                 }
-                AppConfig.MSG_STATE_START_FAILURE -> {
+"""
+    if success_repl not in vm:
+        if success_anchor not in vm:
+            raise RuntimeError("Could not patch diagnostics: START_SUCCESS anchor missing")
+        vm = vm.replace(success_anchor, success_repl, 1)
+
+    failure_anchor = """                AppConfig.MSG_STATE_START_FAILURE -> {
+                    val errorMessage = intent.getStringExtra("content")
+                    if (!errorMessage.isNullOrBlank()) {
+                        getApplication<AngApplication>().toastError(errorMessage)
+                    } else {
+                        getApplication<AngApplication>().toastError(R.string.toast_services_failure)
+                    }
+                    isRunning.value = false
+                }
+"""
+    failure_repl = """                AppConfig.MSG_STATE_START_FAILURE -> {
                     val errorMessage = intent.getStringExtra("content")
                     if (!errorMessage.isNullOrBlank()) {
                         getApplication<AngApplication>().toastError(errorMessage)
@@ -1108,43 +613,14 @@ def patch_v2rayng_runtime_lifecycle() -> None:
                     }
                     coreStartError.value = errorMessage?.trim()?.takeIf { it.isNotBlank() }
                         ?: "Xray core start failed"
-                    runningServerGuid.value = null
                     isRunning.value = false
                 }
-                AppConfig.MSG_STATE_STOP_SUCCESS -> {
-                    runningServerGuid.value = null
-                    isRunning.value = false
-                }
+"""
+    if failure_repl not in vm:
+        if failure_anchor not in vm:
+            raise RuntimeError("Could not patch diagnostics: START_FAILURE anchor missing")
+        vm = vm.replace(failure_anchor, failure_repl, 1)
 
-                AppConfig.MSG_MEASURE_DELAY_SUCCESS -> {
-                    updateTestResultAction.value = intent.getStringExtra("content")
-                }
-
-                AppConfig.MSG_MEASURE_CONFIG_SUCCESS -> {
-                    val content = intent.getStringExtra("content")
-                    updateListAction.value = getPosition(content ?: "")
-                }
-                AppConfig.MSG_MEASURE_CONFIG_NOTIFY -> {
-                    val content = intent.getStringExtra("content")
-                    updateTestResultAction.value =
-                        getApplication<AngApplication>().getString(R.string.connection_runing_task_left, content)
-                }
-                AppConfig.MSG_MEASURE_CONFIG_FINISH -> {
-                    val content = intent.getStringExtra("content")
-                    if (content == "0") {
-                        onTestsFinished()
-                    }
-                }
-            }
-        }
-'''
-    vm = _replace_kotlin_function(
-        vm,
-        r"^[ \t]*override[ \t]+fun[ \t]+onReceive[ \t]*\([ \t]*ctx[ \t]*:[ \t]*Context\?[ \t]*,[ \t]*intent[ \t]*:[ \t]*Intent\?[ \t]*\)[ \t]*\{",
-        new_vm_on_receive,
-        "MainViewModel runtime identity receiver",
-        already_marker='coreStartError.value = errorMessage?.trim()?.takeIf { it.isNotBlank() }',
-    )
     vm_path.write_text(vm, encoding="utf-8")
 
 def inject_bootstrap() -> None:
@@ -1202,6 +678,10 @@ def inject_bluevpn_home() -> None:
     for path, content_b64 in files.items():
         path.write_bytes(base64.b64decode(content_b64))
 
+    # IDs are also canonical source. The older embedded snapshot still contains
+    # retired AI view IDs, so always overwrite it with the reviewed public UI IDs.
+    shutil.copy2(ROOT / "android-source/bluevpn_ids.xml", values_dir / "bluevpn_ids.xml")
+
     # Kotlin is single-source: reviewed files in android-source/ are copied
     # directly into the pinned upstream checkout. Only small XML assets without
     # canonical files remain embedded above for portable CI generation.
@@ -1240,8 +720,10 @@ def inject_bluevpn_home() -> None:
     engine_source = (bluevpn_dir / "BlueVpnEngineManager.kt").read_text(encoding="utf-8")
     if "CoreServiceManager" not in engine_source:
         raise RuntimeError("BlueVPN engine boundary was not generated")
-    if "startVServiceExact" not in engine_source:
-        raise RuntimeError("BlueVPN exact-candidate runtime start was not generated")
+    if "CoreServiceManager.startVService(app, targetGuid)" not in engine_source:
+        raise RuntimeError("BlueVPN upstream-compatible v2rayNG start was not generated")
+    if "startVServiceExact" in engine_source:
+        raise RuntimeError("BlueVPN must not depend on a forked v2rayNG start lifecycle")
     if "CoreServiceManager" in (java_dir / "BlueVpnHomeActivity.kt").read_text(encoding="utf-8"):
         raise RuntimeError("BlueVPN UI still depends directly on CoreServiceManager")
 

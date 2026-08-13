@@ -11,3 +11,12 @@
 اسکریپت تغییرات BlueVPN در `scripts/prepare_android.py` و Validator مهاجرت در `scripts/validate_release.py` قرار دارد.
 
 BlueVPN وابسته یا مورد تأیید توسعه‌دهندگان رسمی v2rayNG، sing-box یا Xray نیست. نام‌ها و نشان‌های پروژه‌های بالادستی متعلق به صاحبان همان پروژه‌ها هستند.
+
+
+## 4.1.7 compatibility restore
+
+- Restores CoreServiceManager/CoreVpnService lifecycle to pinned upstream v2rayNG 2.2.6 behavior.
+- Treats upstream START_SUCCESS/RUNNING as connection success; BlueVPN HTTP/DNS probes are non-authoritative.
+- Removes hidden AI auto-heal reconnects from the home runtime loop.
+- Leaves dynamic SOCKS/local proxy behavior under upstream v2rayNG ownership.
+- Keeps only read-only START_FAILURE diagnostics in MainViewModel.

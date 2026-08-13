@@ -125,11 +125,15 @@ Theme pages created on activation:
 
 The theme consumes the existing `bluevpn/v1` and `bluevpn-system/v1` APIs from BlueVPN Manager. Set the exact BlueVPN logo as the WordPress Custom Logo; if none is configured the theme falls back to the BlueVPN wordmark.
 
+## BlueVPN Site professional UI
+
+Theme `1.0.3` replaces the previous generic card layout with a product-focused RTL interface: a stronger connection hero, BlueVPN product mockup, bento feature grid, hidden-route network visual, premium CTA, FAQ, and redesigned plans/download/account/support pages. The website remains self-contained and does not modify Android or the frozen v2rayNG/Xray runtime.
+
 ## BlueVPN Site automatic updates
 
 `bluevpn-site/` has its own SemVer lifecycle independent from the Android app and BlueVPN Manager. The theme ships with a GitHub Releases updater and is auto-updated by WordPress without manual ZIP installation after the one-time bootstrap install.
 
-- Current theme version: `1.0.2`
+- Current theme version: `1.0.3`
 - Release tag: `bluevpn-site-v<theme-version>`
 - Release asset: `bluevpn-site-theme-v<theme-version>.zip`
 - Update source: the same GitHub repository configured in BlueVPN Manager; if the manager is unavailable, the theme falls back to `hazhanhasani/bluevpnapp`.

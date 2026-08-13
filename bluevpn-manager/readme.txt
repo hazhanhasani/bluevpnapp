@@ -1,6 +1,6 @@
 === BlueVPN Manager ===
-Version: 4.2.1
-Stable tag: 4.2.1
+Version: 4.2.2
+Stable tag: 4.2.2
 Requires PHP: 8.0
 
 کنترل‌پلین اصلی BlueVPN روی WordPress/MySQL.
@@ -9,7 +9,7 @@ Requires PHP: 8.0
 - احراز هویت، حساب، پلن، سفارش، دستگاه و Session روی MySQL.
 - Providerهای PasarGuard، Marzban و GuardCore و Subscription Bridge بومی WordPress.
 - BlueAI، تبلیغات، اتصال رایگان، BluePay، OTP و اعلان‌های پیامکی.
-- ربات/صف Build و GitHub Updater با Release Barrier و Health diagnostics.
+- بروزرسانی خودکار افزونه با کنترل انتشار و پایش سلامت.
 - Backup/Restore، Health dashboard و ابزارهای مدیریتی BlueVPN.
 - Migration Bridge فقط برای بازیابی/انتقال داده‌های قدیمی و نه به‌عنوان Runtime اصلی.
 

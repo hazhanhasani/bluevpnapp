@@ -139,6 +139,13 @@ final class BlueVPN_Auth {
         return $row ?: null;
     }
 
+    private static function client_type(string $device_id, string $device_name = ''): string {
+        $id = strtolower(trim($device_id));
+        $name = strtolower(trim($device_name));
+        if (str_starts_with($id, 'web-') || str_contains($name, 'bluevpn web')) return 'web';
+        return 'app';
+    }
+
     public static function issue_session(array $customer, string $device_id, string $device_name = '', bool $rotate_refresh = true): array {
         global $wpdb;
         $device_id = mb_substr(trim($device_id), 0, 180);
@@ -146,6 +153,7 @@ final class BlueVPN_Auth {
             throw new BlueVPN_Auth_Exception(422, 'DEVICE_ID_REQUIRED', 'شناسه دستگاه لازم است');
         }
         $device_name = mb_substr(trim($device_name), 0, 180);
+        $client_type = self::client_type($device_id, $device_name);
         $devices = BlueVPN_DB::table('customer_devices');
         $sessions = BlueVPN_DB::table('customer_sessions');
         $customer_id = (int)$customer['id'];
@@ -156,11 +164,11 @@ final class BlueVPN_Auth {
         ), ARRAY_A);
         $is_new_device = !$device;
         $active_count = (int)$wpdb->get_var($wpdb->prepare(
-            "SELECT COUNT(*) FROM {$devices} WHERE customer_id=%d AND active=1",
+            "SELECT COUNT(*) FROM {$devices} WHERE customer_id=%d AND active=1 AND client_type='app'",
             $customer_id
         ));
         $limit = max(1, (int)($customer['device_limit'] ?? 1));
-        if (!$device && $active_count >= $limit) {
+        if ($client_type === 'app' && !$device && $active_count >= $limit) {
             throw new BlueVPN_Auth_Exception(409, 'DEVICE_LIMIT_REACHED', "حداکثر {$limit} دستگاه برای این حساب مجاز است");
         }
 
@@ -170,6 +178,7 @@ final class BlueVPN_Auth {
                 'customer_id' => $customer_id,
                 'device_id' => $device_id,
                 'device_name' => $device_name,
+                'client_type' => $client_type,
                 'active' => 1,
                 'refresh_token_hash' => '',
                 'previous_refresh_token_hash' => '',
@@ -183,6 +192,7 @@ final class BlueVPN_Auth {
         } else {
             $wpdb->update($devices, [
                 'active' => 1,
+                'client_type' => $client_type,
                 'device_name' => $device_name !== '' ? $device_name : (string)$device['device_name'],
                 'last_seen_at' => $now,
             ], ['id' => (int)$device['id']]);
@@ -200,6 +210,7 @@ final class BlueVPN_Auth {
             'customer_id' => $customer_id,
             'token_hash' => $session_hash,
             'device_id' => $device_id,
+            'client_type' => $client_type,
             'expires_at' => $session_expiry,
             'revoked_at' => null,
             'last_seen_at' => $now,
@@ -222,7 +233,7 @@ final class BlueVPN_Auth {
             }
             $wpdb->update($devices, $update, ['id' => (int)$device['id']]);
         }
-        if ($is_new_device && !empty($customer['phone']) && class_exists('BlueVPN_SMS_Notifications')) {
+        if ($client_type === 'app' && $is_new_device && !empty($customer['phone']) && class_exists('BlueVPN_SMS_Notifications')) {
             $date = str_replace('، ', ' ', BlueVPN_Utils::tehran_datetime_fa(null, false));
             BlueVPN_SMS_Notifications::queue(
                 'new_device_login',

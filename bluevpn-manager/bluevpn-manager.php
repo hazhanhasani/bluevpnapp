@@ -1,22 +1,21 @@
 <?php
 /**
  * Plugin Name: BlueVPN Manager
- * Plugin URI: https://bluevpn.local/
- * Description: Backend/API foundation for migrating BlueVPN from Railway/PostgreSQL to WordPress/MySQL.
- * Version: 4.2.1
+ * Description: هسته حساب کاربری، اشتراک، پرداخت و API سرویس BlueVPN.
+ * Version: 4.2.2
  * Author: BlueVPN
  * Requires at least: 6.2
  * Requires PHP: 8.0
  * Text Domain: bluevpn-manager
- * Update URI: https://github.com/hazhanhasani/bluevpnapp
+ * Update URI: https://bot.blluepanel.ir/bluevpn-manager
  */
 
 if (!defined('ABSPATH')) {
     exit;
 }
 
-define('BLUEVPN_MANAGER_VERSION', '4.2.1');
-define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.6.0');
+define('BLUEVPN_MANAGER_VERSION', '4.2.2');
+define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.7.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
 define('BLUEVPN_MANAGER_URL', plugin_dir_url(__FILE__));

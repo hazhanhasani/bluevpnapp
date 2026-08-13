@@ -1,7 +1,7 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-define('BLUEVPN_SITE_VERSION', '1.0.2');
+define('BLUEVPN_SITE_VERSION', '1.0.4');
 
 define('BLUEVPN_SITE_DIR', get_template_directory());
 define('BLUEVPN_SITE_URL', get_template_directory_uri());
@@ -71,7 +71,7 @@ add_action('after_switch_theme', 'bluevpn_site_activate');
 function bluevpn_site_admin_notice(): void {
     if (!current_user_can('manage_options')) return;
     if (!defined('BLUEVPN_MANAGER_VERSION')) {
-        echo '<div class="notice notice-warning"><p><strong>BlueVPN Site:</strong> افزونه BlueVPN Manager فعال نیست. ورود، پلن‌ها، پرداخت و دانلود پویا تا فعال‌شدن افزونه کار نمی‌کنند.</p></div>';
+        echo '<div class="notice notice-warning"><p><strong>BlueVPN:</strong> سرویس‌های حساب کاربری و پرداخت در دسترس نیستند. هسته خدمات سایت را فعال کنید.</p></div>';
     }
 }
 add_action('admin_notices', 'bluevpn_site_admin_notice');

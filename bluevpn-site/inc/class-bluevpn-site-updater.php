@@ -194,10 +194,10 @@ final class BlueVPN_Site_Updater {
 
         $code = (int)wp_remote_retrieve_response_code($response);
         if ($code < 200 || $code >= 300) {
-            return new WP_Error('bluevpn_theme_github_http', 'GitHub API HTTP ' . $code);
+            return new WP_Error('bluevpn_theme_github_http', 'خطای سرویس بروزرسانی: HTTP ' . $code);
         }
         $releases = json_decode((string)wp_remote_retrieve_body($response), true);
-        if (!is_array($releases)) return new WP_Error('bluevpn_theme_github_json', 'پاسخ GitHub برای بروزرسانی پوسته معتبر نیست.');
+        if (!is_array($releases)) return new WP_Error('bluevpn_theme_github_json', 'پاسخ سرویس بروزرسانی پوسته معتبر نیست.');
 
         $best = null;
         foreach ($releases as $release) {
@@ -229,7 +229,7 @@ final class BlueVPN_Site_Updater {
         }
 
         if ($best === null) {
-            return new WP_Error('bluevpn_theme_release_missing', 'هنوز Asset بروزرسانی BlueVPN Site در GitHub Release پیدا نشده است.');
+            return new WP_Error('bluevpn_theme_release_missing', 'هنوز بسته بروزرسانی جدیدی برای پوسته پیدا نشده است.');
         }
 
         set_site_transient(self::CACHE_KEY, $best, self::CACHE_TTL);
@@ -377,8 +377,7 @@ final class BlueVPN_Site_Updater {
         }
         echo '<table class="widefat striped" style="max-width:850px"><tbody>';
         echo '<tr><td><strong>نسخه نصب‌شده</strong></td><td>' . esc_html($installed) . '</td></tr>';
-        echo '<tr><td><strong>آخرین نسخه GitHub</strong></td><td>' . esc_html($remote) . '</td></tr>';
-        echo '<tr><td><strong>مخزن</strong></td><td><code>' . esc_html($owner . '/' . $repo) . '</code></td></tr>';
+        echo '<tr><td><strong>آخرین نسخه آنلاین</strong></td><td>' . esc_html($remote) . '</td></tr>';
         echo '<tr><td><strong>آپدیت خودکار</strong></td><td>' . (self::auto_enabled() ? 'فعال — هر ۱۰ دقیقه بررسی می‌شود' : 'غیرفعال') . '</td></tr>';
         echo '<tr><td><strong>آخرین بررسی</strong></td><td>' . ($last ? esc_html(wp_date('Y-m-d H:i:s', $last)) : 'هنوز اجرا نشده') . '</td></tr>';
         echo '<tr><td><strong>آخرین وضعیت</strong></td><td>' . esc_html((string)($status['message'] ?? '')) . '</td></tr>';
@@ -389,7 +388,7 @@ final class BlueVPN_Site_Updater {
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '" style="margin-top:16px">';
         wp_nonce_field('bluevpn_site_check_update');
         echo '<input type="hidden" name="action" value="bluevpn_site_check_update">';
-        submit_button('همین حالا GitHub را بررسی کن', 'primary', 'submit', false);
+        submit_button('بررسی بروزرسانی', 'primary', 'submit', false);
         echo '</form></div>';
     }
 

@@ -392,7 +392,7 @@ final class BlueVPN_SMS_OTP {
             // Keep the provider timeout below Android's 30s OTP budget. This
             // guarantees that the API can return a structured provider error
             // instead of Android timing out first with a generic message.
-            'timeout' => 10,
+            'timeout' => 8,
             'redirection' => 2,
             'sslverify' => !isset($s['verify_tls']) || (bool)$s['verify_tls'],
             'headers' => [
@@ -457,7 +457,6 @@ final class BlueVPN_SMS_OTP {
             "UPDATE {$table} SET consumed_at=%s WHERE phone=%s AND purpose=%s AND consumed_at IS NULL",
             BlueVPN_Utils::now_mysql(), $phone, self::PURPOSE_AUTH
         ));
-        $wpdb->query($wpdb->prepare("DELETE FROM {$table} WHERE expires_at < %s", gmdate('Y-m-d H:i:s', time() - 7 * DAY_IN_SECONDS)));
 
         $challengeId = BlueVPN_Utils::random_uuid4();
         $code = self::generate_code();

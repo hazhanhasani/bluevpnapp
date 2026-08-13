@@ -1,11 +1,11 @@
 {
-  "version": "4.2.1",
-  "version_code": 40201,
+  "version": "4.2.2",
+  "version_code": 40202,
   "channel": "stable",
   "build_id": "20260813-v4.2.1-release-validator-dynamic-version-fix",
   "built_at": "2026-08-13T15:30:00Z",
-  "android_version": "4.2.1",
-  "android_version_code": 40201,
+  "android_version": "4.2.2",
+  "android_version_code": 40202,
   "description": "BlueVPN 4.2.1: اصلاح Release Regression Gate و حذف نسخه‌های hard-coded از validator؛ اعتبارسنجی نسخه اکنون پویا و مبتنی بر همگامی app/release/WordPress است؛ Runtime پایدار v2rayNG/Xray بدون تغییر.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",

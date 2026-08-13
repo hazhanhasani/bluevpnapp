@@ -273,8 +273,11 @@ class CurrentReleaseTests(unittest.TestCase):
         style = text("bluevpn-site/style.css")
         functions = text("bluevpn-site/functions.php")
         updater = text("bluevpn-site/inc/class-bluevpn-site-updater.php")
-        self.assertRegex(style, r"(?m)^Version:\s*1\.0\.2\s*$")
-        self.assertIn("BLUEVPN_SITE_VERSION', '1.0.2", functions)
+        m = re.search(r"(?m)^Version:\s*(\d+\.\d+\.\d+)\s*$", style)
+        self.assertIsNotNone(m)
+        version = m.group(1)
+        self.assertRegex(version, r"^\d+\.\d+\.(?:[0-9]|10)$")
+        self.assertIn(f"BLUEVPN_SITE_VERSION', '{version}", functions)
         self.assertIn("BlueVPN_Site_Updater::init();", functions)
         self.assertIn("pre_set_site_transient_update_themes", updater)
         self.assertIn("Theme_Upgrader", updater)
@@ -311,15 +314,18 @@ class CurrentReleaseTests(unittest.TestCase):
     def test_46_site_theme_redesign_contract(self):
         front = text("bluevpn-site/front-page.php")
         css = text("bluevpn-site/assets/css/site.css")
-        self.assertIn("bv-connect-stage", front)
-        self.assertIn("bv-feature-grid", front)
-        self.assertIn("bv-how-section", front)
-        self.assertIn("bv-network-card", front)
-        self.assertIn("bv-final-cta", front)
+        self.assertIn("bv-product-stage", front)
+        self.assertIn("bv-bento", front)
+        self.assertIn("bv-network-visual-pro", front)
+        self.assertIn("bv-premium-card", front)
+        self.assertIn("bv-accordion", front)
         self.assertNotIn("BlueAI", front)
         self.assertNotIn("بخش AI", front)
-        self.assertIn(".bv-home-hero", css)
-        self.assertIn(".bv-feature-section", css)
+        self.assertIn(".bv-hero", css)
+        self.assertIn(".bv-product-stage", css)
+        self.assertIn(".bv-bento", css)
+        self.assertIn(".bv-network-visual-pro", css)
+        self.assertIn(".bv-account-page", css)
 
     def test_repository_cleanup_handles_overlay_stale_files(self):
         cleanup = (ROOT / "scripts/cleanup_repository.py").read_text(encoding="utf-8")
@@ -344,6 +350,35 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn('plugin_header.group(1) == version', validator)
         self.assertIn('stable_tag.group(1) == version', validator)
 
+
+    def test_web_login_does_not_consume_vpn_device_slot(self):
+        auth = text("bluevpn-manager/includes/class-bluevpn-auth.php")
+        db = text("bluevpn-manager/includes/class-bluevpn-db.php")
+        self.assertIn("client_type", auth)
+        self.assertIn("client_type='app'", auth)
+        self.assertIn("$client_type === 'app'", auth)
+        self.assertIn("device_id LIKE 'web-%'", db)
+        self.assertIn("client_type varchar(16)", db)
+
+    def test_website_otp_advances_optimistically(self):
+        js = text("bluevpn-site/assets/js/site.js")
+        self.assertIn("در حال ارسال کد تأیید", js)
+        self.assertIn("otpReady=false", js)
+        self.assertIn("verifyBtn.disabled=true", js)
+        self.assertIn("otpRequestSeq", js)
+
+    def test_public_theme_hides_internal_project_implementation_copy(self):
+        public = "\n".join(text(p) for p in [
+            "bluevpn-site/front-page.php",
+            "bluevpn-site/page-plans.php",
+            "bluevpn-site/page-download.php",
+            "bluevpn-site/page-account.php",
+            "bluevpn-site/page-support.php",
+            "bluevpn-site/footer.php",
+            "bluevpn-site/header.php",
+        ])
+        for term in ("GitHub", "hazhanhasani", "BlueVPN Manager", "v2rayNG Runtime", "Xray", "BluePay", "Build #", "WordPress"):
+            self.assertNotIn(term, public)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

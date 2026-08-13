@@ -24,6 +24,7 @@ final class BlueVPN_DB {
         self::install_schema();
         self::seed_defaults();
         self::enforce_six_digit_otp();
+        self::repair_client_types();
         update_option('bluevpn_manager_schema_version', BLUEVPN_MANAGER_SCHEMA_VERSION, false);
         update_option('bluevpn_manager_cutover_ready', '0', false);
     }
@@ -34,6 +35,7 @@ final class BlueVPN_DB {
             self::install_schema();
             self::seed_defaults();
             self::enforce_six_digit_otp();
+            self::repair_client_types();
             update_option('bluevpn_manager_schema_version', BLUEVPN_MANAGER_SCHEMA_VERSION, false);
             // 1.1.1 fixes optional UNIQUE customer sentinels. Re-open only the
             // customer convergence gate; never reset copied tables/progress.
@@ -41,6 +43,16 @@ final class BlueVPN_DB {
                 BlueVPN_Migration::resume_customer_repair_after_schema_fix();
             }
         }
+    }
+
+    private static function repair_client_types(): void {
+        global $wpdb;
+        $devices = self::table('customer_devices');
+        $sessions = self::table('customer_sessions');
+        // Browser logins are authentication sessions, not VPN device slots.
+        // Repair rows created by versions that stored web-* IDs as app devices.
+        $wpdb->query("UPDATE {$devices} SET client_type='web' WHERE device_id LIKE 'web-%' AND client_type<>'web'");
+        $wpdb->query("UPDATE {$sessions} SET client_type='web' WHERE device_id LIKE 'web-%' AND client_type<>'web'");
     }
 
     public static function install_schema(): void {
@@ -241,6 +253,7 @@ final class BlueVPN_DB {
             customer_id bigint unsigned NOT NULL,
             token_hash varchar(64) NOT NULL DEFAULT '',
             device_id varchar(180) NOT NULL DEFAULT '',
+            client_type varchar(16) NOT NULL DEFAULT 'app',
             expires_at datetime NULL,
             revoked_at datetime NULL,
             last_seen_at datetime NULL,
@@ -250,7 +263,8 @@ final class BlueVPN_DB {
             KEY ix_session_customer (customer_id),
             KEY ix_session_expiry (expires_at),
             KEY ix_session_customer_active (customer_id, revoked_at, expires_at),
-            KEY ix_session_device_seen (device_id, last_seen_at)
+            KEY ix_session_device_seen (device_id, last_seen_at),
+            KEY ix_session_customer_type_active (customer_id, client_type, revoked_at, expires_at)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('customer_devices')} (
@@ -258,6 +272,7 @@ final class BlueVPN_DB {
             customer_id bigint unsigned NOT NULL,
             device_id varchar(180) NOT NULL DEFAULT '',
             device_name varchar(180) NOT NULL DEFAULT '',
+            client_type varchar(16) NOT NULL DEFAULT 'app',
             active tinyint(1) NOT NULL DEFAULT 1,
             refresh_token_hash varchar(64) NOT NULL DEFAULT '',
             refresh_expires_at datetime NULL,
@@ -270,7 +285,8 @@ final class BlueVPN_DB {
             KEY ix_device_customer (customer_id),
             KEY ix_device_active (active),
             KEY ix_device_customer_active_seen (customer_id, active, last_seen_at),
-            KEY ix_device_refresh_expiry (refresh_expires_at)
+            KEY ix_device_refresh_expiry (refresh_expires_at),
+            KEY ix_device_customer_type_active (customer_id, client_type, active, last_seen_at)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('sms_settings')} (

@@ -8,7 +8,6 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Gravity
@@ -78,7 +77,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var query = ""
     private val expandedLocations = mutableSetOf<String>()
     private var firstResume = true
-    private val locationSyncHandler = Handler(Looper.getMainLooper())
     private val searchHandler = Handler(Looper.getMainLooper())
     private val renderHandler = Handler(Looper.getMainLooper())
     private var renderGeneration = 0
@@ -88,7 +86,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var entitlementRepairAttempted = false
     private var accountSyncInProgress = false
     private var accountSyncPending = false
-    private var lastAccountSyncAt = 0L
     private var renderedPremiumMode: Boolean? = null
     private val searchRunnable = Runnable { renderLocations() }
     private val renderRunnable = Runnable {
@@ -99,15 +96,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val force = candidateReloadPending
         candidateReloadPending = false
         loadCandidates(force = force)
-    }
-    private val locationSyncRunnable = object : Runnable {
-        override fun run() {
-            syncDetectedLocations(force = false)
-            locationSyncHandler.postDelayed(
-                this,
-                BlueVpnPerformance.locationSyncIntervalMs(this@BlueVpnServersActivity),
-            )
-        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -120,22 +108,24 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         setContentView(createScreen())
         updateTabs()
         updateEntitlementUi()
-        refreshEntitlementState(force = false)
 
         mainViewModel.startListenBroadcast()
         mainViewModel.updateListAction.observe(this) {
+            // A real local importer/list change may update the screen, but it must
+            // never trigger a forced subscription refresh or account sync.
             BlueVpnLocationUtil.invalidateResolvedCache()
             stopRefreshing()
-            scheduleCandidateReload(force = true)
+            scheduleCandidateReload(force = false)
         }
         mainViewModel.updateTestResultAction.observe(this) {
+            // Ping/test-result broadcasts only change presentation. Re-render the
+            // current snapshot; do not rebuild the entitlement pool.
             BlueVpnLocationUtil.invalidateResolvedCache()
             stopRefreshing()
-            scheduleCandidateReload(force = true)
+            renderLocations()
         }
         renderLocations()
         loadCandidates(force = false)
-        syncDetectedLocations(force = false)
     }
 
     override fun onResume() {
@@ -153,18 +143,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 loadCandidates(force = false)
             }
         }
+        // Returning to Locations is a pure local/UI operation. The page must not
+        // refresh WordPress, subscriptions, MMKV ownership or cloud metadata just
+        // because it became visible again.
         updateEntitlementUi()
-        refreshEntitlementState(force = false)
-        locationSyncHandler.removeCallbacks(locationSyncRunnable)
-        locationSyncHandler.postDelayed(
-            locationSyncRunnable,
-            if (BlueVpnPerformance.isLowEnd(this)) 8_000L else 3_000L,
-        )
     }
 
     override fun onPause() {
         renderGeneration++
-        locationSyncHandler.removeCallbacks(locationSyncRunnable)
         searchHandler.removeCallbacks(searchRunnable)
         renderHandler.removeCallbacksAndMessages(null)
         super.onPause()
@@ -172,7 +158,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
     override fun onDestroy() {
         renderGeneration++
-        locationSyncHandler.removeCallbacks(locationSyncRunnable)
         searchHandler.removeCallbacks(searchRunnable)
         renderHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
@@ -208,25 +193,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     forceRefresh = requestedForce,
                 )
 
-                // Subscription import in v2rayNG is asynchronous. Repair once,
-                // but never allow an exception or repeated MMKV broadcasts to
-                // leave the screen permanently in a loading state.
-                if (
-                    loaded.isEmpty() &&
-                    BlueVpnAccountManager.active(this@BlueVpnServersActivity) &&
-                    !BlueVpnRuntimeGate.connectionActive(this@BlueVpnServersActivity) &&
-                    !accountSyncInProgress &&
-                    !entitlementRepairAttempted
-                ) {
-                    entitlementRepairAttempted = true
-                    BlueVpnAccountManager.awaitEntitlementServers(
-                        this@BlueVpnServersActivity,
-                    )
-                    loaded = BlueVpnLocationUtil.allCandidates(
-                        this@BlueVpnServersActivity,
-                        forceRefresh = true,
-                    )
-                }
+                // IMPORTANT: an empty local pool is not permission to refresh the
+                // subscription. Automatic repair here used to call
+                // the old automatic repair path could mutate v2rayNG/MMKV and make the list
+                // disappear/reappear while the user was browsing Locations.
+                // Only the explicit "تازه‌سازی" action may reconcile/import.
                 loaded
             }
 
@@ -238,7 +209,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 val currentIdentity = BlueVpnAccountManager
                     .entitlementIdentityFingerprint(this@BlueVpnServersActivity)
                 if (requestIdentity != currentIdentity) {
-                    scheduleCandidateReload(force = true)
+                    // Entitlement metadata changed while a local decode was in
+                    // flight. Re-read the local snapshot only; do not turn it into
+                    // a network/subscription refresh.
+                    scheduleCandidateReload(force = false)
                     return@withContext
                 }
 
@@ -273,16 +247,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
     }
 
-    private fun syncDetectedLocations(force: Boolean) {
-        BlueVpnLocationUtil.syncCloudLocations(
-            this,
-            force = force,
-        ) {
-            if (!isFinishing && !isDestroyed) {
-                renderLocations()
-            }
-        }
-    }
 
     private fun createScreen(): View {
         palette = BlueVpnTheme.palette(this)
@@ -340,7 +304,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 // import, candidate decode and ping simultaneously caused the list
                 // to appear and disappear as each job published a different state.
                 refreshEntitlementState(force = true)
-                syncDetectedLocations(force = true)
                 renderHandler.removeCallbacks(refreshTimeoutRunnable)
                 renderHandler.postDelayed(refreshTimeoutRunnable, 12_000L)
             }
@@ -474,56 +437,81 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     /**
-     * Refresh entitlement on entry and after returning from payment/admin
-     * activation. The UI is updated immediately from local state, then again
-     * from the authoritative server response without requiring logout/login.
+     * Explicit refresh pipeline. Merely opening/resuming Locations is local-only;
+     * only the user's "تازه‌سازی" action may contact WordPress or mutate the
+     * subscription/MMKV pool.
      */
     private fun refreshEntitlementState(force: Boolean) {
         updateEntitlementUi()
-        if (!BlueVpnAccountManager.hasSession(this)) return
+        if (!force) return
+        if (!BlueVpnAccountManager.hasSession(this)) {
+            // Guest/Free refresh is handled by the same explicit repair API.
+            if (accountSyncInProgress) return
+            accountSyncInProgress = true
+            lifecycleScope.launch(Dispatchers.IO) {
+                val repair = BlueVpnAccountManager.prepareFreeAccess(
+                    this@BlueVpnServersActivity,
+                    force = true,
+                )
+                withContext(Dispatchers.Main) {
+                    accountSyncInProgress = false
+                    if (isFinishing || isDestroyed) return@withContext
+                    candidateLoadError = repair.exceptionOrNull()?.let {
+                        "دریافت سرورها ناموفق بود؛ دوباره تلاش کنید"
+                    }.orEmpty()
+                    BlueVpnLocationUtil.invalidateCache()
+                    loadCandidates(force = true)
+                }
+            }
+            return
+        }
 
-        val now = SystemClock.elapsedRealtime()
-        if (!force && now - lastAccountSyncAt < 15_000L) return
         if (accountSyncInProgress) {
-            accountSyncPending = accountSyncPending || force
+            accountSyncPending = true
             return
         }
 
         accountSyncInProgress = true
-        lastAccountSyncAt = now
-        val before = BlueVpnAccountManager.snapshot(this)
         lifecycleScope.launch(Dispatchers.IO) {
-            val result = BlueVpnAccountManager.sync(
-                this@BlueVpnServersActivity,
-                force = force,
-            )
+            val result = runCatching {
+                // Manual refresh has one owner and one ordering:
+                // 1) refresh authoritative account snapshot,
+                // 2) reconcile/import entitlement servers,
+                // 3) publish a new local candidate snapshot.
+                val account = BlueVpnAccountManager.sync(
+                    this@BlueVpnServersActivity,
+                    force = true,
+                ).getOrThrow()
+                if (
+                    account.subscriptionActive &&
+                    account.subscriptionUrl.startsWith("http")
+                ) {
+                    BlueVpnAccountManager.awaitEntitlementServers(
+                        this@BlueVpnServersActivity,
+                    ).getOrThrow()
+                } else {
+                    BlueVpnAccountManager.prepareFreeAccess(
+                        this@BlueVpnServersActivity,
+                        force = true,
+                    ).getOrThrow()
+                }
+            }
+
             withContext(Dispatchers.Main) {
                 accountSyncInProgress = false
                 if (isFinishing || isDestroyed) return@withContext
 
-                val after = result.getOrElse {
-                    BlueVpnAccountManager.snapshot(this@BlueVpnServersActivity)
-                }
-                val entitlementChanged =
-                    before.subscriptionActive != after.subscriptionActive ||
-                        before.subscriptionUrl != after.subscriptionUrl ||
-                        before.status != after.status ||
-                        before.expire != after.expire
-
+                candidateLoadError = result.exceptionOrNull()?.let {
+                    "دریافت سرورها ناموفق بود؛ دوباره تلاش کنید"
+                }.orEmpty()
                 updateEntitlementUi()
-                if (result.isSuccess) {
-                    BlueVpnLocationUtil.invalidateCache()
-                    if (entitlementChanged) {
-                        entitlementRepairAttempted = false
-                        mainViewModel.reloadServerList()
-                    }
-                    loadCandidates(force = true)
-                }
+                BlueVpnLocationUtil.invalidateCache()
+                loadCandidates(force = true)
 
                 if (accountSyncPending) {
-                    val pendingForce = accountSyncPending
                     accountSyncPending = false
-                    refreshEntitlementState(force = pendingForce)
+                    // Coalesce repeated taps into one trailing manual refresh.
+                    refreshEntitlementState(force = true)
                 }
             }
         }

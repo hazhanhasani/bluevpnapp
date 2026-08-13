@@ -173,6 +173,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var candidateWarmupInProgress = false
     private var candidateWarmupForcePending = false
     private var freePreparationInProgress = false
+    private var entitlementReconcileInProgress = false
+    private var retryConnectionAfterEntitlementReconcile = false
     private var startupPipelineStarted = false
     private var dashboardRefreshPosted = false
     private var dashboardForcePending = false
@@ -181,6 +183,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var candidateLoadInProgress = false
     private var pendingConnectionRequest = false
     private var runtimeGateRetryScheduled = false
+    private var runtimeGateWaitStartedAt = 0L
     private var userInteractedAt = 0L
 
     private lateinit var freeTimerBadge: TextView
@@ -374,7 +377,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private val accountLauncher =
         registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
-        ) {
+        ) { result ->
             navigationLocked = false
             accountLaunchInProgress = false
             if (
@@ -383,10 +386,11 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             ) {
                 startStartupOptimization()
             } else if (BlueVpnAccountManager.hasSession(this)) {
-                // Returning from the account/payment screen must immediately
-                // refresh entitlement state; the old five-minute cache could
-                // keep showing «نیاز به تمدید» after a successful activation.
-                syncManagedAccount(force = true)
+                // A normal Back from Account is routine/cache-first. RESULT_OK is
+                // reserved for an auth/account mutation that can justify an
+                // authoritative refresh; payment activation already syncs in the
+                // account Activity itself.
+                syncManagedAccount(force = result.resultCode == RESULT_OK)
             } else {
                 // Logout returns directly to guest/free mode. Clear any stale
                 // Premium-connected presentation before free sources refresh.
@@ -1687,6 +1691,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                     BlueVpnRuntimeGate.endConnection(this)
                     BlueVpnEngineManager.markIdle()
                     renderConnectionState(false)
+                    reconcileDeferredEntitlementIfIdle()
                 }
                 return@observe
             }
@@ -1764,6 +1769,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                     BlueVpnPreferences.clearConnected(this)
                     BlueVpnRuntimeGate.endConnection(this)
                     renderConnectionState(false)
+                    reconcileDeferredEntitlementIfIdle()
                 }
             }
         }
@@ -2104,16 +2110,6 @@ private fun refreshExperienceDashboard(
     refreshModeButtons()
 
     val all = cachedCandidates ?: BlueVpnLocationUtil.cachedCandidates(this)
-    if (all.isEmpty()) {
-        activeRoutesValue.text = "0"
-        qualityValue.text = "در انتظار دریافت Pool"
-        qualityValue.setTextColor(Color.parseColor(BlueVpnExperience.qualityColor(0)))
-        historyValue.text = BlueVpnExperience.recentSummary(this)
-        if (::aiSummaryValue.isInitialized) {
-            aiSummaryValue.text = "در انتظار دریافت سرورهای مجاز پلن فعلی"
-        }
-        return
-    }
     val active = all.count {
         it.delay >= 0L &&
             !BlueVpnPreferences.isSessionInactive(
@@ -2238,19 +2234,15 @@ private fun startStartupOptimization() {
         if (isFinishing || isDestroyed || !startupOptimizationActive) {
             return@postDelayed
         }
-        syncManagedAccount(
-            force = !BlueVpnAccountManager.snapshot(this).subscriptionActive
-        )
-        lifecycleScope.launch(Dispatchers.IO) {
-            BlueVpnAi.refreshRecommendations(
-                this@BlueVpnHomeActivity,
-                force = false,
-            )
-            withContext(Dispatchers.Main) {
-                startupOptimizationActive = false
-                requestDashboardRefresh(force = false)
-            }
-        }
+        // Startup is cache-first: never turn app launch into a provider poll.
+        // Forced sync is reserved for an explicit user refresh/payment return.
+        syncManagedAccount(force = false)
+        // BlueAI is intentionally not refreshed during startup. The current
+        // route decision is local/cache-first and a user AI tap enriches the
+        // model in the background. This removes one more network/JSON workload
+        // from the launch path.
+        startupOptimizationActive = false
+        requestDashboardRefresh(force = false)
     }, launchDelay)
 
     handler.postDelayed({
@@ -2645,43 +2637,37 @@ private fun dpHome(value: Int): Int =
                 forceRefresh = false,
             )
 
-            // The smart selector repairs its own input once. A missing local pool
-            // must not make the AI card appear broken or require a manual refresh.
+            // AI is read-only with respect to subscription ownership. It may
+            // rebuild the local candidate cache, but it must never trigger an
+            // account/provider sync or a v2rayNG subscription import. Coupling
+            // those operations made the AI card slow and could rewrite MMKV while
+            // the user only asked for a recommendation. Pool repair belongs to
+            // the explicit locations/account refresh path.
             if (candidates.none {
                     BlueVpnEntitlement.candidateAllowed(this@BlueVpnHomeActivity, it)
                 }
             ) {
-                if (!BlueVpnRuntimeGate.connectionActive(this@BlueVpnHomeActivity)) {
-                    when (entitlement.tier) {
-                        BlueVpnPlanTier.PREMIUM ->
-                            BlueVpnAccountManager.awaitEntitlementServers(
-                                this@BlueVpnHomeActivity,
-                                timeoutMs = 6_000L,
-                            ).getOrNull()
-                        BlueVpnPlanTier.FREE ->
-                            BlueVpnAccountManager.prepareFreeAccess(
-                                this@BlueVpnHomeActivity,
-                                force = false,
-                            ).getOrNull()
-                        BlueVpnPlanTier.UNAVAILABLE -> Unit
-                    }
-                }
                 BlueVpnLocationUtil.invalidateCache()
-                entitlement = BlueVpnEntitlement.reconcile(this@BlueVpnHomeActivity)
+                entitlement = BlueVpnEntitlement.resolve(this@BlueVpnHomeActivity)
                 candidates = BlueVpnLocationUtil.allCandidates(
                     this@BlueVpnHomeActivity,
                     forceRefresh = true,
                 )
             }
 
-            BlueVpnAi.refreshRecommendations(
-                this@BlueVpnHomeActivity,
-                force = true,
-            )
+            // Local scoring is authoritative and must return immediately. Cloud
+            // enrichment is refreshed as a sibling background task and may improve
+            // the next decision, but a slow WordPress/API response cannot freeze AI.
             val decision = BlueVpnSmartSelector.decide(
                 this@BlueVpnHomeActivity,
                 candidates,
             )
+            lifecycleScope.launch(Dispatchers.IO) {
+                BlueVpnAi.refreshRecommendations(
+                    this@BlueVpnHomeActivity,
+                    force = false,
+                )
+            }
             val finalIdentity = BlueVpnEntitlement.resolve(
                 this@BlueVpnHomeActivity,
             ).identity
@@ -2824,6 +2810,7 @@ private fun dpHome(value: Int): Int =
         }
         userDisconnecting = true
         pendingConnectionRequest = false
+        runtimeGateWaitStartedAt = 0L
         cancelFailover()
         handler.removeCallbacks(attemptTimeout)
         handler.removeCallbacks(requestPing)
@@ -2868,6 +2855,56 @@ private fun dpHome(value: Int): Int =
                 }
                 requestDashboardRefresh(force = true)
                 refreshSubscriptionInfo(force = true)
+            }
+        }
+    }
+
+    private fun reconcileDeferredEntitlementIfIdle(retryConnection: Boolean = false) {
+        retryConnectionAfterEntitlementReconcile =
+            retryConnectionAfterEntitlementReconcile || retryConnection
+        if (
+            entitlementReconcileInProgress ||
+            !BlueVpnAccountManager.entitlementReconcilePending(this) ||
+            mainViewModel.isRunning.value == true ||
+            failoverActive ||
+            userDisconnecting ||
+            isFinishing ||
+            isDestroyed
+        ) return
+
+        entitlementReconcileInProgress = true
+        lifecycleScope.launch(Dispatchers.IO) {
+            val repaired = BlueVpnAccountManager
+                .reconcilePendingEntitlement(this@BlueVpnHomeActivity)
+                .getOrDefault(false)
+            withContext(Dispatchers.Main) {
+                entitlementReconcileInProgress = false
+                if (isFinishing || isDestroyed) return@withContext
+
+                if (repaired) {
+                    BlueVpnLocationUtil.invalidateCache()
+                    mainViewModel.reloadServerList()
+                    requestDashboardRefresh(force = true)
+                    refreshSubscriptionInfo(force = true)
+                }
+
+                val shouldRetryConnection = retryConnectionAfterEntitlementReconcile
+                retryConnectionAfterEntitlementReconcile = false
+                if (
+                    repaired && shouldRetryConnection && pendingConnectionRequest &&
+                    mainViewModel.isRunning.value != true && !failoverActive && !userDisconnecting
+                ) {
+                    pendingConnectionRequest = false
+                    connectButton.isEnabled = true
+                    beginSmartConnection()
+                } else if (shouldRetryConnection && !repaired) {
+                    pendingConnectionRequest = false
+                    hideConnectingOverlay()
+                    connectButton.isEnabled = true
+                    updateConnectLabel("تلاش دوباره")
+                    statusText.text = "همگام‌سازی پلن کامل نشد"
+                    statusCaption.text = "Pool قبلی دست‌نخورده ماند؛ پس از بررسی اینترنت دوباره تلاش کنید"
+                }
             }
         }
     }
@@ -2970,10 +3007,44 @@ private fun dpHome(value: Int): Int =
             }
         }
 
+        if (BlueVpnAccountManager.entitlementReconcilePending(this)) {
+            pendingConnectionRequest = true
+            connectButton.isEnabled = false
+            statusText.text = "در حال اعمال پلن جدید"
+            statusCaption.text = "Pool اشتراک پس از پایان اتصال قبلی یک‌بار همگام می‌شود"
+            showConnectingOverlay(
+                title = "در حال آماده‌سازی پلن",
+                caption = "جداسازی Free/Premium در حال نهایی‌شدن است",
+                location = overlayLocation,
+            )
+            reconcileDeferredEntitlementIfIdle(retryConnection = true)
+            return
+        }
+
         if (!BlueVpnRuntimeGate.beginConnection(this, timeoutMs = 0L)) {
+            val now = SystemClock.elapsedRealtime()
+            if (runtimeGateWaitStartedAt <= 0L) runtimeGateWaitStartedAt = now
+            val waitedMs = now - runtimeGateWaitStartedAt
+
+            // Never leave the UI in an endless CONNECTING state when an upstream
+            // subscription import/provider request stalls. Subscription mutation
+            // keeps ownership of MMKV until it finishes, but the user gets the UI
+            // back after a bounded wait and can retry safely instead of racing it.
+            if (waitedMs >= 6_000L) {
+                pendingConnectionRequest = false
+                runtimeGateRetryScheduled = false
+                runtimeGateWaitStartedAt = 0L
+                hideConnectingOverlay()
+                connectButton.isEnabled = true
+                updateConnectLabel("تلاش دوباره")
+                statusText.text = "همگام‌سازی طولانی شد"
+                statusCaption.text = "اتصال متوقف شد تا Import اشتراک به پایان برسد؛ چند لحظه بعد دوباره تلاش کنید"
+                return
+            }
+
             pendingConnectionRequest = true
             statusText.text = "در حال تکمیل همگام‌سازی"
-            statusCaption.text = "Pool فعلی قفل می‌شود و اتصال بلافاصله بعد از پایان Import شروع خواهد شد"
+            statusCaption.text = "Pool فعلی فقط تا پایان Import قفل می‌ماند"
             showConnectingOverlay(
                 title = "در حال آماده‌سازی اتصال",
                 caption = "منتظر پایان آخرین Import اشتراک",
@@ -2992,11 +3063,12 @@ private fun dpHome(value: Int): Int =
                     ) {
                         beginSmartConnection()
                     }
-                }, 300L)
+                }, 350L)
             }
             return
         }
         runtimeGateRetryScheduled = false
+        runtimeGateWaitStartedAt = 0L
         pendingConnectionRequest = false
 
         enforceReliableVpnSettings()
@@ -3359,7 +3431,7 @@ private fun dpHome(value: Int): Int =
             if (!isFinishing && !isDestroyed) requestDashboardRefresh()
         }, 60L)
         handler.removeCallbacks(attemptTimeout)
-        handler.postDelayed(attemptTimeout, 8_000L)
+        handler.postDelayed(attemptTimeout, 12_000L)
     }
 
     private fun scheduleConnectionVerification() {
@@ -3573,14 +3645,14 @@ private fun dpHome(value: Int): Int =
 
                 if (
                     isExactAttemptRunning() &&
-                    round < 2
+                    round < 3
                 ) {
                     // Do not classify a v2rayNG-compatible config as dead after a
                     // single BlueVPN probe. Reality/WS/gRPC/TLS can need a longer
                     // warm-up on Iranian mobile networks, and public probe URLs can
                     // be filtered independently of the tunnel itself.
                     statusText.text = "در حال تأیید اینترنت"
-                    statusCaption.text = "تست واقعی ${round + 1} از ۲"
+                    statusCaption.text = "تست واقعی ${round + 1} از ۳"
                     mainViewModel.testCurrentServerRealPing()
                     handler.postDelayed({
                         if (
@@ -3604,7 +3676,7 @@ private fun dpHome(value: Int): Int =
 
     private fun waitForLocalProxyReady(
         httpPort: Int,
-        maxWaitMs: Long = 1_800L,
+        maxWaitMs: Long = 2_400L,
     ): Boolean {
         val deadline = SystemClock.elapsedRealtime() + maxWaitMs
         do {
@@ -3807,6 +3879,7 @@ private fun dpHome(value: Int): Int =
         BlueVpnAccountManager.startFreeSession(this)
 
         failoverActive = false
+        runtimeGateWaitStartedAt = 0L
         waitingForPingResult = false
         healthProbeInProgress = false
         waitingForCoreStop = false
@@ -3947,26 +4020,16 @@ private fun dpHome(value: Int): Int =
         connectButton.isEnabled = true
         updateConnectLabel("تلاش دوباره")
         applyOrbVisual(OrbVisualState.ERROR)
-        val mode = BlueVpnPreferences.selectionMode(this)
-        val checked = failoverQueue.size.coerceAtLeast(failoverIndex.coerceAtLeast(0))
-        statusText.text = when (mode) {
-            BlueVpnSelectionMode.AUTO -> "مسیر قابل اتصال پیدا نشد"
-            BlueVpnSelectionMode.MANUAL_LOCATION -> "لوکیشن در دسترس نیست"
-            BlueVpnSelectionMode.MANUAL_SERVER -> "سرور انتخاب‌شده در دسترس نیست"
-        }
+        statusText.text = "لوکیشن در دسترس نیست"
         statusCaption.visibility = View.VISIBLE
-        val defaultReason = when (mode) {
-            BlueVpnSelectionMode.AUTO -> "$checked مسیر مجاز بررسی شد؛ در تلاش بعدی Pool تازه دوباره ارزیابی می‌شود"
-            BlueVpnSelectionMode.MANUAL_LOCATION -> "همه مسیرهای همین لوکیشن بررسی شدند؛ بعداً دوباره امتحان کنید"
-            BlueVpnSelectionMode.MANUAL_SERVER -> "این سرور در تست واقعی اتصال پاسخ نداد"
-        }
-        statusCaption.text = reason ?: defaultReason
+        statusCaption.text = reason
+            ?: "همه مسیرهای این لوکیشن بررسی شدند؛ بعداً دوباره امتحان کنید"
         statusDot.backgroundTintList =
             ColorStateList.valueOf(Color.parseColor("#FFB44A"))
 
         Toast.makeText(
             this,
-            reason ?: defaultReason,
+            reason ?: "هیچ‌کدام از مسیرهای این لوکیشن پاسخ ندادند",
             Toast.LENGTH_LONG
         ).show()
     }
@@ -3979,6 +4042,7 @@ private fun dpHome(value: Int): Int =
         handler.removeCallbacks(coreStopTimeout)
         failoverActive = false
         pendingConnectionRequest = false
+        runtimeGateWaitStartedAt = 0L
         failoverQueue = emptyList()
         connectionEntitlementGuids = emptySet()
         failoverIndex = -1
@@ -4085,10 +4149,10 @@ private fun dpHome(value: Int): Int =
         val selected = candidates.firstOrNull {
             it.guid == selectedGuid
         }
-        // Home must render the same candidate generation used by the selector.
-        // Never resurrect a stale MMKV selection when the current pool snapshot
-        // does not contain it; that produced contradictory Turkey/Poland/0-route UI.
-        val profile = selected?.profile
+        val selectedAllowed = BlueVpnAccountManager.selectedServerAllowed(this)
+        val profile = selected?.profile ?: selectedGuid
+            ?.takeIf { it.isNotBlank() && selectedAllowed }
+            ?.let { MmkvManager.decodeServerConfig(it) }
         val automaticSelection =
             BlueVpnPreferences.smartBalance(this)
 
@@ -4472,7 +4536,8 @@ private fun dpHome(value: Int): Int =
                 result.onSuccess { after ->
                     val entitlementChanged =
                         before.subscriptionActive != after.subscriptionActive ||
-                            before.subscriptionUrl != after.subscriptionUrl
+                            before.subscriptionUrl != after.subscriptionUrl ||
+                            before.poolIdentity != after.poolIdentity
                     val accountMetaChanged =
                         before.status != after.status || before.expire != after.expire
                     if (entitlementChanged) {

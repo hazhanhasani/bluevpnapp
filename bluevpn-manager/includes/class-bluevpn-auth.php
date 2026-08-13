@@ -472,6 +472,18 @@ final class BlueVPN_Auth {
                 // Migrated/manual subscriptions may not have a historical order.
             }
         }
+
+        // Stable ownership fingerprint: account reads can change usage/expiry
+        // without forcing Android to re-import v2rayNG subscriptions. This value
+        // changes only when the actual paid pool/provider ownership changes.
+        $poolIdentity = hash('sha256', implode('|', [
+            (string)($c['id'] ?? 0),
+            (string)($entitlementPlanId ?? 0),
+            trim((string)($c['subscription_url'] ?? '')),
+            (string)($c['panel_id'] ?? 0),
+            (string)($c['marzban_panel_id'] ?? 0),
+            (string)($c['guardcore_panel_id'] ?? 0),
+        ]));
         return [
             'id' => (int)$c['id'],
             'email' => $email,
@@ -493,6 +505,7 @@ final class BlueVPN_Auth {
                 'entitlement_active' => $entitlementActive,
                 'entitlement_order_id' => $entitlementOrderId,
                 'entitlement_plan_id' => $entitlementPlanId,
+                'pool_identity' => $poolIdentity,
                 'url' => (string)($c['subscription_url'] ?? ''),
                 'expire' => $expireIso,
                 'expires_at' => $expireIso,

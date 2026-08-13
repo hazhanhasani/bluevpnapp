@@ -52,9 +52,10 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
    firstResume=false
   }else if(BlueVpnAccountManager.hasSession(this)!=renderedSessionState){render()}
   if(returnedOrder.isBlank()&&BlueVpnAccountManager.hasSession(this)){
-   // Refresh entitlements after returning from payment/admin activation without
-   // interrupting a user who is currently editing an auth field.
-   handler.postDelayed({if(!isFinishing&&!isDestroyed)sync(true)},320L)
+   // Opening/resuming the account page is cache-first. A real activated order
+   // explicitly performs the forced refresh in checkOrder(); ordinary navigation
+   // must not poll providers or re-import subscriptions.
+   handler.postDelayed({if(!isFinishing&&!isDestroyed)sync(false)},320L)
   }
   handler.removeCallbacks(poll)
   handler.post(poll)

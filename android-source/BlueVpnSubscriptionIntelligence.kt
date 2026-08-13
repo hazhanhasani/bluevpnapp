@@ -83,6 +83,35 @@ object BlueVpnSubscriptionIntelligence {
         context: Context,
         rows: List<SubscriptionCache>,
         aggressiveRepair: Boolean = false,
+    ): RefreshOutcome = refreshInternal(
+        context = context,
+        rows = rows,
+        aggressiveRepair = aggressiveRepair,
+        mutationAlreadyOwned = false,
+    )
+
+    /**
+     * Account/free-pool reconciliation mutates subscription metadata and then
+     * refreshes the same rows as one atomic MMKV transaction. In that path the
+     * runtime mutation gate is already owned by the caller, so reacquiring it
+     * here would incorrectly turn the refresh into a no-op.
+     */
+    internal fun refreshWithinMutation(
+        context: Context,
+        rows: List<SubscriptionCache>,
+        aggressiveRepair: Boolean = false,
+    ): RefreshOutcome = refreshInternal(
+        context = context,
+        rows = rows,
+        aggressiveRepair = aggressiveRepair,
+        mutationAlreadyOwned = true,
+    )
+
+    private fun refreshInternal(
+        context: Context,
+        rows: List<SubscriptionCache>,
+        aggressiveRepair: Boolean,
+        mutationAlreadyOwned: Boolean,
     ): RefreshOutcome {
         if (rows.isEmpty()) return RefreshOutcome(0, 0, 0, 0, 0)
 
@@ -90,7 +119,15 @@ object BlueVpnSubscriptionIntelligence {
         // starting or while Xray owns the current profile.  The current pool is
         // already usable, so a blocked refresh is a preserved/deferred refresh,
         // not a provider failure.
-        if (!BlueVpnRuntimeGate.beginSubscriptionMutation(context)) {
+        val ownsMutation = if (mutationAlreadyOwned) {
+            if (!BlueVpnRuntimeGate.subscriptionMutationActive()) {
+                error("SUBSCRIPTION_MUTATION_GATE_NOT_OWNED")
+            }
+            false
+        } else {
+            BlueVpnRuntimeGate.beginSubscriptionMutation(context)
+        }
+        if (!mutationAlreadyOwned && !ownsMutation) {
             val currentCount = rows.sumOf { row ->
                 runCatching {
                     MmkvManager.decodeServerList(row.guid).count { guid ->
@@ -184,7 +221,7 @@ object BlueVpnSubscriptionIntelligence {
             usedFallbacks = fallbackUses,
         )
         } finally {
-            BlueVpnRuntimeGate.endSubscriptionMutation()
+            if (ownsMutation) BlueVpnRuntimeGate.endSubscriptionMutation()
         }
     }
 

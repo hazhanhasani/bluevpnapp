@@ -62,7 +62,7 @@ object BlueVpnEntitlement {
             else -> BlueVpnPlanTier.UNAVAILABLE
         }
         val identity = when (tier) {
-            BlueVpnPlanTier.PREMIUM -> "premium|${account.subscriptionUrl.trim()}"
+            BlueVpnPlanTier.PREMIUM -> "premium|${account.poolIdentity.ifBlank { account.subscriptionUrl.trim() }}"
             BlueVpnPlanTier.FREE -> "free|" + free.subscriptions
                 .sortedWith(compareBy<BlueVpnFreeSubscription> { it.priority }.thenBy { it.id })
                 .joinToString("|") { "${it.id}:${it.url.trim()}" }

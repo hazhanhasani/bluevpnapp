@@ -54,15 +54,23 @@ jobs:
                   f'Plugin version mismatch: header={header.group(1)} constant={const.group(1)}'
               )
           version = header.group(1)
-          if not re.fullmatch(r'4\.\d+\.\d+', version):
-              raise SystemExit(f'Invalid BlueVPN 4.x Manager version: {version}')
+          match = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)', version)
+          if not match:
+              raise SystemExit(f'Invalid BlueVPN Manager version: {version}')
+          if int(match.group(3)) > 10:
+              raise SystemExit(f'BlueVPN patch must stay within x.y.0..x.y.10: {version}')
 
           if readme.is_file():
               readme_text = readme.read_text(encoding='utf-8')
               readme_match = re.search(r'(?mi)^Version:\s*(\d+\.\d+\.\d+)\s*$', readme_text)
+              stable_match = re.search(r'(?mi)^Stable tag:\s*(\d+\.\d+\.\d+)\s*$', readme_text)
               if not readme_match or readme_match.group(1) != version:
                   raise SystemExit(
                       f'Readme version is not synchronized with plugin: {version}'
+                  )
+              if not stable_match or stable_match.group(1) != version:
+                  raise SystemExit(
+                      f'Readme stable tag is not synchronized with plugin: {version}'
                   )
 
           with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as out:

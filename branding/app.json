@@ -1,8 +1,8 @@
 {
   "app_name": "BlueVPN",
   "application_id": "ir.blluepanel.bluevpn",
-  "version_name": "4.0.36",
-  "version_code": 40036,
+  "version_name": "4.1.0",
+  "version_code": 40100,
   "deep_link_scheme": "bluevpn",
   "api_base_url": "https://bot.blluepanel.ir",
   "website_url": "https://bot.blluepanel.ir",
@@ -13,6 +13,7 @@
     "arm64-v8a",
     "armeabi-v7a"
   ],
-  "version_source": "project_release_or_latest_github_release_increment",
-  "sing_box_ref": "v1.13.16"
+  "version_source": "v4.1.0-stability-entitlement-runtime-hardening",
+  "sing_box_ref": "v1.13.16",
+  "xray_ref": "v26.7.28"
 }

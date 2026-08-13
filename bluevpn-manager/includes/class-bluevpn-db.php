@@ -156,7 +156,10 @@ final class BlueVPN_DB {
             multi_provider_quota_mode varchar(20) NOT NULL DEFAULT 'split',
             created_at datetime NULL,
             PRIMARY KEY  (id),
-            KEY ix_plan_active (active, deleted, sort_order)
+            KEY ix_plan_active (active, deleted, sort_order),
+            KEY ix_plan_pasarguard (panel_id, active),
+            KEY ix_plan_marzban (marzban_panel_id, active),
+            KEY ix_plan_guardcore (guardcore_panel_id, active)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('customers')} (
@@ -205,7 +208,12 @@ final class BlueVPN_DB {
             UNIQUE KEY uq_customer_phone (phone),
             UNIQUE KEY uq_subscription_token (subscription_token),
             KEY ix_customer_plan (plan_id),
-            KEY ix_customer_active (active)
+            KEY ix_customer_active (active),
+            KEY ix_customer_entitlement (active, subscription_status, subscription_expire),
+            KEY ix_customer_sync_due (active, last_sync_at),
+            KEY ix_customer_pasarguard (panel_id, pg_user_id),
+            KEY ix_customer_marzban (marzban_panel_id, marzban_user_id),
+            KEY ix_customer_guardcore (guardcore_panel_id, guardcore_subscription_id)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('otp_challenges')} (
@@ -240,7 +248,9 @@ final class BlueVPN_DB {
             PRIMARY KEY  (id),
             UNIQUE KEY uq_session_token (token_hash),
             KEY ix_session_customer (customer_id),
-            KEY ix_session_expiry (expires_at)
+            KEY ix_session_expiry (expires_at),
+            KEY ix_session_customer_active (customer_id, revoked_at, expires_at),
+            KEY ix_session_device_seen (device_id, last_seen_at)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('customer_devices')} (
@@ -258,7 +268,9 @@ final class BlueVPN_DB {
             PRIMARY KEY  (id),
             UNIQUE KEY uq_customer_device (customer_id, device_id),
             KEY ix_device_customer (customer_id),
-            KEY ix_device_active (active)
+            KEY ix_device_active (active),
+            KEY ix_device_customer_active_seen (customer_id, active, last_seen_at),
+            KEY ix_device_refresh_expiry (refresh_expires_at)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('sms_settings')} (
@@ -335,7 +347,10 @@ final class BlueVPN_DB {
             KEY ix_order_payment (payment_id),
             KEY ix_order_status (status),
             KEY ix_order_expires (expires_at),
-            KEY ix_order_checkout_closed (checkout_closed_at)
+            KEY ix_order_checkout_closed (checkout_closed_at),
+            KEY ix_order_customer_status_created (customer_id, status, created_at),
+            KEY ix_order_status_expiry (status, expires_at),
+            KEY ix_order_payment_status (payment_id, status)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('sms_deliveries')} (
@@ -376,7 +391,8 @@ final class BlueVPN_DB {
             created_at datetime NULL,
             PRIMARY KEY  (id),
             UNIQUE KEY uq_delivery_id (delivery_id),
-            KEY ix_webhook_payment (payment_id)
+            KEY ix_webhook_payment (payment_id),
+            KEY ix_webhook_payment_event_created (payment_id, event, created_at)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('bot_settings')} (
@@ -453,6 +469,8 @@ final class BlueVPN_DB {
             PRIMARY KEY  (id),
             KEY ix_ai_event_customer (customer_id),
             KEY ix_ai_event_device (device_id),
+            KEY ix_ai_event_customer_created (customer_id, created_at),
+            KEY ix_ai_event_device_created (device_id, created_at),
             KEY ix_ai_event_config (config_key),
             KEY ix_ai_event_location (location_key),
             KEY ix_ai_event_context (operator, network_type, created_at),
@@ -500,7 +518,8 @@ final class BlueVPN_DB {
             KEY ix_ai_live_config (config_key),
             KEY ix_ai_live_verified_expiry (connected, verified, expires_at),
             KEY ix_ai_live_operator (operator, expires_at),
-            KEY ix_ai_live_seen (last_seen_at)
+            KEY ix_ai_live_seen (last_seen_at),
+            KEY ix_ai_live_device_state (device_id, connected, expires_at)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('ai_route_aggregates')} (

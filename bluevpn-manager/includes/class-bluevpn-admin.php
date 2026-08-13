@@ -531,7 +531,7 @@ final class BlueVPN_Admin {
         echo '<table class="form-table">';
         echo '<tr><th>GitHub Owner</th><td><input class="regular-text" dir="ltr" name="owner" value="'.esc_attr($cfg['owner']).'"></td></tr>';
         echo '<tr><th>Repository</th><td><input class="regular-text" dir="ltr" name="repo" value="'.esc_attr($cfg['repo']).'"></td></tr>';
-        echo '<tr><th>Tag Prefix</th><td><input class="regular-text" dir="ltr" name="tag_prefix" value="'.esc_attr($cfg['tag_prefix']).'"><p class="description">مثال: bluevpn-manager-v4.0.0</p></td></tr>';
+        echo '<tr><th>Tag Prefix</th><td><input class="regular-text" dir="ltr" name="tag_prefix" value="'.esc_attr($cfg['tag_prefix']).'"><p class="description">مثال: bluevpn-manager-vX.Y.Z</p></td></tr>';
         echo '<tr><th>Release Asset</th><td><input class="regular-text" dir="ltr" name="asset_name" value="'.esc_attr($cfg['asset_name']).'"></td></tr>';
         echo '<tr><th>آپدیت خودکار</th><td><label><input type="checkbox" name="auto_update" value="1" '.checked(!empty($cfg['auto_update']),true,false).'> BlueVPN Manager نسخه جدید را خودش پیدا کند و بدون ورود مدیر همان لحظه نصب کند.</label></td></tr>';
         echo '</table>';
@@ -542,7 +542,7 @@ final class BlueVPN_Admin {
         echo '<input type="hidden" name="action" value="bluevpn_check_github_update">';
         submit_button('همین حالا GitHub را بررسی کن','secondary');
         echo '</form>';
-        echo '<p><strong>قرارداد Release:</strong> Tag باید مانند <code>bluevpn-manager-v4.0.0</code> و فایل Release باید <code>bluevpn-manager.zip</code> باشد.</p></div>';
+        echo '<p><strong>قرارداد Release:</strong> Tag باید مانند <code>bluevpn-manager-vX.Y.Z</code> و فایل Release باید <code>bluevpn-manager.zip</code> باشد.</p></div>';
         self::foot();
     }
 

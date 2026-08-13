@@ -805,23 +805,6 @@ private fun unknownLocation(): BlueVpnLocation =
 
     fun hasCandidateCache(context: Context): Boolean = cachedCandidates(context).isNotEmpty()
 
-    /**
-     * Publish the exact shortlist used by a cold-start AUTO connection as a
-     * temporary UI snapshot. This keeps Home/Locations/AI on the same generation
-     * instead of showing 0 routes while the engine is already trying real GUIDs.
-     * The snapshot stays marked dirty so the background full warm-up replaces it.
-     */
-    private fun publishFastCandidateSnapshot(context: Context, candidates: List<Candidate>) {
-        if (candidates.isEmpty()) return
-        val cacheKey = BlueVpnAccountManager.entitlementIdentityFingerprint(context)
-        synchronized(this) {
-            contextCandidateCache = candidates.distinctBy { it.guid }
-            contextCandidateCacheAt = SystemClock.elapsedRealtime()
-            contextCandidateCacheKey = cacheKey
-            contextCandidateCacheDirty = true
-        }
-    }
-
     fun allCandidates(
         context: Context,
         forceRefresh: Boolean = false,
@@ -1044,12 +1027,8 @@ private fun unknownLocation(): BlueVpnLocation =
         // Legacy fallback `scan(skipSessionInactive = false)` is intentionally
         // disabled: failed routes must not re-enter the same connect cycle.
         if (result.isEmpty()) return emptyList()
-        val ranked = BlueVpnSmartSelector.rankTrusted(context, result)
+        return BlueVpnSmartSelector.rank(context, result)
             .map { it.candidate }
-        if (selectionMode == BlueVpnSelectionMode.AUTO) {
-            publishFastCandidateSnapshot(context, ranked)
-        }
-        return ranked
     }
 
     /**

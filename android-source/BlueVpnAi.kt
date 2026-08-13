@@ -284,7 +284,7 @@ object BlueVpnAi {
                 joined.contains("همراه‌اول") -> "همراه اول"
 
             joined.contains("rightel") ||
-                joined.contains("rightel") ||
+                joined.contains("ritel") ||
                 joined.contains("رایتل") -> "رایتل"
 
             joined.contains("shatel") ||
@@ -462,8 +462,21 @@ object BlueVpnAi {
         }
         val scores = JSONObject()
         val locationScores = mutableMapOf<String, MutableList<Int>>()
+        // Resolve entitlement once for the whole AI pass. Calling resolve()/toSet()
+        // for every candidate repeatedly scans the same MMKV ownership pool and
+        // made large subscriptions unnecessarily expensive.
+        val entitlement = BlueVpnEntitlement.resolve(context)
+        val entitlementServerGuids = entitlement.serverGuids.toHashSet()
         candidates
-            .filter { BlueVpnEntitlement.candidateAllowed(context, it) }
+            .filter { candidate ->
+                candidate.guid in entitlementServerGuids &&
+                    BlueVpnAccountManager.candidateAllowed(
+                        context,
+                        candidate.guid,
+                        candidate.profile.subscriptionId,
+                        entitlementServerGuids,
+                    )
+            }
             .forEach { candidate ->
                 val latency = when {
                     candidate.delay in 1..60 -> 92

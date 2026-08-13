@@ -151,7 +151,7 @@ final class BlueVPN_SMS_OTP {
                 'Api-Key' => $apiKey,
                 'Content-Type' => 'application/json',
                 'Accept' => 'application/json',
-                'User-Agent' => 'BlueVPN-WordPress-SMS/4.0.19',
+                'User-Agent' => 'BlueVPN-WordPress-SMS/' . BLUEVPN_MANAGER_VERSION,
             ],
             'body' => wp_json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ]);

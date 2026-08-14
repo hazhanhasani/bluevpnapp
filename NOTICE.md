@@ -36,6 +36,14 @@ The SMS/OTP hardening changes only BlueVPN Android account networking and the Wo
 BlueVPN Manager retrieves the authenticated account's active SMS patterns from the IranPayamak/FarazSMS REST API and presents them as controlled selections in WordPress. No SMS API key is written to the pattern cache. This change is limited to the WordPress control plane and does not alter the frozen v2rayNG/Xray runtime.
 
 
+
+## 4.2.4
+
+- Android campaign banner pipeline is now cache-first and starts near the first frame.
+- Banner config and image bytes persist locally with stale-while-revalidate behavior.
+- First-load placeholder and next-image prefetch reduce visible banner latency.
+- Third-party ad SDK warm-up remains outside the critical startup path.
+
 ## 4.2.3
 - اصلاح نمایش اشتراک واقعی حساب وب با قرارداد canonical `subscription`.
 - نمایش صحیح شماره محلی و اطلاعات پلن جاری.

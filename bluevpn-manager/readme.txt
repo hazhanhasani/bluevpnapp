@@ -1,6 +1,6 @@
 === BlueVPN Manager ===
-Version: 4.2.3
-Stable tag: 4.2.3
+Version: 4.2.4
+Stable tag: 4.2.4
 Requires PHP: 8.0
 
 کنترل‌پلین اصلی BlueVPN روی WordPress/MySQL.

@@ -1849,7 +1849,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             if (!isFinishing && !isDestroyed) {
                 BlueVpnTapsellManager.warmUp(this)
             }
-        }, BlueVpnPerformance.adsDelayMs(this))
+        }, BlueVpnPerformance.adSdkWarmupDelayMs(this))
 
         enforceReliableVpnSettings()
 
@@ -1877,7 +1877,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         handler.removeCallbacks(delayedAdsStart)
         handler.postDelayed(
             delayedAdsStart,
-            BlueVpnPerformance.adsDelayMs(this),
+            BlueVpnPerformance.bannerDelayMs(this),
         )
     }
 

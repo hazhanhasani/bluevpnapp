@@ -1,12 +1,12 @@
 {
-  "version": "4.2.3",
-  "version_code": 40203,
+  "version": "4.2.4",
+  "version_code": 40204,
   "channel": "stable",
-  "build_id": "20260813-v4.2.3-web-account-entitlement-ui-fix",
-  "built_at": "2026-08-13T18:10:00Z",
-  "android_version": "4.2.3",
-  "android_version_code": 40203,
-  "description": "BlueVPN 4.2.3: اصلاح نمایش اشتراک واقعی در وب، یکسان‌سازی قرارداد subscription بین API و پوسته، نمایش صحیح شماره موبایل، و بازطراحی داشبورد حساب بدون تغییر Runtime پایدار v2rayNG/Xray.",
+  "build_id": "20260814-v4.2.4-instant-banner-cache",
+  "built_at": "2026-08-14T11:10:00Z",
+  "android_version": "4.2.4",
+  "android_version_code": 40204,
+  "description": "BlueVPN 4.2.4: نمایش سریع بنرهای داخل اپ با شروع نزدیک به فریم اول، کش پایدار تنظیمات و تصاویر، placeholder فوری و prefetch بنرهای بعدی؛ بدون تغییر Runtime پایدار v2rayNG/Xray.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -50,7 +50,14 @@
     "web-account-plan-title-payload",
     "web-phone-display-normalization",
     "authenticated-account-intro-hidden",
-    "account-dashboard-dark-unified-ui"
+    "account-dashboard-dark-unified-ui",
+    "instant-first-party-banner-start",
+    "persistent-banner-config-cache",
+    "persistent-banner-image-cache",
+    "stale-while-revalidate-banner-config",
+    "banner-placeholder-first-frame",
+    "banner-next-image-prefetch",
+    "third-party-ad-warmup-kept-off-critical-path"
   ],
-  "version_source": "v4.2.3-web-account-entitlement-ui-fix"
+  "version_source": "v4.2.4-instant-banner-cache"
 }

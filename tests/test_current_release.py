@@ -367,6 +367,30 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("verifyBtn.disabled=true", js)
         self.assertIn("otpRequestSeq", js)
 
+    def test_campaign_banner_is_cache_first_and_not_delayed_by_ad_sdk(self):
+        ads = text("android-source/BlueVpnAdsCarouselView.kt")
+        theme = text("android-source/BlueVpnTheme.kt")
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        self.assertIn('"bluevpn_ads_carousel_cache"', ads)
+        self.assertIn('File(context.applicationContext.cacheDir, "bluevpn_ads")', ads)
+        self.assertIn("hydrateCachedConfig()", ads)
+        self.assertIn("readDiskBitmap(url)", ads)
+        self.assertIn("writeDiskBytes(url, downloaded.bytes)", ads)
+        self.assertIn("prefetchUpcomingImages()", ads)
+        self.assertIn("showPlaceholder()", ads)
+        self.assertIn("connection.useCaches = true", ads)
+        self.assertNotIn('connection.setRequestProperty("Cache-Control", "no-cache")', ads)
+        self.assertIn("fun bannerDelayMs", theme)
+        self.assertIn("fun adSdkWarmupDelayMs", theme)
+        self.assertIn("BlueVpnPerformance.bannerDelayMs(this)", home)
+        self.assertIn("BlueVpnPerformance.adSdkWarmupDelayMs(this)", home)
+
+    def test_campaign_banner_does_not_touch_stock_v2rayng_runtime(self):
+        ads = text("android-source/BlueVpnAdsCarouselView.kt")
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        self.assertNotIn("CoreServiceManager", ads)
+        self.assertIn("CoreServiceManager.startVService(this, guid)", home)
+
     def test_public_theme_hides_internal_project_implementation_copy(self):
         public = "\n".join(text(p) for p in [
             "bluevpn-site/front-page.php",

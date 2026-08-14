@@ -70,7 +70,13 @@ object BlueVpnPerformance {
     fun accountSyncDelayMs(context: Context): Long =
         if (isLowEnd(context)) 14_000L else 8_000L
 
-    fun adsDelayMs(context: Context): Long =
+    // First-party campaign banners are lightweight UI content and should be
+    // cache-first. Keep their start near the first frame while leaving the
+    // third-party ad SDK warm-up outside the critical startup path.
+    fun bannerDelayMs(context: Context): Long =
+        if (isLowEnd(context)) 350L else 120L
+
+    fun adSdkWarmupDelayMs(context: Context): Long =
         if (isLowEnd(context)) 9_000L else 5_500L
 
     fun adCacheKb(context: Context): Int =

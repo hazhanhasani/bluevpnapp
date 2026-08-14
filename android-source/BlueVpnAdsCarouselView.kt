@@ -23,6 +23,8 @@ import android.widget.TextView
 import com.v2ray.ang.BuildConfig
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.security.MessageDigest
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
@@ -40,7 +42,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     )
 
     private val handler = Handler(Looper.getMainLooper())
-    private val worker = Executors.newSingleThreadExecutor()
+    private val worker = Executors.newFixedThreadPool(if (BlueVpnPerformance.isLowEnd(context)) 2 else 3)
     private val palette = BlueVpnTheme.palette(context)
     private val imageView = ImageView(context)
     private val titleView = TextView(context)
@@ -61,6 +63,14 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     private var touchDownX = 0f
     private var touchDownY = 0f
     private var touchMoved = false
+
+    private val cachePrefs = context.applicationContext.getSharedPreferences(
+        "bluevpn_ads_carousel_cache",
+        Context.MODE_PRIVATE,
+    )
+    private val diskCacheDir = File(context.applicationContext.cacheDir, "bluevpn_ads").apply {
+        runCatching { mkdirs() }
+    }
 
     private val bitmapCache = object : LruCache<String, Bitmap>(
         BlueVpnPerformance.adCacheKb(context)
@@ -104,6 +114,12 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
 
     fun start() {
         running = true
+
+        // Stale-while-revalidate for campaign UI: render the most recent valid
+        // config from disk immediately, then refresh it in the background.
+        // This removes the previous blank period on every cold app launch.
+        if (items.isEmpty()) hydrateCachedConfig()
+
         if (System.currentTimeMillis() - lastFetchAt > 60_000L || items.isEmpty()) {
             fetchConfig()
         } else {
@@ -191,6 +207,14 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         addView(dots, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(20), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(4) })
     }
 
+    private fun hydrateCachedConfig() {
+        val raw = cachePrefs.getString("mobile_config", "").orEmpty()
+        if (raw.isBlank()) return
+        runCatching { JSONObject(raw) }
+            .onSuccess { applyConfig(it, persist = false) }
+            .onFailure { cachePrefs.edit().remove("mobile_config").apply() }
+    }
+
     private fun fetchConfig() {
         if (fetchInFlight) {
             scheduleRefresh()
@@ -202,7 +226,9 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             handler.post {
                 fetchInFlight = false
                 if (!running) return@post
-                result.onSuccess { applyConfig(it) }.onFailure {
+                result.onSuccess { applyConfig(it, persist = true) }.onFailure {
+                    // Keep the last-known-good campaign visible when the API is
+                    // temporarily slow or unavailable.
                     if (items.isEmpty()) hideBanner()
                 }
                 scheduleRefresh()
@@ -210,8 +236,11 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         }
     }
 
-    private fun applyConfig(root: JSONObject) {
-        lastFetchAt = System.currentTimeMillis()
+    private fun applyConfig(root: JSONObject, persist: Boolean) {
+        if (persist) {
+            cachePrefs.edit().putString("mobile_config", root.toString()).apply()
+            lastFetchAt = System.currentTimeMillis()
+        }
         val config = root.optJSONObject("advertising")
         if (config == null || !config.optBoolean("enabled", false)) {
             items = emptyList()
@@ -250,7 +279,24 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         }
         currentIndex = currentIndex.coerceIn(0, items.lastIndex)
         showItem(currentIndex, animate = false)
+        prefetchUpcomingImages()
         scheduleNext()
+    }
+
+    private fun prefetchUpcomingImages() {
+        if (items.size < 2) return
+        val indexes = (1..minOf(2, items.lastIndex)).map { (currentIndex + it) % items.size }
+        indexes.distinct().forEach { index ->
+            val url = items.getOrNull(index)?.imageUrl.orEmpty()
+            if (url.isBlank() || bitmapCache.get(url) != null) return@forEach
+            val fileReady = runCatching { cacheFile(url).isFile }.getOrDefault(false)
+            if (fileReady) return@forEach
+            worker.execute {
+                val downloaded = downloadBitmap(url) ?: return@execute
+                bitmapCache.put(url, downloaded.bitmap)
+                writeDiskBytes(url, downloaded.bytes)
+            }
+        }
     }
 
     private fun showItem(index: Int, animate: Boolean) {
@@ -268,7 +314,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             dropBrokenCurrentItem(item.id)
             return
         }
-        if (!hasRenderedContent) hideBanner()
+        if (!hasRenderedContent) showPlaceholder()
         loadImage(item.imageUrl)
         if (animate) {
             alpha = 0.72f
@@ -283,45 +329,169 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             revealBitmap(cached)
             return
         }
-        if (!hasRenderedContent) {
-            imageView.setImageDrawable(null)
-            imageView.background = GradientDrawable(
-                GradientDrawable.Orientation.TL_BR,
-                intArrayOf(Color.parseColor("#1D2A4D"), Color.parseColor("#090D18")),
-            )
+
+        // Disk cache survives Activity/process recreation. A cached campaign
+        // therefore paints on the first frame instead of downloading again.
+        val diskBitmap = readDiskBitmap(url)
+        if (diskBitmap != null) {
+            bitmapCache.put(url, diskBitmap)
+            revealBitmap(diskBitmap)
+            return
         }
+
+        showPlaceholder()
         val expectedId = items.getOrNull(currentIndex)?.id ?: return
         worker.execute {
-            val bitmap = runCatching {
-                val connection = URL(url).openConnection() as HttpURLConnection
-                try {
-                    connection.connectTimeout = 8_000
-                    connection.readTimeout = 10_000
-                    connection.instanceFollowRedirects = true
-                    connection.useCaches = false
-                    connection.setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
-                    connection.setRequestProperty("Cache-Control", "no-cache")
-                    connection.setRequestProperty("User-Agent", "BlueVPN/${BuildConfig.VERSION_NAME}")
-                    if (connection.responseCode !in 200..299) error("HTTP ${connection.responseCode}")
-                    val contentType = connection.contentType.orEmpty().lowercase()
-                    if (!contentType.startsWith("image/") && contentType.isNotBlank()) error("Invalid image")
-                    decodeAdBitmap(connection) ?: error("Invalid bitmap")
-                } finally {
-                    connection.disconnect()
-                }
-            }.getOrNull()
-            if (bitmap != null) bitmapCache.put(url, bitmap)
+            val downloaded = downloadBitmap(url)
+            if (downloaded != null) {
+                bitmapCache.put(url, downloaded.bitmap)
+                writeDiskBytes(url, downloaded.bytes)
+            }
             handler.post {
                 val current = items.getOrNull(currentIndex)
                 if (current?.id == expectedId && current.imageUrl == url) {
-                    if (bitmap != null) {
-                        revealBitmap(bitmap)
+                    if (downloaded != null) {
+                        revealBitmap(downloaded.bitmap)
                     } else {
                         dropBrokenCurrentItem(expectedId)
                     }
                 }
             }
         }
+    }
+
+    private data class DownloadedBitmap(val bitmap: Bitmap, val bytes: ByteArray)
+
+    private fun downloadBitmap(url: String): DownloadedBitmap? = runCatching {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        try {
+            connection.connectTimeout = 4_500
+            connection.readTimeout = 7_000
+            connection.instanceFollowRedirects = true
+            connection.useCaches = true
+            connection.setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
+            connection.setRequestProperty("User-Agent", "BlueVPN/${BuildConfig.VERSION_NAME}")
+            if (connection.responseCode !in 200..299) error("HTTP ${connection.responseCode}")
+            val contentType = connection.contentType.orEmpty().lowercase()
+            if (!contentType.startsWith("image/") && contentType.isNotBlank()) error("Invalid image")
+            val bytes = readAdBytes(connection) ?: error("Invalid image bytes")
+            val bitmap = decodeAdBytes(bytes) ?: error("Invalid bitmap")
+            DownloadedBitmap(bitmap, bytes)
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrNull()
+
+    private fun showPlaceholder() {
+        if (!hasRenderedContent) {
+            hasRenderedContent = true
+            visibility = View.VISIBLE
+        }
+        imageView.setImageDrawable(null)
+        imageView.background = GradientDrawable(
+            GradientDrawable.Orientation.TL_BR,
+            intArrayOf(Color.parseColor("#1D2A4D"), Color.parseColor("#090D18")),
+        )
+        val targetHeight = calculateBannerHeight()
+        layoutParams?.let { params ->
+            if (params.height != targetHeight) {
+                params.height = targetHeight
+                layoutParams = params
+            }
+        }
+        requestLayout()
+    }
+
+    private fun cacheFile(url: String): File {
+        val digest = MessageDigest.getInstance("SHA-256")
+            .digest(url.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        return File(diskCacheDir, "$digest.img")
+    }
+
+    private fun readDiskBitmap(url: String): Bitmap? {
+        val file = runCatching { cacheFile(url) }.getOrNull() ?: return null
+        if (!file.isFile) return null
+        val maxAgeMs = 7L * 24L * 60L * 60L * 1000L
+        if (System.currentTimeMillis() - file.lastModified() > maxAgeMs) {
+            runCatching { file.delete() }
+            return null
+        }
+        val bytes = runCatching { file.readBytes() }.getOrNull() ?: return null
+        return decodeAdBytes(bytes) ?: run {
+            runCatching { file.delete() }
+            null
+        }
+    }
+
+    private fun writeDiskBytes(url: String, bytes: ByteArray) {
+        if (bytes.isEmpty()) return
+        runCatching {
+            val target = cacheFile(url)
+            val temp = File(target.parentFile, target.name + ".tmp")
+            temp.writeBytes(bytes)
+            if (!temp.renameTo(target)) {
+                target.writeBytes(bytes)
+                temp.delete()
+            }
+            trimDiskCacheFiles()
+        }
+    }
+
+    private fun trimDiskCacheFiles() {
+        val keep = if (BlueVpnPerformance.isLowEnd(context)) 6 else 12
+        diskCacheDir.listFiles()
+            .orEmpty()
+            .filter { it.isFile && !it.name.endsWith(".tmp") }
+            .sortedByDescending { it.lastModified() }
+            .drop(keep)
+            .forEach { runCatching { it.delete() } }
+    }
+
+    private fun readAdBytes(connection: HttpURLConnection): ByteArray? {
+        val lowEnd = BlueVpnPerformance.isLowEnd(context)
+        val maxBytes = if (lowEnd) 3 * 1024 * 1024 else 6 * 1024 * 1024
+        val declared = connection.contentLength
+        if (declared > maxBytes) return null
+
+        val output = ByteArrayOutputStream(
+            declared.takeIf { it in 1..maxBytes } ?: 64 * 1024
+        )
+        connection.inputStream.use { input ->
+            val buffer = ByteArray(16 * 1024)
+            var total = 0
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                total += read
+                if (total > maxBytes) return null
+                output.write(buffer, 0, read)
+            }
+        }
+        return output.toByteArray().takeIf { it.isNotEmpty() }
+    }
+
+    private fun decodeAdBytes(bytes: ByteArray): Bitmap? {
+        if (bytes.isEmpty()) return null
+        val lowEnd = BlueVpnPerformance.isLowEnd(context)
+        val maxBytes = if (lowEnd) 3 * 1024 * 1024 else 6 * 1024 * 1024
+        if (bytes.size > maxBytes) return null
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+        val targetWidth = resources.displayMetrics.widthPixels
+            .coerceAtLeast(320)
+            .coerceAtMost(if (lowEnd) 720 else 1280)
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= targetWidth) sample *= 2
+
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sample.coerceAtLeast(1)
+            inPreferredConfig = if (lowEnd) Bitmap.Config.RGB_565 else Bitmap.Config.ARGB_8888
+        }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
     }
 
 
@@ -378,45 +548,6 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         requestLayout()
     }
 
-    private fun decodeAdBitmap(connection: HttpURLConnection): Bitmap? {
-        val lowEnd = BlueVpnPerformance.isLowEnd(context)
-        val maxBytes = if (lowEnd) 3 * 1024 * 1024 else 6 * 1024 * 1024
-        val declared = connection.contentLength
-        if (declared > maxBytes) return null
-
-        val output = ByteArrayOutputStream(
-            declared.takeIf { it in 1..maxBytes } ?: 64 * 1024
-        )
-        connection.inputStream.use { input ->
-            val buffer = ByteArray(16 * 1024)
-            var total = 0
-            while (true) {
-                val read = input.read(buffer)
-                if (read <= 0) break
-                total += read
-                if (total > maxBytes) return null
-                output.write(buffer, 0, read)
-            }
-        }
-        val bytes = output.toByteArray()
-        if (bytes.isEmpty()) return null
-
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
-
-        val targetWidth = resources.displayMetrics.widthPixels
-            .coerceAtLeast(320)
-            .coerceAtMost(if (lowEnd) 720 else 1280)
-        var sample = 1
-        while (bounds.outWidth / (sample * 2) >= targetWidth) sample *= 2
-
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = sample.coerceAtLeast(1)
-            inPreferredConfig = if (lowEnd) Bitmap.Config.RGB_565 else Bitmap.Config.ARGB_8888
-        }
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
-    }
 
     private fun renderDots() {
         dots.removeAllViews()

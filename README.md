@@ -144,6 +144,14 @@ Theme `1.0.3` replaces the previous generic card layout with a product-focused R
 - GitHub publication is isolated in `.github/workflows/bluevpn-site-theme-release.yml`, so changing website styling no longer needs an Android APK build.
 
 
+
+## 4.2.4
+
+- بنرهای داخلی BlueVPN دیگر 5.5 تا 9 ثانیه منتظر شروع نمی‌مانند؛ carousel نزدیک به اولین فریم اجرا می‌شود.
+- آخرین تنظیمات معتبر تبلیغات و فایل تصویر بنر روی دستگاه cache می‌شوند و در اجرای بعدی بلافاصله نمایش داده می‌شوند.
+- هنگام اولین دریافت شبکه، placeholder بنر فوراً دیده می‌شود و تصاویر بعدی carousel از قبل prefetch می‌شوند.
+- warm-up تبلیغات ثالث همچنان با تأخیر قبلی اجرا می‌شود تا با شروع VPN و بارگیری بنر داخلی رقابت نکند.
+
 ## 4.2.3
 - اصلاح نمایش اشتراک واقعی حساب وب با قرارداد canonical `subscription`.
 - نمایش صحیح شماره محلی و اطلاعات پلن جاری.

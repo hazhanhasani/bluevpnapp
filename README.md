@@ -1,4 +1,4 @@
-## 4.4.3 Missing Provider Subscription Repair
+## 4.4.4 Missing Provider Subscription Repair
 
 - بخش کاربران اکنون گزینه «همگام‌سازی اشتراک‌های گمشده Provider» دارد.
 - فقط کاربران فعال با اشتراک فعال و پلن دارای PasarGuard/Marzban اسکن می‌شوند.

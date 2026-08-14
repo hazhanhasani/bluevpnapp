@@ -1,6 +1,6 @@
 === BlueVPN Manager ===
-Version: 4.4.3
-Stable tag: 4.4.3
+Version: 4.4.4
+Stable tag: 4.4.4
 Requires PHP: 8.0
 
 == تغییرات 4.4.1 ==
@@ -132,3 +132,9 @@ Requires PHP: 8.0
 - جداسازی BlueAI از Repair/Import اشتراک و اجرای Local-first scoring.
 - ارتقای دیتابیس به Schema 1.6.0 و بهینه‌سازی Queryهای پرتکرار.
 - پاک‌سازی CI، حذف snapshotهای تولیدی/تاریخی و یکپارچه‌سازی Release Gate.
+
+== 4.4.4 ==
+* PasarGuard: همه گروه‌های فعال به‌صورت خودکار به کاربران Premium تخصیص داده می‌شوند؛ Group ID دستی فقط fallback است.
+* Marzban: همه Inboundهای فعال به‌صورت Live خوانده و روی کاربران جدید و موجود Sync می‌شوند.
+* Repair: کاربران موجود نیز access map خود را دوباره دریافت می‌کنند، بدون تمدید یا Reset مصرف.
+* Hardening: proxy_settings خالی/لیستی دیگر باعث HTTP 422 در PasarGuard/Marzban نمی‌شود.

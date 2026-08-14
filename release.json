@@ -1,12 +1,12 @@
 {
-  "version": "4.4.3",
-  "version_code": 40403,
+  "version": "4.4.4",
+  "version_code": 40404,
   "channel": "beta",
-  "build_id": "20260815-v4.4.3-missing-provider-subscription-repair",
-  "built_at": "2026-08-15T00:45:00Z",
-  "android_version": "4.4.3",
-  "android_version_code": 40403,
-  "description": "BlueVPN 4.4.3: همگام‌سازی ترمیمی کاربران دارای اشتراک فعال؛ PasarGuard و Marzban واقعاً بررسی می‌شوند و اشتراک گمشده بدون تمدید اعتبار یا Reset مصرف ساخته و به حساب کاربر متصل می‌شود.",
+  "build_id": "20260815-v4.4.4-auto-provider-access-groups",
+  "built_at": "2026-08-15T01:00:00Z",
+  "android_version": "4.4.4",
+  "android_version_code": 40404,
+  "description": "BlueVPN 4.4.4: همگام‌سازی Provider اکنون در PasarGuard همه گروه‌های فعال و در Marzban همه Inboundهای فعال را خودکار تخصیص می‌دهد؛ کاربران موجود نیز دوباره Sync می‌شوند و خطای 422 ناشی از proxy_settings/proxies ناسازگار Harden شده است.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -181,7 +181,12 @@
     "provider-repair-no-renewal",
     "provider-repair-preserves-local-entitlement",
     "provider-repair-batched-admin-pump",
-    "provider-repair-reconnects-lost-local-mapping"
+    "provider-repair-reconnects-lost-local-mapping",
+    "pasarguard-auto-all-enabled-groups",
+    "marzban-live-all-active-inbounds",
+    "provider-repair-access-resync",
+    "pasarguard-empty-proxy-settings-422-hardening",
+    "marzban-proxy-object-normalization"
   ],
-  "version_source": "v4.4.3-missing-provider-subscription-repair"
+  "version_source": "v4.4.4-auto-provider-access-groups"
 }

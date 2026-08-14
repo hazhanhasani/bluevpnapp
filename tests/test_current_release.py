@@ -913,5 +913,42 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("این عملیات تاریخ اشتراک را تمدید نمی‌کند", cc)
         self.assertIn("bluevpn_provider_repair_last_result", cc)
 
+    def test_101_pasarguard_auto_all_active_groups_and_proxy_settings_422_hardening(self):
+        providers = text("bluevpn-manager/includes/class-bluevpn-providers.php")
+        self.assertIn("private static function pg_active_group_ids", providers)
+        self.assertIn("'/api/groups'", providers)
+        self.assertIn("'/api/groups/simple'", providers)
+        self.assertIn("is_disabled", providers)
+        self.assertIn("$groupIds=self::pg_active_group_ids", providers)
+        self.assertIn("private static function pg_proxy_settings", providers)
+        self.assertIn("Input should be a valid dictionary or object", providers)
+        self.assertIn("if($proxySettings)$payload['proxy_settings']=$proxySettings", providers)
+
+    def test_102_marzban_always_uses_live_all_active_inbounds_and_normalized_proxy_objects(self):
+        providers = text("bluevpn-manager/includes/class-bluevpn-providers.php")
+        access = block(providers, "private static function mz_access", "private static function username")
+        self.assertIn("Always prefer the live inbound catalog", access)
+        self.assertIn("'/api/inbounds'", access)
+        self.assertIn("new stdClass()", access)
+        self.assertIn("cachedInbounds", access)
+        self.assertIn("هیچ Inbound فعال", access)
+
+    def test_103_provider_repair_resyncs_access_for_existing_users(self):
+        providers = text("bluevpn-manager/includes/class-bluevpn-providers.php")
+        repair = block(providers, "public static function repair_customer_missing_providers", "public static function repairable_customer_count")
+        self.assertIn("همگام‌سازی گروه‌های PasarGuard", repair)
+        self.assertIn("['group_ids'=>$groupIds]", repair)
+        self.assertIn("groups_synced", repair)
+        self.assertIn("همگام‌سازی Inboundهای Marzban", repair)
+        self.assertIn("['proxies'=>$proxies,'inbounds'=>$inbounds]", repair)
+        self.assertIn("inbounds_synced", repair)
+        self.assertNotIn("target_expiry", repair)
+
+    def test_104_provider_ui_explains_automatic_group_and_inbound_selection(self):
+        cc = text("bluevpn-manager/includes/class-bluevpn-control-center.php")
+        self.assertIn("PasarGuard Group IDs (Fallback)", cc)
+        self.assertIn("همه گروه‌های فعال", cc)
+        self.assertIn("همه Inboundهای فعال", cc)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

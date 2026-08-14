@@ -1,4 +1,4 @@
-## BlueVPN 4.4.3
+## BlueVPN 4.4.4
 
 Provider repair is entitlement-preserving: it may create a missing PasarGuard/Marzban account or restore its local mapping, but it does not renew subscription time or reset usage.
 

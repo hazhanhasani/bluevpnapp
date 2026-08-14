@@ -548,5 +548,23 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("CoreServiceManager.startVService(this, guid)", home)
         self.assertNotIn("BlueVpnEngineManager", home)
 
+
+    def test_source_version_is_authoritative_and_build_does_not_auto_increment(self):
+        workflow = text(".github/workflows/build-apk.yml")
+        self.assertIn("resolved = project_version", workflow)
+        self.assertIn("source_declared_release_version", workflow)
+        self.assertIn("Project version is behind the latest published Android release", workflow)
+        self.assertNotIn("project_release_or_latest_github_release_increment", workflow)
+        self.assertNotIn("patch += 1", workflow)
+
+    def test_telegram_rest_push_verification_tolerates_head_advancing(self):
+        bot = text("bluevpn-manager/includes/class-bluevpn-telegram-bot.php")
+        self.assertIn("$updatedRef = self::gh('PATCH'", bot)
+        self.assertIn("verify_commit_on_branch", bot)
+        self.assertIn("'/compare/'", bot)
+        self.assertIn("['ahead', 'identical']", bot)
+        self.assertIn("usleep(250000", bot)
+        self.assertNotIn("SHA شاخه پس از Push تأیید نشد.", bot)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

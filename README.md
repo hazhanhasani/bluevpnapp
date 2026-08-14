@@ -1,4 +1,4 @@
-# BlueVPN 4.2.5
+# BlueVPN 4.2.9
 
 BlueVPN is now rebased as a **custom product/UI on top of official v2rayNG**, instead of treating v2rayNG as a replaceable compatibility bridge.
 
@@ -73,6 +73,27 @@ See `LICENSE` and `NOTICE.md` for licensing and attribution.
 
 Some deployments copy a release bundle over an existing GitHub checkout instead of replacing the tree. Deleted files from older releases can therefore remain tracked in the repository. The Android workflow now runs `scripts/cleanup_repository.py` before applying the BlueVPN overlay. It removes retired dual-engine/sing-box files, the removed AI activity, and historical generated Android snapshots from the build workspace before the regression gate runs.
 
+
+
+
+## 4.2.9 — Explicit APK build trigger / single-dispatch hardening
+
+- Push معمولی روی `main` دیگر Workflow ساخت APK را اجرا نمی‌کند.
+- ساخت Android فقط از `repository_dispatch` ربات یا `workflow_dispatch` دستی شروع می‌شود.
+- Upload ZIP یک Commit می‌سازد و سپس فقط همان Commit را برای Build Dispatch می‌کند.
+- Job ربات قبل از هر Side Effect به‌صورت اتمیک Claim می‌شود تا اجرای همزمان wp-cron نتواند یک Build را دوبار Dispatch کند.
+- متن اعلان موفق Telegram دیگر `%0A` چاپ نمی‌کند و از Line Break واقعی استفاده می‌کند.
+- Versioning منبع‌محور 4.2.8، جداسازی Free/Premium و Cache بنرها حفظ شده‌اند.
+- Runtime رسمی v2rayNG 2.2.6/Xray دست‌نخورده باقی مانده است.
+
+## 4.2.8 — Source-controlled versioning / GitHub push verification
+
+- `branding/app.json` و `release.json` منبع قطعی نسخه هستند؛ GitHub Actions دیگر صرفاً به دلیل وجود Release قبلی شماره نسخه را در Workspace بالا نمی‌برد.
+- Build مجدد همان نسخه مجاز است و Release همان Tag را بازسازی می‌کند؛ تغییر واقعی سورس باید همراه با افزایش صریح نسخه باشد.
+- سری نسخه همچنان کوتاه است: `x.y.0 ... x.y.10` و بعد از `.10` نسخه بعدی باید `x.(y+1).0` باشد.
+- تأیید Push ربات ابتدا پاسخ خود `PATCH ref` را بررسی می‌کند؛ اگر HEAD جلو رفته باشد، ancestry Commit بررسی می‌شود و برای تأخیر کوتاه GitHub Retry وجود دارد.
+- خطای کاذب `SHA شاخه پس از Push تأیید نشد` در حالتی که Commit واقعاً روی شاخه ثبت شده دیگر نباید رخ دهد.
+- اصلاحات 4.2.4 بنر و 4.2.5 جداسازی Logout/Free/Premium بدون تغییر باقی مانده‌اند.
 
 ## 4.2.1 Release Gate / Versioning Fix
 

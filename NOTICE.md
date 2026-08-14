@@ -1,6 +1,6 @@
 # BlueVPN — upstream/runtime notice
 
-BlueVPN Android 4.2.5 is built directly on the official **v2rayNG 2.2.6** Android source (GNU GPL v3).
+BlueVPN Android 4.2.9 is built directly on the official **v2rayNG 2.2.6** Android source (GNU GPL v3).
 
 Runtime ownership is intentionally simple:
 
@@ -13,6 +13,15 @@ Runtime ownership is intentionally simple:
 
 BlueVPN is an independent modified distribution and is not endorsed by the upstream v2rayNG/Xray maintainers.
 
+
+
+## 4.2.9 build-trigger boundary
+
+This release removes the normal `push` event from the Android APK workflow. APK compilation is explicit: the WordPress bot uses `repository_dispatch`, while `workflow_dispatch` remains available for intentional manual builds. The Telegram deployment job is atomically claimed before GitHub side effects so duplicate wp-cron execution cannot dispatch the same job twice. Telegram success notifications now use real newline characters. The protected v2rayNG 2.2.6 runtime remains unchanged.
+
+## 4.2.8 release-control boundary
+
+This release changes release-control and WordPress bot GitHub deployment logic only. The project-declared version is authoritative; build jobs do not silently consume a new patch number. GitHub ref updates are accepted from the PATCH response and, when needed, verified by retrying branch HEAD and checking commit ancestry. The protected v2rayNG 2.2.6 runtime remains unchanged.
 
 ## 4.2.1 Release validation
 

@@ -1,12 +1,12 @@
 {
-  "version": "4.2.5",
-  "version_code": 40205,
+  "version": "4.2.9",
+  "version_code": 40209,
   "channel": "stable",
-  "build_id": "20260814-v4.2.5-logout-entitlement-isolation",
-  "built_at": "2026-08-14T11:20:00Z",
-  "android_version": "4.2.5",
-  "android_version_code": 40205,
-  "description": "BlueVPN 4.2.5: جداسازی قطعی Premium/Free هنگام خروج از حساب، جلوگیری از بازگشت وضعیت اشتراک توسط درخواست‌های همزمان قدیمی، توقف اتصال Premium در حالت بدون نشست، و فعال‌سازی دوباره Pool رایگان پس از Logout؛ بهینه‌سازی Banner Cache نسخه 4.2.4 نیز حفظ شده است.",
+  "build_id": "20260814-v4.2.9-explicit-build-trigger-single-dispatch",
+  "built_at": "2026-08-14T11:37:00Z",
+  "android_version": "4.2.9",
+  "android_version_code": 40209,
+  "description": "BlueVPN 4.2.9: ساخت APK دیگر با Push معمولی شاخه main اجرا نمی‌شود و فقط از repository_dispatch ربات یا workflow_dispatch دستی شروع می‌شود؛ اجرای همزمان یک Job ربات نیز با claim اتمیک مهار شده و نمایش %0A در پیام Telegram به خط جدید واقعی اصلاح شده است. Runtime رسمی v2rayNG/Xray بدون تغییر است.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -63,7 +63,18 @@
     "stale-account-response-rejected-after-logout",
     "stale-refresh-token-response-cannot-resurrect-session",
     "free-pool-reenabled-after-premium-logout",
-    "logout-invalidates-inflight-premium-candidate-preparation"
+    "logout-invalidates-inflight-premium-candidate-preparation",
+    "source-controlled-release-version",
+    "no-build-time-version-autobump",
+    "github-ref-patch-response-verification",
+    "github-branch-ancestry-verification",
+    "github-head-verification-retry",
+    "no-push-triggered-apk-build",
+    "explicit-repository-dispatch-build",
+    "manual-workflow-dispatch-kept",
+    "atomic-telegram-job-claim",
+    "single-dispatch-per-job",
+    "telegram-success-message-real-newlines"
   ],
-  "version_source": "v4.2.5-logout-entitlement-isolation"
+  "version_source": "v4.2.9-explicit-build-trigger-single-dispatch"
 }

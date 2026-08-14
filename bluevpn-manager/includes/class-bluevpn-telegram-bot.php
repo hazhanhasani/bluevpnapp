@@ -407,9 +407,20 @@ final class BlueVPN_Telegram_Bot {
         if (!self::runtime_ready()) {
             self::fail_job($job, 'Runtime ربات کامل تنظیم نشده است.', $s); return;
         }
+
+        // Claim the job atomically before any GitHub side effect. wp-cron can
+        // execute the same scheduled hook concurrently; without this guard two
+        // workers could dispatch the same commit twice.
+        $claimedStatus = $job['kind'] === 'deploy_zip' ? 'downloading' : 'dispatching';
+        $claimed = $wpdb->query($wpdb->prepare(
+            "UPDATE {$t} SET status=%s, updated_at=%s WHERE id=%s AND status IN ('queued','retry')",
+            $claimedStatus, BlueVPN_Utils::now_mysql(), $jobId
+        ));
+        if ((int)$claimed !== 1) return;
+        $job['status'] = $claimedStatus;
+
         try {
             if ($job['kind'] === 'deploy_zip') {
-                self::update_job($jobId, ['status' => 'downloading']);
                 self::send_message($job['chat_id'], '📥 در حال دریافت ZIP از Telegram...', [], $s);
                 $zip = self::download_telegram_zip((string)$job['telegram_file_id'], (string)$job['telegram_file_name'], $s);
                 self::update_job($jobId, ['status' => 'deploying']);
@@ -782,9 +793,11 @@ BLUEVPN_ASKPASS_CHECK;
         ], $s);
         $newSha = (string)($newCommit['sha'] ?? '');
         if ($newSha === '') throw new RuntimeException('Commit GitHub ساخته نشد.');
-        self::gh('PATCH', self::repo_path($s) . '/git/refs/heads/' . rawurlencode((string)$s['git_branch']), ['sha' => $newSha, 'force' => false], $s);
-        $verified = self::branch_head_sha($s);
-        if (!hash_equals($newSha, $verified)) throw new RuntimeException('SHA شاخه پس از Push تأیید نشد.');
+        $updatedRef = self::gh('PATCH', self::repo_path($s) . '/git/refs/heads/' . rawurlencode((string)$s['git_branch']), ['sha' => $newSha, 'force' => false], $s);
+        $patchedSha = (string)($updatedRef['object']['sha'] ?? '');
+        if ($patchedSha === '' || !hash_equals($newSha, $patchedSha)) {
+            self::verify_commit_on_branch($newSha, $s);
+        }
         return ['commit' => $newSha, 'files' => count($entries), 'deleted' => count($deletions), 'changed' => true];
     }
 
@@ -869,6 +882,43 @@ BLUEVPN_ASKPASS_CHECK;
             );
         }
         return is_array($json) ? $json : [];
+    }
+
+    private static function verify_commit_on_branch(string $commitSha, array $s): void {
+        $lastHead = '';
+        $repo = self::repo_path($s);
+        $branch = rawurlencode((string)$s['git_branch']);
+        for ($attempt = 0; $attempt < 8; $attempt++) {
+            try {
+                $ref = self::gh('GET', $repo . '/git/ref/heads/' . $branch, null, $s);
+                $head = (string)($ref['object']['sha'] ?? '');
+                if ($head !== '') {
+                    $lastHead = $head;
+                    if (hash_equals($commitSha, $head)) return;
+
+                    // Another writer may move HEAD forward immediately after our
+                    // successful ref update. In that case our commit is still a
+                    // valid deployment if it is an ancestor of current HEAD.
+                    $compare = self::gh(
+                        'GET',
+                        $repo . '/compare/' . rawurlencode($commitSha) . '...' . rawurlencode($head),
+                        null,
+                        $s
+                    );
+                    $status = (string)($compare['status'] ?? '');
+                    if (in_array($status, ['ahead', 'identical'], true)) return;
+                }
+            } catch (Throwable $e) {
+                // A short GitHub read-after-write/API propagation delay must not
+                // turn a successful PATCH into a false deployment failure.
+            }
+            if ($attempt < 7) usleep(250000 + ($attempt * 100000));
+        }
+
+        throw new RuntimeException(
+            'Commit روی شاخه GitHub تأیید نشد.' .
+            ($lastHead !== '' ? ' HEAD=' . substr($lastHead, 0, 12) : '')
+        );
     }
 
     private static function branch_head_sha(array $s): string {

@@ -1,9 +1,9 @@
 name: Build Signed BlueVPN APK
 
+# APK builds are explicit only. A normal push to main must never start
+# Android compilation by itself. The WordPress bot uses repository_dispatch,
+# while workflow_dispatch is kept for the intentional "Build now" path.
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
   repository_dispatch:
     types:
@@ -114,37 +114,37 @@ jobs:
               return tuple(map(int, match.groups()))
 
           base = (4, 0, 0)
-          candidates = [
-              parse_app_version(app.get("version_name")),
-              parse_app_version(release.get("version")),
-          ]
-          project_version = max([v for v in candidates if v is not None] or [base])
+          app_version = parse_app_version(app.get("version_name"))
+          release_version = parse_app_version(release.get("version"))
+          if app_version is None or release_version is None:
+              raise SystemExit("Project version is missing or invalid in branding/app.json/release.json")
+          if app_version != release_version:
+              raise SystemExit(
+                  f"Project version mismatch: app={app_version} release={release_version}"
+              )
+
+          project_version = app_version
+          major, minor, patch = project_version
+          if patch > 10:
+              raise SystemExit(
+                  f"BlueVPN patch must stay within x.y.0..x.y.10: {major}.{minor}.{patch}"
+              )
+
           published_version = parse_app_version(os.environ.get("LATEST_TAG"))
+          if published_version is not None and published_version > project_version:
+              raise SystemExit(
+                  "Project version is behind the latest published Android release: "
+                  f"project={major}.{minor}.{patch} "
+                  f"published={published_version[0]}.{published_version[1]}.{published_version[2]}. "
+                  "Bump the source version explicitly before publishing."
+              )
 
-          # BlueVPN uses a deliberately short patch series: x.y.0 ... x.y.10.
-          # Historical versions above .10 (for example 4.0.36) roll once to the
-          # next minor instead of continuing to .37/.100. Never decrease an
-          # already-published version because Android/WordPress update checks
-          # require monotonically increasing versions.
-          def rollover_legacy(value):
-              major, minor, patch = value
-              return (major, minor + 1, 0) if patch > 10 else value
-
-          project_version = rollover_legacy(project_version)
-          if published_version is None or project_version > published_version:
-              resolved = max(project_version, base)
-          else:
-              canonical_published = rollover_legacy(published_version)
-              if canonical_published > published_version:
-                  resolved = canonical_published
-              else:
-                  major, minor, patch = published_version
-                  if patch >= 10:
-                      minor += 1
-                      patch = 0
-                  else:
-                      patch += 1
-                  resolved = (major, minor, patch)
+          # Version is source-controlled. A build must never silently consume a
+          # patch number just because the same/older GitHub tag already exists.
+          # Rebuilding the same version refreshes that release; source changes
+          # that need client rollout must explicitly bump branding/app.json and
+          # release.json. After x.y.10, the next source version is x.(y+1).0.
+          resolved = project_version
 
           version = ".".join(map(str, resolved))
           major, minor, patch = resolved
@@ -154,7 +154,7 @@ jobs:
           app["version_name"] = version
           app["version_code"] = version_code
           app["version_source"] = (
-              "project_release_or_latest_github_release_increment"
+              "source_declared_release_version"
           )
           app_path.write_text(
               json.dumps(app, ensure_ascii=False, indent=2) + "\n",
@@ -1022,11 +1022,14 @@ jobs:
           SOURCE_COMMIT="${{ steps.persist_generated.outputs.source_sha }}"
           SOURCE_URL="${{ steps.persist_generated.outputs.repository_commit_url }}"
 
+          MESSAGE="$(printf '🚀 Build جدید BlueVPN آماده شد\nنسخه: %s\nBuild: #%s\nCommit سورس: %s\nسورس مرجع پروژه روی GitHub تأیید شد؛ فایل Generated داخل مخزن ذخیره نمی‌شود.\n%s\nدو فایل مخصوص arm64-v8a و armeabi-v7a در ادامه ارسال می‌شوند.' \
+            "$VERSION" "$GITHUB_RUN_NUMBER" "${SOURCE_COMMIT:0:8}" "$SOURCE_URL")"
+
           curl --fail --show-error --silent \
             --request POST \
             "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=🚀 Build جدید BlueVPN آماده شد%0Aنسخه: ${VERSION}%0ABuild: #${GITHUB_RUN_NUMBER}%0ACommit سورس: ${SOURCE_COMMIT:0:8}%0Aسورس مرجع پروژه روی GitHub تأیید شد؛ فایل Generated داخل مخزن ذخیره نمی‌شود.%0A${SOURCE_URL}%0Aدو فایل مخصوص arm64-v8a و armeabi-v7a در ادامه ارسال می‌شوند."
+            --data-urlencode "text=${MESSAGE}"
 
           for apk in dist/*.apk; do
             ARCH="$(basename "$apk" .apk | sed -E 's/^BlueVPN_[^_]+_//')"

@@ -167,6 +167,10 @@ object BlueVpnUpdateManager {
                     connection.disconnect()
                 }
             }.onSuccess { config ->
+                // /mobile/config also carries the authoritative Free policy.
+                // Persist it here because UpdateManager uses its own HTTP stack
+                // instead of BlueVpnAccountManager.mobileConfig().
+                BlueVpnAccountManager.applyRemoteMobileConfig(activity, config)
                 activity.runOnUiThread {
                     val updateFound = applyRemoteConfig(
                         activity,

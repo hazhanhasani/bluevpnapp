@@ -475,6 +475,24 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("connectionPreparationGeneration += 1", launcher)
         self.assertIn("cancelFailover()", launcher)
 
+    def test_mobile_config_uses_real_ads_and_free_payload_methods(self):
+        api = text("bluevpn-manager/includes/class-bluevpn-api.php")
+        ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
+        self.assertIn("BlueVPN_Ads::advertising_payload($s, $r)", api)
+        self.assertIn("BlueVPN_Ads::free_access_payload($s)", api)
+        self.assertIn("public static function public_config", ads)
+        self.assertIn("public static function free_public_config", ads)
+
+    def test_free_session_policy_refreshes_independent_of_pool_readiness(self):
+        update = text("android-source/BlueVpnUpdateManager.kt")
+        self.assertIn("fun applyRemoteMobileConfig(c: Context, config: JSONObject): Boolean", self.account)
+        self.assertIn("fun refreshFreePolicy(c: Context, force: Boolean = false)", self.account)
+        self.assertIn("newMinutes < oldMinutes", self.account)
+        self.assertIn('.putLong("session_ends_at", allowedEnd)', self.account)
+        self.assertIn("refreshFreePolicy(", self.home)
+        self.assertIn("force = true", self.home)
+        self.assertIn("BlueVpnAccountManager.applyRemoteMobileConfig(activity, config)", update)
+
 
 class BlueVPNElementorThemeTests(unittest.TestCase):
     def test_elementor_native_theme_contract(self):

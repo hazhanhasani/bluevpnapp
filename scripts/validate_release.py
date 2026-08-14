@@ -42,6 +42,8 @@ def main() -> None:
     sms_otp = read("bluevpn-manager/includes/class-bluevpn-sms-otp.php")
     sms_notifications = read("bluevpn-manager/includes/class-bluevpn-sms-notifications.php")
     api = read("bluevpn-manager/includes/class-bluevpn-api.php")
+    ads = read("bluevpn-manager/includes/class-bluevpn-ads.php")
+    update_manager = read("android-source/BlueVpnUpdateManager.kt")
 
     version = str(app.get("version_name", "")).strip()
     match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
@@ -59,6 +61,20 @@ def main() -> None:
             "release android_version mismatch")
     require(int(release.get("android_version_code", -1)) == expected_version_code,
             "release android_version_code mismatch")
+
+    # /mobile/config is a critical control-plane contract: its helper names must
+    # exist and Free policy changes must propagate into Android independently of
+    # whether the local Free subscription pool is already populated.
+    require("BlueVPN_Ads::advertising_payload($s, $r)" in api, "mobile config uses wrong advertising helper")
+    require("BlueVPN_Ads::free_access_payload($s)" in api, "mobile config uses wrong Free policy helper")
+    require("public static function public_config" in ads and "public static function free_public_config" in ads,
+            "BlueVPN_Ads compatibility aliases missing")
+    require("fun applyRemoteMobileConfig(c: Context, config: JSONObject): Boolean" in account,
+            "Android does not persist server-authored Free policy")
+    require("newMinutes < oldMinutes" in account and '.putLong("session_ends_at", allowedEnd)' in account,
+            "active Free session is not clamped after a server-side limit reduction")
+    require("BlueVpnAccountManager.applyRemoteMobileConfig(activity, config)" in update_manager,
+            "manual update check does not apply Free policy")
     require(app["upstream_ref"] == "2.2.6", "production v2rayNG pin must be 2.2.6")
     require(app["android_lib_xray_ref"] == "v26.7.5", "documented AndroidLibXrayLite tag must be v26.7.5")
     require(app["xray_core_release_label"] == "v26.6.27", "v2rayNG 2.2.6 Xray-core release label must be v26.6.27")

@@ -1,12 +1,12 @@
 {
-  "version": "4.3.3",
-  "version_code": 40303,
+  "version": "4.3.4",
+  "version_code": 40304,
   "channel": "beta",
-  "build_id": "20260814-v4.3.3-update-api-live-compatibility-hotfix",
-  "built_at": "2026-08-14T14:54:00Z",
-  "android_version": "4.3.3",
-  "android_version_code": 40303,
-  "description": "BlueVPN 4.3.3: هات‌فیکس مسیر بروزرسانی و سازگاری BlueAI Live. بررسی بروزرسانی دیگر به درخواست همزمان GitHub وابسته نیست و همیشه از آخرین Release تأییدشده MySQL پاسخ می‌دهد، Sync در پس‌زمینه صف می‌شود و خطای Release Channel به تنظیمات Stable قبلی fallback می‌کند. پنل BlueAI نیز کلاینت‌های AI Schema v1 را از Live Heartbeat واقعی تفکیک می‌کند.",
+  "build_id": "20260814-v4.3.4-free-policy-live-sync-mobile-config-fatal-fix",
+  "built_at": "2026-08-14T15:37:00Z",
+  "android_version": "4.3.4",
+  "android_version_code": 40304,
+  "description": "BlueVPN 4.3.4: رفع خطای واقعی HTTP 500 در /mobile/config ناشی از فراخوانی متدهای ناموجود تبلیغات/اتصال رایگان و همگام‌سازی زنده سیاست پلن رایگان. تغییر مدت Session در پنل (مثلاً 60 به 30 دقیقه) مستقل از آماده‌بودن Pool روی Android اعمال می‌شود؛ بررسی بروزرسانی و ورود مجدد به برنامه نیز policy را ذخیره می‌کنند و کاهش محدودیت روی Session فعال clamp می‌شود.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -111,7 +111,14 @@
     "nonblocking-background-release-refresh",
     "release-channel-stable-fallback",
     "update-api-github-failure-isolation",
-    "legacy-ai-schema-live-compatibility-notice"
+    "legacy-ai-schema-live-compatibility-notice",
+    "mobile-config-ads-helper-contract-fix",
+    "mobile-config-http500-fatal-fix",
+    "free-policy-authoritative-live-sync",
+    "free-session-limit-change-propagation",
+    "active-free-session-limit-clamp",
+    "update-check-applies-free-policy",
+    "startup-free-policy-refresh-independent-of-pool-readiness"
   ],
-  "version_source": "v4.3.3-update-api-live-compatibility-hotfix"
+  "version_source": "v4.3.4-free-policy-live-sync-mobile-config-fatal-fix"
 }

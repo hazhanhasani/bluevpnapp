@@ -250,6 +250,15 @@ final class BlueVPN_Ads {
         ];
     }
 
+    /** Backward-compatible aliases for older call sites. */
+    public static function public_config(?WP_REST_Request $request = null): array {
+        return self::advertising_payload(BlueVPN_DB::settings(), $request);
+    }
+
+    public static function free_public_config(): array {
+        return self::free_access_payload(BlueVPN_DB::settings());
+    }
+
     public static function tapsell_payload(array $settings): array {
         $appKey = trim((string)($settings['tapsell_app_key'] ?? ''));
         $zone = trim((string)($settings['tapsell_interstitial_zone_id'] ?? ''));

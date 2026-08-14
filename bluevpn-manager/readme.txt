@@ -1,6 +1,6 @@
 === BlueVPN Manager ===
-Version: 4.3.3
-Stable tag: 4.3.3
+Version: 4.3.4
+Stable tag: 4.3.4
 Requires PHP: 8.0
 
 کنترل‌پلین اصلی BlueVPN روی WordPress/MySQL.
@@ -23,6 +23,11 @@ Requires PHP: 8.0
 
 == Changelog ==
 
+= 4.3.4 =
+* Fixed /mobile/config HTTP 500 caused by stale BlueVPN_Ads helper method names.
+* Free session duration and Free policy now refresh independently from local pool readiness.
+* A server-side duration reduction clamps an already-active Free session; duration increases apply on the next connection.
+* Manual update checks also persist the Free policy returned by WordPress.
 = 4.3.3 =
 * Update checker is cache-first: manual refresh no longer blocks on GitHub API.
 * Release sync is queued in the background and mobile config falls back to the last Stable metadata if release-channel lookup fails.

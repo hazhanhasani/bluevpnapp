@@ -1,4 +1,13 @@
 
+## 4.3.4 Free policy live-sync + mobile config fatal fix
+
+- Fixes the WordPress `/api/v1/mobile/config` fatal caused by calling non-existent `BlueVPN_Ads::public_config()` / `free_public_config()` helpers.
+- The API now calls the canonical advertising and Free-access payload builders and retains compatibility aliases.
+- Android applies `free_access.session_minutes` from every successful mobile-config response.
+- Free policy refresh no longer depends on whether the local Free pool is already installed.
+- Reducing the server-side limit (for example 60 -> 30 minutes) clamps an active Free session; increasing it applies on the next connection.
+- Manual update checks persist the same Free policy so Settings and Home cannot disagree.
+
 ## 4.3.3 update API + Live compatibility hotfix
 
 - `/api/v1/mobile/config?refresh=true` is cache-first and no longer performs a blocking GitHub Release request.

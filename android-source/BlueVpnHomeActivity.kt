@@ -164,6 +164,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var accountSyncInProgress = false
     private var accountSyncForcePending = false
     private var lastForegroundAccountSyncAt = 0L
+    private var lastForegroundFreePolicySyncAt = 0L
     private var userDisconnecting = false
     private var navigationLocked = false
     private var lastHistoryGuid = ""
@@ -1968,6 +1969,24 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         // repeating account/UI refresh work here doubled MMKV/JSON reads during
         // the first visible frame. Only later foreground resumes need this path.
         if (!initialResume) {
+            if (!BlueVpnAccountManager.premiumEntitlementActive(this)) {
+                val policyNow = SystemClock.elapsedRealtime()
+                if (policyNow - lastForegroundFreePolicySyncAt > 30_000L) {
+                    lastForegroundFreePolicySyncAt = policyNow
+                    lifecycleScope.launch(Dispatchers.IO) {
+                        val refreshed = BlueVpnAccountManager
+                            .refreshFreePolicy(this@BlueVpnHomeActivity, force = true)
+                            .isSuccess
+                        withContext(Dispatchers.Main) {
+                            if (!refreshed || isFinishing || isDestroyed) return@withContext
+                            BlueVpnAccountManager.enforceFreeSession(this@BlueVpnHomeActivity)
+                            requestDashboardRefresh(force = true)
+                            refreshSubscriptionInfo(force = true)
+                            updateFreeTimerBadge()
+                        }
+                    }
+                }
+            }
             if (BlueVpnAccountManager.hasSession(this)) {
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastForegroundAccountSyncAt > 120_000L) {
@@ -2000,6 +2019,16 @@ private fun scheduleStartupPipeline() {
         lifecycleScope.launch(Dispatchers.IO) {
             val hadSession = BlueVpnAccountManager.hasSession(this@BlueVpnHomeActivity)
             val premiumAtLaunch = BlueVpnAccountManager.premiumEntitlementActive(this@BlueVpnHomeActivity)
+            // Free policy (enabled/session minutes/sources) is server-authored and
+            // must refresh even when a healthy Free pool is already installed.
+            // Previously a ready pool skipped config fetch entirely, so changing
+            // 60 -> 30 minutes in WordPress could remain stale indefinitely.
+            if (!premiumAtLaunch) {
+                BlueVpnAccountManager.refreshFreePolicy(
+                    this@BlueVpnHomeActivity,
+                    force = true,
+                ).getOrNull()
+            }
             // Only a real Premium entitlement may skip Free preparation. An
             // authenticated account with no active subscription is still a Free
             // account and must receive the same Free pool as a guest.

@@ -203,6 +203,7 @@ object BlueVpnAccountManager {
         BuildConfig.BLUEVPN_API_BASE_URL.trimEnd('/')
 
     fun mobileConfig(c: Context, force: Boolean = false): Result<JSONObject> = runCatching {
+        val appContext = c.applicationContext
         val now = android.os.SystemClock.elapsedRealtime()
         val cached = mobileConfigCacheRaw
         if (!force && cached.isNotBlank() && now - mobileConfigCacheAt < MOBILE_CONFIG_CACHE_MS) {
@@ -214,11 +215,81 @@ object BlueVpnAccountManager {
             if (!force && lockedCached.isNotBlank() && lockedNow - mobileConfigCacheAt < MOBILE_CONFIG_CACHE_MS) {
                 return@synchronized JSONObject(lockedCached)
             }
-            val response = request(c.applicationContext, "GET", "/api/v1/mobile/config", null, false)
+            val response = request(appContext, "GET", "/api/v1/mobile/config", null, false)
+            applyRemoteMobileConfig(appContext, response)
             mobileConfigCacheRaw = response.toString()
             mobileConfigCacheAt = lockedNow
             JSONObject(mobileConfigCacheRaw)
         }
+    }
+
+    /**
+     * Apply server-authored Free policy from any successful /mobile/config response.
+     * BlueVpnUpdateManager has its own HTTP path, so this method is intentionally
+     * public to keep one canonical persistence path for session limits/sources.
+     */
+    fun applyRemoteMobileConfig(c: Context, config: JSONObject): Boolean {
+        val appContext = c.applicationContext
+        val free = config.optJSONObject("free_access") ?: return false
+        val storage = freePrefs(appContext)
+        val sources = free.optJSONArray("subscriptions") ?: JSONArray()
+        val storedSources = JSONArray()
+        for (index in 0 until sources.length()) {
+            val row = sources.optJSONObject(index) ?: continue
+            val url = row.optString("subscription_url").trim()
+            if (!url.startsWith("http")) continue
+            storedSources.put(
+                JSONObject()
+                    .put("id", row.optString("id").trim().ifBlank { "source-$index" })
+                    .put("name", row.optString("name").trim().ifBlank { "سرور رایگان ${index + 1}" })
+                    .put("url", url)
+                    .put("priority", row.optInt("priority", index))
+            )
+        }
+        val legacyUrl = free.optString("subscription_url").trim()
+        if (storedSources.length() == 0 && legacyUrl.startsWith("http")) {
+            storedSources.put(
+                JSONObject()
+                    .put("id", "legacy-default")
+                    .put("name", "سرور رایگان")
+                    .put("url", legacyUrl)
+                    .put("priority", 0)
+            )
+        }
+
+        val oldMinutes = storage.getInt("session_minutes", 60).coerceIn(15, 180)
+        val newMinutes = free.optInt("session_minutes", 60).coerceIn(15, 180)
+        val now = System.currentTimeMillis()
+        storage.edit()
+            .putBoolean("enabled", free.optBoolean("enabled", false))
+            .putString("subscription_url", legacyUrl)
+            .putString("subscriptions_json", storedSources.toString())
+            .putInt("session_minutes", newMinutes)
+            .putLong("config_at", now)
+            .commit()
+        invalidateFreeSnapshot()
+
+        // A server-side reduction (for example 60 -> 30 minutes) is authoritative
+        // even for an already-running Free session. Never extend an active session
+        // when the admin increases the limit; the new value applies on next connect.
+        if (newMinutes < oldMinutes && storage.getBoolean("session_active", false)) {
+            val startedAt = storage.getLong("session_started_at", 0L)
+            val currentEnd = storage.getLong("session_ends_at", 0L)
+            if (startedAt > 0L && currentEnd > 0L) {
+                val allowedEnd = startedAt + newMinutes * 60_000L
+                if (currentEnd > allowedEnd) {
+                    storage.edit().putLong("session_ends_at", allowedEnd).commit()
+                    if (allowedEnd > now) scheduleFreeAlarm(appContext, allowedEnd)
+                    else enforceFreeSession(appContext)
+                }
+            }
+        }
+        return true
+    }
+
+    fun refreshFreePolicy(c: Context, force: Boolean = false): Result<BlueVpnFreeAccessSnapshot> = runCatching {
+        mobileConfig(c.applicationContext, force).getOrThrow()
+        freeAccessSnapshot(c.applicationContext)
     }
 
     private fun restorePrimary(c: Context) {
@@ -432,36 +503,10 @@ object BlueVpnAccountManager {
                 freeAccessSnapshot(appContext).subscriptions.isEmpty()
 
             if (shouldFetch) {
-                val config = mobileConfig(appContext, force = force).getOrThrow()
-                val free = config.optJSONObject("free_access") ?: JSONObject()
-                val sources = free.optJSONArray("subscriptions") ?: JSONArray()
-                val storedSources = JSONArray()
-                for (index in 0 until sources.length()) {
-                    val row = sources.optJSONObject(index) ?: continue
-                    val url = row.optString("subscription_url").trim()
-                    if (!url.startsWith("http")) continue
-                    storedSources.put(JSONObject()
-                        .put("id", row.optString("id").trim().ifBlank { "source-$index" })
-                        .put("name", row.optString("name").trim().ifBlank { "سرور رایگان ${index + 1}" })
-                        .put("url", url)
-                        .put("priority", row.optInt("priority", index)))
-                }
-                val legacyUrl = free.optString("subscription_url").trim()
-                if (storedSources.length() == 0 && legacyUrl.startsWith("http")) {
-                    storedSources.put(JSONObject()
-                        .put("id", "legacy-default")
-                        .put("name", "سرور رایگان")
-                        .put("url", legacyUrl)
-                        .put("priority", 0))
-                }
-                storage.edit()
-                    .putBoolean("enabled", free.optBoolean("enabled", false))
-                    .putString("subscription_url", legacyUrl)
-                    .putString("subscriptions_json", storedSources.toString())
-                    .putInt("session_minutes", free.optInt("session_minutes", 60).coerceIn(15, 180))
-                    .putLong("config_at", now)
-                    .apply()
-                invalidateFreeSnapshot()
+                // mobileConfig() is the canonical Free-policy persistence path.
+                // Do not duplicate parsing here or session-limit changes can get
+                // out of sync with update-check/foreground refresh responses.
+                mobileConfig(appContext, force = force).getOrThrow()
             }
 
             if (premiumEntitlementActive(appContext)) {

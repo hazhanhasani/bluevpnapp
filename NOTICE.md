@@ -1,3 +1,7 @@
+## 4.3.4 Free-policy control-plane boundary
+
+The WordPress mobile-config endpoint is the authoritative source for Free access settings. Android refreshes and persists this policy independently of local v2rayNG subscription readiness. A server-side reduction of the Free session duration may shorten an active Free session, while an increase starts from the next Free connection. This control-plane fix does not modify the protected v2rayNG/Xray runtime.
+
 ## 4.3.3 update availability / Live compatibility boundary
 
 Android update availability must not depend on a synchronous GitHub request from shared cPanel hosting. The mobile config endpoint serves verified MySQL release metadata first and refreshes GitHub state asynchronously. BlueAI Live remains proof-based; older AI Schema v1 clients are identified as legacy instead of being falsely counted as live.

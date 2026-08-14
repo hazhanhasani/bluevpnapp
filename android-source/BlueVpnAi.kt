@@ -19,6 +19,7 @@ import java.security.MessageDigest
 import java.util.Calendar
 import java.util.Locale
 import java.util.UUID
+import kotlin.math.abs
 import kotlin.math.max
 
 object BlueVpnAi {
@@ -34,7 +35,7 @@ object BlueVpnAi {
     private const val KEY_LAST_PROBE_LATENCY = "last_probe_latency"
     private const val SYNC_INTERVAL = 5 * 60 * 1000L
     private const val HEARTBEAT_INTERVAL = 35 * 1000L
-    private const val AI_SCHEMA_VERSION = 2
+    private const val AI_SCHEMA_VERSION = 3
     private const val AI_ENGINE_FAMILY = "blueai-adaptive-v2"
     private const val PROBE_CACHE_MAX_AGE_MS = 125 * 1000L
 
@@ -45,6 +46,22 @@ object BlueVpnAi {
 
     data class TunnelVerification(
         val latencyMs: Long,
+        val source: String,
+    )
+
+    /**
+     * End-to-end RTT statistics measured through the running Xray local proxy.
+     * This is intentionally not a fake ICMP value: each sample is a real HTTP
+     * round trip carried by the active VPN tunnel to a tiny 204/health target.
+     */
+    data class TunnelLatencyStats(
+        val averageMs: Long,
+        val minMs: Long,
+        val maxMs: Long,
+        val jitterMs: Long,
+        val packetLossX100: Int,
+        val samples: Int,
+        val attempts: Int,
         val source: String,
     )
 
@@ -100,10 +117,23 @@ object BlueVpnAi {
         val httpPort = SettingsManager.getHttpPort()
         if (httpPort !in 1..65535) return null
 
+        for (target in probeTargets(context)) {
+            val result = requestTunnelProof(target, httpPort) ?: continue
+            prefs(context).edit()
+                .putLong(KEY_LAST_PROBE_AT, System.currentTimeMillis())
+                .putString(KEY_LAST_PROBE_SOURCE, result.source)
+                .putLong(KEY_LAST_PROBE_LATENCY, result.latencyMs)
+                .apply()
+            return result
+        }
+        return null
+    }
+
+    private fun probeTargets(context: Context): List<ProbeTarget> {
         val apiHealth = BlueVpnAccountManager.apiBaseUrl()
             .takeIf { it.startsWith("http") }
             ?.let { "${it.trimEnd('/')}/health" }
-        val targets = buildList {
+        return buildList {
             add(
                 ProbeTarget(
                     "http://cp.cloudflare.com/generate_204",
@@ -126,17 +156,74 @@ object BlueVpnAi {
                 )
             )
         }
+    }
 
-        for (target in targets) {
+    /**
+     * Measures fresh, real tunnel RTT for the live dashboard. The first target
+     * that answers successfully becomes the measurement target for the rest of
+     * the sample set so min/max/jitter remain comparable. Failed attempts are
+     * reported as packet loss instead of silently turning into a zero ping.
+     */
+    fun measureLiveTunnelLatency(
+        context: Context,
+        requestedSamples: Int = 3,
+    ): TunnelLatencyStats? {
+        if (!hasVpnTransport(context)) return null
+        val httpPort = SettingsManager.getHttpPort()
+        if (httpPort !in 1..65535) return null
+        val sampleGoal = requestedSamples.coerceIn(2, 4)
+
+        var chosen: ProbeTarget? = null
+        var first: TunnelVerification? = null
+        for (target in probeTargets(context)) {
             val result = requestTunnelProof(target, httpPort) ?: continue
-            prefs(context).edit()
-                .putLong(KEY_LAST_PROBE_AT, System.currentTimeMillis())
-                .putString(KEY_LAST_PROBE_SOURCE, result.source)
-                .putLong(KEY_LAST_PROBE_LATENCY, result.latencyMs)
-                .apply()
-            return result
+            chosen = target
+            first = result
+            break
         }
-        return null
+        val target = chosen ?: return null
+        val firstResult = first ?: return null
+
+        val latencies = mutableListOf(firstResult.latencyMs)
+        var attempts = 1
+        while (attempts < sampleGoal) {
+            attempts += 1
+            val result = requestTunnelProof(target, httpPort)
+            if (result != null) latencies += result.latencyMs
+        }
+        if (latencies.isEmpty()) return null
+
+        val average = latencies.sum().toDouble() / latencies.size.toDouble()
+        val min = latencies.minOrNull() ?: 0L
+        val max = latencies.maxOrNull() ?: 0L
+        val jitter = if (latencies.size >= 2) {
+            latencies.zipWithNext { a, b -> abs(b - a) }
+                .average()
+                .toLong()
+        } else {
+            0L
+        }
+        val losses = (attempts - latencies.size).coerceAtLeast(0)
+        val lossX100 = ((losses * 10_000.0) / attempts.toDouble())
+            .toInt()
+            .coerceIn(0, 10_000)
+
+        val stats = TunnelLatencyStats(
+            averageMs = average.toLong().coerceAtLeast(1L),
+            minMs = min.coerceAtLeast(1L),
+            maxMs = max.coerceAtLeast(1L),
+            jitterMs = jitter.coerceAtLeast(0L),
+            packetLossX100 = lossX100,
+            samples = latencies.size,
+            attempts = attempts,
+            source = target.source,
+        )
+        prefs(context).edit()
+            .putLong(KEY_LAST_PROBE_AT, System.currentTimeMillis())
+            .putString(KEY_LAST_PROBE_SOURCE, stats.source)
+            .putLong(KEY_LAST_PROBE_LATENCY, stats.averageMs)
+            .apply()
+        return stats
     }
 
     private fun requestTunnelProof(
@@ -618,6 +705,11 @@ object BlueVpnAi {
         healthScore: Int,
         downloadBytes: Long,
         uploadBytes: Long,
+        pingMinMs: Long = 0L,
+        pingMaxMs: Long = 0L,
+        jitterMs: Long = 0L,
+        packetLossX100: Int = 0,
+        pingSamples: Int = 0,
     ): Result<JSONObject> = runCatching {
         if (!enabled(context)) {
             return@runCatching JSONObject().put("accepted", false)
@@ -692,10 +784,14 @@ object BlueVpnAi {
             )
             .put(
                 "ping_ms",
-                verification.latencyMs
-                    .takeIf { it > 0L }
-                    ?: pingMs.coerceAtLeast(0L),
+                pingMs.takeIf { it > 0L }
+                    ?: verification.latencyMs.coerceAtLeast(0L),
             )
+            .put("ping_min_ms", pingMinMs.coerceAtLeast(0L))
+            .put("ping_max_ms", pingMaxMs.coerceAtLeast(0L))
+            .put("jitter_ms", jitterMs.coerceAtLeast(0L))
+            .put("packet_loss_x100", packetLossX100.coerceIn(0, 10_000))
+            .put("ping_samples", pingSamples.coerceIn(0, 8))
             .put("health_score", healthScore.coerceIn(0, 100))
             .put("download_bytes", safeDownload)
             .put("upload_bytes", safeUpload)

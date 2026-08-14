@@ -669,7 +669,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
     def test_79_android_blueai_sends_tier_and_schema_capability(self):
         ai = text("android-source/BlueVpnAi.kt")
         account = text("android-source/BlueVpnAccountManager.kt")
-        self.assertIn("AI_SCHEMA_VERSION = 2", ai)
+        self.assertIn("AI_SCHEMA_VERSION = 3", ai)
         self.assertIn('.put("plan_tier", planTier(context))', ai)
         self.assertIn('.put("ai_schema_version", AI_SCHEMA_VERSION)', ai)
         self.assertIn('"&plan_tier=" + java.net.URLEncoder.encode(planTier', account)
@@ -949,6 +949,48 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("PasarGuard Group IDs (Fallback)", cc)
         self.assertIn("همه گروه‌های فعال", cc)
         self.assertIn("همه Inboundهای فعال", cc)
+
+
+    def test_105_home_shows_live_speed_and_plan_aware_timer_in_reserved_area(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        self.assertIn("private fun createLiveConnectionMetrics", home)
+        self.assertIn("R.id.bluevpn_download_speed", home)
+        self.assertIn("R.id.bluevpn_upload_speed", home)
+        self.assertIn("R.id.bluevpn_duration_value", home)
+        self.assertIn('durationMetricLabel.text = "زمان باقی‌مانده"', home)
+        self.assertIn('durationMetricLabel.text = "مدت اتصال"', home)
+        header = block(home, "private fun createHeader", "private fun createConnectingOverlay")
+        self.assertNotIn('"رایگان 60:00"', header)
+
+    def test_106_blueai_live_reporter_measures_real_multi_sample_tunnel_rtt(self):
+        ai = text("android-source/BlueVpnAi.kt")
+        reporter = text("android-source/BlueVpnLiveReporter.kt")
+        self.assertIn("fun measureLiveTunnelLatency", ai)
+        self.assertIn("requestTunnelProof(target, httpPort)", ai)
+        self.assertIn("packetLossX100", ai)
+        self.assertIn("jitterMs", ai)
+        self.assertIn("BlueVpnAi.measureLiveTunnelLatency", reporter)
+        self.assertIn("requestedSamples = if (BlueVpnPerformance.isLowEnd(app)) 2 else 3", reporter)
+
+    def test_107_blueai_live_database_and_dashboard_expose_real_ping_statistics(self):
+        db = text("bluevpn-manager/includes/class-bluevpn-db.php")
+        ai = text("bluevpn-manager/includes/class-bluevpn-ai.php")
+        for token in ["ping_min_ms int", "ping_max_ms int", "jitter_ms int", "packet_loss_x100 int", "ping_samples int"]:
+            self.assertIn(token, db)
+        self.assertIn("minimum_live_ping_ms", ai)
+        self.assertIn("maximum_live_ping_ms", ai)
+        self.assertIn("average_live_jitter_ms", ai)
+        self.assertIn("average_live_loss_pct", ai)
+        self.assertIn("Ping واقعی", ai)
+        self.assertIn("در انتظار نمونه واقعی", ai)
+
+    def test_108_live_heartbeat_latency_updates_route_ping_without_fake_success_samples(self):
+        ai = text("bluevpn-manager/includes/class-bluevpn-ai.php")
+        helper = block(ai, "private static function update_route_live_latency", "public static function submit_event")
+        self.assertIn("total_ping_ms", helper)
+        self.assertIn("ping_samples", helper)
+        self.assertNotIn("sample_count", helper)
+        self.assertIn("if($accepted)self::update_route_live_latency", ai)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

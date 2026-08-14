@@ -1,6 +1,6 @@
-## BlueVPN 4.4.4
+## BlueVPN 4.4.5
 
-Provider repair is entitlement-preserving: it may create a missing PasarGuard/Marzban account or restore its local mapping, but it does not renew subscription time or reset usage.
+Live telemetry is measured, not synthesized: Android computes download/upload throughput from real UID traffic while connected, Free shows the actual remaining session time, Premium shows exact connected duration, and BlueAI v2.1 samples real HTTP RTT through the active Xray local proxy. Zero ping is treated as unavailable rather than as a valid measurement.
 
 ## 4.4.2 smart SMS pattern-assignment boundary
 

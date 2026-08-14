@@ -59,9 +59,18 @@ object BlueVpnLiveReporter {
         val uid = app.applicationInfo.uid
         val rx = TrafficStats.getUidRxBytes(uid).takeIf { it >= 0L } ?: 0L
         val tx = TrafficStats.getUidTxBytes(uid).takeIf { it >= 0L } ?: 0L
+        val latency = BlueVpnAi.measureLiveTunnelLatency(
+            app,
+            requestedSamples = if (BlueVpnPerformance.isLowEnd(app)) 2 else 3,
+        )
         BlueVpnAi.heartbeat(
             app,
-            pingMs = 0L,
+            pingMs = latency?.averageMs ?: 0L,
+            pingMinMs = latency?.minMs ?: 0L,
+            pingMaxMs = latency?.maxMs ?: 0L,
+            jitterMs = latency?.jitterMs ?: 0L,
+            packetLossX100 = latency?.packetLossX100 ?: 0,
+            pingSamples = latency?.samples ?: 0,
             healthScore = 0,
             downloadBytes = rx,
             uploadBytes = tx,

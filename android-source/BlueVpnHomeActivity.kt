@@ -122,6 +122,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private lateinit var subscriptionSummary: TextView
     private lateinit var pingValue: TextView
     private lateinit var durationValue: TextView
+    private lateinit var durationMetricLabel: TextView
     private lateinit var locationValue: TextView
     private lateinit var downloadSpeed: TextView
     private lateinit var uploadSpeed: TextView
@@ -327,10 +328,10 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 cancelFailover()
                 renderConnectionState(false)
                 statusText.text = "زمان اتصال رایگان پایان یافت"
-                statusCaption.text = "برای اتصال یک‌ساعته بعدی دوباره دکمه اتصال را بزنید"
+                statusCaption.text = "برای اتصال رایگان بعدی دوباره دکمه اتصال را بزنید"
                 Toast.makeText(
                     this@BlueVpnHomeActivity,
-                    "اتصال رایگان پس از یک ساعت قطع شد",
+                    "زمان اتصال رایگان پایان یافت",
                     Toast.LENGTH_LONG,
                 ).show()
             }
@@ -674,7 +675,22 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 bottomMargin = dpHome(12)
             },
         )
-        // Compact campaign banner: directly below the connection control and
+        // Real-time connection telemetry lives in the intentionally reserved
+        // area directly below the connection control. It shows actual UID/VPN
+        // throughput plus the Free countdown or exact Premium connected time.
+        content.addView(
+            createLiveConnectionMetrics(),
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dpHome(64),
+            ).apply {
+                marginStart = dpHome(4)
+                marginEnd = dpHome(4)
+                bottomMargin = dpHome(8)
+            },
+        )
+
+        // Compact campaign banner: directly below the connection telemetry and
         // immediately above server selection, matching the primary user flow.
         adsCarousel = BlueVpnAdsCarouselView(this)
         content.addView(
@@ -739,28 +755,10 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 marginStart = dpHome(8)
             },
         )
-        freeTimerBadge = uiText(
-            "رایگان 60:00",
-            9.5f,
-            palette.textPrimary,
-            bold = true,
-            gravity = Gravity.CENTER,
-        ).apply {
-            visibility = View.GONE
-            maxLines = 1
-            background = roundedGradient(
-                intArrayOf(palette.surfaceStrong, palette.surface),
-                15,
-                palette.accent,
-            )
-            setPadding(dpHome(8), 0, dpHome(8), 0)
-        }
-        row.addView(
-            freeTimerBadge,
-            LinearLayout.LayoutParams(dpHome(86), dpHome(38)).apply {
-                marginStart = dpHome(6)
-            },
-        )
+        // Free-session countdown and Premium connected duration are rendered
+        // in the live metrics strip under the main connection control. Keeping
+        // the header clean also prevents the countdown from competing with the
+        // version badge on small displays.
         row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         row.addView(
             headerIcon("account", R.id.bluevpn_action_subscription, "حساب و اشتراک"),
@@ -1236,6 +1234,118 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         return card
     }
 
+    private fun createLiveConnectionMetrics(): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            clipChildren = false
+            clipToPadding = false
+        }
+
+        fun metricCard(
+            icon: String,
+            label: String,
+            valueId: Int,
+            iconColor: Int,
+            bind: (TextView, TextView) -> Unit,
+        ): MaterialCardView {
+            val card = glassCard(
+                18,
+                palette.stroke,
+                palette.surfaceStrong,
+            ).apply {
+                elevation = dpHome(2).toFloat()
+            }
+            val inner = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                setPadding(dpHome(6), dpHome(5), dpHome(6), dpHome(5))
+            }
+            card.addView(
+                inner,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
+            )
+            val header = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            header.addView(
+                uiText(icon, 11.5f, iconColor, bold = true, gravity = Gravity.CENTER),
+                LinearLayout.LayoutParams(dpHome(18), dpHome(18)),
+            )
+            val labelView = uiText(
+                label,
+                7.8f,
+                palette.textMuted,
+                bold = true,
+                gravity = Gravity.CENTER,
+            ).apply { maxLines = 1 }
+            header.addView(labelView)
+            inner.addView(header)
+            val value = uiText(
+                "—",
+                11.5f,
+                palette.textPrimary,
+                bold = true,
+                gravity = Gravity.CENTER,
+            ).apply {
+                id = valueId
+                maxLines = 1
+            }
+            inner.addView(value)
+            bind(value, labelView)
+            return card
+        }
+
+        fun addMetric(card: View, start: Int = 0, end: Int = 0) {
+            row.addView(
+                card,
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+                    marginStart = dpHome(start)
+                    marginEnd = dpHome(end)
+                },
+            )
+        }
+
+        addMetric(
+            metricCard(
+                "↑",
+                "آپلود",
+                R.id.bluevpn_upload_speed,
+                Color.parseColor("#2ECF91"),
+            ) { value, _ -> uploadSpeed = value },
+            end = 3,
+        )
+        addMetric(
+            metricCard(
+                "◷",
+                "مدت اتصال",
+                R.id.bluevpn_duration_value,
+                palette.accent,
+            ) { value, labelView ->
+                durationValue = value
+                durationMetricLabel = labelView
+                freeTimerBadge = value
+            },
+            start = 3,
+            end = 3,
+        )
+        addMetric(
+            metricCard(
+                "↓",
+                "دانلود",
+                R.id.bluevpn_download_speed,
+                Color.parseColor("#FF6174"),
+            ) { value, _ -> downloadSpeed = value },
+            start = 3,
+        )
+        return row
+    }
+
     private fun createCompatibilityFields(): View {
         val hidden = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1249,9 +1359,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         historyValue = hiddenText(R.id.bluevpn_history_value)
         aiSummaryValue = hiddenText(R.id.bluevpn_ai_summary)
         pingValue = hiddenText(R.id.bluevpn_ping_value)
-        durationValue = hiddenText(R.id.bluevpn_duration_value)
-        downloadSpeed = hiddenText(R.id.bluevpn_download_speed)
-        uploadSpeed = hiddenText(R.id.bluevpn_upload_speed)
         balancedModeButton = MaterialButton(this).apply { id = R.id.bluevpn_mode_balanced }
         gamingModeButton = MaterialButton(this).apply { id = R.id.bluevpn_mode_gaming }
         streamingModeButton = MaterialButton(this).apply { id = R.id.bluevpn_mode_streaming }
@@ -1263,9 +1370,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             historyValue,
             aiSummaryValue,
             pingValue,
-            durationValue,
-            downloadSpeed,
-            uploadSpeed,
             balancedModeButton,
             gamingModeButton,
             streamingModeButton,
@@ -2659,8 +2763,15 @@ private fun dpHome(value: Int): Int =
         if (::connectingNotice.isInitialized) {
             connectingNotice.text = entitlement.connectionNotice
         }
-        if (::freeTimerBadge.isInitialized && !entitlement.isFree) {
-            freeTimerBadge.visibility = View.GONE
+        if (::durationMetricLabel.isInitialized) {
+            durationMetricLabel.text = if (entitlement.isFree) {
+                "زمان باقی‌مانده"
+            } else {
+                "مدت اتصال"
+            }
+        }
+        if (::freeTimerBadge.isInitialized) {
+            freeTimerBadge.visibility = View.VISIBLE
         }
     }
 
@@ -2689,24 +2800,41 @@ private fun dpHome(value: Int): Int =
 
     private fun updateFreeTimerBadge() {
         if (!::freeTimerBadge.isInitialized) return
+        val entitlement = BlueVpnEntitlement.resolveUi(this)
+        if (!entitlement.isFree) {
+            if (::durationMetricLabel.isInitialized) {
+                durationMetricLabel.text = "مدت اتصال"
+            }
+            freeTimerBadge.visibility = View.VISIBLE
+            return
+        }
+
+        if (::durationMetricLabel.isInitialized) {
+            durationMetricLabel.text = "زمان باقی‌مانده"
+        }
+        val active = connectionVerified ||
+            mainViewModel.isRunning.value == true ||
+            failoverActive
         val remaining = BlueVpnAccountManager.freeSessionRemainingMillis(this)
-        val show =
-            (connectionVerified || mainViewModel.isRunning.value == true || failoverActive) &&
-                BlueVpnEntitlement.resolveUi(this).timeLimited &&
-                remaining in 1 until Long.MAX_VALUE
-        if (!show) {
-            freeTimerBadge.visibility = View.GONE
+        if (!active || !entitlement.timeLimited || remaining <= 0L) {
+            val configuredMinutes = entitlement.sessionMinutes.coerceAtLeast(0)
+            freeTimerBadge.text = if (configuredMinutes > 0) {
+                String.format(Locale.US, "%02d:00", configuredMinutes)
+            } else {
+                "—"
+            }
+            freeTimerBadge.visibility = View.VISIBLE
             return
         }
         val totalSeconds = (remaining + 999L) / 1_000L
-        val minutes = totalSeconds / 60L
+        val hours = totalSeconds / 3_600L
+        val minutes = (totalSeconds % 3_600L) / 60L
         val seconds = totalSeconds % 60L
-        freeTimerBadge.text = String.format(
-            Locale.US,
-            "رایگان %02d:%02d",
-            minutes,
-            seconds,
-        )
+        freeTimerBadge.text = if (hours > 0L) {
+            String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format(Locale.US, "%02d:%02d", minutes, seconds)
+        }
         freeTimerBadge.visibility = View.VISIBLE
     }
 
@@ -3468,9 +3596,9 @@ private fun dpHome(value: Int): Int =
             "کیفیت اتصال در پس‌زمینه بررسی می‌شود"
         statusDot.backgroundTintList =
             ColorStateList.valueOf(Color.parseColor("#FFB44A"))
-        durationValue.text = "۰۰:۰۰:۰۰"
-        downloadSpeed.text = "۰ B/s"
-        uploadSpeed.text = "۰ B/s"
+        durationValue.text = "00:00:00"
+        downloadSpeed.text = "0 B/s"
+        uploadSpeed.text = "0 B/s"
     }
 
     private fun isThemeConnectionGraceActive(): Boolean =
@@ -4384,9 +4512,16 @@ private fun dpHome(value: Int): Int =
             connectionVerified
 
         if (!connected) {
-            durationValue.text = "۰۰:۰۰:۰۰"
-            downloadSpeed.text = "۰ B/s"
-            uploadSpeed.text = "۰ B/s"
+            downloadSpeed.text = "0 B/s"
+            uploadSpeed.text = "0 B/s"
+            if (BlueVpnEntitlement.resolveUi(this).isFree) {
+                updateFreeTimerBadge()
+            } else {
+                if (::durationMetricLabel.isInitialized) {
+                    durationMetricLabel.text = "مدت اتصال"
+                }
+                durationValue.text = "00:00:00"
+            }
             return
         }
 
@@ -4402,7 +4537,15 @@ private fun dpHome(value: Int): Int =
             0L,
             (System.currentTimeMillis() - startedAt) / 1000L
         )
-        durationValue.text = formatDuration(elapsedSeconds)
+        val entitlement = BlueVpnEntitlement.resolveUi(this)
+        if (entitlement.isFree) {
+            updateFreeTimerBadge()
+        } else {
+            if (::durationMetricLabel.isInitialized) {
+                durationMetricLabel.text = "مدت اتصال"
+            }
+            durationValue.text = formatDuration(elapsedSeconds)
+        }
 
         val now = System.currentTimeMillis()
         val (rx, tx) = readTunnelTrafficBytes()

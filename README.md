@@ -1,3 +1,12 @@
+## 4.4.5 Live Connection Telemetry + Real BlueAI RTT
+
+- فضای زیر کنترل اتصال اکنون سه کارت زنده دارد: دانلود، زمان اتصال/باقی‌مانده Free و آپلود.
+- Free timer از Header حذف و به همان پنل زنده منتقل شده است؛ Premium زمان دقیق اتصال را به HH:MM:SS نمایش می‌دهد.
+- سرعت دانلود/آپلود از TrafficStats واقعی UID سرویس VPN و اختلاف بایت در بازه زمانی زنده محاسبه می‌شود.
+- BlueAI Engine 2.1 / AI Schema v3 در هر Heartbeat چند RTT واقعی را از داخل Xray HTTP proxy می‌سنجد؛ میانگین، min، max، jitter و packet loss گزارش می‌شوند.
+- Dashboard دیگر 0 ms را به‌عنوان Ping معتبر نشان نمی‌دهد؛ هر ردیف Live فقط نمونه واقعی تونل را نمایش می‌دهد و آمار نسخه‌ها نیز از Heartbeatهای واقعی تغذیه می‌شود.
+- v2rayNG 2.2.6 / Xray lifecycle و config builder دست‌نخورده‌اند.
+
 ## 4.4.4 Missing Provider Subscription Repair
 
 - بخش کاربران اکنون گزینه «همگام‌سازی اشتراک‌های گمشده Provider» دارد.

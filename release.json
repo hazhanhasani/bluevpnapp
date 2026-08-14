@@ -1,12 +1,12 @@
 {
-  "version": "4.4.4",
-  "version_code": 40404,
+  "version": "4.4.5",
+  "version_code": 40405,
   "channel": "beta",
-  "build_id": "20260815-v4.4.4-auto-provider-access-groups",
-  "built_at": "2026-08-15T01:00:00Z",
-  "android_version": "4.4.4",
-  "android_version_code": 40404,
-  "description": "BlueVPN 4.4.4: همگام‌سازی Provider اکنون در PasarGuard همه گروه‌های فعال و در Marzban همه Inboundهای فعال را خودکار تخصیص می‌دهد؛ کاربران موجود نیز دوباره Sync می‌شوند و خطای 422 ناشی از proxy_settings/proxies ناسازگار Harden شده است.",
+  "build_id": "20260815-v4.4.5-live-telemetry-ui-real-rtt",
+  "built_at": "2026-08-15T01:20:00Z",
+  "android_version": "4.4.5",
+  "android_version_code": 40405,
+  "description": "BlueVPN 4.4.5: پنل گرافیکی سرعت دانلود/آپلود و تایمر اتصال در Home، انتقال تایمر Free از Header، مدت اتصال دقیق Premium و BlueAI RTT واقعی چندنمونه‌ای با min/max/jitter/loss.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -186,7 +186,15 @@
     "marzban-live-all-active-inbounds",
     "provider-repair-access-resync",
     "pasarguard-empty-proxy-settings-422-hardening",
-    "marzban-proxy-object-normalization"
+    "marzban-proxy-object-normalization",
+    "home-live-download-upload-speed-strip",
+    "free-countdown-moved-from-header-to-live-strip",
+    "premium-exact-connected-duration",
+    "blueai-engine-v2.1-real-tunnel-rtt",
+    "blueai-schema-v3-ping-statistics",
+    "live-ping-min-max-jitter-loss",
+    "heartbeat-ping-updates-route-aggregates",
+    "no-zero-ping-as-valid-live-stat"
   ],
-  "version_source": "v4.4.4-auto-provider-access-groups"
+  "version_source": "v4.4.5-live-telemetry-ui-real-rtt"
 }

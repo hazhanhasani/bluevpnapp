@@ -4,8 +4,8 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_AI {
     private const LIVE_TTL_SECONDS = 180;
     private const LIVE_PROBE_MAX_AGE_MS = 130000;
-    public const ENGINE_VERSION = '2.0.0';
-    public const SCHEMA_VERSION = 2;
+    public const ENGINE_VERSION = '2.1.0';
+    public const SCHEMA_VERSION = 3;
 
     public static function init(): void {
         add_action('admin_post_bluevpn_blueai_save', [self::class, 'save_settings']);
@@ -58,6 +58,7 @@ final class BlueVPN_AI {
             'tier_aware_learning', 'free_live_telemetry', 'premium_live_telemetry',
             'collective_route_scoring', 'version_cohort_health', 'verified_heartbeat',
             'stale_session_expiry', 'privacy_technical_metrics_only', 'adaptive_recent_weighting',
+            'live_tunnel_rtt_stats', 'live_ping_jitter_loss',
         ];
     }
 
@@ -143,6 +144,11 @@ final class BlueVPN_AI {
             'connected' => 1, 'verified' => 1, 'tunnel_running' => 1, 'vpn_transport' => 1,
             'verification_source' => self::clean($p['verification_source'] ?? '', 80, ''),
             'ping_ms' => self::clamp($p['ping_ms'] ?? 0, 0, 10000),
+            'ping_min_ms' => self::clamp($p['ping_min_ms'] ?? 0, 0, 10000),
+            'ping_max_ms' => self::clamp($p['ping_max_ms'] ?? 0, 0, 10000),
+            'jitter_ms' => self::clamp($p['jitter_ms'] ?? 0, 0, 10000),
+            'packet_loss_x100' => self::clamp($p['packet_loss_x100'] ?? 0, 0, 10000),
+            'ping_samples' => self::clamp($p['ping_samples'] ?? 0, 0, 8),
             'health_score' => self::clamp($p['health_score'] ?? 0, 0, 100),
             'download_bytes' => $same ? max((int)($row['download_bytes'] ?? 0), $incomingDown) : $incomingDown,
             'upload_bytes' => $same ? max((int)($row['upload_bytes'] ?? 0), $incomingUp) : $incomingUp,
@@ -231,6 +237,33 @@ final class BlueVPN_AI {
         return ['score'=>(int)round(max(0,min(100,$score))),'confidence'=>round($confidence,4),'recent_success_rate'=>round($recentRate,4),'recent_effective_samples'=>round($ws,3),'average_jitter_ms'=>round($avgJitter,2),'jitter_penalty'=>round($jitterPenalty,2),'blocked_for_operator'=>$blocked,'blocked_operator'=>$blocked?$op:'','block_reason'=>$blocked?'operator_recent_failure_rate':''];
     }
 
+    private static function update_route_live_latency(array $event, string $operator, string $network, string $mode, string $planTier, int $bucket): void {
+        global $wpdb;
+        $ping=(int)($event['ping_ms']??0);
+        if($ping<=0)return;
+        $t=BlueVPN_DB::table('ai_route_aggregates');
+        $row=$wpdb->get_row($wpdb->prepare(
+            "SELECT id,total_ping_ms,ping_samples,total_jitter_ms,jitter_samples FROM {$t} WHERE config_key=%s AND plan_tier=%s AND operator=%s AND network_type=%s AND mode=%s AND hour_bucket=%d LIMIT 1",
+            (string)$event['config_key'],$planTier,$operator,$network,$mode,$bucket
+        ),ARRAY_A);
+        if(!$row)return;
+        $pingSamples=(int)$row['ping_samples']+1;
+        $pingTotal=(int)$row['total_ping_ms']+$ping;
+        $update=[
+            'total_ping_ms'=>$pingTotal,
+            'ping_samples'=>$pingSamples,
+            'average_ping_ms'=>$pingTotal/max(1,$pingSamples),
+            'updated_at'=>BlueVPN_Utils::now_mysql(),
+        ];
+        $jitter=(int)($event['jitter_ms']??0);
+        if($jitter>0){
+            $jitterSamples=(int)$row['jitter_samples']+1;
+            $update['total_jitter_ms']=(int)$row['total_jitter_ms']+$jitter;
+            $update['jitter_samples']=$jitterSamples;
+        }
+        $wpdb->update($t,$update,['id'=>(int)$row['id']]);
+    }
+
     public static function submit_event(array $customer, array $p): array {
         global $wpdb;
         $config=self::clean($p['config_key']??'',80,''); if(strlen($config)<8) throw new InvalidArgumentException('config_key نامعتبر است');
@@ -245,6 +278,7 @@ final class BlueVPN_AI {
         $wpdb->insert(BlueVPN_DB::table('ai_connection_events'),$event);
         if($type==='heartbeat'){
             [$live,$accepted]=self::update_live((int)$customer['id'],$p,$operator,$network,$mode,$planTier,$proofOk,$proofError);
+            if($accepted)self::update_route_live_latency($event,$operator,$network,$mode,$planTier,$bucket);
             return ['accepted'=>true,'live'=>$accepted,'verified'=>$proofOk,'proof_error'=>$proofError,'operator'=>$operator,'network_type'=>$network,'session_id'=>$live['session_id']??'','expires_in_seconds'=>$accepted?self::LIVE_TTL_SECONDS:0,'plan_tier'=>$planTier,'engine_version'=>self::ENGINE_VERSION,'schema_version'=>self::SCHEMA_VERSION];
         }
         if(in_array($type,['session','disconnect'],true)||mb_strtolower(self::clean($p['live_state']??'',30,''))==='disconnected'||!BlueVPN_Utils::boolish($p['connected']??true)) self::disconnect_live((int)$customer['id'],$p,(string)($p['failure_reason']??$type));
@@ -310,7 +344,15 @@ final class BlueVPN_AI {
         $since=gmdate('Y-m-d H:i:s',time()-DAY_IN_SECONDS);
         $limit=max(1,min(30,$limit));
         return $wpdb->get_results($wpdb->prepare(
-            "SELECT app_version,plan_tier,COUNT(*) events,SUM(success) successes,AVG(NULLIF(ping_ms,0)) avg_ping,MAX(ai_schema_version) ai_schema_version,MAX(created_at) last_event FROM {$e} WHERE event_type<>'heartbeat' AND created_at>=%s GROUP BY app_version,plan_tier ORDER BY last_event DESC LIMIT %d",
+            "SELECT app_version,plan_tier,
+                SUM(CASE WHEN event_type<>'heartbeat' THEN 1 ELSE 0 END) events,
+                SUM(CASE WHEN event_type<>'heartbeat' THEN success ELSE 0 END) successes,
+                AVG(NULLIF(CASE WHEN event_type='heartbeat' THEN ping_ms ELSE 0 END,0)) avg_ping,
+                AVG(NULLIF(CASE WHEN event_type='heartbeat' THEN jitter_ms ELSE 0 END,0)) avg_jitter,
+                AVG(CASE WHEN event_type='heartbeat' THEN packet_loss_x100/100.0 ELSE NULL END) avg_loss_pct,
+                MAX(ai_schema_version) ai_schema_version,MAX(created_at) last_event
+             FROM {$e} WHERE created_at>=%s GROUP BY app_version,plan_tier
+             HAVING events>0 OR avg_ping IS NOT NULL ORDER BY last_event DESC LIMIT %d",
             $since,$limit
         ),ARRAY_A) ?: [];
     }
@@ -325,13 +367,22 @@ final class BlueVPN_AI {
             $limit
         ),ARRAY_A) ?: [];
         $counts=['total'=>0,'free'=>0,'premium'=>0,'unknown'=>0,'traffic_active'=>0];
-        $pingTotal=0;$pingN=0;
+        $pingTotal=0;$pingN=0;$liveMin=0;$liveMax=0;$jitterTotal=0;$jitterN=0;$lossTotal=0.0;$lossN=0;
         foreach($rows as &$row){
             $tier=self::normalize_plan_tier($row['plan_tier']??'unknown');
             if(!isset($counts[$tier]))$tier='unknown';
             $counts['total']++;$counts[$tier]++;
             if(!empty($row['traffic_active']))$counts['traffic_active']++;
-            $ping=(int)($row['ping_ms']??0);if($ping>0){$pingTotal+=$ping;$pingN++;}
+            $ping=(int)($row['ping_ms']??0);
+            if($ping>0){
+                $pingTotal+=$ping;$pingN++;
+                $rowMin=(int)($row['ping_min_ms']??0);$rowMax=(int)($row['ping_max_ms']??0);
+                $effectiveMin=$rowMin>0?$rowMin:$ping;$effectiveMax=$rowMax>0?$rowMax:$ping;
+                $liveMin=$liveMin===0?$effectiveMin:min($liveMin,$effectiveMin);$liveMax=max($liveMax,$effectiveMax);
+            }
+            $jitter=(int)($row['jitter_ms']??0);if($jitter>0){$jitterTotal+=$jitter;$jitterN++;}
+            $samples=(int)($row['ping_samples']??0);
+            if($samples>0){$lossTotal+=((int)($row['packet_loss_x100']??0))/100.0;$lossN++;}
             $seen=strtotime((string)($row['last_seen_at']??'').' UTC')?:time();
             $started=strtotime((string)($row['started_at']??'').' UTC')?:$seen;
             $row['heartbeat_age_seconds']=max(0,time()-$seen);
@@ -349,6 +400,11 @@ final class BlueVPN_AI {
             'schema_version'=>self::SCHEMA_VERSION,
             'counts'=>$counts,
             'average_live_ping_ms'=>round($pingTotal/max(1,$pingN),1),
+            'minimum_live_ping_ms'=>$liveMin,
+            'maximum_live_ping_ms'=>$liveMax,
+            'average_live_jitter_ms'=>round($jitterTotal/max(1,$jitterN),1),
+            'average_live_loss_pct'=>round($lossTotal/max(1,$lossN),1),
+            'ping_clients'=>$pingN,
             'degraded_routes'=>$degraded,
             'rows'=>$rows,
             'versions'=>self::version_health(),
@@ -376,19 +432,22 @@ final class BlueVPN_AI {
             $location=trim((string)($r['location_title']??''))?:'نامشخص';
             $network=trim((string)($r['operator']??''));$nt=trim((string)($r['network_type']??''));if($nt!=='')$network.=($network!==''?' • ':'').$nt;
             $ping=(int)($r['ping_ms']??0);$pingText=$ping>0?$ping.' ms':'—';
+            $pmin=(int)($r['ping_min_ms']??0);$pmax=(int)($r['ping_max_ms']??0);$jitter=(int)($r['jitter_ms']??0);$samples=(int)($r['ping_samples']??0);$loss=round(((int)($r['packet_loss_x100']??0))/100.0,1);
+            $pingMeta=$ping>0?('min '.($pmin>0?$pmin:$ping).' • max '.($pmax>0?$pmax:$ping).' • jitter '.$jitter.' • loss '.$loss.'%'.($samples>0?' • '.$samples.' نمونه':'')):'در انتظار نمونه واقعی';
+            $quality=$ping<=0?'is-na':($ping<=90?'is-great':($ping<=160?'is-good':($ping<=280?'is-mid':'is-poor')));
             $traffic=self::fmt_bytes((int)($r['download_bytes']??0)+(int)($r['upload_bytes']??0));
             $version=trim((string)($r['app_version']??''))?:'—';
             $age=(int)($r['heartbeat_age_seconds']??0);$ageText=$age<5?'همین حالا':$age.' ثانیه قبل';
             $duration=self::fmt_duration((int)($r['connected_seconds']??0));
-            $html.='<tr><td><span class="bvai-tier '.$klass.'">'.esc_html($label).'</span></td><td><strong>'.esc_html($customer).'</strong><small>'.esc_html($device).'</small></td><td><strong>'.esc_html($location).'</strong><small>'.esc_html($duration).'</small></td><td>'.esc_html($network?:'—').'</td><td><strong>'.esc_html($pingText).'</strong></td><td>'.esc_html($traffic).'</td><td>'.esc_html($version).'</td><td><span class="bvai-live-dot"></span>'.esc_html($ageText).'</td></tr>';
+            $html.='<tr><td><span class="bvai-tier '.$klass.'">'.esc_html($label).'</span></td><td><strong>'.esc_html($customer).'</strong><small>'.esc_html($device).'</small></td><td><strong>'.esc_html($location).'</strong><small>'.esc_html($duration).'</small></td><td>'.esc_html($network?:'—').'</td><td><span class="bvai-ping '.$quality.'"><strong>'.esc_html($pingText).'</strong><small>'.esc_html($pingMeta).'</small></span></td><td>'.esc_html($traffic).'</td><td>'.esc_html($version).'</td><td><span class="bvai-live-dot"></span>'.esc_html($ageText).'</td></tr>';
         }
         return $html.'</tbody></table></div>';
     }
 
     private static function version_table_html(array $rows): string {
         if(!$rows)return '<div class="bvc-empty">برای مقایسه نسخه‌ها هنوز داده کافی وجود ندارد.</div>';
-        $html='<div class="bvc-table-scroll"><table class="widefat striped bvc-table"><thead><tr><th>نسخه اپ</th><th>پلن</th><th>رویداد ۲۴ساعت</th><th>موفقیت</th><th>Ping میانگین</th><th>AI Schema</th></tr></thead><tbody>';
-        foreach($rows as $r){$events=(int)$r['events'];$success=(int)$r['successes'];$rate=round($success*100/max(1,$events),1);$ping=(float)($r['avg_ping']??0);$html.='<tr><td><strong>'.esc_html((string)($r['app_version']?:'ناشناخته')).'</strong></td><td>'.esc_html(ucfirst((string)$r['plan_tier'])).'</td><td>'.$events.'</td><td>'.$rate.'%</td><td>'.($ping>0?round($ping,1).' ms':'—').'</td><td>v'.(int)$r['ai_schema_version'].'</td></tr>';}
+        $html='<div class="bvc-table-scroll"><table class="widefat striped bvc-table"><thead><tr><th>نسخه اپ</th><th>پلن</th><th>رویداد ۲۴ساعت</th><th>موفقیت</th><th>Ping واقعی</th><th>Jitter</th><th>Loss</th><th>AI Schema</th></tr></thead><tbody>';
+        foreach($rows as $r){$events=(int)$r['events'];$success=(int)$r['successes'];$rate=round($success*100/max(1,$events),1);$ping=(float)($r['avg_ping']??0);$jitter=(float)($r['avg_jitter']??0);$loss=(float)($r['avg_loss_pct']??0);$html.='<tr><td><strong>'.esc_html((string)($r['app_version']?:'ناشناخته')).'</strong></td><td>'.esc_html(ucfirst((string)$r['plan_tier'])).'</td><td>'.$events.'</td><td>'.$rate.'%</td><td>'.($ping>0?round($ping,1).' ms':'—').'</td><td>'.($jitter>0?round($jitter,1).' ms':'—').'</td><td>'.($ping>0?round($loss,1).'%':'—').'</td><td>v'.(int)$r['ai_schema_version'].'</td></tr>';}
         return $html.'</tbody></table></div>';
     }
 
@@ -399,6 +458,11 @@ final class BlueVPN_AI {
         wp_send_json_success([
             'counts'=>$snapshot['counts'],
             'average_live_ping_ms'=>$snapshot['average_live_ping_ms'],
+            'minimum_live_ping_ms'=>$snapshot['minimum_live_ping_ms'],
+            'maximum_live_ping_ms'=>$snapshot['maximum_live_ping_ms'],
+            'average_live_jitter_ms'=>$snapshot['average_live_jitter_ms'],
+            'average_live_loss_pct'=>$snapshot['average_live_loss_pct'],
+            'ping_clients'=>$snapshot['ping_clients'],
             'degraded_routes'=>$snapshot['degraded_routes'],
             'live_html'=>self::live_table_html($snapshot['rows']),
             'version_html'=>self::version_table_html($snapshot['versions']),
@@ -465,7 +529,8 @@ final class BlueVPN_AI {
         foreach((array)($snapshot['versions']??[]) as $versionRow){
             if((int)($versionRow['ai_schema_version']??1)<2 && trim((string)($versionRow['app_version']??''))!==''){$legacyLiveClients=true;break;}
         }
-        echo '<div class="bvc-card"><div class="bvai-card-head"><div><h2>رصد زنده اتصال‌ها</h2><p>فقط اتصال‌هایی نمایش داده می‌شوند که VPN Transport و دسترسی واقعی اینترنت آن‌ها تأیید شده است.</p></div><div><strong id="bvai-live-ping">'.esc_html((string)$snapshot['average_live_ping_ms']).' ms</strong><small>میانگین Ping زنده</small></div></div>';
+        $pingDetail=$snapshot['ping_clients']>0?('min '.$snapshot['minimum_live_ping_ms'].' • max '.$snapshot['maximum_live_ping_ms'].' • jitter '.$snapshot['average_live_jitter_ms'].' • loss '.$snapshot['average_live_loss_pct'].'%'):'در انتظار نمونه واقعی';
+        echo '<div class="bvc-card"><div class="bvai-card-head"><div><h2>رصد زنده اتصال‌ها</h2><p>Ping این بخش RTT واقعیِ چندنمونه‌ای است که از داخل همان تونل فعال Xray تا مقصد سبک اینترنتی اندازه‌گیری می‌شود؛ مقدار صفر یا تخمینی نمایش داده نمی‌شود.</p></div><div><strong id="bvai-live-ping">'.($snapshot['ping_clients']>0?esc_html((string)$snapshot['average_live_ping_ms']).' ms':'—').'</strong><small>میانگین RTT واقعی</small><small id="bvai-live-ping-detail">'.esc_html($pingDetail).'</small></div></div>';
         if((int)($snapshot['counts']['total']??0)===0 && $legacyLiveClients){
             echo '<div class="notice notice-info inline"><p><strong>کلاینت قدیمی شناسایی شد:</strong> نسخه‌های دارای AI Schema v1 رویداد اتصال می‌فرستند اما Live Heartbeat ندارند. رصد زنده واقعی از Android 4.3.2+ فعال است.</p></div>';
         }
@@ -474,10 +539,10 @@ final class BlueVPN_AI {
         echo '<div class="bvc-card"><h2>هوشمندی نسخه‌ها — ۲۴ ساعت اخیر</h2><p>هر آپدیت با Schema/Capability خودش رصد می‌شود؛ داده‌های قبلی حذف نمی‌شوند و نسخه جدید روی دانش جمعی موجود ادامه می‌دهد.</p><div id="bluevpn-ai-version-table">'.self::version_table_html($snapshot['versions']).'</div></div>';
 
         $a=BlueVPN_DB::table('ai_route_aggregates');$rows=$wpdb->get_results("SELECT plan_tier,location_title,operator,network_type,mode,score,recent_score,sample_count,success_rate,average_ping_ms,updated_at FROM {$a} ORDER BY score DESC,sample_count DESC LIMIT 40",ARRAY_A);
-        echo '<div class="bvc-card"><h2>بهترین Routeهای یادگرفته‌شده</h2><table class="widefat striped bvc-table"><tr><th>پلن</th><th>لوکیشن</th><th>اپراتور</th><th>شبکه</th><th>Mode</th><th>Score</th><th>نمونه</th><th>Success</th><th>Ping</th><th>آخرین داده</th></tr>';foreach($rows as $r)echo '<tr><td>'.esc_html(ucfirst((string)$r['plan_tier'])).'</td><td>'.esc_html($r['location_title']).'</td><td>'.esc_html($r['operator']).'</td><td>'.esc_html($r['network_type']).'</td><td>'.esc_html($r['mode']).'</td><td><strong>'.(int)$r['score'].'</strong></td><td>'.(int)$r['sample_count'].'</td><td>'.esc_html((string)round((float)$r['success_rate']*100,1)).'%</td><td>'.esc_html((string)round((float)$r['average_ping_ms'],1)).' ms</td><td>'.esc_html($r['updated_at']).'</td></tr>';echo '</table></div>';
+        echo '<div class="bvc-card"><h2>بهترین Routeهای یادگرفته‌شده</h2><table class="widefat striped bvc-table"><tr><th>پلن</th><th>لوکیشن</th><th>اپراتور</th><th>شبکه</th><th>Mode</th><th>Score</th><th>نمونه</th><th>Success</th><th>Ping واقعی</th><th>آخرین داده</th></tr>';foreach($rows as $r){$routePing=(float)$r['average_ping_ms'];echo '<tr><td>'.esc_html(ucfirst((string)$r['plan_tier'])).'</td><td>'.esc_html($r['location_title']).'</td><td>'.esc_html($r['operator']).'</td><td>'.esc_html($r['network_type']).'</td><td>'.esc_html($r['mode']).'</td><td><strong>'.(int)$r['score'].'</strong></td><td>'.(int)$r['sample_count'].'</td><td>'.esc_html((string)round((float)$r['success_rate']*100,1)).'%</td><td>'.($routePing>0?esc_html((string)round($routePing,1)).' ms':'—').'</td><td>'.esc_html($r['updated_at']).'</td></tr>';}echo '</table></div>';
 
         $ajax=admin_url('admin-ajax.php');$nonce=wp_create_nonce('bluevpn_ai_live');$refresh=max(3,min(30,(int)($s['blueai_live_refresh_seconds']??5)))*1000;
-        echo '<script>(function(){const endpoint='.wp_json_encode($ajax).';const nonce='.wp_json_encode($nonce).';const interval='.(int)$refresh.';let running=false;async function refreshBlueAi(){if(running||document.visibilityState!=="visible")return;running=true;try{const body=new URLSearchParams({action:"bluevpn_ai_live_snapshot",nonce:nonce});const res=await fetch(endpoint,{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body:body.toString()});const json=await res.json();if(!json.success||!json.data)return;const d=json.data;const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v};set("bvai-kpi-live",d.counts.total);set("bvai-kpi-free",d.counts.free);set("bvai-kpi-premium",d.counts.premium);set("bvai-live-ping",d.average_live_ping_ms+" ms");set("bvai-degraded",d.degraded_routes);set("bvai-live-updated","همین حالا");const live=document.getElementById("bluevpn-ai-live-table");if(live)live.innerHTML=d.live_html;const versions=document.getElementById("bluevpn-ai-version-table");if(versions)versions.innerHTML=d.version_html;}catch(e){set("bvai-live-updated","خطا در نوسازی");}finally{running=false;}}setInterval(refreshBlueAi,interval);document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")refreshBlueAi();});})();</script>';
+        echo '<script>(function(){const endpoint='.wp_json_encode($ajax).';const nonce='.wp_json_encode($nonce).';const interval='.(int)$refresh.';let running=false;async function refreshBlueAi(){if(running||document.visibilityState!=="visible")return;running=true;try{const body=new URLSearchParams({action:"bluevpn_ai_live_snapshot",nonce:nonce});const res=await fetch(endpoint,{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body:body.toString()});const json=await res.json();if(!json.success||!json.data)return;const d=json.data;const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v};set("bvai-kpi-live",d.counts.total);set("bvai-kpi-free",d.counts.free);set("bvai-kpi-premium",d.counts.premium);set("bvai-live-ping",d.ping_clients>0?d.average_live_ping_ms+" ms":"—");set("bvai-live-ping-detail",d.ping_clients>0?("min "+d.minimum_live_ping_ms+" • max "+d.maximum_live_ping_ms+" • jitter "+d.average_live_jitter_ms+" • loss "+d.average_live_loss_pct+"%"):"در انتظار نمونه واقعی");set("bvai-degraded",d.degraded_routes);set("bvai-live-updated","همین حالا");const live=document.getElementById("bluevpn-ai-live-table");if(live)live.innerHTML=d.live_html;const versions=document.getElementById("bluevpn-ai-version-table");if(versions)versions.innerHTML=d.version_html;}catch(e){set("bvai-live-updated","خطا در نوسازی");}finally{running=false;}}setInterval(refreshBlueAi,interval);document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")refreshBlueAi();});})();</script>';
     }
 
 }

@@ -1,6 +1,6 @@
 === BlueVPN Manager ===
-Version: 4.4.4
-Stable tag: 4.4.4
+Version: 4.4.5
+Stable tag: 4.4.5
 Requires PHP: 8.0
 
 == تغییرات 4.4.1 ==
@@ -55,6 +55,13 @@ Requires PHP: 8.0
 - نسخه‌گذاری BlueVPN از الگوی x.y.0 تا x.y.10 پیروی می‌کند؛ بعد از x.y.10 نسخه بعدی x.(y+1).0 است.
 
 == Changelog ==
+
+== 4.4.5 ==
+* Home: نمایش گرافیکی سرعت دانلود/آپلود واقعی در فضای زیر دکمه اتصال.
+* Home: تایمر Free از Header به پنل Telemetry منتقل شد؛ Premium مدت دقیق اتصال را نمایش می‌دهد.
+* BlueAI 2.1 / Schema v3: اندازه‌گیری RTT واقعی چندنمونه‌ای از داخل تونل Xray، همراه min/max/jitter/loss.
+* Live dashboard: Ping صفر/تخمینی نمایش داده نمی‌شود و Routeهای یادگرفته‌شده از Heartbeat واقعی latency می‌گیرند.
+
 
 
 = 4.3.5 =

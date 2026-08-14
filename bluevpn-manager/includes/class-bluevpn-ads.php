@@ -3,6 +3,7 @@ if (!defined('ABSPATH')) exit;
 
 final class BlueVPN_Ads {
     private const MAX_IMAGE_BYTES = 6291456;
+    private const MAX_STORY_VIDEO_BYTES = 12582912;
 
     public static function init(): void {
         add_filter('rest_pre_serve_request', [self::class, 'serve_raw_response'], 10, 4);
@@ -12,6 +13,11 @@ final class BlueVPN_Ads {
             'bluevpn_ads_update' => 'update_ad',
             'bluevpn_ads_toggle' => 'toggle_ad',
             'bluevpn_ads_delete' => 'delete_ad',
+            'bluevpn_story_save' => 'save_story_settings',
+            'bluevpn_story_create' => 'create_story_ad',
+            'bluevpn_story_update' => 'update_story_ad',
+            'bluevpn_story_toggle' => 'toggle_story_ad',
+            'bluevpn_story_delete' => 'delete_story_ad',
             'bluevpn_free_save' => 'save_free_settings',
             'bluevpn_free_add' => 'add_free_source',
             'bluevpn_free_toggle' => 'toggle_free_source',
@@ -93,6 +99,8 @@ final class BlueVPN_Ads {
             'image/jpeg' => 'jpg',
             'image/png' => 'png',
             'image/gif' => 'gif',
+            'video/mp4' => 'mp4',
+            'video/webm' => 'webm',
             default => 'webp',
         };
     }
@@ -112,7 +120,7 @@ final class BlueVPN_Ads {
             $sha = hash('sha256', $payload);
         }
         $mime = strtolower(trim((string)($row['content_type'] ?? 'image/webp')));
-        if (!in_array($mime, ['image/webp', 'image/jpeg', 'image/png', 'image/gif'], true)) $mime = 'image/webp';
+        if (!in_array($mime, ['image/webp', 'image/jpeg', 'image/png', 'image/gif', 'video/mp4', 'video/webm'], true)) $mime = 'image/webp';
         $uploads = wp_upload_dir(null, false);
         if (!is_array($uploads) || !empty($uploads['error'])) return '';
         $baseDir = rtrim((string)($uploads['basedir'] ?? ''), '/\\');
@@ -259,6 +267,66 @@ final class BlueVPN_Ads {
         return self::free_access_payload(BlueVPN_DB::settings());
     }
 
+    public static function story_items(array $settings): array {
+        $rows = is_array($settings['free_story_ads_items'] ?? null) ? $settings['free_story_ads_items'] : [];
+        $out = [];
+        foreach (array_slice($rows, 0, 100) as $raw) {
+            if (!is_array($raw)) continue;
+            $id = preg_replace('/[^A-Za-z0-9_-]+/', '', (string)($raw['id'] ?? '')) ?: '';
+            if (strlen($id) < 6 || strlen($id) > 64) continue;
+            $type = strtolower(trim((string)($raw['media_type'] ?? 'image')));
+            if (!in_array($type, ['image', 'video'], true)) $type = 'image';
+            $out[] = [
+                'id' => $id,
+                'title' => mb_substr(trim((string)($raw['title'] ?? '')), 0, 120),
+                'subtitle' => mb_substr(trim((string)($raw['subtitle'] ?? '')), 0, 240),
+                'media_type' => $type,
+                'media_url' => mb_substr(trim((string)($raw['media_url'] ?? '')), 0, 1200),
+                'target_url' => mb_substr(trim((string)($raw['target_url'] ?? '')), 0, 1200),
+                'button_text' => mb_substr(trim((string)($raw['button_text'] ?? '')), 0, 40),
+                'active' => !array_key_exists('active', $raw) || BlueVPN_Utils::boolish($raw['active']),
+                'weight' => max(1, min(100, (int)($raw['weight'] ?? 1))),
+                'image_duration_seconds' => max(3, min(30, (int)($raw['image_duration_seconds'] ?? ($settings['free_story_ads_image_seconds'] ?? 6)))),
+                'start_at' => mb_substr(trim((string)($raw['start_at'] ?? '')), 0, 40),
+                'end_at' => mb_substr(trim((string)($raw['end_at'] ?? '')), 0, 40),
+            ];
+        }
+        return $out;
+    }
+
+    public static function free_story_payload(array $settings): array {
+        $rows = [];
+        foreach (self::story_items($settings) as $item) {
+            if (!self::is_current($item)) continue;
+            $media = self::resolve_asset_path((string)$item['media_url']);
+            if ($media === '') continue;
+            $target = wp_http_validate_url((string)$item['target_url']) ? esc_url_raw((string)$item['target_url']) : '';
+            $rows[] = [
+                'id' => $item['id'],
+                'title' => $item['title'],
+                'subtitle' => $item['subtitle'],
+                'media_type' => $item['media_type'],
+                'media_url' => $media,
+                'target_url' => $target,
+                'button_text' => $item['button_text'],
+                'weight' => $item['weight'],
+                'image_duration_seconds' => $item['image_duration_seconds'],
+            ];
+        }
+        $enabled = !empty($settings['free_story_ads_enabled']) && !empty($rows);
+        return [
+            'enabled' => $enabled,
+            'required' => $enabled && (!array_key_exists('free_story_ads_required', $settings) || !empty($settings['free_story_ads_required'])),
+            'free_only' => true,
+            'random' => true,
+            'every_connection' => true,
+            'image_duration_seconds' => max(3, min(30, (int)($settings['free_story_ads_image_seconds'] ?? 6))),
+            'load_timeout_ms' => max(3000, min(15000, (int)($settings['free_story_ads_load_timeout_seconds'] ?? 8) * 1000)),
+            'max_video_seconds' => max(5, min(60, (int)($settings['free_story_ads_max_video_seconds'] ?? 30))),
+            'items' => $enabled ? $rows : [],
+        ];
+    }
+
     public static function tapsell_payload(array $settings): array {
         $appKey = trim((string)($settings['tapsell_app_key'] ?? ''));
         $zone = trim((string)($settings['tapsell_interstitial_zone_id'] ?? ''));
@@ -343,7 +411,7 @@ final class BlueVPN_Ads {
             $res = new WP_REST_Response((string)$row['payload'], 200);
         }
         $mime = strtolower((string)($row['content_type'] ?? 'image/webp'));
-        if (!in_array($mime, ['image/webp', 'image/jpeg', 'image/png', 'image/gif'], true)) $mime = 'image/webp';
+        if (!in_array($mime, ['image/webp', 'image/jpeg', 'image/png', 'image/gif', 'video/mp4', 'video/webm'], true)) $mime = 'image/webp';
         $res->header('Content-Type', $mime);
         // Do not send Content-Length from PHP. cPanel/Apache/PHP output
         // compression can otherwise advertise the uncompressed byte count and
@@ -441,6 +509,43 @@ final class BlueVPN_Ads {
             'created_at' => BlueVPN_Utils::now_mysql(),
         ]);
         if ($ok === false) throw new RuntimeException('ذخیره تصویر در MySQL ناموفق بود.');
+        return '/api/v1/ad-assets/' . $id;
+    }
+
+    private static function store_story_upload(array $file, string $mediaType): string {
+        global $wpdb;
+        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || empty($file['tmp_name'])) throw new RuntimeException('فایل استوری انتخاب نشده است.');
+        $size = (int)($file['size'] ?? 0);
+        $max = $mediaType === 'video' ? self::MAX_STORY_VIDEO_BYTES : self::MAX_IMAGE_BYTES;
+        if ($size <= 0 || $size > $max) {
+            throw new RuntimeException($mediaType === 'video' ? 'حجم ویدئو باید کمتر از ۱۲ مگابایت باشد.' : 'حجم تصویر باید کمتر از ۶ مگابایت باشد.');
+        }
+        $payload = file_get_contents((string)$file['tmp_name']);
+        if (!is_string($payload) || $payload === '') throw new RuntimeException('خواندن فایل استوری ناموفق بود.');
+        $mime = '';
+        if ($mediaType === 'image') {
+            $info = @getimagesizefromstring($payload);
+            if (!is_array($info) || empty($info[0]) || empty($info[1])) throw new RuntimeException('فایل انتخاب‌شده تصویر معتبر نیست.');
+            if ((int)$info[0] < 240 || (int)$info[1] < 240 || (int)$info[0] > 8000 || (int)$info[1] > 8000) throw new RuntimeException('ابعاد تصویر استوری معتبر نیست.');
+            $mime = strtolower((string)($info['mime'] ?? ''));
+            if (!in_array($mime, ['image/webp', 'image/jpeg', 'image/png'], true)) throw new RuntimeException('فرمت تصویر استوری باید WebP/JPG/PNG باشد.');
+        } else {
+            $finfo = function_exists('finfo_open') ? @finfo_open(FILEINFO_MIME_TYPE) : false;
+            $mime = $finfo ? strtolower((string)@finfo_file($finfo, (string)$file['tmp_name'])) : '';
+            if ($finfo) @finfo_close($finfo);
+            if (!in_array($mime, ['video/mp4', 'video/webm'], true)) throw new RuntimeException('فرمت ویدئو استوری باید MP4 یا WebM باشد.');
+        }
+        $id = bin2hex(random_bytes(16));
+        $ok = $wpdb->insert(BlueVPN_DB::table('ad_assets'), [
+            'id' => $id,
+            'filename' => mb_substr(sanitize_file_name((string)($file['name'] ?? 'story-media')), 0, 180),
+            'content_type' => $mime,
+            'payload' => $payload,
+            'sha256' => hash('sha256', $payload),
+            'byte_size' => strlen($payload),
+            'created_at' => BlueVPN_Utils::now_mysql(),
+        ]);
+        if ($ok === false) throw new RuntimeException('ذخیره فایل استوری در MySQL ناموفق بود؛ محدودیت max_allowed_packet هاست را بررسی کنید.');
         return '/api/v1/ad-assets/' . $id;
     }
 
@@ -568,6 +673,131 @@ final class BlueVPN_Ads {
         self::redirect('ads', 'تبلیغ حذف شد.');
     }
 
+    public static function save_story_settings(): void {
+        self::guard('bluevpn_story_save');
+        $s = BlueVPN_DB::settings();
+        $s['free_story_ads_enabled'] = isset($_POST['free_story_ads_enabled']);
+        $s['free_story_ads_required'] = isset($_POST['free_story_ads_required']);
+        $s['free_story_ads_image_seconds'] = max(3, min(30, (int)($_POST['free_story_ads_image_seconds'] ?? 6)));
+        $s['free_story_ads_load_timeout_seconds'] = max(3, min(15, (int)($_POST['free_story_ads_load_timeout_seconds'] ?? 8)));
+        $s['free_story_ads_max_video_seconds'] = max(5, min(60, (int)($_POST['free_story_ads_max_video_seconds'] ?? 30)));
+        BlueVPN_DB::save_settings($s);
+        self::redirect('ads', 'تنظیمات استوری تبلیغاتی اتصال رایگان ذخیره شد.');
+    }
+
+    public static function create_story_ad(): void {
+        self::guard('bluevpn_story_create');
+        try {
+            $s = BlueVPN_DB::settings();
+            $type = strtolower(trim((string)wp_unslash($_POST['media_type'] ?? 'image')));
+            if (!in_array($type, ['image', 'video'], true)) $type = 'image';
+            $media = '';
+            if (!empty($_FILES['media']) && is_array($_FILES['media']) && ($_FILES['media']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                $media = self::store_story_upload($_FILES['media'], $type);
+            }
+            if ($media === '') {
+                $external = trim((string)wp_unslash($_POST['media_url'] ?? ''));
+                if ($external !== '' && !wp_http_validate_url($external)) throw new RuntimeException('لینک رسانه استوری معتبر نیست.');
+                $media = esc_url_raw($external);
+            }
+            if ($media === '') throw new RuntimeException('تصویر/ویدئو یا لینک رسانه لازم است.');
+            $target = trim((string)wp_unslash($_POST['target_url'] ?? ''));
+            if ($target !== '' && !wp_http_validate_url($target)) throw new RuntimeException('لینک مقصد معتبر نیست.');
+            $items = self::story_items($s);
+            $items[] = [
+                'id' => substr(bin2hex(random_bytes(16)), 0, 32),
+                'title' => mb_substr(sanitize_text_field(wp_unslash($_POST['title'] ?? '')), 0, 120),
+                'subtitle' => mb_substr(sanitize_text_field(wp_unslash($_POST['subtitle'] ?? '')), 0, 240),
+                'media_type' => $type,
+                'media_url' => $media,
+                'target_url' => esc_url_raw($target),
+                'button_text' => mb_substr(sanitize_text_field(wp_unslash($_POST['button_text'] ?? '')), 0, 40),
+                'active' => isset($_POST['active']),
+                'weight' => max(1, min(100, (int)($_POST['weight'] ?? 1))),
+                'image_duration_seconds' => max(3, min(30, (int)($_POST['image_duration_seconds'] ?? ($s['free_story_ads_image_seconds'] ?? 6)))),
+                'start_at' => self::clean_time((string)wp_unslash($_POST['start_at'] ?? '')),
+                'end_at' => self::clean_time((string)wp_unslash($_POST['end_at'] ?? '')),
+            ];
+            $s['free_story_ads_items'] = $items;
+            BlueVPN_DB::save_settings($s);
+            self::redirect('ads', 'استوری تبلیغاتی اضافه شد.');
+        } catch (Throwable $e) {
+            self::redirect('ads', '', $e->getMessage());
+        }
+    }
+
+    public static function update_story_ad(): void {
+        self::guard('bluevpn_story_update');
+        try {
+            global $wpdb;
+            $id = preg_replace('/[^A-Za-z0-9_-]+/', '', (string)($_POST['id'] ?? '')) ?: '';
+            if ($id === '') throw new RuntimeException('شناسه استوری معتبر نیست.');
+            $s = BlueVPN_DB::settings();
+            $items = self::story_items($s);
+            $found = false;
+            foreach ($items as &$item) {
+                if ($item['id'] !== $id) continue;
+                $found = true;
+                $type = strtolower(trim((string)wp_unslash($_POST['media_type'] ?? $item['media_type'])));
+                if (!in_array($type, ['image', 'video'], true)) $type = 'image';
+                $oldMedia = (string)$item['media_url'];
+                $media = $oldMedia;
+                if (!empty($_FILES['media']) && is_array($_FILES['media']) && ($_FILES['media']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+                    $media = self::store_story_upload($_FILES['media'], $type);
+                    if (preg_match('#^/api/v1/ad-assets/([A-Za-z0-9_-]{6,64})$#', $oldMedia, $m)) $wpdb->delete(BlueVPN_DB::table('ad_assets'), ['id' => $m[1]]);
+                } else {
+                    $external = trim((string)wp_unslash($_POST['media_url'] ?? ''));
+                    if ($external !== '') {
+                        if (!wp_http_validate_url($external) && !str_starts_with($external, '/api/v1/ad-assets/')) throw new RuntimeException('لینک رسانه معتبر نیست.');
+                        $media = str_starts_with($external, '/api/v1/ad-assets/') ? $external : esc_url_raw($external);
+                    }
+                }
+                if ($media === '') throw new RuntimeException('رسانه استوری لازم است.');
+                $target = trim((string)wp_unslash($_POST['target_url'] ?? ''));
+                if ($target !== '' && !wp_http_validate_url($target)) throw new RuntimeException('لینک مقصد معتبر نیست.');
+                $item['title'] = mb_substr(sanitize_text_field(wp_unslash($_POST['title'] ?? '')), 0, 120);
+                $item['subtitle'] = mb_substr(sanitize_text_field(wp_unslash($_POST['subtitle'] ?? '')), 0, 240);
+                $item['media_type'] = $type;
+                $item['media_url'] = $media;
+                $item['target_url'] = esc_url_raw($target);
+                $item['button_text'] = mb_substr(sanitize_text_field(wp_unslash($_POST['button_text'] ?? '')), 0, 40);
+                $item['active'] = isset($_POST['active']);
+                $item['weight'] = max(1, min(100, (int)($_POST['weight'] ?? 1)));
+                $item['image_duration_seconds'] = max(3, min(30, (int)($_POST['image_duration_seconds'] ?? ($s['free_story_ads_image_seconds'] ?? 6))));
+                $item['start_at'] = self::clean_time((string)wp_unslash($_POST['start_at'] ?? ''));
+                $item['end_at'] = self::clean_time((string)wp_unslash($_POST['end_at'] ?? ''));
+                break;
+            }
+            unset($item);
+            if (!$found) throw new RuntimeException('استوری پیدا نشد.');
+            $s['free_story_ads_items'] = $items;
+            BlueVPN_DB::save_settings($s);
+            self::redirect('ads', 'استوری تبلیغاتی ویرایش شد.');
+        } catch (Throwable $e) {
+            self::redirect('ads', '', $e->getMessage());
+        }
+    }
+
+    public static function toggle_story_ad(): void {
+        self::guard('bluevpn_story_toggle');
+        $id = preg_replace('/[^A-Za-z0-9_-]+/', '', (string)($_POST['id'] ?? '')) ?: '';
+        $s = BlueVPN_DB::settings(); $items = self::story_items($s);
+        foreach ($items as &$item) if ($item['id'] === $id) $item['active'] = !$item['active'];
+        unset($item); $s['free_story_ads_items'] = $items; BlueVPN_DB::save_settings($s);
+        self::redirect('ads', 'وضعیت استوری تغییر کرد.');
+    }
+
+    public static function delete_story_ad(): void {
+        self::guard('bluevpn_story_delete');
+        global $wpdb;
+        $id = preg_replace('/[^A-Za-z0-9_-]+/', '', (string)($_POST['id'] ?? '')) ?: '';
+        $s = BlueVPN_DB::settings(); $items = self::story_items($s); $removed = null; $keep = [];
+        foreach ($items as $item) { if ($item['id'] === $id) $removed = $item; else $keep[] = $item; }
+        if ($removed && preg_match('#^/api/v1/ad-assets/([A-Za-z0-9_-]{6,64})$#', (string)$removed['media_url'], $m)) $wpdb->delete(BlueVPN_DB::table('ad_assets'), ['id' => $m[1]]);
+        $s['free_story_ads_items'] = $keep; BlueVPN_DB::save_settings($s);
+        self::redirect('ads', 'استوری تبلیغاتی حذف شد.');
+    }
+
     public static function save_free_settings(): void {
         self::guard('bluevpn_free_save');
         $s = BlueVPN_DB::settings();
@@ -620,6 +850,50 @@ final class BlueVPN_Ads {
         self::number('ads_interval_seconds', 'فاصله اسلاید (ثانیه)', (int)($s['ads_interval_seconds'] ?? 6), 3, 30); self::number('ads_height_dp', 'ارتفاع بنر (dp)', (int)($s['ads_height_dp'] ?? 146), 116, 160);
         self::checkbox('tapsell_enabled', 'فعال‌سازی Tapsell', !empty($s['tapsell_enabled'])); self::text('tapsell_app_key', 'Tapsell App Key', (string)($s['tapsell_app_key'] ?? '')); self::text('tapsell_interstitial_zone_id', 'Interstitial Zone ID', (string)($s['tapsell_interstitial_zone_id'] ?? '')); self::checkbox('tapsell_show_after_connect', 'نمایش بعد از اتصال موفق', !array_key_exists('tapsell_show_after_connect', $s) || !empty($s['tapsell_show_after_connect'])); self::number('tapsell_min_interval_seconds', 'حداقل فاصله Tapsell', (int)($s['tapsell_min_interval_seconds'] ?? 0), 0, 86400); self::number('tapsell_daily_cap', 'سقف روزانه (۰=نامحدود)', (int)($s['tapsell_daily_cap'] ?? 0), 0, 1000);
         echo '</div><div style="margin-top:14px">'; submit_button('ذخیره تنظیمات تبلیغات', 'primary', 'submit', false); echo '</div></form></div>';
+
+        $storyItems = self::story_items($s);
+        $storyPayload = self::free_story_payload($s);
+        $storyActive = count(array_filter($storyItems, static fn($x) => !empty($x['active'])));
+        echo '<div class="bvc-card" id="bluevpn-free-story-ads"><h2>استوری تبلیغاتی اتصال رایگان</h2><div class="bvc-note">پس از آماده‌شدن اتصال رایگان، یک عکس یا ویدئو به‌صورت تصادفی تمام‌صفحه نمایش داده می‌شود. تا پایان رسانه، Session رایگان نهایی و تایمر آن شروع نمی‌شود. خروج از استوری، اتصال در حال آماده‌سازی را متوقف می‌کند.</div>';
+        echo '<div class="bvc-grid" style="margin:14px 0"><div class="bvc-card bvc-kpi"><span>استوری‌ها</span><strong>' . count($storyItems) . '</strong></div><div class="bvc-card bvc-kpi"><span>فعال</span><strong>' . $storyActive . '</strong></div><div class="bvc-card bvc-kpi"><span>قابل انتخاب</span><strong>' . count($storyPayload['items']) . '</strong></div></div>';
+        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_story_save'); echo '<input type="hidden" name="action" value="bluevpn_story_save"><div class="bvc-form-grid">';
+        self::checkbox('free_story_ads_enabled', 'فعال‌سازی استوری برای پلن رایگان', !empty($s['free_story_ads_enabled']));
+        self::checkbox('free_story_ads_required', 'تماشای کامل برای نهایی‌شدن اتصال الزامی باشد', !array_key_exists('free_story_ads_required', $s) || !empty($s['free_story_ads_required']));
+        self::number('free_story_ads_image_seconds', 'مدت پیش‌فرض عکس (ثانیه)', (int)($s['free_story_ads_image_seconds'] ?? 6), 3, 30);
+        self::number('free_story_ads_load_timeout_seconds', 'مهلت بارگذاری رسانه (ثانیه)', (int)($s['free_story_ads_load_timeout_seconds'] ?? 8), 3, 15);
+        self::number('free_story_ads_max_video_seconds', 'حداکثر زمان ویدئو در اپ (ثانیه)', (int)($s['free_story_ads_max_video_seconds'] ?? 30), 5, 60);
+        echo '</div><div style="margin-top:14px">'; submit_button('ذخیره تنظیمات استوری', 'primary', 'submit', false); echo '</div></form>';
+
+        echo '<hr style="margin:22px 0;border:0;border-top:1px solid rgba(148,163,184,.18)"><h3>افزودن استوری جدید</h3><form method="post" enctype="multipart/form-data" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_story_create'); echo '<input type="hidden" name="action" value="bluevpn_story_create"><div class="bvc-form-grid">';
+        echo '<label>نوع رسانه<select name="media_type"><option value="image">عکس</option><option value="video">ویدئو</option></select></label>';
+        self::text('title', 'عنوان', ''); self::text('subtitle', 'زیرعنوان', ''); self::text('target_url', 'لینک مقصد اختیاری', ''); self::text('button_text', 'متن دکمه', 'مشاهده');
+        self::number('weight', 'وزن انتخاب تصادفی', 1, 1, 100); self::number('image_duration_seconds', 'مدت عکس (ثانیه)', (int)($s['free_story_ads_image_seconds'] ?? 6), 3, 30);
+        echo '<label>شروع نمایش (اختیاری)<input type="datetime-local" name="start_at"></label><label>پایان نمایش (اختیاری)<input type="datetime-local" name="end_at"></label>';
+        echo '<label class="bluevpn-file-input">آپلود رسانه<input type="file" name="media" accept="image/webp,image/jpeg,image/png,video/mp4,video/webm"><span data-file-name>عکس تا ۶MB / ویدئو تا ۱۲MB</span></label>';
+        echo '<label>یا URL مستقیم رسانه<input type="url" name="media_url" placeholder="https://..."></label><label style="display:flex;align-items:center;align-self:end;padding-bottom:8px"><input type="checkbox" name="active" value="1" checked> فعال</label>';
+        echo '</div><div style="margin-top:14px">'; submit_button('افزودن استوری', 'primary', 'submit', false); echo '</div></form>';
+
+        if ($storyItems) {
+            echo '<div class="bluevpn-ad-cards" style="margin-top:20px">';
+            foreach ($storyItems as $story) {
+                $src = self::resolve_asset_path((string)$story['media_url']); if (str_starts_with($src, '/')) $src = home_url($src);
+                $on = !empty($story['active']);
+                echo '<article class="bvc-card bluevpn-ad-card"><div class="bluevpn-ad-preview">';
+                if ($story['media_type'] === 'video') echo '<div style="min-height:150px;display:grid;place-items:center;background:#050914;color:#67e8f9;font-size:44px">▶</div>';
+                elseif ($src) echo '<img src="' . esc_url($src) . '" alt="">';
+                echo '<span class="bluevpn-ad-state ' . ($on ? 'is-on' : 'is-off') . '">' . ($on ? 'فعال' : 'خاموش') . '</span></div><div class="bluevpn-ad-body">';
+                echo '<h3>' . esc_html($story['title'] ?: ($story['media_type'] === 'video' ? 'ویدئوی استوری' : 'تصویر استوری')) . '</h3><p>' . esc_html($story['subtitle'] ?: 'نمایش تصادفی پس از اتصال رایگان') . '</p><div class="bluevpn-ad-meta"><span>' . esc_html($story['media_type'] === 'video' ? 'ویدئو' : 'عکس') . '</span><span>وزن ' . (int)$story['weight'] . '</span><span>' . (int)$story['image_duration_seconds'] . ' ثانیه برای عکس</span></div><div class="bluevpn-ad-actions">';
+                self::mini_form('bluevpn_story_toggle', 'bluevpn_story_toggle', $story['id'], $on ? 'خاموش کردن' : 'فعال کردن'); self::mini_form('bluevpn_story_delete', 'bluevpn_story_delete', $story['id'], 'حذف', true); echo '</div>';
+                echo '<details class="bluevpn-inline-edit"><summary>ویرایش استوری</summary><form method="post" enctype="multipart/form-data" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_story_update'); echo '<input type="hidden" name="action" value="bluevpn_story_update"><input type="hidden" name="id" value="' . esc_attr($story['id']) . '"><div class="bvc-form-grid">';
+                echo '<label>نوع رسانه<select name="media_type"><option value="image" ' . selected($story['media_type'], 'image', false) . '>عکس</option><option value="video" ' . selected($story['media_type'], 'video', false) . '>ویدئو</option></select></label>';
+                echo '<label>عنوان<input type="text" name="title" value="' . esc_attr($story['title']) . '"></label><label>زیرعنوان<input type="text" name="subtitle" value="' . esc_attr($story['subtitle']) . '"></label><label>لینک مقصد<input type="url" name="target_url" value="' . esc_attr($story['target_url']) . '"></label><label>متن دکمه<input type="text" name="button_text" value="' . esc_attr($story['button_text']) . '"></label>';
+                echo '<label>وزن<input type="number" name="weight" min="1" max="100" value="' . (int)$story['weight'] . '"></label><label>مدت عکس<input type="number" name="image_duration_seconds" min="3" max="30" value="' . (int)$story['image_duration_seconds'] . '"></label><label>شروع<input type="datetime-local" name="start_at"></label><label>پایان<input type="datetime-local" name="end_at"></label>';
+                echo '<label class="bluevpn-file-input">تعویض رسانه<input type="file" name="media" accept="image/webp,image/jpeg,image/png,video/mp4,video/webm"><span data-file-name>برای حفظ رسانه فعلی خالی بگذارید</span></label><label>URL رسانه<input type="text" name="media_url" value="' . esc_attr($story['media_url']) . '"></label><label style="display:flex;align-items:center;align-self:end;padding-bottom:8px"><input type="checkbox" name="active" value="1" ' . checked($on, true, false) . '> فعال</label>';
+                echo '</div><div style="margin-top:12px">'; submit_button('ذخیره استوری', 'primary', 'submit', false); echo '</div></form></details></div></article>';
+            }
+            echo '</div>';
+        }
+        echo '</div>';
 
         echo '<div class="bvc-card bluevpn-ad-editor" id="bluevpn-add-ad"><h2>افزودن تبلیغ جدید</h2><div class="bvc-note">اندازه پیشنهادی BlueVPN: 1200×540 پیکسل، نسبت 20:9، WebP یا JPG. تصویر آپلودشده مستقیماً داخل MySQL ذخیره می‌شود.</div><form method="post" enctype="multipart/form-data" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_ads_create'); echo '<input type="hidden" name="action" value="bluevpn_ads_create"><div class="bvc-form-grid">';
         self::text('title', 'عنوان تبلیغ', ''); self::text('subtitle', 'زیرعنوان', ''); self::text('target_url', 'لینک مقصد', ''); self::text('button_text', 'متن دکمه', 'مشاهده'); self::number('sort_order', 'ترتیب نمایش', 0, -10000, 10000);

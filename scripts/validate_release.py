@@ -43,6 +43,7 @@ def main() -> None:
     sms_notifications = read("bluevpn-manager/includes/class-bluevpn-sms-notifications.php")
     api = read("bluevpn-manager/includes/class-bluevpn-api.php")
     ads = read("bluevpn-manager/includes/class-bluevpn-ads.php")
+    carousel = read("android-source/BlueVpnAdsCarouselView.kt")
     update_manager = read("android-source/BlueVpnUpdateManager.kt")
 
     version = str(app.get("version_name", "")).strip()
@@ -67,6 +68,12 @@ def main() -> None:
     # whether the local Free subscription pool is already populated.
     require("BlueVPN_Ads::advertising_payload($s, $r)" in api, "mobile config uses wrong advertising helper")
     require("BlueVPN_Ads::free_access_payload($s)" in api, "mobile config uses wrong Free policy helper")
+    require("$advertising = BlueVPN_Ads::advertising_payload($s, $r);" in api, "mobile config does not build canonical advertising payload once")
+    require("$tapsell = BlueVPN_Ads::tapsell_payload($s);" in api, "mobile config does not expose Tapsell payload")
+    require("'advertising'=>$advertising" in api, "mobile config canonical advertising key missing")
+    require("'ads'=>$advertising" in api, "mobile config ads compatibility alias missing")
+    require("'tapsell'=>$tapsell" in api, "mobile config tapsell key missing")
+    require('root.optJSONObject("advertising") ?: root.optJSONObject("ads")' in carousel, "Android banner parser lacks advertising/ads compatibility fallback")
     require("public static function public_config" in ads and "public static function free_public_config" in ads,
             "BlueVPN_Ads compatibility aliases missing")
     require("fun applyRemoteMobileConfig(c: Context, config: JSONObject): Boolean" in account,

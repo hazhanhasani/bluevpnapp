@@ -494,6 +494,7 @@ def inject_bluevpn_home() -> None:
         java_dir / "BlueVpnHomeActivity.kt": ROOT / "android-source/BlueVpnHomeActivity.kt",
         bluevpn_dir / "BlueVpnAccountManager.kt": ROOT / "android-source/BlueVpnAccountManager.kt",
         bluevpn_dir / "BlueVpnAdsCarouselView.kt": ROOT / "android-source/BlueVpnAdsCarouselView.kt",
+        bluevpn_dir / "BlueVpnFreeStoryAdGate.kt": ROOT / "android-source/BlueVpnFreeStoryAdGate.kt",
         bluevpn_dir / "BlueVpnUpdateManager.kt": ROOT / "android-source/BlueVpnUpdateManager.kt",
         java_dir / "BlueVpnUpdateInstallActivity.kt": ROOT / "android-source/BlueVpnUpdateInstallActivity.kt",
         bluevpn_dir / "BlueVpnUpdateFileProvider.kt": ROOT / "android-source/BlueVpnUpdateFileProvider.kt",

@@ -7,6 +7,14 @@
 - محدودیت امنیتی Android پابرجاست: APK می‌تواند خودکار دانلود و آماده شود، اما تأیید نهایی نصب بسته به نسخه Android/سیاست دستگاه ممکن است از کاربر خواسته شود.
 
 
+## 4.3.7 advertising contract regression fix
+
+- Restores the canonical `advertising` object in `/api/v1/mobile/config`; `ads` is retained only as a compatibility alias.
+- Restores the `tapsell` object that was accidentally dropped while the release-channel response was expanded.
+- Android accepts both `advertising` and `ads`, so a Manager-first or APK-first rollout cannot silently collapse the banner slot.
+- Existing MySQL campaigns, static `wp-content/uploads/bluevpn-ads/` delivery, image cache/prefetch and Free/Premium behavior are preserved.
+- The protected v2rayNG 2.2.6 / Xray runtime is unchanged.
+
 ## 4.3.4 Free policy live-sync + mobile config fatal fix
 
 - Fixes the WordPress `/api/v1/mobile/config` fatal caused by calling non-existent `BlueVPN_Ads::public_config()` / `free_public_config()` helpers.
@@ -286,3 +294,10 @@ BlueVPN Site Theme v1.0.9 adds a WordPress/Elementor-aware SEO layer without tou
 - صف آماده‌سازی اتصال Premium در حال اجرا هنگام Logout با generation جدید باطل می‌شود و نمی‌تواند بعداً GUIDهای قبلی را دوباره منتشر کند.
 - بهینه‌سازی Cache/Prefetch بنرهای 4.2.4 حفظ شده است.
 - Runtime رسمی v2rayNG 2.2.6 / Xray دست‌نخورده باقی مانده است.
+
+
+## Free Story Ads (4.3.7)
+Free-plan connections can be finalized through a first-party random image/video story gate managed from WordPress. The Free session timer starts only after completion; abandoning the mandatory story stops the pending VPN.
+
+### 4.3.7 build barrier hotfix
+The Android workflow now treats the WordPress Manager and schema versions as minimum compatibility barriers rather than requiring exact equality. If WordPress already runs a newer Manager (for example 4.3.6 while an older 4.3.5 APK source is being built), the build no longer times out with `WORDPRESS_AUTOUPDATE_TIMEOUT` solely because the control plane is newer.

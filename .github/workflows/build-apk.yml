@@ -827,8 +827,9 @@ jobs:
             if [ -n "$LAST_UPDATER_MESSAGE" ]; then
               echo "WordPress updater message: $LAST_UPDATER_MESSAGE"
             fi
-            if [ "$LAST_VERSION" = "$VERSION" ] && [ "$LAST_SCHEMA" = "$EXPECTED_SCHEMA" ] && [ "$LAST_READY" = "true" ]; then
-              echo "WordPress control plane is synchronized with APK ${VERSION}."
+            COMPATIBLE="$(python -c 'import re,sys; p=lambda v: tuple(map(int,re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v).groups())) if re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v) else None; cv,ev,cs,es=map(p,sys.argv[1:5]); print("true" if cv is not None and ev is not None and cs is not None and es is not None and cv >= ev and cs >= es else "false")' "$LAST_VERSION" "$VERSION" "$LAST_SCHEMA" "$EXPECTED_SCHEMA")"
+            if [ "$COMPATIBLE" = "true" ] && [ "$LAST_READY" = "true" ]; then
+              echo "WordPress control plane is compatible: installed=${LAST_VERSION} (minimum=${VERSION}), schema=${LAST_SCHEMA} (minimum=${EXPECTED_SCHEMA})."
               exit 0
             fi
 

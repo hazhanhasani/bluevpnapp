@@ -241,7 +241,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             cachePrefs.edit().putString("mobile_config", root.toString()).apply()
             lastFetchAt = System.currentTimeMillis()
         }
-        val config = root.optJSONObject("advertising")
+        val config = root.optJSONObject("advertising") ?: root.optJSONObject("ads")
         if (config == null || !config.optBoolean("enabled", false)) {
             items = emptyList()
             hideBanner()

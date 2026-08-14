@@ -26,6 +26,10 @@ Runtime ownership is intentionally simple:
 BlueVPN is an independent modified distribution and is not endorsed by the upstream v2rayNG/Xray maintainers.
 
 
+## 4.3.7 advertising API contract boundary
+
+The WordPress control plane again exposes the canonical `advertising` and `tapsell` objects expected by Android. The temporary `ads` key is preserved as a compatibility alias and Android accepts either advertising key during staggered rollout. This change does not modify the protected v2rayNG/Xray runtime.
+
 ## 4.3.0 advertising delivery boundary
 
 Campaign image delivery is hardened for WordPress/cPanel hosting. DB-backed ad images are lazily materialized to static WordPress upload files, while the legacy REST binary endpoint remains as a compatibility fallback with compression/output-buffer safeguards. Android does not reveal an empty campaign container before a bitmap has decoded and keeps the previous bitmap during slide transitions. This change does not modify the protected v2rayNG/Xray runtime.
@@ -82,3 +86,6 @@ BlueVPN Manager retrieves the authenticated account's active SMS patterns from t
 ## 4.2.5 Logout entitlement boundary
 
 This release changes only BlueVPN account/entitlement control-plane code. Premium ownership now requires a live authenticated app session, stale authenticated responses are rejected across logout/login boundaries, and the cached Free pool is re-enabled after Premium logout. The 4.2.4 banner cache/prefetch changes remain included. Protected v2rayNG 2.2.6 runtime/parser files remain unchanged.
+
+### 4.3.7 build barrier hotfix
+The Android workflow now treats the WordPress Manager and schema versions as minimum compatibility barriers rather than requiring exact equality. If WordPress already runs a newer Manager (for example 4.3.6 while an older 4.3.5 APK source is being built), the build no longer times out with `WORDPRESS_AUTOUPDATE_TIMEOUT` solely because the control plane is newer.

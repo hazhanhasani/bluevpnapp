@@ -715,5 +715,61 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("forced ->", apply)
         self.assertIn("showForcedUpdateDialog", apply)
 
+    def test_85_advertising_mobile_config_contract_survives_release_channel_changes(self):
+        api = text("bluevpn-manager/includes/class-bluevpn-api.php")
+        ads_android = text("android-source/BlueVpnAdsCarouselView.kt")
+        mobile = block(api, "public static function mobile_config", "public static function ad_asset")
+        self.assertIn("$advertising = BlueVPN_Ads::advertising_payload($s, $r);", mobile)
+        self.assertIn("$tapsell = BlueVPN_Ads::tapsell_payload($s);", mobile)
+        self.assertIn("'advertising'=>$advertising", mobile)
+        self.assertIn("'ads'=>$advertising", mobile)
+        self.assertIn("'tapsell'=>$tapsell", mobile)
+        self.assertIn('root.optJSONObject("advertising") ?: root.optJSONObject("ads")', ads_android)
+
+    def test_86_free_story_ads_are_exposed_only_as_free_connection_gate(self):
+        api = text("bluevpn-manager/includes/class-bluevpn-api.php")
+        ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
+        mobile = block(api, "public static function mobile_config", "public static function ad_asset")
+        self.assertIn("$freeStoryAds = BlueVPN_Ads::free_story_payload($s);", mobile)
+        self.assertIn("'free_story_ads'=>$freeStoryAds", mobile)
+        self.assertIn("'free_only' => true", ads)
+        self.assertIn("'random' => true", ads)
+        self.assertIn("'every_connection' => true", ads)
+
+    def test_87_free_story_gate_finalizes_timer_only_after_completion(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        gate = text("android-source/BlueVpnFreeStoryAdGate.kt")
+        complete = block(home, "private fun completeFailover", "private fun refreshVerifiedExitLocation")
+        self.assertIn("beginFreeStoryGate", complete)
+        self.assertIn("BlueVpnAccountManager.startFreeSession(this)", complete)
+        self.assertGreater(complete.index("beginFreeStoryGate"), -1)
+        self.assertIn("Outcome.COMPLETED", complete)
+        self.assertIn("storyAdShown = true", complete)
+        self.assertIn("weightedRandom(items)", gate)
+
+    def test_88_mandatory_story_cannot_be_bypassed_by_backgrounding(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        on_stop = block(home, "override fun onStop()", "override fun onTrimMemory")
+        self.assertIn("freeStoryGate?.abort()", on_stop)
+        gate = text("android-source/BlueVpnFreeStoryAdGate.kt")
+        self.assertIn("Outcome.ABORTED", gate)
+        self.assertIn("setCancelable(!required)", gate)
+
+    def test_89_story_media_failure_is_fail_open_and_does_not_stack_tapsell(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        complete = block(home, "private fun completeFailover", "private fun refreshVerifiedExitLocation")
+        self.assertIn("Outcome.UNAVAILABLE", complete)
+        self.assertIn("storyAdShown = false", complete)
+        self.assertIn("!storyAdShown", complete)
+        self.assertIn("BlueVpnTapsellManager.onVerifiedConnection", complete)
+
+    def test_90_wordpress_convergence_accepts_newer_manager_and_schema(self):
+        workflow = text(".github/workflows/build-apk.yml")
+        wait = block(workflow, "- name: Wait for WordPress control-plane auto-update", "- name: Create GitHub Release metadata and checksums")
+        self.assertIn("cv >= ev and cs >= es", wait)
+        self.assertIn("installed=${LAST_VERSION} (minimum=${VERSION})", wait)
+        self.assertNotIn('[ "$LAST_VERSION" = "$VERSION" ] && [ "$LAST_SCHEMA" = "$EXPECTED_SCHEMA" ]', wait)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

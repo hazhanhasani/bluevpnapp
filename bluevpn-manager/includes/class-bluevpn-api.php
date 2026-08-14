@@ -90,7 +90,7 @@ final class BlueVPN_API {
             'otp_verify_url' => $site . '/api/v1/auth/otp/verify',
             'web_login_url' => $site . '/bluevpn-login/',
             'features' => [
-                'advertising' => true, 'ad_assets' => true, 'tapsell' => true, 'free_access' => true,
+                'advertising' => true, 'ad_assets' => true, 'tapsell' => true, 'free_story_ads' => true, 'free_access' => true,
                 'blueai_events' => true, 'blueai_recommendations' => true, 'blueai_dashboard' => true, 'blueai_live_tier_monitoring' => true,
                 'orders' => true, 'bluepay_webhook' => true, 'bind_phone_otp' => true, 'provider_sync' => true,
             ],
@@ -146,6 +146,13 @@ final class BlueVPN_API {
         $betaAutoUpdate = array_key_exists('auto_update_beta', $s) ? !empty($s['auto_update_beta']) : !empty($s['auto_update']);
         $autoUpdate = $channel === 'beta' ? $betaAutoUpdate : $stableAutoUpdate;
 
+        // Build advertising payloads once and expose the canonical Android keys.
+        // `advertising` is the contract consumed by BlueVpnAdsCarouselView.
+        // `ads` remains as a compatibility alias for intermediate clients/control-plane code.
+        $advertising = BlueVPN_Ads::advertising_payload($s, $r);
+        $tapsell = BlueVPN_Ads::tapsell_payload($s);
+        $freeStoryAds = BlueVPN_Ads::free_story_payload($s);
+
         return self::ok([
             'app_name'=>$s['app_name'],
             'maintenance'=>(bool)$s['maintenance'],
@@ -185,7 +192,10 @@ final class BlueVPN_API {
             'auth'=>array_merge(['mode'=>'phone_otp_or_email_password','password_login'=>true,'email_login'=>true,'email_registration'=>true],BlueVPN_SMS_OTP::public_config(),['request_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/request','verify_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/verify','login_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/login','register_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/register']),
             'blueai'=>['enabled'=>(bool)$s['blueai_enabled'],'free_enabled'=>!isset($s['blueai_free_enabled'])||!empty($s['blueai_free_enabled']),'premium_enabled'=>!isset($s['blueai_premium_enabled'])||!empty($s['blueai_premium_enabled']),'collective'=>(bool)$s['blueai_collective'],'auto_heal'=>(bool)$s['blueai_auto_heal'],'min_samples'=>(int)$s['blueai_min_samples'],'engine_version'=>BlueVPN_AI::ENGINE_VERSION,'schema_version'=>BlueVPN_AI::SCHEMA_VERSION,'capabilities'=>BlueVPN_AI::capabilities(),'privacy_message'=>$s['blueai_privacy_message']],
             'announcement'=>['enabled'=>(bool)$s['announcement_enabled'],'id'=>$s['announcement_id'],'title'=>$s['announcement_title'],'message'=>$s['announcement_message']],
-            'ads'=>BlueVPN_Ads::advertising_payload($s, $r),
+            'advertising'=>$advertising,
+            'ads'=>$advertising,
+            'tapsell'=>$tapsell,
+            'free_story_ads'=>$freeStoryAds,
             'free_access'=>BlueVPN_Ads::free_access_payload($s),
             'updated_at'=>$s['updated_at'],
             'updated_at_fa'=>BlueVPN_Utils::tehran_datetime_fa(),

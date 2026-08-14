@@ -58,6 +58,7 @@ import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnConnectionMode
 import com.v2ray.ang.bluevpn.BlueVpnExperience
+import com.v2ray.ang.bluevpn.BlueVpnFreeStoryAdGate
 import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
 import com.v2ray.ang.bluevpn.BlueVpnUpdateManager
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
@@ -195,6 +196,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var userInteractedAt = 0L
     private var coreFailureReceiverRegistered = false
     private var firstHomeResume = true
+    private var freeStoryGateActive = false
+    private var freeStoryGate: BlueVpnFreeStoryAdGate? = null
 
     /**
      * BlueVPN observes the stock v2rayNG activity broadcast only to advance
@@ -1743,6 +1746,27 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 return@observe
             }
 
+            if (freeStoryGateActive) {
+                if (active) {
+                    connectionVerified = false
+                    connectButton.isEnabled = false
+                    updateConnectLabel("در حال فعال‌سازی")
+                    statusText.text = "اتصال آماده است"
+                    statusCaption.visibility = View.VISIBLE
+                    statusCaption.text = "برای فعال‌شدن پلن رایگان، تبلیغ را تا پایان مشاهده کنید"
+                    return@observe
+                }
+
+                freeStoryGate?.release()
+                freeStoryGate = null
+                freeStoryGateActive = false
+                connectionVerified = false
+                BlueVpnPreferences.clearConnected(this)
+                BlueVpnRuntimeGate.endConnection(this)
+                renderConnectionState(false)
+                return@observe
+            }
+
             when {
                 active && failoverActive && waitingForCoreStop -> {
                     // We are still observing the old CoreVpnService. Never verify
@@ -1887,6 +1911,12 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     }
 
     override fun onStop() {
+        if (freeStoryGateActive && !isChangingConfigurations && !isFinishing) {
+            // A mandatory Free story must not be bypassable with Home/Recent Apps.
+            // Leaving the foreground aborts this pending connection; the next
+            // explicit Connect attempt can select/show a story again.
+            freeStoryGate?.abort()
+        }
         handler.removeCallbacks(delayedAdsStart)
         if (::adsCarousel.isInitialized) adsCarousel.stop()
         handler.removeCallbacks(statsTicker)
@@ -1920,6 +1950,9 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
         startupDialog?.dismiss()
         startupDialog = null
+        freeStoryGate?.release()
+        freeStoryGate = null
+        freeStoryGateActive = false
         setOrbPulseEnabled(false)
         if (::connectingGlobe.isInitialized) connectingGlobe.stop()
         if (::adsCarousel.isInitialized) adsCarousel.release()
@@ -2686,6 +2719,7 @@ private fun dpHome(value: Int): Int =
             userDisconnecting ||
             mainViewModel.isRunning.value == true ||
             failoverActive ||
+            freeStoryGateActive ||
             healthProbeInProgress
         ) {
             stopConnectionImmediately()
@@ -2715,6 +2749,9 @@ private fun dpHome(value: Int): Int =
         }
         terminalFailureStopping = false
         terminalFailureReason = ""
+        freeStoryGate?.release()
+        freeStoryGate = null
+        freeStoryGateActive = false
         userDisconnecting = true
         pendingConnectionRequest = false
         runtimeGateWaitStartedAt = 0L
@@ -3812,9 +3849,6 @@ private fun dpHome(value: Int): Int =
             attemptedGuid,
             (delay ?: lastVerifiedLatency).coerceAtLeast(1L),
         )
-        BlueVpnPreferences.markConnected(this, resetTimer = true)
-        BlueVpnRuntimeGate.markConnectionActive(this)
-        BlueVpnAccountManager.startFreeSession(this)
 
         failoverActive = false
         failoverReserveQueue = emptyList()
@@ -3824,9 +3858,119 @@ private fun dpHome(value: Int): Int =
         waitingForCoreStop = false
         coreStopRetryCount = 0
         verificationRound = 0
-        connectionVerified = true
         liveLocationSwitch = false
         switchTargetTitle = ""
+        connectButton.isEnabled = false
+
+        val verifiedDelay = delay ?: lastVerifiedLatency
+        val isFreeConnection = !completedLiveSwitch && BlueVpnEntitlement.resolveUi(this).isFree
+        if (isFreeConnection) {
+            beginFreeStoryGate(
+                verifiedDelay = verifiedDelay,
+                completedLiveSwitch = completedLiveSwitch,
+                completedTargetTitle = completedTargetTitle,
+            )
+            return
+        }
+
+        finalizeSuccessfulConnection(
+            verifiedDelay = verifiedDelay,
+            completedLiveSwitch = completedLiveSwitch,
+            completedTargetTitle = completedTargetTitle,
+            storyAdShown = false,
+        )
+    }
+
+    private fun beginFreeStoryGate(
+        verifiedDelay: Long,
+        completedLiveSwitch: Boolean,
+        completedTargetTitle: String,
+    ) {
+        if (userDisconnecting || mainViewModel.isRunning.value != true) {
+            finalizeSuccessfulConnection(
+                verifiedDelay,
+                completedLiveSwitch,
+                completedTargetTitle,
+                storyAdShown = false,
+            )
+            return
+        }
+
+        freeStoryGate?.release()
+        freeStoryGateActive = true
+        connectionVerified = false
+        BlueVpnPreferences.clearConnected(this)
+        showConnectingOverlay(
+            title = "اتصال آماده است",
+            caption = "تبلیغ اتصال رایگان را تا پایان مشاهده کنید",
+            location = connectingLocation.text.toString().ifBlank { "انتخاب هوشمند" },
+        )
+        updateConnectLabel("در حال فعال‌سازی")
+        connectButton.isEnabled = false
+        statusText.text = "فعال‌سازی اتصال رایگان"
+        statusCaption.visibility = View.VISIBLE
+        statusCaption.text = "تایمر رایگان بعد از پایان تبلیغ شروع می‌شود"
+
+        val gate = BlueVpnFreeStoryAdGate(this)
+        freeStoryGate = gate
+        gate.start { outcome ->
+            if (freeStoryGate !== gate) return@start
+            freeStoryGate = null
+            freeStoryGateActive = false
+
+            when (outcome) {
+                BlueVpnFreeStoryAdGate.Outcome.COMPLETED -> {
+                    if (mainViewModel.isRunning.value == true && !userDisconnecting) {
+                        finalizeSuccessfulConnection(
+                            verifiedDelay,
+                            completedLiveSwitch,
+                            completedTargetTitle,
+                            storyAdShown = true,
+                        )
+                    } else {
+                        renderConnectionState(false)
+                    }
+                }
+
+                BlueVpnFreeStoryAdGate.Outcome.UNAVAILABLE -> {
+                    // Infrastructure/media failure is fail-open. A broken ad
+                    // campaign must never disable the entire Free service.
+                    if (mainViewModel.isRunning.value == true && !userDisconnecting) {
+                        finalizeSuccessfulConnection(
+                            verifiedDelay,
+                            completedLiveSwitch,
+                            completedTargetTitle,
+                            storyAdShown = false,
+                        )
+                    } else {
+                        renderConnectionState(false)
+                    }
+                }
+
+                BlueVpnFreeStoryAdGate.Outcome.ABORTED -> {
+                    Toast.makeText(
+                        this,
+                        "تبلیغ کامل مشاهده نشد؛ اتصال رایگان متوقف شد",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                    stopConnectionImmediately()
+                }
+            }
+        }
+    }
+
+    private fun finalizeSuccessfulConnection(
+        verifiedDelay: Long,
+        completedLiveSwitch: Boolean,
+        completedTargetTitle: String,
+        storyAdShown: Boolean,
+    ) {
+        if (userDisconnecting || mainViewModel.isRunning.value != true) return
+
+        BlueVpnPreferences.markConnected(this, resetTimer = true)
+        BlueVpnRuntimeGate.markConnectionActive(this)
+        BlueVpnAccountManager.startFreeSession(this)
+        connectionVerified = true
         connectButton.isEnabled = true
         resetTrafficBaseline()
         requestDashboardRefresh()
@@ -3835,20 +3979,21 @@ private fun dpHome(value: Int): Int =
         updateFreeTimerBadge()
         mainViewModel.testCurrentServerRealPing()
 
-        val verifiedDelay = delay ?: lastVerifiedLatency
         recordCurrentConnection(verifiedDelay)
         refreshVerifiedExitLocation()
         statusCaption.text =
             if (completedLiveSwitch) {
                 "مکان اتصال با موفقیت تغییر کرد"
+            } else if (storyAdShown) {
+                "تبلیغ کامل شد؛ اتصال رایگان فعال است"
             } else {
                 "اتصال امن برقرار شد و پایش خودکار فعال است"
             }
 
-        // Interstitial ads are a Free-plan benefit exchange, never a gate for
-        // VPN connectivity. Trigger only after a real verified connection;
-        // live location switches and Premium sessions do not show an ad.
-        if (!completedLiveSwitch && BlueVpnEntitlement.resolveUi(this).isFree) {
+        // First-party story and Tapsell must never stack on the same successful
+        // Free connection. Tapsell remains the fallback when no story could be
+        // served or the story feature is disabled in the panel.
+        if (!completedLiveSwitch && !storyAdShown && BlueVpnEntitlement.resolveUi(this).isFree) {
             BlueVpnTapsellManager.onVerifiedConnection(
                 this,
                 BlueVpnPreferences.connectedAt(this),

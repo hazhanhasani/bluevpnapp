@@ -11,7 +11,7 @@ final class BlueVPN_DB {
 
     public static function table_names(): array {
         return [
-            'app_settings', 'ad_assets', 'server_locations', 'pasarguard_panels',
+            'app_settings', 'app_releases', 'ad_assets', 'server_locations', 'pasarguard_panels',
             'marzban_panels', 'guardcore_panels', 'plans', 'customers',
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
@@ -23,6 +23,7 @@ final class BlueVPN_DB {
     public static function activate(): void {
         self::install_schema();
         self::seed_defaults();
+        self::seed_release_channels();
         self::enforce_six_digit_otp();
         self::repair_client_types();
         update_option('bluevpn_manager_schema_version', BLUEVPN_MANAGER_SCHEMA_VERSION, false);
@@ -34,6 +35,7 @@ final class BlueVPN_DB {
         if ($installed !== BLUEVPN_MANAGER_SCHEMA_VERSION) {
             self::install_schema();
             self::seed_defaults();
+            self::seed_release_channels();
             self::enforce_six_digit_otp();
             self::repair_client_types();
             update_option('bluevpn_manager_schema_version', BLUEVPN_MANAGER_SCHEMA_VERSION, false);
@@ -67,6 +69,35 @@ final class BlueVPN_DB {
             payload longtext NOT NULL,
             updated_at datetime NULL,
             PRIMARY KEY  (id)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('app_releases')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            github_release_id bigint unsigned NULL,
+            version varchar(32) NOT NULL DEFAULT '',
+            version_code int NOT NULL DEFAULT 0,
+            state varchar(20) NOT NULL DEFAULT 'beta',
+            force_update tinyint(1) NOT NULL DEFAULT 0,
+            title varchar(200) NOT NULL DEFAULT '',
+            message longtext NULL,
+            apk_url longtext NULL,
+            apk_assets_json longtext NULL,
+            apk_asset_meta_json longtext NULL,
+            release_url longtext NULL,
+            release_published_at varchar(64) NOT NULL DEFAULT '',
+            build_number int NOT NULL DEFAULT 0,
+            commit_sha varchar(80) NOT NULL DEFAULT '',
+            fingerprint varchar(64) NOT NULL DEFAULT '',
+            source varchar(80) NOT NULL DEFAULT '',
+            promoted_at datetime NULL,
+            stopped_at datetime NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY uq_app_release_version (version),
+            KEY ix_app_release_state_code (state, version_code),
+            KEY ix_app_release_github (github_release_id),
+            KEY ix_app_release_updated (updated_at)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('ad_assets')} (
@@ -182,6 +213,7 @@ final class BlueVPN_DB {
             phone_verified_at datetime NULL,
             auth_method varchar(24) NULL DEFAULT 'legacy_email',
             active tinyint(1) NOT NULL DEFAULT 1,
+            beta_tester tinyint(1) NOT NULL DEFAULT 0,
             plan_id bigint unsigned NULL,
             panel_id bigint unsigned NULL,
             pg_username varchar(64) NOT NULL DEFAULT '',
@@ -218,6 +250,7 @@ final class BlueVPN_DB {
             PRIMARY KEY  (id),
             UNIQUE KEY uq_customer_email (email(191)),
             UNIQUE KEY uq_customer_phone (phone),
+            KEY ix_customer_beta_active (beta_tester, active),
             UNIQUE KEY uq_subscription_token (subscription_token),
             KEY ix_customer_plan (plan_id),
             KEY ix_customer_active (active),
@@ -766,6 +799,42 @@ final class BlueVPN_DB {
                 'updated_at' => $now,
             ]);
         }
+    }
+
+    public static function seed_release_channels(): void {
+        global $wpdb;
+        $table = self::table('app_releases');
+        $hasStable = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$table} WHERE state='stable'") > 0;
+        if ($hasStable) return;
+
+        $settings = self::settings();
+        $version = trim((string)($settings['latest_version'] ?? ''));
+        $apkUrl = trim((string)($settings['apk_url'] ?? ''));
+        if ($version === '' || $version === '0.0.0' || $apkUrl === '' || !preg_match('/^\d+\.\d+\.\d+$/', $version)) return;
+
+        $now = BlueVPN_Utils::now_mysql();
+        $wpdb->replace($table, [
+            'github_release_id' => null,
+            'version' => $version,
+            'version_code' => max(0, (int)($settings['latest_version_code'] ?? 0)),
+            'state' => 'stable',
+            'force_update' => !empty($settings['force_update']) ? 1 : 0,
+            'title' => sanitize_text_field((string)($settings['update_title'] ?? ('BlueVPN ' . $version))),
+            'message' => sanitize_textarea_field((string)($settings['update_message'] ?? '')),
+            'apk_url' => esc_url_raw($apkUrl),
+            'apk_assets_json' => BlueVPN_Utils::json_encode(is_array($settings['apk_assets'] ?? null) ? $settings['apk_assets'] : []),
+            'apk_asset_meta_json' => BlueVPN_Utils::json_encode(is_array($settings['apk_asset_meta'] ?? null) ? $settings['apk_asset_meta'] : []),
+            'release_url' => esc_url_raw((string)($settings['release_url'] ?? '')),
+            'release_published_at' => sanitize_text_field((string)($settings['release_published_at'] ?? '')),
+            'build_number' => max(0, (int)($settings['release_build_number'] ?? 0)),
+            'commit_sha' => sanitize_text_field((string)($settings['release_commit'] ?? '')),
+            'fingerprint' => '',
+            'source' => 'schema_upgrade_stable_seed',
+            'promoted_at' => $now,
+            'stopped_at' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
     }
 
     public static function settings(): array {

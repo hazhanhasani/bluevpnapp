@@ -600,5 +600,26 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("poolReady = guids.isNotEmpty()", free_block)
 
 
+    def test_release_channels_beta_stable_contract(self):
+        db = text("bluevpn-manager/includes/class-bluevpn-db.php")
+        self.assertIn("app_releases", db)
+        self.assertIn("beta_tester", db)
+        manager = text("bluevpn-manager/includes/class-bluevpn-app-release-manager.php")
+        self.assertIn("'state' => $state", manager)
+        self.assertIn("promote_to_stable", manager)
+        self.assertIn("release_for_customer", manager)
+        self.assertIn("normal users", manager.lower())
+
+    def test_android_update_check_sends_authenticated_channel_identity(self):
+        update = text("android-source/BlueVpnUpdateManager.kt")
+        self.assertIn('"Authorization"', update)
+        self.assertIn('"Bearer $accessToken"', update)
+        self.assertIn('"X-Device-ID"', update)
+
+    def test_mobile_config_exposes_release_channel(self):
+        api = text("bluevpn-manager/includes/class-bluevpn-api.php")
+        self.assertIn("'release_channel'=>$channel", api)
+        self.assertIn("'beta_tester'=>(bool)", api)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

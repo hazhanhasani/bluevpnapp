@@ -208,6 +208,7 @@ final class BlueVPN_Production {
         // restored data that belongs to known tables.
         BlueVPN_DB::install_schema();
         BlueVPN_DB::seed_defaults();
+        BlueVPN_DB::seed_release_channels();
         BlueVPN_DB::enforce_six_digit_otp();
         BlueVPN_SMS_Notifications::seed_templates();
         BlueVPN_SMS_Notifications::schedule();

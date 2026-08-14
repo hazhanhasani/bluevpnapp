@@ -140,6 +140,17 @@ object BlueVpnUpdateManager {
                         "User-Agent",
                         "BlueVPN/${BuildConfig.VERSION_NAME}",
                     )
+                    val accessToken = BlueVpnAccountManager.token(activity)
+                    if (accessToken.isNotBlank()) {
+                        connection.setRequestProperty(
+                            "Authorization",
+                            "Bearer $accessToken",
+                        )
+                        connection.setRequestProperty(
+                            "X-Device-ID",
+                            BlueVpnAccountManager.deviceId(activity),
+                        )
+                    }
 
                     if (connection.responseCode !in 200..299) {
                         error(

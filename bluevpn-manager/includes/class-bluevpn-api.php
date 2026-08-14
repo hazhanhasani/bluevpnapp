@@ -102,37 +102,53 @@ final class BlueVPN_API {
     public static function mobile_config(WP_REST_Request $r): WP_REST_Response {
         $forced = rest_sanitize_boolean($r->get_param('refresh'));
         if ($forced && class_exists('BlueVPN_App_Release_Manager')) {
-            // Many phones can request a manual refresh at the same time. One
-            // GitHub check per minute is enough for all clients.
-            if ((time() - BlueVPN_App_Release_Manager::last_sync()) >= 60) {
-                BlueVPN_App_Release_Manager::sync_now(true, 'android_forced_refresh');
-            }
+            if ((time() - BlueVPN_App_Release_Manager::last_sync()) >= 60) BlueVPN_App_Release_Manager::sync_now(true, 'android_forced_refresh');
         } elseif (class_exists('BlueVPN_App_Release_Manager')) {
             BlueVPN_App_Release_Manager::maybe_kick();
         }
-        $s=BlueVPN_DB::settings();
-        $publishedMysql=BlueVPN_Utils::mysql_from_iso((string)($s['release_published_at']??''));
+
+        $customer = null;
+        $authHeader = trim((string)$r->get_header('authorization'));
+        if ($authHeader !== '') {
+            try { $customer = BlueVPN_Auth::current_customer($r); }
+            catch (BlueVPN_Auth_Exception $e) { $customer = null; }
+        }
+
+        $s = BlueVPN_DB::settings();
+        $selection = class_exists('BlueVPN_App_Release_Manager')
+            ? BlueVPN_App_Release_Manager::release_for_customer($customer)
+            : ['release'=>null,'channel'=>'stable','beta_tester'=>false];
+        $release = is_array($selection['release'] ?? null) ? $selection['release'] : [];
+        $published = (string)($release['release_published_at'] ?? ($s['release_published_at'] ?? ''));
+        $publishedMysql = BlueVPN_Utils::mysql_from_iso($published);
+        $channel = (string)($selection['channel'] ?? 'stable');
+        $releaseForce = !empty($release['force_update']);
+        // Legacy global force applies only to Stable. Beta force is controlled per release.
+        $forceUpdate = $releaseForce || ($channel === 'stable' && !empty($s['force_update']));
+
         return self::ok([
             'app_name'=>$s['app_name'],
             'maintenance'=>(bool)$s['maintenance'],
             'support_url'=>$s['support_url'],
             'minimum_version'=>$s['minimum_version'],
-            'force_update'=>(bool)$s['force_update'],
+            'force_update'=>$forceUpdate,
             'auto_update'=>(bool)$s['auto_update'],
             'account_required'=>true,
-            'latest_version'=>$s['latest_version'],
-            'latest_version_code'=>(int)$s['latest_version_code'],
-            'apk_url'=>$s['apk_url'],
-            'apk_assets'=>is_array($s['apk_assets']??null)?$s['apk_assets']:[],
-            'apk_asset_meta'=>is_array($s['apk_asset_meta']??null)?$s['apk_asset_meta']:[],
-            'update_title'=>$s['update_title'],
-            'update_message'=>$s['update_message'],
-            'release_url'=>(string)($s['release_url']??''),
-            'release_published_at'=>(string)($s['release_published_at']??''),
+            'latest_version'=>(string)($release['version'] ?? $s['latest_version']),
+            'latest_version_code'=>(int)($release['version_code'] ?? $s['latest_version_code']),
+            'apk_url'=>(string)($release['apk_url'] ?? $s['apk_url']),
+            'apk_assets'=>is_array($release['apk_assets']??null)?$release['apk_assets']:(is_array($s['apk_assets']??null)?$s['apk_assets']:[]),
+            'apk_asset_meta'=>is_array($release['apk_asset_meta']??null)?$release['apk_asset_meta']:(is_array($s['apk_asset_meta']??null)?$s['apk_asset_meta']:[]),
+            'update_title'=>(string)($release['title'] ?? $s['update_title']),
+            'update_message'=>(string)($release['message'] ?? $s['update_message']),
+            'release_url'=>(string)($release['release_url'] ?? ($s['release_url']??'')),
+            'release_published_at'=>$published,
             'release_published_at_fa'=>$publishedMysql?BlueVPN_Utils::tehran_datetime_fa($publishedMysql):'',
-            'release_build_number'=>(int)($s['release_build_number']??0),
-            'release_commit'=>(string)($s['release_commit']??''),
-            'update_source'=>(string)($s['update_source']??'wordpress_settings'),
+            'release_build_number'=>(int)($release['build_number'] ?? ($s['release_build_number']??0)),
+            'release_commit'=>(string)($release['commit_sha'] ?? ($s['release_commit']??'')),
+            'update_source'=>(string)($release['source'] ?? ($s['update_source']??'wordpress_settings')),
+            'release_channel'=>$channel,
+            'beta_tester'=>(bool)($selection['beta_tester'] ?? false),
             'github_repository'=>(string)($s['github_repository']??''),
             'github_error'=>(string)($s['github_error']??''),
             'release_cache_seconds'=>(int)($s['release_cache_seconds']??15),
@@ -140,12 +156,10 @@ final class BlueVPN_API {
             'auth'=>array_merge(['mode'=>'phone_otp_or_email_password','password_login'=>true,'email_login'=>true,'email_registration'=>true],BlueVPN_SMS_OTP::public_config(),['request_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/request','verify_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/verify','login_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/login','register_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/register']),
             'blueai'=>['enabled'=>(bool)$s['blueai_enabled'],'collective'=>(bool)$s['blueai_collective'],'auto_heal'=>(bool)$s['blueai_auto_heal'],'min_samples'=>(int)$s['blueai_min_samples'],'privacy_message'=>$s['blueai_privacy_message']],
             'announcement'=>['enabled'=>(bool)$s['announcement_enabled'],'id'=>$s['announcement_id'],'title'=>$s['announcement_title'],'message'=>$s['announcement_message']],
-            'advertising'=>BlueVPN_Ads::advertising_payload($s,$r),
-            'tapsell'=>BlueVPN_Ads::tapsell_payload($s),
-            'free_access'=>BlueVPN_Ads::free_access_payload($s),
+            'ads'=>BlueVPN_Ads::public_config(),
+            'free_access'=>BlueVPN_Ads::free_public_config(),
             'updated_at'=>$s['updated_at'],
             'updated_at_fa'=>BlueVPN_Utils::tehran_datetime_fa(),
-            'calendar'=>'jalali','timezone'=>'Asia/Tehran','migration_phase'=>2,'migration_state'=>BlueVPN_Migration::state()['phase'],'cutover_ready'=>get_option('bluevpn_manager_cutover_ready','0')==='1'
         ]);
     }
     public static function ad_asset(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Ads::asset_response($r); }

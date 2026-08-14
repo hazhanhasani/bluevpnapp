@@ -589,5 +589,5 @@ final class BlueVPN_Admin {
         wp_safe_redirect(add_query_arg(['page'=>'bluevpn-github-updater','checked'=>$message], admin_url('admin.php')));
         exit;
     }
-    public static function repair(): void { self::guard();check_admin_referer('bluevpn_repair');BlueVPN_DB::install_schema();BlueVPN_DB::seed_defaults();BlueVPN_Compat::register_rewrites();flush_rewrite_rules(false);wp_safe_redirect(admin_url('admin.php?page=bluevpn-migration&repaired=1'));exit; }
+    public static function repair(): void { self::guard();check_admin_referer('bluevpn_repair');BlueVPN_DB::install_schema();BlueVPN_DB::seed_defaults();BlueVPN_DB::seed_release_channels();BlueVPN_Compat::register_rewrites();flush_rewrite_rules(false);wp_safe_redirect(admin_url('admin.php?page=bluevpn-migration&repaired=1'));exit; }
 }

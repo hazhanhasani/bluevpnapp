@@ -1,4 +1,4 @@
-# BlueVPN 4.3.0
+# BlueVPN 4.3.1
 
 BlueVPN is now rebased as a **custom product/UI on top of official v2rayNG**, instead of treating v2rayNG as a replaceable compatibility bridge.
 
@@ -72,6 +72,18 @@ See `LICENSE` and `NOTICE.md` for licensing and attribution.
 ## Overlay-safe repository cleanup
 
 Some deployments copy a release bundle over an existing GitHub checkout instead of replacing the tree. Deleted files from older releases can therefore remain tracked in the repository. The Android workflow now runs `scripts/cleanup_repository.py` before applying the BlueVPN overlay. It removes retired dual-engine/sing-box files, the removed AI activity, and historical generated Android snapshots from the build workspace before the regression gate runs.
+
+
+## 4.3.1 — Release Channels (Beta / Stable)
+
+- Every new GitHub Android release is imported into WordPress as **Beta** by default.
+- Only customers marked `beta_tester=1` can receive the newest active Beta release.
+- Normal users always receive the latest **Stable** release until an administrator promotes a tested Beta.
+- Promotion changes only MySQL release state; it reuses the exact APK, SHA-256, Build and commit and does not rebuild Android.
+- Beta can be stopped/resumed and Force Update is stored per release.
+- Android 4.3.1+ authenticates `/api/v1/mobile/config` with the current Bearer session and `X-Device-ID`.
+- Schema 1.8.0 adds `app_releases` and `customers.beta_tester`. Existing configured release metadata is seeded as Stable during upgrade.
+- Bootstrap note: pre-4.3.1 APKs do not authenticate update checks, so the first 4.3.1 Beta must be installed manually on tester devices once.
 
 
 ## 4.3.0 — Advertising blank-card / cPanel binary fix

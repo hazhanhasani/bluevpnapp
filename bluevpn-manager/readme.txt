@@ -1,6 +1,6 @@
 === BlueVPN Manager ===
-Version: 4.3.0
-Stable tag: 4.3.0
+Version: 4.3.1
+Stable tag: 4.3.1
 Requires PHP: 8.0
 
 کنترل‌پلین اصلی BlueVPN روی WordPress/MySQL.
@@ -22,6 +22,13 @@ Requires PHP: 8.0
 - نسخه‌گذاری BlueVPN از الگوی x.y.0 تا x.y.10 پیروی می‌کند؛ بعد از x.y.10 نسخه بعدی x.(y+1).0 است.
 
 == Changelog ==
+= 4.3.1 =
+* Added server-controlled Beta/Stable release channels.
+* New GitHub APK releases default to Beta and are hidden from normal users.
+* Added per-customer Beta Tester flag and per-release force/stop/promote controls.
+* Stable promotion reuses the exact APK/SHA without rebuilding.
+* Android update checks now authenticate with the current app session so WordPress can select the correct release channel.
+
 = 4.3.0 =
 - رفع بنر خالی: تصویر تا Decode موفق در Android نمایش داده نمی‌شود و در تعویض اسلاید تصویر قبلی تا آماده‌شدن بعدی حفظ می‌شود.
 - تصاویر تبلیغات MySQL به‌صورت lazy در wp-content/uploads/bluevpn-ads به فایل استاتیک تبدیل می‌شوند؛ REST باینری فقط fallback است.

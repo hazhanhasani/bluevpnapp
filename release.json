@@ -1,12 +1,12 @@
 {
-  "version": "4.3.0",
-  "version_code": 40300,
-  "channel": "stable",
-  "build_id": "20260814-v4.3.0-ad-static-assets-no-blank",
-  "built_at": "2026-08-14T11:55:00Z",
-  "android_version": "4.3.0",
-  "android_version_code": 40300,
-  "description": "BlueVPN 4.3.0: رفع باگ بنر تبلیغاتی خالی روی cPanel/WordPress. تصاویر داخلی تبلیغات به‌صورت lazy از MySQL به فایل استاتیک wp-content/uploads/bluevpn-ads materialize می‌شوند تا از فساد باینری ناشی از PHP/REST compression و Content-Length جلوگیری شود؛ Android تا Decode موفق تصویر هیچ کارت خالی نشان نمی‌دهد و هنگام تعویض اسلاید تصویر قبلی را تا آماده‌شدن تصویر بعدی نگه می‌دارد. Cache/Prefetch بنر و جداسازی Free/Premium حفظ شده و Runtime رسمی v2rayNG/Xray بدون تغییر است.",
+  "version": "4.3.1",
+  "version_code": 40301,
+  "channel": "beta",
+  "build_id": "20260814-v4.3.1-release-channels-beta-stable",
+  "built_at": "2026-08-14T12:29:00Z",
+  "android_version": "4.3.1",
+  "android_version_code": 40301,
+  "description": "BlueVPN 4.3.1: افزودن Release Channels واقعی در WordPress/MySQL. هر GitHub Release جدید به‌صورت پیش‌فرض Beta است و فقط کاربران علامت‌خورده به‌عنوان Beta Tester آن را دریافت می‌کنند؛ کاربران عادی روی آخرین Stable می‌مانند تا مدیر همان APK را بدون Build مجدد رسمی کند. Force Update، توقف Beta و ارتقای Stable در پنل مدیریت نسخه‌ها مستقل شده‌اند و Android برای انتخاب امن کانال، نشست حساب و Device ID را همراه درخواست بروزرسانی می‌فرستد.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -85,7 +85,16 @@
     "no-blank-ad-card-before-first-bitmap",
     "keep-previous-banner-until-next-bitmap",
     "ad-image-identity-encoding",
-    "ad-image-short-retry"
+    "ad-image-short-retry",
+    "wordpress-release-channels-beta-stable",
+    "new-github-release-defaults-to-beta",
+    "per-customer-beta-tester-flag",
+    "authenticated-update-channel-selection",
+    "stable-promotion-without-rebuild",
+    "per-release-force-update-policy",
+    "beta-release-stop-resume",
+    "legacy-stable-release-seed-on-schema-upgrade",
+    "normal-users-never-see-unpromoted-beta"
   ],
-  "version_source": "v4.3.0-ad-static-assets-no-blank"
+  "version_source": "v4.3.1-release-channels-beta-stable"
 }

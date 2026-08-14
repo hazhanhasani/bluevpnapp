@@ -913,6 +913,25 @@ final class BlueVPN_Migration {
         if (!$rows) return true;
         if ($logicalTable === 'customers') {
             BlueVPN_DB::ensure_customer_nullable_unique_columns();
+            // beta_tester is WordPress-only release-channel state. Railway does not
+            // know this column, and REPLACE would otherwise reset it to DEFAULT 0.
+            $customerTable = BlueVPN_DB::table('customers');
+            $ids = [];
+            foreach ($rows as $row) if (is_array($row) && !empty($row['id'])) $ids[] = (int)$row['id'];
+            $betaById = [];
+            if ($ids) {
+                $ids = array_values(array_unique(array_filter($ids, static fn($id) => $id > 0)));
+                if ($ids) {
+                    $placeholders = implode(',', array_fill(0, count($ids), '%d'));
+                    $sql = $wpdb->prepare("SELECT id,beta_tester FROM {$customerTable} WHERE id IN ({$placeholders})", ...$ids);
+                    foreach (($wpdb->get_results($sql, ARRAY_A) ?: []) as $existing) $betaById[(int)$existing['id']] = (int)($existing['beta_tester'] ?? 0);
+                }
+            }
+            foreach ($rows as &$row) {
+                if (!is_array($row) || array_key_exists('beta_tester', $row)) continue;
+                $row['beta_tester'] = $betaById[(int)($row['id'] ?? 0)] ?? 0;
+            }
+            unset($row);
             $rows = array_map([self::class, 'normalize_customer_optional_unique_values'], $rows);
         }
         if ($logicalTable === 'sms_settings') {

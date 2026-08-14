@@ -621,5 +621,38 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("'release_channel'=>$channel", api)
         self.assertIn("'beta_tester'=>(bool)", api)
 
+    def test_76_blueai_learning_is_tier_isolated(self):
+        db = text("bluevpn-manager/includes/class-bluevpn-db.php")
+        ai = text("bluevpn-manager/includes/class-bluevpn-ai.php")
+        self.assertIn("plan_tier varchar(16)", db)
+        self.assertIn("uq_ai_route_context_tier", db)
+        self.assertIn("plan_tier=%s AND operator=%s", ai)
+        self.assertIn("learning_source", ai)
+
+    def test_77_free_guest_live_reporter_does_not_require_login(self):
+        reporter = text("android-source/BlueVpnLiveReporter.kt")
+        report_once = block(reporter, "private fun reportOnce", "private fun nextDelaySeconds")
+        self.assertNotIn("BlueVpnAccountManager.hasSession", report_once)
+        self.assertIn("BlueVpnAi.hasActiveSession", report_once)
+        self.assertIn("ACTIVE_DELAY_SECONDS = 45L", reporter)
+
+    def test_78_android_blueai_sends_tier_and_schema_capability(self):
+        ai = text("android-source/BlueVpnAi.kt")
+        account = text("android-source/BlueVpnAccountManager.kt")
+        self.assertIn("AI_SCHEMA_VERSION = 2", ai)
+        self.assertIn('.put("plan_tier", planTier(context))', ai)
+        self.assertIn('.put("ai_schema_version", AI_SCHEMA_VERSION)', ai)
+        self.assertIn('"&plan_tier=" + java.net.URLEncoder.encode(planTier', account)
+
+    def test_79_wordpress_blueai_has_live_dashboard_and_version_health(self):
+        ai = text("bluevpn-manager/includes/class-bluevpn-ai.php")
+        api = text("bluevpn-manager/includes/class-bluevpn-api.php")
+        self.assertIn("wp_ajax_bluevpn_ai_live_snapshot", ai)
+        self.assertIn("public static function live_snapshot", ai)
+        self.assertIn("public static function version_health", ai)
+        self.assertIn("پایش هوشمند همزمان Free + Premium", ai)
+        self.assertIn("'engine_version'=>BlueVPN_AI::ENGINE_VERSION", api)
+        self.assertIn("'capabilities'=>BlueVPN_AI::capabilities()", api)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

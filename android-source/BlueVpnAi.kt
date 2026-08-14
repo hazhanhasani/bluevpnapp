@@ -33,7 +33,9 @@ object BlueVpnAi {
     private const val KEY_LAST_PROBE_SOURCE = "last_probe_source"
     private const val KEY_LAST_PROBE_LATENCY = "last_probe_latency"
     private const val SYNC_INTERVAL = 5 * 60 * 1000L
-    private const val HEARTBEAT_INTERVAL = 60 * 1000L
+    private const val HEARTBEAT_INTERVAL = 35 * 1000L
+    private const val AI_SCHEMA_VERSION = 2
+    private const val AI_ENGINE_FAMILY = "blueai-adaptive-v2"
     private const val PROBE_CACHE_MAX_AGE_MS = 125 * 1000L
 
     data class NetworkSnapshot(
@@ -346,6 +348,11 @@ object BlueVpnAi {
         )
     }
 
+    private fun planTier(context: Context): String =
+        BlueVpnEntitlement.resolveUi(context)
+            .tier.name
+            .lowercase(Locale.US)
+
     private fun digest(value: String): String =
         MessageDigest.getInstance("SHA-256")
             .digest(value.toByteArray())
@@ -502,6 +509,7 @@ object BlueVpnAi {
                 network.operator,
                 network.networkType,
                 BlueVpnExperience.mode(context).key,
+                planTier(context),
             ).getOrNull()?.optJSONArray("recommendations")?.let { rows ->
                 for (index in 0 until rows.length()) {
                     val row = rows.optJSONObject(index) ?: continue
@@ -549,6 +557,9 @@ object BlueVpnAi {
             .put("ping_ms", pingMs.coerceAtLeast(0L))
             .put("health_score", healthScore)
             .put("mode", BlueVpnExperience.mode(context).key)
+            .put("plan_tier", planTier(context))
+            .put("ai_schema_version", AI_SCHEMA_VERSION)
+            .put("ai_client_version", BuildConfig.VERSION_NAME)
         prefs(context).edit()
             .putString(KEY_SESSION, session.toString())
             .remove(KEY_LAST_HEARTBEAT)
@@ -735,6 +746,10 @@ object BlueVpnAi {
             .put("device_model", BlueVpnAccountManager.deviceName())
             .put("android_version", Build.VERSION.RELEASE ?: "")
             .put("app_version", BuildConfig.VERSION_NAME)
+            .put("plan_tier", planTier(context))
+            .put("ai_schema_version", AI_SCHEMA_VERSION)
+            .put("ai_client_version", BuildConfig.VERSION_NAME)
+            .put("ai_engine_family", AI_ENGINE_FAMILY)
             .put("hour_bucket", Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
 
     private fun updatePersonal(

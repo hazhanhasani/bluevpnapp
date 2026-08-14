@@ -14,10 +14,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * and the home screen also triggered another proof. This reporter is now the
  * single owner of background heartbeats. It adapts to screen/power state and
  * BlueVpnAi reuses a recent verified proof before creating a new socket.
+ * Guest/Free sessions are first-class citizens: live telemetry does not require
+ * an authenticated account and is rate-limited server-side by device identity.
  */
 object BlueVpnLiveReporter {
-    private const val INITIAL_DELAY_SECONDS = 12L
-    private const val ACTIVE_DELAY_SECONDS = 75L
+    private const val INITIAL_DELAY_SECONDS = 8L
+    private const val ACTIVE_DELAY_SECONDS = 45L
     private const val SCREEN_OFF_DELAY_SECONDS = 90L
     private const val POWER_SAVE_DELAY_SECONDS = 120L
     private const val IDLE_DELAY_SECONDS = 60L
@@ -48,7 +50,6 @@ object BlueVpnLiveReporter {
 
     private fun reportOnce(app: Context) {
         if (
-            !BlueVpnAccountManager.hasSession(app) ||
             !BlueVpnAi.hasActiveSession(app) ||
             !BlueVpnAi.hasVpnTransport(app)
         ) {
@@ -69,7 +70,7 @@ object BlueVpnLiveReporter {
 
     private fun nextDelaySeconds(app: Context): Long {
         if (!BlueVpnAi.hasActiveSession(app)) return IDLE_DELAY_SECONDS
-        if (BlueVpnPerformance.isLowEnd(app)) return 150L
+        if (BlueVpnPerformance.isLowEnd(app)) return 120L
         val power = app.getSystemService(Context.POWER_SERVICE) as PowerManager
         return when {
             power.isPowerSaveMode -> POWER_SAVE_DELAY_SECONDS

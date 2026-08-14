@@ -1,4 +1,4 @@
-# BlueVPN 4.3.1
+# BlueVPN 4.3.2
 
 BlueVPN is now rebased as a **custom product/UI on top of official v2rayNG**, instead of treating v2rayNG as a replaceable compatibility bridge.
 
@@ -73,6 +73,17 @@ See `LICENSE` and `NOTICE.md` for licensing and attribution.
 
 Some deployments copy a release bundle over an existing GitHub checkout instead of replacing the tree. Deleted files from older releases can therefore remain tracked in the repository. The Android workflow now runs `scripts/cleanup_repository.py` before applying the BlueVPN overlay. It removes retired dual-engine/sing-box files, the removed AI activity, and historical generated Android snapshots from the build workspace before the regression gate runs.
 
+
+
+## 4.3.2 — BlueAI Live Intelligence
+
+- BlueAI برای هر دو پلن **Free** و **Premium** به‌صورت همزمان فعال است، اما یادگیری Routeها با `plan_tier` جدا نگه داشته می‌شود تا داده‌های رایگان و اشتراکی با هم قاطی نشوند.
+- اتصال‌های مهمان/Free هم Heartbeat تأییدشده ارسال می‌کنند؛ شرط قدیمی Login برای Live Reporter حذف شده است.
+- پنل WordPress نمای **Live** با تعداد Free/Premium، Route، اپراتور، Ping، ترافیک فنی، نسخه اپ و سن Heartbeat دارد.
+- سلامت هر نسخه در ۲۴ ساعت اخیر جداگانه رصد می‌شود تا Beta/Stable و رگرسیون‌های اتصال قابل تشخیص باشند.
+- `AI_SCHEMA_VERSION=2` و capability metadata اضافه شده تا هر آپدیت بتواند قابلیت‌های هوشمند جدید اضافه کند، بدون پاک‌کردن دانش جمعی قبلی.
+- داده‌های قدیمی `unknown` حذف نمی‌شوند و فقط با وزن کمتر برای cold-start نسخه جدید استفاده می‌شوند.
+- حریم خصوصی همان قرارداد قبلی است: محتوای ترافیک و IP مقصد جمع‌آوری نمی‌شود؛ فقط شاخص‌های فنی اتصال ثبت می‌شوند.
 
 ## 4.3.1 — Release Channels (Beta / Stable)
 

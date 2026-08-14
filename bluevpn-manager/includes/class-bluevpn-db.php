@@ -500,6 +500,9 @@ final class BlueVPN_DB {
             operator varchar(100) NOT NULL DEFAULT 'unknown',
             network_type varchar(30) NOT NULL DEFAULT 'unknown',
             mode varchar(30) NOT NULL DEFAULT 'balanced',
+            plan_tier varchar(16) NOT NULL DEFAULT 'unknown',
+            ai_schema_version int NOT NULL DEFAULT 1,
+            ai_client_version varchar(40) NOT NULL DEFAULT '',
             event_type varchar(30) NOT NULL DEFAULT 'session',
             success tinyint(1) NOT NULL DEFAULT 0,
             ping_ms int NOT NULL DEFAULT 0,
@@ -523,6 +526,8 @@ final class BlueVPN_DB {
             KEY ix_ai_event_config (config_key),
             KEY ix_ai_event_location (location_key),
             KEY ix_ai_event_context (operator, network_type, created_at),
+            KEY ix_ai_event_tier_context (plan_tier, operator, network_type, created_at),
+            KEY ix_ai_event_version_tier (app_version, plan_tier, created_at),
             KEY ix_ai_event_route (config_key, created_at),
             KEY ix_ai_event_success (success),
             KEY ix_ai_event_hour (hour_bucket),
@@ -540,6 +545,9 @@ final class BlueVPN_DB {
             operator varchar(100) NOT NULL DEFAULT 'unknown',
             network_type varchar(30) NOT NULL DEFAULT 'unknown',
             mode varchar(30) NOT NULL DEFAULT 'balanced',
+            plan_tier varchar(16) NOT NULL DEFAULT 'unknown',
+            ai_schema_version int NOT NULL DEFAULT 1,
+            ai_client_version varchar(40) NOT NULL DEFAULT '',
             connected tinyint(1) NOT NULL DEFAULT 0,
             verified tinyint(1) NOT NULL DEFAULT 0,
             tunnel_running tinyint(1) NOT NULL DEFAULT 0,
@@ -567,6 +575,8 @@ final class BlueVPN_DB {
             KEY ix_ai_live_config (config_key),
             KEY ix_ai_live_verified_expiry (connected, verified, expires_at),
             KEY ix_ai_live_operator (operator, expires_at),
+            KEY ix_ai_live_tier (plan_tier, connected, expires_at),
+            KEY ix_ai_live_version (app_version, plan_tier, last_seen_at),
             KEY ix_ai_live_seen (last_seen_at),
             KEY ix_ai_live_device_state (device_id, connected, expires_at)
         ) $cc;";
@@ -579,6 +589,7 @@ final class BlueVPN_DB {
             operator varchar(100) NOT NULL DEFAULT 'unknown',
             network_type varchar(30) NOT NULL DEFAULT 'unknown',
             mode varchar(30) NOT NULL DEFAULT 'balanced',
+            plan_tier varchar(16) NOT NULL DEFAULT 'unknown',
             hour_bucket int NOT NULL DEFAULT 0,
             sample_count int NOT NULL DEFAULT 0,
             success_count int NOT NULL DEFAULT 0,
@@ -602,8 +613,8 @@ final class BlueVPN_DB {
             average_duration_seconds double NOT NULL DEFAULT 0,
             updated_at datetime NULL,
             PRIMARY KEY  (id),
-            UNIQUE KEY uq_ai_route_context (config_key, operator, network_type, mode, hour_bucket),
-            KEY ix_ai_route_rank (operator, network_type, mode, score),
+            UNIQUE KEY uq_ai_route_context_tier (config_key, plan_tier, operator, network_type, mode, hour_bucket),
+            KEY ix_ai_route_rank (plan_tier, operator, network_type, mode, score),
             KEY ix_ai_route_live_rank (operator, network_type, recent_score, updated_at),
             KEY ix_ai_route_location (location_key),
             KEY ix_ai_route_updated (updated_at)
@@ -627,6 +638,29 @@ final class BlueVPN_DB {
             dbDelta($sql);
         }
         self::ensure_customer_nullable_unique_columns();
+        self::ensure_ai_tier_indexes();
+    }
+
+
+    /**
+     * BlueAI v2 learns Free and Premium independently. Older installations had
+     * a unique aggregate index without plan_tier; leaving that index in place
+     * would silently collapse the two learning channels into one row.
+     */
+    public static function ensure_ai_tier_indexes(): void {
+        global $wpdb;
+        $table = self::table('ai_route_aggregates');
+        $exists = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
+        if ((string)$exists !== $table) return;
+
+        $legacy = $wpdb->get_var("SHOW INDEX FROM {$table} WHERE Key_name='uq_ai_route_context'");
+        if ($legacy !== null) {
+            $wpdb->query("ALTER TABLE {$table} DROP INDEX uq_ai_route_context");
+        }
+        $current = $wpdb->get_var("SHOW INDEX FROM {$table} WHERE Key_name='uq_ai_route_context_tier'");
+        if ($current === null) {
+            $wpdb->query("ALTER TABLE {$table} ADD UNIQUE KEY uq_ai_route_context_tier (config_key, plan_tier, operator, network_type, mode, hour_bucket)");
+        }
     }
 
     /**
@@ -697,9 +731,12 @@ final class BlueVPN_DB {
             'announcement_title' => 'مهاجرت BlueVPN',
             'announcement_message' => 'زیرساخت جدید BlueVPN در حال آماده‌سازی است.',
             'blueai_enabled' => true,
+            'blueai_free_enabled' => true,
+            'blueai_premium_enabled' => true,
             'blueai_collective' => true,
             'blueai_auto_heal' => true,
             'blueai_min_samples' => 3,
+            'blueai_live_refresh_seconds' => 5,
             'blueai_privacy_message' => 'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.',
             'ads_enabled' => false,
             'ads_autoplay' => true,

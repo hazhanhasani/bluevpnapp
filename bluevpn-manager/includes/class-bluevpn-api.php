@@ -91,7 +91,7 @@ final class BlueVPN_API {
             'web_login_url' => $site . '/bluevpn-login/',
             'features' => [
                 'advertising' => true, 'ad_assets' => true, 'tapsell' => true, 'free_access' => true,
-                'blueai_events' => true, 'blueai_recommendations' => true, 'blueai_dashboard' => true,
+                'blueai_events' => true, 'blueai_recommendations' => true, 'blueai_dashboard' => true, 'blueai_live_tier_monitoring' => true,
                 'orders' => true, 'bluepay_webhook' => true, 'bind_phone_otp' => true, 'provider_sync' => true,
             ],
             'static_api_key_required' => false,
@@ -154,7 +154,7 @@ final class BlueVPN_API {
             'release_cache_seconds'=>(int)($s['release_cache_seconds']??15),
             'release_refresh_forced'=>$forced,
             'auth'=>array_merge(['mode'=>'phone_otp_or_email_password','password_login'=>true,'email_login'=>true,'email_registration'=>true],BlueVPN_SMS_OTP::public_config(),['request_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/request','verify_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/verify','login_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/login','register_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/register']),
-            'blueai'=>['enabled'=>(bool)$s['blueai_enabled'],'collective'=>(bool)$s['blueai_collective'],'auto_heal'=>(bool)$s['blueai_auto_heal'],'min_samples'=>(int)$s['blueai_min_samples'],'privacy_message'=>$s['blueai_privacy_message']],
+            'blueai'=>['enabled'=>(bool)$s['blueai_enabled'],'free_enabled'=>!isset($s['blueai_free_enabled'])||!empty($s['blueai_free_enabled']),'premium_enabled'=>!isset($s['blueai_premium_enabled'])||!empty($s['blueai_premium_enabled']),'collective'=>(bool)$s['blueai_collective'],'auto_heal'=>(bool)$s['blueai_auto_heal'],'min_samples'=>(int)$s['blueai_min_samples'],'engine_version'=>BlueVPN_AI::ENGINE_VERSION,'schema_version'=>BlueVPN_AI::SCHEMA_VERSION,'capabilities'=>BlueVPN_AI::capabilities(),'privacy_message'=>$s['blueai_privacy_message']],
             'announcement'=>['enabled'=>(bool)$s['announcement_enabled'],'id'=>$s['announcement_id'],'title'=>$s['announcement_title'],'message'=>$s['announcement_message']],
             'ads'=>BlueVPN_Ads::public_config(),
             'free_access'=>BlueVPN_Ads::free_public_config(),
@@ -196,11 +196,14 @@ final class BlueVPN_API {
         } catch(BlueVPN_Auth_Exception $e){ return self::fail($e); }
     }
     public static function ai_recommendations(WP_REST_Request $r): WP_REST_Response {
-        $s=BlueVPN_DB::settings(); $enabled=!empty($s['blueai_enabled']);
-        $rows=$enabled?BlueVPN_AI::recommendations((string)($r->get_param('operator')??'unknown'),(string)($r->get_param('network_type')??'unknown'),(string)($r->get_param('mode')??'balanced'),$r->get_param('hour'),30):[];
-        return self::ok(['success'=>true,'enabled'=>$enabled,'collective'=>!empty($s['blueai_collective']),'recommendations'=>$rows,'generated_at'=>BlueVPN_Utils::iso_now(),'generated_at_fa'=>BlueVPN_Utils::tehran_datetime_fa(),'calendar'=>'jalali','timezone'=>'Asia/Tehran']);
+        $s=BlueVPN_DB::settings();$enabled=!empty($s['blueai_enabled']);$customer=['id'=>0];
+        if(BlueVPN_Auth::bearer_token($r)!==''){try{$customer=BlueVPN_Auth::current_customer($r);}catch(BlueVPN_Auth_Exception $e){$customer=['id'=>0];}}
+        $tier=BlueVPN_AI::plan_tier_for_customer($customer,(string)($r->get_param('plan_tier')??'free'));
+        $tierEnabled=$enabled&&BlueVPN_AI::tier_enabled($tier,$s);
+        $rows=$tierEnabled?BlueVPN_AI::recommendations((string)($r->get_param('operator')??'unknown'),(string)($r->get_param('network_type')??'unknown'),(string)($r->get_param('mode')??'balanced'),$r->get_param('hour'),30,$tier):[];
+        return self::ok(['success'=>true,'enabled'=>$enabled,'tier_enabled'=>$tierEnabled,'plan_tier'=>$tier,'engine_version'=>BlueVPN_AI::ENGINE_VERSION,'schema_version'=>BlueVPN_AI::SCHEMA_VERSION,'capabilities'=>BlueVPN_AI::capabilities(),'collective'=>!empty($s['blueai_collective']),'recommendations'=>$rows,'generated_at'=>BlueVPN_Utils::iso_now(),'generated_at_fa'=>BlueVPN_Utils::tehran_datetime_fa(),'calendar'=>'jalali','timezone'=>'Asia/Tehran']);
     }
-    public static function ai_dashboard(WP_REST_Request $r): WP_REST_Response { try{$bearer=BlueVPN_Auth::bearer_token($r);if($bearer!==''){$c=BlueVPN_Auth::current_customer($r);$data=BlueVPN_AI::dashboard((int)$c['id']);$guest=false;}else{$device=substr(sanitize_text_field((string)$r->get_header('x-device-id')),0,80);if($device==='')throw new BlueVPN_Auth_Exception(422,'AI_DEVICE_REQUIRED','شناسه دستگاه لازم است');$data=BlueVPN_AI::dashboard_device($device);$guest=true;}return self::ok(['success'=>true,'guest'=>$guest,'dashboard'=>$data]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
+    public static function ai_dashboard(WP_REST_Request $r): WP_REST_Response { try{$bearer=BlueVPN_Auth::bearer_token($r);if($bearer!==''){$c=BlueVPN_Auth::current_customer($r);$data=BlueVPN_AI::dashboard((int)$c['id']);$guest=false;}else{$device=substr(sanitize_text_field((string)$r->get_header('x-device-id')),0,80);if($device==='')throw new BlueVPN_Auth_Exception(422,'AI_DEVICE_REQUIRED','شناسه دستگاه لازم است');$data=BlueVPN_AI::dashboard_device($device);$guest=true;}return self::ok(['success'=>true,'guest'=>$guest,'engine_version'=>BlueVPN_AI::ENGINE_VERSION,'schema_version'=>BlueVPN_AI::SCHEMA_VERSION,'dashboard'=>$data]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
     public static function feedback(WP_REST_Request $r): WP_REST_Response { try{$c=BlueVPN_Auth::current_customer($r);return self::ok(array_merge(['success'=>true],BlueVPN_AI::feedback((int)$c['id'],self::body($r))));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
 
     public static function create_order(WP_REST_Request $r): WP_REST_Response { try{$c=BlueVPN_Auth::current_customer($r);return self::ok(BlueVPN_Payments::create($c,self::body($r)));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }

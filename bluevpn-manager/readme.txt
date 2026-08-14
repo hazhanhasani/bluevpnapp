@@ -1,6 +1,6 @@
 === BlueVPN Manager ===
-Version: 4.3.1
-Stable tag: 4.3.1
+Version: 4.3.2
+Stable tag: 4.3.2
 Requires PHP: 8.0
 
 کنترل‌پلین اصلی BlueVPN روی WordPress/MySQL.
@@ -22,6 +22,12 @@ Requires PHP: 8.0
 - نسخه‌گذاری BlueVPN از الگوی x.y.0 تا x.y.10 پیروی می‌کند؛ بعد از x.y.10 نسخه بعدی x.(y+1).0 است.
 
 == Changelog ==
+
+= 4.3.2 =
+* BlueAI Engine v2 با یادگیری مستقل Free/Premium و پایش Live همزمان.
+* Heartbeat برای کاربران مهمان/رایگان نیز فعال شد؛ بدون جمع‌آوری محتوای ترافیک یا IP مقصد.
+* داشبورد Live، سلامت نسخه‌ها، Schema versioning و Capability negotiation به پنل افزوده شد.
+* دانش نسخه‌های قبلی حفظ می‌شود و به‌عنوان cold-start fallback کم‌وزن استفاده می‌شود.
 = 4.3.1 =
 * Added server-controlled Beta/Stable release channels.
 * New GitHub APK releases default to Beta and are hidden from normal users.

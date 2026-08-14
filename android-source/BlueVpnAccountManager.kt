@@ -1974,11 +1974,13 @@ object BlueVpnAccountManager {
         operator: String,
         networkType: String,
         mode: String,
+        planTier: String,
     ): Result<JSONObject> = runCatching {
         val path = "/api/v1/ai/recommendations" +
             "?operator=" + java.net.URLEncoder.encode(operator, "UTF-8") +
             "&network_type=" + java.net.URLEncoder.encode(networkType, "UTF-8") +
-            "&mode=" + java.net.URLEncoder.encode(mode, "UTF-8")
+            "&mode=" + java.net.URLEncoder.encode(mode, "UTF-8") +
+            "&plan_tier=" + java.net.URLEncoder.encode(planTier, "UTF-8")
         if (hasSession(c)) {
             authenticatedRequest(c, "GET", path, null)
         } else {

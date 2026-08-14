@@ -1,12 +1,12 @@
 {
-  "version": "4.3.1",
-  "version_code": 40301,
+  "version": "4.3.2",
+  "version_code": 40302,
   "channel": "beta",
-  "build_id": "20260814-v4.3.1-release-channels-beta-stable",
-  "built_at": "2026-08-14T12:29:00Z",
-  "android_version": "4.3.1",
-  "android_version_code": 40301,
-  "description": "BlueVPN 4.3.1: افزودن Release Channels واقعی در WordPress/MySQL. هر GitHub Release جدید به‌صورت پیش‌فرض Beta است و فقط کاربران علامت‌خورده به‌عنوان Beta Tester آن را دریافت می‌کنند؛ کاربران عادی روی آخرین Stable می‌مانند تا مدیر همان APK را بدون Build مجدد رسمی کند. Force Update، توقف Beta و ارتقای Stable در پنل مدیریت نسخه‌ها مستقل شده‌اند و Android برای انتخاب امن کانال، نشست حساب و Device ID را همراه درخواست بروزرسانی می‌فرستد.",
+  "build_id": "20260814-v4.3.2-blueai-live-tier-intelligence",
+  "built_at": "2026-08-14T14:54:00Z",
+  "android_version": "4.3.2",
+  "android_version_code": 40302,
+  "description": "BlueVPN 4.3.2: BlueAI Live Intelligence برای پایش همزمان پلن رایگان و Premium. تله‌متری و یادگیری Routeها بر اساس plan tier جدا می‌شود، اتصال مهمان/رایگان نیز heartbeat زنده می‌فرستد، پنل WordPress نمای Live و سلامت نسخه‌ها را نمایش می‌دهد و AI Schema/Capability versioning باعث می‌شود دانش جمعی بین آپدیت‌ها حفظ و قابلیت‌های نسخه‌های جدید قابل رصد باشد.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -94,7 +94,19 @@
     "per-release-force-update-policy",
     "beta-release-stop-resume",
     "legacy-stable-release-seed-on-schema-upgrade",
-    "normal-users-never-see-unpromoted-beta"
+    "normal-users-never-see-unpromoted-beta",
+    "blueai-engine-v2-tier-aware-learning",
+    "free-and-premium-live-intelligence",
+    "guest-free-live-heartbeat",
+    "tier-isolated-route-aggregates",
+    "tier-aware-cloud-recommendations",
+    "wordpress-live-ai-dashboard",
+    "live-free-premium-kpis",
+    "version-cohort-health-monitoring",
+    "ai-schema-capability-versioning",
+    "legacy-ai-learning-cold-start-fallback",
+    "technical-metrics-only-ai-privacy",
+    "adaptive-live-heartbeat-power-budget"
   ],
-  "version_source": "v4.3.1-release-channels-beta-stable"
+  "version_source": "v4.3.2-blueai-live-tier-intelligence"
 }

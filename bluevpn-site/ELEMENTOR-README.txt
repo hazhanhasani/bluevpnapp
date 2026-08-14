@@ -1,4 +1,4 @@
-BlueVPN Site 1.0.8 — Elementor + SEO Edition
+BlueVPN Site 1.0.9 — Elementor + SEO Edition
 
 1) افزونه Elementor را نصب و فعال کنید.
 2) پوسته BlueVPN Site را نصب/بروزرسانی کنید.

@@ -100,25 +100,80 @@ final class BlueVPN_Elementor_Integration {
 
     public static function page_ready(int $post_id = 0): bool {
         $post_id = $post_id ?: (int)get_queried_object_id();
-        return $post_id > 0 && self::is_available() && get_post_meta($post_id, '_elementor_edit_mode', true) === 'builder' && (string)get_post_meta($post_id, '_elementor_data', true) !== '';
+        return $post_id > 0
+            && self::is_available()
+            && get_post_meta($post_id, '_elementor_edit_mode', true) === 'builder'
+            && trim((string)get_post_meta($post_id, '_elementor_data', true)) !== '';
+    }
+
+    /**
+     * Render the current Elementor document only when it produced meaningful
+     * public output. Returning false lets the PHP page template continue as a
+     * fail-safe instead of serving an empty dark shell.
+     */
+    public static function render_page(int $post_id = 0): bool {
+        $post_id = $post_id ?: (int)get_queried_object_id();
+        if (!self::page_ready($post_id)) return false;
+
+        try {
+            $html = \Elementor\Plugin::instance()->frontend->get_builder_content_for_display($post_id, true);
+            if (!self::has_meaningful_output($html)) {
+                error_log('BlueVPN Elementor page fallback: empty output for post '.$post_id);
+                return false;
+            }
+
+            get_header();
+            echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+            get_footer();
+            return true;
+        } catch (Throwable $e) {
+            error_log('BlueVPN Elementor page render failed: '.$e->getMessage());
+            return false;
+        }
     }
 
     public static function render_location(string $location): bool {
-        if (function_exists('elementor_theme_do_location') && elementor_theme_do_location($location)) return true;
+        if (function_exists('elementor_theme_do_location')) {
+            ob_start();
+            $handled = false;
+            try {
+                $handled = (bool)elementor_theme_do_location($location);
+            } catch (Throwable $e) {
+                error_log('BlueVPN Elementor theme location failed: '.$e->getMessage());
+            }
+            $location_html = (string)ob_get_clean();
+            if ($handled && self::has_meaningful_output($location_html)) {
+                echo $location_html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+                return true;
+            }
+        }
+
         $option = $location === 'header' ? self::HEADER_OPTION : ($location === 'footer' ? self::FOOTER_OPTION : '');
         if (!$option || !self::is_available()) return false;
         $id = (int)get_option($option, 0);
         if (!$id || get_post_status($id) === false) return false;
         try {
             $html = \Elementor\Plugin::instance()->frontend->get_builder_content_for_display($id, true);
-            if (is_string($html) && trim($html) !== '') {
+            if (self::has_meaningful_output($html)) {
                 echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
                 return true;
             }
+            error_log('BlueVPN Elementor '.$location.' fallback: template '.$id.' returned empty output');
         } catch (Throwable $e) {
             error_log('BlueVPN Elementor render failed: '.$e->getMessage());
         }
         return false;
+    }
+
+    private static function has_meaningful_output($html): bool {
+        if (!is_string($html) || trim($html) === '') return false;
+
+        $text = html_entity_decode(wp_strip_all_tags($html), ENT_QUOTES | ENT_HTML5, get_bloginfo('charset') ?: 'UTF-8');
+        $text = preg_replace('/\s+/u', ' ', trim((string)$text));
+        $length = function_exists('mb_strlen') ? mb_strlen($text, 'UTF-8') : strlen($text);
+        if ($length >= 8) return true;
+
+        return (bool)preg_match('/<(?:img|svg|video|canvas|form|input|button)\b/i', $html);
     }
 
     private static function seed(bool $force): void {

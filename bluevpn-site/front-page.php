@@ -1,4 +1,4 @@
-<?php if (class_exists('BlueVPN_Elementor_Integration') && BlueVPN_Elementor_Integration::page_ready()) { get_header(); while (have_posts()) { the_post(); the_content(); } get_footer(); return; } ?>
+<?php if (class_exists('BlueVPN_Elementor_Integration') && BlueVPN_Elementor_Integration::render_page()) { return; } ?>
 <?php get_header(); $cfg = bluevpn_site_mobile_config(); $latest=(string)($cfg['latest_version'] ?? 'Android'); ?>
 <section class="bv-hero">
   <div class="bv-hero-gridfx" aria-hidden="true"></div>

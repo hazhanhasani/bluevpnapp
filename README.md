@@ -133,7 +133,7 @@ Theme `1.0.3` replaces the previous generic card layout with a product-focused R
 
 `bluevpn-site/` has its own SemVer lifecycle independent from the Android app and BlueVPN Manager. The theme ships with a GitHub Releases updater and is auto-updated by WordPress without manual ZIP installation after the one-time bootstrap install.
 
-- Current theme version: `1.0.3`
+- Current theme version: `1.0.9`
 - Release tag: `bluevpn-site-v<theme-version>`
 - Release asset: `bluevpn-site-theme-v<theme-version>.zip`
 - Update source: the same GitHub repository configured in BlueVPN Manager; if the manager is unavailable, the theme falls back to `hazhanhasani/bluevpnapp`.
@@ -150,9 +150,17 @@ Theme `1.0.3` replaces the previous generic card layout with a product-focused R
 - داشبورد حساب یکپارچه و حذف محتوای معرفی پس از ورود.
 - Runtime رسمی v2rayNG/Xray بدون تغییر.
 
+
+## BlueVPN Site 1.0.9 — blank-page fail-safe
+
+- Elementor page output is pre-rendered and accepted only when it contains meaningful visible content; otherwise the original PHP template is used automatically.
+- Elementor/Theme Builder Header and Footer output is buffered and validated so empty wrappers cannot suppress the built-in BlueVPN header/footer.
+- Reveal animations are progressive enhancement: content is visible by default, and JavaScript may temporarily enable motion. A fail-safe removes the motion gate automatically even if an observer or another frontend initializer fails.
+- Android/release metadata stays on 4.2.3 because this is a WordPress theme rendering hotfix and must not trigger an APK update.
+
 ## Elementor-native website theme
 
-BlueVPN Site Theme v1.0.8 is Elementor-native while preserving the existing BlueVPN Manager/API behavior.
+BlueVPN Site Theme v1.0.9 is Elementor-native while preserving the existing BlueVPN Manager/API behavior.
 
 - Install and activate the free Elementor plugin.
 - Activate/update the BlueVPN Site theme.
@@ -164,7 +172,7 @@ BlueVPN Site Theme v1.0.8 is Elementor-native while preserving the existing Blue
 
 ## SEO hardening for the site theme
 
-BlueVPN Site Theme v1.0.8 adds a WordPress/Elementor-aware SEO layer without touching the Android runtime.
+BlueVPN Site Theme v1.0.9 adds a WordPress/Elementor-aware SEO layer without touching the Android runtime.
 
 - Public Home, Plans, Download, and Support pages receive consistent title/description defaults.
 - The Account page is `noindex` and excluded from supported sitemaps so private account state is not indexed.

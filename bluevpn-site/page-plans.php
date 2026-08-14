@@ -1,4 +1,4 @@
-<?php if (class_exists('BlueVPN_Elementor_Integration') && BlueVPN_Elementor_Integration::page_ready()) { get_header(); while (have_posts()) { the_post(); the_content(); } get_footer(); return; } ?>
+<?php if (class_exists('BlueVPN_Elementor_Integration') && BlueVPN_Elementor_Integration::render_page()) { return; } ?>
 <?php get_header(); ?>
 <section class="bv-subhero bv-subhero-plans">
   <div class="bv-shell bv-subhero-grid">

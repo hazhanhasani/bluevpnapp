@@ -421,6 +421,9 @@ class BlueVPNElementorThemeTests(unittest.TestCase):
         self.assertIn("elementor_library", integration)
         self.assertIn("BlueVPN_Elementor_Integration::init();", integration)
         self.assertIn("class-bluevpn-elementor.php", functions)
+        self.assertIn("has_meaningful_output", integration)
+        self.assertIn("ob_start()", integration)
+        self.assertIn("get_builder_content_for_display($post_id, true)", integration)
         for widget in (
             "bluevpn-header", "bluevpn-footer", "bluevpn-hero", "bluevpn-features",
             "bluevpn-network", "bluevpn-how", "bluevpn-premium", "bluevpn-faq",
@@ -431,8 +434,9 @@ class BlueVPNElementorThemeTests(unittest.TestCase):
     def test_elementor_pages_keep_legacy_fallback_and_runtime_contract(self):
         for rel in ("bluevpn-site/front-page.php", "bluevpn-site/page-plans.php", "bluevpn-site/page-download.php", "bluevpn-site/page-account.php", "bluevpn-site/page-support.php"):
             src = text(rel)
-            self.assertIn("BlueVPN_Elementor_Integration::page_ready", src)
-            self.assertIn("the_content()", src)
+            self.assertIn("BlueVPN_Elementor_Integration::render_page", src)
+            self.assertIn("get_header()", src)
+            self.assertIn("get_footer()", src)
         header = text("bluevpn-site/header.php")
         footer = text("bluevpn-site/footer.php")
         self.assertIn("render_location('header')", header)
@@ -445,8 +449,8 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         functions = text("bluevpn-site/functions.php")
         style = text("bluevpn-site/style.css")
         self.assertIn("class-bluevpn-seo.php", functions)
-        self.assertIn("BLUEVPN_SITE_VERSION', '1.0.8", functions)
-        self.assertRegex(style, r"(?m)^Version:\s*1\.0\.8\s*$")
+        self.assertIn("BLUEVPN_SITE_VERSION', '1.0.9", functions)
+        self.assertRegex(style, r"(?m)^Version:\s*1\.0\.9\s*$")
 
     def test_private_account_is_noindex_and_excluded_from_sitemaps(self):
         seo = text("bluevpn-site/inc/class-bluevpn-seo.php")

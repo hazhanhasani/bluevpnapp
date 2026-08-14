@@ -1,5 +1,8 @@
 (()=>{
 'use strict';
+const motionRoot=document.documentElement;
+motionRoot.classList.add('bv-motion');
+const motionFailSafe=window.setTimeout(()=>motionRoot.classList.remove('bv-motion'),2500);
 const cfg=window.BlueVPNSite||{};
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const storage={get(k){try{return localStorage.getItem(k)||''}catch{return''}},set(k,v){try{localStorage.setItem(k,v)}catch{}},del(k){try{localStorage.removeItem(k)}catch{}}};
@@ -34,7 +37,7 @@ $('[data-refresh-account]',root).onclick=async()=>{try{await api('/account/sync'
 if(token()){try{await showDashboard()}catch(e){if(['AUTH_REQUIRED','INVALID_SESSION','DEVICE_MISMATCH','DEVICE_DISABLED'].includes(e.code)){storage.del(TOKEN);storage.del(REFRESH)}auth.classList.remove('bv-hidden');dash.classList.add('bv-hidden');$('[data-bv-account-layout]')?.classList.remove('is-authenticated');if(e?.message&&e.code!=='AUTH_REQUIRED')message(e.message)}}}
 function menu(){const b=$('[data-bv-menu]'),p=$('[data-bv-menu-panel]');if(!b||!p)return;const close=()=>{p.classList.remove('is-open');b.classList.remove('is-open');b.setAttribute('aria-expanded','false')};b.onclick=()=>{const open=p.classList.toggle('is-open');b.classList.toggle('is-open',open);b.setAttribute('aria-expanded',open?'true':'false')};$$('a',p).forEach(a=>a.addEventListener('click',close));document.addEventListener('click',e=>{if(!p.contains(e.target)&&!b.contains(e.target))close()})}
 function headerState(){const h=$('[data-bv-header]');if(!h)return;const sync=()=>h.classList.toggle('is-scrolled',window.scrollY>14);sync();window.addEventListener('scroll',sync,{passive:true})}
-function reveal(){const els=$$('[data-bv-reveal]');if(!els.length)return;if(!('IntersectionObserver'in window)){els.forEach(x=>x.classList.add('is-visible'));return}const io=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('is-visible');io.unobserve(e.target)}}),{threshold:.12,rootMargin:'0px 0px -35px 0px'});els.forEach(x=>io.observe(x))}
+function reveal(){const els=$$('[data-bv-reveal]');if(!els.length){motionRoot.classList.remove('bv-motion');window.clearTimeout(motionFailSafe);return}if(!('IntersectionObserver'in window)){els.forEach(x=>x.classList.add('is-visible'));motionRoot.classList.remove('bv-motion');window.clearTimeout(motionFailSafe);return}const io=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('is-visible');io.unobserve(e.target)}}),{threshold:.12,rootMargin:'0px 0px -35px 0px'});els.forEach(x=>io.observe(x));window.setTimeout(()=>{els.forEach(x=>x.classList.add('is-visible'));motionRoot.classList.remove('bv-motion');window.clearTimeout(motionFailSafe)},1800)}
 function accordion(){const root=$('[data-bv-accordion]');if(!root)return;$$('article',root).forEach(item=>{const btn=$('button',item);if(!btn)return;btn.addEventListener('click',()=>{const open=item.classList.contains('is-open');$$('article',root).forEach(x=>x.classList.remove('is-open'));if(!open)item.classList.add('is-open')})})}
 document.addEventListener('DOMContentLoaded',()=>{menu();headerState();reveal();accordion();initPlansPage();initAccount()});
 })();

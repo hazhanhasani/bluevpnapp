@@ -215,7 +215,26 @@ object BlueVpnAccountManager {
             if (!force && lockedCached.isNotBlank() && lockedNow - mobileConfigCacheAt < MOBILE_CONFIG_CACHE_MS) {
                 return@synchronized JSONObject(lockedCached)
             }
-            val response = request(appContext, "GET", "/api/v1/mobile/config", null, false)
+            val path = "/api/v1/mobile/config" + if (force) "?refresh=true" else ""
+            val response = if (hasSession(appContext)) {
+                try {
+                    // Release-channel selection is account scoped. Always use the
+                    // authenticated request pipeline so an expired/missing access
+                    // token can be renewed from the refresh token before WordPress
+                    // decides whether this customer belongs to Beta or Stable.
+                    authenticatedRequest(appContext, "GET", path, null)
+                } catch (error: ApiException) {
+                    // If refresh definitively invalidated the local session, fall
+                    // back to public Stable metadata instead of breaking updates.
+                    if (error.status == 401 && !hasSession(appContext)) {
+                        request(appContext, "GET", path, null, false)
+                    } else {
+                        throw error
+                    }
+                }
+            } else {
+                request(appContext, "GET", path, null, false)
+            }
             applyRemoteMobileConfig(appContext, response)
             mobileConfigCacheRaw = response.toString()
             mobileConfigCacheAt = lockedNow
@@ -225,8 +244,8 @@ object BlueVpnAccountManager {
 
     /**
      * Apply server-authored Free policy from any successful /mobile/config response.
-     * BlueVpnUpdateManager has its own HTTP path, so this method is intentionally
-     * public to keep one canonical persistence path for session limits/sources.
+     * BlueVpnUpdateManager reuses mobileConfig(), so this remains the single
+     * persistence path for server-authored Free policy and update metadata.
      */
     fun applyRemoteMobileConfig(c: Context, config: JSONObject): Boolean {
         val appContext = c.applicationContext
@@ -324,6 +343,13 @@ object BlueVpnAccountManager {
         accountSnapshotCache = null
     }
 
+    private fun invalidateMobileConfigCache() {
+        synchronized(mobileConfigLock) {
+            mobileConfigCacheAt = 0L
+            mobileConfigCacheRaw = ""
+        }
+    }
+
     private fun invalidateFreeSnapshot() {
         freeSnapshotCacheAt = 0L
         freeSnapshotCache = null
@@ -359,6 +385,7 @@ object BlueVpnAccountManager {
             .putLong("saved_at", System.currentTimeMillis())
             .commit()
         invalidateAccountSnapshot()
+        invalidateMobileConfigCache()
         true
     }
 
@@ -1496,6 +1523,7 @@ object BlueVpnAccountManager {
                 .putString("device_id", id)
                 .commit()
             invalidateAccountSnapshot()
+            invalidateMobileConfigCache()
         }
 
         // Logout must be immediate from the user's perspective. Stop the tunnel
@@ -1577,6 +1605,7 @@ object BlueVpnAccountManager {
                 .putString("device_id", id)
                 .commit()
             invalidateAccountSnapshot()
+            invalidateMobileConfigCache()
         }
     }
 

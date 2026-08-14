@@ -1,7 +1,14 @@
 === BlueVPN Manager ===
-Version: 4.4.5
-Stable tag: 4.4.5
+Version: 4.4.6
+Stable tag: 4.4.6
 Requires PHP: 8.0
+
+
+== 4.4.6 ==
+* دریافت Beta به نشست واقعی حساب متصل شد؛ Access Token در صورت نیاز با Refresh Token بازسازی می‌شود.
+* بررسی دستی Beta پس از Sync پس‌زمینه، metadata را دوباره می‌خواند تا Release تازه از دست نرود.
+* Cache کانال بروزرسانی در مرزهای Login/Logout/Invalid Session پاک می‌شود.
+* diagnostic احراز هویت release در mobile/config اضافه شد.
 
 == تغییرات 4.4.1 ==
 * جایگذاری هوشمند پترن‌ها اضافه شد؛ BlueVPN بر اساس متن، عنوان و قرارداد متغیرهای هر پیام بهترین پترن IranPayamak را پیشنهاد و روی خانه‌های خالی تنظیم می‌کند.

@@ -1,3 +1,7 @@
+## 4.4.6 Beta release-channel boundary
+
+Beta eligibility remains server-authoritative (`customers.beta_tester=1` + active authenticated session). Android refreshes stale access credentials before requesting release metadata and rechecks the cache-first WordPress snapshot after a manual refresh. Stable users remain isolated from Beta releases.
+
 ## BlueVPN 4.4.5
 
 Live telemetry is measured, not synthesized: Android computes download/upload throughput from real UID traffic while connected, Free shows the actual remaining session time, Premium shows exact connected duration, and BlueAI v2.1 samples real HTTP RTT through the active Xray local proxy. Zero ping is treated as unavailable rather than as a valid measurement.

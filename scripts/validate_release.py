@@ -80,8 +80,8 @@ def main() -> None:
             "Android does not persist server-authored Free policy")
     require("newMinutes < oldMinutes" in account and '.putLong("session_ends_at", allowedEnd)' in account,
             "active Free session is not clamped after a server-side limit reduction")
-    require("BlueVpnAccountManager.applyRemoteMobileConfig(activity, config)" in update_manager,
-            "manual update check does not apply Free policy")
+    require("BlueVpnAccountManager.mobileConfig(" in update_manager and "applyRemoteMobileConfig(appContext, response)" in account,
+            "manual update check does not apply Free policy through canonical mobileConfig")
     require(app["upstream_ref"] == "2.2.6", "production v2rayNG pin must be 2.2.6")
     require(app["android_lib_xray_ref"] == "v26.7.5", "documented AndroidLibXrayLite tag must be v26.7.5")
     require(app["xray_core_release_label"] == "v26.6.27", "v2rayNG 2.2.6 Xray-core release label must be v26.6.27")

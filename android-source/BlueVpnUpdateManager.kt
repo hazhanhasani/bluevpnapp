@@ -121,75 +121,72 @@ object BlueVpnUpdateManager {
 
         Thread {
             runCatching {
-                val connection = URL(
-                    BlueVpnAccountManager.apiBaseUrl() +
-                        "/api/v1/mobile/config" +
-                        if (force) "?refresh=true" else ""
-                ).openConnection() as HttpURLConnection
+                // Use the canonical account HTTP pipeline instead of a second
+                // ad-hoc connection. This guarantees Beta checks are authenticated
+                // and can transparently refresh an expired access token.
+                BlueVpnAccountManager.mobileConfig(
+                    activity,
+                    force = force,
+                ).getOrThrow()
+            }.onSuccess { firstConfig ->
+                var config = firstConfig
 
-                try {
-                    connection.connectTimeout = 10_000
-                    connection.readTimeout = 14_000
-                    connection.setRequestProperty(
-                        "Accept",
-                        "application/json",
-                    )
-                    connection.setRequestProperty(
-                        "Cache-Control",
-                        "no-cache",
-                    )
-                    connection.setRequestProperty(
-                        "User-Agent",
-                        "BlueVPN/${BuildConfig.VERSION_NAME}",
-                    )
-                    val accessToken = BlueVpnAccountManager.token(activity)
-                    if (accessToken.isNotBlank()) {
-                        connection.setRequestProperty(
-                            "Authorization",
-                            "Bearer $accessToken",
-                        )
-                        connection.setRequestProperty(
-                            "X-Device-ID",
-                            BlueVpnAccountManager.deviceId(activity),
-                        )
+                // refresh=true intentionally queues the WordPress/GitHub release
+                // refresh in the background. A manual Beta check used to read the
+                // old MySQL snapshot immediately and incorrectly say "latest".
+                // Give that bounded background refresh one chance to converge, then
+                // re-fetch before presenting the final result to the tester.
+                if (
+                    force &&
+                    !configHasUpdate(config) &&
+                    config.optBoolean("release_refresh_forced", false) &&
+                    config.optString("release_refresh_mode") == "background_cache_first"
+                ) {
+                    repeat(2) {
+                        if (configHasUpdate(config)) return@repeat
+                        runCatching {
+                            Thread.sleep(3_000L)
+                            BlueVpnAccountManager.mobileConfig(
+                                activity,
+                                force = true,
+                            ).getOrThrow()
+                        }.onSuccess { refreshed ->
+                            config = refreshed
+                        }
                     }
-
-                    if (connection.responseCode !in 200..299) {
-                        error(
-                            "HTTP ${connection.responseCode}"
-                        )
-                    }
-
-                    JSONObject(
-                        connection.inputStream
-                            .bufferedReader()
-                            .use { it.readText() }
-                    )
-                } finally {
-                    connection.disconnect()
                 }
-            }.onSuccess { config ->
-                // /mobile/config also carries the authoritative Free policy.
-                // Persist it here because UpdateManager uses its own HTTP stack
-                // instead of BlueVpnAccountManager.mobileConfig().
-                BlueVpnAccountManager.applyRemoteMobileConfig(activity, config)
+
+                val finalConfig = config
                 activity.runOnUiThread {
-                    val updateFound = applyRemoteConfig(
+                    val finalUpdateFound = applyRemoteConfig(
                         activity,
-                        config,
+                        finalConfig,
                     )
 
                     if (
                         showStatus &&
-                        !updateFound &&
-                        !config.optBoolean(
+                        !finalUpdateFound &&
+                        !finalConfig.optBoolean(
                             "maintenance",
                             false,
                         )
                     ) {
+                        val channel = finalConfig.optString(
+                            "release_channel",
+                            "stable",
+                        ).lowercase()
+                        val betaTester = finalConfig.optBoolean(
+                            "beta_tester",
+                            false,
+                        )
+                        val suffix = if (channel == "beta" && betaTester) {
+                            " • کانال Beta"
+                        } else {
+                            ""
+                        }
                         Toast.makeText(
                             activity,
-                            "نسخه ${BuildConfig.VERSION_NAME} آخرین نسخه است",
+                            "نسخه ${BuildConfig.VERSION_NAME} آخرین نسخه$suffix است",
                             Toast.LENGTH_LONG,
                         ).show()
                     }
@@ -306,6 +303,20 @@ object BlueVpnUpdateManager {
             file,
             forceLaunch = true,
         )
+    }
+
+    private fun configHasUpdate(config: JSONObject): Boolean {
+        val latestCode = config.optInt("latest_version_code", 0)
+        val latestVersion = config.optString("latest_version", "")
+        val apkUrl = selectApkAsset(config).url
+        val latestHasSemanticVersion =
+            latestVersion.any(Char::isDigit) && latestVersion.contains(".")
+        val newer = if (latestHasSemanticVersion) {
+            compareVersions(latestVersion, BuildConfig.VERSION_NAME) > 0
+        } else {
+            latestCode > BuildConfig.VERSION_CODE
+        }
+        return newer && apkUrl.startsWith("http")
     }
 
     private fun applyRemoteConfig(

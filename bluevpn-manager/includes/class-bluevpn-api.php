@@ -115,9 +115,17 @@ final class BlueVPN_API {
 
         $customer = null;
         $authHeader = trim((string)$r->get_header('authorization'));
+        $releaseAuthState = $authHeader === '' ? 'anonymous' : 'invalid';
+        $releaseAuthError = '';
         if ($authHeader !== '') {
-            try { $customer = BlueVPN_Auth::current_customer($r); }
-            catch (BlueVPN_Auth_Exception $e) { $customer = null; }
+            try {
+                $customer = BlueVPN_Auth::current_customer($r);
+                $releaseAuthState = 'authenticated';
+            } catch (BlueVPN_Auth_Exception $e) {
+                $customer = null;
+                $releaseAuthState = 'invalid';
+                $releaseAuthError = sanitize_key($e->error_code);
+            }
         }
 
         $s = BlueVPN_DB::settings();
@@ -178,6 +186,8 @@ final class BlueVPN_API {
             'update_source'=>(string)($release['source'] ?? ($s['update_source']??'wordpress_settings')),
             'release_channel'=>$channel,
             'beta_tester'=>(bool)($selection['beta_tester'] ?? false),
+            'release_auth_state'=>$releaseAuthState,
+            'release_auth_error'=>$releaseAuthError,
             'update_policy'=>[
                 'channel'=>$channel,
                 'automatic_download'=>$autoUpdate,

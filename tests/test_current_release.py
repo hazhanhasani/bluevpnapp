@@ -503,7 +503,9 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn('.putLong("session_ends_at", allowedEnd)', self.account)
         self.assertIn("refreshFreePolicy(", self.home)
         self.assertIn("force = true", self.home)
-        self.assertIn("BlueVpnAccountManager.applyRemoteMobileConfig(activity, config)", update)
+        self.assertIn("BlueVpnAccountManager.mobileConfig(", update)
+        mobile = block(self.account, "fun mobileConfig", "/**\n     * Apply server-authored Free policy")
+        self.assertIn("applyRemoteMobileConfig(appContext, response)", mobile)
 
 
 class BlueVPNElementorThemeTests(unittest.TestCase):
@@ -640,11 +642,14 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("release_for_customer", manager)
         self.assertIn("normal users", manager.lower())
 
-    def test_android_update_check_sends_authenticated_channel_identity(self):
+    def test_android_update_check_uses_authenticated_account_pipeline(self):
         update = text("android-source/BlueVpnUpdateManager.kt")
-        self.assertIn('"Authorization"', update)
-        self.assertIn('"Bearer $accessToken"', update)
-        self.assertIn('"X-Device-ID"', update)
+        account = text("android-source/BlueVpnAccountManager.kt")
+        self.assertIn("BlueVpnAccountManager.mobileConfig", update)
+        mobile = block(account, "fun mobileConfig", "/**\n     * Apply server-authored Free policy")
+        self.assertIn("authenticatedRequest(appContext, \"GET\", path, null)", mobile)
+        self.assertIn("if (hasSession(appContext))", mobile)
+        self.assertIn("if (error.status == 401 && !hasSession(appContext))", mobile)
 
     def test_mobile_config_exposes_release_channel(self):
         api = text("bluevpn-manager/includes/class-bluevpn-api.php")
@@ -991,6 +996,29 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("ping_samples", helper)
         self.assertNotIn("sample_count", helper)
         self.assertIn("if($accepted)self::update_route_live_latency", ai)
+
+    def test_113_beta_manual_check_retries_cache_first_release_snapshot(self):
+        update = text("android-source/BlueVpnUpdateManager.kt")
+        self.assertIn('config.optString("release_refresh_mode") == "background_cache_first"', update)
+        self.assertIn('repeat(2)', update)
+        self.assertIn('Thread.sleep(3_000L)', update)
+        self.assertIn('BlueVpnAccountManager.mobileConfig(', update)
+
+    def test_114_mobile_config_cache_is_reset_on_auth_boundaries(self):
+        account = text("android-source/BlueVpnAccountManager.kt")
+        self.assertIn("private fun invalidateMobileConfigCache()", account)
+        self.assertGreaterEqual(account.count("invalidateMobileConfigCache()"), 4)
+
+    def test_115_wordpress_exposes_release_auth_diagnostics(self):
+        api = text("bluevpn-manager/includes/class-bluevpn-api.php")
+        self.assertIn("'release_auth_state'=>$releaseAuthState", api)
+        self.assertIn("'release_auth_error'=>$releaseAuthError", api)
+
+    def test_116_build_waits_for_cache_first_wordpress_release_ingest(self):
+        workflow = text(".github/workflows/build-apk.yml")
+        self.assertIn("sleep 5", workflow)
+        self.assertIn("bluevpn-wordpress-mobile-config-after-sync.json", workflow)
+        self.assertIn("release_refresh_mode", workflow)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

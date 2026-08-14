@@ -439,5 +439,56 @@ class BlueVPNElementorThemeTests(unittest.TestCase):
         self.assertIn("render_location('footer')", footer)
         self.assertEqual(json.loads(text("branding/app.json"))["upstream_ref"], "2.2.6")
 
+
+class BlueVPNSiteSEOTests(unittest.TestCase):
+    def test_seo_hardening_is_loaded_and_versioned(self):
+        functions = text("bluevpn-site/functions.php")
+        style = text("bluevpn-site/style.css")
+        self.assertIn("class-bluevpn-seo.php", functions)
+        self.assertIn("BLUEVPN_SITE_VERSION', '1.0.8", functions)
+        self.assertRegex(style, r"(?m)^Version:\s*1\.0\.8\s*$")
+
+    def test_private_account_is_noindex_and_excluded_from_sitemaps(self):
+        seo = text("bluevpn-site/inc/class-bluevpn-seo.php")
+        self.assertIn("'account' => [", seo)
+        self.assertIn("'index' => false", seo)
+        self.assertIn("wp_sitemaps_posts_query_args", seo)
+        self.assertIn("wpseo_exclude_from_sitemap_by_post_ids", seo)
+        self.assertIn("$robots['noindex'] = true", seo)
+
+    def test_seo_meta_social_and_schema_contract(self):
+        seo = text("bluevpn-site/inc/class-bluevpn-seo.php")
+        for token in (
+            'meta name="description"', 'rel="canonical"', 'og:title', 'twitter:card',
+            'SoftwareApplication', 'FAQPage', 'Organization', 'WebSite', 'BreadcrumbList',
+        ):
+            self.assertIn(token, seo)
+        self.assertTrue((ROOT / "bluevpn-site/assets/images/bluevpn-social.png").exists())
+        self.assertTrue((ROOT / "bluevpn-site/assets/images/bluevpn-icon.png").exists())
+
+    def test_robots_and_llms_endpoints_are_managed(self):
+        seo = text("bluevpn-site/inc/class-bluevpn-seo.php")
+        self.assertIn("Disallow: /account/", seo)
+        self.assertIn("Sitemap: ", seo)
+        self.assertIn("/llms.txt", seo)
+        self.assertIn("Important public pages", seo)
+        self.assertIn("Private areas", seo)
+
+    def test_default_yoast_metadata_and_sample_cleanup_exist(self):
+        seo = text("bluevpn-site/inc/class-bluevpn-seo.php")
+        self.assertIn("_yoast_wpseo_title", seo)
+        self.assertIn("_yoast_wpseo_metadesc", seo)
+        self.assertIn("_yoast_wpseo_meta-robots-noindex", seo)
+        self.assertIn("hello-world", seo)
+        self.assertIn("sample-page", seo)
+        self.assertIn("wp_trash_post", seo)
+
+    def test_seo_hardening_does_not_touch_android_runtime(self):
+        app = json.loads(text("branding/app.json"))
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        self.assertEqual(app["upstream_ref"], "2.2.6")
+        self.assertIn("CoreServiceManager.startVService(this, guid)", home)
+        self.assertNotIn("BlueVpnEngineManager", home)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -152,7 +152,7 @@ Theme `1.0.3` replaces the previous generic card layout with a product-focused R
 
 ## Elementor-native website theme
 
-BlueVPN Site Theme v1.0.7 is Elementor-native while preserving the existing BlueVPN Manager/API behavior.
+BlueVPN Site Theme v1.0.8 is Elementor-native while preserving the existing BlueVPN Manager/API behavior.
 
 - Install and activate the free Elementor plugin.
 - Activate/update the BlueVPN Site theme.
@@ -161,3 +161,17 @@ BlueVPN Site Theme v1.0.7 is Elementor-native while preserving the existing Blue
 - Header/Footer are stored as Elementor Library templates and rendered by the theme. When Elementor Pro Theme Builder is present, standard Elementor theme locations are registered and can override the fallback templates.
 - Dynamic account, OTP, plans, payment, and download behavior remains backed by BlueVPN Manager; Elementor controls presentation only.
 - Subsequent theme auto-updates do not overwrite Elementor customizations unless the administrator explicitly selects rebuild.
+
+## SEO hardening for the site theme
+
+BlueVPN Site Theme v1.0.8 adds a WordPress/Elementor-aware SEO layer without touching the Android runtime.
+
+- Public Home, Plans, Download, and Support pages receive consistent title/description defaults.
+- The Account page is `noindex` and excluded from supported sitemaps so private account state is not indexed.
+- Yoast SEO is respected when active; the theme only fills empty defaults and supplies a fallback social image.
+- Without an SEO plugin, the theme emits canonical, description, Open Graph, and Twitter metadata itself.
+- JSON-LD includes `SoftwareApplication` and `FAQPage`; fallback `Organization`, `WebSite`, and `BreadcrumbList` nodes are emitted when another SEO graph provider is absent.
+- `robots.txt` includes the active sitemap and prevents crawling of the account area.
+- `/llms.txt` exposes only the important public product pages and explicitly marks account pages as private.
+- Default WordPress `Hello world!` / `Sample Page` content is removed on initial theme activation when it is still untouched sample content.
+- Appearance → **BlueVPN SEO** shows the SEO status and can reseed only empty default metadata without rebuilding Elementor content.

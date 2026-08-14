@@ -20,6 +20,7 @@ final class BlueVPN_Telegram_Bot {
     private const GITHUB_API = 'https://api.github.com';
     private const GITHUB_API_VERSION = '2022-11-28';
     private const MANAGER_WORKFLOW = 'bluevpn-manager-release.yml';
+    private const MANAGER_REPOSITORY_EVENT = 'bluevpn_manager_release';
 
     public static function init(): void {
         add_action('rest_api_init', [self::class, 'register_routes']);
@@ -1015,10 +1016,41 @@ BLUEVPN_ASKPASS_CHECK;
     }
 
     private static function dispatch_manager_release(string $commitSha, string $requestId, array $s): void {
-        self::gh('POST', self::repo_path($s) . '/actions/workflows/' . rawurlencode(self::MANAGER_WORKFLOW) . '/dispatches', [
-            'ref' => (string)$s['git_branch'],
-            'inputs' => ['target_sha' => $commitSha, 'request_id' => $requestId],
-        ], $s);
+        // Fine-grained PATs commonly used by the Deploy Bot already need
+        // Contents:write to push the project. GitHub requires Actions:write
+        // for workflow_dispatch, but repository_dispatch only needs
+        // Contents:write. Use the latter as the primary trigger so Manager
+        // self-update does not require a second high-privilege permission.
+        $repositoryError = '';
+        try {
+            self::gh('POST', self::repo_path($s) . '/dispatches', [
+                'event_type' => self::MANAGER_REPOSITORY_EVENT,
+                'client_payload' => [
+                    'target_sha' => $commitSha,
+                    'ref' => (string)$s['git_branch'],
+                    'request_id' => $requestId,
+                    'source' => 'bluevpn-wordpress-bot-manager',
+                ],
+            ], $s);
+            return;
+        } catch (Throwable $e) {
+            $repositoryError = self::redact($e->getMessage(), $s);
+        }
+
+        try {
+            self::gh('POST', self::repo_path($s) . '/actions/workflows/' . rawurlencode(self::MANAGER_WORKFLOW) . '/dispatches', [
+                'ref' => (string)$s['git_branch'],
+                'inputs' => ['target_sha' => $commitSha, 'request_id' => $requestId],
+            ], $s);
+            return;
+        } catch (Throwable $e) {
+            $workflowError = self::redact($e->getMessage(), $s);
+            throw new RuntimeException(
+                "انتشار Manager با هر دو Trigger ناموفق بود.\n" .
+                'repository_dispatch (نیازمند Contents:write): ' . $repositoryError . "\n" .
+                'workflow_dispatch (نیازمند Actions:write): ' . $workflowError
+            );
+        }
     }
 
     private static function start_android_build_for_job(array $job, string $commit, array $s): void {
@@ -1045,7 +1077,7 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
         foreach ($managerJobs as $job) {
             try {
                 if ((string)$job['status'] !== 'updating_manager') {
-                    $runs = self::gh('GET', self::repo_path($s) . '/actions/workflows/' . rawurlencode(self::MANAGER_WORKFLOW) . '/runs?branch=' . rawurlencode((string)$s['git_branch']) . '&event=workflow_dispatch&per_page=30', null, $s);
+                    $runs = self::gh('GET', self::repo_path($s) . '/actions/workflows/' . rawurlencode(self::MANAGER_WORKFLOW) . '/runs?branch=' . rawurlencode((string)$s['git_branch']) . '&per_page=50', null, $s);
                     $match = null;
                     $requestMarker = (string)$job['id'];
                     foreach ((array)($runs['workflow_runs'] ?? []) as $run) {

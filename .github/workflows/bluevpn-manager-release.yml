@@ -1,9 +1,11 @@
 name: Release BlueVPN Manager
-run-name: BlueVPN Manager • ${{ inputs.request_id || github.run_id }}
+run-name: BlueVPN Manager • ${{ github.event.client_payload.request_id || inputs.request_id || github.run_id }}
 
 on:
   # Used by the Deploy Bot before Android build, and can also be dispatched
   # manually as an emergency publisher.
+  repository_dispatch:
+    types: [bluevpn_manager_release]
   workflow_dispatch:
     inputs:
       target_sha:
@@ -32,7 +34,7 @@ jobs:
       - name: Checkout requested manager source
         uses: actions/checkout@v6
         with:
-          ref: ${{ inputs.target_sha || 'main' }}
+          ref: ${{ github.event.client_payload.target_sha || inputs.target_sha || 'main' }}
           fetch-depth: 0
 
       - name: Read and validate BlueVPN Manager version

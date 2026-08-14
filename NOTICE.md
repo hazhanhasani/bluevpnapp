@@ -1,4 +1,4 @@
-## 4.4.1 smart SMS pattern-assignment boundary
+## 4.4.2 smart SMS pattern-assignment boundary
 
 BlueVPN may automatically map IranPayamak patterns to first-party notification contracts only when the Provider attribute set is compatible. The matcher uses deterministic local metadata/text scoring; it does not send message content to an external AI service. Valid manual selections are preserved unless an administrator explicitly confirms a full remap.
 

@@ -1,4 +1,4 @@
-## 4.4.1 Smart SMS pattern assignment
+## 4.4.2 Smart SMS pattern assignment
 
 - Pattern sync now automatically fills empty BlueVPN message-template selections using a deterministic compatibility score.
 - Variable contracts are a hard safety gate; a Provider pattern with incompatible attributes is never auto-wired.

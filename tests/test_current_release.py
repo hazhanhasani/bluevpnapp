@@ -849,10 +849,26 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("public static function install_latest_now", updater)
         self.assertIn("target_sha:", workflow)
         self.assertIn("request_id:", workflow)
-        self.assertIn("inputs.target_sha || 'main'", workflow)
-        self.assertIn("inputs.request_id || github.run_id", workflow)
+        self.assertIn("github.event.client_payload.target_sha || inputs.target_sha || 'main'", workflow)
+        self.assertIn("github.event.client_payload.request_id || inputs.request_id || github.run_id", workflow)
         self.assertIn("request_id' => $requestId", bot)
         self.assertIn("display_title", bot)
+
+    def test_97_manager_release_uses_contents_write_repository_dispatch_first(self):
+        bot = text("bluevpn-manager/includes/class-bluevpn-telegram-bot.php")
+        workflow = text(".github/workflows/bluevpn-manager-release.yml")
+        dispatch = block(bot, "private static function dispatch_manager_release", "private static function start_android_build_for_job")
+        self.assertIn("MANAGER_REPOSITORY_EVENT", bot)
+        self.assertIn("self::repo_path($s) . '/dispatches'", dispatch)
+        self.assertIn("repository_dispatch (نیازمند Contents:write)", dispatch)
+        self.assertIn("workflow_dispatch (نیازمند Actions:write)", dispatch)
+        self.assertLess(dispatch.index("'/dispatches'"), dispatch.index("'/actions/workflows/'"))
+        self.assertIn("repository_dispatch:", workflow)
+        self.assertIn("types: [bluevpn_manager_release]", workflow)
+        self.assertIn("github.event.client_payload.target_sha", workflow)
+        self.assertIn("github.event.client_payload.request_id", workflow)
+        self.assertIn("&per_page=50", bot)
+        self.assertNotIn("&event=workflow_dispatch&per_page=30", bot)
 
     def test_97_sms_patterns_are_smart_assigned_with_safe_contract_gate(self):
         sms = text("bluevpn-manager/includes/class-bluevpn-sms-notifications.php")

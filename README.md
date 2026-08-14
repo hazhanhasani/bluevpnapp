@@ -1,3 +1,21 @@
+## 4.4.1 Smart SMS pattern assignment
+
+- Pattern sync now automatically fills empty BlueVPN message-template selections using a deterministic compatibility score.
+- Variable contracts are a hard safety gate; a Provider pattern with incompatible attributes is never auto-wired.
+- Matching uses title/body text overlap and confidence/ambiguity checks, while preserving every valid manual selection.
+- Admin can run safe fill-only mapping after sync or explicitly confirm a full remap.
+- The last smart-map report shows assigned, ambiguous and unmatched counts plus per-row confidence.
+- Multi-page IranPayamak discovery and Manager-from-bot deployment from 4.4.0 remain intact.
+
+## 4.4.0 FarazSMS / IranPayamak official API alignment
+
+- Pattern discovery now follows the official `GET /ws/v1/patterns` contract without a request body and without optional provider filters. The provider documents those filters as nullable, so BlueVPN fetches the account list and performs the `active` filter locally.
+- The previous `share=1` restriction was removed because it could hide private/account-owned patterns and produce a false `0 active patterns` result.
+- If the list endpoint still returns no usable rows while an administrator already configured a pattern code, BlueVPN performs the official `GET /ws/v1/patterns/{code}` detail lookup and recovers that exact active pattern.
+- Provider payloads with string status values such as `error`/`failed` are now treated as failures even when the HTTP status is 2xx.
+- OTP sending remains `POST /ws/v1/sms/pattern` with `Api-Key`, JSON `code`, `attributes`, `recipient`, `line_number`, and `number_format`.
+- Advertising/deep-link, Beta/Stable, BlueAI and v2rayNG/Xray behavior are unchanged.
+
 ## 4.3.8 in-app advertising destinations
 
 - Banner and Free Story campaigns can route to an allow-listed in-app destination: auth/register, plans, purchase, account, renew/upgrade, settings, or an external HTTPS/HTTP URL.
@@ -310,3 +328,12 @@ Free-plan connections can be finalized through a first-party random image/video 
 
 ### 4.3.7 build barrier hotfix
 The Android workflow now treats the WordPress Manager and schema versions as minimum compatibility barriers rather than requiring exact equality. If WordPress already runs a newer Manager (for example 4.3.6 while an older 4.3.5 APK source is being built), the build no longer times out with `WORDPRESS_AUTOUPDATE_TIMEOUT` solely because the control plane is newer.
+
+
+## 4.4.0 — Manager Bot Auto-Install + Full Pattern Pagination
+
+- Deploy Bot publishes and installs BlueVPN Manager on WordPress before Android Build when the uploaded ZIP contains manager source.
+- Added `🧩 بروزرسانی Manager` for a manager-only publish/install cycle.
+- Manager release workflow can publish the exact uploaded commit through `target_sha`.
+- IranPayamak/FarazSMS pattern sync now walks all pages, deduplicates Pattern UID values, and stops safely if pagination is ignored.
+- Pattern GET requests remain body-free for PHP 8.4 compatibility.

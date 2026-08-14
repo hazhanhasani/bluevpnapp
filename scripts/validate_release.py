@@ -248,17 +248,35 @@ def main() -> None:
     require(readme_version is not None and readme_version.group(1) == version,
             f"plugin readme version mismatch: expected {version}")
 
-    # 4.2.0 IranPayamak pattern discovery: the admin must fetch active
-    # patterns from the provider instead of asking for manual UID entry.
+    # IranPayamak pattern discovery: fetch every provider page instead of
+    # silently caching only page 1, while keeping GET requests body-free on
+    # WordPress/PHP 8.4.
     control = read("bluevpn-manager/includes/class-bluevpn-control-center.php")
-    require("$base . '/patterns'" in sms_otp, "IranPayamak pattern list endpoint missing")
+    require("provider_pattern_page_url" in sms_otp and "'/patterns?page='" in sms_otp, "IranPayamak pattern list/pagination endpoint missing")
     require("'method' => 'GET'" in sms_otp and "'Api-Key' => $apiKey" in sms_otp, "pattern sync auth/method mismatch")
     require("PATTERN_CACHE_OPTION" in sms_otp and "provider_pattern_candidates" in sms_otp, "pattern sync cache/normalizer missing")
-    require("'staus' => 'active'" in sms_otp and "'status' => 'active'" in sms_otp, "provider pattern active filter compatibility missing")
+    refresh = between(sms_otp, 'public static function refresh_patterns', 'public static function active_pattern_codes')
+    require("provider_pattern_page_url($base, $page, $limit)" in refresh and "'method' => 'GET'" in refresh, "provider pattern GET request missing")
+    require("$maxPages = 50" in refresh and "$newProviderCodes === 0" in refresh and "$all[$code] = $row" in refresh, "multi-page pattern traversal/dedup guard missing")
+    require("'body' =>" not in refresh and "add_query_arg(" not in refresh, "pattern discovery must not serialize GET body/query filters")
+    require("'share' => 1" not in refresh, "private patterns must not be excluded by share=1")
+    require("rawurlencode($configuredCode)" in refresh, "configured pattern detail recovery missing")
     require("bluevpn_cc_refresh_sms_patterns" in control and "sms_pattern_select" in control, "admin pattern refresh/dropdown missing")
     require('placeholder="Pattern UID"' not in control, "manual Pattern UID field still exposed")
     require("reconcile_sms_pattern_selections" in control, "stale provider pattern reconciliation missing")
     require("preferred_otp_parameter" in sms_otp and "SMS_PATTERN_INACTIVE" in sms_otp, "OTP pattern variable/stale protection missing")
+
+    # Manager deployment: once this manager is bootstrapped, the Telegram bot
+    # must be able to publish/install the manager before starting Android.
+    telegram_bot = read("bluevpn-manager/includes/class-bluevpn-telegram-bot.php")
+    github_updater = read("bluevpn-manager/includes/class-bluevpn-github-updater.php")
+    manager_workflow = read(".github/workflows/bluevpn-manager-release.yml")
+    require("🧩 بروزرسانی Manager" in telegram_bot and "dispatch_manager_release" in telegram_bot, "Telegram manager update command/dispatch missing")
+    require("waiting_manager" in telegram_bot and "start_android_build_for_job" in telegram_bot, "manager-before-Android orchestration missing")
+    require("public static function install_latest_now" in github_updater, "manager self-install entrypoint missing")
+    require("target_sha:" in manager_workflow and "inputs.target_sha || 'main'" in manager_workflow, "manager workflow exact SHA input missing")
+    require("request_id:" in manager_workflow and "inputs.request_id || github.run_id" in manager_workflow, "manager workflow correlation id missing")
+    require("request_id' => $requestId" in telegram_bot and "display_title" in telegram_bot, "Telegram manager workflow correlation missing")
 
     # Versioning contract: patch series is 0..10.
     require(0 <= patch <= 10, "patch version exceeded BlueVPN short series")

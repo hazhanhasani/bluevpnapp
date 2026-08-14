@@ -238,26 +238,38 @@ class CurrentReleaseTests(unittest.TestCase):
 
     def test_36_sms_pattern_sync_uses_official_endpoint_and_api_key_header(self):
         sms = text("bluevpn-manager/includes/class-bluevpn-sms-otp.php")
-        self.assertIn("$base . '/patterns'", sms)
+        self.assertIn("provider_pattern_page_url", sms)
+        self.assertIn("'/patterns?page='", sms)
         self.assertIn("'method' => 'GET'", sms)
         self.assertIn("'Api-Key' => $apiKey", sms)
         self.assertIn("PATTERN_CACHE_OPTION", sms)
 
-    def test_37_sms_pattern_sync_is_resilient_to_get_body_and_nested_payloads(self):
+    def test_37_sms_pattern_sync_is_php84_safe_and_handles_nested_payloads(self):
         sms = text("bluevpn-manager/includes/class-bluevpn-sms-otp.php")
-        self.assertIn("'staus' => 'active'", sms)
-        self.assertIn("'status' => 'active'", sms)
+        refresh = block(sms, "public static function refresh_patterns", "public static function active_pattern_codes")
+        self.assertIn("provider_pattern_page_url($base, $page, $limit)", refresh)
+        self.assertIn("'method' => 'GET'", refresh)
+        self.assertNotIn("add_query_arg(", refresh)
+        self.assertNotIn("'share' => 1", refresh)
+        self.assertNotIn("'body' =>", refresh)
+        self.assertIn("/patterns/", refresh)
+        self.assertIn("rawurlencode($configuredCode)", refresh)
         self.assertIn("provider_pattern_candidates", sms)
         self.assertIn("json_decode($trimmed, true)", sms)
 
-    def test_38_sms_admin_uses_synced_pattern_dropdowns(self):
+    def test_38_sms_provider_string_error_status_is_rejected(self):
+        sms = text("bluevpn-manager/includes/class-bluevpn-sms-otp.php")
+        self.assertIn("['error','failed','fail','rejected']", sms)
+        self.assertIn("PATTERN_SYNC_PROVIDER_REJECTED", sms)
+
+    def test_39_sms_admin_uses_synced_pattern_dropdowns(self):
         cc = text("bluevpn-manager/includes/class-bluevpn-control-center.php")
         self.assertIn("bluevpn_cc_refresh_sms_patterns", cc)
         self.assertIn("sms_pattern_select", cc)
         self.assertIn("تازه‌سازی پترن‌ها", cc)
         self.assertNotIn("placeholder=\"Pattern UID\"", cc)
 
-    def test_39_stale_patterns_are_reconciled_and_otp_variable_is_mapped(self):
+    def test_40_stale_patterns_are_reconciled_and_otp_variable_is_mapped(self):
         sms = text("bluevpn-manager/includes/class-bluevpn-sms-otp.php")
         cc = text("bluevpn-manager/includes/class-bluevpn-control-center.php")
         self.assertIn("preferred_otp_parameter", sms)
@@ -265,13 +277,13 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("reconcile_sms_pattern_selections", cc)
         self.assertIn("active_pattern_codes", cc)
 
-    def test_40_runtime_freeze_survives_sms_pattern_release(self):
+    def test_41_runtime_freeze_survives_sms_pattern_release(self):
         self.assertIn("CoreServiceManager.startVService(this, guid)", self.home)
         self.assertNotIn("BlueVpnEngineManager", self.home + self.account)
         self.assertEqual(self.app["upstream_ref"], "2.2.6")
 
 
-    def test_41_site_theme_version_and_updater_are_synchronized(self):
+    def test_42_site_theme_version_and_updater_are_synchronized(self):
         style = text("bluevpn-site/style.css")
         functions = text("bluevpn-site/functions.php")
         updater = text("bluevpn-site/inc/class-bluevpn-site-updater.php")
@@ -284,21 +296,21 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("pre_set_site_transient_update_themes", updater)
         self.assertIn("Theme_Upgrader", updater)
 
-    def test_42_site_theme_uses_independent_release_asset_contract(self):
+    def test_43_site_theme_uses_independent_release_asset_contract(self):
         updater = text("bluevpn-site/inc/class-bluevpn-site-updater.php")
         self.assertIn("bluevpn-site-theme-v", updater)
         self.assertIn("releases?per_page=100", updater)
         self.assertIn("BlueVPN_GitHub_Updater", updater)
         self.assertIn("BlueVPN_Telegram_Bot", updater)
 
-    def test_43_site_theme_background_auto_update_is_enabled(self):
+    def test_44_site_theme_background_auto_update_is_enabled(self):
         updater = text("bluevpn-site/inc/class-bluevpn-site-updater.php")
         self.assertIn("bluevpn_ten_minutes", updater)
         self.assertIn("background_update_check", updater)
         self.assertIn("maybe_kick_background_check", updater)
         self.assertIn("auto_update_theme", updater)
 
-    def test_44_site_theme_release_workflow_is_decoupled_from_android(self):
+    def test_45_site_theme_release_workflow_is_decoupled_from_android(self):
         workflow = text(".github/workflows/bluevpn-site-theme-release.yml")
         self.assertIn("Release BlueVPN Site Theme", workflow)
         self.assertIn("bluevpn-site-theme-v${THEME_VERSION}.zip", workflow)
@@ -306,14 +318,14 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertNotIn("gradlew", workflow)
         self.assertNotIn("v2rayNG", workflow)
 
-    def test_45_site_theme_release_requires_version_bump(self):
+    def test_46_site_theme_release_requires_version_bump(self):
         workflow = text(".github/workflows/bluevpn-site-theme-release.yml")
         self.assertIn("Enforce theme version bump on source changes", workflow)
         self.assertIn("changed without a theme version bump", workflow)
         self.assertIn("patch must stay within x.y.0..x.y.10", workflow)
 
 
-    def test_46_site_theme_redesign_contract(self):
+    def test_47_site_theme_redesign_contract(self):
         front = text("bluevpn-site/front-page.php")
         css = text("bluevpn-site/assets/css/site.css")
         self.assertIn("bv-product-stage", front)
@@ -344,7 +356,7 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("python scripts/cleanup_repository.py", workflow)
 
 
-    def test_48_release_validator_has_no_hardcoded_app_version(self):
+    def test_49_release_validator_has_no_hardcoded_app_version(self):
         validator = text("scripts/validate_release.py")
         self.assertNotRegex(validator, r'app\["version_name"\]\s*==\s*"\d+\.\d+\.\d+"')
         self.assertNotRegex(validator, r'app\["version_code"\]\s*==\s*\d+')
@@ -596,7 +608,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("['ahead', 'identical']", bot)
         self.assertIn("usleep(250000", bot)
         self.assertNotIn("SHA شاخه پس از Push تأیید نشد.", bot)
-    def test_70_logged_in_nonpremium_account_bootstraps_free_plan(self):
+    def test_71_logged_in_nonpremium_account_bootstraps_free_plan(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
         entitlement = text("android-source/BlueVpnEntitlement.kt")
         account = text("android-source/BlueVpnAccountManager.kt")
@@ -610,7 +622,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("val freePlanEligible = !premiumEntitled && (!freeConfigKnown || free.enabled)", entitlement)
         self.assertIn('"پلن رایگان • ${account.email}"', entitlement)
 
-    def test_71_free_entitlement_is_not_conflated_with_pool_readiness(self):
+    def test_72_free_entitlement_is_not_conflated_with_pool_readiness(self):
         entitlement = text("android-source/BlueVpnEntitlement.kt")
         self.assertNotIn("val freeReady = !premiumReady && free.enabled && free.subscriptions.isNotEmpty()", entitlement)
         free_block = block(entitlement, "BlueVpnPlanTier.FREE -> BlueVpnEntitlementSnapshot", "BlueVpnPlanTier.UNAVAILABLE ->")
@@ -639,7 +651,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("'release_channel'=>$channel", api)
         self.assertIn("'beta_tester'=>(bool)", api)
 
-    def test_76_blueai_learning_is_tier_isolated(self):
+    def test_77_blueai_learning_is_tier_isolated(self):
         db = text("bluevpn-manager/includes/class-bluevpn-db.php")
         ai = text("bluevpn-manager/includes/class-bluevpn-ai.php")
         self.assertIn("plan_tier varchar(16)", db)
@@ -647,14 +659,14 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("plan_tier=%s AND operator=%s", ai)
         self.assertIn("learning_source", ai)
 
-    def test_77_free_guest_live_reporter_does_not_require_login(self):
+    def test_78_free_guest_live_reporter_does_not_require_login(self):
         reporter = text("android-source/BlueVpnLiveReporter.kt")
         report_once = block(reporter, "private fun reportOnce", "private fun nextDelaySeconds")
         self.assertNotIn("BlueVpnAccountManager.hasSession", report_once)
         self.assertIn("BlueVpnAi.hasActiveSession", report_once)
         self.assertIn("ACTIVE_DELAY_SECONDS = 45L", reporter)
 
-    def test_78_android_blueai_sends_tier_and_schema_capability(self):
+    def test_79_android_blueai_sends_tier_and_schema_capability(self):
         ai = text("android-source/BlueVpnAi.kt")
         account = text("android-source/BlueVpnAccountManager.kt")
         self.assertIn("AI_SCHEMA_VERSION = 2", ai)
@@ -662,7 +674,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn('.put("ai_schema_version", AI_SCHEMA_VERSION)', ai)
         self.assertIn('"&plan_tier=" + java.net.URLEncoder.encode(planTier', account)
 
-    def test_79_wordpress_blueai_has_live_dashboard_and_version_health(self):
+    def test_80_wordpress_blueai_has_live_dashboard_and_version_health(self):
         ai = text("bluevpn-manager/includes/class-bluevpn-ai.php")
         api = text("bluevpn-manager/includes/class-bluevpn-api.php")
         self.assertIn("wp_ajax_bluevpn_ai_live_snapshot", ai)
@@ -672,7 +684,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("'engine_version'=>BlueVPN_AI::ENGINE_VERSION", api)
         self.assertIn("'capabilities'=>BlueVPN_AI::capabilities()", api)
 
-    def test_80_mobile_update_config_is_cache_first_and_nonblocking(self):
+    def test_81_mobile_update_config_is_cache_first_and_nonblocking(self):
         api = text("bluevpn-manager/includes/class-bluevpn-api.php")
         manager = text("bluevpn-manager/includes/class-bluevpn-app-release-manager.php")
         mobile = block(api, "public static function mobile_config", "public static function ad_asset")
@@ -681,19 +693,19 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("release_refresh_mode'=>'background_cache_first'", mobile)
         self.assertIn("maybe_kick(bool $force = false)", manager)
 
-    def test_81_mobile_config_release_channel_failure_falls_back_to_stable_settings(self):
+    def test_82_mobile_config_release_channel_failure_falls_back_to_stable_settings(self):
         api = text("bluevpn-manager/includes/class-bluevpn-api.php")
         mobile = block(api, "public static function mobile_config", "public static function ad_asset")
         self.assertIn("release selection fallback", mobile)
         self.assertIn("$selection = ['release'=>null,'channel'=>'stable','beta_tester'=>false]", mobile)
 
-    def test_82_blueai_admin_explains_legacy_schema_without_fake_live_count(self):
+    def test_83_blueai_admin_explains_legacy_schema_without_fake_live_count(self):
         ai = text("bluevpn-manager/includes/class-bluevpn-ai.php")
         self.assertIn("کلاینت قدیمی شناسایی شد", ai)
         self.assertIn("AI Schema v1", ai)
         self.assertIn("Android 4.3.2+", ai)
 
-    def test_83_beta_and_stable_have_independent_auto_update_policy(self):
+    def test_84_beta_and_stable_have_independent_auto_update_policy(self):
         db = text("bluevpn-manager/includes/class-bluevpn-db.php")
         api = text("bluevpn-manager/includes/class-bluevpn-api.php")
         cc = text("bluevpn-manager/includes/class-bluevpn-control-center.php")
@@ -704,7 +716,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn('name="auto_update_beta"', cc)
         self.assertIn('name="auto_update_stable"', cc)
 
-    def test_84_beta_android_update_pipeline_is_same_as_stable(self):
+    def test_85_beta_android_update_pipeline_is_same_as_stable(self):
         update = text("android-source/BlueVpnUpdateManager.kt")
         self.assertIn('KEY_RELEASE_CHANNEL = "remote_release_channel"', update)
         self.assertIn('.putString(KEY_RELEASE_CHANNEL, releaseChannel)', update)
@@ -715,7 +727,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("forced ->", apply)
         self.assertIn("showForcedUpdateDialog", apply)
 
-    def test_85_advertising_mobile_config_contract_survives_release_channel_changes(self):
+    def test_86_advertising_mobile_config_contract_survives_release_channel_changes(self):
         api = text("bluevpn-manager/includes/class-bluevpn-api.php")
         ads_android = text("android-source/BlueVpnAdsCarouselView.kt")
         mobile = block(api, "public static function mobile_config", "public static function ad_asset")
@@ -726,7 +738,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("'tapsell'=>$tapsell", mobile)
         self.assertIn('root.optJSONObject("advertising") ?: root.optJSONObject("ads")', ads_android)
 
-    def test_86_free_story_ads_are_exposed_only_as_free_connection_gate(self):
+    def test_87_free_story_ads_are_exposed_only_as_free_connection_gate(self):
         api = text("bluevpn-manager/includes/class-bluevpn-api.php")
         ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
         mobile = block(api, "public static function mobile_config", "public static function ad_asset")
@@ -736,7 +748,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("'random' => true", ads)
         self.assertIn("'every_connection' => true", ads)
 
-    def test_87_free_story_gate_finalizes_timer_only_after_completion(self):
+    def test_88_free_story_gate_finalizes_timer_only_after_completion(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
         gate = text("android-source/BlueVpnFreeStoryAdGate.kt")
         complete = block(home, "private fun completeFailover", "private fun refreshVerifiedExitLocation")
@@ -747,7 +759,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("storyAdShown = true", complete)
         self.assertIn("weightedRandom(items)", gate)
 
-    def test_88_mandatory_story_cannot_be_bypassed_by_backgrounding(self):
+    def test_89_mandatory_story_cannot_be_bypassed_by_backgrounding(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
         on_stop = block(home, "override fun onStop()", "override fun onTrimMemory")
         self.assertIn("freeStoryGate?.abort()", on_stop)
@@ -755,7 +767,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("Outcome.ABORTED", gate)
         self.assertIn("setCancelable(!required)", gate)
 
-    def test_89_story_media_failure_is_fail_open_and_does_not_stack_tapsell(self):
+    def test_90_story_media_failure_is_fail_open_and_does_not_stack_tapsell(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
         complete = block(home, "private fun completeFailover", "private fun refreshVerifiedExitLocation")
         self.assertIn("Outcome.UNAVAILABLE", complete)
@@ -763,7 +775,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("!storyAdShown", complete)
         self.assertIn("BlueVpnTapsellManager.onVerifiedConnection", complete)
 
-    def test_90_wordpress_convergence_accepts_newer_manager_and_schema(self):
+    def test_91_wordpress_convergence_accepts_newer_manager_and_schema(self):
         workflow = text(".github/workflows/build-apk.yml")
         wait = block(workflow, "- name: Wait for WordPress control-plane auto-update", "- name: Create GitHub Release metadata and checksums")
         self.assertIn("cv >= ev and cs >= es", wait)
@@ -771,7 +783,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertNotIn('[ "$LAST_VERSION" = "$VERSION" ] && [ "$LAST_SCHEMA" = "$EXPECTED_SCHEMA" ]', wait)
 
 
-    def test_91_ad_destinations_are_allow_listed_and_structured(self):
+    def test_92_ad_destinations_are_allow_listed_and_structured(self):
         ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
         self.assertIn("private const TARGET_ACTIONS", ads)
         for action in ("auth", "plans", "purchase", "account", "renew", "settings", "external"):
@@ -781,7 +793,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("'deep_link' => self::deep_link", ads)
         self.assertIn("wp_http_validate_url", ads)
 
-    def test_92_android_ad_router_never_launches_arbitrary_components(self):
+    def test_93_android_ad_router_never_launches_arbitrary_components(self):
         router = text("android-source/BlueVpnAdActionRouter.kt")
         self.assertIn("private val allowed = setOf", router)
         self.assertIn("BlueVpnSubscriptionsActivity::class.java", router)
@@ -792,7 +804,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertNotIn("Intent.parseUri", router)
         self.assertIn('bluevpn://$normalized', router)
 
-    def test_93_banner_and_story_ctas_use_same_internal_router(self):
+    def test_94_banner_and_story_ctas_use_same_internal_router(self):
         banner = text("android-source/BlueVpnAdsCarouselView.kt")
         story = text("android-source/BlueVpnFreeStoryAdGate.kt")
         self.assertIn("BlueVpnAdActionRouter.open", banner)
@@ -802,7 +814,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("stopConnectionImmediately()", text("android-source/BlueVpnHomeActivity.kt"))
         self.assertIn('bluevpn_dir / "BlueVpnAdActionRouter.kt"', text("scripts/prepare_android.py"))
 
-    def test_94_ad_purchase_continues_after_auth_without_auto_charging(self):
+    def test_95_ad_purchase_continues_after_auth_without_auto_charging(self):
         subs = text("android-source/BlueVpnSubscriptionsActivity.kt")
         self.assertIn("EXTRA_ENTRY_ROUTE", subs)
         self.assertIn("EXTRA_PLAN_ID", subs)
@@ -813,6 +825,47 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn('BlueVpnUiGuard.bind(this){\n    buy(p.optInt("id"))', subs)
 
 
+
+    def test_95_sms_pattern_sync_walks_all_pages_and_deduplicates(self):
+        sms = text("bluevpn-manager/includes/class-bluevpn-sms-otp.php")
+        refresh = block(sms, "public static function refresh_patterns", "public static function active_pattern_codes")
+        self.assertIn("provider_pattern_page_url", sms)
+        self.assertIn("$maxPages = 50", refresh)
+        self.assertIn("$newProviderCodes === 0", refresh)
+        self.assertIn("$all[$code] = $row", refresh)
+        self.assertIn("'pages_fetched'=>$pagesFetched", refresh)
+        self.assertNotIn("'body' =>", refresh)
+
+    def test_96_telegram_bot_publishes_and_installs_manager_before_android(self):
+        bot = text("bluevpn-manager/includes/class-bluevpn-telegram-bot.php")
+        updater = text("bluevpn-manager/includes/class-bluevpn-github-updater.php")
+        workflow = text(".github/workflows/bluevpn-manager-release.yml")
+        self.assertIn("🧩 بروزرسانی Manager", bot)
+        self.assertIn("MANAGER_WORKFLOW", bot)
+        self.assertIn("dispatch_manager_release", bot)
+        self.assertIn("waiting_manager", bot)
+        self.assertIn("install_latest_now", bot)
+        self.assertIn("start_android_build_for_job", bot)
+        self.assertIn("public static function install_latest_now", updater)
+        self.assertIn("target_sha:", workflow)
+        self.assertIn("request_id:", workflow)
+        self.assertIn("inputs.target_sha || 'main'", workflow)
+        self.assertIn("inputs.request_id || github.run_id", workflow)
+        self.assertIn("request_id' => $requestId", bot)
+        self.assertIn("display_title", bot)
+
+    def test_97_sms_patterns_are_smart_assigned_with_safe_contract_gate(self):
+        sms = text("bluevpn-manager/includes/class-bluevpn-sms-notifications.php")
+        cc = text("bluevpn-manager/includes/class-bluevpn-control-center.php")
+        self.assertIn("public static function smart_assign_patterns", sms)
+        self.assertIn("smart_pattern_score", sms)
+        self.assertIn("متغیر ناسازگار", sms)
+        self.assertIn("bluevpn_sms_smart_map_report_v1", sms)
+        self.assertIn("bluevpn_cc_smart_assign_sms_patterns", cc)
+        self.assertIn("تازه‌سازی + جایگذاری هوشمند", cc)
+        self.assertIn("بازچینی کامل", cc)
+        self.assertIn("smart_assign_patterns((array)($r['patterns']??[]),false)", cc)
+        self.assertIn("تطبیق هوشمند", cc)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

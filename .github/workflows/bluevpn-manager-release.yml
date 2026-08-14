@@ -1,10 +1,19 @@
 name: Release BlueVPN Manager
+run-name: BlueVPN Manager • ${{ inputs.request_id || github.run_id }}
 
 on:
-  # Production publication is owned by build-apk.yml so the APK and
-  # WordPress backend cannot race each other. Keep this workflow only as a
-  # manual emergency publisher.
+  # Used by the Deploy Bot before Android build, and can also be dispatched
+  # manually as an emergency publisher.
   workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Exact source commit to publish (optional)
+        required: false
+        type: string
+      request_id:
+        description: Deploy Bot correlation id (optional)
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -15,15 +24,15 @@ concurrency:
 
 jobs:
   release:
-    # Manual fallback only. Normal releases are published inline by build-apk.yml.
+    # The bot publishes/installs this manager first, then starts Android build.
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
-      - name: Checkout latest main branch
+      - name: Checkout requested manager source
         uses: actions/checkout@v6
         with:
-          ref: main
+          ref: ${{ inputs.target_sha || 'main' }}
           fetch-depth: 0
 
       - name: Read and validate BlueVPN Manager version

@@ -73,6 +73,60 @@ final class BlueVPN_SMS_OTP {
         }
     }
 
+
+    private static function provider_pattern_page_stats(array $payload): array {
+        $rows = [];
+        self::provider_pattern_candidates($payload, $rows);
+        $codes = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) continue;
+            $code = trim((string)($row['code'] ?? ''));
+            if ($code !== '') $codes[$code] = true;
+        }
+
+        $info = ['current_page'=>0, 'last_page'=>0, 'total'=>0, 'per_page'=>0, 'has_next'=>null];
+        $walk = static function($node, int $depth = 0) use (&$walk, &$info): void {
+            if ($depth > 6 || !is_array($node)) return;
+            $aliases = [
+                'current_page' => ['current_page','currentPage','page'],
+                'last_page' => ['last_page','lastPage','total_pages','totalPages','pages'],
+                'total' => ['total','total_count','totalCount'],
+                'per_page' => ['per_page','perPage','limit','page_size','pageSize'],
+            ];
+            foreach ($aliases as $target => $keys) {
+                if ($info[$target] > 0) continue;
+                foreach ($keys as $key) {
+                    if (isset($node[$key]) && is_numeric($node[$key])) {
+                        $value = (int)$node[$key];
+                        if ($value > 0) { $info[$target] = $value; break; }
+                    }
+                }
+            }
+            foreach (['next_page_url','nextPageUrl','next_url','nextUrl','next'] as $key) {
+                if (!array_key_exists($key, $node)) continue;
+                $next = $node[$key];
+                if ($next === null || $next === '' || $next === false) $info['has_next'] = false;
+                elseif (is_scalar($next)) $info['has_next'] = true;
+            }
+            foreach ($node as $value) {
+                if (is_array($value)) $walk($value, $depth + 1);
+            }
+        };
+        $walk($payload);
+        $info['row_count'] = count($rows);
+        $info['codes'] = array_keys($codes);
+        return $info;
+    }
+
+    private static function provider_pattern_page_url(string $base, int $page, int $limit): string {
+        // The public docs currently describe the patterns endpoint/filter body,
+        // while production accounts paginate the list. Query pagination keeps
+        // GET body-free on WordPress/PHP 8.4 and works with the provider's
+        // Laravel-style paginator. Duplicate-page detection below safely stops
+        // if a provider deployment ignores these query parameters.
+        return $base . '/patterns?page=' . max(1, $page) . '&limit=' . max(1, min(200, $limit));
+    }
+
     private static function pattern_vars_from_row(array $row): array {
         $names = [];
         foreach (['vars','variables','attributes'] as $key) {
@@ -128,59 +182,129 @@ final class BlueVPN_SMS_OTP {
         $cached = self::pattern_cache();
         if (!$force && !empty($cached['fresh'])) return $cached + ['count'=>count($cached['patterns'])];
 
-        // FarazSMS documents GET /patterns with a request body. Some HTTP
-        // intermediaries strip GET bodies, so we send the same filters in both
-        // query parameters and JSON body for compatibility.
-        $query = [
-            'search' => '',
-            'status' => 'active',
-            'staus' => 'active', // spelling used in the current provider docs
-            'share' => 1,
-            'sort_by' => 'updated_at',
-            'sort_type' => 'desc',
+        /*
+         * FarazSMS / IranPayamak documents GET /ws/v1/patterns. Production
+         * responses are paged (commonly 15 rows per page), so BlueVPN walks all
+         * pages instead of silently caching page 1. Requests stay body-free to
+         * avoid the WordPress/PHP 8.4 http_build_query() GET-body failure.
+         */
+        $headers = [
+            'Api-Key' => $apiKey,
+            'Accept' => 'application/json',
+            'User-Agent' => 'BlueVPN-WordPress-SMS/' . BLUEVPN_MANAGER_VERSION,
         ];
-        $url = add_query_arg($query, $base . '/patterns');
-        $res = wp_remote_request($url, [
-            'method' => 'GET',
-            'timeout' => 10,
-            'redirection' => 2,
-            'sslverify' => !isset($s['verify_tls']) || (bool)$s['verify_tls'],
-            'headers' => [
-                'Api-Key' => $apiKey,
-                'Accept' => 'application/json',
-                'Content-Type' => 'application/json',
-                'User-Agent' => 'BlueVPN-WordPress-SMS/' . BLUEVPN_MANAGER_VERSION,
-            ],
-            'body' => wp_json_encode($query, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        ]);
-        if (is_wp_error($res)) throw self::provider_transport_failure($res);
-        $status = (int)wp_remote_retrieve_response_code($res);
-        $body = trim((string)wp_remote_retrieve_body($res));
-        $decoded = $body !== '' ? json_decode($body, true) : null;
-        if ($status < 200 || $status >= 300) {
-            $data = is_array($decoded) ? $decoded : [];
-            $fallback = in_array($status, [401,403], true)
-                ? 'API Key ایران‌پیامک معتبر نیست یا اجازه مشاهده پترن‌ها را ندارد.'
-                : 'دریافت فهرست پترن‌های ایران‌پیامک ناموفق بود.';
-            $message = self::provider_error_message($data, $fallback);
-            self::record_provider_health(false, 'PATTERN_SYNC HTTP ' . $status . ': ' . $message);
-            throw new RuntimeException($message);
+        $all = [];
+        $seenProviderCodes = [];
+        $page = 1;
+        $limit = 100;
+        $maxPages = 50;
+        $pagesFetched = 0;
+        $lastDecoded = [];
+
+        while ($page <= $maxPages) {
+            $url = self::provider_pattern_page_url($base, $page, $limit);
+            $res = wp_remote_request($url, [
+                'method' => 'GET',
+                'timeout' => 10,
+                'redirection' => 2,
+                'sslverify' => !isset($s['verify_tls']) || (bool)$s['verify_tls'],
+                'headers' => $headers,
+            ]);
+            if (is_wp_error($res)) throw self::provider_transport_failure($res);
+            $status = (int)wp_remote_retrieve_response_code($res);
+            $body = trim((string)wp_remote_retrieve_body($res));
+            $decoded = $body !== '' ? json_decode($body, true) : null;
+            if ($status < 200 || $status >= 300) {
+                $data = is_array($decoded) ? $decoded : [];
+                $fallback = in_array($status, [401,403], true)
+                    ? 'API Key ایران‌پیامک معتبر نیست یا اجازه مشاهده پترن‌ها را ندارد.'
+                    : 'دریافت فهرست پترن‌های ایران‌پیامک ناموفق بود.';
+                $message = self::provider_error_message($data, $fallback);
+                self::record_provider_health(false, 'PATTERN_SYNC HTTP ' . $status . ' page=' . $page . ': ' . $message);
+                throw new RuntimeException($message);
+            }
+            if (!is_array($decoded)) {
+                self::record_provider_health(false, 'PATTERN_SYNC_INVALID_RESPONSE: HTTP ' . $status . ' page=' . $page . ' بدون JSON معتبر.');
+                throw new RuntimeException('ایران‌پیامک برای فهرست پترن‌ها پاسخ JSON معتبر برنگرداند.');
+            }
+            $providerStatus = strtolower(trim((string)($decoded['status'] ?? '')));
+            if (in_array($providerStatus, ['error','failed','fail','rejected'], true)) {
+                $message = self::provider_error_message($decoded, 'ایران‌پیامک دریافت فهرست پترن‌ها را رد کرد.');
+                self::record_provider_health(false, 'PATTERN_SYNC_PROVIDER_REJECTED page=' . $page . ': ' . $message);
+                throw new RuntimeException($message);
+            }
+
+            $pagesFetched++;
+            $lastDecoded = $decoded;
+            $stats = self::provider_pattern_page_stats($decoded);
+            $newProviderCodes = 0;
+            foreach ((array)$stats['codes'] as $code) {
+                if (!isset($seenProviderCodes[$code])) {
+                    $seenProviderCodes[$code] = true;
+                    $newProviderCodes++;
+                }
+            }
+            foreach (self::normalize_provider_patterns($decoded) as $row) {
+                $code = trim((string)($row['code'] ?? ''));
+                if ($code !== '') $all[$code] = $row;
+            }
+
+            $rowCount = (int)($stats['row_count'] ?? 0);
+            $current = (int)($stats['current_page'] ?? 0);
+            $last = (int)($stats['last_page'] ?? 0);
+            $hasNext = $stats['has_next'] ?? null;
+
+            if ($rowCount === 0) break;
+            if ($last > 0 && ($current > 0 ? $current : $page) >= $last) break;
+            if ($hasNext === false) break;
+            // Provider ignored page/limit and returned the same first page.
+            if ($page > 1 && $newProviderCodes === 0) break;
+            $page++;
         }
-        if (!is_array($decoded)) {
-            self::record_provider_health(false, 'PATTERN_SYNC_INVALID_RESPONSE: HTTP ' . $status . ' بدون JSON معتبر.');
-            throw new RuntimeException('ایران‌پیامک برای فهرست پترن‌ها پاسخ JSON معتبر برنگرداند.');
+
+        $patterns = array_values($all);
+        usort($patterns, static function(array $a, array $b): int {
+            return strnatcasecmp(($a['description'] ?: $a['text'] ?: $a['code']), ($b['description'] ?: $b['text'] ?: $b['code']));
+        });
+
+        // Defensive recovery for an empty list although a concrete Pattern UID
+        // is already configured. Fetch that exact pattern from the documented
+        // details endpoint and still validate its status locally.
+        $configuredCode = trim((string)($s['pattern_code'] ?? ''));
+        if (empty($patterns) && $configuredCode !== '') {
+            $detail = wp_remote_request($base . '/patterns/' . rawurlencode($configuredCode), [
+                'method' => 'GET',
+                'timeout' => 8,
+                'redirection' => 2,
+                'sslverify' => !isset($s['verify_tls']) || (bool)$s['verify_tls'],
+                'headers' => $headers,
+            ]);
+            if (!is_wp_error($detail)) {
+                $detailStatus = (int)wp_remote_retrieve_response_code($detail);
+                $detailBody = trim((string)wp_remote_retrieve_body($detail));
+                $detailDecoded = $detailBody !== '' ? json_decode($detailBody, true) : null;
+                if ($detailStatus >= 200 && $detailStatus < 300 && is_array($detailDecoded)) {
+                    $recovered = self::normalize_provider_patterns($detailDecoded);
+                    if (!empty($recovered)) $patterns = $recovered;
+                }
+            }
         }
-        $patterns = self::normalize_provider_patterns($decoded);
-        $message = count($patterns) . ' پترن فعال از ایران‌پیامک دریافت شد.';
+
+        $message = count($patterns) . ' پترن فعال از ایران‌پیامک در ' . $pagesFetched . ' صفحه دریافت شد.';
+        if (empty($patterns)) {
+            $message .= ' اگر در پنل ایران‌پیامک پترن فعال دارید، API Key و وضعیت همان پترن را بررسی کنید.';
+        }
         update_option(self::PATTERN_CACHE_OPTION, [
             'key_hash' => self::pattern_cache_key_hash($apiKey, $base),
             'fetched_ts' => time(),
             'fetched_at' => BlueVPN_Utils::now_mysql(),
             'patterns' => $patterns,
             'message' => $message,
+            'pages_fetched' => $pagesFetched,
+            'provider_rows_seen' => count($seenProviderCodes),
         ], false);
-        self::record_provider_health(true, 'PATTERN_SYNC_OK: ' . $message);
-        return ['patterns'=>$patterns, 'fetched_at'=>BlueVPN_Utils::now_mysql(), 'fresh'=>true, 'message'=>$message, 'count'=>count($patterns)];
+        self::record_provider_health(true, 'PATTERN_SYNC_OK: ' . $message . ' provider_rows=' . count($seenProviderCodes));
+        return ['patterns'=>$patterns, 'fetched_at'=>BlueVPN_Utils::now_mysql(), 'fresh'=>true, 'message'=>$message, 'count'=>count($patterns), 'pages_fetched'=>$pagesFetched];
     }
 
     public static function active_pattern_codes(): array {
@@ -422,7 +546,13 @@ final class BlueVPN_SMS_OTP {
             self::record_provider_health(false, 'SMS_PROVIDER_INVALID_RESPONSE: HTTP ' . $status . ' بدون JSON معتبر.');
             throw new BlueVPN_Auth_Exception(502, 'SMS_PROVIDER_INVALID_RESPONSE', 'ایران‌پیامک پاسخ معتبر JSON برنگرداند؛ تنظیمات وب‌سرویس را بررسی کنید.', ['provider_status' => $status]);
         }
-        if ((isset($data['success']) && $data['success'] === false) || (isset($data['status']) && $data['status'] === false) || (isset($data['meta']['status']) && $data['meta']['status'] === false)) {
+        $providerStatus = strtolower(trim((string)($data['status'] ?? '')));
+        $metaStatus = isset($data['meta']['status']) ? strtolower(trim((string)$data['meta']['status'])) : '';
+        if ((isset($data['success']) && $data['success'] === false)
+            || (isset($data['status']) && $data['status'] === false)
+            || in_array($providerStatus, ['error','failed','fail','rejected'], true)
+            || (isset($data['meta']['status']) && $data['meta']['status'] === false)
+            || in_array($metaStatus, ['error','failed','fail','rejected'], true)) {
             $message = self::provider_error_message($data, 'ایران‌پیامک ارسال کد را رد کرد.');
             self::record_provider_health(false, 'PROVIDER_REJECTED: ' . $message);
             throw new BlueVPN_Auth_Exception(502, 'SMS_SEND_FAILED', $message);

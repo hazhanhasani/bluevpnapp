@@ -130,6 +130,212 @@ final class BlueVPN_SMS_Notifications {
         update_option('bluevpn_sms_catalog_version', self::CATALOG_VERSION, false);
     }
 
+    private static function smart_normalize_text(string $text): string {
+        $text = mb_strtolower(wp_strip_all_tags($text), 'UTF-8');
+        $text = strtr($text, [
+            'ي'=>'ی','ى'=>'ی','ك'=>'ک','ة'=>'ه','ۀ'=>'ه','ؤ'=>'و','إ'=>'ا','أ'=>'ا','ٱ'=>'ا',
+            '۰'=>'0','۱'=>'1','۲'=>'2','۳'=>'3','۴'=>'4','۵'=>'5','۶'=>'6','۷'=>'7','۸'=>'8','۹'=>'9',
+        ]);
+        $text = preg_replace('/%[A-Za-z0-9_\-]+%/u', ' ', $text) ?: $text;
+        $text = preg_replace('/[^\p{L}\p{N}_]+/u', ' ', $text) ?: $text;
+        return trim(preg_replace('/\s+/u', ' ', $text) ?: $text);
+    }
+
+    private static function smart_tokens(string $text): array {
+        $text = self::smart_normalize_text($text);
+        if ($text === '') return [];
+        $stop = array_fill_keys([
+            'bluevpn','بلوپنل','بلوویپیان','بلوویپی','شما','برای','این','آن','یک','و','یا','در','به','از','با','را','که','است','شد','شود','شده','کرد','کنید','می','اکنون','کاربر','گرامی'
+        ], true);
+        $out = [];
+        foreach (preg_split('/\s+/u', $text) ?: [] as $token) {
+            $token = trim($token);
+            if ($token === '' || mb_strlen($token, 'UTF-8') < 2 || isset($stop[$token])) continue;
+            $out[$token] = true;
+        }
+        return array_keys($out);
+    }
+
+    private static function smart_var_names(array $spec): array {
+        $vars = [];
+        foreach (($spec['vars'] ?? []) as $var) {
+            $name = sanitize_key((string)($var['name'] ?? ''));
+            if ($name !== '') $vars[$name] = true;
+        }
+        $out = array_keys($vars); sort($out, SORT_STRING); return $out;
+    }
+
+    private static function smart_provider_vars(array $pattern): array {
+        $vars = [];
+        foreach ((array)($pattern['variables'] ?? []) as $name) {
+            $name = sanitize_key((string)$name);
+            if ($name !== '') $vars[$name] = true;
+        }
+        $out = array_keys($vars); sort($out, SORT_STRING); return $out;
+    }
+
+    private static function smart_pattern_score(string $key, array $spec, array $pattern): array {
+        $expected = self::smart_var_names($spec);
+        $provided = self::smart_provider_vars($pattern);
+        $score = 0;
+        $reasons = [];
+
+        if ($key === 'auth_otp' && count($expected) === 1 && count($provided) === 1) {
+            // OTP transport can adapt its single parameter name to the Provider pattern.
+            $score += 58; $reasons[] = 'OTP تک‌متغیره';
+            if ($expected === $provided) { $score += 10; $reasons[] = 'متغیر دقیق'; }
+        } elseif ($expected === $provided) {
+            $score += $expected ? 58 : 12;
+            $reasons[] = $expected ? 'متغیرها دقیق' : 'بدون متغیر';
+        } else {
+            // Never auto-wire a pattern whose attribute contract cannot be sent safely.
+            return ['score'=>-1,'reason'=>'متغیر ناسازگار'];
+        }
+
+        $providerText = trim((string)($pattern['description'] ?? '').' '.(string)($pattern['text'] ?? ''));
+        $providerNorm = self::smart_normalize_text($providerText);
+        $titleNorm = self::smart_normalize_text((string)($spec['title'] ?? ''));
+        $bodyNorm = self::smart_normalize_text((string)($spec['body'] ?? ''));
+        $categoryNorm = self::smart_normalize_text((string)($spec['category'] ?? ''));
+
+        if ($providerNorm !== '' && $bodyNorm !== '' && $providerNorm === $bodyNorm) {
+            $score += 100; $reasons[] = 'متن دقیق';
+        } elseif ($providerNorm !== '' && $bodyNorm !== '' && (str_contains($providerNorm, $bodyNorm) || str_contains($bodyNorm, $providerNorm))) {
+            $score += 42; $reasons[] = 'متن بسیار نزدیک';
+        }
+        if ($providerNorm !== '' && $titleNorm !== '' && str_contains($providerNorm, $titleNorm)) {
+            $score += 38; $reasons[] = 'عنوان داخل پترن';
+        }
+
+        $providerTokens = array_fill_keys(self::smart_tokens($providerText), true);
+        $titleShared = 0;
+        foreach (self::smart_tokens((string)($spec['title'] ?? '')) as $token) if (isset($providerTokens[$token])) $titleShared++;
+        if ($titleShared) { $score += min(42, $titleShared * 14); $reasons[] = 'عنوان '.(int)$titleShared.' واژه مشترک'; }
+
+        $bodyShared = 0;
+        foreach (self::smart_tokens((string)($spec['body'] ?? '')) as $token) if (isset($providerTokens[$token])) $bodyShared++;
+        if ($bodyShared) { $score += min(36, $bodyShared * 4); $reasons[] = 'متن '.(int)$bodyShared.' واژه مشترک'; }
+
+        $categoryShared = 0;
+        foreach (self::smart_tokens((string)($spec['category'] ?? '')) as $token) if (isset($providerTokens[$token])) $categoryShared++;
+        if ($categoryShared) $score += min(8, $categoryShared * 4);
+
+        // A few conflict terms are decisive when two templates share the same variables.
+        $conflicts = [
+            'payment_success'=>['ناموفق','لغو','بازگشت'], 'payment_failed'=>['موفق','بازگشت'],
+            'subscription_activated'=>['تمدید','ارتقا','تغییر'], 'subscription_renewed'=>['فعال شد','ارتقا','تغییر'],
+            'subscription_upgraded'=>['تمدید','ناموفق'], 'refund_success'=>['ناموفق','ایجاد'],
+            'service_disruption'=>['برطرف'], 'service_restored'=>['اختلال موقت','در حال رفع'],
+        ];
+        foreach (($conflicts[$key] ?? []) as $term) {
+            $term = self::smart_normalize_text($term);
+            if ($term !== '' && str_contains($providerNorm, $term)) $score -= 36;
+        }
+
+        return ['score'=>$score,'reason'=>implode(' + ', $reasons) ?: 'تطبیق محتوا'];
+    }
+
+    /**
+     * Safely maps IranPayamak patterns to BlueVPN message contracts.
+     * Existing valid manual selections are preserved unless $overwrite=true.
+     * Patterns are never auto-assigned when their variable contract is incompatible.
+     */
+    public static function smart_assign_patterns(array $patterns, bool $overwrite = false): array {
+        global $wpdb;
+        self::seed_templates();
+        $table = BlueVPN_DB::table('sms_templates');
+        $templates = $wpdb->get_results("SELECT * FROM {$table} ORDER BY category,title", ARRAY_A) ?: [];
+        $catalog = self::catalog();
+        $available = [];
+        foreach ($patterns as $pattern) {
+            if (!is_array($pattern)) continue;
+            $code = trim((string)($pattern['code'] ?? ''));
+            if ($code !== '') $available[$code] = $pattern;
+        }
+
+        $used = [];
+        $skippedExisting = 0;
+        if (!$overwrite) {
+            foreach ($templates as $row) {
+                $code = trim((string)($row['pattern_code'] ?? ''));
+                if ($code !== '' && isset($available[$code])) { $used[$code] = true; $skippedExisting++; }
+            }
+        }
+
+        $proposals = [];
+        $ambiguous = [];
+        $unmatched = [];
+        foreach ($templates as $row) {
+            $key = (string)($row['key'] ?? '');
+            $spec = $catalog[$key] ?? null;
+            if (!$spec) continue;
+            $existing = trim((string)($row['pattern_code'] ?? ''));
+            if (!$overwrite && $existing !== '' && isset($available[$existing])) continue;
+
+            $candidates = [];
+            foreach ($available as $code => $pattern) {
+                if (isset($used[$code])) continue;
+                $scored = self::smart_pattern_score($key, $spec, $pattern);
+                if ((int)$scored['score'] < 0) continue;
+                $candidates[] = ['code'=>$code,'score'=>(int)$scored['score'],'reason'=>(string)$scored['reason']];
+            }
+            usort($candidates, static fn(array $a,array $b): int => $b['score'] <=> $a['score']);
+            if (!$candidates || (int)$candidates[0]['score'] < 72) { $unmatched[] = $key; continue; }
+            $best = $candidates[0];
+            $second = $candidates[1]['score'] ?? -999;
+            if ((int)$best['score'] < 112 && ((int)$best['score'] - (int)$second) < 7) {
+                $ambiguous[] = ['key'=>$key,'title'=>(string)$spec['title'],'best'=>(string)$best['code'],'score'=>(int)$best['score']];
+                continue;
+            }
+            $proposals[] = ['key'=>$key,'title'=>(string)$spec['title']] + $best;
+        }
+
+        // Highest-confidence matches claim a Provider pattern first.
+        usort($proposals, static fn(array $a,array $b): int => $b['score'] <=> $a['score']);
+        $assigned = 0;
+        $mappings = [];
+        $assignedKeys = [];
+        foreach ($proposals as $proposal) {
+            $key = (string)$proposal['key']; $code = (string)$proposal['code'];
+            if (isset($assignedKeys[$key]) || isset($used[$code])) continue;
+            $ok = $wpdb->update($table, ['pattern_code'=>$code,'updated_at'=>BlueVPN_Utils::now_mysql()], ['key'=>$key]);
+            if ($ok === false) continue;
+            $assigned++; $assignedKeys[$key] = true; $used[$code] = true;
+            $confidence = max(50, min(99, (int)round(55 + (((int)$proposal['score'] - 72) * 0.55))));
+            $mappings[] = [
+                'key'=>$key,'title'=>(string)$proposal['title'],'code'=>$code,
+                'score'=>(int)$proposal['score'],'confidence'=>$confidence,'reason'=>(string)$proposal['reason'],
+            ];
+        }
+
+        // Keep the canonical OTP settings mirrored with the smart auth mapping.
+        foreach ($mappings as $map) {
+            if ($map['key'] !== 'auth_otp') continue;
+            $settingsTable = BlueVPN_DB::table('sms_settings');
+            $current = $wpdb->get_row("SELECT id,active,parameter_name FROM {$settingsTable} WHERE id=1", ARRAY_A) ?: [];
+            if ($current) {
+                $wpdb->update($settingsTable, [
+                    'pattern_code'=>$map['code'],
+                    'parameter_name'=>BlueVPN_SMS_OTP::preferred_otp_parameter($map['code'], (string)($current['parameter_name'] ?? 'code')),
+                    'updated_at'=>BlueVPN_Utils::now_mysql(),
+                ], ['id'=>1]);
+            }
+        }
+
+        $report = [
+            'generated_at'=>BlueVPN_Utils::now_mysql(),'overwrite'=>$overwrite?1:0,'assigned'=>$assigned,
+            'skipped_existing'=>$skippedExisting,'ambiguous'=>$ambiguous,'unmatched'=>$unmatched,'mappings'=>$mappings,
+            'provider_count'=>count($available),
+        ];
+        update_option('bluevpn_sms_smart_map_report_v1', $report, false);
+        return $report;
+    }
+
+    public static function smart_assignment_report(): array {
+        $report = get_option('bluevpn_sms_smart_map_report_v1', []);
+        return is_array($report) ? $report : [];
+    }
+
     public static function templates(): array {
         global $wpdb;
         self::seed_templates();

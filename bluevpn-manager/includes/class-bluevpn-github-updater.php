@@ -180,6 +180,53 @@ final class BlueVPN_GitHub_Updater {
         }
     }
 
+    private static function installed_version_from_disk(): string {
+        if (defined('BLUEVPN_MANAGER_FILE') && is_file(BLUEVPN_MANAGER_FILE)) {
+            $head = (string)@file_get_contents(BLUEVPN_MANAGER_FILE, false, null, 0, 8192);
+            if ($head !== '' && preg_match('/(?mi)^\s*\*?\s*Version:\s*(\d+\.\d+\.\d+)\s*$/', $head, $m)) {
+                return (string)$m[1];
+            }
+        }
+        return BLUEVPN_MANAGER_VERSION;
+    }
+
+    /**
+     * Immediate, authenticated self-update entry point used by the Telegram
+     * deploy bot after the manager release workflow has completed.
+     */
+    public static function install_latest_now(): array {
+        self::clear_cache();
+        delete_site_transient('update_plugins');
+        update_option(self::LAST_CHECK_OPTION, time(), false);
+        $release = self::latest_release(true);
+        if (is_wp_error($release)) {
+            return ['success'=>false, 'message'=>$release->get_error_message(), 'target'=>'', 'installed_version'=>self::installed_version_from_disk()];
+        }
+        if (!is_array($release)) {
+            return ['success'=>false, 'message'=>'Release مخصوص BlueVPN Manager پیدا نشد.', 'target'=>'', 'installed_version'=>self::installed_version_from_disk()];
+        }
+        $target = self::base_version($release);
+        $before = self::installed_version_from_disk();
+        if (!self::update_available($release)) {
+            return ['success'=>true, 'message'=>'BlueVPN Manager از قبل به‌روز است.', 'target'=>$target, 'before'=>$before, 'installed_version'=>$before, 'changed'=>false];
+        }
+        if (get_transient(self::UPDATE_LOCK)) {
+            return ['success'=>false, 'message'=>'یک نصب خودکار Manager از قبل در حال اجراست.', 'target'=>$target, 'before'=>$before, 'installed_version'=>$before];
+        }
+        set_transient(self::UPDATE_LOCK, '1', 10 * MINUTE_IN_SECONDS);
+        try {
+            $result = self::install_available_release($release);
+        } finally {
+            delete_transient(self::UPDATE_LOCK);
+        }
+        $after = self::installed_version_from_disk();
+        $ok = !empty($result['success']) && ($target === '' || version_compare($after, $target, '>='));
+        $message = (string)($result['message'] ?? '');
+        if (!$ok && $message === '') $message = 'نصب Manager کامل تأیید نشد.';
+        self::save_auto_status($ok ? 'installed' : 'install_error', $message, $target);
+        return ['success'=>$ok, 'message'=>$message, 'target'=>$target, 'before'=>$before, 'installed_version'=>$after, 'changed'=>version_compare($after, $before, '!=')];
+    }
+
     public static function last_background_check(): int {
         return (int)get_option(self::LAST_CHECK_OPTION, 0);
     }

@@ -19,6 +19,7 @@ final class BlueVPN_Telegram_Bot {
     private const MAX_ZIP_MB_DEFAULT = 50;
     private const GITHUB_API = 'https://api.github.com';
     private const GITHUB_API_VERSION = '2022-11-28';
+    private const MANAGER_WORKFLOW = 'bluevpn-manager-release.yml';
 
     public static function init(): void {
         add_action('rest_api_init', [self::class, 'register_routes']);
@@ -279,6 +280,8 @@ final class BlueVPN_Telegram_Bot {
             self::unlock_chat($chatId, $s);
         } elseif (in_array($text, ['/latest', '⬇️ دریافت آخرین APK'], true)) {
             self::send_latest($chatId, $s);
+        } elseif (in_array($text, ['/manager', '🧩 بروزرسانی Manager'], true)) {
+            self::queue_manager_update($chatId, $userId, $s);
         } elseif (in_array($text, ['/signing', '🔐 بررسی امضا'], true)) {
             self::send_signing_status($chatId, $s);
         } elseif (in_array($text, ['/guardcore', '🟡 صف GuardCore'], true)) {
@@ -293,7 +296,8 @@ final class BlueVPN_Telegram_Bot {
             [['text' => '📦 نصب و ساخت خودکار']],
             [['text' => '🟡 صف GuardCore'], ['text' => '📊 وضعیت']],
             [['text' => '🚀 ساخت فوری'], ['text' => '⬇️ دریافت آخرین APK']],
-            [['text' => '🔓 آزادسازی عملیات'], ['text' => '🔐 بررسی امضا']],
+            [['text' => '🧩 بروزرسانی Manager'], ['text' => '🔐 بررسی امضا']],
+            [['text' => '🔓 آزادسازی عملیات']],
         ], 'resize_keyboard' => true];
     }
 
@@ -381,6 +385,23 @@ final class BlueVPN_Telegram_Bot {
         self::schedule_process($jobId);
     }
 
+    private static function queue_manager_update($chatId, $userId, array $s): void {
+        if (self::chat_has_active_job((string)$chatId)) {
+            self::send_message($chatId, '⏳ یک عملیات از قبل در حال اجراست.', self::keyboard(), $s);
+            return;
+        }
+        global $wpdb;
+        $jobId = wp_generate_uuid4();
+        $wpdb->insert(self::jobs_table(), [
+            'id' => $jobId, 'chat_id' => (string)$chatId, 'user_id' => (string)$userId,
+            'kind' => 'manager_update', 'status' => 'queued', 'telegram_file_id' => '', 'telegram_file_name' => '',
+            'source_message_id' => 0, 'progress_message_id' => 0, 'commit_sha' => '', 'run_id' => 0, 'run_url' => '',
+            'attempts' => 0, 'last_error' => '', 'created_at' => BlueVPN_Utils::now_mysql(), 'updated_at' => BlueVPN_Utils::now_mysql(),
+        ]);
+        self::send_message($chatId, '🧩 انتشار و نصب BlueVPN Manager در صف قرار گرفت.', self::keyboard(), $s);
+        self::schedule_process($jobId);
+    }
+
     private static function schedule_process(string $jobId): void {
         wp_schedule_single_event(time() + 1, self::PROCESS_HOOK, [$jobId]);
         self::spawn_cron();
@@ -394,7 +415,7 @@ final class BlueVPN_Telegram_Bot {
     private static function chat_has_active_job(string $chatId): bool {
         global $wpdb;
         $t = self::jobs_table();
-        return (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t} WHERE chat_id=%s AND status IN ('queued','downloading','deploying','dispatching','waiting_build','building')", $chatId)) > 0;
+        return (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t} WHERE chat_id=%s AND status IN ('queued','downloading','deploying','dispatching','waiting_manager','building_manager','updating_manager','waiting_build','building')", $chatId)) > 0;
     }
 
     public static function process_job(string $jobId): void {
@@ -434,12 +455,19 @@ final class BlueVPN_Telegram_Bot {
                 $commit = self::branch_head_sha($s);
                 self::update_job($jobId, ['status' => 'dispatching', 'commit_sha' => $commit]);
             }
-            $trigger = self::dispatch_build($commit, $s);
-            self::update_job($jobId, ['status' => 'waiting_build']);
-            $triggerLabel = (string)($trigger['trigger'] ?? 'github');
-            self::send_message($job['chat_id'], "🛠 Build از GitHub Actions شروع شد.\nCommit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>\nTrigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
-            wp_schedule_single_event(time() + 20, self::POLL_HOOK);
-            self::spawn_cron();
+            $needsManager = $job['kind'] === 'manager_update' || ($job['kind'] === 'deploy_zip' && !empty($deploy['manager_included']));
+            if ($needsManager) {
+                self::dispatch_manager_release($commit, $jobId, $s);
+                self::update_job($jobId, ['status' => 'waiting_manager', 'run_id' => 0, 'run_url' => '']);
+                self::send_message($job['chat_id'], "🧩 انتشار BlueVPN Manager شروع شد.
+Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
+بعد از انتشار، ربات همان نسخه را روی WordPress نصب می‌کند.", self::keyboard(), $s);
+                wp_schedule_single_event(time() + 15, self::POLL_HOOK);
+                self::spawn_cron();
+                return;
+            }
+
+            self::start_android_build_for_job($job, $commit, $s);
         } catch (Throwable $e) {
             self::fail_job($job, $e->getMessage(), $s);
         }
@@ -463,12 +491,14 @@ final class BlueVPN_Telegram_Bot {
 
     private static function deploy_zip_to_github(string $zipPath, array $s): array {
         $root = self::extract_zip_safely($zipPath, $s);
+        $managerIncluded = is_file($root . '/bluevpn-manager/bluevpn-manager.php');
         try {
             $gitError = '';
             if (self::git_cli_available()) {
                 try {
                     $result = self::deploy_extracted_via_git($root, $s);
                     $result['transport'] = 'git_https';
+                    $result['manager_included'] = $managerIncluded;
                     return $result;
                 } catch (Throwable $e) {
                     $gitError = self::redact($e->getMessage(), $s);
@@ -478,6 +508,7 @@ final class BlueVPN_Telegram_Bot {
             try {
                 $result = self::deploy_extracted_via_rest($root, $s);
                 $result['transport'] = 'github_git_data_api';
+                $result['manager_included'] = $managerIncluded;
                 if ($gitError !== '') $result['git_cli_fallback_error'] = $gitError;
                 return $result;
             } catch (Throwable $e) {
@@ -983,6 +1014,24 @@ BLUEVPN_ASKPASS_CHECK;
         }
     }
 
+    private static function dispatch_manager_release(string $commitSha, string $requestId, array $s): void {
+        self::gh('POST', self::repo_path($s) . '/actions/workflows/' . rawurlencode(self::MANAGER_WORKFLOW) . '/dispatches', [
+            'ref' => (string)$s['git_branch'],
+            'inputs' => ['target_sha' => $commitSha, 'request_id' => $requestId],
+        ], $s);
+    }
+
+    private static function start_android_build_for_job(array $job, string $commit, array $s): void {
+        $trigger = self::dispatch_build($commit, $s);
+        self::update_job((string)$job['id'], ['status' => 'waiting_build', 'run_id' => 0, 'run_url' => '']);
+        $triggerLabel = (string)($trigger['trigger'] ?? 'github');
+        self::send_message($job['chat_id'], "🛠 Build از GitHub Actions شروع شد.
+Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
+Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
+        wp_schedule_single_event(time() + 20, self::POLL_HOOK);
+        self::spawn_cron();
+    }
+
     private static function dispatch_workflow(array $s): void {
         self::gh('POST', self::repo_path($s) . '/actions/workflows/' . rawurlencode((string)$s['github_workflow']) . '/dispatches', ['ref' => (string)$s['git_branch']], $s);
     }
@@ -990,9 +1039,65 @@ BLUEVPN_ASKPASS_CHECK;
     public static function poll_builds(): void {
         global $wpdb;
         $t = self::jobs_table();
-        $jobs = $wpdb->get_results("SELECT * FROM {$t} WHERE status IN ('waiting_build','building') ORDER BY created_at ASC LIMIT 10", ARRAY_A);
-        if (!$jobs) return;
         $s = self::settings();
+
+        $managerJobs = $wpdb->get_results("SELECT * FROM {$t} WHERE status IN ('waiting_manager','building_manager','updating_manager') ORDER BY created_at ASC LIMIT 10", ARRAY_A);
+        foreach ($managerJobs as $job) {
+            try {
+                if ((string)$job['status'] !== 'updating_manager') {
+                    $runs = self::gh('GET', self::repo_path($s) . '/actions/workflows/' . rawurlencode(self::MANAGER_WORKFLOW) . '/runs?branch=' . rawurlencode((string)$s['git_branch']) . '&event=workflow_dispatch&per_page=30', null, $s);
+                    $match = null;
+                    $requestMarker = (string)$job['id'];
+                    foreach ((array)($runs['workflow_runs'] ?? []) as $run) {
+                        if (!is_array($run)) continue;
+                        $title = (string)($run['display_title'] ?? $run['name'] ?? '');
+                        if ($requestMarker !== '' && strpos($title, $requestMarker) !== false) { $match = $run; break; }
+                        // Backward-compatible fallback for a workflow run created
+                        // before request_id/run-name correlation existed.
+                        if ((string)($run['head_sha'] ?? '') === (string)$job['commit_sha']) { $match = $run; }
+                    }
+                    if (!$match) continue;
+                    $status = (string)($match['status'] ?? '');
+                    $runId = (int)($match['id'] ?? 0);
+                    $runUrl = esc_url_raw((string)($match['html_url'] ?? ''));
+                    if ($status !== 'completed') {
+                        self::update_job((string)$job['id'], ['status' => 'building_manager', 'run_id' => $runId, 'run_url' => $runUrl]);
+                        continue;
+                    }
+                    $conclusion = (string)($match['conclusion'] ?? 'unknown');
+                    if ($conclusion !== 'success') {
+                        self::update_job((string)$job['id'], ['status' => 'failed', 'run_id' => $runId, 'run_url' => $runUrl, 'last_error' => 'Manager release: ' . $conclusion, 'finished_at' => BlueVPN_Utils::now_mysql()]);
+                        self::send_message($job['chat_id'], "❌ انتشار Manager ناموفق بود.\nنتیجه: <code>" . esc_html($conclusion) . '</code>' . ($runUrl ? "\n<a href=\"" . esc_url($runUrl) . '\">مشاهده Log</a>' : ''), self::keyboard(), $s);
+                        continue;
+                    }
+                    self::update_job((string)$job['id'], ['status' => 'updating_manager', 'run_id' => $runId, 'run_url' => $runUrl]);
+                }
+
+                if (!class_exists('BlueVPN_GitHub_Updater') || !method_exists('BlueVPN_GitHub_Updater', 'install_latest_now')) {
+                    throw new RuntimeException('Updater داخلی BlueVPN Manager در دسترس نیست.');
+                }
+                $installed = BlueVPN_GitHub_Updater::install_latest_now();
+                if (empty($installed['success'])) throw new RuntimeException((string)($installed['message'] ?? 'نصب Manager ناموفق بود.'));
+                $installedVersion = (string)($installed['installed_version'] ?? '');
+                $target = (string)($installed['target'] ?? '');
+                self::send_message($job['chat_id'], "✅ <b>BlueVPN Manager نصب شد</b>
+نسخه نصب‌شده: <code>" . esc_html($installedVersion ?: $target) . "</code>
+منبع: GitHub Release تأییدشده", self::keyboard(), $s);
+
+                if ((string)$job['kind'] === 'manager_update') {
+                    self::update_job((string)$job['id'], ['status' => 'success', 'finished_at' => BlueVPN_Utils::now_mysql(), 'last_error' => '']);
+                    continue;
+                }
+                $freshJob = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%s", (string)$job['id']), ARRAY_A) ?: $job;
+                self::start_android_build_for_job($freshJob, (string)$job['commit_sha'], $s);
+            } catch (Throwable $e) {
+                $attempts = (int)$job['attempts'] + 1;
+                self::update_job((string)$job['id'], ['attempts' => $attempts, 'last_error' => self::redact($e->getMessage(), $s)]);
+                if ($attempts >= 5) self::fail_job($job, 'نصب خودکار Manager: ' . $e->getMessage(), $s);
+            }
+        }
+
+        $jobs = $wpdb->get_results("SELECT * FROM {$t} WHERE status IN ('waiting_build','building') ORDER BY created_at ASC LIMIT 10", ARRAY_A);
         foreach ($jobs as $job) {
             try {
                 $runs = self::gh('GET', self::repo_path($s) . '/actions/workflows/' . rawurlencode((string)$s['github_workflow']) . '/runs?branch=' . rawurlencode((string)$s['git_branch']) . '&per_page=30', null, $s);
@@ -1060,7 +1165,7 @@ BLUEVPN_ASKPASS_CHECK;
     private static function unlock_chat($chatId, array $s): void {
         global $wpdb;
         $t = self::jobs_table();
-        $jobs = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$t} WHERE chat_id=%s AND status IN ('queued','downloading','deploying','dispatching','waiting_build','building')", (string)$chatId), ARRAY_A);
+        $jobs = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$t} WHERE chat_id=%s AND status IN ('queued','downloading','deploying','dispatching','waiting_manager','building_manager','updating_manager','waiting_build','building')", (string)$chatId), ARRAY_A);
         foreach ($jobs as $job) {
             if ((int)$job['run_id'] > 0) {
                 try { self::gh('POST', self::repo_path($s) . '/actions/runs/' . (int)$job['run_id'] . '/cancel', [], $s); } catch (Throwable $e) {}

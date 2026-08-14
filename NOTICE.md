@@ -1,3 +1,11 @@
+## 4.4.1 smart SMS pattern-assignment boundary
+
+BlueVPN may automatically map IranPayamak patterns to first-party notification contracts only when the Provider attribute set is compatible. The matcher uses deterministic local metadata/text scoring; it does not send message content to an external AI service. Valid manual selections are preserved unless an administrator explicitly confirms a full remap.
+
+## 4.4.0 FarazSMS / IranPayamak API boundary
+
+BlueVPN uses the official IranPayamak REST base `https://api.iranpayamak.com/ws/v1` and authenticates with the `Api-Key` header. Pattern discovery uses `GET /patterns` with no body or optional filters so WordPress/PHP 8.4 never serializes a GET JSON body and private patterns are not excluded by a `share=1` filter. Active-state enforcement is local. If the configured pattern is absent from the list response, BlueVPN may validate that exact code with `GET /patterns/{code}`. OTP delivery remains `POST /sms/pattern` with a JSON body.
+
 ## 4.3.8 advertising navigation boundary
 
 Advertising navigation is first-party and allow-listed. WordPress selects a semantic action and optional plan id; Android maps that action to BlueVPN account/plans/settings screens locally. The control plane cannot provide an arbitrary Android component or custom intent. External fallbacks are limited to valid HTTP(S) URLs. A mandatory Free Story CTA stops the pending Free connection before navigation and does not count as a completed ad view. This boundary does not modify the protected v2rayNG/Xray runtime.
@@ -93,3 +101,6 @@ This release changes only BlueVPN account/entitlement control-plane code. Premiu
 
 ### 4.3.7 build barrier hotfix
 The Android workflow now treats the WordPress Manager and schema versions as minimum compatibility barriers rather than requiring exact equality. If WordPress already runs a newer Manager (for example 4.3.6 while an older 4.3.5 APK source is being built), the build no longer times out with `WORDPRESS_AUTOUPDATE_TIMEOUT` solely because the control plane is newer.
+
+
+4.4.0: Telegram Deploy Bot can publish/install BlueVPN Manager automatically; SMS pattern synchronization is multi-page and deduplicated.

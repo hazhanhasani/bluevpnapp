@@ -1,10 +1,10 @@
 === BlueVPN Manager ===
-Version: 4.4.6
-Stable tag: 4.4.6
+Version: 4.4.7
+Stable tag: 4.4.7
 Requires PHP: 8.0
 
 
-== 4.4.6 ==
+== 4.4.7 ==
 * دریافت Beta به نشست واقعی حساب متصل شد؛ Access Token در صورت نیاز با Refresh Token بازسازی می‌شود.
 * بررسی دستی Beta پس از Sync پس‌زمینه، metadata را دوباره می‌خواند تا Release تازه از دست نرود.
 * Cache کانال بروزرسانی در مرزهای Login/Logout/Invalid Session پاک می‌شود.

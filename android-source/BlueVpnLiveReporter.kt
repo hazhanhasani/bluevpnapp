@@ -18,11 +18,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * an authenticated account and is rate-limited server-side by device identity.
  */
 object BlueVpnLiveReporter {
-    private const val INITIAL_DELAY_SECONDS = 8L
-    private const val ACTIVE_DELAY_SECONDS = 45L
-    private const val SCREEN_OFF_DELAY_SECONDS = 90L
-    private const val POWER_SAVE_DELAY_SECONDS = 120L
-    private const val IDLE_DELAY_SECONDS = 60L
+    private const val INITIAL_DELAY_SECONDS = 3L
+    private const val ACTIVE_DELAY_SECONDS = 12L
+    private const val SCREEN_OFF_DELAY_SECONDS = 30L
+    private const val POWER_SAVE_DELAY_SECONDS = 45L
+    private const val IDLE_DELAY_SECONDS = 30L
+    private const val LOW_END_ACTIVE_DELAY_SECONDS = 20L
 
     private val started = AtomicBoolean(false)
     private val executor = Executors.newSingleThreadScheduledExecutor {
@@ -79,7 +80,7 @@ object BlueVpnLiveReporter {
 
     private fun nextDelaySeconds(app: Context): Long {
         if (!BlueVpnAi.hasActiveSession(app)) return IDLE_DELAY_SECONDS
-        if (BlueVpnPerformance.isLowEnd(app)) return 120L
+        if (BlueVpnPerformance.isLowEnd(app)) return LOW_END_ACTIVE_DELAY_SECONDS
         val power = app.getSystemService(Context.POWER_SERVICE) as PowerManager
         return when {
             power.isPowerSaveMode -> POWER_SAVE_DELAY_SECONDS

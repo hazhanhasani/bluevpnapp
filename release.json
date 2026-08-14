@@ -1,12 +1,12 @@
 {
-  "version": "4.4.6",
-  "version_code": 40406,
+  "version": "4.4.7",
+  "version_code": 40407,
   "channel": "beta",
-  "build_id": "20260815-v4.4.6-beta-channel-auth-refresh",
+  "build_id": "20260815-v4.4.7-live-telemetry-entitlement-isolation",
   "built_at": "2026-08-15T02:00:00Z",
-  "android_version": "4.4.6",
-  "android_version_code": 40406,
-  "description": "BlueVPN 4.4.6: اصلاح قطعی دریافت Beta برای Beta Testerها با احراز هویت کانال بروزرسانی، Refresh خودکار Access Token و Retry همگرایی Release بعد از بررسی دستی.",
+  "android_version": "4.4.7",
+  "android_version_code": 40407,
+  "description": "BlueVPN 4.4.7: رصد زنده نرم سرعت/زمان، RTT واقعی سریع‌تر در BlueAI، و جداسازی سخت Premium/Free پس از Logout تا حذف کامل امکان استفاده از سرور قبلی اشتراکی در پلن رایگان.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -202,5 +202,5 @@
     "mobile-config-cache-invalidated-on-auth-boundary",
     "post-release-wordpress-sync-grace"
   ],
-  "version_source": "v4.4.6-live-telemetry-ui-real-rtt"
+  "version_source": "v4.4.7-live-telemetry-entitlement-isolation"
 }

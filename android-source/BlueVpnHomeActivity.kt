@@ -3012,6 +3012,38 @@ private fun dpHome(value: Int): Int =
 
         val entitlement = BlueVpnEntitlement.resolveUi(this)
         applyEntitlementPresentation(entitlement)
+
+        // Premium -> Free is a hard pool boundary.  Never attach a Free UI to
+        // an old Premium daemon or reuse its selected GUID while logout
+        // reconciliation is still enabling the dedicated Free subscriptions.
+        if (entitlement.isFree && (
+                BlueVpnAccountManager.freeTransitionPending(this) ||
+                mainViewModel.isRunning.value == true
+            )) {
+            hideConnectingOverlay()
+            connectButton.isEnabled = false
+            statusText.text = "در حال جداسازی پلن رایگان"
+            statusCaption.text = "اتصال قبلی Premium کامل متوقف و Pool رایگان فعال می‌شود"
+            runCatching { CoreServiceManager.stopVService(this) }
+            MmkvManager.setSelectServer("")
+            lifecycleScope.launch(Dispatchers.IO) {
+                val result = BlueVpnAccountManager.completeFreeEntitlementTransition(
+                    this@BlueVpnHomeActivity
+                )
+                withContext(Dispatchers.Main) {
+                    connectButton.isEnabled = true
+                    if (result.isSuccess && mainViewModel.isRunning.value != true) {
+                        beginSmartConnection()
+                    } else {
+                        statusText.text = "Pool رایگان هنوز آماده نیست"
+                        statusCaption.text = result.exceptionOrNull()?.message
+                            ?: "چند لحظه دیگر دوباره تلاش کنید"
+                    }
+                }
+            }
+            return
+        }
+
         if (!entitlement.canConnect) {
             hideConnectingOverlay()
             statusText.text = "دسترسی اتصال آماده نیست"

@@ -34,7 +34,7 @@ object BlueVpnAi {
     private const val KEY_LAST_PROBE_SOURCE = "last_probe_source"
     private const val KEY_LAST_PROBE_LATENCY = "last_probe_latency"
     private const val SYNC_INTERVAL = 5 * 60 * 1000L
-    private const val HEARTBEAT_INTERVAL = 35 * 1000L
+    private const val HEARTBEAT_INTERVAL = 8 * 1000L
     private const val AI_SCHEMA_VERSION = 3
     private const val AI_ENGINE_FAMILY = "blueai-adaptive-v2"
     private const val PROBE_CACHE_MAX_AGE_MS = 125 * 1000L
@@ -774,6 +774,7 @@ object BlueVpnAi {
             .put("vpn_transport", true)
             .put("internet_verified", true)
             .put("verification_source", verification.source)
+            .put("verification_latency_ms", verification.latencyMs.coerceAtLeast(0L))
             .put("probe_age_ms", probeAgeMs)
             .put("heartbeat_seq", sequence)
             .put("traffic_active", trafficActive)

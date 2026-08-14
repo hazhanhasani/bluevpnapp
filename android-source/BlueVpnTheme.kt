@@ -55,8 +55,13 @@ object BlueVpnPerformance {
         return lowEnd
     }
 
+    /**
+     * Home telemetry is visual state, not a network poll.  Reading TrafficStats
+     * is cheap, so keep download/upload and duration feeling genuinely live.
+     * Network/AI heartbeats remain independently rate-limited.
+     */
     fun statsIntervalMs(context: Context): Long =
-        if (isLowEnd(context)) 6_000L else 3_500L
+        if (isLowEnd(context)) 1_000L else 500L
 
     fun locationSyncIntervalMs(context: Context): Long =
         if (isLowEnd(context)) 120_000L else 60_000L

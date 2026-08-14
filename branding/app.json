@@ -1,8 +1,8 @@
 {
   "app_name": "BlueVPN",
   "application_id": "ir.blluepanel.bluevpn",
-  "version_name": "4.4.6",
-  "version_code": 40406,
+  "version_name": "4.4.7",
+  "version_code": 40407,
   "deep_link_scheme": "bluevpn",
   "api_base_url": "https://bot.blluepanel.ir",
   "website_url": "https://bot.blluepanel.ir",
@@ -13,7 +13,7 @@
     "arm64-v8a",
     "armeabi-v7a"
   ],
-  "version_source": "v4.4.6-beta-channel-auth-refresh",
+  "version_source": "v4.4.7-live-telemetry-entitlement-isolation",
   "android_lib_xray_ref": "v26.7.5",
   "xray_core_release_label": "v26.6.27"
 }

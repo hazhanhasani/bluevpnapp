@@ -1,4 +1,4 @@
-## 4.4.6 Beta Channel Auth + Fresh Release Check
+## 4.4.7 Beta Channel Auth + Fresh Release Check
 
 - بررسی بروزرسانی Beta دیگر HTTP جداگانه ندارد و از مسیر احراز هویت اصلی حساب استفاده می‌کند.
 - اگر Access Token منقضی/خالی شده ولی Refresh Token معتبر باشد، قبل از انتخاب کانال نسخه به‌صورت خودکار نشست تازه می‌شود.

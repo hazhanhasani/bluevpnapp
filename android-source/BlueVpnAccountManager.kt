@@ -178,6 +178,7 @@ object BlueVpnAccountManager {
     private const val FREE_PREFS = "bluevpn_free_access"
     private const val PREMIUM_LKG_PREFS = "bluevpn_premium_lkg"
     private const val KEY_PENDING_ENTITLEMENT_RECONCILE = "pending_entitlement_reconcile"
+    private const val KEY_FREE_TRANSITION_PENDING = "free_transition_pending"
     private const val FREE_ALARM_ACTION = "com.v2ray.ang.bluevpn.FREE_SESSION_EXPIRED"
     private const val AUTO_SYNC_INTERVAL_MS = 5 * 60_000L
     private const val FREE_SUB_REFRESH_INTERVAL_MS = 60 * 60_000L
@@ -192,6 +193,52 @@ object BlueVpnAccountManager {
 
     private fun backup(c: Context) =
         c.getSharedPreferences(BACKUP, Context.MODE_PRIVATE)
+
+    /**
+     * Hard Premium -> Free ownership barrier.  Logout may stop Xray immediately,
+     * while v2rayNG still needs a short asynchronous window to disable the
+     * account subscription rows and re-enable the dedicated Free pool.  During
+     * that window no new Free connection is allowed to reuse the old daemon or
+     * selected Premium GUID.
+     */
+    fun freeTransitionPending(c: Context): Boolean =
+        c.applicationContext.getSharedPreferences(FREE_PREFS, Context.MODE_PRIVATE)
+            .getBoolean(KEY_FREE_TRANSITION_PENDING, false)
+
+    private fun setFreeTransitionPending(c: Context, pending: Boolean) {
+        c.applicationContext.getSharedPreferences(FREE_PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_FREE_TRANSITION_PENDING, pending).commit()
+    }
+
+    fun completeFreeEntitlementTransition(c: Context): Result<Boolean> = runCatching {
+        val appContext = c.applicationContext
+        // The old Premium daemon must be fully stopped before mutating MMKV.
+        runCatching { CoreServiceManager.stopVService(appContext) }
+        BlueVpnRuntimeGate.endConnection(appContext)
+        MmkvManager.setSelectServer("")
+        // CoreVpnService stops asynchronously.  Do not rewrite subscription MMKV
+        // while Android still exposes the old VPN transport.
+        val stopDeadline = android.os.SystemClock.elapsedRealtime() + 4_000L
+        while (BlueVpnAi.hasVpnTransport(appContext) &&
+            android.os.SystemClock.elapsedRealtime() < stopDeadline) {
+            Thread.sleep(120L)
+        }
+        if (BlueVpnAi.hasVpnTransport(appContext)) {
+            throw IllegalStateException("Premium tunnel is still stopping")
+        }
+        reconcileSubscriptionMode(
+            c = appContext,
+            premiumActive = false,
+            premiumUrl = "",
+            forceRefresh = false,
+        )
+        prepareFreeAccess(appContext, force = false).getOrThrow()
+        val ready = preferredServerGuids(appContext).isNotEmpty()
+        if (!ready) throw IllegalStateException("Free pool is not ready")
+        ensureEntitlementSelection(appContext)
+        setFreeTransitionPending(appContext, false)
+        true
+    }
 
     private class ApiException(
         val status: Int,
@@ -1526,10 +1573,14 @@ object BlueVpnAccountManager {
             invalidateMobileConfigCache()
         }
 
-        // Logout must be immediate from the user's perspective. Stop the tunnel
-        // before deleting credentials so an authenticated VPN session can never
-        // remain active after the account has been left.
+        // Logout is a hard transport + entitlement boundary.  Mark the Free
+        // transition before stopping Xray, clear the exact Premium GUID
+        // immediately, and release runtime ownership so no later UI action can
+        // interpret the old Brazil/other Premium tunnel as a Free connection.
+        setFreeTransitionPending(appContext, true)
         runCatching { CoreServiceManager.stopVService(appContext) }
+        MmkvManager.setSelectServer("")
+        BlueVpnRuntimeGate.endConnection(appContext)
         runCatching { BlueVpnPreferences.clearConnected(appContext) }
 
         // Logout is also an entitlement boundary. Drop every account-owned UI
@@ -1551,16 +1602,7 @@ object BlueVpnAccountManager {
         // Cached Free profiles may exist while their subscription rows are still
         // disabled from Premium mode, so merely pruning Premium is insufficient.
         subscriptionInstallExecutor.execute {
-            runCatching {
-                reconcileSubscriptionMode(
-                    c = appContext,
-                    premiumActive = false,
-                    premiumUrl = "",
-                    forceRefresh = false,
-                )
-                prepareFreeAccess(appContext, force = false).getOrThrow()
-                ensureEntitlementSelection(appContext)
-            }
+            runCatching { completeFreeEntitlementTransition(appContext).getOrThrow() }
             BlueVpnLocationUtil.invalidateCache()
         }
 

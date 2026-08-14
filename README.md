@@ -1,3 +1,11 @@
+## 4.3.5 Beta update parity
+
+- Beta Testerها همان چرخه بررسی خودکار، دانلود خودکار، SHA verification و نصب داخلی Stable را دریافت می‌کنند.
+- سیاست Auto Update برای `Stable` و `Beta` از پنل مستقل است؛ هر دو به‌صورت پیش‌فرض فعال‌اند.
+- Force Update Beta همچنان per-release است و فقط روی حساب‌های `beta_tester=1` اثر می‌گذارد.
+- Android کانال انتخاب‌شده را ذخیره می‌کند و در دیالوگ بروزرسانی Beta، برچسب آزمایشی را واضح نمایش می‌دهد.
+- محدودیت امنیتی Android پابرجاست: APK می‌تواند خودکار دانلود و آماده شود، اما تأیید نهایی نصب بسته به نسخه Android/سیاست دستگاه ممکن است از کاربر خواسته شود.
+
 
 ## 4.3.4 Free policy live-sync + mobile config fatal fix
 

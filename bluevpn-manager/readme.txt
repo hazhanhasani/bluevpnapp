@@ -1,6 +1,6 @@
 === BlueVPN Manager ===
-Version: 4.3.4
-Stable tag: 4.3.4
+Version: 4.3.5
+Stable tag: 4.3.5
 Requires PHP: 8.0
 
 کنترل‌پلین اصلی BlueVPN روی WordPress/MySQL.
@@ -22,6 +22,14 @@ Requires PHP: 8.0
 - نسخه‌گذاری BlueVPN از الگوی x.y.0 تا x.y.10 پیروی می‌کند؛ بعد از x.y.10 نسخه بعدی x.(y+1).0 است.
 
 == Changelog ==
+
+
+= 4.3.5 =
+* Beta Testerها اکنون تمام مسیر بروزرسانی خودکار را مانند Stable دریافت می‌کنند.
+* سیاست دانلود خودکار برای Stable و Beta در پنل به‌صورت جداگانه قابل کنترل است.
+* Force Update نسخه Beta همچنان per-release است و فقط روی Beta Testerهای مجاز اثر می‌گذارد.
+* Android کانال release را ذخیره می‌کند و دیالوگ بروزرسانی Beta را با برچسب آزمایشی نمایش می‌دهد.
+* دانلود، SHA validation و PackageInstaller برای Beta و Stable یکسان است.
 
 = 4.3.4 =
 * Fixed /mobile/config HTTP 500 caused by stale BlueVPN_Ads helper method names.

@@ -1,3 +1,7 @@
+## 4.3.5 Beta update parity boundary
+
+Beta and Stable now use the same authenticated Android update pipeline: periodic/manual checks, automatic APK download, SHA-256 validation, force-update blocking and PackageInstaller handoff. WordPress selects the eligible release before returning metadata, and automatic delivery can be controlled independently for Stable and Beta. Android platform security may still require final user confirmation before package installation. The protected v2rayNG/Xray runtime is unchanged.
+
 ## 4.3.4 Free-policy control-plane boundary
 
 The WordPress mobile-config endpoint is the authoritative source for Free access settings. Android refreshes and persists this policy independently of local v2rayNG subscription readiness. A server-side reduction of the Free session duration may shorten an active Free session, while an increase starts from the next Free connection. This control-plane fix does not modify the protected v2rayNG/Xray runtime.

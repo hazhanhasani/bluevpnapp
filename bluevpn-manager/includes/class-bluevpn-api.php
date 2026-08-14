@@ -139,6 +139,12 @@ final class BlueVPN_API {
         $releaseForce = !empty($release['force_update']);
         // Legacy global force applies only to Stable. Beta force is controlled per release.
         $forceUpdate = $releaseForce || ($channel === 'stable' && !empty($s['force_update']));
+        // Automatic delivery is channel-aware. Beta testers should receive the same
+        // check/download/install pipeline as Stable users, while administrators can
+        // pause automatic Beta delivery without affecting the public Stable channel.
+        $stableAutoUpdate = array_key_exists('auto_update_stable', $s) ? !empty($s['auto_update_stable']) : !empty($s['auto_update']);
+        $betaAutoUpdate = array_key_exists('auto_update_beta', $s) ? !empty($s['auto_update_beta']) : !empty($s['auto_update']);
+        $autoUpdate = $channel === 'beta' ? $betaAutoUpdate : $stableAutoUpdate;
 
         return self::ok([
             'app_name'=>$s['app_name'],
@@ -146,7 +152,9 @@ final class BlueVPN_API {
             'support_url'=>$s['support_url'],
             'minimum_version'=>$s['minimum_version'],
             'force_update'=>$forceUpdate,
-            'auto_update'=>(bool)$s['auto_update'],
+            'auto_update'=>$autoUpdate,
+            'auto_update_stable'=>$stableAutoUpdate,
+            'auto_update_beta'=>$betaAutoUpdate,
             'account_required'=>true,
             'latest_version'=>(string)($release['version'] ?? $s['latest_version']),
             'latest_version_code'=>(int)($release['version_code'] ?? $s['latest_version_code']),
@@ -163,6 +171,12 @@ final class BlueVPN_API {
             'update_source'=>(string)($release['source'] ?? ($s['update_source']??'wordpress_settings')),
             'release_channel'=>$channel,
             'beta_tester'=>(bool)($selection['beta_tester'] ?? false),
+            'update_policy'=>[
+                'channel'=>$channel,
+                'automatic_download'=>$autoUpdate,
+                'force_update'=>$forceUpdate,
+                'beta_tester'=>(bool)($selection['beta_tester'] ?? false),
+            ],
             'github_repository'=>(string)($s['github_repository']??''),
             'github_error'=>(string)($s['github_error']??''),
             'release_cache_seconds'=>(int)($s['release_cache_seconds']??15),

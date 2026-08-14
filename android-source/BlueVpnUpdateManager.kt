@@ -61,6 +61,8 @@ object BlueVpnUpdateManager {
     private const val KEY_UPDATE_SHA256 = "remote_update_sha256"
     private const val KEY_UPDATE_SIZE = "remote_update_size"
     private const val KEY_AUTO_UPDATE = "remote_auto_update"
+    private const val KEY_RELEASE_CHANNEL = "remote_release_channel"
+    private const val KEY_BETA_TESTER = "remote_beta_tester"
     private const val KEY_DOWNLOAD_ID = "download_id"
     private const val KEY_DOWNLOAD_VERSION = "download_version"
     private const val KEY_PENDING_INSTALL_URI = "pending_install_uri"
@@ -337,6 +339,14 @@ object BlueVpnUpdateManager {
             "auto_update",
             true,
         )
+        val releaseChannel = config.optString(
+            "release_channel",
+            "stable",
+        ).trim().lowercase().let { if (it == "beta") "beta" else "stable" }
+        val betaTester = config.optBoolean(
+            "beta_tester",
+            false,
+        )
 
         val belowMinimum = compareVersions(
             BuildConfig.VERSION_NAME,
@@ -394,6 +404,8 @@ object BlueVpnUpdateManager {
             .putBoolean(KEY_MAINTENANCE, maintenance)
             .putBoolean(KEY_FORCE_BLOCK, forced)
             .putBoolean(KEY_AUTO_UPDATE, autoUpdate)
+            .putString(KEY_RELEASE_CHANNEL, releaseChannel)
+            .putBoolean(KEY_BETA_TESTER, betaTester)
             .putString(KEY_SUPPORT_URL, supportUrl)
             .putString(KEY_UPDATE_URL, apkUrl)
             .putString(KEY_UPDATE_VERSION, latestVersion)
@@ -899,6 +911,16 @@ private fun showMaintenanceDialog(
     )
 }
 
+private fun updateChannel(activity: Activity): String =
+    activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        .getString(KEY_RELEASE_CHANNEL, "stable")
+        .orEmpty()
+        .lowercase()
+        .let { if (it == "beta") "beta" else "stable" }
+
+private fun updateEyebrow(activity: Activity, stableText: String): String =
+    if (updateChannel(activity) == "beta") "🧪 Beta • $stableText" else stableText
+
 private fun showForcedUpdateDialog(
     activity: Activity,
     apkUrl: String,
@@ -906,8 +928,8 @@ private fun showForcedUpdateDialog(
 ) {
     showPremiumDialog(
         activity = activity,
-        eyebrow = "بروزرسانی ضروری",
-        title = "نسخه $version آماده نصب است",
+        eyebrow = updateEyebrow(activity, "بروزرسانی ضروری"),
+        title = if (updateChannel(activity) == "beta") "نسخه آزمایشی $version آماده نصب است" else "نسخه $version آماده نصب است",
         message = "برای حفظ پایداری اتصال باید این نسخه نصب شود. فایل فقط یک‌بار دانلود می‌شود؛ پس از آماده‌شدن، نصب را از همین پنجره ادامه دهید.",
         accentColor = Color.parseColor("#4D8DFF"),
         primaryText = "دانلود داخل برنامه",
@@ -960,8 +982,8 @@ private fun showAutomaticUpdateDialog(
 
     showPremiumDialog(
         activity = activity,
-        eyebrow = "نسخه تازه",
-        title = "BlueVPN $version آماده است",
+        eyebrow = updateEyebrow(activity, "نسخه تازه"),
+        title = if (updateChannel(activity) == "beta") "BlueVPN Beta $version آماده است" else "BlueVPN $version آماده است",
         message = "دانلود از داخل خود BlueVPN انجام می‌شود و لازم نیست اتصال VPN را قطع کنید یا وارد پوشه دانلودها شوید. پس از پایان، صفحه نصب خودکار باز می‌شود.",
         accentColor = Color.parseColor("#2E82FF"),
         primaryText = "نمایش دانلود داخل برنامه",
@@ -1008,10 +1030,10 @@ private fun showOptionalUpdateDialog(
 
     showPremiumDialog(
         activity = activity,
-        eyebrow = "پیشنهاد بروزرسانی",
+        eyebrow = updateEyebrow(activity, "پیشنهاد بروزرسانی"),
         title = config.optString(
             "update_title",
-            "نسخه $version منتشر شد",
+            if (updateChannel(activity) == "beta") "نسخه آزمایشی $version منتشر شد" else "نسخه $version منتشر شد",
         ),
         message = config.optString(
             "update_message",

@@ -710,7 +710,11 @@ final class BlueVPN_DB {
             'support_url' => '',
             'minimum_version' => '0.4.9',
             'force_update' => false,
+            // Legacy/global switch kept for older installs. Release-aware clients use
+            // the channel-specific values below; both default to automatic delivery.
             'auto_update' => true,
+            'auto_update_stable' => true,
+            'auto_update_beta' => true,
             'latest_version' => '0.0.0',
             'latest_version_code' => 0,
             'apk_url' => '',

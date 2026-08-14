@@ -1,12 +1,12 @@
 {
-  "version": "4.3.4",
-  "version_code": 40304,
+  "version": "4.3.5",
+  "version_code": 40305,
   "channel": "beta",
-  "build_id": "20260814-v4.3.4-free-policy-live-sync-mobile-config-fatal-fix",
-  "built_at": "2026-08-14T15:37:00Z",
-  "android_version": "4.3.4",
-  "android_version_code": 40304,
-  "description": "BlueVPN 4.3.4: رفع خطای واقعی HTTP 500 در /mobile/config ناشی از فراخوانی متدهای ناموجود تبلیغات/اتصال رایگان و همگام‌سازی زنده سیاست پلن رایگان. تغییر مدت Session در پنل (مثلاً 60 به 30 دقیقه) مستقل از آماده‌بودن Pool روی Android اعمال می‌شود؛ بررسی بروزرسانی و ورود مجدد به برنامه نیز policy را ذخیره می‌کنند و کاهش محدودیت روی Session فعال clamp می‌شود.",
+  "build_id": "20260814-v4.3.5-beta-update-parity",
+  "built_at": "2026-08-14T16:05:00Z",
+  "android_version": "4.3.5",
+  "android_version_code": 40305,
+  "description": "BlueVPN 4.3.5: هم‌سطح‌سازی کامل مسیر بروزرسانی Beta و Stable. آزمایش‌کنندگان Beta همان بررسی خودکار، دانلود خودکار، بروزرسانی اختیاری/اجباری، SHA validation و نصب داخلی را روی آخرین Beta مجاز دریافت می‌کنند؛ سیاست دانلود خودکار Stable و Beta از پنل جداگانه قابل کنترل است و رابط بروزرسانی کانال Beta را به‌وضوح نمایش می‌دهد.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -118,7 +118,13 @@
     "free-session-limit-change-propagation",
     "active-free-session-limit-clamp",
     "update-check-applies-free-policy",
-    "startup-free-policy-refresh-independent-of-pool-readiness"
+    "startup-free-policy-refresh-independent-of-pool-readiness",
+    "beta-auto-update-parity",
+    "channel-specific-auto-update-policy",
+    "beta-automatic-download",
+    "beta-force-update-parity",
+    "beta-update-ui-label",
+    "release-channel-persisted-on-android"
   ],
-  "version_source": "v4.3.4-free-policy-live-sync-mobile-config-fatal-fix"
+  "version_source": "v4.3.5-beta-update-parity"
 }

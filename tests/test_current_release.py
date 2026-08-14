@@ -693,5 +693,27 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("AI Schema v1", ai)
         self.assertIn("Android 4.3.2+", ai)
 
+    def test_83_beta_and_stable_have_independent_auto_update_policy(self):
+        db = text("bluevpn-manager/includes/class-bluevpn-db.php")
+        api = text("bluevpn-manager/includes/class-bluevpn-api.php")
+        cc = text("bluevpn-manager/includes/class-bluevpn-control-center.php")
+        self.assertIn("'auto_update_stable' => true", db)
+        self.assertIn("'auto_update_beta' => true", db)
+        self.assertIn("$autoUpdate = $channel === 'beta' ? $betaAutoUpdate : $stableAutoUpdate", api)
+        self.assertIn("'auto_update'=>$autoUpdate", api)
+        self.assertIn('name="auto_update_beta"', cc)
+        self.assertIn('name="auto_update_stable"', cc)
+
+    def test_84_beta_android_update_pipeline_is_same_as_stable(self):
+        update = text("android-source/BlueVpnUpdateManager.kt")
+        self.assertIn('KEY_RELEASE_CHANNEL = "remote_release_channel"', update)
+        self.assertIn('.putString(KEY_RELEASE_CHANNEL, releaseChannel)', update)
+        self.assertIn('if (updateChannel(activity) == "beta") "BlueVPN Beta $version آماده است"', update)
+        apply = block(update, "private fun applyRemoteConfig", "private fun showStoredBlockIfNeeded")
+        self.assertIn("updateAvailable && autoUpdate", apply)
+        self.assertIn("startAutomaticDownload", apply)
+        self.assertIn("forced ->", apply)
+        self.assertIn("showForcedUpdateDialog", apply)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

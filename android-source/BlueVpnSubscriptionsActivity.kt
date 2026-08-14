@@ -39,9 +39,11 @@ import org.json.JSONObject
 import java.text.NumberFormat
 import java.util.Locale
 class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
- private lateinit var content:LinearLayout;private lateinit var status:TextView;private lateinit var palette:BlueVpnPalette;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true;private var otpChallengeId="";private var otpPhone="";private var otpBinding=false;private var authMode="sms";private var emailRegister=false;private var themeDarkAtCreate=true;private var renderedSessionState=false;private var draftPhone="";private var draftOtpCode="";private var draftEmail="";private var draftPassword="";private var draftBindingPhone="";private var draftBindingCode="";private var renderPosted=false;private var renderGeneration=0;private var syncInProgress=false
+ companion object{const val EXTRA_ENTRY_ROUTE="bluevpn_entry_route";const val EXTRA_PLAN_ID="bluevpn_entry_plan_id";const val EXTRA_ENTRY_SOURCE="bluevpn_entry_source"}
+ private lateinit var content:LinearLayout;private lateinit var status:TextView;private lateinit var palette:BlueVpnPalette;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true;private var otpChallengeId="";private var otpPhone="";private var otpBinding=false;private var authMode="sms";private var emailRegister=false;private var themeDarkAtCreate=true;private var renderedSessionState=false;private var draftPhone="";private var draftOtpCode="";private var draftEmail="";private var draftPassword="";private var draftBindingPhone="";private var draftBindingCode="";private var renderPosted=false;private var renderGeneration=0;private var syncInProgress=false;private var entryRoute="account";private var entryPlanId=0;private var entrySource=""
  private val poll=object:Runnable{override fun run(){val id=BlueVpnAccountManager.pendingOrder(this@BlueVpnSubscriptionsActivity);if(id.isNotBlank()){checkOrder(id);handler.postDelayed(this,4000)}}}
- override fun onCreate(b:Bundle?){super.onCreate(b);window.setWindowAnimations(0);palette=BlueVpnTheme.palette(this);themeDarkAtCreate=palette.dark;window.setBackgroundDrawable(ColorDrawable(palette.background));BlueVpnTheme.applySystemBars(this);setContentView(screen());render()}
+ override fun onCreate(b:Bundle?){super.onCreate(b);entryRoute=intent.getStringExtra(EXTRA_ENTRY_ROUTE).orEmpty().ifBlank{"account"};entryPlanId=intent.getIntExtra(EXTRA_PLAN_ID,0).coerceAtLeast(0);entrySource=intent.getStringExtra(EXTRA_ENTRY_SOURCE).orEmpty();window.setWindowAnimations(0);palette=BlueVpnTheme.palette(this);themeDarkAtCreate=palette.dark;window.setBackgroundDrawable(ColorDrawable(palette.background));BlueVpnTheme.applySystemBars(this);setContentView(screen());render()}
+ override fun onNewIntent(next:Intent){super.onNewIntent(next);setIntent(next);entryRoute=next.getStringExtra(EXTRA_ENTRY_ROUTE).orEmpty().ifBlank{"account"};entryPlanId=next.getIntExtra(EXTRA_PLAN_ID,0).coerceAtLeast(0);entrySource=next.getStringExtra(EXTRA_ENTRY_SOURCE).orEmpty();if(::content.isInitialized)render()}
  override fun onResume(){
   super.onResume()
   BlueVpnTheme.applySystemBars(this)
@@ -120,7 +122,10 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
  }
  private fun auth(){
   status.setTextColor(authMuted())
-  status.text=if(authMode=="sms")"ورود امن با کد یک‌بارمصرف ۶ رقمی" else "ورود یا ثبت‌نام با ایمیل"
+  status.text=when(entryRoute){
+   "purchase","plans","renew"->"برای ادامه خرید یا تمدید، ابتدا وارد حساب شوید یا ثبت‌نام کنید"
+   else->if(authMode=="sms")"ورود امن با کد یک‌بارمصرف ۶ رقمی" else "ورود یا ثبت‌نام با ایمیل"
+  }
 
   val authCard=MaterialCardView(this).apply{
    radius=dp(28).toFloat();cardElevation=dp(12).toFloat();strokeWidth=dp(1);strokeColor=Color.parseColor("#422315");setCardBackgroundColor(Color.parseColor("#E6080A0C"))
@@ -201,12 +206,12 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
  }
  private fun account(generation:Int){
   val account=BlueVpnAccountManager.snapshot(this)
-  status.text=
-   if(account.subscriptionActive){
-    "حساب شما آماده اتصال است"
-   }else{
-    "برای ادامه یک پلن انتخاب کنید"
-   }
+  status.text=when(entryRoute){
+   "purchase"->if(entryPlanId>0)"پلن انتخاب‌شده برای خرید در ابتدای فهرست نمایش داده می‌شود" else "یک پلن برای خرید انتخاب کنید"
+   "plans"->"پلن‌های قابل خرید BlueVPN"
+   "renew"->"برای تمدید یا ارتقا، پلن موردنظر را انتخاب کنید"
+   else->if(account.subscriptionActive)"حساب شما آماده اتصال است" else "برای ادامه یک پلن انتخاب کنید"
+  }
 
   val card=MaterialCardView(this).apply{
    radius=dp(24).toFloat()
@@ -397,9 +402,9 @@ private fun loadPlans(generation:Int){
      return@onSuccess
     }
 
-    for(i in 0 until arr.length()){
-     plan(arr.getJSONObject(i))
-    }
+    val rows=mutableListOf<JSONObject>()
+    for(i in 0 until arr.length())rows+=arr.getJSONObject(i)
+    rows.sortedWith(compareBy<JSONObject>{if(entryPlanId>0&&it.optInt("id")==entryPlanId)0 else 1}.thenBy{it.optInt("id")}).forEach{plan(it)}
    }.onFailure{
     if(!BlueVpnAccountManager.hasSession(
       this@BlueVpnSubscriptionsActivity
@@ -413,12 +418,13 @@ private fun loadPlans(generation:Int){
  }
 }
  private fun plan(p:JSONObject){
+  val selectedByAd=entryPlanId>0&&p.optInt("id")==entryPlanId
   val card=MaterialCardView(this).apply{
    radius=dp(22).toFloat()
-   cardElevation=0f
+   cardElevation=if(selectedByAd)dp(3).toFloat() else 0f
    setCardBackgroundColor(palette.surface)
-   strokeColor=palette.stroke
-   strokeWidth=dp(1)
+   strokeColor=if(selectedByAd)palette.accent else palette.stroke
+   strokeWidth=dp(if(selectedByAd)2 else 1)
   }
 
   val box=LinearLayout(this).apply{
@@ -446,6 +452,7 @@ private fun loadPlans(generation:Int){
    setTextColor(palette.textMuted)
    setPadding(0,dp(5),0,0)
   })
+  if(selectedByAd)titleBox.addView(TextView(this).apply{text="پیشنهاد این تبلیغ";textSize=10f;setTextColor(palette.accent);setTypeface(typeface,Typeface.BOLD);setPadding(0,dp(5),0,0)})
   header.addView(titleBox,LinearLayout.LayoutParams(0,-2,1f))
   header.addView(TextView(this).apply{
    text="PREMIUM"

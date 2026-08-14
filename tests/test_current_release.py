@@ -771,5 +771,48 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertNotIn('[ "$LAST_VERSION" = "$VERSION" ] && [ "$LAST_SCHEMA" = "$EXPECTED_SCHEMA" ]', wait)
 
 
+    def test_91_ad_destinations_are_allow_listed_and_structured(self):
+        ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
+        self.assertIn("private const TARGET_ACTIONS", ads)
+        for action in ("auth", "plans", "purchase", "account", "renew", "settings", "external"):
+            self.assertIn(f"'{action}'", ads)
+        self.assertIn("'target_action' => $targetAction", ads)
+        self.assertIn("'target_plan_id' => $targetPlanId", ads)
+        self.assertIn("'deep_link' => self::deep_link", ads)
+        self.assertIn("wp_http_validate_url", ads)
+
+    def test_92_android_ad_router_never_launches_arbitrary_components(self):
+        router = text("android-source/BlueVpnAdActionRouter.kt")
+        self.assertIn("private val allowed = setOf", router)
+        self.assertIn("BlueVpnSubscriptionsActivity::class.java", router)
+        self.assertIn("BlueVpnSettingsActivity::class.java", router)
+        self.assertIn('scheme == "https" || scheme == "http"', router)
+        self.assertNotIn("Class.forName", router)
+        self.assertNotIn("setClassName", router)
+        self.assertNotIn("Intent.parseUri", router)
+        self.assertIn('bluevpn://$normalized', router)
+
+    def test_93_banner_and_story_ctas_use_same_internal_router(self):
+        banner = text("android-source/BlueVpnAdsCarouselView.kt")
+        story = text("android-source/BlueVpnFreeStoryAdGate.kt")
+        self.assertIn("BlueVpnAdActionRouter.open", banner)
+        self.assertIn('targetAction = row.optString("target_action")', banner)
+        self.assertIn("BlueVpnAdActionRouter.open", story)
+        self.assertIn("Outcome.ACTION_OPENED", story)
+        self.assertIn("stopConnectionImmediately()", text("android-source/BlueVpnHomeActivity.kt"))
+        self.assertIn('bluevpn_dir / "BlueVpnAdActionRouter.kt"', text("scripts/prepare_android.py"))
+
+    def test_94_ad_purchase_continues_after_auth_without_auto_charging(self):
+        subs = text("android-source/BlueVpnSubscriptionsActivity.kt")
+        self.assertIn("EXTRA_ENTRY_ROUTE", subs)
+        self.assertIn("EXTRA_PLAN_ID", subs)
+        self.assertIn("برای ادامه خرید یا تمدید", subs)
+        self.assertIn("selectedByAd", subs)
+        self.assertIn("پیشنهاد این تبلیغ", subs)
+        # A deep-linked plan is highlighted, but payment still requires the explicit plan CTA.
+        self.assertIn('BlueVpnUiGuard.bind(this){\n    buy(p.optInt("id"))', subs)
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -48,6 +48,7 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
         COMPLETED,
         UNAVAILABLE,
         ABORTED,
+        ACTION_OPENED,
     }
 
     private data class StoryItem(
@@ -56,6 +57,10 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
         val subtitle: String,
         val mediaType: String,
         val mediaUrl: String,
+        val targetAction: String,
+        val targetPlanId: Int,
+        val targetUrl: String,
+        val buttonText: String,
         val weight: Int,
         val imageDurationSeconds: Int,
     )
@@ -144,6 +149,10 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
                 subtitle = row.optString("subtitle").trim(),
                 mediaType = type,
                 mediaUrl = media,
+                targetAction = row.optString("target_action").trim().lowercase(),
+                targetPlanId = row.optInt("target_plan_id", 0).coerceAtLeast(0),
+                targetUrl = row.optString("target_url").trim(),
+                buttonText = row.optString("button_text").trim(),
                 weight = row.optInt("weight", 1).coerceIn(1, 100),
                 imageDurationSeconds = row.optInt(
                     "image_duration_seconds",
@@ -291,6 +300,16 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
             ),
         )
 
+        val destination = BlueVpnAdActionRouter.destination(
+            item.targetAction,
+            item.targetPlanId,
+            item.targetUrl,
+        )
+        if (destination.isActionable()) {
+            media.isClickable = true
+            media.setOnClickListener { openTarget(item) }
+        }
+
         val shade = View(activity).apply {
             background = GradientDrawable(
                 GradientDrawable.Orientation.TOP_BOTTOM,
@@ -340,6 +359,31 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
                 setPadding(0, dp(8), 0, 0)
             })
         }
+        if (destination.isActionable()) {
+            val cta = text(
+                item.buttonText.ifBlank { BlueVpnAdActionRouter.defaultButtonText(destination.action) },
+                15f,
+                Typeface.BOLD,
+                Color.WHITE,
+            ).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(18), 0, dp(18), 0)
+                background = rounded(Color.rgb(37, 99, 235), 18f)
+                isClickable = true
+                isFocusable = true
+                contentDescription = item.buttonText.ifBlank {
+                    BlueVpnAdActionRouter.defaultButtonText(destination.action)
+                }
+                setOnClickListener { openTarget(item) }
+            }
+            bottom.addView(
+                cta,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(50)).apply {
+                    topMargin = dp(14)
+                },
+            )
+        }
+
         bottom.addView(text(
             if (required) "اتصال بعد از پایان این تبلیغ فعال می‌شود" else "در حال آماده‌سازی اتصال رایگان",
             12f,
@@ -354,6 +398,30 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
             },
         )
         return root
+    }
+
+    private fun openTarget(item: StoryItem) {
+        if (!active) return
+        val destination = BlueVpnAdActionRouter.destination(
+            item.targetAction,
+            item.targetPlanId,
+            item.targetUrl,
+        )
+        if (!destination.isActionable()) return
+
+        // A CTA intentionally leaves the mandatory Free gate. Do not count it
+        // as a completed impression: the host stops the pending Free VPN first,
+        // then navigation continues to auth/plans/account without an ad bypass.
+        finish(Outcome.ACTION_OPENED)
+        main.post {
+            BlueVpnAdActionRouter.open(
+                context = activity,
+                action = destination.action,
+                planId = destination.planId,
+                fallbackUrl = destination.fallbackUrl,
+                source = "story:${item.id}",
+            )
+        }
     }
 
     private fun showDialog(root: View) {

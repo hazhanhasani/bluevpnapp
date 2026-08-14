@@ -1,3 +1,12 @@
+## 4.3.8 in-app advertising destinations
+
+- Banner and Free Story campaigns can route to an allow-listed in-app destination: auth/register, plans, purchase, account, renew/upgrade, settings, or an external HTTPS/HTTP URL.
+- A campaign may target a specific active plan id. Guests authenticate first; after login the selected plan is sorted to the top and highlighted instead of silently creating a payment order.
+- WordPress emits a canonical `target_action`, optional `target_plan_id`, compatibility `target_url`, and a human-readable `bluevpn://...` deep-link contract.
+- Android never launches arbitrary classes or custom schemes received from the control plane. Internal actions are mapped locally and web fallbacks are restricted to HTTP(S).
+- Following a CTA from a mandatory Free Story stops the pending Free VPN before navigation, so ad interaction cannot bypass the completion gate.
+- The protected v2rayNG 2.2.6 / Xray runtime is unchanged.
+
 ## 4.3.5 Beta update parity
 
 - Beta Testerها همان چرخه بررسی خودکار، دانلود خودکار، SHA verification و نصب داخلی Stable را دریافت می‌کنند.

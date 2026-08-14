@@ -1,7 +1,6 @@
 package com.v2ray.ang.bluevpn
 
 import android.content.Context
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
@@ -37,6 +36,8 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         val title: String,
         val subtitle: String,
         val imageUrl: String,
+        val targetAction: String,
+        val targetPlanId: Int,
         val targetUrl: String,
         val buttonText: String,
     )
@@ -267,6 +268,8 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
                     title = title,
                     subtitle = row.optString("subtitle").trim(),
                     imageUrl = imageUrl,
+                    targetAction = row.optString("target_action").trim().lowercase(),
+                    targetPlanId = row.optInt("target_plan_id", 0).coerceAtLeast(0),
                     targetUrl = safeUrl(row.optString("target_url")),
                     buttonText = row.optString("button_text").trim(),
                 )
@@ -307,8 +310,15 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         titleView.visibility = if (item.title.isBlank()) View.GONE else View.VISIBLE
         subtitleView.text = item.subtitle
         subtitleView.visibility = if (item.subtitle.isBlank()) View.GONE else View.VISIBLE
-        actionView.text = item.buttonText.ifBlank { "مشاهده" }
-        actionView.visibility = if (item.targetUrl.isBlank()) View.GONE else View.VISIBLE
+        val destination = BlueVpnAdActionRouter.destination(
+            item.targetAction,
+            item.targetPlanId,
+            item.targetUrl,
+        )
+        actionView.text = item.buttonText.ifBlank {
+            BlueVpnAdActionRouter.defaultButtonText(destination.action)
+        }
+        actionView.visibility = if (destination.isActionable()) View.VISIBLE else View.GONE
         renderDots()
         if (item.imageUrl.isBlank()) {
             dropBrokenCurrentItem(item.id)
@@ -645,19 +655,15 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
 
     override fun performClick(): Boolean {
         super.performClick()
-        val target = items.getOrNull(currentIndex)?.targetUrl.orEmpty()
-        if (target.isNotBlank()) openTarget(target)
+        val item = items.getOrNull(currentIndex) ?: return true
+        BlueVpnAdActionRouter.open(
+            context = context,
+            action = item.targetAction,
+            planId = item.targetPlanId,
+            fallbackUrl = item.targetUrl,
+            source = "banner:${item.id}",
+        )
         return true
-    }
-
-    private fun openTarget(value: String) {
-        val safe = safeUrl(value)
-        if (safe.isBlank()) return
-        runCatching {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(safe)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            })
-        }
     }
 
     private fun safeUrl(value: String): String {

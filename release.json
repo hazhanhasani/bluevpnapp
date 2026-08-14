@@ -1,12 +1,12 @@
 {
-  "version": "4.3.7",
-  "version_code": 40307,
+  "version": "4.3.8",
+  "version_code": 40308,
   "channel": "beta",
-  "build_id": "20260814-v4.3.7-free-story-ad-gate",
-  "built_at": "2026-08-14T16:18:00Z",
-  "android_version": "4.3.7",
-  "android_version_code": 40307,
-  "description": "BlueVPN 4.3.7: استوری تبلیغاتی اختصاصی برای پلن رایگان. پس از آماده‌شدن اتصال، یک عکس یا ویدئو به‌صورت تصادفی و تمام‌صفحه نمایش داده می‌شود و تا پایان رسانه، Session رایگان و وضعیت Connected نهایی نمی‌شود. خروج از استوری اتصال را متوقف می‌کند؛ خرابی یا نبود رسانه برای جلوگیری از قطع سراسری سرویس به‌صورت fail-open مدیریت می‌شود. همچنین انتظار همگام‌سازی WordPress اکنون Manager/Schema جدیدتر از نسخه APK را سازگار می‌داند تا نصب 4.3.6 هنگام Build 4.3.5 باعث WORDPRESS_AUTOUPDATE_TIMEOUT کاذب نشود.",
+  "build_id": "20260814-v4.3.8-ad-deep-links",
+  "built_at": "2026-08-14T17:36:00Z",
+  "android_version": "4.3.8",
+  "android_version_code": 40308,
+  "description": "BlueVPN 4.3.8: مسیرهای درون‌برنامه‌ای امن برای بنرها و استوری‌های تبلیغاتی. مدیر می‌تواند مقصد هر تبلیغ را روی ورود/ثبت‌نام، مشاهده پلن‌ها، خرید اشتراک، حساب، تمدید/ارتقا، تنظیمات یا لینک خارجی قرار دهد. خرید پلن مشخص با plan_id پشتیبانی می‌شود؛ کاربر مهمان ابتدا وارد/ثبت‌نام می‌شود و سپس همان پلن در ابتدای فهرست برجسته می‌شود. CTA استوری اجباری، اتصال Free درحال آماده‌سازی را قبل از ناوبری متوقف می‌کند تا تبلیغ قابل دورزدن نباشد. مقصدها allow-list شده‌اند و URL وب فقط http/https معتبر است؛ fallback وب برای نسخه‌های قدیمی حفظ می‌شود.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -141,7 +141,15 @@
     "wordpress-story-ad-control-panel",
     "wordpress-convergence-minimum-version-barrier",
     "newer-manager-does-not-block-older-apk-build",
-    "newer-schema-is-backward-compatible-for-build-barrier"
+    "newer-schema-is-backward-compatible-for-build-barrier",
+    "ad-internal-destination-router",
+    "banner-and-story-in-app-cta",
+    "strict-ad-action-allowlist",
+    "ad-deep-link-contract",
+    "ad-web-fallback-for-legacy-clients",
+    "guest-auth-then-plans-continuation",
+    "specific-plan-highlight-from-ad",
+    "story-cta-stops-pending-free-vpn-before-navigation"
   ],
-  "version_source": "v4.3.7-free-story-ad-gate"
+  "version_source": "v4.3.8-ad-deep-links"
 }

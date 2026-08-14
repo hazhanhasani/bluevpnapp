@@ -1,3 +1,7 @@
+## 4.3.8 advertising navigation boundary
+
+Advertising navigation is first-party and allow-listed. WordPress selects a semantic action and optional plan id; Android maps that action to BlueVPN account/plans/settings screens locally. The control plane cannot provide an arbitrary Android component or custom intent. External fallbacks are limited to valid HTTP(S) URLs. A mandatory Free Story CTA stops the pending Free connection before navigation and does not count as a completed ad view. This boundary does not modify the protected v2rayNG/Xray runtime.
+
 ## 4.3.5 Beta update parity boundary
 
 Beta and Stable now use the same authenticated Android update pipeline: periodic/manual checks, automatic APK download, SHA-256 validation, force-update blocking and PackageInstaller handoff. WordPress selects the eligible release before returning metadata, and automatic delivery can be controlled independently for Stable and Beta. Android platform security may still require final user confirmation before package installation. The protected v2rayNG/Xray runtime is unchanged.

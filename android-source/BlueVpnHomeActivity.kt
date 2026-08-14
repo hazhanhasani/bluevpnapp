@@ -3955,6 +3955,13 @@ private fun dpHome(value: Int): Int =
                     ).show()
                     stopConnectionImmediately()
                 }
+
+                BlueVpnFreeStoryAdGate.Outcome.ACTION_OPENED -> {
+                    // The user intentionally followed the ad CTA. The pending
+                    // Free tunnel must stop before auth/plans navigation opens,
+                    // otherwise tapping an ad could bypass the mandatory gate.
+                    stopConnectionImmediately()
+                }
             }
         }
     }

@@ -883,5 +883,35 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("smart_assign_patterns((array)($r['patterns']??[]),false)", cc)
         self.assertIn("تطبیق هوشمند", cc)
 
+
+    def test_98_missing_provider_repair_does_not_renew_entitlement(self):
+        providers = text("bluevpn-manager/includes/class-bluevpn-providers.php")
+        repair = block(providers, "public static function repair_customer_missing_providers", "public static function repairable_customer_count")
+        self.assertIn("subscription_status']!=='active'", repair)
+        self.assertIn("$expire=!empty($c['subscription_expire'])?(string)$c['subscription_expire']:null", repair)
+        self.assertIn("data_limit_bytes", repair)
+        self.assertNotIn("target_expiry", repair)
+        self.assertNotIn("provision_customer", repair)
+        self.assertIn("BlueVPN repair; customer", repair)
+
+    def test_99_missing_provider_repair_covers_pasarguard_and_marzban(self):
+        providers = text("bluevpn-manager/includes/class-bluevpn-providers.php")
+        repair = block(providers, "public static function repair_customer_missing_providers", "public static function repairable_customer_count")
+        self.assertIn("self::pg_user($p,$u,10)", repair)
+        self.assertIn("self::mz_user($p,$u,10)", repair)
+        self.assertIn("$details['pasarguard']='created'", repair)
+        self.assertIn("$details['marzban']='created'", repair)
+        self.assertIn("pasarguard_subscription_url", repair)
+        self.assertIn("marzban_subscription_url", repair)
+
+    def test_100_provider_repair_has_batched_admin_ui_and_single_customer_action(self):
+        cc = text("bluevpn-manager/includes/class-bluevpn-control-center.php")
+        self.assertIn("همگام‌سازی اشتراک‌های گمشده Provider", cc)
+        self.assertIn("wp_ajax_bluevpn_cc_repair_missing_provider_subscriptions", cc)
+        self.assertIn("repair_candidate_ids_after($cursor,1)", cc)
+        self.assertIn("bluevpn_cc_repair_customer_providers", cc)
+        self.assertIn("این عملیات تاریخ اشتراک را تمدید نمی‌کند", cc)
+        self.assertIn("bluevpn_provider_repair_last_result", cc)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

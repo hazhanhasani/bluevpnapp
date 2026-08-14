@@ -1,3 +1,13 @@
+## 4.4.3 Missing Provider Subscription Repair
+
+- بخش کاربران اکنون گزینه «همگام‌سازی اشتراک‌های گمشده Provider» دارد.
+- فقط کاربران فعال با اشتراک فعال و پلن دارای PasarGuard/Marzban اسکن می‌شوند.
+- وجود کاربر روی Provider از API واقعی بررسی می‌شود؛ اگر وجود نداشته باشد ساخته و به همان حساب BlueVPN متصل می‌شود.
+- Repair از اعتبار فعلی WordPress استفاده می‌کند و هرگز روز جدید به اشتراک اضافه نمی‌کند یا مصرف را Reset نمی‌کند.
+- اگر کاربر روی Provider وجود داشته باشد ولی نگاشت محلی/Subscription URL گم شده باشد، اتصال محلی بازیابی می‌شود.
+- عملیات Bulk به صورت Batch/AJAX اجرا می‌شود تا تعداد زیاد کاربران باعث Timeout یک درخواست طولانی نشود.
+- امکان «ترمیم Provider» برای یک کاربر نیز در لیست و جزئیات کاربر اضافه شده است.
+
 ## 4.4.2 Smart SMS pattern assignment
 
 - Pattern sync now automatically fills empty BlueVPN message-template selections using a deterministic compatibility score.

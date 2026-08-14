@@ -1,12 +1,12 @@
 {
-  "version": "4.4.2",
-  "version_code": 40402,
+  "version": "4.4.3",
+  "version_code": 40403,
   "channel": "beta",
-  "build_id": "20260815-v4.4.2-manager-dispatch-permission-fallback",
-  "built_at": "2026-08-15T00:20:00Z",
-  "android_version": "4.4.2",
-  "android_version_code": 40402,
-  "description": "BlueVPN 4.4.2: انتشار و نصب خودکار Manager دیگر به دسترسی Actions:write در PAT وابسته نیست؛ Deploy Bot ابتدا از repository_dispatch با Contents:write استفاده می‌کند و workflow_dispatch فقط fallback است. Polling هر دو نوع Run را تشخیص می‌دهد.",
+  "build_id": "20260815-v4.4.3-missing-provider-subscription-repair",
+  "built_at": "2026-08-15T00:45:00Z",
+  "android_version": "4.4.3",
+  "android_version_code": 40403,
+  "description": "BlueVPN 4.4.3: همگام‌سازی ترمیمی کاربران دارای اشتراک فعال؛ PasarGuard و Marzban واقعاً بررسی می‌شوند و اشتراک گمشده بدون تمدید اعتبار یا Reset مصرف ساخته و به حساب کاربر متصل می‌شود.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -174,7 +174,14 @@
     "manager-release-repository-dispatch-primary",
     "manager-release-workflow-dispatch-fallback",
     "manager-release-contents-write-compatible",
-    "manager-release-cross-event-run-correlation"
+    "manager-release-cross-event-run-correlation",
+    "bulk-missing-provider-subscription-repair",
+    "pasarguard-remote-existence-repair",
+    "marzban-remote-existence-repair",
+    "provider-repair-no-renewal",
+    "provider-repair-preserves-local-entitlement",
+    "provider-repair-batched-admin-pump",
+    "provider-repair-reconnects-lost-local-mapping"
   ],
-  "version_source": "v4.4.1-smart-sms-pattern-assignment"
+  "version_source": "v4.4.3-missing-provider-subscription-repair"
 }

@@ -1,6 +1,6 @@
 # BlueVPN — upstream/runtime notice
 
-BlueVPN Android 4.2.1 is built directly on the official **v2rayNG 2.2.6** Android source (GNU GPL v3).
+BlueVPN Android 4.2.5 is built directly on the official **v2rayNG 2.2.6** Android source (GNU GPL v3).
 
 Runtime ownership is intentionally simple:
 
@@ -49,3 +49,8 @@ BlueVPN Manager retrieves the authenticated account's active SMS patterns from t
 - نمایش صحیح شماره محلی و اطلاعات پلن جاری.
 - داشبورد حساب یکپارچه و حذف محتوای معرفی پس از ورود.
 - Runtime رسمی v2rayNG/Xray بدون تغییر.
+
+
+## 4.2.5 Logout entitlement boundary
+
+This release changes only BlueVPN account/entitlement control-plane code. Premium ownership now requires a live authenticated app session, stale authenticated responses are rejected across logout/login boundaries, and the cached Free pool is re-enabled after Premium logout. The 4.2.4 banner cache/prefetch changes remain included. Protected v2rayNG 2.2.6 runtime/parser files remain unchanged.

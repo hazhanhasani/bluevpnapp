@@ -1,4 +1,4 @@
-# BlueVPN 4.2.1
+# BlueVPN 4.2.5
 
 BlueVPN is now rebased as a **custom product/UI on top of official v2rayNG**, instead of treating v2rayNG as a replaceable compatibility bridge.
 
@@ -191,3 +191,13 @@ BlueVPN Site Theme v1.0.9 adds a WordPress/Elementor-aware SEO layer without tou
 - `/llms.txt` exposes only the important public product pages and explicitly marks account pages as private.
 - Default WordPress `Hello world!` / `Sample Page` content is removed on initial theme activation when it is still untouched sample content.
 - Appearance → **BlueVPN SEO** shows the SEO status and can reseed only empty default metadata without rebuilding Elementor content.
+
+
+## 4.2.5 — Logout / Free-Premium Entitlement Isolation
+
+- خروج از حساب اکنون یک مرز صریح احراز هویت ایجاد می‌کند؛ پاسخ‌های قدیمی `/account` یا `/auth/refresh` که قبل از Logout شروع شده‌اند اجازه ندارند نشست یا Premium را دوباره زنده کنند.
+- Premium فقط وقتی معتبر است که هم اشتراک فعال باشد و هم نشست واقعی اپ (`token`/`refresh_token`) وجود داشته باشد.
+- Pool رایگانِ Cacheشده اگر در حالت Premium غیرفعال شده باشد دیگر «آماده» حساب نمی‌شود و بعد از Logout همان ردیف‌های Free دوباره فعال می‌شوند.
+- صف آماده‌سازی اتصال Premium در حال اجرا هنگام Logout با generation جدید باطل می‌شود و نمی‌تواند بعداً GUIDهای قبلی را دوباره منتشر کند.
+- بهینه‌سازی Cache/Prefetch بنرهای 4.2.4 حفظ شده است.
+- Runtime رسمی v2rayNG 2.2.6 / Xray دست‌نخورده باقی مانده است.

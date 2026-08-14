@@ -418,8 +418,10 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 // account Activity itself.
                 syncManagedAccount(force = result.resultCode == RESULT_OK)
             } else {
-                // Logout returns directly to guest/free mode. Clear any stale
-                // Premium-connected presentation before free sources refresh.
+                // Logout returns directly to guest/free mode. Invalidate any
+                // Premium candidate preparation that may still be running so its
+                // old GUID queue cannot be published after the auth boundary.
+                connectionPreparationGeneration += 1
                 cancelFailover()
                 connectionVerified = false
                 BlueVpnPreferences.clearConnected(this)

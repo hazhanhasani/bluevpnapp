@@ -27,6 +27,7 @@ import java.util.TimeZone
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 data class BlueVpnAccountSnapshot(
     val email: String,
@@ -155,6 +156,8 @@ object BlueVpnAccountManager {
     @Volatile private var lastForcedAccountSyncAt = 0L
     private val primaryRestored = AtomicBoolean(false)
     private val primaryRestoreLock = Any()
+    private val authStateLock = Any()
+    private val authSessionEpoch = AtomicLong(0L)
     private val freePrepareLock = Any()
     private val mobileConfigLock = Any()
     private val plansLock = Any()
@@ -260,7 +263,13 @@ object BlueVpnAccountManager {
         token: String,
         refreshToken: String,
         email: String,
-    ) {
+        newSession: Boolean = false,
+        expectedEpoch: Long? = null,
+    ): Boolean = synchronized(authStateLock) {
+        if (expectedEpoch != null && authSessionEpoch.get() != expectedEpoch) {
+            return@synchronized false
+        }
+        if (newSession) authSessionEpoch.incrementAndGet()
         val device = deviceId(c)
 
         prefs(c).edit()
@@ -269,7 +278,7 @@ object BlueVpnAccountManager {
             .putString("email", email)
             .putString("device_id", device)
             .remove("auth_error")
-            .apply()
+            .commit()
 
         backup(c).edit()
             .putString("token", token)
@@ -277,8 +286,9 @@ object BlueVpnAccountManager {
             .putString("email", email)
             .putString("device_id", device)
             .putLong("saved_at", System.currentTimeMillis())
-            .apply()
+            .commit()
         invalidateAccountSnapshot()
+        true
     }
 
     fun token(c: Context): String {
@@ -299,6 +309,10 @@ object BlueVpnAccountManager {
 
     fun active(c: Context) =
         prefs(c).getBoolean("active", false)
+
+    /** Premium entitlement is valid only while an authenticated app session exists. */
+    fun premiumEntitlementActive(c: Context): Boolean =
+        hasSession(c) && active(c)
 
     fun entitlementReconcilePending(c: Context): Boolean =
         prefs(c).getBoolean(KEY_PENDING_ENTITLEMENT_RECONCILE, false)
@@ -367,7 +381,7 @@ object BlueVpnAccountManager {
     }
 
     fun isFreeMode(c: Context): Boolean =
-        !active(c) && freeAccessEnabled(c)
+        !premiumEntitlementActive(c) && freeAccessEnabled(c)
 
     fun hasInstalledFreeServers(c: Context): Boolean {
         val storage = freePrefs(c.applicationContext)
@@ -378,9 +392,21 @@ object BlueVpnAccountManager {
                     ?.let { setOf(it) }
                     .orEmpty()
             }
+        if (guids.isEmpty()) return false
+        // "Installed" is not enough after Premium -> logout. Premium mode leaves
+        // the Free profiles cached but disables their subscription rows. Treat a
+        // cached-but-disabled pool as not ready so prepareFreeAccess() re-enables
+        // the exact configured Free subscriptions before any connect attempt.
+        val enabledFree = MmkvManager.decodeSubscriptions()
+            .asSequence()
+            .filter { it.subscription.enabled && it.subscription.remarks.startsWith(FREE_SUB) }
+            .map { it.guid.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
         return guids.any { guid ->
-            runCatching { MmkvManager.decodeServerList(guid).isNotEmpty() }
-                .getOrDefault(false)
+            guid in enabledFree &&
+                runCatching { MmkvManager.decodeServerList(guid).isNotEmpty() }
+                    .getOrDefault(false)
         }
     }
 
@@ -392,7 +418,7 @@ object BlueVpnAccountManager {
                 true
             }
         }
-        if (!ownsPreparation) return@runCatching freeAccessEnabled(appContext)
+        if (!ownsPreparation) return@runCatching hasInstalledFreeServers(appContext)
         try {
 
             val storage = freePrefs(appContext)
@@ -434,7 +460,7 @@ object BlueVpnAccountManager {
                 invalidateFreeSnapshot()
             }
 
-            if (active(appContext)) {
+            if (premiumEntitlementActive(appContext)) {
                 stopFreeSession(appContext, expired = false)
                 return@runCatching false
             }
@@ -630,7 +656,7 @@ object BlueVpnAccountManager {
     }
 
     fun entitlementSubscriptionGuids(c: Context): Set<String> = when {
-        active(c) -> managedSubscriptionGuids(c)
+        premiumEntitlementActive(c) -> managedSubscriptionGuids(c)
         isFreeMode(c) -> enabledFreeSubscriptionGuids(c)
         else -> emptySet()
     }
@@ -669,14 +695,14 @@ object BlueVpnAccountManager {
             .joinToString("") { "%02x".format(it) }
 
     private fun premiumOwnerKey(c: Context): String {
-        if (!active(c)) return ""
+        if (!premiumEntitlementActive(c)) return ""
         val identity = snapshot(c).email.trim().lowercase(Locale.ROOT)
         if (identity.isBlank()) return ""
         return sha256(identity).take(24)
     }
 
     private fun rememberPremiumLastKnownGood(c: Context, serverGuids: Collection<String>) {
-        if (!active(c)) return
+        if (!premiumEntitlementActive(c)) return
         val owner = premiumOwnerKey(c)
         if (owner.isBlank()) return
         val free = allFreeServerGuids()
@@ -697,7 +723,7 @@ object BlueVpnAccountManager {
     }
 
     private fun premiumLastKnownGoodServerGuids(c: Context): List<String> {
-        if (!active(c)) return emptyList()
+        if (!premiumEntitlementActive(c)) return emptyList()
         val owner = premiumOwnerKey(c)
         if (owner.isBlank()) return emptyList()
         val free = allFreeServerGuids()
@@ -812,7 +838,7 @@ object BlueVpnAccountManager {
         // Free/anonymous mode must never retain a Premium selection. Premium,
         // however, should not throw away a still-decodable last-known-good
         // profile simply because the provider refresh is temporarily empty.
-        if (selected.isNotBlank() && !active(c)) {
+        if (selected.isNotBlank() && !premiumEntitlementActive(c)) {
             MmkvManager.setSelectServer("")
         }
         return null
@@ -829,7 +855,7 @@ object BlueVpnAccountManager {
      */
     fun preferredServerGuids(c: Context): List<String> {
         val exact = usableServerGuids(entitlementSubscriptionGuids(c))
-        if (!active(c)) return exact
+        if (!premiumEntitlementActive(c)) return exact
         if (exact.isNotEmpty()) {
             // Snapshot the last complete exact Premium pool before any later
             // v2rayNG import can rotate/delete volatile server GUIDs.
@@ -844,7 +870,7 @@ object BlueVpnAccountManager {
 
     fun entitlementPoolFingerprint(c: Context): String {
         val mode = when {
-            active(c) -> "premium"
+            premiumEntitlementActive(c) -> "premium"
             isFreeMode(c) -> "free"
             else -> "none"
         }
@@ -861,7 +887,7 @@ object BlueVpnAccountManager {
      * locations appear for a moment and then disappear.
      */
     fun entitlementIdentityFingerprint(c: Context): String = when {
-        active(c) -> snapshot(c).let { account ->
+        premiumEntitlementActive(c) -> snapshot(c).let { account ->
             "premium|${account.poolIdentity.ifBlank { account.subscriptionUrl.trim() }}"
         }
         isFreeMode(c) -> {
@@ -938,7 +964,7 @@ object BlueVpnAccountManager {
         } else {
             prepareFreeAccess(appContext, force = true).getOrThrow()
         }
-        val premiumPoolReady = !active(appContext) || preferredServerGuids(appContext).isNotEmpty()
+        val premiumPoolReady = !premiumEntitlementActive(appContext) || preferredServerGuids(appContext).isNotEmpty()
         if (premiumPoolReady) {
             pruneInactiveManagedPools(appContext)
         }
@@ -1407,22 +1433,27 @@ object BlueVpnAccountManager {
         val id = deviceId(appContext)
         val access = token(appContext)
 
+        // Cross an explicit authentication boundary before touching UI/MMKV. Any
+        // /account or /auth/refresh response that started before this point is now
+        // stale and is forbidden from restoring Premium state after logout.
+        synchronized(authStateLock) {
+            authSessionEpoch.incrementAndGet()
+            prefs(appContext).edit()
+                .clear()
+                .putString("device_id", id)
+                .commit()
+            backup(appContext).edit()
+                .clear()
+                .putString("device_id", id)
+                .commit()
+            invalidateAccountSnapshot()
+        }
+
         // Logout must be immediate from the user's perspective. Stop the tunnel
         // before deleting credentials so an authenticated VPN session can never
         // remain active after the account has been left.
         runCatching { CoreServiceManager.stopVService(appContext) }
         runCatching { BlueVpnPreferences.clearConnected(appContext) }
-
-        prefs(appContext).edit()
-            .clear()
-            .putString("device_id", id)
-            .commit()
-
-        backup(appContext).edit()
-            .clear()
-            .putString("device_id", id)
-            .commit()
-        invalidateAccountSnapshot()
 
         // Logout is also an entitlement boundary. Drop every account-owned UI
         // choice immediately so the home screen can fall back to guest/free
@@ -1439,11 +1470,20 @@ object BlueVpnAccountManager {
             Context.MODE_PRIVATE
         ).edit().clear().commit()
 
-        // Disable old Premium subscription rows off the UI thread without
-        // deleting their v2rayNG profiles. Free sources are re-enabled by
-        // prepareFreeAccess() when Home resumes.
+        // Complete the Premium -> Free MMKV ownership swap off the UI thread.
+        // Cached Free profiles may exist while their subscription rows are still
+        // disabled from Premium mode, so merely pruning Premium is insufficient.
         subscriptionInstallExecutor.execute {
-            runCatching { pruneInactiveManagedPools(appContext) }
+            runCatching {
+                reconcileSubscriptionMode(
+                    c = appContext,
+                    premiumActive = false,
+                    premiumUrl = "",
+                    forceRefresh = false,
+                )
+                prepareFreeAccess(appContext, force = false).getOrThrow()
+                ensureEntitlementSelection(appContext)
+            }
             BlueVpnLocationUtil.invalidateCache()
         }
 
@@ -1471,22 +1511,24 @@ object BlueVpnAccountManager {
     ) {
         val id = deviceId(c)
         val email = snapshot(c).email
+        synchronized(authStateLock) {
+            authSessionEpoch.incrementAndGet()
+            prefs(c).edit()
+                .remove("token")
+                .remove("refresh_token")
+                .putString("email", email)
+                .putString("device_id", id)
+                .putString("auth_error", code)
+                .commit()
 
-        prefs(c).edit()
-            .remove("token")
-            .remove("refresh_token")
-            .putString("email", email)
-            .putString("device_id", id)
-            .putString("auth_error", code)
-            .apply()
-
-        backup(c).edit()
-            .remove("token")
-            .remove("refresh_token")
-            .putString("email", email)
-            .putString("device_id", id)
-            .apply()
-        invalidateAccountSnapshot()
+            backup(c).edit()
+                .remove("token")
+                .remove("refresh_token")
+                .putString("email", email)
+                .putString("device_id", id)
+                .commit()
+            invalidateAccountSnapshot()
+        }
     }
 
     fun requestOtp(
@@ -1561,10 +1603,14 @@ object BlueVpnAccountManager {
             val access = response.optString("token")
             val refresh = response.optString("refresh_token")
             if (access.isBlank()) error(message(response))
-            persistAuth(c, access, refresh, phone.trim())
+            persistAuth(c, access, refresh, phone.trim(), newSession = true)
         }
 
-        applyAccount(c, response.getJSONObject("account"))
+        applyAccount(
+            c,
+            response.getJSONObject("account"),
+            expectedAuthEpoch = authSessionEpoch.get(),
+        )
     }
 
     fun authenticateWithEmail(
@@ -1594,8 +1640,12 @@ object BlueVpnAccountManager {
         val access = response.optString("token")
         val refresh = response.optString("refresh_token")
         if (access.isBlank()) error(message(response))
-        persistAuth(c, access, refresh, normalizedEmail)
-        applyAccount(c, response.getJSONObject("account"))
+        persistAuth(c, access, refresh, normalizedEmail, newSession = true)
+        applyAccount(
+            c,
+            response.getJSONObject("account"),
+            expectedAuthEpoch = authSessionEpoch.get(),
+        )
     }
 
     private fun refreshSession(
@@ -1603,6 +1653,7 @@ object BlueVpnAccountManager {
         failedAccessToken: String,
     ): Boolean = synchronized(refreshLock) {
         restorePrimary(c)
+        val expectedAuthEpoch = authSessionEpoch.get()
 
         val currentAccess = token(c)
 
@@ -1654,17 +1705,21 @@ object BlueVpnAccountManager {
                 return@synchronized false
             }
 
-            persistAuth(
+            val persisted = persistAuth(
                 c,
                 access,
                 newRefresh,
                 identity,
+                expectedEpoch = expectedAuthEpoch,
             )
+            if (!persisted || authSessionEpoch.get() != expectedAuthEpoch || !hasSession(c)) {
+                return@synchronized false
+            }
 
             response.optJSONObject("account")
-                ?.let { applyAccount(c, it) }
+                ?.let { applyAccount(c, it, expectedAuthEpoch = expectedAuthEpoch) }
 
-            true
+            authSessionEpoch.get() == expectedAuthEpoch && hasSession(c)
         } catch (error: ApiException) {
             val accessChanged =
                 token(c).isNotBlank() &&
@@ -1747,6 +1802,8 @@ object BlueVpnAccountManager {
         // apply a slightly different snapshot while a subscription import was
         // also being scheduled. One serialized owner removes that race.
         synchronized(accountSyncLock) {
+            if (!hasSession(c)) error("AUTH_REQUIRED")
+            val expectedAuthEpoch = authSessionEpoch.get()
             val now = System.currentTimeMillis()
             val effectiveForce = force && !BlueVpnRuntimeGate.connectionActive(c)
             val last = prefs(c).getLong("last_sync", 0)
@@ -1786,11 +1843,15 @@ object BlueVpnAccountManager {
                 if (effectiveForce) JSONObject() else null,
             )
             if (effectiveForce) lastForcedAccountSyncAt = System.currentTimeMillis()
+            if (authSessionEpoch.get() != expectedAuthEpoch || !hasSession(c)) {
+                error("AUTH_SESSION_CHANGED")
+            }
 
             applyAccount(
                 c,
                 response.getJSONObject("account"),
                 forceSubscriptions = effectiveForce,
+                expectedAuthEpoch = expectedAuthEpoch,
             )
         }
     }
@@ -1957,7 +2018,10 @@ object BlueVpnAccountManager {
         c: Context,
         account: JSONObject,
         forceSubscriptions: Boolean = false,
+        expectedAuthEpoch: Long? = null,
     ): BlueVpnAccountSnapshot {
+        if (!hasSession(c)) return snapshot(c)
+        if (expectedAuthEpoch != null && authSessionEpoch.get() != expectedAuthEpoch) return snapshot(c)
         val subscription =
             account.optJSONObject("subscription") ?: JSONObject()
         val incomingUrl = subscription.optString("url").trim()
@@ -2010,70 +2074,81 @@ object BlueVpnAccountManager {
             previous.subscriptionActive != effectiveActive ||
                 previous.subscriptionUrl.trim() != url.trim() ||
                 (poolIdentity.isNotBlank() && poolIdentity != previousPoolIdentity)
-        prefs(c).edit()
-            .putString("email", identity)
-            .putBoolean("phone_verified", account.optBoolean("phone_verified", false))
-            .putString("auth_method", account.optString("auth_method", "legacy_email"))
-            .putBoolean(
-                "active",
-                effectiveActive
-            )
-            .putString(
-                "status",
-                if (preserveLastGoodPremium) previous.status else subscription.optString("status", "inactive")
-            )
-            .putString(
-                "expire",
-                subscription.optString("expire")
-                    .takeIf {
-                        it.isNotBlank() && it != "null"
-                    }
-            )
-            .putString(
-                "expire_fa",
-                subscription.optString("expire_fa")
-                    .takeIf {
-                        it.isNotBlank() && it != "null"
-                    }
-            )
-            .putString("url", url)
-            .putString("pool_identity", poolIdentity)
-            .putLong(
-                "limit",
-                subscription.optLong("data_limit_bytes")
-            )
-            .putLong(
-                "used",
-                subscription.optLong("used_traffic_bytes")
-            )
-            .putInt(
-                "devices",
-                subscription.optInt("device_limit", 1)
-            )
-            .putLong(
-                "last_sync",
-                System.currentTimeMillis()
-            )
-            .putString(
-                "sync_error",
-                syncError
-            )
-            .putString(
-                "active_reason",
-                subscription.optString("active_reason")
-            )
-            .putLong(
-                "account_app_version",
-                currentAppVersion()
-            )
-            .apply()
-        invalidateAccountSnapshot()
-
-        if (identity.isNotBlank()) {
-            backup(c).edit()
-                .putString("email", identity)
-                .apply()
+        val committed = synchronized(authStateLock) {
+            if (!hasSession(c) ||
+                (expectedAuthEpoch != null && authSessionEpoch.get() != expectedAuthEpoch)
+            ) {
+                false
+            } else {
+                prefs(c).edit()
+                    .putString("email", identity)
+                    .putBoolean("phone_verified", account.optBoolean("phone_verified", false))
+                    .putString("auth_method", account.optString("auth_method", "legacy_email"))
+                    .putBoolean(
+                        "active",
+                        effectiveActive
+                    )
+                    .putString(
+                        "status",
+                        if (preserveLastGoodPremium) previous.status else subscription.optString("status", "inactive")
+                    )
+                    .putString(
+                        "expire",
+                        subscription.optString("expire")
+                            .takeIf {
+                                it.isNotBlank() && it != "null"
+                            }
+                    )
+                    .putString(
+                        "expire_fa",
+                        subscription.optString("expire_fa")
+                            .takeIf {
+                                it.isNotBlank() && it != "null"
+                            }
+                    )
+                    .putString("url", url)
+                    .putString("pool_identity", poolIdentity)
+                    .putLong(
+                        "limit",
+                        subscription.optLong("data_limit_bytes")
+                    )
+                    .putLong(
+                        "used",
+                        subscription.optLong("used_traffic_bytes")
+                    )
+                    .putInt(
+                        "devices",
+                        subscription.optInt("device_limit", 1)
+                    )
+                    .putLong(
+                        "last_sync",
+                        System.currentTimeMillis()
+                    )
+                    .putString(
+                        "sync_error",
+                        syncError
+                    )
+                    .putString(
+                        "active_reason",
+                        subscription.optString("active_reason")
+                    )
+                    .putLong(
+                        "account_app_version",
+                        currentAppVersion()
+                    )
+                    .commit()
+                invalidateAccountSnapshot()
+                if (identity.isNotBlank()) {
+                    backup(c).edit()
+                        .putString("email", identity)
+                        .commit()
+                }
+                true
+            }
         }
+        if (!committed) return snapshot(c)
+        if (expectedAuthEpoch != null && authSessionEpoch.get() != expectedAuthEpoch) return snapshot(c)
+        if (!hasSession(c)) return snapshot(c)
 
         if (effectiveActive) {
             stopFreeSession(c, expired = false)

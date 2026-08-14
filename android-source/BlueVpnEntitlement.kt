@@ -53,7 +53,8 @@ object BlueVpnEntitlement {
     private fun base(context: Context): Base {
         val account = BlueVpnAccountManager.snapshot(context)
         val free = BlueVpnAccountManager.freeAccessSnapshot(context)
-        val premiumReady = account.subscriptionActive &&
+        val premiumReady = BlueVpnAccountManager.premiumEntitlementActive(context) &&
+            account.subscriptionActive &&
             account.subscriptionUrl.trim().startsWith("http")
         val freeReady = !premiumReady && free.enabled && free.subscriptions.isNotEmpty()
         val tier = when {

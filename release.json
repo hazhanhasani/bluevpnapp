@@ -1,12 +1,12 @@
 {
-  "version": "4.2.4",
-  "version_code": 40204,
+  "version": "4.2.5",
+  "version_code": 40205,
   "channel": "stable",
-  "build_id": "20260814-v4.2.4-instant-banner-cache",
-  "built_at": "2026-08-14T11:10:00Z",
-  "android_version": "4.2.4",
-  "android_version_code": 40204,
-  "description": "BlueVPN 4.2.4: نمایش سریع بنرهای داخل اپ با شروع نزدیک به فریم اول، کش پایدار تنظیمات و تصاویر، placeholder فوری و prefetch بنرهای بعدی؛ بدون تغییر Runtime پایدار v2rayNG/Xray.",
+  "build_id": "20260814-v4.2.5-logout-entitlement-isolation",
+  "built_at": "2026-08-14T11:20:00Z",
+  "android_version": "4.2.5",
+  "android_version_code": 40205,
+  "description": "BlueVPN 4.2.5: جداسازی قطعی Premium/Free هنگام خروج از حساب، جلوگیری از بازگشت وضعیت اشتراک توسط درخواست‌های همزمان قدیمی، توقف اتصال Premium در حالت بدون نشست، و فعال‌سازی دوباره Pool رایگان پس از Logout؛ بهینه‌سازی Banner Cache نسخه 4.2.4 نیز حفظ شده است.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -57,7 +57,13 @@
     "stale-while-revalidate-banner-config",
     "banner-placeholder-first-frame",
     "banner-next-image-prefetch",
-    "third-party-ad-warmup-kept-off-critical-path"
+    "third-party-ad-warmup-kept-off-critical-path",
+    "logout-auth-epoch-boundary",
+    "premium-requires-live-app-session",
+    "stale-account-response-rejected-after-logout",
+    "stale-refresh-token-response-cannot-resurrect-session",
+    "free-pool-reenabled-after-premium-logout",
+    "logout-invalidates-inflight-premium-candidate-preparation"
   ],
-  "version_source": "v4.2.4-instant-banner-cache"
+  "version_source": "v4.2.5-logout-entitlement-isolation"
 }

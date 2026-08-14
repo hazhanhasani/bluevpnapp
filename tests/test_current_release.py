@@ -431,6 +431,36 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn('name="viewport" content="width=1080,viewport-fit=cover"', header)
         self.assertNotIn('width=device-width,initial-scale=1', header)
 
+    def test_logout_cannot_resurrect_premium_session(self):
+        self.assertIn("private val authSessionEpoch = AtomicLong(0L)", self.account)
+        logout = block(self.account, "fun logout(c: Context)", "private fun invalidateSession")
+        self.assertIn("authSessionEpoch.incrementAndGet()", logout)
+        self.assertIn("reconcileSubscriptionMode(", logout)
+        self.assertIn("premiumActive = false", logout)
+        self.assertIn("prepareFreeAccess(appContext, force = false)", logout)
+        refresh = block(self.account, "private fun refreshSession", "private fun authenticatedRequest")
+        self.assertIn("expectedAuthEpoch", refresh)
+        self.assertIn("expectedEpoch = expectedAuthEpoch", refresh)
+        self.assertIn("!persisted", refresh)
+        sync = block(self.account, "fun sync(", "fun plans(")
+        self.assertIn("AUTH_SESSION_CHANGED", sync)
+        self.assertIn("expectedAuthEpoch = expectedAuthEpoch", sync)
+
+    def test_premium_requires_live_session_and_free_pool_is_reenabled(self):
+        entitlement = text("android-source/BlueVpnEntitlement.kt")
+        self.assertIn("BlueVpnAccountManager.premiumEntitlementActive(context)", entitlement)
+        self.assertIn("fun premiumEntitlementActive(c: Context)", self.account)
+        self.assertIn("hasSession(c) && active(c)", self.account)
+        free_ready = block(self.account, "fun hasInstalledFreeServers", "fun prepareFreeAccess")
+        self.assertIn("it.subscription.enabled", free_ready)
+        self.assertIn("it.subscription.remarks.startsWith(FREE_SUB)", free_ready)
+        self.assertIn("cached-but-disabled pool as not ready", free_ready)
+        self.assertIn("!premiumEntitlementActive(c) && freeAccessEnabled(c)", self.account)
+
+    def test_logout_invalidates_inflight_premium_candidate_generation(self):
+        launcher = block(self.home, "private val accountLauncher", "private enum class OrbVisualState")
+        self.assertIn("connectionPreparationGeneration += 1", launcher)
+        self.assertIn("cancelFailover()", launcher)
 
 
 class BlueVPNElementorThemeTests(unittest.TestCase):

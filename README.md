@@ -1,4 +1,4 @@
-# BlueVPN 4.2.10
+# BlueVPN 4.3.0
 
 BlueVPN is now rebased as a **custom product/UI on top of official v2rayNG**, instead of treating v2rayNG as a replaceable compatibility bridge.
 
@@ -74,8 +74,14 @@ See `LICENSE` and `NOTICE.md` for licensing and attribution.
 Some deployments copy a release bundle over an existing GitHub checkout instead of replacing the tree. Deleted files from older releases can therefore remain tracked in the repository. The Android workflow now runs `scripts/cleanup_repository.py` before applying the BlueVPN overlay. It removes retired dual-engine/sing-box files, the removed AI activity, and historical generated Android snapshots from the build workspace before the regression gate runs.
 
 
+## 4.3.0 — Advertising blank-card / cPanel binary fix
 
-
+- تصاویر تبلیغات داخلی دیگر برای مسیر اصلی از PHP REST stream خوانده نمی‌شوند؛ Assetهای MySQL به‌صورت lazy به `wp-content/uploads/bluevpn-ads` منتقل و با URL استاتیک سرو می‌شوند.
+- مسیر قدیمی `/api/v1/ad-assets/{id}` برای سازگاری حفظ شده، اما `Content-Length` دستی حذف و خروجی خام در برابر فشرده‌سازی zlib/output-buffer سخت‌سازی شده است.
+- Android در Cold Start تا Decode واقعی اولین Bitmap کارت تبلیغ خالی نشان نمی‌دهد؛ در تغییر اسلاید نیز تصویر قبلی تا آماده‌شدن بعدی باقی می‌ماند.
+- درخواست تصویر با `Accept-Encoding: identity` انجام می‌شود و فقط یک Retry کوتاه دارد تا بنر خراب چندین ثانیه فضای خالی اشغال نکند.
+- Health Check وردپرس علاوه بر HTTP 200، بایت تصویر را با `getimagesizefromstring()` واقعاً Decode می‌کند.
+- Cache/Prefetch نسخه 4.2.4، جداسازی Free/Premium و Runtime رسمی v2rayNG 2.2.6/Xray دست‌نخورده‌اند.
 
 ## 4.2.10 — Free plan entitlement correctness
 

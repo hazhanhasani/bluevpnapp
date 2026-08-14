@@ -156,8 +156,9 @@ final class BlueVPN_Admin {
         if($assetId!==''){
             $r=wp_remote_get($site.'/api/v1/ad-assets/'.rawurlencode($assetId),['timeout'=>10,'redirection'=>0,'sslverify'=>true]);
             $code=is_wp_error($r)?0:(int)wp_remote_retrieve_response_code($r);$type=is_wp_error($r)?'':(string)wp_remote_retrieve_header($r,'content-type');
-            $ok=!is_wp_error($r)&&$code===200&&str_starts_with(strtolower($type),'image/');
-            $out['Asset تبلیغات MySQL']=['ok'=>$ok,'message'=>$ok?'تصویر مهاجرت‌شده از MySQL قابل دریافت است.':(is_wp_error($r)?$r->get_error_message():'HTTP '.$code.' · '.$type)];
+            $body=is_wp_error($r)?'':(string)wp_remote_retrieve_body($r);$imageInfo=$body!==''?@getimagesizefromstring($body):false;
+            $ok=!is_wp_error($r)&&$code===200&&str_starts_with(strtolower($type),'image/')&&is_array($imageInfo)&&!empty($imageInfo[0])&&!empty($imageInfo[1]);
+            $out['Asset تبلیغات MySQL']=['ok'=>$ok,'message'=>$ok?('تصویر قابل Decode است · '.$imageInfo[0].'×'.$imageInfo[1].' · '.strlen($body).' bytes'):(is_wp_error($r)?$r->get_error_message():'HTTP '.$code.' · '.$type.' · body='.strlen($body).' bytes')];
         } else {
             $out['Asset تبلیغات MySQL']=['ok'=>true,'message'=>'هنوز تصویر محلی ثبت نشده؛ بعد از افزودن بنر این تست فعال می‌شود.'];
         }

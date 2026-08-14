@@ -1,6 +1,6 @@
 === BlueVPN Manager ===
-Version: 4.2.10
-Stable tag: 4.2.10
+Version: 4.3.0
+Stable tag: 4.3.0
 Requires PHP: 8.0
 
 کنترل‌پلین اصلی BlueVPN روی WordPress/MySQL.
@@ -22,6 +22,12 @@ Requires PHP: 8.0
 - نسخه‌گذاری BlueVPN از الگوی x.y.0 تا x.y.10 پیروی می‌کند؛ بعد از x.y.10 نسخه بعدی x.(y+1).0 است.
 
 == Changelog ==
+= 4.3.0 =
+- رفع بنر خالی: تصویر تا Decode موفق در Android نمایش داده نمی‌شود و در تعویض اسلاید تصویر قبلی تا آماده‌شدن بعدی حفظ می‌شود.
+- تصاویر تبلیغات MySQL به‌صورت lazy در wp-content/uploads/bluevpn-ads به فایل استاتیک تبدیل می‌شوند؛ REST باینری فقط fallback است.
+- Content-Length باینری PHP حذف و خروجی خام در برابر zlib/output-buffer سخت‌سازی شد.
+- تست سلامت تبلیغات حالا خود بایت تصویر را Decode می‌کند، نه فقط HTTP 200/Content-Type.
+
 = 4.1.6 =
 - تمام Routeهای مخفی لوکیشن انتخاب‌شده تا آخرین گزینه در Failover قابل استفاده‌اند؛ AUTO به‌صورت Batch پیش‌رونده عمل می‌کند و دیگر رتبه‌های بعد از 5/10/18 حذف نمی‌شوند.
 - پنجره Start هسته Xray برای Cold Start به 24 ثانیه افزایش یافت و آماده‌شدن Local Proxy تا 5 ثانیه فرصت دارد.

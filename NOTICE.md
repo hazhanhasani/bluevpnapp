@@ -1,6 +1,6 @@
 # BlueVPN — upstream/runtime notice
 
-BlueVPN Android 4.2.10 is built directly on the official **v2rayNG 2.2.6** Android source (GNU GPL v3).
+BlueVPN Android 4.3.0 is built directly on the official **v2rayNG 2.2.6** Android source (GNU GPL v3).
 
 Runtime ownership is intentionally simple:
 
@@ -14,7 +14,9 @@ Runtime ownership is intentionally simple:
 BlueVPN is an independent modified distribution and is not endorsed by the upstream v2rayNG/Xray maintainers.
 
 
+## 4.3.0 advertising delivery boundary
 
+Campaign image delivery is hardened for WordPress/cPanel hosting. DB-backed ad images are lazily materialized to static WordPress upload files, while the legacy REST binary endpoint remains as a compatibility fallback with compression/output-buffer safeguards. Android does not reveal an empty campaign container before a bitmap has decoded and keeps the previous bitmap during slide transitions. This change does not modify the protected v2rayNG/Xray runtime.
 
 ## 4.2.10 Free-plan entitlement boundary
 

@@ -88,6 +88,89 @@ final class BlueVPN_Ads {
         return $out;
     }
 
+    private static function asset_extension(string $mime): string {
+        return match (strtolower(trim($mime))) {
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/gif' => 'gif',
+            default => 'webp',
+        };
+    }
+
+    /**
+     * Materialize a DB-backed ad image into wp-content/uploads so Android can
+     * download it as a normal static file. This avoids PHP/REST output
+     * buffering, compression and Content-Length edge cases on cPanel.
+     * Existing DB assets are migrated lazily and remain available through the
+     * legacy /api/v1/ad-assets/{id} route as a fallback.
+     */
+    private static function static_asset_url_for_row(array $row): string {
+        $payload = array_key_exists('payload', $row) ? (string)$row['payload'] : '';
+        $sha = strtolower(trim((string)($row['sha256'] ?? '')));
+        if (!preg_match('/^[a-f0-9]{64}$/', $sha)) {
+            if ($payload === '') return '';
+            $sha = hash('sha256', $payload);
+        }
+        $mime = strtolower(trim((string)($row['content_type'] ?? 'image/webp')));
+        if (!in_array($mime, ['image/webp', 'image/jpeg', 'image/png', 'image/gif'], true)) $mime = 'image/webp';
+        $uploads = wp_upload_dir(null, false);
+        if (!is_array($uploads) || !empty($uploads['error'])) return '';
+        $baseDir = rtrim((string)($uploads['basedir'] ?? ''), '/\\');
+        $baseUrl = rtrim((string)($uploads['baseurl'] ?? ''), '/');
+        if ($baseDir === '' || $baseUrl === '') return '';
+        $dir = $baseDir . '/bluevpn-ads';
+        if (!wp_mkdir_p($dir)) return '';
+
+        // Defense in depth: uploaded assets are images only; prevent accidental
+        // script execution if the directory is ever reused incorrectly.
+        $guard = $dir . '/.htaccess';
+        if (!is_file($guard)) {
+            @file_put_contents($guard, "<FilesMatch \"\.(php|phtml|phar|cgi|pl|py|sh)$\">\nRequire all denied\n</FilesMatch>\n");
+        }
+        $index = $dir . '/index.html';
+        if (!is_file($index)) @file_put_contents($index, '');
+
+        $ext = self::asset_extension($mime);
+        $filename = $sha . '.' . $ext;
+        $path = $dir . '/' . $filename;
+        $expectedSize = max(0, (int)($row['byte_size'] ?? 0));
+        $valid = is_file($path) && ($expectedSize <= 0 || (int)@filesize($path) === $expectedSize);
+        if ($valid) return esc_url_raw($baseUrl . '/bluevpn-ads/' . rawurlencode($filename));
+        if ($payload === '') return '';
+        if (!$valid) {
+            $tmp = $path . '.tmp-' . wp_generate_password(8, false, false);
+            $written = @file_put_contents($tmp, $payload, LOCK_EX);
+            if ($written !== strlen($payload)) { @unlink($tmp); return ''; }
+            @chmod($tmp, 0644);
+            if (!@rename($tmp, $path)) {
+                $copied = @copy($tmp, $path);
+                @unlink($tmp);
+                if (!$copied) return '';
+            }
+            @chmod($path, 0644);
+        }
+        return esc_url_raw($baseUrl . '/bluevpn-ads/' . rawurlencode($filename));
+    }
+
+    private static function static_asset_url_by_id(string $id): string {
+        global $wpdb;
+        $id = preg_replace('/[^A-Za-z0-9_-]+/', '', $id) ?: '';
+        if ($id === '') return '';
+        $table = BlueVPN_DB::table('ad_assets');
+        $row = $wpdb->get_row($wpdb->prepare(
+            'SELECT id, content_type, sha256, byte_size FROM ' . $table . ' WHERE id=%s LIMIT 1',
+            $id
+        ), ARRAY_A);
+        if (!is_array($row)) return '';
+        $fast = self::static_asset_url_for_row($row);
+        if ($fast !== '') return $fast;
+        $full = $wpdb->get_row($wpdb->prepare(
+            'SELECT id, content_type, payload, sha256, byte_size FROM ' . $table . ' WHERE id=%s LIMIT 1',
+            $id
+        ), ARRAY_A);
+        return is_array($full) ? self::static_asset_url_for_row($full) : '';
+    }
+
     private static function resolve_asset_path(string $value): string {
         global $wpdb;
         $value = trim($value);
@@ -104,6 +187,8 @@ final class BlueVPN_Ads {
         }
 
         if (preg_match('#^/api/v1/ad-assets/([A-Za-z0-9_-]{6,64})/?$#', $candidatePath, $m)) {
+            $static = self::static_asset_url_by_id((string)$m[1]);
+            if ($static !== '') return $static;
             $exists = $wpdb->get_var($wpdb->prepare('SELECT id FROM ' . BlueVPN_DB::table('ad_assets') . ' WHERE id=%s LIMIT 1', $m[1]));
             return $exists ? '/api/v1/ad-assets/' . rawurlencode((string)$m[1]) : '';
         }
@@ -111,7 +196,9 @@ final class BlueVPN_Ads {
         if (str_starts_with($candidatePath, '/media/ads/')) {
             $name = sanitize_file_name(basename($candidatePath));
             $id = $wpdb->get_var($wpdb->prepare('SELECT id FROM ' . BlueVPN_DB::table('ad_assets') . ' WHERE filename=%s ORDER BY created_at DESC LIMIT 1', $name));
-            return $id ? '/api/v1/ad-assets/' . rawurlencode((string)$id) : '';
+            if (!$id) return '';
+            $static = self::static_asset_url_by_id((string)$id);
+            return $static !== '' ? $static : '/api/v1/ad-assets/' . rawurlencode((string)$id);
         }
         if (wp_http_validate_url($value)) return esc_url_raw($value);
         return '';
@@ -249,9 +336,13 @@ final class BlueVPN_Ads {
         $mime = strtolower((string)($row['content_type'] ?? 'image/webp'));
         if (!in_array($mime, ['image/webp', 'image/jpeg', 'image/png', 'image/gif'], true)) $mime = 'image/webp';
         $res->header('Content-Type', $mime);
-        if ($res->get_status() !== 304) $res->header('Content-Length', (string)strlen((string)$row['payload']));
+        // Do not send Content-Length from PHP. cPanel/Apache/PHP output
+        // compression can otherwise advertise the uncompressed byte count and
+        // truncate/corrupt the image on Android. Static upload URLs are the
+        // preferred path; this REST route remains a compatibility fallback.
         $res->header('ETag', $etag);
         $res->header('Cache-Control', 'public, max-age=86400, immutable');
+        $res->header('X-Content-Type-Options', 'nosniff');
         $res->header('X-BlueVPN-Raw', '1');
         return $res;
     }
@@ -304,6 +395,10 @@ final class BlueVPN_Ads {
         if ($served || !($result instanceof WP_REST_Response)) return $served;
         $headers = $result->get_headers();
         if ((string)($headers['X-BlueVPN-Raw'] ?? '') !== '1') return $served;
+        // Avoid stray buffered HTML/notices and PHP zlib output compression
+        // corrupting binary images/subscriptions on shared cPanel hosting.
+        if (function_exists('ini_set')) @ini_set('zlib.output_compression', '0');
+        while (ob_get_level() > 0) { if (!@ob_end_clean()) break; }
         status_header($result->get_status());
         foreach ($result->get_headers() as $key => $value) {
             if (strcasecmp((string)$key, 'X-BlueVPN-Raw') === 0) continue;

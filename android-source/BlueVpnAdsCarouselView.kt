@@ -292,7 +292,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             val fileReady = runCatching { cacheFile(url).isFile }.getOrDefault(false)
             if (fileReady) return@forEach
             worker.execute {
-                val downloaded = downloadBitmap(url) ?: return@execute
+                val downloaded = downloadBitmapWithRetry(url) ?: return@execute
                 bitmapCache.put(url, downloaded.bitmap)
                 writeDiskBytes(url, downloaded.bytes)
             }
@@ -314,19 +314,16 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             dropBrokenCurrentItem(item.id)
             return
         }
-        if (!hasRenderedContent) showPlaceholder()
-        loadImage(item.imageUrl)
-        if (animate) {
-            alpha = 0.72f
-            scaleX = 0.985f
-            animate().alpha(1f).scaleX(1f).setDuration(220L).start()
-        }
+        // Never expose a blank ad card. On a cold start the carousel stays
+        // collapsed until the first bitmap is decoded; during slide changes
+        // the previous bitmap remains visible until the next one is ready.
+        loadImage(item.imageUrl, animate)
     }
 
-    private fun loadImage(url: String) {
+    private fun loadImage(url: String, animate: Boolean = false) {
         val cached = bitmapCache.get(url)
         if (cached != null) {
-            revealBitmap(cached)
+            revealBitmap(cached, animate)
             return
         }
 
@@ -335,14 +332,13 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         val diskBitmap = readDiskBitmap(url)
         if (diskBitmap != null) {
             bitmapCache.put(url, diskBitmap)
-            revealBitmap(diskBitmap)
+            revealBitmap(diskBitmap, animate)
             return
         }
 
-        showPlaceholder()
         val expectedId = items.getOrNull(currentIndex)?.id ?: return
         worker.execute {
-            val downloaded = downloadBitmap(url)
+            val downloaded = downloadBitmapWithRetry(url)
             if (downloaded != null) {
                 bitmapCache.put(url, downloaded.bitmap)
                 writeDiskBytes(url, downloaded.bytes)
@@ -351,7 +347,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
                 val current = items.getOrNull(currentIndex)
                 if (current?.id == expectedId && current.imageUrl == url) {
                     if (downloaded != null) {
-                        revealBitmap(downloaded.bitmap)
+                        revealBitmap(downloaded.bitmap, animate)
                     } else {
                         dropBrokenCurrentItem(expectedId)
                     }
@@ -362,18 +358,35 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
 
     private data class DownloadedBitmap(val bitmap: Bitmap, val bytes: ByteArray)
 
-    private fun downloadBitmap(url: String): DownloadedBitmap? = runCatching {
+    private fun downloadBitmapWithRetry(url: String): DownloadedBitmap? {
+        downloadBitmap(url, forceNetwork = false)?.let { return it }
+        // One short retry is enough for shared-host/proxy races without making
+        // a broken campaign keep a blank box on screen for many seconds.
+        runCatching { Thread.sleep(180L) }
+        return downloadBitmap(url, forceNetwork = true)
+    }
+
+    private fun downloadBitmap(url: String, forceNetwork: Boolean): DownloadedBitmap? = runCatching {
         val connection = URL(url).openConnection() as HttpURLConnection
         try {
-            connection.connectTimeout = 4_500
-            connection.readTimeout = 7_000
+            connection.connectTimeout = 3_500
+            connection.readTimeout = 5_500
             connection.instanceFollowRedirects = true
-            connection.useCaches = true
-            connection.setRequestProperty("Accept", "image/avif,image/webp,image/*,*/*;q=0.8")
+            connection.useCaches = !forceNetwork
+            connection.setRequestProperty("Accept", "image/webp,image/jpeg,image/png,image/*,*/*;q=0.5")
+            // cPanel/PHP output compression was able to corrupt DB-backed REST
+            // image responses. Prefer the byte-for-byte representation.
+            connection.setRequestProperty("Accept-Encoding", "identity")
+            connection.setRequestProperty("Connection", "close")
+            if (forceNetwork) {
+                connection.setRequestProperty("Cache-Control", "no-cache")
+                connection.setRequestProperty("Pragma", "no-cache")
+            }
             connection.setRequestProperty("User-Agent", "BlueVPN/${BuildConfig.VERSION_NAME}")
-            if (connection.responseCode !in 200..299) error("HTTP ${connection.responseCode}")
+            val status = connection.responseCode
+            if (status !in 200..299) error("HTTP $status")
             val contentType = connection.contentType.orEmpty().lowercase()
-            if (!contentType.startsWith("image/") && contentType.isNotBlank()) error("Invalid image")
+            if (!contentType.startsWith("image/") && contentType.isNotBlank()) error("Invalid image content-type")
             val bytes = readAdBytes(connection) ?: error("Invalid image bytes")
             val bitmap = decodeAdBytes(bytes) ?: error("Invalid bitmap")
             DownloadedBitmap(bitmap, bytes)
@@ -381,26 +394,6 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             connection.disconnect()
         }
     }.getOrNull()
-
-    private fun showPlaceholder() {
-        if (!hasRenderedContent) {
-            hasRenderedContent = true
-            visibility = View.VISIBLE
-        }
-        imageView.setImageDrawable(null)
-        imageView.background = GradientDrawable(
-            GradientDrawable.Orientation.TL_BR,
-            intArrayOf(Color.parseColor("#1D2A4D"), Color.parseColor("#090D18")),
-        )
-        val targetHeight = calculateBannerHeight()
-        layoutParams?.let { params ->
-            if (params.height != targetHeight) {
-                params.height = targetHeight
-                layoutParams = params
-            }
-        }
-        requestLayout()
-    }
 
     private fun cacheFile(url: String): File {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -520,9 +513,10 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         )
     }
 
-    private fun revealBitmap(bitmap: Bitmap) {
+    private fun revealBitmap(bitmap: Bitmap, animateIn: Boolean = false) {
         imageView.background = null
         imageView.setImageBitmap(bitmap)
+        val wasVisible = hasRenderedContent && visibility == View.VISIBLE
         hasRenderedContent = true
         val targetHeight = calculateBannerHeight()
         layoutParams?.let { params ->
@@ -532,6 +526,14 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             }
         }
         visibility = View.VISIBLE
+        if (animateIn || !wasVisible) {
+            alpha = if (wasVisible) 0.82f else 0.92f
+            scaleX = if (wasVisible) 0.99f else 1f
+            animate().alpha(1f).scaleX(1f).setDuration(if (wasVisible) 160L else 120L).start()
+        } else {
+            alpha = 1f
+            scaleX = 1f
+        }
         requestLayout()
     }
 

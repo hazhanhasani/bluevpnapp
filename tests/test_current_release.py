@@ -379,13 +379,24 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("readDiskBitmap(url)", ads)
         self.assertIn("writeDiskBytes(url, downloaded.bytes)", ads)
         self.assertIn("prefetchUpcomingImages()", ads)
-        self.assertIn("showPlaceholder()", ads)
-        self.assertIn("connection.useCaches = true", ads)
-        self.assertNotIn('connection.setRequestProperty("Cache-Control", "no-cache")', ads)
+        self.assertIn("downloadBitmapWithRetry(url)", ads)
+        self.assertIn('connection.setRequestProperty("Accept-Encoding", "identity")', ads)
+        self.assertIn("connection.useCaches = !forceNetwork", ads)
+        self.assertNotIn("showPlaceholder()", ads)
         self.assertIn("fun bannerDelayMs", theme)
         self.assertIn("fun adSdkWarmupDelayMs", theme)
         self.assertIn("BlueVpnPerformance.bannerDelayMs(this)", home)
         self.assertIn("BlueVpnPerformance.adSdkWarmupDelayMs(this)", home)
+
+
+    def test_campaign_assets_prefer_static_upload_urls_and_decode_healthcheck(self):
+        ads_php = text("bluevpn-manager/includes/class-bluevpn-ads.php")
+        admin_php = text("bluevpn-manager/includes/class-bluevpn-admin.php")
+        self.assertIn("static_asset_url_for_row", ads_php)
+        self.assertIn("/bluevpn-ads/", ads_php)
+        self.assertIn("wp_upload_dir", ads_php)
+        self.assertIn("Do not send Content-Length from PHP", ads_php)
+        self.assertIn("getimagesizefromstring", admin_php)
 
     def test_campaign_banner_does_not_touch_stock_v2rayng_runtime(self):
         ads = text("android-source/BlueVpnAdsCarouselView.kt")

@@ -461,7 +461,15 @@ final class BlueVPN_AI {
         echo '<label>نوسازی پنل Live (ثانیه)<input type="number" min="3" max="30" name="blueai_live_refresh_seconds" value="'.(int)($s['blueai_live_refresh_seconds']??5).'"></label>';
         echo '<label style="grid-column:1/-1">پیام حریم خصوصی<input type="text" name="blueai_privacy_message" value="'.esc_attr((string)$s['blueai_privacy_message']).'"></label></div>';submit_button('ذخیره BlueAI','primary','submit',false);echo '</form></div>';
 
-        echo '<div class="bvc-card"><div class="bvai-card-head"><div><h2>رصد زنده اتصال‌ها</h2><p>فقط اتصال‌هایی نمایش داده می‌شوند که VPN Transport و دسترسی واقعی اینترنت آن‌ها تأیید شده است.</p></div><div><strong id="bvai-live-ping">'.esc_html((string)$snapshot['average_live_ping_ms']).' ms</strong><small>میانگین Ping زنده</small></div></div><div id="bluevpn-ai-live-table" aria-live="polite">'.self::live_table_html($snapshot['rows']).'</div><div class="bvai-refresh-note">آخرین نوسازی: <span id="bvai-live-updated">همین حالا</span> • Route نیازمند بررسی: <strong id="bvai-degraded">'.(int)$snapshot['degraded_routes'].'</strong></div></div>';
+        $legacyLiveClients=false;
+        foreach((array)($snapshot['versions']??[]) as $versionRow){
+            if((int)($versionRow['ai_schema_version']??1)<2 && trim((string)($versionRow['app_version']??''))!==''){$legacyLiveClients=true;break;}
+        }
+        echo '<div class="bvc-card"><div class="bvai-card-head"><div><h2>رصد زنده اتصال‌ها</h2><p>فقط اتصال‌هایی نمایش داده می‌شوند که VPN Transport و دسترسی واقعی اینترنت آن‌ها تأیید شده است.</p></div><div><strong id="bvai-live-ping">'.esc_html((string)$snapshot['average_live_ping_ms']).' ms</strong><small>میانگین Ping زنده</small></div></div>';
+        if((int)($snapshot['counts']['total']??0)===0 && $legacyLiveClients){
+            echo '<div class="notice notice-info inline"><p><strong>کلاینت قدیمی شناسایی شد:</strong> نسخه‌های دارای AI Schema v1 رویداد اتصال می‌فرستند اما Live Heartbeat ندارند. رصد زنده واقعی از Android 4.3.2+ فعال است.</p></div>';
+        }
+        echo '<div id="bluevpn-ai-live-table" aria-live="polite">'.self::live_table_html($snapshot['rows']).'</div><div class="bvai-refresh-note">آخرین نوسازی: <span id="bvai-live-updated">همین حالا</span> • Route نیازمند بررسی: <strong id="bvai-degraded">'.(int)$snapshot['degraded_routes'].'</strong></div></div>';
 
         echo '<div class="bvc-card"><h2>هوشمندی نسخه‌ها — ۲۴ ساعت اخیر</h2><p>هر آپدیت با Schema/Capability خودش رصد می‌شود؛ داده‌های قبلی حذف نمی‌شوند و نسخه جدید روی دانش جمعی موجود ادامه می‌دهد.</p><div id="bluevpn-ai-version-table">'.self::version_table_html($snapshot['versions']).'</div></div>';
 

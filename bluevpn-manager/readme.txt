@@ -1,6 +1,6 @@
 === BlueVPN Manager ===
-Version: 4.3.2
-Stable tag: 4.3.2
+Version: 4.3.3
+Stable tag: 4.3.3
 Requires PHP: 8.0
 
 کنترل‌پلین اصلی BlueVPN روی WordPress/MySQL.
@@ -23,6 +23,10 @@ Requires PHP: 8.0
 
 == Changelog ==
 
+= 4.3.3 =
+* Update checker is cache-first: manual refresh no longer blocks on GitHub API.
+* Release sync is queued in the background and mobile config falls back to the last Stable metadata if release-channel lookup fails.
+* BlueAI dashboard labels AI Schema v1 clients as legacy instead of implying they support real Live Heartbeat.
 = 4.3.2 =
 * BlueAI Engine v2 با یادگیری مستقل Free/Premium و پایش Live همزمان.
 * Heartbeat برای کاربران مهمان/رایگان نیز فعال شد؛ بدون جمع‌آوری محتوای ترافیک یا IP مقصد.

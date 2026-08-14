@@ -1,3 +1,7 @@
+## 4.3.3 update availability / Live compatibility boundary
+
+Android update availability must not depend on a synchronous GitHub request from shared cPanel hosting. The mobile config endpoint serves verified MySQL release metadata first and refreshes GitHub state asynchronously. BlueAI Live remains proof-based; older AI Schema v1 clients are identified as legacy instead of being falsely counted as live.
+
 # BlueVPN — upstream/runtime notice
 
 BlueVPN Android 4.3.2 is built directly on the official **v2rayNG 2.2.6** Android source (GNU GPL v3).

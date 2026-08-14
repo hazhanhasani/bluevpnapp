@@ -654,5 +654,26 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("'engine_version'=>BlueVPN_AI::ENGINE_VERSION", api)
         self.assertIn("'capabilities'=>BlueVPN_AI::capabilities()", api)
 
+    def test_80_mobile_update_config_is_cache_first_and_nonblocking(self):
+        api = text("bluevpn-manager/includes/class-bluevpn-api.php")
+        manager = text("bluevpn-manager/includes/class-bluevpn-app-release-manager.php")
+        mobile = block(api, "public static function mobile_config", "public static function ad_asset")
+        self.assertIn("maybe_kick($forced)", mobile)
+        self.assertNotIn("sync_now(true, 'android_forced_refresh')", mobile)
+        self.assertIn("release_refresh_mode'=>'background_cache_first'", mobile)
+        self.assertIn("maybe_kick(bool $force = false)", manager)
+
+    def test_81_mobile_config_release_channel_failure_falls_back_to_stable_settings(self):
+        api = text("bluevpn-manager/includes/class-bluevpn-api.php")
+        mobile = block(api, "public static function mobile_config", "public static function ad_asset")
+        self.assertIn("release selection fallback", mobile)
+        self.assertIn("$selection = ['release'=>null,'channel'=>'stable','beta_tester'=>false]", mobile)
+
+    def test_82_blueai_admin_explains_legacy_schema_without_fake_live_count(self):
+        ai = text("bluevpn-manager/includes/class-bluevpn-ai.php")
+        self.assertIn("کلاینت قدیمی شناسایی شد", ai)
+        self.assertIn("AI Schema v1", ai)
+        self.assertIn("Android 4.3.2+", ai)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

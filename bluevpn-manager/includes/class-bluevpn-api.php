@@ -101,10 +101,16 @@ final class BlueVPN_API {
     }
     public static function mobile_config(WP_REST_Request $r): WP_REST_Response {
         $forced = rest_sanitize_boolean($r->get_param('refresh'));
-        if ($forced && class_exists('BlueVPN_App_Release_Manager')) {
-            if ((time() - BlueVPN_App_Release_Manager::last_sync()) >= 60) BlueVPN_App_Release_Manager::sync_now(true, 'android_forced_refresh');
-        } elseif (class_exists('BlueVPN_App_Release_Manager')) {
-            BlueVPN_App_Release_Manager::maybe_kick();
+        // The mobile config endpoint must never depend on a live GitHub request.
+        // A manual "check for update" therefore only queues a background refresh
+        // and immediately serves the last verified release metadata from MySQL.
+        // This keeps the Android update check available even when GitHub/cURL/DNS
+        // is slow or temporarily unavailable on shared cPanel hosting.
+        if (class_exists('BlueVPN_App_Release_Manager')) {
+            try { BlueVPN_App_Release_Manager::maybe_kick($forced); }
+            catch (Throwable $e) {
+                error_log('BlueVPN mobile_config release refresh queue: '.$e->getMessage());
+            }
         }
 
         $customer = null;
@@ -115,9 +121,17 @@ final class BlueVPN_API {
         }
 
         $s = BlueVPN_DB::settings();
-        $selection = class_exists('BlueVPN_App_Release_Manager')
-            ? BlueVPN_App_Release_Manager::release_for_customer($customer)
-            : ['release'=>null,'channel'=>'stable','beta_tester'=>false];
+        $selection = ['release'=>null,'channel'=>'stable','beta_tester'=>false];
+        if (class_exists('BlueVPN_App_Release_Manager')) {
+            try {
+                $selection = BlueVPN_App_Release_Manager::release_for_customer($customer);
+            } catch (Throwable $e) {
+                // Release-channel state is an enhancement, not a single point of
+                // failure for /mobile/config. Fall back to the last Stable values
+                // already stored in app_settings and keep the client update path alive.
+                error_log('BlueVPN mobile_config release selection fallback: '.$e->getMessage());
+            }
+        }
         $release = is_array($selection['release'] ?? null) ? $selection['release'] : [];
         $published = (string)($release['release_published_at'] ?? ($s['release_published_at'] ?? ''));
         $publishedMysql = BlueVPN_Utils::mysql_from_iso($published);
@@ -153,6 +167,7 @@ final class BlueVPN_API {
             'github_error'=>(string)($s['github_error']??''),
             'release_cache_seconds'=>(int)($s['release_cache_seconds']??15),
             'release_refresh_forced'=>$forced,
+            'release_refresh_mode'=>'background_cache_first',
             'auth'=>array_merge(['mode'=>'phone_otp_or_email_password','password_login'=>true,'email_login'=>true,'email_registration'=>true],BlueVPN_SMS_OTP::public_config(),['request_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/request','verify_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/otp/verify','login_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/login','register_url'=>untrailingslashit(home_url('/')).'/api/v1/auth/register']),
             'blueai'=>['enabled'=>(bool)$s['blueai_enabled'],'free_enabled'=>!isset($s['blueai_free_enabled'])||!empty($s['blueai_free_enabled']),'premium_enabled'=>!isset($s['blueai_premium_enabled'])||!empty($s['blueai_premium_enabled']),'collective'=>(bool)$s['blueai_collective'],'auto_heal'=>(bool)$s['blueai_auto_heal'],'min_samples'=>(int)$s['blueai_min_samples'],'engine_version'=>BlueVPN_AI::ENGINE_VERSION,'schema_version'=>BlueVPN_AI::SCHEMA_VERSION,'capabilities'=>BlueVPN_AI::capabilities(),'privacy_message'=>$s['blueai_privacy_message']],
             'announcement'=>['enabled'=>(bool)$s['announcement_enabled'],'id'=>$s['announcement_id'],'title'=>$s['announcement_title'],'message'=>$s['announcement_message']],

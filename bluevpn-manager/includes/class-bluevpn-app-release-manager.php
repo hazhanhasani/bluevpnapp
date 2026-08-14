@@ -112,10 +112,10 @@ final class BlueVPN_App_Release_Manager {
         while ($timestamp = wp_next_scheduled(self::CRON_HOOK)) wp_unschedule_event($timestamp, self::CRON_HOOK);
     }
 
-    public static function maybe_kick(): void {
+    public static function maybe_kick(bool $force = false): void {
         if (empty(self::settings()['auto_sync'])) return;
         $last = self::last_sync();
-        if ($last > 0 && (time() - $last) < 10 * MINUTE_IN_SECONDS) return;
+        if (!$force && $last > 0 && (time() - $last) < 10 * MINUTE_IN_SECONDS) return;
         if (get_transient(self::KICK_LOCK)) return;
         set_transient(self::KICK_LOCK, '1', 60);
         wp_schedule_single_event(time() + 1, self::CRON_HOOK, ['traffic-kick']);

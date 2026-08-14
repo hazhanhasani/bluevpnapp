@@ -1,12 +1,12 @@
 {
-  "version": "4.3.2",
-  "version_code": 40302,
+  "version": "4.3.3",
+  "version_code": 40303,
   "channel": "beta",
-  "build_id": "20260814-v4.3.2-blueai-live-tier-intelligence",
+  "build_id": "20260814-v4.3.3-update-api-live-compatibility-hotfix",
   "built_at": "2026-08-14T14:54:00Z",
-  "android_version": "4.3.2",
-  "android_version_code": 40302,
-  "description": "BlueVPN 4.3.2: BlueAI Live Intelligence برای پایش همزمان پلن رایگان و Premium. تله‌متری و یادگیری Routeها بر اساس plan tier جدا می‌شود، اتصال مهمان/رایگان نیز heartbeat زنده می‌فرستد، پنل WordPress نمای Live و سلامت نسخه‌ها را نمایش می‌دهد و AI Schema/Capability versioning باعث می‌شود دانش جمعی بین آپدیت‌ها حفظ و قابلیت‌های نسخه‌های جدید قابل رصد باشد.",
+  "android_version": "4.3.3",
+  "android_version_code": 40303,
+  "description": "BlueVPN 4.3.3: هات‌فیکس مسیر بروزرسانی و سازگاری BlueAI Live. بررسی بروزرسانی دیگر به درخواست همزمان GitHub وابسته نیست و همیشه از آخرین Release تأییدشده MySQL پاسخ می‌دهد، Sync در پس‌زمینه صف می‌شود و خطای Release Channel به تنظیمات Stable قبلی fallback می‌کند. پنل BlueAI نیز کلاینت‌های AI Schema v1 را از Live Heartbeat واقعی تفکیک می‌کند.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -106,7 +106,12 @@
     "ai-schema-capability-versioning",
     "legacy-ai-learning-cold-start-fallback",
     "technical-metrics-only-ai-privacy",
-    "adaptive-live-heartbeat-power-budget"
+    "adaptive-live-heartbeat-power-budget",
+    "cache-first-mobile-update-config",
+    "nonblocking-background-release-refresh",
+    "release-channel-stable-fallback",
+    "update-api-github-failure-isolation",
+    "legacy-ai-schema-live-compatibility-notice"
   ],
-  "version_source": "v4.3.2-blueai-live-tier-intelligence"
+  "version_source": "v4.3.3-update-api-live-compatibility-hotfix"
 }

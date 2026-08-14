@@ -1,3 +1,11 @@
+
+## 4.3.3 update API + Live compatibility hotfix
+
+- `/api/v1/mobile/config?refresh=true` is cache-first and no longer performs a blocking GitHub Release request.
+- Manual update checks queue release refresh in the background and immediately return the last verified MySQL Stable/Beta selection.
+- Release-channel lookup failures fall back to the last Stable values instead of breaking the Android update checker.
+- BlueAI admin distinguishes legacy AI Schema v1 clients from Android 4.3.2+ real Live Heartbeat clients.
+
 # BlueVPN 4.3.2
 
 BlueVPN is now rebased as a **custom product/UI on top of official v2rayNG**, instead of treating v2rayNG as a replaceable compatibility bridge.

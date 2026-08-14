@@ -1,6 +1,6 @@
 # BlueVPN — upstream/runtime notice
 
-BlueVPN Android 4.2.9 is built directly on the official **v2rayNG 2.2.6** Android source (GNU GPL v3).
+BlueVPN Android 4.2.10 is built directly on the official **v2rayNG 2.2.6** Android source (GNU GPL v3).
 
 Runtime ownership is intentionally simple:
 
@@ -14,6 +14,11 @@ Runtime ownership is intentionally simple:
 BlueVPN is an independent modified distribution and is not endorsed by the upstream v2rayNG/Xray maintainers.
 
 
+
+
+## 4.2.10 Free-plan entitlement boundary
+
+Authenticated accounts without an active Premium entitlement use the same Free entitlement and Free subscription pool as guest users. Free plan presentation is no longer coupled to whether the local Free pool has already finished downloading. This change does not patch the v2rayNG/Xray runtime.
 
 ## 4.2.9 build-trigger boundary
 

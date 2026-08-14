@@ -406,29 +406,31 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         ) { result ->
             navigationLocked = false
             accountLaunchInProgress = false
-            if (
-                BlueVpnAccountManager.hasSession(this) &&
-                !startupOptimizationShown
-            ) {
-                startStartupOptimization()
-            } else if (BlueVpnAccountManager.hasSession(this)) {
-                // A normal Back from Account is routine/cache-first. RESULT_OK is
-                // reserved for an auth/account mutation that can justify an
-                // authoritative refresh; payment activation already syncs in the
-                // account Activity itself.
-                syncManagedAccount(force = result.resultCode == RESULT_OK)
+            if (BlueVpnAccountManager.premiumEntitlementActive(this)) {
+                if (!startupOptimizationShown) {
+                    startStartupOptimization()
+                } else {
+                    // A normal Back from Account is routine/cache-first. RESULT_OK is
+                    // reserved for an auth/account mutation that can justify an
+                    // authoritative refresh; payment activation already syncs in the
+                    // account Activity itself.
+                    syncManagedAccount(force = result.resultCode == RESULT_OK)
+                }
             } else {
-                // Logout returns directly to guest/free mode. Invalidate any
-                // Premium candidate preparation that may still be running so its
-                // old GUID queue cannot be published after the auth boundary.
+                // No live Premium entitlement means the account belongs to the Free
+                // plan, even when the user is still authenticated. Clear any old
+                // Premium candidate queue and prepare the exact Free pool.
                 connectionPreparationGeneration += 1
                 cancelFailover()
                 connectionVerified = false
                 BlueVpnPreferences.clearConnected(this)
                 renderConnectionState(false)
-                prepareGuestFreeAccess(force = false)
+                prepareFreePlanAccess(force = false)
                 requestDashboardRefresh(force = true)
                 refreshSubscriptionInfo(force = false)
+                if (BlueVpnAccountManager.hasSession(this) && !startupOptimizationShown) {
+                    startStartupOptimization()
+                }
             }
         }
 
@@ -1997,16 +1999,15 @@ private fun scheduleStartupPipeline() {
         if (isFinishing || isDestroyed) return@post
         lifecycleScope.launch(Dispatchers.IO) {
             val hadSession = BlueVpnAccountManager.hasSession(this@BlueVpnHomeActivity)
-            // Premium/account startup must never scan the Free MMKV pool. The old
-            // eager `hasFreeServer` evaluation decoded Free subscription rows on
-            // every launch even when a logged-in Premium user could not use them.
-            val needsGuestBootstrap = if (!hadSession) {
+            val premiumAtLaunch = BlueVpnAccountManager.premiumEntitlementActive(this@BlueVpnHomeActivity)
+            // Only a real Premium entitlement may skip Free preparation. An
+            // authenticated account with no active subscription is still a Free
+            // account and must receive the same Free pool as a guest.
+            val needsFreeBootstrap = !premiumAtLaunch && (
                 !BlueVpnAccountManager.freeAccessEnabled(this@BlueVpnHomeActivity) ||
                     !BlueVpnAccountManager.hasInstalledFreeServers(this@BlueVpnHomeActivity)
-            } else {
-                false
-            }
-            val preparedGuest = if (needsGuestBootstrap) {
+                )
+            val preparedFree = if (needsFreeBootstrap) {
                 BlueVpnAccountManager.prepareFreeAccess(
                     this@BlueVpnHomeActivity,
                     force = false,
@@ -2015,12 +2016,14 @@ private fun scheduleStartupPipeline() {
 
             withContext(Dispatchers.Main) {
                 if (isFinishing || isDestroyed) return@withContext
-                if (preparedGuest) {
-                    BlueVpnLocationUtil.invalidateCache()
-                    mainViewModel.reloadServerList()
-                    // Only a real guest bootstrap changed the local pool. A
-                    // normal logged-in launch was already rendered from cache in
-                    // onCreate and must not schedule another forced dashboard pass.
+                if (needsFreeBootstrap) {
+                    // Refresh entitlement presentation even when pool installation
+                    // failed: mobile config may still have changed UNAVAILABLE ->
+                    // FREE, and the Connect button can retry preparation explicitly.
+                    if (preparedFree) {
+                        BlueVpnLocationUtil.invalidateCache()
+                        mainViewModel.reloadServerList()
+                    }
                     requestDashboardRefresh(force = true)
                     refreshSubscriptionInfo(force = false)
                 }
@@ -2712,8 +2715,9 @@ private fun dpHome(value: Int): Int =
         handler.post(disconnectRetry)
     }
 
-    private fun prepareGuestFreeAccess(force: Boolean) {
-        if (BlueVpnAccountManager.hasSession(this) || freePreparationInProgress) return
+    private fun prepareFreePlanAccess(force: Boolean) {
+        // Logged-in users without an active Premium entitlement are Free users too.
+        if (BlueVpnAccountManager.premiumEntitlementActive(this) || freePreparationInProgress) return
         val now = SystemClock.elapsedRealtime()
         if (!force && now - lastGuestPreparationAt < 15_000L) return
         lastGuestPreparationAt = now

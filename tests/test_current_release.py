@@ -196,7 +196,9 @@ class CurrentReleaseTests(unittest.TestCase):
 
     def test_29_premium_startup_does_not_scan_free_pool(self):
         pipeline = block(self.home, "private fun scheduleStartupPipeline", "private fun scheduleIdleCandidateWarmup")
-        self.assertIn("val needsGuestBootstrap = if (!hadSession)", pipeline)
+        self.assertIn("val premiumAtLaunch = BlueVpnAccountManager.premiumEntitlementActive", pipeline)
+        self.assertIn("val needsFreeBootstrap = !premiumAtLaunch", pipeline)
+        self.assertIn("val preparedFree = if (needsFreeBootstrap)", pipeline)
         self.assertNotIn("val hasFreeServer =", pipeline)
 
     def test_30_dashboard_uses_ui_safe_entitlement_check(self):
@@ -565,6 +567,27 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("['ahead', 'identical']", bot)
         self.assertIn("usleep(250000", bot)
         self.assertNotIn("SHA شاخه پس از Push تأیید نشد.", bot)
+    def test_70_logged_in_nonpremium_account_bootstraps_free_plan(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        entitlement = text("android-source/BlueVpnEntitlement.kt")
+        account = text("android-source/BlueVpnAccountManager.kt")
+        self.assertIn("val premiumAtLaunch = BlueVpnAccountManager.premiumEntitlementActive", home)
+        self.assertIn("val needsFreeBootstrap = !premiumAtLaunch", home)
+        self.assertIn("private fun prepareFreePlanAccess", home)
+        helper = block(home, "private fun prepareFreePlanAccess", "private fun reconcileDeferredEntitlementIfIdle")
+        self.assertIn("BlueVpnAccountManager.premiumEntitlementActive(this)", helper)
+        self.assertNotIn("BlueVpnAccountManager.hasSession(this) || freePreparationInProgress", helper)
+        self.assertIn("fun freeAccessConfigured", account)
+        self.assertIn("val freePlanEligible = !premiumEntitled && (!freeConfigKnown || free.enabled)", entitlement)
+        self.assertIn('"پلن رایگان • ${account.email}"', entitlement)
+
+    def test_71_free_entitlement_is_not_conflated_with_pool_readiness(self):
+        entitlement = text("android-source/BlueVpnEntitlement.kt")
+        self.assertNotIn("val freeReady = !premiumReady && free.enabled && free.subscriptions.isNotEmpty()", entitlement)
+        free_block = block(entitlement, "BlueVpnPlanTier.FREE -> BlueVpnEntitlementSnapshot", "BlueVpnPlanTier.UNAVAILABLE ->")
+        self.assertIn("canConnect = true", free_block)
+        self.assertIn("poolReady = guids.isNotEmpty()", free_block)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

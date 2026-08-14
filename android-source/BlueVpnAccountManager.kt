@@ -330,6 +330,10 @@ object BlueVpnAccountManager {
     private fun freePrefs(c: Context) =
         c.getSharedPreferences(FREE_PREFS, Context.MODE_PRIVATE)
 
+    /** True after mobile config has explicitly declared whether Free access is enabled. */
+    fun freeAccessConfigured(c: Context): Boolean =
+        freePrefs(c.applicationContext).contains("enabled")
+
     fun freeAccessSnapshot(c: Context): BlueVpnFreeAccessSnapshot {
         val now = android.os.SystemClock.elapsedRealtime()
         freeSnapshotCache?.takeIf {

@@ -1,12 +1,12 @@
 {
-  "version": "4.2.9",
-  "version_code": 40209,
+  "version": "4.2.10",
+  "version_code": 40210,
   "channel": "stable",
-  "build_id": "20260814-v4.2.9-explicit-build-trigger-single-dispatch",
-  "built_at": "2026-08-14T11:37:00Z",
-  "android_version": "4.2.9",
-  "android_version_code": 40209,
-  "description": "BlueVPN 4.2.9: ساخت APK دیگر با Push معمولی شاخه main اجرا نمی‌شود و فقط از repository_dispatch ربات یا workflow_dispatch دستی شروع می‌شود؛ اجرای همزمان یک Job ربات نیز با claim اتمیک مهار شده و نمایش %0A در پیام Telegram به خط جدید واقعی اصلاح شده است. Runtime رسمی v2rayNG/Xray بدون تغییر است.",
+  "build_id": "20260814-v4.2.10-free-plan-default-entitlement-bootstrap",
+  "built_at": "2026-08-14T11:50:00Z",
+  "android_version": "4.2.10",
+  "android_version_code": 40210,
+  "description": "BlueVPN 4.2.10: حساب‌های لاگین‌شده بدون اشتراک Premium اکنون به‌صورت قطعی روی پلن رایگان مچ می‌شوند؛ وضعیت پلن دیگر به آماده‌بودن لحظه‌ای Pool رایگان وابسته نیست، Free pool برای حساب بدون اشتراک هم در Startup آماده می‌شود و رابط به‌جای «بدون اشتراک فعال/بدون دسترسی» پلن رایگان را نمایش می‌دهد. جداسازی سخت Free/Premium و Runtime رسمی v2rayNG/Xray بدون تغییر باقی مانده است.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -74,7 +74,11 @@
     "manual-workflow-dispatch-kept",
     "atomic-telegram-job-claim",
     "single-dispatch-per-job",
-    "telegram-success-message-real-newlines"
+    "telegram-success-message-real-newlines",
+    "logged-in-nonpremium-is-free-plan",
+    "free-plan-independent-from-pool-readiness",
+    "free-pool-bootstrap-for-authenticated-free-account",
+    "explicit-free-plan-ui-label"
   ],
-  "version_source": "v4.2.9-explicit-build-trigger-single-dispatch"
+  "version_source": "v4.2.10-free-plan-default-entitlement-bootstrap"
 }

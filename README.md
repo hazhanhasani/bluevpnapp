@@ -1,4 +1,4 @@
-# BlueVPN 4.2.9
+# BlueVPN 4.2.10
 
 BlueVPN is now rebased as a **custom product/UI on top of official v2rayNG**, instead of treating v2rayNG as a replaceable compatibility bridge.
 
@@ -75,6 +75,16 @@ Some deployments copy a release bundle over an existing GitHub checkout instead 
 
 
 
+
+
+## 4.2.10 — Free plan entitlement correctness
+
+- کاربر لاگین‌شده‌ای که اشتراک Premium فعال ندارد، از این نسخه **پلن رایگان** محسوب می‌شود؛ داشتن Session حساب دیگر باعث رد شدن Bootstrap رایگان نمی‌شود.
+- مدل Entitlement از «آماده بودن Pool» جدا شد؛ پلن Free قبل از دانلود اولین Pool هم درست در UI نمایش داده می‌شود و دکمه اتصال همان مسیر `prepareFreeAccess()` را برای آماده‌سازی اجرا می‌کند.
+- Startup و بازگشت از صفحه حساب برای Guest و حساب لاگین‌شده بدون Premium یک مسیر Free مشترک دارند.
+- متن‌های خانه/تنظیمات به‌جای «بدون اشتراک فعال» برای این حالت، `پلن رایگان` را نشان می‌دهند.
+- اگر سرور WordPress صراحتاً Free Access را غیرفعال کند، وضعیت `UNAVAILABLE` همچنان محترم شمرده می‌شود.
+- مرز Free/Premium، GUID ownership و Runtime رسمی v2rayNG 2.2.6/Xray دست نخورده‌اند.
 
 ## 4.2.9 — Explicit APK build trigger / single-dispatch hardening
 

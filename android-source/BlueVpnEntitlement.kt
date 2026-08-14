@@ -53,13 +53,19 @@ object BlueVpnEntitlement {
     private fun base(context: Context): Base {
         val account = BlueVpnAccountManager.snapshot(context)
         val free = BlueVpnAccountManager.freeAccessSnapshot(context)
-        val premiumReady = BlueVpnAccountManager.premiumEntitlementActive(context) &&
-            account.subscriptionActive &&
+        val premiumEntitled = BlueVpnAccountManager.premiumEntitlementActive(context) &&
+            account.subscriptionActive
+        val premiumReady = premiumEntitled &&
             account.subscriptionUrl.trim().startsWith("http")
-        val freeReady = !premiumReady && free.enabled && free.subscriptions.isNotEmpty()
+        val freeConfigKnown = BlueVpnAccountManager.freeAccessConfigured(context)
+        // Free is the default plan whenever there is no live Premium entitlement.
+        // On first launch mobile config may not be cached yet, so present FREE
+        // immediately and let the existing preparation pipeline fetch the pool.
+        // Once the server has explicitly disabled Free access, honor that state.
+        val freePlanEligible = !premiumEntitled && (!freeConfigKnown || free.enabled)
         val tier = when {
             premiumReady -> BlueVpnPlanTier.PREMIUM
-            freeReady -> BlueVpnPlanTier.FREE
+            freePlanEligible -> BlueVpnPlanTier.FREE
             else -> BlueVpnPlanTier.UNAVAILABLE
         }
         val identity = when (tier) {
@@ -94,13 +100,16 @@ object BlueVpnEntitlement {
                 tier = base.tier,
                 identity = base.identity,
                 accountLabel = if (account.email.isBlank()) {
-                    "مهمان • دسترسی رایگان"
+                    "پلن رایگان • مهمان"
                 } else {
-                    "${account.email} • دسترسی رایگان"
+                    "پلن رایگان • ${account.email}"
                 },
                 poolLabel = "سرورهای رایگان",
                 connectionNotice = "هر اتصال رایگان تا ${free.sessionMinutes} دقیقه فعال است و فقط از Pool رایگان استفاده می‌کند.",
                 sessionMinutes = free.sessionMinutes,
+                // A FREE entitlement may be visible before the first pool fetch.
+                // Connect then enters prepareFreeAccess() instead of incorrectly
+                // treating the user as having no plan at all.
                 canConnect = true,
                 poolReady = guids.isNotEmpty(),
                 manualSelectionAllowed = false,

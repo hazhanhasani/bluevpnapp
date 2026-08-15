@@ -1,8 +1,17 @@
 === BlueVPN Manager ===
-Version: 4.6.7
-Stable tag: 4.6.7
+Version: 4.6.9
+Stable tag: 4.6.9
 Requires PHP: 8.0
 
+
+== 4.6.9 ==
+* Cloudflare Endpoint Racing روی رنج‌ها و پورت‌های معتبر WARP اضافه شد.
+* آخرین Edge سالم برای هر نوع شبکه ذخیره می‌شود و Endpoint خراب cooldown می‌گیرد.
+* Turbo scan و WireGuard fallback به‌صورت پیش‌فرض فعال شدند.
+* WARP exit guard نسخه 4.6.8 همچنان فعال است و خروجی IR را رد می‌کند.
+
+== 4.6.8 ==
+= WARP exit guard: rejects blocked egress countries (IR by default) and fails over to the configured Free pool. =
 
 == 4.6.7 ==
 * Free WARP entitlement is independent from legacy free-subscription availability.

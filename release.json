@@ -1,12 +1,12 @@
 {
-  "version": "4.6.7",
-  "version_code": 40607,
+  "version": "4.6.9",
+  "version_code": 40609,
   "channel": "beta",
-  "build_id": "20260815-v4.6.7-warp-nullability-hotfix",
-  "built_at": "2026-08-15T16:45:00Z",
-  "android_version": "4.6.7",
-  "android_version_code": 40607,
-  "description": "BlueVPN 4.6.7: Kotlin null-safety hotfix for WARP bridge profile detection; preserves the 4.6.6 adaptive Aether/WARP strategy engine and Premium v2rayNG/Xray runtime.",
+  "build_id": "20260815-v4.6.9-cloudflare-endpoint-racing",
+  "built_at": "2026-08-15T17:20:00Z",
+  "android_version": "4.6.9",
+  "android_version_code": 40609,
+  "description": "BlueVPN 4.6.9: Cloudflare endpoint/port racing across documented WARP ingress ranges, network-scoped last-good edge memory, per-edge cooldown, turbo fallback scanning, and WireGuard fallback enabled by default.",
   "features": [
     "warp-engine-home-explicit-import-build-fix",
     "aether-warp-free-primary-engine",
@@ -255,7 +255,15 @@
     "single-owner-subscription-refresh",
     "no-nested-stock-import-retry",
     "locations-nonblocking-during-mmkv-import",
-    "metadata-only-manual-account-refresh"
+    "metadata-only-manual-account-refresh",
+    "cloudflare-endpoint-port-racing",
+    "cloudflare-documented-ingress-matrix",
+    "network-scoped-last-good-warp-edge",
+    "per-edge-cooldown-and-rotation",
+    "bounded-direct-peer-probe-budget",
+    "aether-peer-fast-path",
+    "turbo-warp-scan-default",
+    "wireguard-fallback-default-enabled"
   ],
-  "version_source": "v4.6.7-warp-nullability-hotfix"
+  "version_source": "v4.6.9-cloudflare-endpoint-racing"
 }

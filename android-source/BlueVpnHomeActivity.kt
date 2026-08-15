@@ -4149,6 +4149,22 @@ private fun dpHome(value: Int): Int =
                 return@withContext null
             }
 
+            val warpBridge = attemptedGuid.isNotBlank() && BlueVpnWarpEngine.isBridgeGuid(attemptedGuid)
+            if (warpBridge) {
+                val policy = BlueVpnAccountManager.freeAccessSnapshot(this@BlueVpnHomeActivity)
+                val trace = fetchExitTraceThroughLocalXray(localPort)
+                if (policy.warpRequireExitTrace && trace == null) return@withContext null
+                val country = trace?.lineSequence()
+                    ?.firstOrNull { it.startsWith("loc=") }
+                    ?.substringAfter("loc=")
+                    ?.trim()
+                    ?.uppercase(Locale.US)
+                    ?.takeIf { it.matches(Regex("[A-Z]{2}")) }
+                if (country != null && country in policy.warpBlockedExitCountries) {
+                    return@withContext null
+                }
+            }
+
             val endpoints = buildList {
                 add("https://www.google.com/generate_204")
                 add("https://cp.cloudflare.com/generate_204")
@@ -4212,6 +4228,47 @@ private fun dpHome(value: Int): Int =
                 }
             }
         }
+
+    private fun fetchExitTraceThroughLocalXray(localPort: Int): String? {
+        val proxyTypes = buildList {
+            add(Proxy.Type.HTTP)
+            val username = SettingsManager.getSocksUsername()
+            val password = SettingsManager.getSocksPassword()
+            if (username.isNullOrBlank() && password.isNullOrBlank()) add(Proxy.Type.SOCKS)
+        }
+        for (proxyType in proxyTypes) {
+            val body = runCatching {
+                val proxy = Proxy(proxyType, InetSocketAddress("127.0.0.1", localPort))
+                val connection = URL("https://1.1.1.1/cdn-cgi/trace").openConnection(proxy) as HttpURLConnection
+                try {
+                    connection.instanceFollowRedirects = false
+                    connection.connectTimeout = 3_000
+                    connection.readTimeout = 3_000
+                    connection.requestMethod = "GET"
+                    connection.useCaches = false
+                    connection.setRequestProperty("Connection", "close")
+                    connection.setRequestProperty("User-Agent", "BlueVPN/${BuildConfig.VERSION_NAME}")
+                    if (proxyType == Proxy.Type.HTTP) {
+                        val username = SettingsManager.getSocksUsername()
+                        val password = SettingsManager.getSocksPassword()
+                        if (!username.isNullOrBlank() && !password.isNullOrBlank()) {
+                            val token = Base64.encodeToString("$username:$password".toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
+                            connection.setRequestProperty("Proxy-Authorization", "Basic $token")
+                        }
+                    }
+                    if (connection.responseCode !in 200..299) null
+                    else connection.inputStream.bufferedReader().use { it.readText().take(4096) }
+                } finally {
+                    connection.disconnect()
+                }
+            }.getOrNull()
+            if (!body.isNullOrBlank()) {
+                BlueVpnRouteIntelligence.recordExitTrace(this, attemptedGuid, body)
+                return body
+            }
+        }
+        return null
+    }
 
     private fun requestThroughLocalXrayProxy(
         endpoint: String,

@@ -73,6 +73,9 @@ data class BlueVpnFreeAccessSnapshot(
     val warpTotalTimeoutSeconds: Int,
     val warpQuickReconnect: Boolean,
     val warpAdaptiveEnabled: Boolean,
+    val warpEndpointRacingEnabled: Boolean,
+    val warpEndpointRaceBreadth: Int,
+    val warpEndpointProbeSeconds: Int,
     val warpAllowedTransports: Set<String>,
     val warpScanMode: String,
     val warpIpMode: String,
@@ -83,6 +86,8 @@ data class BlueVpnFreeAccessSnapshot(
     val warpWireGuardEnabled: Boolean,
     val warpGoolEnabled: Boolean,
     val warpNoizeProfile: String,
+    val warpRequireExitTrace: Boolean,
+    val warpBlockedExitCountries: Set<String>,
     val guestAllowed: Boolean,
 )
 
@@ -316,20 +321,33 @@ object BlueVpnAccountManager {
         val warpTotalTimeoutSeconds = warp.optInt("total_timeout_seconds", 75).coerceIn(30, 90)
         val warpQuickReconnect = warp.optBoolean("quick_reconnect", true)
         val warpAdaptiveEnabled = warp.optBoolean("adaptive_strategy_enabled", true)
+        val warpEndpointRacingEnabled = warp.optBoolean("endpoint_racing_enabled", true)
+        val warpEndpointRaceBreadth = warp.optInt("endpoint_race_breadth", 8).coerceIn(2, 16)
+        val warpEndpointProbeSeconds = warp.optInt("endpoint_probe_seconds", 5).coerceIn(3, 8)
         val allowedJson = warp.optJSONArray("allowed_transports")
         val warpAllowedTransports = buildSet {
             if (allowedJson != null) for (i in 0 until allowedJson.length()) allowedJson.optString(i).trim().lowercase().takeIf { it in setOf("h3","h2","h2_fragment","wireguard","gool") }?.let(::add)
-            if (isEmpty()) addAll(setOf("h3","h2","h2_fragment"))
+            if (isEmpty()) addAll(setOf("h3","h2","h2_fragment","wireguard"))
         }
-        val warpScanMode = warp.optString("scan_mode", "balanced").trim().lowercase().takeIf { it in setOf("turbo","balanced","thorough","stealth","ironclad") } ?: "balanced"
+        val warpScanMode = warp.optString("scan_mode", "turbo").trim().lowercase().takeIf { it in setOf("turbo","balanced","thorough","stealth","ironclad") } ?: "turbo"
         val warpIpMode = warp.optString("ip_mode", "auto").trim().lowercase().takeIf { it in setOf("auto","v4","dual") } ?: "auto"
         val warpH2Enabled = warp.optBoolean("h2_enabled", true)
         val warpFragmentEnabled = warp.optBoolean("fragment_enabled", true)
         val warpFragmentSize = warp.optString("fragment_size", "8-24").trim().takeIf { it.matches(Regex("\\d{1,3}(-\\d{1,3})?")) } ?: "8-24"
         val warpFragmentDelay = warp.optString("fragment_delay", "5-15").trim().takeIf { it.matches(Regex("\\d{1,3}(-\\d{1,3})?")) } ?: "5-15"
-        val warpWireGuardEnabled = warp.optBoolean("wireguard_enabled", false)
+        val warpWireGuardEnabled = warp.optBoolean("wireguard_enabled", true)
         val warpGoolEnabled = warp.optBoolean("warp_in_warp_enabled", false)
         val warpNoizeProfile = warp.optString("noize_profile", "firewall").trim().lowercase().takeIf { it in setOf("off","light","balanced","aggressive","firewall","gfw") } ?: "firewall"
+        val warpRequireExitTrace = warp.optBoolean("require_exit_trace", true)
+        val blockedExitJson = warp.optJSONArray("blocked_exit_countries")
+        val warpBlockedExitCountries = buildSet {
+            if (blockedExitJson != null) for (i in 0 until blockedExitJson.length()) {
+                blockedExitJson.optString(i).trim().uppercase(Locale.US)
+                    .takeIf { it.matches(Regex("[A-Z]{2}")) }
+                    ?.let(::add)
+            }
+            if (isEmpty()) add("IR")
+        }
         val guestAllowed = free.optBoolean("guest_allowed", true)
         val oldMinutes = storage.getInt("session_minutes", 60).coerceIn(15, 180)
         val newMinutes = free.optInt("session_minutes", 60).coerceIn(15, 180)
@@ -345,6 +363,9 @@ object BlueVpnAccountManager {
             .putInt("warp_total_timeout_seconds", warpTotalTimeoutSeconds)
             .putBoolean("warp_quick_reconnect", warpQuickReconnect)
             .putBoolean("warp_adaptive_enabled", warpAdaptiveEnabled)
+            .putBoolean("warp_endpoint_racing_enabled", warpEndpointRacingEnabled)
+            .putInt("warp_endpoint_race_breadth", warpEndpointRaceBreadth)
+            .putInt("warp_endpoint_probe_seconds", warpEndpointProbeSeconds)
             .putStringSet("warp_allowed_transports", warpAllowedTransports)
             .putString("warp_scan_mode", warpScanMode)
             .putString("warp_ip_mode", warpIpMode)
@@ -355,6 +376,8 @@ object BlueVpnAccountManager {
             .putBoolean("warp_wireguard_enabled", warpWireGuardEnabled)
             .putBoolean("warp_gool_enabled", warpGoolEnabled)
             .putString("warp_noize_profile", warpNoizeProfile)
+            .putBoolean("warp_require_exit_trace", warpRequireExitTrace)
+            .putStringSet("warp_blocked_exit_countries", warpBlockedExitCountries)
             .putBoolean("guest_allowed", guestAllowed)
             .putString("subscription_url", legacyUrl)
             .putString("subscriptions_json", storedSources.toString())
@@ -566,16 +589,21 @@ object BlueVpnAccountManager {
             warpTotalTimeoutSeconds = storage.getInt("warp_total_timeout_seconds", 75).coerceIn(30, 90),
             warpQuickReconnect = storage.getBoolean("warp_quick_reconnect", true),
             warpAdaptiveEnabled = storage.getBoolean("warp_adaptive_enabled", true),
-            warpAllowedTransports = storage.getStringSet("warp_allowed_transports", setOf("h3","h2","h2_fragment")).orEmpty().filter { it in setOf("h3","h2","h2_fragment","wireguard","gool") }.toSet().ifEmpty { setOf("h3","h2","h2_fragment") },
-            warpScanMode = storage.getString("warp_scan_mode", "balanced").orEmpty().takeIf { it in setOf("turbo","balanced","thorough","stealth","ironclad") } ?: "balanced",
+            warpEndpointRacingEnabled = storage.getBoolean("warp_endpoint_racing_enabled", true),
+            warpEndpointRaceBreadth = storage.getInt("warp_endpoint_race_breadth", 8).coerceIn(2, 16),
+            warpEndpointProbeSeconds = storage.getInt("warp_endpoint_probe_seconds", 5).coerceIn(3, 8),
+            warpAllowedTransports = storage.getStringSet("warp_allowed_transports", setOf("h3","h2","h2_fragment","wireguard")).orEmpty().filter { it in setOf("h3","h2","h2_fragment","wireguard","gool") }.toSet().ifEmpty { setOf("h3","h2","h2_fragment","wireguard") },
+            warpScanMode = storage.getString("warp_scan_mode", "turbo").orEmpty().takeIf { it in setOf("turbo","balanced","thorough","stealth","ironclad") } ?: "turbo",
             warpIpMode = storage.getString("warp_ip_mode", "auto").orEmpty().takeIf { it in setOf("auto","v4","dual") } ?: "auto",
             warpH2Enabled = storage.getBoolean("warp_h2_enabled", true),
             warpFragmentEnabled = storage.getBoolean("warp_fragment_enabled", true),
             warpFragmentSize = storage.getString("warp_fragment_size", "8-24").orEmpty().ifBlank { "8-24" },
             warpFragmentDelay = storage.getString("warp_fragment_delay", "5-15").orEmpty().ifBlank { "5-15" },
-            warpWireGuardEnabled = storage.getBoolean("warp_wireguard_enabled", false),
+            warpWireGuardEnabled = storage.getBoolean("warp_wireguard_enabled", true),
             warpGoolEnabled = storage.getBoolean("warp_gool_enabled", false),
             warpNoizeProfile = storage.getString("warp_noize_profile", "firewall").orEmpty().ifBlank { "firewall" },
+            warpRequireExitTrace = storage.getBoolean("warp_require_exit_trace", true),
+            warpBlockedExitCountries = storage.getStringSet("warp_blocked_exit_countries", setOf("IR")).orEmpty().map { it.trim().uppercase(Locale.US) }.filter { it.matches(Regex("[A-Z]{2}")) }.toSet().ifEmpty { setOf("IR") },
             guestAllowed = storage.getBoolean("guest_allowed", true),
         )
         freeSnapshotCache = snapshot

@@ -433,9 +433,9 @@ jobs:
           python scripts/build_aether_android.py 2>&1 | tee "$GITHUB_WORKSPACE/aether-build.log"
           test -x upstream/V2rayNG/app/src/main/jniLibs/arm64-v8a/libbluevpn_aether.so
           test -x upstream/V2rayNG/app/src/main/jniLibs/armeabi-v7a/libbluevpn_aether.so
-          test -s reports/AETHER-PROVENANCE-4.7.1.txt
-          grep -q 'commit=a26159b82a70048b459e0128213c71767abecb8a' reports/AETHER-PROVENANCE-4.7.1.txt
-          grep -q 'required_help_flags=PASS' reports/AETHER-PROVENANCE-4.7.1.txt
+          test -s reports/AETHER-PROVENANCE-4.7.2.txt
+          grep -q 'commit=a26159b82a70048b459e0128213c71767abecb8a' reports/AETHER-PROVENANCE-4.7.2.txt
+          grep -q 'required_help_flags=PASS' reports/AETHER-PROVENANCE-4.7.2.txt
 
       - name: Apply BlueVPN login and registration redesign
         shell: bash
@@ -803,8 +803,9 @@ jobs:
           HEALTH_URL="${API_BASE_URL}/health"
           WP_CRON_URL="${API_BASE_URL}/wp-cron.php?doing_wp_cron=$(date +%s)"
           LAST_VERSION="unknown"
+          LAST_STATUS="unknown"
           LAST_SCHEMA="unknown"
-          LAST_READY="false"
+          LAST_READY="unknown"
           LAST_UPDATER_AUTH="unknown"
           LAST_UPDATER_STATUS="unknown"
           LAST_UPDATER_TARGET="unknown"
@@ -824,14 +825,15 @@ jobs:
           try:
               d=json.loads(p.read_text(encoding='utf-8'))
           except Exception:
-              print('invalid'); print('unknown'); print('false'); print('unknown'); print('unknown'); print('unknown'); print('invalid health json')
+              print('invalid'); print('unknown'); print('unknown'); print('unknown'); print('unknown'); print('unknown'); print('unknown'); print('invalid health json')
           else:
               db=d.get('database') or {}
               updater=d.get('github_updater') or {}
               us=updater.get('status') or {}
               print(str(d.get('version','unknown')))
+              print(str(d.get('status','unknown')).lower())
               print(str(db.get('schema_version','unknown')))
-              print(str(bool(db.get('ready',False))).lower())
+              print(str(db.get('ready','unknown')).lower())
               print(str(updater.get('authenticated','unknown')).lower())
               print(str(us.get('status','unknown')))
               print(str(us.get('target','unknown')))
@@ -839,21 +841,30 @@ jobs:
           PY
               )
               LAST_VERSION="${HEALTH_FIELDS[0]:-unknown}"
-              LAST_SCHEMA="${HEALTH_FIELDS[1]:-unknown}"
-              LAST_READY="${HEALTH_FIELDS[2]:-false}"
-              LAST_UPDATER_AUTH="${HEALTH_FIELDS[3]:-unknown}"
-              LAST_UPDATER_STATUS="${HEALTH_FIELDS[4]:-unknown}"
-              LAST_UPDATER_TARGET="${HEALTH_FIELDS[5]:-unknown}"
-              LAST_UPDATER_MESSAGE="${HEALTH_FIELDS[6]:-}"
+              LAST_STATUS="${HEALTH_FIELDS[1]:-unknown}"
+              LAST_SCHEMA="${HEALTH_FIELDS[2]:-unknown}"
+              LAST_READY="${HEALTH_FIELDS[3]:-unknown}"
+              LAST_UPDATER_AUTH="${HEALTH_FIELDS[4]:-unknown}"
+              LAST_UPDATER_STATUS="${HEALTH_FIELDS[5]:-unknown}"
+              LAST_UPDATER_TARGET="${HEALTH_FIELDS[6]:-unknown}"
+              LAST_UPDATER_MESSAGE="${HEALTH_FIELDS[7]:-}"
             fi
 
-            echo "WordPress convergence ${attempt}/36: version=${LAST_VERSION} schema=${LAST_SCHEMA} ready=${LAST_READY} updater_auth=${LAST_UPDATER_AUTH} updater_status=${LAST_UPDATER_STATUS} updater_target=${LAST_UPDATER_TARGET}"
+            echo "WordPress convergence ${attempt}/36: version=${LAST_VERSION} status=${LAST_STATUS} schema=${LAST_SCHEMA} ready=${LAST_READY} updater_auth=${LAST_UPDATER_AUTH} updater_status=${LAST_UPDATER_STATUS} updater_target=${LAST_UPDATER_TARGET}"
             if [ -n "$LAST_UPDATER_MESSAGE" ]; then
               echo "WordPress updater message: $LAST_UPDATER_MESSAGE"
             fi
-            COMPATIBLE="$(python -c 'import re,sys; p=lambda v: tuple(map(int,re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v).groups())) if re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v) else None; cv,ev,cs,es=map(p,sys.argv[1:5]); print("true" if cv is not None and ev is not None and cs is not None and es is not None and cv >= ev and cs >= es else "false")' "$LAST_VERSION" "$VERSION" "$LAST_SCHEMA" "$EXPECTED_SCHEMA")"
-            if [ "$COMPATIBLE" = "true" ] && [ "$LAST_READY" = "true" ]; then
-              echo "WordPress control plane is compatible: installed=${LAST_VERSION} (minimum=${VERSION}), schema=${LAST_SCHEMA} (minimum=${EXPECTED_SCHEMA})."
+            VERSION_COMPATIBLE="$(python -c 'import re,sys; p=lambda v: tuple(map(int,re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v).groups())) if re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v) else None; cv,ev=map(p,sys.argv[1:3]); print("true" if cv is not None and ev is not None and cv >= ev else "false")' "$LAST_VERSION" "$VERSION")"
+            DETAILS_COMPATIBLE="true"
+            if [ "$LAST_SCHEMA" != "unknown" ] || [ "$LAST_READY" != "unknown" ]; then
+              DETAILS_COMPATIBLE="$(python -c 'import re,sys; p=lambda v: tuple(map(int,re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v).groups())) if re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v) else None; cs,es=map(p,sys.argv[1:3]); ready=sys.argv[3].lower()=="true"; print("true" if cs is not None and es is not None and cs >= es and ready else "false")' "$LAST_SCHEMA" "$EXPECTED_SCHEMA" "$LAST_READY")"
+            fi
+            if [ "$VERSION_COMPATIBLE" = "true" ] && [ "$LAST_STATUS" = "ok" ] && [ "$DETAILS_COMPATIBLE" = "true" ]; then
+              if [ "$LAST_SCHEMA" = "unknown" ]; then
+                echo "WordPress public health barrier passed: installed=${LAST_VERSION} (minimum=${VERSION}), status=ok. Detailed schema/updater diagnostics are intentionally admin-only and are not required by the public CI barrier."
+              else
+                echo "WordPress control plane is compatible: installed=${LAST_VERSION} (minimum=${VERSION}), schema=${LAST_SCHEMA} (minimum=${EXPECTED_SCHEMA}), status=ok."
+              fi
               exit 0
             fi
 
@@ -864,12 +875,15 @@ jobs:
             sleep 10
           done
 
-          echo "::error::WORDPRESS_AUTOUPDATE_TIMEOUT expected=${VERSION} current=${LAST_VERSION} schema=${LAST_SCHEMA} ready=${LAST_READY} updater_auth=${LAST_UPDATER_AUTH} updater_status=${LAST_UPDATER_STATUS} updater_target=${LAST_UPDATER_TARGET}"
+          echo "::error::WORDPRESS_AUTOUPDATE_TIMEOUT expected=${VERSION} current=${LAST_VERSION} status=${LAST_STATUS} schema=${LAST_SCHEMA} ready=${LAST_READY} updater_auth=${LAST_UPDATER_AUTH} updater_status=${LAST_UPDATER_STATUS} updater_target=${LAST_UPDATER_TARGET}"
           if [ -n "$LAST_UPDATER_MESSAGE" ]; then
             echo "::error::WORDPRESS_UPDATER_MESSAGE ${LAST_UPDATER_MESSAGE}"
           fi
-          if [ "$LAST_UPDATER_AUTH" = "unknown" ]; then
-            echo "::error::WORDPRESS_BOOTSTRAP_REQUIRED The installed manager is too old to expose authenticated updater diagnostics. Install the published bluevpn-manager.zip once, then future releases can update automatically with the migrated GitHub token."
+          VERSION_COMPATIBLE="$(python -c 'import re,sys; p=lambda v: tuple(map(int,re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v).groups())) if re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v) else None; cv,ev=map(p,sys.argv[1:3]); print("true" if cv is not None and ev is not None and cv >= ev else "false")' "$LAST_VERSION" "$VERSION")"
+          if [ "$VERSION_COMPATIBLE" != "true" ] && [ "$LAST_UPDATER_AUTH" = "unknown" ]; then
+            echo "::error::WORDPRESS_BOOTSTRAP_REQUIRED Installed manager version is below the release target and the legacy installation exposes no updater diagnostics. Install the published bluevpn-manager.zip once to bootstrap automatic updates."
+          elif [ "$VERSION_COMPATIBLE" = "true" ] && [ "$LAST_STATUS" != "ok" ]; then
+            echo "::error::WORDPRESS_HEALTH_DEGRADED Installed manager version is compatible, but public health status is ${LAST_STATUS}; refusing to treat a degraded control plane as ready."
           fi
           exit 1
 

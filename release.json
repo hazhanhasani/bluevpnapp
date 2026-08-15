@@ -1,13 +1,14 @@
 {
-  "version": "4.7.1",
-  "version_code": 40701,
+  "version": "4.7.2",
+  "version_code": 40702,
   "channel": "beta",
-  "build_id": "20260815-v4.7.1-stable",
-  "built_at": "2026-08-15T17:20:00Z",
-  "android_version": "4.7.1",
-  "android_version_code": 40701,
-  "description": "BlueVPN 4.7.1: authoritative release-test manifest prevents stale overlay test modules from breaking the CI regression gate, preserving the 4.6.10 WARP racing, Iran-exit guard, lifecycle, isolation and security hardening.",
+  "build_id": "20260815-v4.7.2-stable",
+  "built_at": "2026-08-15T18:55:00Z",
+  "android_version": "4.7.2",
+  "android_version_code": 40702,
+  "description": "BlueVPN 4.7.2: fixes the WordPress auto-update convergence gate to honor the security-minimal public health contract. Compatible/newer Manager versions with public status=ok no longer fail because schema/updater diagnostics are intentionally admin-only.",
   "features": [
+    "wordpress-minimal-health-convergence-barrier",
     "warp-engine-home-explicit-import-build-fix",
     "aether-warp-free-primary-engine",
     "aether-pinned-a26159b82a70048b459e0128213c71767abecb8a",
@@ -265,5 +266,5 @@
     "turbo-warp-scan-default",
     "wireguard-fallback-default-enabled"
   ],
-  "version_source": "v4.7.1-stable"
+  "version_source": "v4.7.2-stable"
 }

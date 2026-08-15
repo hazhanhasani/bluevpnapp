@@ -1,6 +1,6 @@
-# BlueVPN 4.7.1
+# BlueVPN 4.7.2
 
-Version 4.7.1 makes the release Python test set authoritative through `tests/release_test_manifest.json`. This fixes GitHub overlay residues that caused build #260 to discover 28 retired v3.x tests and build #261 to discover two more legacy modules (`test_admin_security.py` and `test_admin_sms_catalog_render_v359.py`). Approved current-release tests still fail the gate normally; only unshipped stale test modules are reconciled before discovery. The v2rayNG 2.2.6 + Aether Free hardening from 4.6.10 remains unchanged.
+Version 4.7.2 fixes the WordPress convergence barrier so it matches the security-hardened public `/health` contract: CI now accepts a compatible/newer Manager when public health reports `status=ok`, while schema and updater diagnostics remain admin-only. It still fails on an older Manager, malformed version, or degraded public health. The 4.7.1 authoritative release-test manifest and 4.6.10 WARP hardening remain unchanged.
 
 WordPress hardening in this release makes public health output minimal, moves operational details behind `manage_options`, adds device-scoped OTP throttling, and short-circuits duplicate BluePay webhook deliveries before order activation. The release gate still performs a real pinned v2rayNG Android compile and `assemblePlaystoreRelease` in GitHub Actions; Python-only success cannot publish an APK.
 

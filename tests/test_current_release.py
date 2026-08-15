@@ -829,8 +829,10 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
     def test_91_wordpress_convergence_accepts_newer_manager_and_schema(self):
         workflow = text(".github/workflows/build-apk.yml")
         wait = block(workflow, "- name: Wait for WordPress control-plane auto-update", "- name: Create GitHub Release metadata and checksums")
-        self.assertIn("cv >= ev and cs >= es", wait)
+        self.assertIn("cv >= ev", wait)
+        self.assertIn("cs >= es and ready", wait)
         self.assertIn("installed=${LAST_VERSION} (minimum=${VERSION})", wait)
+        self.assertIn('DETAILS_COMPATIBLE="true"', wait)
         self.assertNotIn('[ "$LAST_VERSION" = "$VERSION" ] && [ "$LAST_SCHEMA" = "$EXPECTED_SCHEMA" ]', wait)
 
 
@@ -1311,6 +1313,22 @@ class TestIrcfIntelligenceSuite(unittest.TestCase):
         self.assertIn("BlueVpnRuntimeGate.subscriptionMutationActive()", servers)
         self.assertEqual(subscription.count("AngConfigManager.updateConfigViaSub(row)"), 1)
         self.assertNotIn("Thread.sleep(180L)", subscription)
+
+    def test_117_wordpress_convergence_accepts_minimal_public_health(self):
+        workflow = text(".github/workflows/build-apk.yml")
+        wait = block(workflow, "- name: Wait for WordPress control-plane auto-update", "- name: Create GitHub Release metadata and checksums")
+        self.assertIn('LAST_STATUS="unknown"', wait)
+        self.assertIn("d.get('status','unknown')", wait)
+        self.assertIn('[ "$VERSION_COMPATIBLE" = "true" ] && [ "$LAST_STATUS" = "ok" ] && [ "$DETAILS_COMPATIBLE" = "true" ]', wait)
+        self.assertIn('Detailed schema/updater diagnostics are intentionally admin-only', wait)
+        self.assertNotIn('[ "$COMPATIBLE" = "true" ] && [ "$LAST_READY" = "true" ]', wait)
+
+    def test_118_wordpress_convergence_does_not_hide_degraded_health(self):
+        workflow = text(".github/workflows/build-apk.yml")
+        wait = block(workflow, "- name: Wait for WordPress control-plane auto-update", "- name: Create GitHub Release metadata and checksums")
+        self.assertIn('WORDPRESS_HEALTH_DEGRADED', wait)
+        self.assertIn('[ "$VERSION_COMPATIBLE" != "true" ] && [ "$LAST_UPDATER_AUTH" = "unknown" ]', wait)
+        self.assertIn('Installed manager version is below the release target', wait)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

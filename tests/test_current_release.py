@@ -135,7 +135,7 @@ class CurrentReleaseTests(unittest.TestCase):
         exact = block(self.home, "private fun startExactCandidateCore", "private fun scheduleConnectionVerification")
         self.assertIn("CoreServiceManager.startVService(this, guid)", exact)
         self.assertNotIn("MmkvManager.setSelectServer(guid)", exact)
-        self.assertIn("handler.postDelayed(attemptTimeout, 30_000L)", exact)
+        self.assertIn("handler.postDelayed(attemptTimeout, 12_000L)", exact)
 
     def test_16_location_util_does_not_reject_v2rayng_profiles(self):
         usable = block(self.location, "fun isUsable(", "fun invalidateCache()")
@@ -1176,7 +1176,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         home = text("android-source/BlueVpnHomeActivity.kt")
         self.assertIn("serverGuids = networkSweepGuids", home)
         self.assertIn("AppConfig.MSG_MEASURE_CONFIG_START", home)
-        self.assertIn("تست واقعی $tested از ${guids.size} مسیر", home)
+        self.assertIn("اسکن سریع $tested از ${guids.size} مسیر", home)
 
     def test_138_running_core_does_not_bypass_end_to_end_verification(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
@@ -1257,3 +1257,32 @@ class TestIrcfIntelligenceSuite(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+def test_auth_does_not_block_on_entitlement_bootstrap():
+    account = (ROOT / "android-source" / "BlueVpnAccountManager.kt").read_text(encoding="utf-8")
+    assert "deferEntitlementWork: Boolean = false" in account
+    assert "backgroundExecutor.execute { runCatching { entitlementWork() } }" in account
+    assert "deferEntitlementWork = !bindToCurrentAccount" in account
+    assert "deferEntitlementWork = true" in account
+
+def test_auth_ui_returns_immediately_after_session():
+    activity = (ROOT / "android-source" / "BlueVpnSubscriptionsActivity.kt").read_text(encoding="utf-8")
+    assert "completeAuthFast" in activity
+    assert "finish()},90L" in activity
+    assert "hideSoftInputFromWindow" in activity
+
+
+def test_progressive_scanner_does_not_block_on_full_pool():
+    home = (ROOT / "android-source" / "BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
+    assert ".take(32)" in home
+    assert "val earlyQuorum" in home
+    assert "coerceAtMost(7_500L)" in home
+    assert "اتصال فوری به بهترین گزینه" in home
+
+def test_ready_exact_pool_bypasses_background_reconcile_wait():
+    home = (ROOT / "android-source" / "BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
+    account = (ROOT / "android-source" / "BlueVpnAccountManager.kt").read_text(encoding="utf-8")
+    assert "hasUsableCurrentEntitlementPool" in account
+    assert "if (!BlueVpnAccountManager.hasUsableCurrentEntitlementPool(this))" in home
+    assert "Pool فعلی آماده است • همگام‌سازی تکمیلی در پس‌زمینه" in home

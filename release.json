@@ -1,12 +1,12 @@
 {
-  "version": "4.5.7",
-  "version_code": 40507,
+  "version": "4.5.9",
+  "version_code": 40509,
   "channel": "beta",
-  "build_id": "20260815-v4.5.7-full-free-scanner-visible-status",
+  "build_id": "20260815-v4.5.9-progressive-network-scan",
   "built_at": "2026-08-15T10:50:00Z",
-  "android_version": "4.5.7",
-  "android_version_code": 40507,
-  "description": "BlueVPN 4.5.7: اسکن کامل و تازه برای AUTO در هر دو Pool رایگان و Premium، بدون تکیه به Cache ناقص، به‌همراه اصلاح کامل نمایش متن‌های وضعیت اتصال و جلوگیری از هم‌پوشانی آن‌ها با کنترل اتصال.",
+  "android_version": "4.5.9",
+  "android_version_code": 40509,
+  "description": "BlueVPN 4.5.9: اتصال دیگر منتظر اسکن کامل صدها Route نمی‌ماند؛ BlueAI یک Fast Lane حداکثر 32 مسیره با quorum واقعی اجرا می‌کند، با اولین مجموعه سالم به سریع‌ترین مسیر وصل می‌شود و بقیه Pool را برای failover نگه می‌دارد. اگر Pool دقیق فعلی آماده باشد، همگام‌سازی پس‌زمینه اتصال را مسدود نمی‌کند.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -235,7 +235,11 @@
     "free-full-scanner-parity",
     "two-line-visible-connection-status",
     "connection-status-no-track-overlap",
-    "large-sub-import-wait-budget"
+    "large-sub-import-wait-budget",
+    "progressive-fast-lane-network-scan",
+    "early-healthy-quorum-connect",
+    "exact-pool-ready-does-not-block-on-background-reconcile",
+    "bounded-per-candidate-connect-timeout"
   ],
   "version_source": "v4.5.6-ircf-intelligence-suite"
 }

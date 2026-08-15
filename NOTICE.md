@@ -1,1 +1,1 @@
-BlueVPN v4.5.7: makes AUTO connection scanning exhaustive for both Free and Premium pools, forces a fresh entitlement inventory before each automatic sweep, and fixes hidden/overlapped connection status text by reserving a dedicated two-line status area above the connection control. IRCF intelligence from 4.5.6 remains enabled.
+BlueVPN v4.5.9: decouples authentication success from expensive entitlement/subscription/AI bootstrap so email and OTP login return immediately after the server issues a valid session; post-auth initialization continues in the background.

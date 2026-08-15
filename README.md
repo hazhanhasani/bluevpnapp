@@ -1,3 +1,11 @@
+## v4.5.9 — Fast Authentication + Background Bootstrap
+
+- Email/password and OTP verification finish as soon as a valid BlueVPN session is issued.
+- Subscription import, Provider reconciliation, Free/Premium pool preparation and BlueAI bootstrap are deferred to a background executor and no longer block the login screen.
+- Normal account login returns to the caller immediately; purchase/plans/renew deep-links remain in-place and render from local session state.
+- The soft keyboard is dismissed after successful authentication.
+- Free/Premium isolation, hidden-route location architecture, exhaustive scanners, IRCF intelligence and connection verification from previous releases remain intact.
+
 ## v4.5.7 — Full Free Scanner + Visible Connection Status
 
 - Tests every allowed Free/Premium route with the official v2rayNG TestService on the current network before AUTO ranking.

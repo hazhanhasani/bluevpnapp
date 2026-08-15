@@ -1,4 +1,5 @@
 package com.v2ray.ang.ui
+import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -18,6 +19,7 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -524,7 +526,7 @@ private fun loadPlans(generation:Int){
    withContext(Dispatchers.Main){
     if(isFinishing||isDestroyed)return@withContext
     busy=false
-    result.onSuccess{draftPassword="";showAuthSuccess(if(register)"حساب شما ساخته شد" else "با موفقیت وارد شدید")}.onFailure{status.text=it.message?:if(register)"ثبت‌نام ناموفق بود" else "ورود ناموفق بود"}
+    result.onSuccess{draftPassword="";completeAuthFast(if(register)"حساب شما ساخته شد" else "با موفقیت وارد شدید")}.onFailure{status.text=it.message?:if(register)"ثبت‌نام ناموفق بود" else "ورود ناموفق بود"}
    }
   }
  }
@@ -562,7 +564,7 @@ private fun loadPlans(generation:Int){
     result.onSuccess{
      otpChallengeId="";otpPhone="";otpBinding=false
      draftOtpCode="";draftBindingCode=""
-     if(bind){setResult(RESULT_OK);render()}else{showAuthSuccess("شماره شما تأیید شد")}
+     if(bind){setResult(RESULT_OK);render()}else{completeAuthFast("شماره شما تأیید شد")}
     }.onFailure{status.text=it.message?:"کد تأیید معتبر نیست"}
    }
   }
@@ -796,20 +798,26 @@ private fun smsPhonePretty(raw:String):String{
  val api=smsPhoneForApi(raw)
  return if(api.length==11)"+98 ${api.substring(1,4)} ${api.substring(4,7)} ${api.substring(7)}" else raw
 }
-private fun showAuthSuccess(message:String){
- busy=false;setResult(RESULT_OK);status.text="";content.removeAllViews()
- val card=MaterialCardView(this).apply{radius=dp(28).toFloat();cardElevation=dp(12).toFloat();strokeWidth=dp(1);strokeColor=Color.parseColor("#234832");setCardBackgroundColor(Color.parseColor("#E6080A0C"))}
- val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;setPadding(dp(24),dp(36),dp(24),dp(36))}
- val check=TextView(this).apply{
-  text="✓";textSize=40f;gravity=Gravity.CENTER;setTextColor(Color.parseColor("#052E16"));setTypeface(typeface,Typeface.BOLD);alpha=0f;scaleX=.55f;scaleY=.55f;elevation=dp(8).toFloat()
-  background=GradientDrawable(GradientDrawable.Orientation.TL_BR,intArrayOf(Color.parseColor("#4ADE80"),Color.parseColor("#16A34A"))).apply{shape=GradientDrawable.OVAL}
+private fun completeAuthFast(message:String){
+ busy=false
+ setResult(RESULT_OK)
+ status.text=""
+ runCatching{
+  (getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
+   ?.hideSoftInputFromWindow(currentFocus?.windowToken,null)
  }
- box.addView(check,LinearLayout.LayoutParams(dp(82),dp(82)))
- box.addView(TextView(this).apply{text="ورود موفق!";textSize=23f;gravity=Gravity.CENTER;setTextColor(Color.parseColor("#4ADE80"));setTypeface(typeface,Typeface.BOLD);setPadding(0,dp(18),0,0)})
- box.addView(TextView(this).apply{text=message;textSize=11.5f;gravity=Gravity.CENTER;setTextColor(authMuted());setPadding(dp(5),dp(8),dp(5),0)})
- card.addView(box);content.addView(card,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(30)})
- check.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(500).start()
- handler.postDelayed({if(!isFinishing&&!isDestroyed)render()},760)
+ // The session is already persisted by BlueVpnAccountManager. Return to the
+ // caller immediately for the normal account route; expensive provider/sub/AI
+ // bootstrap continues on BlueVpnAccountManager's background executor.
+ if(entryRoute=="account"){
+  Toast.makeText(this,message,Toast.LENGTH_SHORT).show()
+  handler.postDelayed({if(!isFinishing&&!isDestroyed)finish()},90L)
+  return
+ }
+ // Deep-link purchase/plans/renew flows remain in this screen, but rendering is
+ // driven only by local session state and never waits for subscription sync.
+ Toast.makeText(this,message,Toast.LENGTH_SHORT).show()
+ handler.postDelayed({if(!isFinishing&&!isDestroyed)render()},90L)
 }
 private fun authBadge(icon:String,label:String)=TextView(this).apply{
  text="$label • $icon"

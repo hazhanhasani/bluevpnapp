@@ -775,6 +775,18 @@ object BlueVpnAccountManager {
     private fun currentPremiumPoolReady(c: Context): Boolean =
         premiumEntitlementActive(c) && currentPremiumServerGuids(c).isNotEmpty()
 
+    /**
+     * True only when the exact current entitlement already owns at least one
+     * decodable profile. This intentionally does not treat an unrelated global
+     * v2rayNG row as readiness and lets the UI avoid blocking on a background
+     * refresh when a safe current pool is already usable.
+     */
+    fun hasUsableCurrentEntitlementPool(c: Context): Boolean = when {
+        premiumEntitlementActive(c) -> currentPremiumServerGuids(c).isNotEmpty()
+        isFreeMode(c) -> usableServerGuids(enabledFreeSubscriptionGuids(c)).isNotEmpty()
+        else -> false
+    }
+
     fun entitlementSubscriptionGuids(c: Context): Set<String> = when {
         premiumEntitlementActive(c) -> managedSubscriptionGuids(c)
         isFreeMode(c) -> enabledFreeSubscriptionGuids(c)
@@ -1871,6 +1883,7 @@ object BlueVpnAccountManager {
             c,
             response.getJSONObject("account"),
             expectedAuthEpoch = authSessionEpoch.get(),
+            deferEntitlementWork = !bindToCurrentAccount,
         )
     }
 
@@ -1906,6 +1919,7 @@ object BlueVpnAccountManager {
             c,
             response.getJSONObject("account"),
             expectedAuthEpoch = authSessionEpoch.get(),
+            deferEntitlementWork = true,
         )
     }
 
@@ -2282,6 +2296,7 @@ object BlueVpnAccountManager {
         account: JSONObject,
         forceSubscriptions: Boolean = false,
         expectedAuthEpoch: Long? = null,
+        deferEntitlementWork: Boolean = false,
     ): BlueVpnAccountSnapshot {
         if (!hasSession(c)) return snapshot(c)
         if (expectedAuthEpoch != null && authSessionEpoch.get() != expectedAuthEpoch) return snapshot(c)
@@ -2413,46 +2428,58 @@ object BlueVpnAccountManager {
         if (expectedAuthEpoch != null && authSessionEpoch.get() != expectedAuthEpoch) return snapshot(c)
         if (!hasSession(c)) return snapshot(c)
 
-        if (effectiveActive) {
-            stopFreeSession(c, expired = false)
-            if (forceSubscriptions) {
-                // A forced account refresh must not re-import a healthy unchanged
-                // subscription. Re-importing on every screen entry clears MMKV for
-                // a short window and makes locations flash in and out.
-                val poolMissing = preferredServerGuids(c).isEmpty()
-                reconcileSubscriptionMode(
-                    c = c.applicationContext,
-                    premiumActive = true,
-                    premiumUrl = url,
-                    forceRefresh = entitlementChanged || poolMissing,
-                )
-            } else if (url.startsWith("http")) {
-                // A routine account payload must not re-import a healthy pool.
-                // But a server-authored pool_identity change is an entitlement
-                // mutation even when the URL is unchanged (for example a plan or
-                // provider ownership change). In that case one authoritative
-                // refresh is required; otherwise the UI can show the new plan
-                // while MMKV still contains the previous plan's routes.
-                val exactPoolMissing = preferredServerGuids(c).isEmpty()
-                if (entitlementChanged || exactPoolMissing) {
+        val entitlementWork = {
+            if (effectiveActive) {
+                stopFreeSession(c, expired = false)
+                if (forceSubscriptions) {
+                    // A forced account refresh must not re-import a healthy unchanged
+                    // subscription. Re-importing on every screen entry clears MMKV for
+                    // a short window and makes locations flash in and out.
+                    val poolMissing = preferredServerGuids(c).isEmpty()
                     reconcileSubscriptionMode(
                         c = c.applicationContext,
                         premiumActive = true,
                         premiumUrl = url,
-                        forceRefresh = true,
+                        forceRefresh = entitlementChanged || poolMissing,
                     )
+                } else if (url.startsWith("http")) {
+                    // A routine account payload must not re-import a healthy pool.
+                    // But a server-authored pool_identity change is an entitlement
+                    // mutation even when the URL is unchanged (for example a plan or
+                    // provider ownership change). In that case one authoritative
+                    // refresh is required; otherwise the UI can show the new plan
+                    // while MMKV still contains the previous plan's routes.
+                    val exactPoolMissing = preferredServerGuids(c).isEmpty()
+                    if (entitlementChanged || exactPoolMissing) {
+                        reconcileSubscriptionMode(
+                            c = c.applicationContext,
+                            premiumActive = true,
+                            premiumUrl = url,
+                            forceRefresh = true,
+                        )
+                    }
                 }
+            } else {
+                reconcileSubscriptionMode(
+                    c = c.applicationContext,
+                    premiumActive = false,
+                    premiumUrl = "",
+                    forceRefresh = false,
+                )
+                prepareFreeAccess(c, force = false)
             }
-        } else {
-            reconcileSubscriptionMode(
-                c = c.applicationContext,
-                premiumActive = false,
-                premiumUrl = "",
-                forceRefresh = false,
-            )
-            backgroundExecutor.execute { prepareFreeAccess(c, force = false) }
+            BlueVpnEntitlement.reconcile(c)
         }
-        BlueVpnEntitlement.reconcile(c)
+
+        // Authentication must finish as soon as the server has issued a valid
+        // session. Subscription import, Free/Premium pool reconciliation and AI
+        // preparation can be expensive (hundreds of profiles) and must never keep
+        // the login/OTP screen blocked. Auth callers explicitly defer this work.
+        if (deferEntitlementWork) {
+            backgroundExecutor.execute { runCatching { entitlementWork() } }
+        } else {
+            entitlementWork()
+        }
         return snapshot(c)
     }
 

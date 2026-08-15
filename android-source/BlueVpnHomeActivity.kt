@@ -197,6 +197,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var networkSweepTotal = 0
     private var networkSweepPollInFlight = false
     private var networkSweepGuids: List<String> = emptyList()
+    private var networkSweepBlockingTotal = 0
     private var networkSweepCandidates: List<BlueVpnLocationUtil.Candidate> = emptyList()
     private var networkSweepSelectionMode: BlueVpnSelectionMode = BlueVpnSelectionMode.AUTO
     private var smoothedDownloadBps = 0.0
@@ -361,13 +362,18 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 }
                 val elapsed = SystemClock.elapsedRealtime() - startedAt
                 val complete = guids.isNotEmpty() && tested >= guids.size
-                val timeout = elapsed >= (8_000L + guids.size.coerceAtMost(240) * 45L).coerceAtMost(18_000L)
+                // Do not make the user wait for a full 100-200 route sweep.
+                // The blocking phase only needs a trustworthy quorum; the full
+                // entitlement inventory stays available as progressive failover.
+                val quorumTarget = minOf(12, guids.size).coerceAtLeast(1)
+                val earlyQuorum = elapsed >= 1_600L && tested >= quorumTarget && healthy >= minOf(3, quorumTarget)
+                val timeout = elapsed >= (4_500L + guids.size.coerceAtMost(32) * 55L).coerceAtMost(7_500L)
                 withContext(Dispatchers.Main) {
                     networkSweepPollInFlight = false
                     if (!networkSweepInProgress || generation != networkSweepGeneration) return@withContext
                     val bestText = if (best != Long.MAX_VALUE) " • بهترین ${best}ms" else ""
                     if (::connectingCaption.isInitialized) {
-                        connectingCaption.text = "تست واقعی $tested از ${guids.size} مسیر • سالم $healthy$bestText"
+                        connectingCaption.text = "اسکن سریع $tested از ${guids.size} مسیر • سالم $healthy$bestText"
                     }
                     if (::connectingLocation.isInitialized) {
                         connectingLocation.text = when {
@@ -376,8 +382,12 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                             else -> "در حال تست کانفیگ‌ها با اینترنت شما"
                         }
                     }
-                    if (complete || timeout) {
-                        finishNetworkSweep(generation, timedOut = timeout && !complete)
+                    if (complete || earlyQuorum || timeout) {
+                        finishNetworkSweep(
+                            generation,
+                            timedOut = timeout && !complete && !earlyQuorum,
+                            earlyQuorum = earlyQuorum,
+                        )
                     } else {
                         handler.postDelayed({ if (networkSweepInProgress) handler.post(networkSweepTicker) }, 280L)
                     }
@@ -3182,17 +3192,23 @@ private fun dpHome(value: Int): Int =
         }
 
         if (BlueVpnAccountManager.entitlementReconcilePending(this)) {
-            pendingConnectionRequest = true
-            connectButton.isEnabled = false
-            statusText.text = "در حال اعمال پلن جدید"
-            statusCaption.text = "Pool اشتراک پس از پایان اتصال قبلی یک‌بار همگام می‌شود"
-            showConnectingOverlay(
-                title = "در حال آماده‌سازی پلن",
-                caption = "جداسازی Free/Premium در حال نهایی‌شدن است",
-                location = overlayLocation,
-            )
-            reconcileDeferredEntitlementIfIdle(retryConnection = true)
-            return
+            // A background refresh must never hold a paying/free user hostage when
+            // the exact current entitlement already has usable profiles. Continue
+            // with that pool and defer mutation until the connection is idle.
+            if (!BlueVpnAccountManager.hasUsableCurrentEntitlementPool(this)) {
+                pendingConnectionRequest = true
+                connectButton.isEnabled = false
+                statusText.text = "در حال اعمال پلن جدید"
+                statusCaption.text = "Pool فعلی هنوز کانفیگ قابل استفاده ندارد"
+                showConnectingOverlay(
+                    title = "در حال آماده‌سازی پلن",
+                    caption = "فقط تا آماده‌شدن اولین Pool معتبر منتظر می‌مانیم",
+                    location = overlayLocation,
+                )
+                reconcileDeferredEntitlementIfIdle(retryConnection = true)
+                return
+            }
+            statusCaption.text = "Pool فعلی آماده است • همگام‌سازی تکمیلی در پس‌زمینه"
         }
 
         if (!BlueVpnRuntimeGate.beginConnection(this, timeoutMs = 0L)) {
@@ -3393,13 +3409,22 @@ private fun dpHome(value: Int): Int =
         networkSweepStartedAt = SystemClock.elapsedRealtime()
         networkSweepCandidates = candidates
         networkSweepSelectionMode = selectionMode
-        networkSweepGuids = candidates.map { it.guid }.distinct()
-        networkSweepTotal = networkSweepGuids.size
+        // Fast lane: measure a bounded, history-aware sample first. Testing 150-200
+        // routes synchronously can take minutes on mobile networks and is not
+        // required before the first verified tunnel. Every remaining candidate
+        // stays in networkSweepCandidates and is available for failover.
+        val sweepOrder = candidates.sortedWith(
+            compareBy<BlueVpnLocationUtil.Candidate> { if (it.delay > 0L) 0 else 1 }
+                .thenBy { if (it.delay > 0L) it.delay else Long.MAX_VALUE }
+        )
+        networkSweepGuids = sweepOrder.map { it.guid }.distinct().take(32)
+        networkSweepBlockingTotal = networkSweepGuids.size
+        networkSweepTotal = candidates.map { it.guid }.distinct().size
 
         showConnectingOverlay(
             title = "تحلیل هوشمند شبکه",
-            caption = "تست واقعی ۰ از $networkSweepTotal مسیر",
-            location = "در حال تست کانفیگ‌ها با اینترنت شما",
+            caption = "اسکن سریع ۰ از $networkSweepBlockingTotal • کل Pool $networkSweepTotal",
+            location = "در حال پیدا کردن سریع‌ترین مسیر سالم",
         )
         statusText.text = "تحلیل کیفیت سرورها"
         statusCaption.visibility = View.VISIBLE
@@ -3429,7 +3454,7 @@ private fun dpHome(value: Int): Int =
         if (generation != networkSweepGeneration) return
     }
 
-    private fun finishNetworkSweep(generation: Int, timedOut: Boolean) {
+    private fun finishNetworkSweep(generation: Int, timedOut: Boolean, earlyQuorum: Boolean = false) {
         if (!networkSweepInProgress || generation != networkSweepGeneration) return
         networkSweepInProgress = false
         networkSweepPollInFlight = false
@@ -3446,9 +3471,12 @@ private fun dpHome(value: Int): Int =
             val delay = MmkvManager.decodeServerAffiliationInfo(candidate.guid)?.testDelayMillis ?: 0L
             candidate.copy(profile = profile, delay = delay)
         }
-        val healthy = refreshed.filter { it.delay > 0L }
-        val unknown = refreshed.filter { it.delay == 0L }
-        val failed = refreshed.filter { it.delay < 0L }
+        val testedSet = networkSweepGuids.toSet()
+        val healthy = refreshed.filter { it.guid in testedSet && it.delay > 0L }
+            .sortedBy { it.delay }
+        val unknown = refreshed.filter { it.guid !in testedSet || it.delay == 0L }
+            .map { it.copy(delay = 0L) } // stale historical ping must never outrank a route tested now
+        val failed = refreshed.filter { it.guid in testedSet && it.delay < 0L }
         failed.forEach { BlueVpnPreferences.markSessionInactive(this, it.guid) }
         healthy.forEach { BlueVpnPreferences.clearSessionInactive(this, it.guid) }
 
@@ -3457,9 +3485,10 @@ private fun dpHome(value: Int): Int =
         // delay probe is inconclusive. Hard failures are excluded for this cycle.
         val ready = (healthy + unknown).distinctBy { it.guid }
         statusCaption.text = when {
+            earlyQuorum && healthy.isNotEmpty() -> "${healthy.size} مسیر سالم کافی پیدا شد • اتصال فوری به بهترین گزینه"
             healthy.isNotEmpty() -> "${healthy.size} مسیر سالم • ${failed.size} ناموفق • انتخاب سریع‌ترین مسیر"
-            timedOut && unknown.isNotEmpty() -> "تست کامل زمان‌بر شد؛ مسیرهای نامشخص با تأیید واقعی Xray بررسی می‌شوند"
-            else -> "هیچ مسیر سالمی در تست اولیه پیدا نشد؛ بررسی واقعی Xray ادامه دارد"
+            timedOut && unknown.isNotEmpty() -> "اسکن سریع تمام شد؛ مسیرهای ذخیره با تأیید واقعی Xray بررسی می‌شوند"
+            else -> "نتیجه قطعی از اسکن سریع نگرفتیم؛ بررسی واقعی Xray ادامه دارد"
         }
         startSmartConnectionWithCandidates(
             if (ready.isNotEmpty()) ready else refreshed,
@@ -3736,7 +3765,7 @@ private fun dpHome(value: Int): Int =
             if (!isFinishing && !isDestroyed) requestDashboardRefresh()
         }, 60L)
         handler.removeCallbacks(attemptTimeout)
-        handler.postDelayed(attemptTimeout, 30_000L)
+        handler.postDelayed(attemptTimeout, 12_000L)
     }
 
     private fun scheduleConnectionVerification() {

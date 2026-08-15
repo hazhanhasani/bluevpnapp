@@ -3516,6 +3516,9 @@ private fun dpHome(value: Int): Int =
     private fun warpFailureCaption(failure: BlueVpnWarpEngine.Failure?): String {
         if (failure == null) return "روی این شبکه مسیر WARP آماده نشد؛ دوباره تلاش کنید"
         val strategy = failure.strategy?.name?.replace('_', ' ') ?: "AUTO"
+        if (failure.code == BlueVpnWarpEngine.ErrorCode.EXIT_IRAN) {
+            return "مسیر $strategy خروجی ایران داد؛ مسیر برای این شبکه جریمه شد و بازیابی خودکار انجام می‌شود"
+        }
         return "${failure.code.name} • $strategy • ${failure.detail.take(90)}"
     }
 

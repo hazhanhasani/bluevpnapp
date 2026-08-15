@@ -15,6 +15,7 @@
     "test_warp_backoff_recovery_481.py",
     "test_warp_diagnostics_480.py",
     "test_warp_endpoint_racing_469.py",
-    "test_warp_exit_guard_469.py"
+    "test_warp_exit_guard_469.py",
+    "test_warp_iran_identity_recovery_482.py"
   ]
 }

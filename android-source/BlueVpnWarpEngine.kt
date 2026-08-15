@@ -49,6 +49,11 @@ object BlueVpnWarpEngine {
     private const val PREFS = "bluevpn_warp_runtime_v3"
     private const val PORT_MIN = 1819
     private const val PORT_MAX = 1849
+    private const val IR_POISON_DISTINCT_STRATEGIES = 3
+    private const val IR_IDENTITY_ROTATION_COOLDOWN_MS = 6 * 60 * 60_000L
+    private const val IR_POISON_TTL_MS = 24 * 60 * 60_000L
+    private const val AETHER_MIGRATION_MARKER = "bluevpn-aether-migrated-v1"
+    private const val MAX_QUARANTINED_IDENTITIES = 2
         private const val MAX_HISTORY = 24
 
     enum class State { STOPPED, PREPARING, TRYING_CACHED_ROUTE, RACING_ENDPOINTS, SCANNING, AETHER_DATA_PLANE_VALIDATING, SOCKS_READY, STARTING_XRAY_BRIDGE, VERIFYING_TUNNEL, CONNECTED, RECONNECTING, SWITCHING_STRATEGY, FALLING_BACK_TO_POOL, STOPPING, FAILED }
@@ -122,6 +127,7 @@ object BlueVpnWarpEngine {
         val policy = BlueVpnAccountManager.freeAccessSnapshot(app)
         val shape = networkShape(app)
         val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        recoverPoisonedIdentityIfNeeded(app, prefs, shape.signature)
         val strategies = strategyOrder(prefs, shape.signature, policy)
         if (strategies.isEmpty()) throw Failure(ErrorCode.CONFIG_INVALID, state, null, "No WARP strategy is allowed by policy")
         val totalDeadline = started + policy.warpTotalTimeoutSeconds.coerceIn(30, 90) * 1000L
@@ -173,6 +179,7 @@ object BlueVpnWarpEngine {
                     } ?: false
                     if (!ok) throw Failure(ErrorCode.WARP_START_TIMEOUT, state, strategy, "Strategy exceeded startup budget")
                     recordStrategySuccess(prefs, shape.signature, strategy, SystemClock.elapsedRealtime() - started)
+                    clearIranPoisonState(prefs, shape.signature)
                     activeStrategy = strategy; activePort = port; state = State.SOCKS_READY
                     return@withContext Prepared(ensureBridgeProfile(port), strategy, port, SystemClock.elapsedRealtime() - started)
                 } catch (f: Failure) {
@@ -400,12 +407,84 @@ object BlueVpnWarpEngine {
 
     private fun persistentAetherDataDir(context: Context): File {
         val target = File(context.noBackupFilesDir, "bluevpn-aether-v1")
-        if (!target.exists()) {
+        val migrationMarker = File(context.noBackupFilesDir, AETHER_MIGRATION_MARKER)
+        if (!target.exists() && !migrationMarker.exists()) {
             val legacy = File(context.filesDir, "bluevpn-aether")
             if (legacy.isDirectory) runCatching { legacy.copyRecursively(target, overwrite = false) }
+            runCatching { migrationMarker.createNewFile() }
         }
         target.mkdirs()
         return target
+    }
+
+    private fun recoverPoisonedIdentityIfNeeded(context: Context, prefs: SharedPreferences, sig: String) {
+        val mask = prefs.getInt("ir_mask:$sig", 0)
+        val poisonedAt = prefs.getLong("ir_poisoned_at:$sig", 0L)
+        val now = System.currentTimeMillis()
+        if (poisonedAt > 0L && now - poisonedAt > IR_POISON_TTL_MS) {
+            clearIranPoisonState(prefs, sig)
+            return
+        }
+        if (Integer.bitCount(mask) < IR_POISON_DISTINCT_STRATEGIES) return
+
+        val lastRotation = prefs.getLong("ir_identity_rotated_at:$sig", 0L)
+        if (lastRotation > 0L && now - lastRotation < IR_IDENTITY_ROTATION_COOLDOWN_MS) {
+            // A fresh identity has already been attempted recently. Do not create
+            // registration storms; let the caller continue toward the configured
+            // non-Iran Free Pool fallback or fail closed.
+            return
+        }
+
+        stopProcessOnly(wait = true)
+        val current = File(context.noBackupFilesDir, "bluevpn-aether-v1")
+        if (current.exists()) {
+            val quarantine = File(context.noBackupFilesDir, "bluevpn-aether-ir-quarantine-$now")
+            runCatching {
+                if (!current.renameTo(quarantine)) {
+                    current.copyRecursively(quarantine, overwrite = false)
+                    current.deleteRecursively()
+                }
+            }
+        }
+        cleanupQuarantinedIdentities(context)
+        File(context.noBackupFilesDir, AETHER_MIGRATION_MARKER).runCatching { createNewFile() }
+        persistentAetherDataDir(context)
+
+        val edit = prefs.edit()
+            .putLong("ir_identity_rotated_at:$sig", now)
+            .remove("ir_mask:$sig")
+            .remove("ir_poisoned_at:$sig")
+            .remove("lkg:$sig")
+            .remove("lkg_at:$sig")
+        Strategy.values().forEach { strategy ->
+            edit.remove("backoff:$sig:${strategy.name}")
+                .remove("fail:$sig:${strategy.name}")
+                .remove("edge:$sig:${strategy.name}")
+                .remove("edge_at:$sig:${strategy.name}")
+        }
+        edit.apply()
+    }
+
+    private fun cleanupQuarantinedIdentities(context: Context) {
+        context.noBackupFilesDir.listFiles()
+            ?.filter { it.isDirectory && it.name.startsWith("bluevpn-aether-ir-quarantine-") }
+            ?.sortedByDescending { it.lastModified() }
+            ?.drop(MAX_QUARANTINED_IDENTITIES)
+            ?.forEach { runCatching { it.deleteRecursively() } }
+    }
+
+    private fun recordIranExit(prefs: SharedPreferences, sig: String, strategy: Strategy) {
+        val bit = 1 shl strategy.ordinal
+        val mask = prefs.getInt("ir_mask:$sig", 0) or bit
+        val edit = prefs.edit().putInt("ir_mask:$sig", mask)
+        if (Integer.bitCount(mask) >= IR_POISON_DISTINCT_STRATEGIES) {
+            edit.putLong("ir_poisoned_at:$sig", System.currentTimeMillis())
+        }
+        edit.apply()
+    }
+
+    private fun clearIranPoisonState(prefs: SharedPreferences, sig: String) {
+        prefs.edit().remove("ir_mask:$sig").remove("ir_poisoned_at:$sig").apply()
     }
 
     private fun strategyScore(prefs: SharedPreferences, sig: String, strategy: Strategy): Double {
@@ -526,5 +605,6 @@ object BlueVpnWarpEngine {
         val key="fail:$sig:${s.name}"; val count=min(8,prefs.getInt(key,0)+1); val prefix="strategy_stat:$sig:${s.name}"
         prefs.edit().putInt(key,count).putInt("$prefix:fail",min(24,prefs.getInt("$prefix:fail",0)+1))
             .putLong("backoff:$sig:${s.name}",System.currentTimeMillis()+backoffMs(code,count)).apply()
+        if (code == ErrorCode.EXIT_IRAN) recordIranExit(prefs, sig, s)
     }
 }

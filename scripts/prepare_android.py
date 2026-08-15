@@ -95,6 +95,7 @@ def patch_build_gradle() -> None:
     required_dependencies = (
         'implementation("com.google.guava:guava:33.6.0-android")',
         'implementation("ir.tapsell.plus:tapsell-plus-sdk-android:2.3.3")',
+        'implementation("com.google.android.gms:play-services-auth-api-phone:18.3.1")',
     )
     for dependency in required_dependencies:
         if dependency not in text:
@@ -180,6 +181,8 @@ def patch_strings() -> None:
         "service_started": "اتصال BlueVPN فعال است",
         "service_stopped": "اتصال BlueVPN متوقف شد",
         "notification_service_running": "اتصال امن BlueVPN فعال است",
+        "notification_action_stop_v2ray": "توقف",
+        "title_service_restart": "راه‌اندازی مجدد",
     }
 
     # Android Lint requires every translated key to exist in the default
@@ -199,6 +202,8 @@ def patch_strings() -> None:
         "service_started": "BlueVPN connection is active",
         "service_stopped": "BlueVPN connection has stopped",
         "notification_service_running": "BlueVPN secure connection is active",
+        "notification_action_stop_v2ray": "Stop",
+        "title_service_restart": "Restart",
     }
 
     default_path = APP / "src/main/res/values/strings.xml"
@@ -413,6 +418,22 @@ def patch_manifest() -> None:
             1,
         )
 
+    # Replace upstream v2rayNG tile with a BlueVPN-aware tile so Free/WARP
+    # also starts/stops its Aether lifecycle rather than only toggling Xray.
+    text = text.replace(
+        'android:name=".service.QSTileService"',
+        'android:name="com.v2ray.ang.bluevpn.BlueVpnQuickTileService"',
+    )
+    system_receiver = "com.v2ray.ang.bluevpn.BlueVpnSystemActionReceiver"
+    if system_receiver not in text:
+        receiver_node = (
+            '\n        <receiver\n'
+            '            android:name="com.v2ray.ang.bluevpn.BlueVpnSystemActionReceiver"\n'
+            '            android:enabled="true"\n'
+            '            android:exported="false" />\n'
+        )
+        text = text.replace("</application>", receiver_node + "    </application>", 1)
+
     provider_authority = (
         "${applicationId}.bluevpn.updateprovider"
     )
@@ -450,6 +471,32 @@ def patch_manifest() -> None:
         "startActivity(Intent(this, BlueVpnHomeActivity::class.java))",
     )
     url_scheme_path.write_text(url_scheme_text, encoding="utf-8")
+
+def patch_system_notification() -> None:
+    path = APP / "src/main/java/com/v2ray/ang/handler/NotificationManager.kt"
+    text = path.read_text(encoding="utf-8")
+    text = text.replace(
+        "import com.v2ray.ang.ui.MainActivity",
+        "import com.v2ray.ang.ui.BlueVpnHomeActivity\nimport com.v2ray.ang.bluevpn.BlueVpnSystemActionReceiver\nimport com.v2ray.ang.bluevpn.BlueVpnSystemController",
+    )
+    text = text.replace(
+        "Intent(service, MainActivity::class.java)",
+        "Intent(service, BlueVpnHomeActivity::class.java)",
+    )
+    # BlueVPN keeps lightweight 3-second traffic stats visible in the persistent VPN notification.
+    text = text.replace(
+        "        if (MmkvManager.decodeSettingsBool(AppConfig.PREF_SPEED_ENABLED) != true) return\n",
+        "",
+    )
+    text = text.replace(
+        "val stopV2RayIntent = Intent(AppConfig.BROADCAST_ACTION_SERVICE)\n        stopV2RayIntent.`package` = AppConfig.ANG_PACKAGE\n        stopV2RayIntent.putExtra(\"key\", AppConfig.MSG_STATE_STOP)",
+        "val stopV2RayIntent = Intent(service, BlueVpnSystemActionReceiver::class.java)\n            .setAction(BlueVpnSystemController.ACTION_STOP)",
+    )
+    text = text.replace(
+        "val restartV2RayIntent = Intent(AppConfig.BROADCAST_ACTION_SERVICE)\n        restartV2RayIntent.`package` = AppConfig.ANG_PACKAGE\n        restartV2RayIntent.putExtra(\"key\", AppConfig.MSG_STATE_RESTART)",
+        "val restartV2RayIntent = Intent(service, BlueVpnSystemActionReceiver::class.java)\n            .setAction(BlueVpnSystemController.ACTION_RESTART)",
+    )
+    path.write_text(text, encoding="utf-8")
 
 def patch_app_config() -> None:
     path = APP / "src/main/java/com/v2ray/ang/AppConfig.kt"
@@ -550,9 +597,13 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnPoolOrchestrator.kt": ROOT / "android-source/BlueVpnPoolOrchestrator.kt",
         bluevpn_dir / "BlueVpnWarpEngine.kt": ROOT / "android-source/BlueVpnWarpEngine.kt",
         bluevpn_dir / "BlueVpnWarpKeepAliveService.kt": ROOT / "android-source/BlueVpnWarpKeepAliveService.kt",
+        bluevpn_dir / "BlueVpnSystemController.kt": ROOT / "android-source/BlueVpnSystemController.kt",
+        bluevpn_dir / "BlueVpnQuickTileService.kt": ROOT / "android-source/BlueVpnQuickTileService.kt",
+        bluevpn_dir / "BlueVpnSystemActionReceiver.kt": ROOT / "android-source/BlueVpnSystemActionReceiver.kt",
         bluevpn_dir / "BlueVpnWarpPolicy.kt": ROOT / "android-source/BlueVpnWarpPolicy.kt",
         java_dir / "BlueVpnServersActivity.kt": ROOT / "android-source/BlueVpnServersActivity.kt",
         java_dir / "BlueVpnSubscriptionsActivity.kt": ROOT / "android-source/BlueVpnSubscriptionsActivity.kt",
+        bluevpn_dir / "BlueVpnSmsOtpAutoFill.kt": ROOT / "android-source/BlueVpnSmsOtpAutoFill.kt",
         java_dir / "BlueVpnSettingsActivity.kt": ROOT / "android-source/BlueVpnSettingsActivity.kt",
     }
     for target, source in plain_overrides.items():
@@ -641,6 +692,7 @@ def main() -> None:
     patch_build_gradle()
     patch_strings()
     patch_manifest()
+    patch_system_notification()
     patch_app_config()
     inject_bootstrap()
     inject_bluevpn_home()

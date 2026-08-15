@@ -10,6 +10,8 @@
     "test_warp_adaptive_469.py",
     "test_warp_background_reconnect_473.py",
     "test_warp_endpoint_racing_469.py",
-    "test_warp_exit_guard_469.py"
+    "test_warp_exit_guard_469.py",
+    "test_sms_otp_autofill_477.py",
+    "test_android_system_integration_478.py"
   ]
 }

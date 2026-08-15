@@ -1,10 +1,10 @@
 === BlueVPN Manager ===
-Version: 4.7.6
-Stable tag: 4.7.6
+Version: 4.7.8
+Stable tag: 4.7.8
 Requires PHP: 8.0
 
 
-== 4.7.6 ==
+== 4.7.8 ==
 * WARP stability release: single-process native Aether racing, persistent identity, serialized launches and adaptive transport history.
 * Feature: live PasarGuard group and Marzban inbound catalogs can be loaded from the selected panel and chosen per plan.
 * Feature: paid provisioning now honors the selected PasarGuard groups and selected Marzban inbounds; empty selection keeps the existing all-active behavior.

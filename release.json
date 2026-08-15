@@ -1,12 +1,12 @@
 {
-  "version": "4.7.6",
-  "version_code": 40706,
+  "version": "4.7.8",
+  "version_code": 40708,
   "channel": "beta",
-  "build_id": "20260816-v4.7.6-warp-native-racing",
+  "build_id": "20260816-v4.7.8-sms-otp-autofill",
   "built_at": "2026-08-15T21:20:00Z",
-  "android_version": "4.7.6",
-  "android_version_code": 40706,
-  "description": "BlueVPN 4.7.6 hardens free WARP by using one persistent Aether v1.6 process per attempt, delegating endpoint racing to Aether native scanning, persisting WARP identity in no-backup storage, serializing process launches, and ranking transports per network from real success/failure history.",
+  "android_version": "4.7.8",
+  "android_version_code": 40708,
+  "description": "BlueVPN 4.7.8 adds permissionless SMS OTP autofill and one-tap consent retrieval on Android. The listener starts before OTP transmission, buffers early codes until the challenge arrives, fills the six-digit code, and automatically verifies it without READ_SMS.",
   "features": [
     "wordpress-minimal-health-convergence-barrier",
     "warp-engine-home-explicit-import-build-fix",
@@ -271,5 +271,5 @@
     "provider-access-catalog-admin-ajax",
     "provider-selection-honored-by-provisioning"
   ],
-  "version_source": "v4.7.6-stable"
+  "version_source": "v4.7.8-stable"
 }

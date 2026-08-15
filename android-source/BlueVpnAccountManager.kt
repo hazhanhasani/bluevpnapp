@@ -576,7 +576,7 @@ object BlueVpnAccountManager {
             warpMode != "pool_only"
         }
         val snapshot = BlueVpnFreeAccessSnapshot(
-            enabled = storage.getBoolean("enabled", warpEnabled) || warpEnabled,
+            enabled = storage.getBoolean("enabled", warpEnabled),
             subscriptionUrl = ordered.firstOrNull()?.url.orEmpty(),
             subscriptions = ordered,
             sessionMinutes = storage.getInt("session_minutes", 60).coerceIn(15, 180),

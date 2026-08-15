@@ -8,6 +8,7 @@ final class BlueVPN_API {
     }
     public static function register_routes(): void {
         register_rest_route('bluevpn-system/v1','/health',['methods'=>'GET','callback'=>[self::class,'health'],'permission_callback'=>'__return_true']);
+        register_rest_route('bluevpn-system/v1','/health/details',['methods'=>'GET','callback'=>[self::class,'health_details'],'permission_callback'=>[self::class,'admin_permission']]);
         register_rest_route('bluevpn-system/v1','/app-connection',['methods'=>'GET','callback'=>[self::class,'app_connection'],'permission_callback'=>'__return_true']);
         $routes = [
             ['/mobile/config','GET','mobile_config'],
@@ -48,22 +49,27 @@ final class BlueVPN_API {
         return self::ok(['detail'=>['code'=>'SERVER_INTERNAL_ERROR','message'=>'خطای داخلی سرور هنگام پردازش درخواست رخ داد.','trace_id'=>$trace]],500);
     }
     private static function body(WP_REST_Request $r): array { $b=$r->get_json_params(); return is_array($b)?$b:[]; }
+    public static function admin_permission(): bool { return current_user_can('manage_options'); }
     public static function health(): WP_REST_Response {
         $db = BlueVPN_DB::status();
         $production = class_exists('BlueVPN_Production') ? BlueVPN_Production::health_summary() : [];
-        $updater = class_exists('BlueVPN_GitHub_Updater') ? BlueVPN_GitHub_Updater::diagnostics() : [];
         return self::ok([
             'status' => ($db['ready'] && (!isset($production['score']) || $production['score'] >= 70)) ? 'ok' : 'degraded',
             'service' => 'bluevpn-wordpress-platform',
             'version' => BLUEVPN_MANAGER_VERSION,
             'server_time' => BlueVPN_Utils::iso_now(),
-            'server_time_fa' => BlueVPN_Utils::tehran_datetime_fa(),
-            'calendar' => 'jalali',
-            'timezone' => 'Asia/Tehran',
+        ]);
+    }
+    public static function health_details(): WP_REST_Response {
+        $db = BlueVPN_DB::status();
+        return self::ok([
+            'status' => $db['ready'] ? 'ok' : 'degraded',
+            'service' => 'bluevpn-wordpress-platform',
+            'version' => BLUEVPN_MANAGER_VERSION,
             'database' => $db,
             'counts' => $db['ready'] ? BlueVPN_DB::counts() : [],
-            'production' => $production,
-            'github_updater' => $updater,
+            'production' => class_exists('BlueVPN_Production') ? BlueVPN_Production::health_summary() : [],
+            'github_updater' => class_exists('BlueVPN_GitHub_Updater') ? BlueVPN_GitHub_Updater::diagnostics() : [],
             'migration' => [
                 'phase' => 2,
                 'state' => BlueVPN_Migration::state()['phase'],

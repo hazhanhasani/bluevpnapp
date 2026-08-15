@@ -1,12 +1,12 @@
 {
-  "version": "4.6.9",
-  "version_code": 40609,
+  "version": "4.6.10",
+  "version_code": 40610,
   "channel": "beta",
-  "build_id": "20260815-v4.6.9-cloudflare-endpoint-racing",
+  "build_id": "20260815-v4.6.10-stable",
   "built_at": "2026-08-15T17:20:00Z",
-  "android_version": "4.6.9",
-  "android_version_code": 40609,
-  "description": "BlueVPN 4.6.9: Cloudflare endpoint/port racing across documented WARP ingress ranges, network-scoped last-good edge memory, per-edge cooldown, turbo fallback scanning, and WireGuard fallback enabled by default.",
+  "android_version": "4.6.10",
+  "android_version_code": 40610,
+  "description": "BlueVPN 4.6.10: bounded parallel Cloudflare endpoint racing, scored network-scoped LKG, adaptive failure cooldown, strict non-Iran exit validation, cancellable Aether lifecycle, direct-peer fast path, and authoritative Free policy booleans.",
   "features": [
     "warp-engine-home-explicit-import-build-fix",
     "aether-warp-free-primary-engine",
@@ -265,5 +265,5 @@
     "turbo-warp-scan-default",
     "wireguard-fallback-default-enabled"
   ],
-  "version_source": "v4.6.9-cloudflare-endpoint-racing"
+  "version_source": "v4.6.10-stable"
 }

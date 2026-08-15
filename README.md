@@ -1,3 +1,11 @@
+# BlueVPN 4.6.10
+
+Version 4.6.10 hardens the existing v2rayNG 2.2.6 + Aether Free path without redesigning the BlueVPN UI. The WARP fast path now uses bounded parallel endpoint racing (maximum four concurrent probes), network-scoped scored history, a six-hour LKG TTL, adaptive failure cooldowns, cancellable process generations, direct-peer mode without native scan, strict SOCKS/HTTPS/exit validation, and explicit Iran-exit rejection before the local bridge profile is accepted. Free policy `false` values are authoritative and are no longer OR-merged back to true.
+
+WordPress hardening in this release makes public health output minimal, moves operational details behind `manage_options`, adds device-scoped OTP throttling, and short-circuits duplicate BluePay webhook deliveries before order activation. The release gate still performs a real pinned v2rayNG Android compile and `assemblePlaystoreRelease` in GitHub Actions; Python-only success cannot publish an APK.
+
+Local verification performed for this source bundle: 168 Python regression tests passed, PHP lint passed for the Manager and site theme, the release validator passed, the pure Kotlin WARP policy behavior test executed successfully on the JVM, and `BlueVpnWarpEngine.kt` compiled against Android/v2rayNG API stubs to catch Kotlin syntax/type regressions. A full local Android Gradle build could not be executed in the artifact sandbox because outbound DNS to GitHub is unavailable, so the pinned upstream checkout cannot be materialized here; the GitHub workflow is the authoritative full Android build gate.
+
 ## v4.5.9 — Fast Authentication + Background Bootstrap
 
 - Email/password and OTP verification finish as soon as a valid BlueVPN session is issued.

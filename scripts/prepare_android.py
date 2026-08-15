@@ -525,6 +525,7 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnIrcfIntelligence.kt": ROOT / "android-source/BlueVpnIrcfIntelligence.kt",
         bluevpn_dir / "BlueVpnPoolOrchestrator.kt": ROOT / "android-source/BlueVpnPoolOrchestrator.kt",
         bluevpn_dir / "BlueVpnWarpEngine.kt": ROOT / "android-source/BlueVpnWarpEngine.kt",
+        bluevpn_dir / "BlueVpnWarpPolicy.kt": ROOT / "android-source/BlueVpnWarpPolicy.kt",
         java_dir / "BlueVpnServersActivity.kt": ROOT / "android-source/BlueVpnServersActivity.kt",
         java_dir / "BlueVpnSubscriptionsActivity.kt": ROOT / "android-source/BlueVpnSubscriptionsActivity.kt",
         java_dir / "BlueVpnSettingsActivity.kt": ROOT / "android-source/BlueVpnSettingsActivity.kt",

@@ -372,11 +372,14 @@ final class BlueVPN_SMS_OTP {
         return preg_match('/^[0-9a-f:.]+$/i', $ip) ? $ip : 'unknown';
     }
 
-    private static function rate_limit(string $phone): void {
+    private static function rate_limit(string $phone, string $deviceId = ''): void {
         $window = 10 * MINUTE_IN_SECONDS;
         $phoneKey = 'bluevpn_otp_phone_' . substr(hash('sha256', $phone), 0, 24);
         $ipKey = 'bluevpn_otp_ip_' . substr(hash('sha256', self::client_ip()), 0, 24);
-        foreach ([[$phoneKey, 5], [$ipKey, 30]] as [$key, $limit]) {
+        $deviceKey = 'bluevpn_otp_device_' . substr(hash('sha256', trim($deviceId)), 0, 24);
+        $limits = [[$phoneKey, 5], [$ipKey, 30]];
+        if (trim($deviceId) !== '') $limits[] = [$deviceKey, 8];
+        foreach ($limits as [$key, $limit]) {
             $count = (int)get_transient($key);
             if ($count >= $limit) {
                 throw new BlueVPN_Auth_Exception(429, 'OTP_RATE_LIMITED', 'تعداد درخواست کد زیاد است؛ چند دقیقه دیگر دوباره تلاش کنید.', ['retry_after_seconds' => 600]);
@@ -566,7 +569,7 @@ final class BlueVPN_SMS_OTP {
         $phone = self::normalize_phone($phoneRaw);
         $deviceId = mb_substr(trim($deviceId), 0, 180);
         if ($deviceId === '') throw new BlueVPN_Auth_Exception(422, 'DEVICE_ID_REQUIRED', 'شناسه دستگاه لازم است.');
-        self::rate_limit($phone);
+        self::rate_limit($phone, $deviceId);
         $s = self::settings();
         if (!self::is_ready()) throw new BlueVPN_Auth_Exception(503, 'SMS_NOT_CONFIGURED', 'سامانه ایران‌پیامک هنوز در پنل مدیریت تنظیم یا فعال نشده است.');
 
@@ -719,7 +722,7 @@ final class BlueVPN_SMS_OTP {
         $customers = BlueVPN_DB::table('customers');
         $owner = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$customers} WHERE phone=%s AND id<>%d LIMIT 1", $phone, $customerId));
         if ($owner) throw new BlueVPN_Auth_Exception(409, 'PHONE_ALREADY_USED', 'این شماره قبلاً به حساب دیگری متصل شده است.');
-        self::rate_limit($phone);
+        self::rate_limit($phone, $deviceId);
         $s = self::settings();
         if (!self::is_ready()) throw new BlueVPN_Auth_Exception(503, 'SMS_NOT_CONFIGURED', 'سامانه ایران‌پیامک هنوز در پنل مدیریت تنظیم یا فعال نشده است.');
         $table = BlueVPN_DB::table('otp_challenges');

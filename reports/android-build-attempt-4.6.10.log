@@ -1,0 +1,6 @@
+Full Android build bootstrap attempted in artifact sandbox.
+Command: git clone --depth 1 --branch 2.2.6 --recurse-submodules --shallow-submodules https://github.com/2dust/v2rayNG.git upstream
+Result: BLOCKED BY ENVIRONMENT
+Error: fatal: unable to access 'https://github.com/2dust/v2rayNG.git/': Could not resolve host: github.com
+The supplied release ZIP does not contain upstream/V2rayNG, so Gradle cannot be run locally without that checkout.
+The repository workflow requires :app:compilePlaystoreReleaseKotlin followed by :app:assemblePlaystoreRelease against pinned v2rayNG 2.2.6.

@@ -433,9 +433,9 @@ jobs:
           python scripts/build_aether_android.py 2>&1 | tee "$GITHUB_WORKSPACE/aether-build.log"
           test -x upstream/V2rayNG/app/src/main/jniLibs/arm64-v8a/libbluevpn_aether.so
           test -x upstream/V2rayNG/app/src/main/jniLibs/armeabi-v7a/libbluevpn_aether.so
-          test -s reports/AETHER-PROVENANCE-4.6.9.txt
-          grep -q 'commit=a26159b82a70048b459e0128213c71767abecb8a' reports/AETHER-PROVENANCE-4.6.9.txt
-          grep -q 'required_help_flags=PASS' reports/AETHER-PROVENANCE-4.6.9.txt
+          test -s reports/AETHER-PROVENANCE-4.6.10.txt
+          grep -q 'commit=a26159b82a70048b459e0128213c71767abecb8a' reports/AETHER-PROVENANCE-4.6.10.txt
+          grep -q 'required_help_flags=PASS' reports/AETHER-PROVENANCE-4.6.10.txt
 
       - name: Apply BlueVPN login and registration redesign
         shell: bash
@@ -457,9 +457,9 @@ jobs:
           echo "BUILD_STAGE=release-regression-gate" >> "$GITHUB_ENV"
           echo "release-regression-gate" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           {
-            python -m py_compile scripts/prepare_android.py scripts/build_aether_android.py scripts/validate_release.py tests/test_current_release.py tests/test_warp_adaptive_469.py
+            python -m py_compile scripts/prepare_android.py scripts/build_aether_android.py scripts/validate_release.py tests/test_current_release.py tests/test_warp_adaptive_469.py tests/test_warp_endpoint_racing_469.py tests/test_warp_exit_guard_469.py tests/test_security_4610.py
             python scripts/validate_release.py
-            python -m unittest tests.test_current_release tests.test_warp_adaptive_469 -v
+            python -m unittest discover -s tests -v
             while IFS= read -r -d '' file; do
               php -l "$file" >/dev/null
             done < <(find bluevpn-manager -type f -name '*.php' -print0)
@@ -552,11 +552,17 @@ jobs:
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           chmod +x gradlew
 
-          ./gradlew :app:assemblePlaystoreRelease \
+          ./gradlew :app:compilePlaystoreReleaseKotlin \
             "-PABI_FILTERS=arm64-v8a;armeabi-v7a" \
             --stacktrace \
             --no-daemon \
             2>&1 | tee "$GITHUB_WORKSPACE/android-build.log"
+
+          ./gradlew :app:assemblePlaystoreRelease \
+            "-PABI_FILTERS=arm64-v8a;armeabi-v7a" \
+            --stacktrace \
+            --no-daemon \
+            2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
 
       - name: Show Android compiler errors
         if: ${{ failure() && env.BUILD_STAGE == 'gradle-compile' }}

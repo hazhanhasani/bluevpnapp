@@ -14,10 +14,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -79,6 +76,7 @@ object BlueVpnWarpEngine {
     private val WIREGUARD_UDP_PORTS = intArrayOf(2408, 500, 1701, 4500)
 
     private val stateMutex = Mutex()
+    private val launchMutex = Mutex()
     private val generation = AtomicLong(0)
     @Volatile private var process: Process? = null
     @Volatile private var bridgeGuid = ""
@@ -123,32 +121,22 @@ object BlueVpnWarpEngine {
                 ensureGeneration(myGeneration, strategy)
                 if (SystemClock.elapsedRealtime() >= totalDeadline) break
 
-                // A strategy-level backoff must never suppress a valid per-network LKG.
-                // Probe the cached/direct route first; only suppress expensive scan fallback.
-                if (policy.warpEndpointRacingEnabled && strategy != Strategy.GOOL) {
-                    val candidates = edgeCandidates(prefs, shape.signature, strategy, policy.warpEndpointRaceBreadth)
-                    if (candidates.isNotEmpty()) {
-                        state = if (isFreshCachedEdge(prefs, shape.signature, strategy, candidates.first())) State.TRYING_CACHED_ROUTE else State.RACING_ENDPOINTS
-                        try {
-                            val win = raceCandidates(app, prefs, shape, strategy, candidates, policy, myGeneration, totalDeadline)
-                            promoteWinner(win.attempt, strategy)
-                            recordEdgeSuccess(prefs, shape.signature, strategy, win)
-                            state = State.SOCKS_READY
-                            return@withContext Prepared(ensureBridgeProfile(win.attempt.port), strategy, win.attempt.port, SystemClock.elapsedRealtime() - started)
-                        } catch (f: Failure) {
-                            last = f
-                            stopProcessOnly(wait = true)
-                        }
-                    }
-                    advanceEdgeCursor(prefs, shape.signature, strategy, policy.warpEndpointRaceBreadth)
-                }
-
-                // Backoff applies to the costly native scan, not to the fast LKG/direct probe above.
-                if (isBackedOff(prefs, shape.signature, strategy)) continue
+                // Aether v1.6 already performs endpoint discovery, cooldown, multi-port probing,
+                // data-plane validation and quick-reconnect internally. Running several Aether
+                // processes in parallel against one persistent WARP identity creates avoidable
+                // registration/socket contention and can make restricted networks less reliable.
+                // Keep exactly one Aether process alive per attempt and delegate the actual race
+                // to Aether's native scanner.
+                val quick = policy.warpQuickReconnect && cachedStrategy(prefs, shape.signature) == strategy && isLkgFresh(prefs, shape.signature)
+                if (isBackedOff(prefs, shape.signature, strategy) && !quick) continue
 
                 ensureGeneration(myGeneration, strategy)
-                state = if (index == 0) State.SCANNING else State.SWITCHING_STRATEGY
-                val quick = index == 0 && policy.warpQuickReconnect && cachedStrategy(prefs, shape.signature) == strategy
+                state = when {
+                    quick -> State.TRYING_CACHED_ROUTE
+                    policy.warpEndpointRacingEnabled -> State.RACING_ENDPOINTS
+                    index == 0 -> State.SCANNING
+                    else -> State.SWITCHING_STRATEGY
+                }
                 val budget = if (quick) policy.warpWarmTimeoutSeconds.coerceIn(4, 12) else policy.warpColdTimeoutSeconds.coerceIn(15, 40)
                 try {
                     val port = startWithPortRetries(app, strategy, quick, policy, null, shape)
@@ -156,8 +144,7 @@ object BlueVpnWarpEngine {
                         awaitValidatedDataPlane(myGeneration, process ?: throw Failure(ErrorCode.AETHER_START_FAILED, state, strategy, "Aether process missing"), port, strategy, policy)
                     } ?: false
                     if (!ok) throw Failure(ErrorCode.WARP_START_TIMEOUT, state, strategy, "Strategy exceeded startup budget")
-                    prefs.edit().putString("lkg:${shape.signature}", strategy.name).putLong("lkg_at:${shape.signature}", System.currentTimeMillis())
-                        .remove("fail:${shape.signature}:${strategy.name}").remove("backoff:${shape.signature}:${strategy.name}").apply()
+                    recordStrategySuccess(prefs, shape.signature, strategy, SystemClock.elapsedRealtime() - started)
                     activeStrategy = strategy; activePort = port; state = State.SOCKS_READY
                     return@withContext Prepared(ensureBridgeProfile(port), strategy, port, SystemClock.elapsedRealtime() - started)
                 } catch (f: Failure) {
@@ -197,7 +184,8 @@ object BlueVpnWarpEngine {
             if (p.warpGoolEnabled && p.warpAllowedTransports.contains("gool")) add(Strategy.GOOL)
         }
         if (!p.warpAdaptiveEnabled) return listOfNotNull(cached ?: allowed.firstOrNull())
-        return buildList { if (p.warpQuickReconnect && cached != null) add(cached); addAll(allowed) }.distinct()
+        val ranked = allowed.sortedByDescending { strategyScore(prefs, sig, it) }
+        return buildList { if (p.warpQuickReconnect && cached != null) add(cached); addAll(ranked) }.distinct()
     }
 
     private fun cachedAllowed(strategy: Strategy, p: BlueVpnFreeAccessSnapshot): Boolean = when (strategy) {
@@ -208,100 +196,27 @@ object BlueVpnWarpEngine {
         Strategy.GOOL -> p.warpGoolEnabled && p.warpAllowedTransports.contains("gool")
     }
 
-    private suspend fun raceCandidates(context: Context, prefs: SharedPreferences, shape: NetworkShape, strategy: Strategy, candidates: List<EdgeCandidate>, policy: BlueVpnFreeAccessSnapshot, gen: Long, deadline: Long): ProbeWin = coroutineScope {
-        val concurrency = min(4, max(2, candidates.size))
-        val ranked = candidates.sortedByDescending { candidateScore(prefs, shape.signature, strategy, it) }
-        val channel = Channel<ProbeOutcome>(Channel.BUFFERED)
-        val jobs = mutableListOf<Job>()
-        var cursor = 0
-        var inFlight = 0
-        var last: Failure = Failure(ErrorCode.WARP_NO_ENDPOINT, state, strategy, "No eligible Cloudflare endpoint")
-
-        fun launchNext() {
-            if (cursor >= ranked.size) return
-            val candidate = ranked[cursor++]
-            if (isEdgeBackedOff(prefs, shape.signature, strategy, candidate)) return
-            inFlight++
-            jobs += launch(Dispatchers.IO) {
-                val outcome = try {
-                    ProbeOutcome.Success(probeCandidate(context, shape, strategy, candidate, policy, gen, deadline))
-                } catch (c: CancellationException) {
-                    throw c
-                } catch (f: Failure) {
-                    recordEdgeFailure(prefs, shape.signature, strategy, candidate, f.code)
-                    ProbeOutcome.Failed(f)
-                } catch (t: Throwable) {
-                    val f = Failure(ErrorCode.UNKNOWN, state, strategy, t.message ?: t.javaClass.simpleName)
-                    recordEdgeFailure(prefs, shape.signature, strategy, candidate, f.code)
-                    ProbeOutcome.Failed(f)
-                }
-                channel.send(outcome)
-            }
-        }
-        repeat(concurrency) { launchNext() }
-        while (inFlight > 0) {
-            ensureGeneration(gen, strategy)
-            val outcome = channel.receive(); inFlight--
-            when (outcome) {
-                is ProbeOutcome.Success -> {
-                    jobs.forEach { it.cancel() }
-                    jobs.forEach { try { it.join() } catch (_: CancellationException) { } }
-                    channel.close()
-                    return@coroutineScope outcome.win
-                }
-                is ProbeOutcome.Failed -> last = outcome.failure
-            }
-            launchNext()
-        }
-        channel.close()
-        throw last
-    }
-
-    private suspend fun probeCandidate(context: Context, shape: NetworkShape, strategy: Strategy, candidate: EdgeCandidate, policy: BlueVpnFreeAccessSnapshot, gen: Long, deadline: Long): ProbeWin {
-        var owned: Process? = null
-        try {
-            ensureGeneration(gen, strategy)
-            if (SystemClock.elapsedRealtime() + 1200L >= deadline) throw Failure(ErrorCode.WARP_START_TIMEOUT, state, strategy, "Global connect deadline reached")
-            val attempt = startIndependentAttempt(context, strategy, candidate, policy, shape)
-            owned = attempt.process
-            val timeoutMs = policy.warpEndpointProbeSeconds.coerceIn(3, 8) * 1000L
-            val validation = withTimeoutOrNull(timeoutMs) { awaitValidation(gen, attempt.process, attempt.port, strategy, policy) }
-                ?: throw Failure(ErrorCode.TCP_TIMEOUT, state, strategy, "Peer ${candidate.authority} exceeded direct probe budget")
-            if (!validation.ok) throw Failure(ErrorCode.NO_INTERNET, state, strategy, "Peer ${candidate.authority} did not pass tunneled HTTPS validation")
-            val win = ProbeWin(attempt, SystemClock.elapsedRealtime() - attempt.started, validation.country)
-            owned = null
-            return win
-        } finally {
-            owned?.let { terminateProcess(it, true) }
-        }
-    }
-
-    private suspend fun startIndependentAttempt(context: Context, strategy: Strategy, candidate: EdgeCandidate, policy: BlueVpnFreeAccessSnapshot, shape: NetworkShape): Attempt {
-        var last: Throwable? = null
-        repeat(3) {
-            val port = reservePort()
-            try {
-                val started = SystemClock.elapsedRealtime()
-                val p = buildProcess(context, strategy, port, quick = false, policy, candidate.authority, shape).start()
-                runCatching { p.outputStream.close() }
-                delay(100L)
-                if (!p.isAlive) { terminateProcess(p, false); last = IllegalStateException("Aether exited before binding loopback port"); return@repeat }
-                return Attempt(p, port, candidate, started)
-            } catch (t: Throwable) { last = t }
-        }
-        throw Failure(ErrorCode.PORT_IN_USE, state, strategy, "Could not allocate a loopback port: ${last?.message.orEmpty()}")
-    }
-
     private suspend fun startWithPortRetries(context: Context, strategy: Strategy, quick: Boolean, policy: BlueVpnFreeAccessSnapshot, peer: String?, shape: NetworkShape): Int {
         var last: Throwable? = null
         repeat(3) {
             val port = reservePort()
             try {
-                val p = buildProcess(context, strategy, port, quick, policy, peer, shape).start()
+                val p = launchMutex.withLock {
+                    process?.takeIf { it.isAlive }?.let { stale -> terminateProcess(stale, true) }
+                    buildProcess(context, strategy, port, quick, policy, peer, shape).start().also { started ->
+                        process = started
+                        activePort = port
+                        activeStrategy = strategy
+                    }
+                }
                 runCatching { p.outputStream.close() }
                 delay(100L)
-                if (!p.isAlive) { terminateProcess(p, false); last = IllegalStateException("Aether exited before binding loopback port"); return@repeat }
-                process = p; activePort = port; activeStrategy = strategy
+                if (!p.isAlive) {
+                    terminateProcess(p, false)
+                    if (process === p) process = null
+                    last = IllegalStateException("Aether exited before binding loopback port")
+                    return@repeat
+                }
                 return port
             } catch (t: Throwable) { last = t }
         }
@@ -309,7 +224,7 @@ object BlueVpnWarpEngine {
     }
 
     private fun buildProcess(context: Context, strategy: Strategy, port: Int, quick: Boolean, p: BlueVpnFreeAccessSnapshot, peer: String?, shape: NetworkShape): ProcessBuilder {
-        val dataDir = File(context.filesDir, "bluevpn-aether").apply { mkdirs() }
+        val dataDir = persistentAetherDataDir(context)
         val config = File(dataDir, "aether.toml")
         val command = mutableListOf(nativeExecutable(context).absolutePath, "--bind", "$SOCKS_HOST:$port", "--config", config.absolutePath)
         when (strategy) {
@@ -327,11 +242,14 @@ object BlueVpnWarpEngine {
         if (strategy in setOf(Strategy.MASQUE_H3, Strategy.MASQUE_H2, Strategy.MASQUE_H2_FRAGMENT)) {
             command += listOf("--startup-secs", p.warpStartTimeoutSeconds.coerceIn(3, 40).toString())
         }
+        command += listOf("--log-level", "info", "--perf", "medium")
         validateCommand(command, peer)
         rotateLogs(context)
         val log = File(context.cacheDir, "bluevpn-aether.log")
         return ProcessBuilder(command).directory(dataDir).redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(log)).also {
             it.environment()["HOME"] = dataDir.absolutePath
+            it.environment()["XDG_CONFIG_HOME"] = dataDir.absolutePath
+            it.environment()["XDG_DATA_HOME"] = dataDir.absolutePath
             it.environment()["TMPDIR"] = context.cacheDir.absolutePath
             it.environment()["AETHER_QUICK_RECONNECT"] = if (quick) "1" else "0"
             it.environment()["RUST_LOG"] = "info"
@@ -440,6 +358,44 @@ object BlueVpnWarpEngine {
         if (wait && p.isAlive) runCatching { p.waitFor(250, TimeUnit.MILLISECONDS) }
     }
 
+    private fun persistentAetherDataDir(context: Context): File {
+        val target = File(context.noBackupFilesDir, "bluevpn-aether-v1")
+        if (!target.exists()) {
+            val legacy = File(context.filesDir, "bluevpn-aether")
+            if (legacy.isDirectory) runCatching { legacy.copyRecursively(target, overwrite = false) }
+        }
+        target.mkdirs()
+        return target
+    }
+
+    private fun strategyScore(prefs: SharedPreferences, sig: String, strategy: Strategy): Double {
+        val prefix = "strategy_stat:$sig:${strategy.name}"
+        val ok = prefs.getInt("$prefix:ok", 0)
+        val fail = prefs.getInt("$prefix:fail", 0)
+        val latency = prefs.getLong("$prefix:latency", 8000L).coerceAtLeast(1L)
+        val base = when (strategy) {
+            Strategy.MASQUE_H3 -> 100.0
+            Strategy.MASQUE_H2_FRAGMENT -> 96.0
+            Strategy.MASQUE_H2 -> 92.0
+            Strategy.WIREGUARD -> 84.0
+            Strategy.GOOL -> 60.0
+        }
+        return base + ok.coerceAtMost(8) * 12.0 - fail.coerceAtMost(8) * 15.0 - min(30.0, latency / 500.0)
+    }
+
+    private fun recordStrategySuccess(prefs: SharedPreferences, sig: String, strategy: Strategy, latencyMs: Long) {
+        val prefix = "strategy_stat:$sig:${strategy.name}"
+        prefs.edit()
+            .putString("lkg:$sig", strategy.name)
+            .putLong("lkg_at:$sig", System.currentTimeMillis())
+            .putInt("$prefix:ok", min(24, prefs.getInt("$prefix:ok", 0) + 1))
+            .putInt("$prefix:fail", max(0, prefs.getInt("$prefix:fail", 0) - 1))
+            .putLong("$prefix:latency", latencyMs.coerceAtLeast(1L))
+            .remove("fail:$sig:${strategy.name}")
+            .remove("backoff:$sig:${strategy.name}")
+            .apply()
+    }
+
     private fun nativeExecutable(context: Context) = File(context.applicationInfo.nativeLibraryDir, NATIVE_NAME)
     private fun rotateLogs(context: Context) { val current = File(context.cacheDir, "bluevpn-aether.log"); val old = File(context.cacheDir, "bluevpn-aether.log.1"); if (current.exists() && current.length() >= 512L * 1024L) { runCatching { old.delete() }; runCatching { current.renameTo(old) } } }
     private fun ensureGeneration(gen: Long, strategy: Strategy?) { if (generation.get() != gen) throw Failure(ErrorCode.WARP_CANCELLED, state, strategy, "Connection generation changed") }
@@ -505,5 +461,9 @@ object BlueVpnWarpEngine {
     }
     private fun advanceEdgeCursor(prefs: SharedPreferences, sig: String, strategy: Strategy, breadth: Int) { val key="edge_cursor:$sig:${strategy.name}"; prefs.edit().putInt(key,(prefs.getInt(key,0)+breadth.coerceIn(2,16))%8192).apply() }
     private fun isBackedOff(prefs: SharedPreferences, sig: String, s: Strategy): Boolean = prefs.getLong("backoff:$sig:${s.name}",0L)>System.currentTimeMillis()
-    private fun recordFailure(prefs: SharedPreferences, sig: String, s: Strategy, code: ErrorCode) { val key="fail:$sig:${s.name}"; val count=prefs.getInt(key,0)+1; prefs.edit().putInt(key,count).putLong("backoff:$sig:${s.name}",System.currentTimeMillis()+backoffMs(code,count)).apply() }
+    private fun recordFailure(prefs: SharedPreferences, sig: String, s: Strategy, code: ErrorCode) {
+        val key="fail:$sig:${s.name}"; val count=min(8,prefs.getInt(key,0)+1); val prefix="strategy_stat:$sig:${s.name}"
+        prefs.edit().putInt(key,count).putInt("$prefix:fail",min(24,prefs.getInt("$prefix:fail",0)+1))
+            .putLong("backoff:$sig:${s.name}",System.currentTimeMillis()+backoffMs(code,count)).apply()
+    }
 }

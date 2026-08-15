@@ -19,18 +19,19 @@ class WarpBackgroundReconnect473Tests(unittest.TestCase):
         self.assertGreater(success, blank)
         self.assertIn('BlueVpnWarpKeepAliveService.stop(this)', home)
 
-    def test_lkg_direct_probe_precedes_strategy_scan_backoff(self):
+    def test_lkg_uses_native_quick_reconnect_without_parallel_aether(self):
         warp=(ROOT/'android-source/BlueVpnWarpEngine.kt').read_text()
-        race=warp.index('if (policy.warpEndpointRacingEnabled && strategy != Strategy.GOOL)')
-        backoff=warp.index('if (isBackedOff(prefs, shape.signature, strategy)) continue', race)
-        self.assertLess(race, backoff)
+        quick=warp.index('val quick = policy.warpQuickReconnect && cachedStrategy')
+        start=warp.index('startWithPortRetries(app, strategy, quick, policy, null, shape)', quick)
+        self.assertLess(quick, start)
+        self.assertNotIn('Channel<ProbeOutcome>', warp)
+        self.assertNotIn('raceCandidates(', warp)
 
-    def test_failed_cached_edge_is_invalidated(self):
+    def test_aether_identity_survives_activity_and_app_updates(self):
         warp=(ROOT/'android-source/BlueVpnWarpEngine.kt').read_text()
-        block=warp[warp.index('private fun recordEdgeFailure'):]
-        self.assertIn('remove("edge:$sig:${strategy.name}")', block)
-        self.assertIn('remove("edge_at:$sig:${strategy.name}")', block)
-        self.assertIn('remove("lkg_at:$sig")', block)
+        self.assertIn('persistentAetherDataDir(context)', warp)
+        self.assertIn('context.noBackupFilesDir', warp)
+        self.assertIn('legacy.copyRecursively(target, overwrite = false)', warp)
 
     def test_prepare_android_declares_keepalive_service_and_permissions(self):
         prep=(ROOT/'scripts/prepare_android.py').read_text()

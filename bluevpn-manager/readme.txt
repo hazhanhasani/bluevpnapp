@@ -1,8 +1,21 @@
 === BlueVPN Manager ===
-Version: 4.7.3
-Stable tag: 4.7.3
+Version: 4.7.6
+Stable tag: 4.7.6
 Requires PHP: 8.0
 
+
+== 4.7.6 ==
+* WARP stability release: single-process native Aether racing, persistent identity, serialized launches and adaptive transport history.
+* Feature: live PasarGuard group and Marzban inbound catalogs can be loaded from the selected panel and chosen per plan.
+* Feature: paid provisioning now honors the selected PasarGuard groups and selected Marzban inbounds; empty selection keeps the existing all-active behavior.
+* Security: provider catalog is admin-only, nonce-protected AJAX and never exposes panel credentials.
+* Database: adds per-plan marzban_inbounds_json with backward-safe dbDelta migration.
+
+== 4.7.4 ==
+* Fix: PasarGuard/Marzban/GuardCore panels can be deleted safely from Control Center.
+* Fix: legacy plans without provider IDs automatically use active PasarGuard/Marzban during paid/manual provisioning.
+* Fix: manual GuardCore Global Subscription is automatically attached to paid users when no explicit GuardCore route exists.
+* Fix: Provider repair scans legacy active subscriptions even when plan provider IDs are empty.
 
 == 4.7.3 ==
 * Cloudflare Endpoint Racing روی رنج‌ها و پورت‌های معتبر WARP اضافه شد.
@@ -170,7 +183,7 @@ Requires PHP: 8.0
 - پاک‌سازی CI، حذف snapshotهای تولیدی/تاریخی و یکپارچه‌سازی Release Gate.
 
 == 4.4.4 ==
-* PasarGuard: همه گروه‌های فعال به‌صورت خودکار به کاربران Premium تخصیص داده می‌شوند؛ Group ID دستی فقط fallback است.
-* Marzban: همه Inboundهای فعال به‌صورت Live خوانده و روی کاربران جدید و موجود Sync می‌شوند.
+* PasarGuard: گروه‌های فعال به‌صورت Live نمایش داده می‌شوند؛ انتخاب per-plan اعمال می‌شود و انتخاب خالی یعنی همه گروه‌های فعال.
+* Marzban: Inboundهای فعال به‌صورت Live نمایش داده می‌شوند؛ انتخاب per-plan ذخیره و در Provision/Repair اعمال می‌شود و انتخاب خالی یعنی همه Inboundهای فعال.
 * Repair: کاربران موجود نیز access map خود را دوباره دریافت می‌کنند، بدون تمدید یا Reset مصرف.
 * Hardening: proxy_settings خالی/لیستی دیگر باعث HTTP 422 در PasarGuard/Marzban نمی‌شود.

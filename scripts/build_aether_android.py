@@ -79,7 +79,7 @@ def main() -> None:
     lock = core / "Cargo.lock"
     if not lock.is_file():
         raise SystemExit("Pinned Aether Cargo.lock is missing")
-    provenance = ROOT / "reports" / "AETHER-PROVENANCE-4.7.3.txt"
+    provenance = ROOT / "reports" / "AETHER-PROVENANCE-4.7.6.txt"
     provenance.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"commit={resolved}", f"cargo_lock_sha256={sha256(lock)}", "submodules=", submodules or "(none)"]
 
@@ -88,7 +88,7 @@ def main() -> None:
     host_binary = core / "target" / "release" / "aether"
     version = run(str(host_binary), "--version", cwd=core, capture=True).strip()
     help_text = run(str(host_binary), "--help", cwd=core, capture=True)
-    required_help = ["--quick-reconnect", "--no-quick-reconnect", "--h2", "--fragment", "--startup-secs", "--peer"]
+    required_help = ["--quick-reconnect", "--no-quick-reconnect", "--h2", "--fragment", "--startup-secs", "--peer", "--perf", "--log-level"]
     missing = [flag for flag in required_help if flag not in help_text]
     if missing:
         raise SystemExit(f"Pinned Aether CLI is missing required flags: {missing}")

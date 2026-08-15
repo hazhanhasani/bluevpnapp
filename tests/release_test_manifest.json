@@ -3,11 +3,13 @@
   "authoritative": true,
   "tests": [
     "test_current_release.py",
+    "test_provider_access_picker_475.py",
+    "test_provider_entitlement_474.py",
     "test_repository_cleanup_470.py",
     "test_security_4610.py",
     "test_warp_adaptive_469.py",
+    "test_warp_background_reconnect_473.py",
     "test_warp_endpoint_racing_469.py",
-    "test_warp_exit_guard_469.py",
-    "test_warp_background_reconnect_473.py"
+    "test_warp_exit_guard_469.py"
   ]
 }

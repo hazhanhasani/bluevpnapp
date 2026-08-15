@@ -1,12 +1,12 @@
 {
-  "version": "4.7.3",
-  "version_code": 40703,
+  "version": "4.7.6",
+  "version_code": 40706,
   "channel": "beta",
-  "build_id": "20260815-v4.7.3-stable",
-  "built_at": "2026-08-15T18:55:00Z",
-  "android_version": "4.7.3",
-  "android_version_code": 40703,
-  "description": "BlueVPN 4.7.3: keeps Free WARP/Aether alive independently of Home Activity via a sticky foreground keep-alive service, allows valid per-network LKG direct probes before strategy scan backoff, and invalidates failed cached endpoints immediately for fast reconnect.",
+  "build_id": "20260816-v4.7.6-warp-native-racing",
+  "built_at": "2026-08-15T21:20:00Z",
+  "android_version": "4.7.6",
+  "android_version_code": 40706,
+  "description": "BlueVPN 4.7.6 hardens free WARP by using one persistent Aether v1.6 process per attempt, delegating endpoint racing to Aether native scanning, persisting WARP identity in no-backup storage, serializing process launches, and ranking transports per network from real success/failure history.",
   "features": [
     "wordpress-minimal-health-convergence-barrier",
     "warp-engine-home-explicit-import-build-fix",
@@ -264,7 +264,12 @@
     "bounded-direct-peer-probe-budget",
     "aether-peer-fast-path",
     "turbo-warp-scan-default",
-    "wireguard-fallback-default-enabled"
+    "wireguard-fallback-default-enabled",
+    "pasarguard-live-group-picker",
+    "marzban-live-inbound-picker",
+    "per-plan-marzban-inbound-selection",
+    "provider-access-catalog-admin-ajax",
+    "provider-selection-honored-by-provisioning"
   ],
-  "version_source": "v4.7.3-stable"
+  "version_source": "v4.7.6-stable"
 }

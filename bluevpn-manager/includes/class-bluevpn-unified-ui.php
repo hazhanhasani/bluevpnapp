@@ -19,6 +19,7 @@ final class BlueVPN_Unified_UI {
         if (!self::is_bluevpn_page()) return;
         wp_enqueue_style('bluevpn-unified-admin', BLUEVPN_MANAGER_URL . 'assets/admin-unified.css', [], BLUEVPN_MANAGER_VERSION);
         wp_enqueue_script('bluevpn-unified-admin', BLUEVPN_MANAGER_URL . 'assets/admin-unified.js', [], BLUEVPN_MANAGER_VERSION, true);
+        wp_localize_script('bluevpn-unified-admin','BlueVPNAdmin',['ajaxUrl'=>admin_url('admin-ajax.php'),'providerCatalogNonce'=>wp_create_nonce('bluevpn_provider_access_catalog')]);
     }
 
     public static function body_class(string $classes): string {

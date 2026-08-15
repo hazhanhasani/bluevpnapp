@@ -193,6 +193,7 @@ final class BlueVPN_DB {
             sort_order int NOT NULL DEFAULT 0,
             panel_id bigint unsigned NULL,
             marzban_panel_id bigint unsigned NULL,
+            marzban_inbounds_json longtext NULL,
             marzban_quota_mode varchar(20) NOT NULL DEFAULT 'split',
             guardcore_panel_id bigint unsigned NULL,
             guardcore_service_ids_json longtext NULL,

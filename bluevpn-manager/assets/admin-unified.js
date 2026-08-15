@@ -44,3 +44,46 @@ document.querySelectorAll('.bluevpn-file-input input[type=file]').forEach(input=
   });
 });
 })();
+
+// Live PasarGuard group / Marzban inbound selector for plan routing.
+document.querySelectorAll('[data-bluevpn-access-picker]').forEach(picker=>{
+  const form=picker.closest('form');
+  const provider=picker.dataset.provider||'';
+  const panelSelect=form?.querySelector(`select[name="${picker.dataset.panelSelect||''}"]`);
+  const loadBtn=picker.querySelector('[data-access-load]');
+  const status=picker.querySelector('[data-access-status]');
+  const itemsBox=picker.querySelector('[data-access-items]');
+  let saved=[];
+  try{saved=JSON.parse(picker.dataset.selected||'[]')||[]}catch(_){saved=[]}
+  const fieldName=provider==='pasarguard'?'group_ids_selected[]':'marzban_inbounds_selected[]';
+  const selectedValues=()=>Array.from(itemsBox?.querySelectorAll('input[type=checkbox]:checked')||[]).map(x=>x.value);
+  const render=(items)=>{
+    if(!itemsBox)return;
+    const chosen=new Set(selectedValues().concat(saved));
+    itemsBox.innerHTML='';
+    if(!items.length){itemsBox.innerHTML='<div class="bvc-access-empty">مورد فعالی پیدا نشد.</div>';return;}
+    items.forEach(item=>{
+      const label=document.createElement('label');label.className='bvc-access-chip';
+      const input=document.createElement('input');input.type='checkbox';input.name=fieldName;input.value=String(item.value||'');input.checked=chosen.has(input.value);
+      const span=document.createElement('span');span.textContent=String(item.label||item.value||'');
+      const small=document.createElement('small');small.textContent=String(item.meta||'');
+      label.append(input,span,small);itemsBox.append(label);
+    });
+    status.textContent=`${items.length} مورد فعال دریافت شد؛ ${itemsBox.querySelectorAll('input:checked').length} مورد انتخاب شده.`;
+  };
+  const load=async()=>{
+    const panelId=Number(panelSelect?.value||0);
+    if(!panelId){status.textContent='ابتدا پنل را انتخاب کن.';itemsBox.innerHTML='';return;}
+    if(!window.BlueVPNAdmin?.ajaxUrl){status.textContent='تنظیمات AJAX در دسترس نیست.';return;}
+    loadBtn.disabled=true;status.textContent='در حال دریافت لیست زنده از پنل…';
+    try{
+      const body=new URLSearchParams({action:'bluevpn_cc_provider_access_catalog',nonce:BlueVPNAdmin.providerCatalogNonce||'',provider,panel_id:String(panelId)});
+      const res=await fetch(BlueVPNAdmin.ajaxUrl,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8'},body:body.toString()});
+      const json=await res.json();if(!json?.success)throw new Error(json?.data?.message||'دریافت لیست ناموفق بود.');
+      render(Array.isArray(json.data?.items)?json.data.items:[]);
+    }catch(err){status.textContent=`خطا: ${err?.message||'دریافت لیست ناموفق بود.'}`;}
+    finally{loadBtn.disabled=false;}
+  };
+  loadBtn?.addEventListener('click',load);
+  panelSelect?.addEventListener('change',()=>{saved=[];itemsBox.innerHTML='';status.textContent=panelSelect.value?'پنل تغییر کرد؛ برای دریافت گروه‌ها/Inboundها روی «دریافت لیست» بزن.':'حالت خودکار بدون پنل مشخص.';});
+});

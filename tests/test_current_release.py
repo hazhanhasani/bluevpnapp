@@ -997,11 +997,12 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("inbounds_synced", repair)
         self.assertNotIn("target_expiry", repair)
 
-    def test_104_provider_ui_explains_automatic_group_and_inbound_selection(self):
+    def test_104_provider_ui_explains_live_group_and_inbound_selection(self):
         cc = text("bluevpn-manager/includes/class-bluevpn-control-center.php")
-        self.assertIn("PasarGuard Group IDs (Fallback)", cc)
-        self.assertIn("همه گروه‌های فعال", cc)
-        self.assertIn("همه Inboundهای فعال", cc)
+        self.assertIn("گروه‌های PasarGuard", cc)
+        self.assertIn("Inboundهای Marzban", cc)
+        self.assertIn("دریافت لیست", cc)
+        self.assertIn("اگر هیچ موردی انتخاب نشود", cc)
 
 
     def test_105_home_shows_live_speed_and_plan_aware_timer_in_reserved_area(self):

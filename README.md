@@ -1,6 +1,6 @@
-# BlueVPN 4.7.3
+# BlueVPN 4.7.6
 
-Version 4.7.3 fixes two P0 Free/WARP lifecycle regressions: the Aether child process is kept foreground-owned independently of Home Activity so backgrounding BlueVPN does not tear the free tunnel down, and reconnect now tries a valid per-network LKG before strategy scan backoff while immediately invalidating a failed cached endpoint. UI/branding are unchanged.
+Version 4.7.6 hardens the free WARP path: BlueVPN no longer launches several Aether processes concurrently against one WARP identity. Endpoint discovery/racing is delegated to the pinned Aether v1.6 native scanner, while BlueVPN keeps one persistent per-device identity, serializes launches, reuses quick reconnect, and ranks transports per network from observed runtime success/failure. Paid provider access selection from 4.7.5 remains unchanged.
 
 WordPress hardening in this release makes public health output minimal, moves operational details behind `manage_options`, adds device-scoped OTP throttling, and short-circuits duplicate BluePay webhook deliveries before order activation. The release gate still performs a real pinned v2rayNG Android compile and `assemblePlaystoreRelease` in GitHub Actions; Python-only success cannot publish an APK.
 

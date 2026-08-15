@@ -1,3 +1,6 @@
+
+BlueVPN v4.5.2 repair: Free subscription import readiness now follows actual v2rayNG parsed profiles instead of recent metadata timestamps.
+
 ## 4.4.6 Beta release-channel boundary
 
 Beta eligibility remains server-authoritative (`customers.beta_tester=1` + active authenticated session). Android refreshes stale access credentials before requesting release metadata and rechecks the cache-first WordPress snapshot after a manual refresh. Stable users remain isolated from Beta releases.

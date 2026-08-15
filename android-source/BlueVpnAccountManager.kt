@@ -636,21 +636,42 @@ object BlueVpnAccountManager {
             )
         }
 
-        if (!recent || existing.isEmpty()) {
-            val desiredUrls = sources.map { it.url.trim() }.toSet()
-            val refreshRows = MmkvManager.decodeSubscriptions().filter { row ->
-                row.subscription.enabled &&
-                    row.subscription.remarks.startsWith(FREE_SUB) &&
-                    row.subscription.url.trim() in desiredUrls
-            }
+        val desiredUrls = sources.map { it.url.trim() }.toSet()
+        val refreshRows = MmkvManager.decodeSubscriptions().filter { row ->
+            row.subscription.enabled &&
+                row.subscription.remarks.startsWith(FREE_SUB) &&
+                row.subscription.url.trim() in desiredUrls
+        }
+        // A recent metadata write is NOT proof that v2rayNG has imported the
+        // subscription body. In 4.5.1 an existing empty Free row could sit inside
+        // FREE_SUB_REFRESH_INTERVAL_MS and therefore skip the only parser call,
+        // leaving BlueVPN at 0 locations while the same URL imported ~200 nodes
+        // in stock v2rayNG. Empty/incomplete rows always get an authoritative
+        // stock-parser refresh now.
+        val emptyOrBrokenRows = refreshRows.filter { row ->
+            runCatching {
+                MmkvManager.decodeServerList(row.guid).none { guid ->
+                    guid.isNotBlank() && MmkvManager.decodeServerConfig(guid) != null
+                }
+            }.getOrDefault(true)
+        }
+        val sourceRowsMissing = refreshRows.size < sources.size
+        if (!recent || existing.isEmpty() || emptyOrBrokenRows.isNotEmpty() || sourceRowsMissing) {
             BlueVpnSubscriptionIntelligence.refreshWithinMutation(
                 c,
                 refreshRows,
-                aggressiveRepair = existing.isEmpty(),
+                aggressiveRepair = existing.isEmpty() || emptyOrBrokenRows.isNotEmpty() || sourceRowsMissing,
             )
         }
         MmkvManager.decodeSubscriptions()
             .filter { it.subscription.enabled && it.subscription.remarks.startsWith(FREE_SUB) }
+            .filter { row ->
+                runCatching {
+                    MmkvManager.decodeServerList(row.guid).any { guid ->
+                        guid.isNotBlank() && MmkvManager.decodeServerConfig(guid) != null
+                    }
+                }.getOrDefault(false)
+            }
             .forEach { installedGuids += it.guid }
         registerFreePoolOwnership(c)
         if (selectedFingerprint != null) {
@@ -668,8 +689,11 @@ object BlueVpnAccountManager {
             .putString("subscription_guid", installedGuids.firstOrNull().orEmpty())
             .putLong("installed_at", System.currentTimeMillis())
             .commit()
+        BlueVpnPoolOrchestrator.reconcile(c)
         BlueVpnLocationUtil.invalidateCache()
-        return true
+        return installedGuids.isNotEmpty() && installedGuids.any { subscriptionGuid ->
+            runCatching { MmkvManager.decodeServerList(subscriptionGuid).isNotEmpty() }.getOrDefault(false)
+        }
         } finally {
             BlueVpnRuntimeGate.endSubscriptionMutation()
         }

@@ -1138,5 +1138,27 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("BlueVpnAccountManager.candidateAllowed", stale)
         self.assertNotIn("return previous", stale)
 
+    def test_132_free_empty_pool_bypasses_recent_refresh_ttl(self):
+        account = text("android-source/BlueVpnAccountManager.kt")
+        install = block(account, "private fun installFreeSubscriptions", "private fun configuredFreeSubscriptionGuids")
+        self.assertIn("emptyOrBrokenRows", install)
+        self.assertIn("sourceRowsMissing", install)
+        self.assertIn("emptyOrBrokenRows.isNotEmpty()", install)
+        self.assertIn("aggressiveRepair = existing.isEmpty() || emptyOrBrokenRows.isNotEmpty() || sourceRowsMissing", install)
+
+    def test_133_subscription_aggressive_repair_is_not_ignored_and_retries_empty_import(self):
+        subscription = text("android-source/BlueVpnSubscriptionIntelligence.kt")
+        self.assertIn("aggressiveRepair = aggressiveRepair", subscription)
+        self.assertIn("val maxAttempts = if (aggressiveRepair || beforeCount == 0) 2 else 1", subscription)
+        self.assertIn("for (attempt in 0 until maxAttempts)", subscription)
+        self.assertIn("afterCount > 0", subscription)
+
+    def test_134_free_pool_ready_requires_real_decodable_profiles(self):
+        account = text("android-source/BlueVpnAccountManager.kt")
+        install = block(account, "private fun installFreeSubscriptions", "private fun configuredFreeSubscriptionGuids")
+        self.assertIn("return installedGuids.isNotEmpty()", install)
+        self.assertIn("MmkvManager.decodeServerList(subscriptionGuid).isNotEmpty()", install)
+        self.assertIn("BlueVpnPoolOrchestrator.reconcile(c)", install)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -38,6 +38,7 @@ object BlueVpnSubscriptionIntelligence {
         context = context,
         rows = rows,
         mutationAlreadyOwned = false,
+        aggressiveRepair = aggressiveRepair,
     )
 
     /**
@@ -52,12 +53,14 @@ object BlueVpnSubscriptionIntelligence {
         context = context,
         rows = rows,
         mutationAlreadyOwned = true,
+        aggressiveRepair = aggressiveRepair,
     )
 
     private fun refreshInternal(
         context: Context,
         rows: List<SubscriptionCache>,
         mutationAlreadyOwned: Boolean,
+        aggressiveRepair: Boolean,
     ): RefreshOutcome {
         if (rows.isEmpty()) return RefreshOutcome(0, 0, 0, 0)
 
@@ -106,13 +109,28 @@ object BlueVpnSubscriptionIntelligence {
                 val selectedFingerprint =
                     BlueVpnProfileManager.captureSelectedFingerprint(setOf(row.guid))
 
-                // This is intentionally the only network/parser call. It is the
-                // exact update path used by pinned v2rayNG 2.2.6.
-                val result = runCatching { AngConfigManager.updateConfigViaSub(row) }
-                    .getOrDefault(SubscriptionUpdateResult(failureCount = 1))
+                // Use the stock v2rayNG 2.2.6 fetch+parser as the only importer.
+                // A newly-created/empty managed row must not be suppressed merely
+                // because BlueVPN refreshed metadata a few seconds ago. This was
+                // the root cause of a valid 200-node Free subscription appearing
+                // as an empty BlueVPN location pool.
+                val maxAttempts = if (aggressiveRepair || beforeCount == 0) 2 else 1
+                var result = SubscriptionUpdateResult(failureCount = 1)
+                var afterCount = beforeCount
+                for (attempt in 0 until maxAttempts) {
+                    result = runCatching { AngConfigManager.updateConfigViaSub(row) }
+                        .getOrDefault(SubscriptionUpdateResult(failureCount = 1))
+                    afterCount = runCatching {
+                        MmkvManager.decodeServerList(row.guid).count { guid ->
+                            guid.isNotBlank() && MmkvManager.decodeServerConfig(guid) != null
+                        }
+                    }.getOrDefault(0)
+                    if (result.successCount > 0 && result.configCount > 0 && afterCount > 0) break
+                    if (attempt + 1 < maxAttempts) Thread.sleep(180L)
+                }
 
-                if (result.successCount > 0 && result.configCount > 0) {
-                    totalConfigs += result.configCount
+                if (result.successCount > 0 && result.configCount > 0 && afterCount > 0) {
+                    totalConfigs += afterCount
                     successes += result.successCount.coerceAtLeast(1)
                     val refreshed = runCatching {
                         MmkvManager.decodeServerList(row.guid).toList()
@@ -123,11 +141,6 @@ object BlueVpnSubscriptionIntelligence {
                     )
                 } else {
                     failures += result.failureCount.coerceAtLeast(1)
-                    val afterCount = runCatching {
-                        MmkvManager.decodeServerList(row.guid).count { guid ->
-                            guid.isNotBlank() && MmkvManager.decodeServerConfig(guid) != null
-                        }
-                    }.getOrDefault(0)
                     if (beforeCount > 0 && afterCount > 0) preservedPools += 1
                 }
             }

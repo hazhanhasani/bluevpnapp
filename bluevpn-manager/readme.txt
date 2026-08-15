@@ -1,10 +1,10 @@
 === BlueVPN Manager ===
-Version: 4.5.1
-Stable tag: 4.5.1
+Version: 4.5.2
+Stable tag: 4.5.2
 Requires PHP: 8.0
 
 
-== 4.5.1 ==
+== 4.5.2 ==
 * رفع خطای Kotlin در BlueVpnHomeActivity هنگام ارسال Live heartbeat داخل withContext؛ Activity Context به‌صورت صریح به BlueVpnLiveReporter داده می‌شود.
 * تمام قابلیت‌های BlueAI Subscription Pool Orchestrator، تفکیک دائمی Free/Premium و Live Telemetry نسخه‌های قبل حفظ شده‌اند.
 * این Hotfix تغییری در API، Schema یا مسیر v2rayNG/Xray ایجاد نمی‌کند.

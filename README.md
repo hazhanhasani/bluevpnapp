@@ -1,3 +1,11 @@
+
+## v4.5.2 — Free subscription import repair
+
+- Free subscription rows with zero imported profiles are always refreshed through stock v2rayNG `AngConfigManager.updateConfigViaSub`, even inside the normal refresh TTL.
+- Empty/new imports receive one bounded retry; BlueVPN never substitutes its own parser.
+- A Free pool is marked installed only after the subscription row actually owns decodable server GUIDs.
+- Fixes the case where the same URL imports ~200 profiles in v2rayNG but BlueVPN shows 0 Free locations.
+
 ## 4.4.6 Beta Channel Auth + Fresh Release Check
 
 - بررسی بروزرسانی Beta دیگر HTTP جداگانه ندارد و از مسیر احراز هویت اصلی حساب استفاده می‌کند.

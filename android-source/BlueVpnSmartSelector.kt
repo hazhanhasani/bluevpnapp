@@ -53,6 +53,7 @@ object BlueVpnSmartSelector {
         val personal = BlueVpnAi.personalScore(context, candidate)
         val latency = delayScore(candidate.delay)
         val routeAdjustment = BlueVpnRouteIntelligence.rankingAdjustment(context, candidate.guid)
+        val ircfAdjustment = BlueVpnIrcfIntelligence.rankingAdjustment(context, candidate.guid)
         val routeEvidence = BlueVpnRouteIntelligence.evidence(context, candidate.guid)
 
         var score = latency * 50 / 100
@@ -60,6 +61,7 @@ object BlueVpnSmartSelector {
         score += personal * 14 / 100
         score += freshness.coerceIn(0, 34) * 12 / 34
         score += routeAdjustment
+        score += ircfAdjustment
         if (BlueVpnExperience.isFavorite(context, candidate.location.key)) score += 3
         if (failed) score -= 24
         if (inactive) score -= 55

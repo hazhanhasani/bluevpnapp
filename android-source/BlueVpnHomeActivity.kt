@@ -1032,35 +1032,45 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             palette.textPrimary,
             bold = true,
             gravity = Gravity.CENTER,
-        ).apply { id = R.id.bluevpn_status_text }
+        ).apply {
+            id = R.id.bluevpn_status_text
+            maxLines = 2
+            includeFontPadding = false
+        }
         stage.addView(
             statusText,
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dpHome(34),
+                dpHome(48),
                 Gravity.TOP or Gravity.CENTER_HORIZONTAL,
-            ).apply { topMargin = dpHome(20) },
+            ).apply {
+                topMargin = dpHome(12)
+                marginStart = dpHome(12)
+                marginEnd = dpHome(12)
+            },
         )
 
         statusCaption = uiText(
             "بهترین اتصال به‌صورت خودکار انتخاب می‌شود",
-            10.5f,
-            palette.textMuted,
+            11f,
+            palette.textSecondary,
             gravity = Gravity.CENTER,
         ).apply {
             id = R.id.bluevpn_status_caption
-            maxLines = 1
+            maxLines = 2
+            includeFontPadding = false
+            alpha = 1f
         }
         stage.addView(
             statusCaption,
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dpHome(30),
+                dpHome(44),
                 Gravity.TOP or Gravity.CENTER_HORIZONTAL,
             ).apply {
-                topMargin = dpHome(56)
-                marginStart = dpHome(18)
-                marginEnd = dpHome(18)
+                topMargin = dpHome(58)
+                marginStart = dpHome(20)
+                marginEnd = dpHome(20)
             },
         )
 
@@ -1070,8 +1080,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
         stage.addView(
             orbHaloOuter,
-            FrameLayout.LayoutParams(dpHome(330), dpHome(170), Gravity.CENTER).apply {
-                topMargin = dpHome(16)
+            FrameLayout.LayoutParams(dpHome(330), dpHome(170), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                bottomMargin = dpHome(2)
             },
         )
 
@@ -1087,8 +1097,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
         stage.addView(
             orbHaloInner,
-            FrameLayout.LayoutParams(dpHome(292), dpHome(130), Gravity.CENTER).apply {
-                topMargin = dpHome(16)
+            FrameLayout.LayoutParams(dpHome(292), dpHome(130), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                bottomMargin = dpHome(10)
             },
         )
 
@@ -1104,8 +1114,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
         stage.addView(
             connectTrack,
-            FrameLayout.LayoutParams(dpHome(286), dpHome(104), Gravity.CENTER).apply {
-                topMargin = dpHome(16)
+            FrameLayout.LayoutParams(dpHome(286), dpHome(104), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply {
+                bottomMargin = dpHome(18)
             },
         )
 
@@ -3194,15 +3204,16 @@ private fun dpHome(value: Int): Int =
             // subscription import/provider request stalls. Subscription mutation
             // keeps ownership of MMKV until it finishes, but the user gets the UI
             // back after a bounded wait and can retry safely instead of racing it.
-            if (waitedMs >= 6_000L) {
+            if (waitedMs >= 25_000L) {
                 pendingConnectionRequest = false
                 runtimeGateRetryScheduled = false
                 runtimeGateWaitStartedAt = 0L
                 hideConnectingOverlay()
                 connectButton.isEnabled = true
                 updateConnectLabel("تلاش دوباره")
-                statusText.text = "همگام‌سازی طولانی شد"
-                statusCaption.text = "اتصال متوقف شد تا Import اشتراک به پایان برسد؛ چند لحظه بعد دوباره تلاش کنید"
+                statusText.text = "آماده‌سازی اشتراک کامل نشد"
+                statusCaption.visibility = View.VISIBLE
+                statusCaption.text = "Import ساب در زمان مجاز تمام نشد؛ چند لحظه بعد دوباره تلاش کنید"
                 return
             }
 
@@ -3282,6 +3293,40 @@ private fun dpHome(value: Int): Int =
             statusText.text = "سرور انتخاب‌شده در دسترس نیست"
             statusCaption.text = "همان سرور حذف یا منقضی شده است؛ دوباره یک سرور انتخاب کنید"
             connectButton.isEnabled = true
+            return
+        }
+
+        // AUTO mode always rebuilds the complete entitlement-isolated inventory
+        // before the real network sweep. This applies equally to Free and Premium:
+        // no stale visible cache, top-N shortcut, or previously selected route can
+        // cause the free tier to skip part of its subscription pool.
+        if (selectionMode == BlueVpnSelectionMode.AUTO) {
+            if (candidateLoadInProgress) {
+                pendingConnectionRequest = true
+                return
+            }
+            candidateLoadInProgress = true
+            pendingConnectionRequest = true
+            statusText.text = "آماده‌سازی اسکن کامل"
+            statusCaption.visibility = View.VISIBLE
+            statusCaption.text = if (entitlement.tier == BlueVpnPlanTier.FREE) {
+                "BlueAI همه کانفیگ‌های Free را از Pool فعلی جمع‌آوری می‌کند"
+            } else {
+                "BlueAI همه کانفیگ‌های Premium را از Pool فعلی جمع‌آوری می‌کند"
+            }
+            lifecycleScope.launch(Dispatchers.Default) {
+                val fullPool = BlueVpnLocationUtil.allCandidates(
+                    this@BlueVpnHomeActivity,
+                    forceRefresh = true,
+                )
+                withContext(Dispatchers.Main) {
+                    candidateLoadInProgress = false
+                    if (isFinishing || isDestroyed || !pendingConnectionRequest) return@withContext
+                    pendingConnectionRequest = false
+                    startNetworkSweepThenConnect(fullPool, BlueVpnSelectionMode.AUTO)
+                    scheduleIdleCandidateWarmup()
+                }
+            }
             return
         }
 

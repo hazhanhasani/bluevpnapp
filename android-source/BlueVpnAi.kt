@@ -134,6 +134,9 @@ object BlueVpnAi {
             .takeIf { it.startsWith("http") }
             ?.let { "${it.trimEnd('/')}/health" }
         return buildList {
+            BlueVpnIrcfIntelligence.adaptiveProbeUrls(context).forEachIndexed { index, url ->
+                add(ProbeTarget(url, "ircf-testurl-${index + 1}"))
+            }
             add(
                 ProbeTarget(
                     "http://cp.cloudflare.com/generate_204",

@@ -139,6 +139,7 @@ object BlueVpnSubscriptionIntelligence {
                         selectedFingerprint,
                         refreshed,
                     )
+                    BlueVpnIrcfIntelligence.auditSubscription(context, row.guid)
                 } else {
                     failures += result.failureCount.coerceAtLeast(1)
                     if (beforeCount > 0 && afterCount > 0) preservedPools += 1
@@ -149,6 +150,7 @@ object BlueVpnSubscriptionIntelligence {
             // v2rayNG has just imported. Selection never trusts stale GUID lists;
             // every profile is re-owned by its producing subscription and exact
             // cross-tier duplicates are quarantined before the next connect.
+            BlueVpnIrcfIntelligence.refreshReferenceDataAsync(context)
             BlueVpnPoolOrchestrator.reconcile(context)
 
             return RefreshOutcome(

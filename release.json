@@ -1,12 +1,12 @@
 {
-  "version": "4.5.5",
-  "version_code": 40505,
+  "version": "4.5.7",
+  "version_code": 40507,
   "channel": "beta",
-  "build_id": "20260815-v4.5.5-kotlin-sweep-ticker-build-hotfix",
-  "built_at": "2026-08-15T10:10:00Z",
-  "android_version": "4.5.5",
-  "android_version_code": 40505,
-  "description": "BlueVPN 4.5.5: رفع خطای Compile حلقه Live AI Sweep با type صریح Runnable؛ تمام قابلیت‌های 4.5.4 شامل تست مسیرها، تأیید اینترنت واقعی و Live telemetry حفظ شده‌اند.",
+  "build_id": "20260815-v4.5.7-full-free-scanner-visible-status",
+  "built_at": "2026-08-15T10:50:00Z",
+  "android_version": "4.5.7",
+  "android_version_code": 40507,
+  "description": "BlueVPN 4.5.7: اسکن کامل و تازه برای AUTO در هر دو Pool رایگان و Premium، بدون تکیه به Cache ناقص، به‌همراه اصلاح کامل نمایش متن‌های وضعیت اتصال و جلوگیری از هم‌پوشانی آن‌ها با کنترل اتصال.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -223,7 +223,19 @@
     "dynamic-connecting-orb-low-end",
     "live-throughput-ewma-zero-hold",
     "250ms-local-telemetry-sampling",
-    "kotlin-network-sweep-runnable-explicit-type-hotfix"
+    "kotlin-network-sweep-runnable-explicit-type-hotfix",
+    "ircf-xrayrefiner-inspired-inventory-audit",
+    "ircf-adaptive-testurl-pool",
+    "ircf-cloudflare-range-intelligence",
+    "fragment-earlydata-mux-aware-ranking",
+    "warp-masque-endpoint-reference-profiles",
+    "no-automatic-config-rewrite",
+    "auto-full-entitlement-sweep-free-premium",
+    "auto-force-refresh-candidate-inventory",
+    "free-full-scanner-parity",
+    "two-line-visible-connection-status",
+    "connection-status-no-track-overlap",
+    "large-sub-import-wait-budget"
   ],
-  "version_source": "v4.5.5-kotlin-sweep-ticker-build-hotfix"
+  "version_source": "v4.5.6-ircf-intelligence-suite"
 }

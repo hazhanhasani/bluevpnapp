@@ -4,8 +4,8 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_AI {
     private const LIVE_TTL_SECONDS = 180;
     private const LIVE_PROBE_MAX_AGE_MS = 130000;
-    public const ENGINE_VERSION = '2.1.0';
-    public const SCHEMA_VERSION = 3;
+    public const ENGINE_VERSION = '2.2.0';
+    public const SCHEMA_VERSION = 4;
 
     public static function init(): void {
         add_action('admin_post_bluevpn_blueai_save', [self::class, 'save_settings']);
@@ -59,6 +59,9 @@ final class BlueVPN_AI {
             'collective_route_scoring', 'version_cohort_health', 'verified_heartbeat',
             'stale_session_expiry', 'privacy_technical_metrics_only', 'adaptive_recent_weighting',
             'live_tunnel_rtt_stats', 'live_ping_jitter_loss',
+            'ircf_subscription_refiner', 'adaptive_test_url_pool',
+            'cloudflare_range_intelligence', 'fragment_earlydata_mux_scoring',
+            'warp_masque_endpoint_profiles',
         ];
     }
 
@@ -94,7 +97,7 @@ final class BlueVPN_AI {
             'vpn_transport' => BlueVPN_Utils::boolish($p['vpn_transport'] ?? false),
             'internet_verified' => BlueVPN_Utils::boolish($p['internet_verified'] ?? false),
             'fresh_probe' => $age <= self::LIVE_PROBE_MAX_AGE_MS,
-            'source' => in_array($source, ['bluevpn-health', 'cloudflare-204', 'google-204', 'cloudflare-trace', 'xray-http-probe'], true),
+            'source' => in_array($source, ['bluevpn-health', 'cloudflare-204', 'google-204', 'cloudflare-trace', 'xray-http-probe'], true) || str_starts_with($source, 'ircf-testurl-'),
         ];
         $failed = [];
         foreach ($checks as $key => $ok) if (!$ok) $failed[] = $key;
@@ -499,6 +502,12 @@ final class BlueVPN_AI {
         $s['blueai_auto_heal']=isset($_POST['blueai_auto_heal']);
         $s['blueai_min_samples']=max(1,min(100,(int)($_POST['blueai_min_samples']??3)));
         $s['blueai_live_refresh_seconds']=max(3,min(30,(int)($_POST['blueai_live_refresh_seconds']??5)));
+        $s['blueai_ircf_enabled']=isset($_POST['blueai_ircf_enabled']);
+        $s['blueai_ircf_refiner']=isset($_POST['blueai_ircf_refiner']);
+        $s['blueai_ircf_test_urls']=isset($_POST['blueai_ircf_test_urls']);
+        $s['blueai_ircf_cloudflare']=isset($_POST['blueai_ircf_cloudflare']);
+        $s['blueai_ircf_fragment']=isset($_POST['blueai_ircf_fragment']);
+        $s['blueai_ircf_endpoints']=isset($_POST['blueai_ircf_endpoints']);
         $s['blueai_privacy_message']=mb_substr(sanitize_text_field(wp_unslash($_POST['blueai_privacy_message']??'')),0,500);
         BlueVPN_DB::save_settings($s);
         wp_safe_redirect(add_query_arg(['page'=>'bluevpn-blueai','bluevpn_notice'=>'تنظیمات BlueAI ذخیره شد.'],admin_url('admin.php')));exit;
@@ -523,6 +532,12 @@ final class BlueVPN_AI {
         echo '<label><input type="checkbox" name="blueai_auto_heal" value="1" '.checked(!empty($s['blueai_auto_heal']),true,false).'> Auto Heal</label>';
         echo '<label>حداقل نمونه<input type="number" min="1" max="100" name="blueai_min_samples" value="'.(int)($s['blueai_min_samples']??3).'"></label>';
         echo '<label>نوسازی پنل Live (ثانیه)<input type="number" min="3" max="30" name="blueai_live_refresh_seconds" value="'.(int)($s['blueai_live_refresh_seconds']??5).'"></label>';
+        echo '<label><input type="checkbox" name="blueai_ircf_enabled" value="1" '.checked(!isset($s['blueai_ircf_enabled'])||!empty($s['blueai_ircf_enabled']),true,false).'> IRCF Intelligence</label>';
+        echo '<label><input type="checkbox" name="blueai_ircf_refiner" value="1" '.checked(!isset($s['blueai_ircf_refiner'])||!empty($s['blueai_ircf_refiner']),true,false).'> پالایش Inventory ساب</label>';
+        echo '<label><input type="checkbox" name="blueai_ircf_test_urls" value="1" '.checked(!isset($s['blueai_ircf_test_urls'])||!empty($s['blueai_ircf_test_urls']),true,false).'> Test URL تطبیقی</label>';
+        echo '<label><input type="checkbox" name="blueai_ircf_cloudflare" value="1" '.checked(!isset($s['blueai_ircf_cloudflare'])||!empty($s['blueai_ircf_cloudflare']),true,false).'> هوش رنج Cloudflare</label>';
+        echo '<label><input type="checkbox" name="blueai_ircf_fragment" value="1" '.checked(!isset($s['blueai_ircf_fragment'])||!empty($s['blueai_ircf_fragment']),true,false).'> امتیازدهی Fragment / EarlyData / Mux</label>';
+        echo '<label><input type="checkbox" name="blueai_ircf_endpoints" value="1" '.checked(!isset($s['blueai_ircf_endpoints'])||!empty($s['blueai_ircf_endpoints']),true,false).'> پروفایل Endpointهای Warp/MASQUE</label>';
         echo '<label style="grid-column:1/-1">پیام حریم خصوصی<input type="text" name="blueai_privacy_message" value="'.esc_attr((string)$s['blueai_privacy_message']).'"></label></div>';submit_button('ذخیره BlueAI','primary','submit',false);echo '</form></div>';
 
         $legacyLiveClients=false;

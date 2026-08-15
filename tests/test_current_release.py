@@ -1201,5 +1201,59 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         home = text("android-source/BlueVpnHomeActivity.kt")
         self.assertIn("private val networkSweepTicker: Runnable = object : Runnable", home)
 
+    def test_142_auto_mode_forces_complete_entitlement_inventory_before_sweep(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        self.assertIn("if (selectionMode == BlueVpnSelectionMode.AUTO)", home)
+        self.assertIn("forceRefresh = true", home)
+        self.assertIn("BlueAI همه کانفیگ‌های Free را از Pool فعلی جمع‌آوری می‌کند", home)
+        self.assertIn("startNetworkSweepThenConnect(fullPool, BlueVpnSelectionMode.AUTO)", home)
+
+    def test_143_connection_status_text_is_two_line_and_track_is_bottom_anchored(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        self.assertIn("statusCaption", home)
+        self.assertIn("maxLines = 2", home)
+        self.assertIn("palette.textSecondary", home)
+        self.assertIn("Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL", home)
+        self.assertIn("waitedMs >= 25_000L", home)
+
+
+class TestIrcfIntelligenceSuite(unittest.TestCase):
+    def test_ircf_intelligence_source_is_persisted(self):
+        src = text("android-source/BlueVpnIrcfIntelligence.kt")
+        self.assertIn("object BlueVpnIrcfIntelligence", src)
+        self.assertIn("ircfspace/testUrl", src)
+        self.assertIn("ircfspace/cf-ip-ranges", src)
+        self.assertIn("ircfspace/endpoint", src)
+        self.assertIn("auditSubscription", src)
+        self.assertIn("fragment_scoring", src)
+
+    def test_ircf_does_not_rewrite_configs(self):
+        src = text("android-source/BlueVpnIrcfIntelligence.kt")
+        self.assertNotIn("setServer", src)
+        self.assertNotIn("setPassword", src)
+        self.assertNotIn("setPublicKey", src)
+
+    def test_adaptive_probe_pool_is_wired(self):
+        ai = text("android-source/BlueVpnAi.kt")
+        self.assertIn("BlueVpnIrcfIntelligence.adaptiveProbeUrls", ai)
+        manager = text("bluevpn-manager/includes/class-bluevpn-ai.php")
+        self.assertIn("ircf-testurl-", manager)
+
+    def test_subscription_audit_runs_after_upstream_parser(self):
+        sub = text("android-source/BlueVpnSubscriptionIntelligence.kt")
+        self.assertIn("AngConfigManager.updateConfigViaSub", sub)
+        self.assertIn("BlueVpnIrcfIntelligence.auditSubscription", sub)
+
+    def test_manager_exposes_ircf_controls(self):
+        api = text("bluevpn-manager/includes/class-bluevpn-api.php")
+        ai = text("bluevpn-manager/includes/class-bluevpn-ai.php")
+        self.assertIn("'ircf_intelligence'=>", api)
+        self.assertIn("blueai_ircf_refiner", ai)
+        self.assertIn("blueai_ircf_test_urls", ai)
+        self.assertIn("blueai_ircf_cloudflare", ai)
+        self.assertIn("blueai_ircf_fragment", ai)
+        self.assertIn("blueai_ircf_endpoints", ai)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

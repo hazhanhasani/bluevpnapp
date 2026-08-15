@@ -85,6 +85,15 @@ object BlueVpnWarpEngine {
     @Volatile private var connectJob: Job? = null
     @Volatile var state: State = State.STOPPED
         private set
+    @Volatile private var lastFailure: Failure? = null
+    @Volatile private var lastAttemptStartedAt: Long = 0L
+
+    fun lastFailure(): Failure? = lastFailure
+    fun diagnosticSummary(): String {
+        val f = lastFailure ?: return "WARP runtime has no recorded failure"
+        val strategy = f.strategy?.name ?: "NONE"
+        return "${f.code.name} • ${f.stage.name} • $strategy • ${sanitizeDiagnostic(f.detail)}"
+    }
 
     fun supported(context: Context): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nativeExecutable(context).let { it.isFile && it.canExecute() }
     fun isRunning(): Boolean = process?.isAlive == true
@@ -105,6 +114,8 @@ object BlueVpnWarpEngine {
         connectJob = kotlin.coroutines.coroutineContext[Job]
         val started = SystemClock.elapsedRealtime()
         state = State.PREPARING
+        lastFailure = null
+        lastAttemptStartedAt = SystemClock.elapsedRealtime()
         stopProcessOnly(wait = true)
         if (!supported(app)) throw Failure(ErrorCode.WARP_UNSUPPORTED_ABI, state, null, "Aether runtime is not executable for this ABI")
 
@@ -148,11 +159,18 @@ object BlueVpnWarpEngine {
                     activeStrategy = strategy; activePort = port; state = State.SOCKS_READY
                     return@withContext Prepared(ensureBridgeProfile(port), strategy, port, SystemClock.elapsedRealtime() - started)
                 } catch (f: Failure) {
-                    last = f; recordFailure(prefs, shape.signature, strategy, f.code); stopProcessOnly(wait = true)
+                    last = f
+                    lastFailure = f
+                    recordFailure(prefs, shape.signature, strategy, f.code)
+                    persistDiagnostic(app, f, SystemClock.elapsedRealtime() - lastAttemptStartedAt)
+                    stopProcessOnly(wait = true)
                 }
             }
             state = State.FAILED
-            throw last ?: Failure(ErrorCode.WARP_RECONNECT_EXHAUSTED, state, null, "All allowed WARP strategies failed")
+            val terminal = last ?: Failure(ErrorCode.WARP_RECONNECT_EXHAUSTED, state, null, "All allowed WARP strategies failed")
+            lastFailure = terminal
+            persistDiagnostic(app, terminal, SystemClock.elapsedRealtime() - lastAttemptStartedAt)
+            throw terminal
         } finally {
             if (connectJob === kotlin.coroutines.coroutineContext[Job]) connectJob = null
         }
@@ -427,6 +445,22 @@ object BlueVpnWarpEngine {
         return buildList { if (cached != null && !isEdgeBackedOff(prefs,sig,strategy,cached)) add(cached); matrix.asSequence().filter { it != cached && !isEdgeBackedOff(prefs,sig,strategy,it) }.take(limit-size).forEach(::add) }
     }
     private fun parseEdgeCandidate(raw: String): EdgeCandidate? { val host=raw.substringBeforeLast(':',"").trim(); val port=raw.substringAfterLast(':',"").toIntOrNull()?:return null; if(!host.matches(Regex("""162\.159\.(192|193|197)\.(?:[1-9]|[1-9]\d|1\d\d|2[0-4]\d|25[0-4])"""))) return null; if(port !in setOf(443,500,1701,2408,4443,4500,8095,8443)) return null; return EdgeCandidate(host,port) }
+    private fun sanitizeDiagnostic(value: String): String =
+        value.replace(Regex("(?i)(token|authorization|password|secret|otp|license)\\s*[:=]\\s*[^\\s,;]+")) { "${it.groupValues[1]}=<redacted>" }
+            .replace(Regex("https?://[^\\s]+"), "<url>")
+            .take(240)
+
+    private fun persistDiagnostic(context: Context, failure: Failure, durationMs: Long) {
+        context.getSharedPreferences("bluevpn_warp_diagnostics_v1", Context.MODE_PRIVATE).edit()
+            .putLong("at", System.currentTimeMillis())
+            .putString("code", failure.code.name)
+            .putString("stage", failure.stage.name)
+            .putString("strategy", failure.strategy?.name.orEmpty())
+            .putString("detail", sanitizeDiagnostic(failure.detail))
+            .putLong("duration_ms", durationMs.coerceAtLeast(0L))
+            .apply()
+    }
+
     private fun cachedStrategy(prefs: SharedPreferences, sig: String): Strategy? = prefs.getString("lkg:$sig", "")?.let { runCatching { Strategy.valueOf(it) }.getOrNull() }
     private fun isLkgFresh(prefs: SharedPreferences, sig: String): Boolean = BlueVpnWarpPolicy.lkgFresh(System.currentTimeMillis(), prefs.getLong("lkg_at:$sig", 0L))
     private fun isFreshCachedEdge(prefs: SharedPreferences, sig: String, strategy: Strategy, c: EdgeCandidate): Boolean = prefs.getString("edge:$sig:${strategy.name}", "") == c.authority && BlueVpnWarpPolicy.lkgFresh(System.currentTimeMillis(), prefs.getLong("edge_at:$sig:${strategy.name}", 0L))

@@ -3503,6 +3503,22 @@ private fun dpHome(value: Int): Int =
         )
     }
 
+    private fun warpFailureTitle(code: BlueVpnWarpEngine.ErrorCode?): String = when (code) {
+        BlueVpnWarpEngine.ErrorCode.EXIT_IRAN, BlueVpnWarpEngine.ErrorCode.WARP_EXIT_COUNTRY_BLOCKED -> "خروجی ایران رد شد"
+        BlueVpnWarpEngine.ErrorCode.SOCKS_FAILED, BlueVpnWarpEngine.ErrorCode.WARP_SOCKS_HANDSHAKE_FAILED -> "مسیر WARP آماده نشد"
+        BlueVpnWarpEngine.ErrorCode.AETHER_CRASHED, BlueVpnWarpEngine.ErrorCode.WARP_PROCESS_EXITED -> "موتور WARP متوقف شد"
+        BlueVpnWarpEngine.ErrorCode.WARP_START_TIMEOUT, BlueVpnWarpEngine.ErrorCode.TCP_TIMEOUT, BlueVpnWarpEngine.ErrorCode.UDP_BLOCKED -> "شبکه به WARP پاسخ نداد"
+        BlueVpnWarpEngine.ErrorCode.EXIT_VALIDATION_FAILED, BlueVpnWarpEngine.ErrorCode.WARP_EXIT_TRACE_UNAVAILABLE -> "تأیید خروجی WARP ناموفق بود"
+        BlueVpnWarpEngine.ErrorCode.NO_INTERNET, BlueVpnWarpEngine.ErrorCode.WARP_DATA_PLANE_FAILED -> "اینترنت از WARP عبور نکرد"
+        else -> "WARP در دسترس نیست"
+    }
+
+    private fun warpFailureCaption(failure: BlueVpnWarpEngine.Failure?): String {
+        if (failure == null) return "روی این شبکه مسیر WARP آماده نشد؛ دوباره تلاش کنید"
+        val strategy = failure.strategy?.name?.replace('_', ' ') ?: "AUTO"
+        return "${failure.code.name} • $strategy • ${failure.detail.take(90)}"
+    }
+
     private fun beginWarpFreeConnection(): Boolean {
         if (warpPreparationInProgress) return true
         if (!BlueVpnWarpEngine.supported(this)) {
@@ -3548,8 +3564,9 @@ private fun dpHome(value: Int): Int =
                         handler.post { beginSmartConnection() }
                     } else {
                         hideConnectingOverlay()
-                        statusText.text = "WARP در دسترس نیست"
-                        statusCaption.text = "روی این شبکه مسیر WARP آماده نشد؛ دوباره تلاش کنید"
+                        val failure = BlueVpnWarpEngine.lastFailure()
+                        statusText.text = warpFailureTitle(failure?.code)
+                        statusCaption.text = warpFailureCaption(failure)
                     }
                     return@withContext
                 }

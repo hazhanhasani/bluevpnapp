@@ -1,1 +1,1 @@
-BlueVPN v4.5.4: all entitlement-scoped routes are measured with the official v2rayNG TestService before AUTO ranking; CONNECTED requires an end-to-end tunnel proof; connecting animation stays live on low-end devices; throughput uses sub-second EWMA smoothing.
+BlueVPN v4.5.5: all entitlement-scoped routes are measured with the official v2rayNG TestService before AUTO ranking; CONNECTED requires an end-to-end tunnel proof; connecting animation stays live on low-end devices; throughput uses sub-second EWMA smoothing.

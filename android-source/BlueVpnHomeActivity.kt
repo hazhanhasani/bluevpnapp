@@ -337,7 +337,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
     }
 
-    private val networkSweepTicker = object : Runnable {
+    private val networkSweepTicker: Runnable = object : Runnable {
         override fun run() {
             if (!networkSweepInProgress || networkSweepPollInFlight) return
             networkSweepPollInFlight = true

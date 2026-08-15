@@ -1197,5 +1197,9 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("lastNonZeroDownloadElapsed", home)
         self.assertIn("now - lastNonZeroDownloadElapsed > 2_200L", home)
 
+    def test_141_network_sweep_ticker_has_explicit_runnable_type(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        self.assertIn("private val networkSweepTicker: Runnable = object : Runnable", home)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

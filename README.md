@@ -1,4 +1,4 @@
-## v4.5.4 — Live AI sweep + verified connection
+## v4.5.5 — Live AI sweep + verified connection
 
 - Tests every allowed Free/Premium route with the official v2rayNG TestService on the current network before AUTO ranking.
 - Never promotes Core RUNNING to BlueVPN CONNECTED until an HTTP proof traverses the selected Xray tunnel.

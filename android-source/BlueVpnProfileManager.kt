@@ -173,6 +173,52 @@ object BlueVpnProfileManager {
         return fingerprint(profile, MmkvManager.decodeServerRaw(guid))
     }
 
+    /**
+     * Stable transport endpoint identity used only for cross-tier diagnostics.
+     * Credentials are intentionally excluded: two plans may legitimately use
+     * different accounts on the same host. Security blocking is based on the
+     * full semantic fingerprint above; endpoint overlap is a warning signal.
+     */
+    fun endpointFingerprint(profile: ProfileItem): String {
+        val endpointGetters = listOf(
+            "getConfigType",
+            "getServer",
+            "getServerPort",
+            "getNetwork",
+            "getHeaderType",
+            "getHost",
+            "getPath",
+            "getServiceName",
+            "getAuthority",
+            "getXhttpMode",
+            "getSecurity",
+            "getSni",
+            "getAlpn",
+            "getFingerPrint",
+            "getPublicKey",
+            "getShortId",
+        )
+        val semantic = buildString {
+            append("endpoint-v1|")
+            endpointGetters.forEach { getter ->
+                val value = readGetter(profile, getter)
+                if (value.isNotBlank()) {
+                    append(getter.removePrefix("get").lowercase(Locale.ROOT))
+                    append('=')
+                    append(normalizeField(getter, value))
+                    append('|')
+                }
+            }
+        }
+        return sha256(semantic).take(40)
+    }
+
+    fun endpointFingerprintGuid(guid: String): String? {
+        if (guid.isBlank()) return null
+        val profile = MmkvManager.decodeServerConfig(guid) ?: return null
+        return endpointFingerprint(profile)
+    }
+
     /** Keep the selected duplicate first, then preserve original subscription order. */
     fun uniqueGuids(guids: List<String>, selectedGuid: String? = null): List<String> {
         if (guids.size < 2) return guids.filter { it.isNotBlank() }

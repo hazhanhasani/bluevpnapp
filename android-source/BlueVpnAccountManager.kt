@@ -862,17 +862,12 @@ object BlueVpnAccountManager {
      * regenerates its GUID or the app is restarted days later.
      */
     private fun hardIsolationAllowed(c: Context, serverGuid: String): Boolean {
-        val fingerprint = BlueVpnProfileManager.fingerprintGuid(serverGuid) ?: return false
-        val storage = ownershipPrefs(c)
-        val everFree = storage.getStringSet(KEY_EVER_FREE_FINGERPRINTS, emptySet()).orEmpty()
-        val everPremium = storage.getStringSet(KEY_EVER_PREMIUM_FINGERPRINTS, emptySet()).orEmpty()
-        val owners = ownersForFingerprint(c, fingerprint)
-        return if (premiumEntitlementActive(c)) {
-            val current = premiumOwnerTag(c)
-            current.isNotBlank() && current in owners && fingerprint !in everFree
+        val desiredTier = if (premiumEntitlementActive(c)) {
+            BlueVpnPoolOrchestrator.Tier.PREMIUM
         } else {
-            owners.any { it.startsWith("FREE:") } && fingerprint !in everPremium
+            BlueVpnPoolOrchestrator.Tier.FREE
         }
+        return BlueVpnPoolOrchestrator.allowed(c, serverGuid, desiredTier)
     }
 
     private fun rememberPremiumBoundaryFingerprints(c: Context) {

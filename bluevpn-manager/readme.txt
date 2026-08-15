@@ -1,14 +1,13 @@
 === BlueVPN Manager ===
-Version: 4.4.8
-Stable tag: 4.4.8
+Version: 4.4.10
+Stable tag: 4.4.10
 Requires PHP: 8.0
 
 
-== 4.4.8 ==
-* سرعت دانلود/آپلود و مدت اتصال در Home با ticker زیرثانیه‌ای محلی نمایش داده می‌شوند؛ Heartbeat شبکه‌ای مستقل و rate-limited باقی مانده است.
-* BlueAI بلافاصله بعد از CONNECTED یک RTT واقعی می‌فرستد و در حالت فعال تقریباً هر 10 ثانیه تازه می‌شود.
-* Logout یک barrier قطعی Free/Premium می‌سازد؛ تا پایان همگام‌سازی Pool رایگان Connect جدید اجرا نمی‌شود و GUID انتخاب‌شده Premium فوراً پاک می‌شود.
-* Endpointهای Premium اخیر با fingerprint معنایی قرنطینه می‌شوند تا GUID تازه‌ی همان کانفیگ نتواند وارد اتصال Free شود.
+== 4.4.10 ==
+* رفع خطای Kotlin در BlueVpnHomeActivity هنگام ارسال Live heartbeat داخل withContext؛ Activity Context به‌صورت صریح به BlueVpnLiveReporter داده می‌شود.
+* تمام قابلیت‌های BlueAI Subscription Pool Orchestrator، تفکیک دائمی Free/Premium و Live Telemetry نسخه‌های قبل حفظ شده‌اند.
+* این Hotfix تغییری در API، Schema یا مسیر v2rayNG/Xray ایجاد نمی‌کند.
 
 
 == 4.4.6 ==

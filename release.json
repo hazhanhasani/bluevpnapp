@@ -1,12 +1,12 @@
 {
-  "version": "4.4.8",
-  "version_code": 40408,
+  "version": "4.4.10",
+  "version_code": 40410,
   "channel": "beta",
-  "build_id": "20260815-v4.4.8-permanent-free-premium-ownership-isolation",
-  "built_at": "2026-08-15T02:20:00Z",
-  "android_version": "4.4.8",
-  "android_version_code": 40408,
-  "description": "BlueVPN 4.4.8: مالکیت معنایی دائمی Profileها، حذف TTL مرز Free/Premium و اجرای کامل مرز امنیتی هنگام Logout و باطل‌شدن نشست.",
+  "build_id": "20260815-v4.4.10-coroutine-context-build-hotfix",
+  "built_at": "2026-08-15T07:10:00Z",
+  "android_version": "4.4.10",
+  "android_version_code": 40410,
+  "description": "BlueVPN 4.4.10: رفع خطای Kotlin در LiveReporter داخل withContext با استفاده صریح از Activity Context؛ تمام تغییرات BlueAI Subscription Pool Orchestrator نسخه 4.4.9 حفظ شده‌اند.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -204,7 +204,14 @@
     "subsecond-live-home-traffic-ui",
     "immediate-real-rtt-heartbeat",
     "strict-premium-to-free-transition-barrier",
-    "semantic-premium-endpoint-quarantine"
+    "semantic-premium-endpoint-quarantine",
+    "blueai-subscription-pool-orchestrator",
+    "post-import-profile-inventory",
+    "subscription-source-owned-profile-classification",
+    "cross-tier-exact-config-quarantine",
+    "endpoint-overlap-diagnostics",
+    "connect-time-pool-inventory-revalidation",
+    "kotlin-coroutine-context-live-reporter-hotfix"
   ],
-  "version_source": "v4.4.8-permanent-free-premium-ownership-isolation"
+  "version_source": "v4.4.10-coroutine-context-build-hotfix"
 }

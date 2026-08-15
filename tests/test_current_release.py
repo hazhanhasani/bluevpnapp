@@ -1067,11 +1067,12 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
     def test_122_hard_isolation_rejects_cross_tier_semantic_collisions(self):
         account = text("android-source/BlueVpnAccountManager.kt")
         gate = block(account, "private fun hardIsolationAllowed", "private fun rememberPremiumBoundaryFingerprints")
-        self.assertIn("fingerprint !in everFree", gate)
-        self.assertIn("fingerprint !in everPremium", gate)
+        self.assertIn("BlueVpnPoolOrchestrator.allowed", gate)
+        self.assertIn("BlueVpnPoolOrchestrator.Tier.PREMIUM", gate)
+        self.assertIn("BlueVpnPoolOrchestrator.Tier.FREE", gate)
         preferred = block(account, "fun preferredServerGuids", "fun entitlementPoolFingerprint")
         self.assertGreaterEqual(preferred.count("hardIsolationAllowed"), 3)
-        candidate = block(account, "fun candidateAllowed(", "/**\n     * Force account/subscription reconciliation")
+        candidate = block(account, "fun candidateAllowed(", "fun awaitEntitlementServers")
         self.assertIn("hardIsolationAllowed(c, guid)", candidate)
 
     def test_123_automatic_session_invalidation_crosses_same_free_boundary_as_logout(self):
@@ -1082,6 +1083,39 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         boundary = block(account, "private fun enforceFreeBoundaryTransition", "fun logout")
         self.assertIn('MmkvManager.setSelectServer("")', boundary)
         self.assertIn("prepareFreeAccess(appContext, force = true)", boundary)
+
+    def test_124_blueai_inventory_reads_actual_imported_profiles_from_each_subscription(self):
+        orchestrator = text("android-source/BlueVpnPoolOrchestrator.kt")
+        self.assertIn("MmkvManager.decodeSubscriptions()", orchestrator)
+        self.assertIn("MmkvManager.decodeServerList(row.guid)", orchestrator)
+        self.assertIn("BlueVpnProfileManager.fingerprintGuid", orchestrator)
+        self.assertIn('FREE_REMARK = "BlueVPN Free"', orchestrator)
+        self.assertIn('PREMIUM_REMARK = "BlueVPN Account"', orchestrator)
+
+    def test_125_subscription_refresh_rebuilds_ai_pool_inventory_after_upstream_import(self):
+        subscription = text("android-source/BlueVpnSubscriptionIntelligence.kt")
+        self.assertIn("AngConfigManager.updateConfigViaSub(row)", subscription)
+        self.assertIn("BlueVpnPoolOrchestrator.reconcile(context)", subscription)
+
+    def test_126_exact_cross_tier_configs_are_quarantined_not_ranked(self):
+        orchestrator = text("android-source/BlueVpnPoolOrchestrator.kt")
+        self.assertIn("quarantined", orchestrator)
+        self.assertIn("Tier.FREE in it && Tier.PREMIUM in it", orchestrator)
+        self.assertIn("KEY_QUARANTINED", orchestrator)
+        self.assertIn("return false", orchestrator)
+
+    def test_127_endpoint_overlap_is_diagnostic_while_semantic_identity_is_security_boundary(self):
+        profiles = text("android-source/BlueVpnProfileManager.kt")
+        orchestrator = text("android-source/BlueVpnPoolOrchestrator.kt")
+        self.assertIn("fun endpointFingerprintGuid", profiles)
+        self.assertIn("endpointOverlapWarnings", orchestrator)
+        self.assertIn("exact semantic collisions are blocked", orchestrator)
+
+    def test_live_reporter_uses_activity_context_inside_with_context(self):
+        home = (ROOT / "android-source" / "BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("BlueVpnLiveReporter.kick(this@BlueVpnHomeActivity)", home)
+        self.assertNotIn("BlueVpnLiveReporter.kick(this)\n                    BlueVpnPreferences.markConnected(\n                        this@BlueVpnHomeActivity,", home)
+        self.assertNotIn("BlueVpnLiveReporter.kick(this)\n                    renderConnectionState(true)", home)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

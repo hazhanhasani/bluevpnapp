@@ -132,6 +132,12 @@ object BlueVpnSubscriptionIntelligence {
                 }
             }
 
+            // Rebuild the BlueAI pool inventory from the exact profiles that
+            // v2rayNG has just imported. Selection never trusts stale GUID lists;
+            // every profile is re-owned by its producing subscription and exact
+            // cross-tier duplicates are quarantined before the next connect.
+            BlueVpnPoolOrchestrator.reconcile(context)
+
             return RefreshOutcome(
                 configCount = totalConfigs,
                 successCount = successes,

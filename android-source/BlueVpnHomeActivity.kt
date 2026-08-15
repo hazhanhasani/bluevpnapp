@@ -3663,7 +3663,7 @@ private fun dpHome(value: Int): Int =
                     existingSessionRetryCount = 0
                     lastVerifiedLatency = latency
                     connectionVerified = true
-                    BlueVpnLiveReporter.kick(this)
+                    BlueVpnLiveReporter.kick(this@BlueVpnHomeActivity)
                     BlueVpnPreferences.markConnected(
                         this@BlueVpnHomeActivity,
                         resetTimer = false
@@ -3689,7 +3689,7 @@ private fun dpHome(value: Int): Int =
                     BlueVpnPreferences.connectedAt(this@BlueVpnHomeActivity) > 0L
                 ) {
                     connectionVerified = true
-                    BlueVpnLiveReporter.kick(this)
+                    BlueVpnLiveReporter.kick(this@BlueVpnHomeActivity)
                     renderConnectionState(true)
                 } else {
                     connectionVerified = false

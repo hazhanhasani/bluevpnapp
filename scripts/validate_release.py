@@ -168,13 +168,16 @@ def main() -> None:
         require(token in cleanup, f"repository cleanup does not retire: {token}")
     require("Remove retired BlueVPN runtime files" in workflow, "CI repository cleanup step missing")
     require("python scripts/cleanup_repository.py" in workflow, "CI does not execute repository cleanup")
-    for legacy_test in (
-        "test_blueai_scoring.py",
-        "test_bluepay_payment_runtime_v378.py",
-        "test_database_fk_migration_regression.py",
-        "test_updater_release_metadata.py",
-    ):
-        require(legacy_test in cleanup, f"repository cleanup does not retire stale CI test: {legacy_test}")
+    manifest_path = ROOT / "tests" / "release_test_manifest.json"
+    require(manifest_path.is_file(), "authoritative release test manifest missing")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    require(manifest.get("schema") == 1 and manifest.get("authoritative") is True, "invalid release test manifest contract")
+    approved_tests = set(manifest.get("tests") or [])
+    shipped_tests = {p.name for p in (ROOT / "tests").glob("test_*.py")}
+    require(approved_tests == shipped_tests, "release test manifest does not exactly match shipped Python tests")
+    require("glob(\"test_*.py\")" in cleanup, "repository cleanup does not reconcile stale test modules")
+    require("path.name not in approved" in cleanup, "repository cleanup does not enforce authoritative test manifest")
+    require("release test manifest is empty" in cleanup, "repository cleanup does not fail closed on an empty manifest")
 
     require("sing-box" not in workflow.lower(), "workflow still builds sing-box")
     require("CluvexStudio/Aether" in prepare, "Aether source attribution missing from Android notice")

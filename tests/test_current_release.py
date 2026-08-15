@@ -394,6 +394,9 @@ class CurrentReleaseTests(unittest.TestCase):
             self.assertIn(token, cleanup)
         self.assertIn("Remove retired BlueVPN runtime files", workflow)
         self.assertIn("python scripts/cleanup_repository.py", workflow)
+        self.assertIn("release_test_manifest.json", cleanup)
+        self.assertIn("glob(\"test_*.py\")", cleanup)
+        self.assertIn("path.name not in approved", cleanup)
 
 
     def test_49_release_validator_has_no_hardcoded_app_version(self):

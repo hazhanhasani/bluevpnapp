@@ -1,12 +1,12 @@
 {
-  "version": "4.7.0",
-  "version_code": 40700,
+  "version": "4.7.1",
+  "version_code": 40701,
   "channel": "beta",
-  "build_id": "20260815-v4.7.0-stable",
+  "build_id": "20260815-v4.7.1-stable",
   "built_at": "2026-08-15T17:20:00Z",
-  "android_version": "4.7.0",
-  "android_version_code": 40700,
-  "description": "BlueVPN 4.7.0: deterministic CI repository cleanup for retired Railway/PostgreSQL regression modules, preserving the 4.6.10 WARP racing, Iran-exit guard, lifecycle, isolation and security hardening.",
+  "android_version": "4.7.1",
+  "android_version_code": 40701,
+  "description": "BlueVPN 4.7.1: authoritative release-test manifest prevents stale overlay test modules from breaking the CI regression gate, preserving the 4.6.10 WARP racing, Iran-exit guard, lifecycle, isolation and security hardening.",
   "features": [
     "warp-engine-home-explicit-import-build-fix",
     "aether-warp-free-primary-engine",
@@ -265,5 +265,5 @@
     "turbo-warp-scan-default",
     "wireguard-fallback-default-enabled"
   ],
-  "version_source": "v4.7.0-stable"
+  "version_source": "v4.7.1-stable"
 }

@@ -1,6 +1,6 @@
-# BlueVPN 4.7.0
+# BlueVPN 4.7.1
 
-Version 4.7.0 fixes the release-regression gate failure caused by retired v3.x Railway/PostgreSQL tests lingering in overlay-updated GitHub repositories, while preserving the v2rayNG 2.2.6 + Aether Free hardening introduced in 4.6.10 without redesigning the BlueVPN UI. The WARP fast path now uses bounded parallel endpoint racing (maximum four concurrent probes), network-scoped scored history, a six-hour LKG TTL, adaptive failure cooldowns, cancellable process generations, direct-peer mode without native scan, strict SOCKS/HTTPS/exit validation, and explicit Iran-exit rejection before the local bridge profile is accepted. Free policy `false` values are authoritative and are no longer OR-merged back to true.
+Version 4.7.1 makes the release Python test set authoritative through `tests/release_test_manifest.json`. This fixes GitHub overlay residues that caused build #260 to discover 28 retired v3.x tests and build #261 to discover two more legacy modules (`test_admin_security.py` and `test_admin_sms_catalog_render_v359.py`). Approved current-release tests still fail the gate normally; only unshipped stale test modules are reconciled before discovery. The v2rayNG 2.2.6 + Aether Free hardening from 4.6.10 remains unchanged.
 
 WordPress hardening in this release makes public health output minimal, moves operational details behind `manage_options`, adds device-scoped OTP throttling, and short-circuits duplicate BluePay webhook deliveries before order activation. The release gate still performs a real pinned v2rayNG Android compile and `assemblePlaystoreRelease` in GitHub Actions; Python-only success cannot publish an APK.
 

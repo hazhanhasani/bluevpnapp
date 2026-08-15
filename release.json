@@ -1,12 +1,12 @@
 {
-  "version": "4.5.10",
-  "version_code": 40510,
+  "version": "4.6.0",
+  "version_code": 40600,
   "channel": "beta",
-  "build_id": "20260815-v4.5.10-release-gate-timeout-alignment",
+  "build_id": "20260815-v4.6.0-kotlin-ime-build-hotfix",
   "built_at": "2026-08-15T11:30:00Z",
-  "android_version": "4.5.10",
-  "android_version_code": 40510,
-  "description": "BlueVPN 4.5.10: release regression gate با timeout واقعی 12 ثانیه‌ای Fast Lane همگام شد؛ هیچ رفتار Runtime اتصال تغییر نکرده و قابلیت‌های 4.5.9 حفظ شده‌اند.",
+  "android_version": "4.6.0",
+  "android_version_code": 40600,
+  "description": "BlueVPN 4.6.0: Kotlin compile hotfix برای InputMethodManager؛ flags اکنون Int صریح 0 است. قابلیت‌های Runtime نسخه 4.5.10 حفظ شده‌اند.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",

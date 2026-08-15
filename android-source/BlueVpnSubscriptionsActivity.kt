@@ -804,7 +804,7 @@ private fun completeAuthFast(message:String){
  status.text=""
  runCatching{
   (getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager)
-   ?.hideSoftInputFromWindow(currentFocus?.windowToken,null)
+   ?.hideSoftInputFromWindow(currentFocus?.windowToken, 0)
  }
  // The session is already persisted by BlueVpnAccountManager. Return to the
  // caller immediately for the normal account route; expensive provider/sub/AI

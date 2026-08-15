@@ -1,13 +1,23 @@
 {
-  "version": "4.6.2",
-  "version_code": 40602,
+  "version": "4.6.3",
+  "version_code": 40603,
   "channel": "beta",
-  "build_id": "20260815-v4.6.2-pool-hotpath-fix",
-  "built_at": "2026-08-15T14:35:00Z",
-  "android_version": "4.6.2",
-  "android_version_code": 40602,
-  "description": "BlueVPN 4.6.2: cache-first Pool hot path, batched in-memory tier ownership, cached profile reflection/fingerprints, bounded 12/8 smart scan, and authoritative stock v2rayNG ping success.",
+  "build_id": "20260815-v4.6.3-aether-warp-free-engine",
+  "built_at": "2026-08-15T16:25:00Z",
+  "android_version": "4.6.3",
+  "android_version_code": 40603,
+  "description": "BlueVPN 4.6.3: Free primary transport moves to a pinned Aether/Cloudflare WARP process with a loopback SOCKS bridge into the stock v2rayNG VpnService; Premium Xray subscriptions remain unchanged and the isolated legacy Free pool is retained only as a bounded fallback.",
   "features": [
+    "aether-warp-free-primary-engine",
+    "aether-pinned-a26159b82a70048b459e0128213c71767abecb8a",
+    "no-oblivion-app-code-copied",
+    "free-warp-loopback-socks-bridge",
+    "premium-stock-v2rayng-xray-unchanged",
+    "legacy-free-sub-pool-bounded-fallback",
+    "warp-local-port-hijack-fail-closed",
+    "warp-process-stopped-on-disconnect-and-premium-transition",
+    "aether-native-binary-built-from-source-in-ci",
+    "aether-agpl-source-attribution",
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
     "xray-core-release-label-v26.6.27-kept-separate",
@@ -246,5 +256,5 @@
     "locations-nonblocking-during-mmkv-import",
     "metadata-only-manual-account-refresh"
   ],
-  "version_source": "v4.6.2-pool-hotpath-fix"
+  "version_source": "v4.6.3-aether-warp-free-engine"
 }

@@ -28,6 +28,8 @@ class CurrentReleaseTests(unittest.TestCase):
         cls.prepare = text("scripts/prepare_android.py")
         cls.workflow = text(".github/workflows/build-apk.yml")
         cls.profile = text("android-source/BlueVpnProfileManager.kt")
+        cls.warp = text("android-source/BlueVpnWarpEngine.kt")
+        cls.aether_build = text("scripts/build_aether_android.py")
 
     def test_01_version(self):
         version = self.app["version_name"]
@@ -49,6 +51,8 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertEqual(self.app["xray_core_release_label"], "v26.6.27")
         self.assertNotIn("xray_ref", self.app)
         self.assertNotIn("sing_box_ref", self.app)
+        self.assertEqual(self.app.get("free_engine"), "aether-warp-primary")
+        self.assertEqual(self.app.get("aether_ref"), "a26159b82a70048b459e0128213c71767abecb8a")
 
     def test_04_direct_stock_start_stop(self):
         self.assertIn("CoreServiceManager.startVService(this, guid)", self.home)
@@ -63,6 +67,21 @@ class CurrentReleaseTests(unittest.TestCase):
             "android-source/BlueVpnAiActivity.kt",
         ):
             self.assertFalse((ROOT / rel).exists(), rel)
+
+    def test_05b_free_aether_warp_engine_is_pinned_and_isolated(self):
+        self.assertIn("beginWarpFreeConnection()", self.home)
+        self.assertIn("BlueVpnWarpEngine.isBridgeGuid", self.home)
+        self.assertIn('BRIDGE_SUBSCRIPTION_ID = "bluevpn_free_warp_aether"', self.warp)
+        self.assertIn("Aether loopback port is already occupied", self.warp)
+        self.assertIn('AETHER_COMMIT = "a26159b82a70048b459e0128213c71767abecb8a"', self.aether_build)
+        self.assertIn("Build pinned Aether WARP runtime", self.workflow)
+        self.assertIn("dtolnay/rust-toolchain@stable", self.workflow)
+        self.assertIn("libbluevpn_aether.so", self.aether_build)
+
+    def test_05c_premium_runtime_stays_stock_v2rayng(self):
+        self.assertIn("CoreServiceManager.startVService(this, guid)", self.home)
+        self.assertNotIn("BlueVpnEngineManager", self.home + self.account)
+        self.assertNotIn("BlueVpnSingBox", self.home + self.account)
 
     def test_06_no_singbox_ci(self):
         self.assertNotIn("sing-box", self.workflow.lower())

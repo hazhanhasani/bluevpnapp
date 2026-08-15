@@ -37,6 +37,8 @@ def main() -> None:
     prepare = read("scripts/prepare_android.py")
     workflow = read(".github/workflows/build-apk.yml")
     profile = read("android-source/BlueVpnProfileManager.kt")
+    warp = read("android-source/BlueVpnWarpEngine.kt")
+    aether_build = read("scripts/build_aether_android.py")
     notice = read("NOTICE.md")
     readme = read("README.md")
     sms_otp = read("bluevpn-manager/includes/class-bluevpn-sms-otp.php")
@@ -87,12 +89,23 @@ def main() -> None:
     require(app["xray_core_release_label"] == "v26.6.27", "v2rayNG 2.2.6 Xray-core release label must be v26.6.27")
     require("xray_ref" not in app, "ambiguous xray_ref metadata must be removed")
     require("sing_box_ref" not in app, "sing-box pin must be removed")
+    require(app.get("free_engine") == "aether-warp-primary", "Free engine metadata must select Aether/WARP")
+    require(app.get("aether_ref") == "a26159b82a70048b459e0128213c71767abecb8a", "Aether metadata pin mismatch")
 
-    # BlueVPN is a UI/control-plane mounted directly on stock v2rayNG runtime.
+    # Premium remains mounted directly on stock v2rayNG. Free may start the
+    # separately packaged Aether process and then use a local SOCKS ProfileItem
+    # through that same stock v2rayNG VpnService/TUN owner.
     require("import com.v2ray.ang.core.CoreServiceManager" in home, "Home must import upstream CoreServiceManager")
     require("CoreServiceManager.startVService(this, guid)" in home, "Home must start exact GUID through upstream v2rayNG")
     require("CoreServiceManager.stopVService" in home, "Home must stop through upstream v2rayNG")
     require("BlueVpnEngineManager" not in home + account, "legacy engine abstraction remains")
+    require("beginWarpFreeConnection()" in home, "Free WARP routing entrypoint missing")
+    require("BlueVpnWarpEngine.isBridgeGuid" in home, "WARP bridge is not isolated from subscription candidates")
+    require('BRIDGE_SUBSCRIPTION_ID = "bluevpn_free_warp_aether"' in warp, "dedicated WARP bridge ownership missing")
+    require("127.0.0.1" in warp and "1819" in warp, "Aether loopback SOCKS boundary missing")
+    require("Aether loopback port is already occupied" in warp, "WARP local port hijack must fail closed")
+    require('AETHER_COMMIT = "a26159b82a70048b459e0128213c71767abecb8a"' in aether_build, "Aether source is not pinned")
+    require("Build pinned Aether WARP runtime" in workflow, "CI does not build Aether from pinned source")
     require("coreStartError" not in home, "Home still depends on patched MainViewModel diagnostics")
     require("CoreServiceManager.stopVService(appContext)" in account, "Account must stop stock v2rayNG directly")
 
@@ -129,7 +142,8 @@ def main() -> None:
         require(token not in subscription, f"subscription UA/parser compatibility shim remains: {token}")
     require("userAgent = null" in account, "managed subscriptions do not preserve stock v2rayNG UA behavior")
 
-    # No alternate production core/runtime.
+    # Retired sing-box/legacy engine files must stay absent. The only additional
+    # Free transport is the separately pinned Aether process above.
     for rel in (
         "android-source/BlueVpnEngineManager.kt",
         "android-source/BlueVpnSingBoxProcess.kt",
@@ -150,6 +164,7 @@ def main() -> None:
     require("python scripts/cleanup_repository.py" in workflow, "CI does not execute repository cleanup")
 
     require("sing-box" not in workflow.lower(), "workflow still builds sing-box")
+    require("CluvexStudio/Aether" in prepare, "Aether source attribution missing from Android notice")
     require("SING_BOX" not in profile and "SING_BOX_JSON" not in profile, "profile catalogue still routes to sing-box")
 
     # Upstream source is checked out first and its exact core submodule pairing is never moved.
@@ -283,7 +298,7 @@ def main() -> None:
 
     print(f"BlueVPN {version} validation: PASS")
     print("runtime=v2rayNG-2.2.6 androidlib=v26.7.5 xray-release-label=v26.6.27 sing-box=removed")
-    print("architecture=BlueVPN UI/control-plane -> immutable stock v2rayNG runtime")
+    print("architecture=Free -> pinned Aether/WARP loopback SOCKS -> stock v2rayNG VpnService; Premium -> immutable stock v2rayNG/Xray")
 
 
 if __name__ == "__main__":

@@ -183,6 +183,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var candidateWarmupInProgress = false
     private var candidateWarmupForcePending = false
     private var freePreparationInProgress = false
+    private var warpPreparationInProgress = false
+    private var warpFallbackUntilElapsed = 0L
     private var entitlementReconcileInProgress = false
     private var retryConnectionAfterEntitlementReconcile = false
     private var startupPipelineStarted = false
@@ -2992,6 +2994,7 @@ private fun dpHome(value: Int): Int =
         disconnectRetry.reset()
 
         CoreServiceManager.stopVService(this)
+        lifecycleScope.launch(Dispatchers.IO) { BlueVpnWarpEngine.stop() }
         BlueVpnPreferences.clearConnected(this)
         BlueVpnAccountManager.stopFreeSession(this, expired = false)
         connectionVerified = false
@@ -3012,6 +3015,11 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun prepareFreePlanAccess(force: Boolean) {
+        // WARP is the primary Free transport. Do not keep downloading/scanning
+        // public Free subscriptions in the background when Aether is packaged
+        // and executable; the legacy pool is fetched only after a bounded WARP
+        // startup failure and remains a compatibility fallback.
+        if (BlueVpnWarpEngine.supported(this) && SystemClock.elapsedRealtime() >= warpFallbackUntilElapsed) return
         // Logged-in users without an active Premium entitlement are Free users too.
         if (BlueVpnAccountManager.premiumEntitlementActive(this) || freePreparationInProgress) return
         val now = SystemClock.elapsedRealtime()
@@ -3133,6 +3141,16 @@ private fun dpHome(value: Int): Int =
             BlueVpnSelectionMode.AUTO
         } else {
             BlueVpnPreferences.selectionMode(this)
+        }
+
+        // Free primary engine: Aether/WARP. Premium remains on the exact stock
+        // v2rayNG subscription path. If the native Aether binary cannot start,
+        // fall back to the existing isolated Free subscription pool for this
+        // connect attempt rather than leaving the user stuck.
+        if (entitlement.isFree && SystemClock.elapsedRealtime() >= warpFallbackUntilElapsed) {
+            if (beginWarpFreeConnection()) return
+        } else if (entitlement.isPremium && BlueVpnWarpEngine.isRunning()) {
+            lifecycleScope.launch(Dispatchers.IO) { BlueVpnWarpEngine.stop() }
         }
 
         val overlayLocation = when (selectionMode) {
@@ -3479,6 +3497,71 @@ private fun dpHome(value: Int): Int =
         )
     }
 
+    private fun beginWarpFreeConnection(): Boolean {
+        if (warpPreparationInProgress) return true
+        if (!BlueVpnWarpEngine.supported(this)) {
+            warpFallbackUntilElapsed = SystemClock.elapsedRealtime() + 30_000L
+            return false
+        }
+
+        warpPreparationInProgress = true
+        pendingConnectionRequest = false
+        connectButton.isEnabled = false
+        statusText.text = "در حال اتصال رایگان"
+        statusCaption.text = "در حال یافتن مسیر Cloudflare WARP"
+        showConnectingOverlay(
+            title = "Cloudflare WARP",
+            caption = "Aether مسیر قابل عبور را روی شبکه فعلی پیدا می‌کند",
+            location = "اتصال رایگان",
+        )
+
+        val generation = ++connectionPreparationGeneration
+        lifecycleScope.launch(Dispatchers.IO) {
+            val result = BlueVpnWarpEngine.prepare(this@BlueVpnHomeActivity)
+            withContext(Dispatchers.Main) {
+                warpPreparationInProgress = false
+                if (generation != connectionPreparationGeneration || userDisconnecting || isFinishing || isDestroyed) {
+                    BlueVpnWarpEngine.stop()
+                    return@withContext
+                }
+
+                val guid = result.getOrNull().orEmpty()
+                if (guid.isBlank()) {
+                    // Bounded fallback: preserve the legacy isolated Free pool
+                    // for networks/devices where the native WARP engine cannot
+                    // start yet. Do not retry Aether in a tight UI loop.
+                    warpFallbackUntilElapsed = SystemClock.elapsedRealtime() + 30_000L
+                    statusCaption.text = "WARP آماده نشد • استفاده از Pool رایگان پشتیبان"
+                    connectButton.isEnabled = true
+                    handler.post { beginSmartConnection() }
+                    return@withContext
+                }
+
+                connectionEntitlementGuids = setOf(guid)
+                failoverQueue = listOf(guid)
+                failoverReserveQueue = emptyList()
+                failoverIndex = 0
+                failoverActive = true
+                connectionVerified = false
+                attemptedGuid = ""
+                waitingForPingResult = false
+                healthProbeInProgress = false
+                connectButton.isEnabled = false
+                statusText.text = "در حال اتصال به WARP"
+                statusCaption.text = "مسیر Aether آماده شد • تأیید اینترنت واقعی"
+
+                if (SettingsManager.isVpnMode()) {
+                    val permissionIntent = VpnService.prepare(this@BlueVpnHomeActivity)
+                    if (permissionIntent == null) startCurrentCandidate()
+                    else requestVpnPermission.launch(permissionIntent)
+                } else {
+                    startCurrentCandidate()
+                }
+            }
+        }
+        return true
+    }
+
     private fun startSmartConnectionWithCandidates(
         candidates: List<BlueVpnLocationUtil.Candidate>,
         selectionMode: BlueVpnSelectionMode,
@@ -3669,15 +3752,16 @@ private fun dpHome(value: Int): Int =
         handler.removeCallbacks(coreStopTimeout)
 
         val profile = MmkvManager.decodeServerConfig(guid)
+        val warpBridge = profile != null && BlueVpnWarpEngine.isBridgeGuid(guid, profile)
         if (
             profile == null ||
             guid !in connectionEntitlementGuids ||
-            !BlueVpnAccountManager.candidateAllowed(
+            (!warpBridge && !BlueVpnAccountManager.candidateAllowed(
                 this,
                 guid,
                 profile.subscriptionId,
                 connectionEntitlementGuids,
-            )
+            ))
         ) {
             BlueVpnPreferences.markSessionInactive(this, guid)
             BlueVpnPreferences.markServerFailure(this, guid)
@@ -3686,7 +3770,11 @@ private fun dpHome(value: Int): Int =
             return
         }
         val location = BlueVpnLocationUtil.detect(profile.remarks, profile.server)
-        val locationName = location?.let { "${it.flag} ${it.title}" } ?: "انتخاب خودکار"
+        val locationName = if (warpBridge) {
+            "☁️ Cloudflare WARP"
+        } else {
+            location?.let { "${it.flag} ${it.title}" } ?: "انتخاب خودکار"
+        }
 
         showConnectingOverlay(
             title = "در حال اتصال",
@@ -3729,9 +3817,10 @@ private fun dpHome(value: Int): Int =
         ) return
 
         val profile = MmkvManager.decodeServerConfig(guid)
+        val warpBridge = profile != null && BlueVpnWarpEngine.isBridgeGuid(guid, profile)
         if (
             profile == null ||
-            !BlueVpnAccountManager.candidateAllowed(this, guid, profile.subscriptionId)
+            (!warpBridge && !BlueVpnAccountManager.candidateAllowed(this, guid, profile.subscriptionId))
         ) {
             failCurrentAndTryNext("کانفیگ از Pool فعال خارج شده است")
             return
@@ -4500,7 +4589,11 @@ private fun dpHome(value: Int): Int =
         terminalFailureStopping = mainViewModel.isRunning.value == true
         if (terminalFailureStopping) {
             CoreServiceManager.stopVService(this)
-        } else {
+        }
+        if (BlueVpnWarpEngine.isRunning()) {
+            lifecycleScope.launch(Dispatchers.IO) { BlueVpnWarpEngine.stop() }
+        }
+        if (!terminalFailureStopping) {
             BlueVpnRuntimeGate.endConnection(this)
         }
 

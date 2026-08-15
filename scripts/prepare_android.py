@@ -103,6 +103,16 @@ def patch_build_gradle() -> None:
                 dependencies_marker + "\n    " + dependency,
                 1,
             )
+    # Aether is packaged as a native executable named like a shared library.
+    # Legacy JNI packaging guarantees a real executable file exists under
+    # ApplicationInfo.nativeLibraryDir instead of only being mmap'd from APK.
+    if "useLegacyPackaging = true" not in text:
+        android_marker = "android {"
+        packaging_block = "\n    packaging {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n"
+        if android_marker not in text:
+            raise RuntimeError("Gradle android block not found")
+        text = text.replace(android_marker, android_marker + packaging_block, 1)
+
     path.write_text(text, encoding="utf-8")
 
     # The integration uses a defensive reflection boundary so vendor SDK
@@ -514,6 +524,7 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnSubscriptionIntelligence.kt": ROOT / "android-source/BlueVpnSubscriptionIntelligence.kt",
         bluevpn_dir / "BlueVpnIrcfIntelligence.kt": ROOT / "android-source/BlueVpnIrcfIntelligence.kt",
         bluevpn_dir / "BlueVpnPoolOrchestrator.kt": ROOT / "android-source/BlueVpnPoolOrchestrator.kt",
+        bluevpn_dir / "BlueVpnWarpEngine.kt": ROOT / "android-source/BlueVpnWarpEngine.kt",
         java_dir / "BlueVpnServersActivity.kt": ROOT / "android-source/BlueVpnServersActivity.kt",
         java_dir / "BlueVpnSubscriptionsActivity.kt": ROOT / "android-source/BlueVpnSubscriptionsActivity.kt",
         java_dir / "BlueVpnSettingsActivity.kt": ROOT / "android-source/BlueVpnSettingsActivity.kt",
@@ -591,7 +602,8 @@ def add_source_notice() -> None:
         "BlueVPN Android is a branded/custom UI distribution built directly on the official v2rayNG 2.2.6 Android source under GNU GPL v3.\n"
         "The runtime path (import, config generation, CoreServiceManager, CoreVpnService, TUN and Xray startup) remains v2rayNG-owned.\n"
         "AndroidLibXrayLite is resolved from the exact v2rayNG 2.2.6 submodule (currently v26.7.5); v2rayNG 2.2.6 release notes label its Xray-core as v26.6.27. These are separate version namespaces.\n"
-        "BlueVPN adds its own account, location, entitlement, updater and UI layers without an alternate VPN core.\n"
+        "BlueVPN adds its own account, location, entitlement, updater and UI layers. Premium remains on the stock v2rayNG/Xray runtime; Free can use the separately packaged Aether WARP process through a loopback SOCKS bridge.\n"
+        "Aether source pin: https://github.com/CluvexStudio/Aether/tree/a26159b82a70048b459e0128213c71767abecb8a (AGPL-3.0). No Oblivion application code is copied into BlueVPN.\n"
         "Upstream source: https://github.com/2dust/v2rayNG\n",
         encoding="utf-8",
     )

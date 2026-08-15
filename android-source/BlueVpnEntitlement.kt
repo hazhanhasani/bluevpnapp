@@ -104,8 +104,8 @@ object BlueVpnEntitlement {
                 } else {
                     "پلن رایگان • ${account.email}"
                 },
-                poolLabel = "سرورهای رایگان",
-                connectionNotice = "هر اتصال رایگان تا ${free.sessionMinutes} دقیقه فعال است و فقط از Pool رایگان استفاده می‌کند.",
+                poolLabel = "Cloudflare WARP",
+                connectionNotice = "هر اتصال رایگان تا ${free.sessionMinutes} دقیقه فعال است؛ مسیر اصلی Cloudflare WARP است و Pool رایگان فقط پشتیبان باقی می‌ماند.",
                 sessionMinutes = free.sessionMinutes,
                 // A FREE entitlement may be visible before the first pool fetch.
                 // Connect then enters prepareFreeAccess() instead of incorrectly

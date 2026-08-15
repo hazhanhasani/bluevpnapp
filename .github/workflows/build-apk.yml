@@ -419,6 +419,21 @@ jobs:
           echo "overlay-bluevpn" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           python scripts/prepare_android.py 2>&1 | tee "$GITHUB_WORKSPACE/prepare-android.log"
 
+      - name: Setup Rust for BlueVPN Free WARP engine
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Build pinned Aether WARP runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BUILD_STAGE=build-aether-warp" >> "$GITHUB_ENV"
+          echo "build-aether-warp" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          python scripts/build_aether_android.py 2>&1 | tee "$GITHUB_WORKSPACE/aether-build.log"
+          test -x upstream/V2rayNG/app/src/main/jniLibs/arm64-v8a/libbluevpn_aether.so
+          test -x upstream/V2rayNG/app/src/main/jniLibs/armeabi-v7a/libbluevpn_aether.so
+
       - name: Apply BlueVPN login and registration redesign
         shell: bash
         run: |
@@ -439,7 +454,7 @@ jobs:
           echo "BUILD_STAGE=release-regression-gate" >> "$GITHUB_ENV"
           echo "release-regression-gate" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           {
-            python -m py_compile scripts/prepare_android.py scripts/validate_release.py tests/test_current_release.py
+            python -m py_compile scripts/prepare_android.py scripts/build_aether_android.py scripts/validate_release.py tests/test_current_release.py
             python scripts/validate_release.py
             python -m unittest tests.test_current_release -v
             while IFS= read -r -d '' file; do

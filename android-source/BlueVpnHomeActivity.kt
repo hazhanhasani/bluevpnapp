@@ -185,7 +185,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var candidateWarmupForcePending = false
     private var freePreparationInProgress = false
     private var warpPreparationInProgress = false
-    private var warpFallbackUntilElapsed = 0L
+    private var warpFallbackGeneration = -1
     private var entitlementReconcileInProgress = false
     private var retryConnectionAfterEntitlementReconcile = false
     private var startupPipelineStarted = false
@@ -2967,6 +2967,7 @@ private fun dpHome(value: Int): Int =
             return
         }
 
+        warpFallbackGeneration = -1
         beginSmartConnection()
     }
 
@@ -3021,7 +3022,7 @@ private fun dpHome(value: Int): Int =
         // and executable; the legacy pool is fetched only after a bounded WARP
         // startup failure and remains a compatibility fallback.
         if (BlueVpnAccountManager.warpFreeEnabled(this) && BlueVpnWarpEngine.supported(this) &&
-            SystemClock.elapsedRealtime() >= warpFallbackUntilElapsed) return
+            warpFallbackGeneration != connectionPreparationGeneration) return
         // Logged-in users without an active Premium entitlement are Free users too.
         if (BlueVpnAccountManager.premiumEntitlementActive(this) || freePreparationInProgress) return
         val now = SystemClock.elapsedRealtime()
@@ -3150,7 +3151,7 @@ private fun dpHome(value: Int): Int =
         // fall back to the existing isolated Free subscription pool for this
         // connect attempt rather than leaving the user stuck.
         if (entitlement.isFree && BlueVpnAccountManager.warpFreeEnabled(this) &&
-            SystemClock.elapsedRealtime() >= warpFallbackUntilElapsed) {
+            warpFallbackGeneration != connectionPreparationGeneration) {
             if (beginWarpFreeConnection()) return
         } else if (entitlement.isPremium && BlueVpnWarpEngine.isRunning()) {
             lifecycleScope.launch(Dispatchers.IO) { BlueVpnWarpEngine.stop() }
@@ -3503,7 +3504,7 @@ private fun dpHome(value: Int): Int =
     private fun beginWarpFreeConnection(): Boolean {
         if (warpPreparationInProgress) return true
         if (!BlueVpnWarpEngine.supported(this)) {
-            warpFallbackUntilElapsed = SystemClock.elapsedRealtime() + 30_000L
+            warpFallbackGeneration = connectionPreparationGeneration
             val canFallback = BlueVpnAccountManager.warpFallbackEnabled(this)
             if (!canFallback) {
                 statusText.text = "WARP روی این دستگاه آماده نیست"
@@ -3538,7 +3539,7 @@ private fun dpHome(value: Int): Int =
                     // Bounded fallback is policy-controlled by WordPress. WARP-only
                     // mode must never silently fall back to public subscription
                     // profiles, while fallback mode may preserve the legacy pool.
-                    warpFallbackUntilElapsed = SystemClock.elapsedRealtime() + 30_000L
+                    warpFallbackGeneration = connectionPreparationGeneration
                     connectButton.isEnabled = true
                     if (BlueVpnAccountManager.warpFallbackEnabled(this@BlueVpnHomeActivity)) {
                         statusCaption.text = "WARP آماده نشد • استفاده از Pool رایگان پشتیبان"
@@ -3563,6 +3564,7 @@ private fun dpHome(value: Int): Int =
                 connectButton.isEnabled = false
                 statusText.text = "در حال اتصال به WARP"
                 statusCaption.text = "مسیر Aether آماده شد • تأیید اینترنت واقعی"
+                BlueVpnWarpEngine.markBridgeStarting()
 
                 if (SettingsManager.isVpnMode()) {
                     val permissionIntent = VpnService.prepare(this@BlueVpnHomeActivity)
@@ -3855,6 +3857,7 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun scheduleConnectionVerification() {
+        if (attemptedGuid.isNotBlank() && BlueVpnWarpEngine.isBridgeGuid(attemptedGuid)) BlueVpnWarpEngine.markTunnelVerifying()
         if (
             !failoverActive ||
             userDisconnecting ||
@@ -3988,6 +3991,7 @@ private fun dpHome(value: Int): Int =
                     existingSessionRetryCount = 0
                     lastVerifiedLatency = latency
                     connectionVerified = true
+                    if (attemptedGuid.isNotBlank() && BlueVpnWarpEngine.isBridgeGuid(attemptedGuid)) BlueVpnWarpEngine.markConnected()
                     BlueVpnLiveReporter.kick(this@BlueVpnHomeActivity)
                     BlueVpnPreferences.markConnected(
                         this@BlueVpnHomeActivity,
@@ -4014,6 +4018,7 @@ private fun dpHome(value: Int): Int =
                     BlueVpnPreferences.connectedAt(this@BlueVpnHomeActivity) > 0L
                 ) {
                     connectionVerified = true
+                    if (attemptedGuid.isNotBlank() && BlueVpnWarpEngine.isBridgeGuid(attemptedGuid)) BlueVpnWarpEngine.markConnected()
                     BlueVpnLiveReporter.kick(this@BlueVpnHomeActivity)
                     renderConnectionState(true)
                 } else {
@@ -4448,6 +4453,7 @@ private fun dpHome(value: Int): Int =
         BlueVpnRuntimeGate.markConnectionActive(this)
         BlueVpnAccountManager.startFreeSession(this)
         connectionVerified = true
+        if (attemptedGuid.isNotBlank() && BlueVpnWarpEngine.isBridgeGuid(attemptedGuid)) BlueVpnWarpEngine.markConnected()
         BlueVpnLiveReporter.kick(this)
         connectButton.isEnabled = true
         resetTrafficBaseline()
@@ -4536,6 +4542,28 @@ private fun dpHome(value: Int): Int =
         }
 
         CoreServiceManager.stopVService(this)
+        val failedWasWarpBridge = failedGuid.isNotBlank() && BlueVpnWarpEngine.isBridgeGuid(failedGuid)
+        if (failedWasWarpBridge && BlueVpnAccountManager.warpFallbackEnabled(this)) {
+            BlueVpnWarpEngine.markFallback()
+            warpFallbackGeneration = connectionPreparationGeneration
+            failoverActive = false
+            failoverQueue = emptyList()
+            failoverReserveQueue = emptyList()
+            connectionEntitlementGuids = emptySet()
+            attemptedGuid = ""
+            connectButton.isEnabled = true
+            statusText.text = "در حال انتقال به مسیر پشتیبان"
+            statusCaption.text = "WARP در تأیید نهایی ناموفق بود • Pool رایگان بررسی می‌شود"
+            lifecycleScope.launch(Dispatchers.IO) {
+                BlueVpnWarpEngine.stopAsync()
+                withContext(Dispatchers.Main) {
+                    if (!isFinishing && warpFallbackGeneration == connectionPreparationGeneration) {
+                        beginSmartConnection()
+                    }
+                }
+            }
+            return
+        }
         failoverIndex += 1
         waitingForPingResult = false
         healthProbeInProgress = false

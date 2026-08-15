@@ -1,0 +1,13 @@
+=== Android release build attempt 2026-08-15 ===
+Sat Aug 15 16:06:36 UTC 2026
+--- tools ---
+/usr/bin/java
+ANDROID_HOME=
+--- prepare ---
+Traceback (most recent call last):
+  File "/mnt/data/bluevpn-work/scripts/prepare_android.py", line 629, in <module>
+    main()
+    ~~~~^^
+  File "/mnt/data/bluevpn-work/scripts/prepare_android.py", line 613, in main
+    raise RuntimeError("Upstream project not found at upstream/V2rayNG")
+RuntimeError: Upstream project not found at upstream/V2rayNG

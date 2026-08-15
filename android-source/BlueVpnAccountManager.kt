@@ -68,6 +68,21 @@ data class BlueVpnFreeAccessSnapshot(
     val warpMode: String,
     val warpFallbackEnabled: Boolean,
     val warpStartTimeoutSeconds: Int,
+    val warpWarmTimeoutSeconds: Int,
+    val warpColdTimeoutSeconds: Int,
+    val warpTotalTimeoutSeconds: Int,
+    val warpQuickReconnect: Boolean,
+    val warpAdaptiveEnabled: Boolean,
+    val warpAllowedTransports: Set<String>,
+    val warpScanMode: String,
+    val warpIpMode: String,
+    val warpH2Enabled: Boolean,
+    val warpFragmentEnabled: Boolean,
+    val warpFragmentSize: String,
+    val warpFragmentDelay: String,
+    val warpWireGuardEnabled: Boolean,
+    val warpGoolEnabled: Boolean,
+    val warpNoizeProfile: String,
     val guestAllowed: Boolean,
 )
 
@@ -295,7 +310,26 @@ object BlueVpnAccountManager {
             ?: "warp_fallback_pool"
         val warpEnabled = warp.optBoolean("enabled", warpMode != "pool_only")
         val warpFallbackEnabled = warp.optBoolean("fallback_pool_enabled", warpMode == "warp_fallback_pool")
-        val warpStartTimeoutSeconds = warp.optInt("start_timeout_seconds", 7).coerceIn(3, 20)
+        val warpStartTimeoutSeconds = warp.optInt("start_timeout_seconds", 7).coerceIn(3, 40)
+        val warpWarmTimeoutSeconds = warp.optInt("warm_timeout_seconds", 8).coerceIn(4, 12)
+        val warpColdTimeoutSeconds = warp.optInt("cold_timeout_seconds", 30).coerceIn(15, 40)
+        val warpTotalTimeoutSeconds = warp.optInt("total_timeout_seconds", 75).coerceIn(30, 90)
+        val warpQuickReconnect = warp.optBoolean("quick_reconnect", true)
+        val warpAdaptiveEnabled = warp.optBoolean("adaptive_strategy_enabled", true)
+        val allowedJson = warp.optJSONArray("allowed_transports")
+        val warpAllowedTransports = buildSet {
+            if (allowedJson != null) for (i in 0 until allowedJson.length()) allowedJson.optString(i).trim().lowercase().takeIf { it in setOf("h3","h2","h2_fragment","wireguard","gool") }?.let(::add)
+            if (isEmpty()) addAll(setOf("h3","h2","h2_fragment"))
+        }
+        val warpScanMode = warp.optString("scan_mode", "balanced").trim().lowercase().takeIf { it in setOf("turbo","balanced","thorough","stealth","ironclad") } ?: "balanced"
+        val warpIpMode = warp.optString("ip_mode", "auto").trim().lowercase().takeIf { it in setOf("auto","v4","dual") } ?: "auto"
+        val warpH2Enabled = warp.optBoolean("h2_enabled", true)
+        val warpFragmentEnabled = warp.optBoolean("fragment_enabled", true)
+        val warpFragmentSize = warp.optString("fragment_size", "8-24").trim().takeIf { it.matches(Regex("\\d{1,3}(-\\d{1,3})?")) } ?: "8-24"
+        val warpFragmentDelay = warp.optString("fragment_delay", "5-15").trim().takeIf { it.matches(Regex("\\d{1,3}(-\\d{1,3})?")) } ?: "5-15"
+        val warpWireGuardEnabled = warp.optBoolean("wireguard_enabled", false)
+        val warpGoolEnabled = warp.optBoolean("warp_in_warp_enabled", false)
+        val warpNoizeProfile = warp.optString("noize_profile", "firewall").trim().lowercase().takeIf { it in setOf("off","light","balanced","aggressive","firewall","gfw") } ?: "firewall"
         val guestAllowed = free.optBoolean("guest_allowed", true)
         val oldMinutes = storage.getInt("session_minutes", 60).coerceIn(15, 180)
         val newMinutes = free.optInt("session_minutes", 60).coerceIn(15, 180)
@@ -306,6 +340,21 @@ object BlueVpnAccountManager {
             .putString("warp_mode", warpMode)
             .putBoolean("warp_fallback_enabled", warpFallbackEnabled)
             .putInt("warp_start_timeout_seconds", warpStartTimeoutSeconds)
+            .putInt("warp_warm_timeout_seconds", warpWarmTimeoutSeconds)
+            .putInt("warp_cold_timeout_seconds", warpColdTimeoutSeconds)
+            .putInt("warp_total_timeout_seconds", warpTotalTimeoutSeconds)
+            .putBoolean("warp_quick_reconnect", warpQuickReconnect)
+            .putBoolean("warp_adaptive_enabled", warpAdaptiveEnabled)
+            .putStringSet("warp_allowed_transports", warpAllowedTransports)
+            .putString("warp_scan_mode", warpScanMode)
+            .putString("warp_ip_mode", warpIpMode)
+            .putBoolean("warp_h2_enabled", warpH2Enabled)
+            .putBoolean("warp_fragment_enabled", warpFragmentEnabled)
+            .putString("warp_fragment_size", warpFragmentSize)
+            .putString("warp_fragment_delay", warpFragmentDelay)
+            .putBoolean("warp_wireguard_enabled", warpWireGuardEnabled)
+            .putBoolean("warp_gool_enabled", warpGoolEnabled)
+            .putString("warp_noize_profile", warpNoizeProfile)
             .putBoolean("guest_allowed", guestAllowed)
             .putString("subscription_url", legacyUrl)
             .putString("subscriptions_json", storedSources.toString())
@@ -511,7 +560,22 @@ object BlueVpnAccountManager {
             warpEnabled = warpEnabled,
             warpMode = warpMode,
             warpFallbackEnabled = storage.getBoolean("warp_fallback_enabled", warpMode == "warp_fallback_pool"),
-            warpStartTimeoutSeconds = storage.getInt("warp_start_timeout_seconds", 7).coerceIn(3, 20),
+            warpStartTimeoutSeconds = storage.getInt("warp_start_timeout_seconds", 7).coerceIn(3, 40),
+            warpWarmTimeoutSeconds = storage.getInt("warp_warm_timeout_seconds", 8).coerceIn(4, 12),
+            warpColdTimeoutSeconds = storage.getInt("warp_cold_timeout_seconds", 30).coerceIn(15, 40),
+            warpTotalTimeoutSeconds = storage.getInt("warp_total_timeout_seconds", 75).coerceIn(30, 90),
+            warpQuickReconnect = storage.getBoolean("warp_quick_reconnect", true),
+            warpAdaptiveEnabled = storage.getBoolean("warp_adaptive_enabled", true),
+            warpAllowedTransports = storage.getStringSet("warp_allowed_transports", setOf("h3","h2","h2_fragment")).orEmpty().filter { it in setOf("h3","h2","h2_fragment","wireguard","gool") }.toSet().ifEmpty { setOf("h3","h2","h2_fragment") },
+            warpScanMode = storage.getString("warp_scan_mode", "balanced").orEmpty().takeIf { it in setOf("turbo","balanced","thorough","stealth","ironclad") } ?: "balanced",
+            warpIpMode = storage.getString("warp_ip_mode", "auto").orEmpty().takeIf { it in setOf("auto","v4","dual") } ?: "auto",
+            warpH2Enabled = storage.getBoolean("warp_h2_enabled", true),
+            warpFragmentEnabled = storage.getBoolean("warp_fragment_enabled", true),
+            warpFragmentSize = storage.getString("warp_fragment_size", "8-24").orEmpty().ifBlank { "8-24" },
+            warpFragmentDelay = storage.getString("warp_fragment_delay", "5-15").orEmpty().ifBlank { "5-15" },
+            warpWireGuardEnabled = storage.getBoolean("warp_wireguard_enabled", false),
+            warpGoolEnabled = storage.getBoolean("warp_gool_enabled", false),
+            warpNoizeProfile = storage.getString("warp_noize_profile", "firewall").orEmpty().ifBlank { "firewall" },
             guestAllowed = storage.getBoolean("guest_allowed", true),
         )
         freeSnapshotCache = snapshot

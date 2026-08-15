@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import subprocess
@@ -18,9 +19,18 @@ TARGETS = {
 API = 24
 
 
-def run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
+def run(*args: str, cwd: Path | None = None, env: dict[str, str] | None = None, capture: bool = False) -> str:
     print("+", " ".join(args))
-    subprocess.run(args, cwd=cwd, env=env, check=True)
+    cp = subprocess.run(args, cwd=cwd, env=env, check=True, text=True, stdout=subprocess.PIPE if capture else None, stderr=subprocess.STDOUT if capture else None)
+    return cp.stdout or ""
+
+
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def ndk_root() -> Path:
@@ -57,10 +67,32 @@ def main() -> None:
     run("git", "fetch", "origin", AETHER_COMMIT, cwd=aether)
     run("git", "checkout", "--detach", AETHER_COMMIT, cwd=aether)
     run("git", "submodule", "update", "--init", "--recursive", cwd=aether)
+    resolved = run("git", "rev-parse", "HEAD", cwd=aether, capture=True).strip()
+    if resolved != AETHER_COMMIT:
+        raise SystemExit(f"Aether pin mismatch: expected {AETHER_COMMIT}, got {resolved}")
+    submodules = run("git", "submodule", "status", "--recursive", cwd=aether, capture=True).strip()
 
     core = aether / "aether"
     if not (core / "Cargo.toml").is_file():
         raise SystemExit("Pinned Aether source layout changed")
+
+    lock = core / "Cargo.lock"
+    if not lock.is_file():
+        raise SystemExit("Pinned Aether Cargo.lock is missing")
+    provenance = ROOT / "reports" / "AETHER-PROVENANCE-4.6.6.txt"
+    provenance.parent.mkdir(parents=True, exist_ok=True)
+    lines = [f"commit={resolved}", f"cargo_lock_sha256={sha256(lock)}", "submodules=", submodules or "(none)"]
+
+    # Host CLI regression gate from the exact pinned source.
+    run("cargo", "build", "--release", "--locked", "--bin", "aether", cwd=core)
+    host_binary = core / "target" / "release" / "aether"
+    version = run(str(host_binary), "--version", cwd=core, capture=True).strip()
+    help_text = run(str(host_binary), "--help", cwd=core, capture=True)
+    required_help = ["--quick-reconnect", "--no-quick-reconnect", "--h2", "--fragment", "--startup-secs"]
+    missing = [flag for flag in required_help if flag not in help_text]
+    if missing:
+        raise SystemExit(f"Pinned Aether CLI is missing required flags: {missing}")
+    lines += [f"host_version={version}", f"host_sha256={sha256(host_binary)}", "required_help_flags=PASS"]
 
     run("rustup", "target", "add", *TARGETS.values())
     ndk = ndk_root()
@@ -84,7 +116,7 @@ def main() -> None:
         env[f"AR_{env_key}"] = str(tools / "llvm-ar")
         env[f"BINDGEN_EXTRA_CLANG_ARGS_{env_key}"] = f"--target={triple} --sysroot={sysroot}"
         env["RUST_LIBC_UNSTABLE_MUSL_V1_2_3"] = "1"
-        run("cargo", "build", "--release", "--target", triple, "--bin", "aether", cwd=core, env=env)
+        run("cargo", "build", "--release", "--locked", "--target", triple, "--bin", "aether", cwd=core, env=env)
         binary = core / "target" / triple / "release" / "aether"
         if not binary.is_file():
             raise SystemExit(f"Aether output missing for {abi}: {binary}")
@@ -93,7 +125,13 @@ def main() -> None:
         target = abi_dir / "libbluevpn_aether.so"
         shutil.copy2(binary, target)
         target.chmod(0o755)
-        print(f"Aether {AETHER_COMMIT[:12]} -> {target}")
+        digest = sha256(target)
+        file_info = run("file", str(target), capture=True).strip()
+        lines += [f"{abi}_sha256={digest}", f"{abi}_file={file_info}"]
+        print(f"Aether {AETHER_COMMIT[:12]} -> {target} sha256={digest}")
+
+    provenance.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Aether provenance -> {provenance}")
 
 
 if __name__ == "__main__":

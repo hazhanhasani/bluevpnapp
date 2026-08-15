@@ -469,7 +469,23 @@ final class BlueVPN_Ads {
                 'enabled' => $warpEnabled,
                 'mode' => $mode,
                 'fallback_pool_enabled' => $fallbackEnabled,
-                'start_timeout_seconds' => max(3, min(20, (int)($settings['free_warp_start_timeout_seconds'] ?? 7))),
+                'schema' => 2,
+                'start_timeout_seconds' => max(3, min(40, (int)($settings['free_warp_start_timeout_seconds'] ?? 30))),
+                'adaptive_strategy_enabled' => !array_key_exists('free_warp_adaptive_enabled',$settings) || !empty($settings['free_warp_adaptive_enabled']),
+                'quick_reconnect' => !array_key_exists('free_warp_quick_reconnect',$settings) || !empty($settings['free_warp_quick_reconnect']),
+                'allowed_transports' => array_values(array_intersect((array)($settings['free_warp_allowed_transports'] ?? ['h3','h2','h2_fragment']), ['h3','h2','h2_fragment','wireguard','gool'])),
+                'scan_mode' => in_array(($settings['free_warp_scan_mode'] ?? 'balanced'), ['turbo','balanced','thorough','stealth','ironclad'], true) ? $settings['free_warp_scan_mode'] : 'balanced',
+                'ip_mode' => in_array(($settings['free_warp_ip_mode'] ?? 'auto'), ['auto','v4','dual'], true) ? $settings['free_warp_ip_mode'] : 'auto',
+                'h2_enabled' => !array_key_exists('free_warp_h2_enabled',$settings) || !empty($settings['free_warp_h2_enabled']),
+                'fragment_enabled' => !array_key_exists('free_warp_fragment_enabled',$settings) || !empty($settings['free_warp_fragment_enabled']),
+                'fragment_size' => preg_match('/^\d{1,3}(?:-\d{1,3})?$/', (string)($settings['free_warp_fragment_size'] ?? '8-24')) ? (string)$settings['free_warp_fragment_size'] : '8-24',
+                'fragment_delay' => preg_match('/^\d{1,3}(?:-\d{1,3})?$/', (string)($settings['free_warp_fragment_delay'] ?? '5-15')) ? (string)$settings['free_warp_fragment_delay'] : '5-15',
+                'wireguard_enabled' => !empty($settings['free_warp_wireguard_enabled']),
+                'warp_in_warp_enabled' => !empty($settings['free_warp_gool_enabled']),
+                'warm_timeout_seconds' => max(4, min(12, (int)($settings['free_warp_warm_timeout_seconds'] ?? 8))),
+                'cold_timeout_seconds' => max(15, min(40, (int)($settings['free_warp_cold_timeout_seconds'] ?? 30))),
+                'total_timeout_seconds' => max(30, min(90, (int)($settings['free_warp_total_timeout_seconds'] ?? 75))),
+                'noize_profile' => in_array(($settings['free_warp_noize_profile'] ?? 'firewall'), ['off','light','balanced','aggressive','firewall','gfw'], true) ? $settings['free_warp_noize_profile'] : 'firewall',
                 'provider' => 'Cloudflare WARP',
                 'runtime' => 'Aether',
                 'guest_allowed' => !array_key_exists('free_warp_guest_allowed', $settings) || !empty($settings['free_warp_guest_allowed']),
@@ -894,7 +910,19 @@ final class BlueVPN_Ads {
         $s['free_warp_mode'] = in_array($mode, ['warp_only','warp_fallback_pool','pool_only'], true) ? $mode : 'warp_fallback_pool';
         $s['free_warp_fallback_enabled'] = isset($_POST['free_warp_fallback_enabled']);
         $s['free_warp_guest_allowed'] = isset($_POST['free_warp_guest_allowed']);
-        $s['free_warp_start_timeout_seconds'] = max(3, min(20, (int)($_POST['free_warp_start_timeout_seconds'] ?? 7)));
+        $s['free_warp_start_timeout_seconds'] = max(3, min(40, (int)($_POST['free_warp_start_timeout_seconds'] ?? 30)));
+        $s['free_warp_adaptive_enabled'] = isset($_POST['free_warp_adaptive_enabled']);
+        $s['free_warp_quick_reconnect'] = isset($_POST['free_warp_quick_reconnect']);
+        $s['free_warp_h2_enabled'] = isset($_POST['free_warp_h2_enabled']);
+        $s['free_warp_fragment_enabled'] = isset($_POST['free_warp_fragment_enabled']);
+        $s['free_warp_wireguard_enabled'] = isset($_POST['free_warp_wireguard_enabled']);
+        $s['free_warp_gool_enabled'] = isset($_POST['free_warp_gool_enabled']);
+        $s['free_warp_scan_mode'] = in_array(sanitize_key((string)($_POST['free_warp_scan_mode'] ?? 'balanced')), ['turbo','balanced','thorough','stealth','ironclad'], true) ? sanitize_key((string)$_POST['free_warp_scan_mode']) : 'balanced';
+        $s['free_warp_ip_mode'] = in_array(sanitize_key((string)($_POST['free_warp_ip_mode'] ?? 'auto')), ['auto','v4','dual'], true) ? sanitize_key((string)$_POST['free_warp_ip_mode']) : 'auto';
+        $s['free_warp_warm_timeout_seconds'] = max(4,min(12,(int)($_POST['free_warp_warm_timeout_seconds'] ?? 8)));
+        $s['free_warp_cold_timeout_seconds'] = max(15,min(40,(int)($_POST['free_warp_cold_timeout_seconds'] ?? 30)));
+        $s['free_warp_total_timeout_seconds'] = max(30,min(90,(int)($_POST['free_warp_total_timeout_seconds'] ?? 75)));
+        $s['free_warp_allowed_transports'] = array_values(array_intersect((array)($_POST['free_warp_allowed_transports'] ?? []), ['h3','h2','h2_fragment','wireguard','gool']));
         $s['free_session_minutes'] = max(15, min(180, (int)($_POST['free_session_minutes'] ?? 60)));
         BlueVPN_DB::save_settings($s);
         self::redirect('free', 'تنظیمات اتصال رایگان ذخیره شد.');
@@ -1025,7 +1053,16 @@ final class BlueVPN_Ads {
         echo '</select></label>';
         self::checkbox('free_warp_fallback_enabled', 'Fallback به Pool رایگان', !array_key_exists('free_warp_fallback_enabled',$s)||!empty($s['free_warp_fallback_enabled']));
         self::checkbox('free_warp_guest_allowed', 'اتصال مهمان بدون ورود', !array_key_exists('free_warp_guest_allowed',$s)||!empty($s['free_warp_guest_allowed']));
-        self::number('free_warp_start_timeout_seconds', 'مهلت شروع WARP (ثانیه)', (int)($s['free_warp_start_timeout_seconds'] ?? 7), 3, 20);
+        self::number('free_warp_start_timeout_seconds', 'مهلت شروع WARP (ثانیه)', (int)($s['free_warp_start_timeout_seconds'] ?? 30), 3, 40);
+        self::checkbox('free_warp_adaptive_enabled', 'Strategy تطبیقی', !array_key_exists('free_warp_adaptive_enabled',$s)||!empty($s['free_warp_adaptive_enabled']));
+        self::checkbox('free_warp_quick_reconnect', 'Quick reconnect', !array_key_exists('free_warp_quick_reconnect',$s)||!empty($s['free_warp_quick_reconnect']));
+        self::checkbox('free_warp_h2_enabled', 'HTTP/2 fallback', !array_key_exists('free_warp_h2_enabled',$s)||!empty($s['free_warp_h2_enabled']));
+        self::checkbox('free_warp_fragment_enabled', 'TLS Fragment fallback', !array_key_exists('free_warp_fragment_enabled',$s)||!empty($s['free_warp_fragment_enabled']));
+        self::checkbox('free_warp_wireguard_enabled', 'WireGuard fallback', !empty($s['free_warp_wireguard_enabled']));
+        self::checkbox('free_warp_gool_enabled', 'WARP-in-WARP / gool', !empty($s['free_warp_gool_enabled']));
+        self::number('free_warp_warm_timeout_seconds', 'Warm timeout', (int)($s['free_warp_warm_timeout_seconds'] ?? 8), 4, 12);
+        self::number('free_warp_cold_timeout_seconds', 'Cold timeout', (int)($s['free_warp_cold_timeout_seconds'] ?? 30), 15, 40);
+        self::number('free_warp_total_timeout_seconds', 'Total timeout', (int)($s['free_warp_total_timeout_seconds'] ?? 75), 30, 90);
         self::checkbox('free_access_enabled', 'Pool رایگان قدیمی فعال', !empty($s['free_access_enabled']));
         self::number('free_session_minutes', 'مدت هر Session (دقیقه)', (int)($s['free_session_minutes'] ?? 60), 15, 180);
         echo '</div>'; submit_button('ذخیره موتور رایگان', 'primary', 'submit', false); echo '</form></div>';

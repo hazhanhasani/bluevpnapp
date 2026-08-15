@@ -168,6 +168,13 @@ def main() -> None:
         require(token in cleanup, f"repository cleanup does not retire: {token}")
     require("Remove retired BlueVPN runtime files" in workflow, "CI repository cleanup step missing")
     require("python scripts/cleanup_repository.py" in workflow, "CI does not execute repository cleanup")
+    for legacy_test in (
+        "test_blueai_scoring.py",
+        "test_bluepay_payment_runtime_v378.py",
+        "test_database_fk_migration_regression.py",
+        "test_updater_release_metadata.py",
+    ):
+        require(legacy_test in cleanup, f"repository cleanup does not retire stale CI test: {legacy_test}")
 
     require("sing-box" not in workflow.lower(), "workflow still builds sing-box")
     require("CluvexStudio/Aether" in prepare, "Aether source attribution missing from Android notice")

@@ -1,12 +1,12 @@
 {
-  "version": "4.5.9",
-  "version_code": 40509,
+  "version": "4.5.10",
+  "version_code": 40510,
   "channel": "beta",
-  "build_id": "20260815-v4.5.9-progressive-network-scan",
-  "built_at": "2026-08-15T10:50:00Z",
-  "android_version": "4.5.9",
-  "android_version_code": 40509,
-  "description": "BlueVPN 4.5.9: اتصال دیگر منتظر اسکن کامل صدها Route نمی‌ماند؛ BlueAI یک Fast Lane حداکثر 32 مسیره با quorum واقعی اجرا می‌کند، با اولین مجموعه سالم به سریع‌ترین مسیر وصل می‌شود و بقیه Pool را برای failover نگه می‌دارد. اگر Pool دقیق فعلی آماده باشد، همگام‌سازی پس‌زمینه اتصال را مسدود نمی‌کند.",
+  "build_id": "20260815-v4.5.10-release-gate-timeout-alignment",
+  "built_at": "2026-08-15T11:30:00Z",
+  "android_version": "4.5.10",
+  "android_version_code": 40510,
+  "description": "BlueVPN 4.5.10: release regression gate با timeout واقعی 12 ثانیه‌ای Fast Lane همگام شد؛ هیچ رفتار Runtime اتصال تغییر نکرده و قابلیت‌های 4.5.9 حفظ شده‌اند.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -239,7 +239,8 @@
     "progressive-fast-lane-network-scan",
     "early-healthy-quorum-connect",
     "exact-pool-ready-does-not-block-on-background-reconcile",
-    "bounded-per-candidate-connect-timeout"
+    "bounded-per-candidate-connect-timeout",
+    "release-gate-12s-runtime-timeout-alignment"
   ],
   "version_source": "v4.5.6-ircf-intelligence-suite"
 }

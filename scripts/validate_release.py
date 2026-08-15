@@ -116,7 +116,7 @@ def main() -> None:
     require("preflightCandidate(" not in start_block, "authoritative DNS/TCP preflight still blocks connect")
     require("validateExactConfig" not in home, "custom config hydration gate still exists")
     require("MmkvManager.setSelectServer(guid)" not in exact_block, "BlueVPN duplicates upstream selected-GUID handoff")
-    require("handler.postDelayed(attemptTimeout, 30_000L)" in exact_block, "bounded upstream start safety timeout missing")
+    require("handler.postDelayed(attemptTimeout, 12_000L)" in exact_block, "bounded upstream start safety timeout missing")
 
     usable_block = between(location, "fun isUsable(", "fun invalidateCache()")
     require("return true" in usable_block, "BlueVPN still rejects decoded profiles before CoreConfigManager")

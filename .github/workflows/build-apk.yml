@@ -5,6 +5,15 @@ name: Build Signed BlueVPN APK
 # while workflow_dispatch is kept for the intentional "Build now" path.
 on:
   workflow_dispatch:
+    inputs:
+      build_mode:
+        description: Build mode (fast skips production release/WordPress convergence)
+        required: true
+        default: fast
+        type: choice
+        options:
+          - fast
+          - full
   repository_dispatch:
     types:
       - bluevpn_build
@@ -31,6 +40,9 @@ jobs:
       ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
       BLUEVPN_TARGET_BRANCH: ${{ github.event.client_payload.ref || github.ref_name }}
       BLUEVPN_TARGET_SHA: ${{ github.event.client_payload.target_sha || github.sha }}
+      # Manual builds default to FAST. Production repository_dispatch remains FULL
+      # unless the caller explicitly asks for fast mode.
+      BLUEVPN_BUILD_MODE: ${{ github.event_name == 'repository_dispatch' && (github.event.client_payload.build_mode || 'full') || (inputs.build_mode || 'fast') }}
 
     steps:
       - name: Checkout BlueVPN project
@@ -46,6 +58,7 @@ jobs:
           echo "BUILD_STAGE=initialize-build" >> "$GITHUB_ENV"
           echo "initialize-build" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           echo "BlueVPN pre-Gradle diagnostics initialized." | tee -a "$GITHUB_WORKSPACE/android-build.log"
+          echo "Build mode: ${BLUEVPN_BUILD_MODE}" | tee -a "$GITHUB_WORKSPACE/android-build.log"
 
       - name: Synchronize checkout with latest branch
         shell: bash
@@ -186,6 +199,7 @@ jobs:
           echo "upstream_ref=$(python -c 'import json; print(json.load(open("branding/app.json"))["upstream_ref"])')" >> "$GITHUB_OUTPUT"
           echo "android_lib_xray_ref=$(python -c 'import json; print(json.load(open("branding/app.json")).get("android_lib_xray_ref", ""))')" >> "$GITHUB_OUTPUT"
           echo "xray_core_release_label=$(python -c 'import json; print(json.load(open("branding/app.json")).get("xray_core_release_label", ""))')" >> "$GITHUB_OUTPUT"
+          echo "aether_ref=$(python -c 'import json; print(json.load(open("branding/app.json")).get("aether_ref", ""))')" >> "$GITHUB_OUTPUT"
 
       - name: Synchronize WordPress Manager with BlueVPN version
         shell: bash
@@ -326,13 +340,29 @@ jobs:
               path.write_text(text, encoding="utf-8")
           PY
 
+      - name: Restore libhevtun cache
+        id: hevtun-cache
+        uses: actions/cache@v4
+        with:
+          path: upstream/libs
+          key: bluevpn-hevtun-${{ runner.os }}-${{ steps.config.outputs.upstream_ref }}-ndk29-${{ hashFiles('upstream/compile-hevtun.sh') }}
+
       - name: Build libhevtun
+        if: steps.hevtun-cache.outputs.cache-hit != 'true'
         working-directory: upstream
         shell: bash
         run: |
           set -euo pipefail
           bash compile-hevtun.sh
-          cp -r libs V2rayNG/app/
+
+      - name: Install libhevtun into Android runtime
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d libs
+          mkdir -p V2rayNG/app/libs
+          cp -r libs/. V2rayNG/app/libs/
 
       - name: Resolve official v2rayNG AndroidLibXrayLite pairing
         id: xray
@@ -378,13 +408,25 @@ jobs:
           echo "v2rayNG release Xray-core label (informational only): ${XRAY_RELEASE_LABEL:-unknown}"
           echo "tag=$CURRENT_TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Restore libv2ray AAR cache
+        id: libv2ray-cache
+        uses: actions/cache@v4
+        with:
+          path: upstream/V2rayNG/app/libs/libv2ray.aar
+          key: bluevpn-libv2ray-${{ runner.os }}-${{ steps.xray.outputs.tag }}
+
       - name: Download libv2ray
+        if: steps.libv2ray-cache.outputs.cache-hit != 'true'
         uses: robinraju/release-downloader@v1.13
         with:
           repository: 2dust/AndroidLibXrayLite
           tag: ${{ steps.xray.outputs.tag }}
           fileName: libv2ray.aar
           out-file-path: upstream/V2rayNG/app/libs/
+
+      - name: Verify libv2ray AAR
+        shell: bash
+        run: test -s upstream/V2rayNG/app/libs/libv2ray.aar
 
       - name: Mark Android source preparation stage
         shell: bash
@@ -419,18 +461,35 @@ jobs:
           echo "overlay-bluevpn" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           python scripts/prepare_android.py 2>&1 | tee "$GITHUB_WORKSPACE/prepare-android.log"
 
+      - name: Restore pinned Aether runtime cache
+        id: aether-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            upstream/V2rayNG/app/src/main/jniLibs/arm64-v8a/libbluevpn_aether.so
+            upstream/V2rayNG/app/src/main/jniLibs/armeabi-v7a/libbluevpn_aether.so
+            reports/AETHER-PROVENANCE-4.7.6.txt
+          key: bluevpn-aether-${{ runner.os }}-${{ steps.config.outputs.aether_ref }}-${{ hashFiles('scripts/build_aether_android.py') }}
+
       - name: Setup Rust for BlueVPN Free WARP engine
+        if: steps.aether-cache.outputs.cache-hit != 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi
 
       - name: Build pinned Aether WARP runtime
+        if: steps.aether-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
           echo "BUILD_STAGE=build-aether-warp" >> "$GITHUB_ENV"
           echo "build-aether-warp" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           python scripts/build_aether_android.py 2>&1 | tee "$GITHUB_WORKSPACE/aether-build.log"
+
+      - name: Verify pinned Aether WARP runtime
+        shell: bash
+        run: |
+          set -euo pipefail
           test -x upstream/V2rayNG/app/src/main/jniLibs/arm64-v8a/libbluevpn_aether.so
           test -x upstream/V2rayNG/app/src/main/jniLibs/armeabi-v7a/libbluevpn_aether.so
           test -s reports/AETHER-PROVENANCE-4.7.6.txt
@@ -552,17 +611,18 @@ jobs:
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           chmod +x gradlew
 
-          ./gradlew :app:compilePlaystoreReleaseKotlin \
+          # One Gradle invocation avoids configuring the project twice.
+          # assemble depends on compile, while listing both tasks keeps the
+          # compile gate explicit in logs and task selection.
+          ./gradlew \
+            :app:compilePlaystoreReleaseKotlin \
+            :app:assemblePlaystoreRelease \
             "-PABI_FILTERS=arm64-v8a;armeabi-v7a" \
             --stacktrace \
             --no-daemon \
+            --build-cache \
+            --parallel \
             2>&1 | tee "$GITHUB_WORKSPACE/android-build.log"
-
-          ./gradlew :app:assemblePlaystoreRelease \
-            "-PABI_FILTERS=arm64-v8a;armeabi-v7a" \
-            --stacktrace \
-            --no-daemon \
-            2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
 
       - name: Show Android compiler errors
         if: ${{ failure() && env.BUILD_STAGE == 'gradle-compile' }}
@@ -655,7 +715,30 @@ jobs:
           echo "Generated signed APKs:"
           ls -lah dist
 
+      - name: Upload fast signed APK artifact
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'fast' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: BlueVPN-${{ steps.config.outputs.version }}-FAST-signed
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Fast build summary
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'fast' }}
+        shell: bash
+        run: |
+          {
+            echo "## BlueVPN Fast Build"
+            echo ""
+            echo "✅ Signed APK is ready. Production WordPress convergence and GitHub Release publication were intentionally skipped."
+            echo ""
+            echo "Use **build_mode=full** only for a production release."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Publish synchronized BlueVPN Manager release barrier
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -770,6 +853,7 @@ jobs:
           echo "Manager release barrier passed: ${TAG} / bluevpn-manager.zip / ${REMOTE_VERSION}"
 
       - name: Wait for WordPress control-plane auto-update
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         shell: bash
         env:
           VERSION: ${{ steps.config.outputs.version }}
@@ -888,6 +972,7 @@ jobs:
           exit 1
 
       - name: Create GitHub Release metadata and checksums
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         env:
           VERSION: ${{ steps.config.outputs.version }}
           VERSION_CODE: ${{ steps.config.outputs.version_code }}
@@ -969,6 +1054,7 @@ jobs:
           PY
 
       - name: Upload signed BlueVPN APK artifact
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         uses: actions/upload-artifact@v6
         with:
           name: BlueVPN-${{ steps.config.outputs.version }}-signed
@@ -980,6 +1066,7 @@ jobs:
           retention-days: 30
 
       - name: Publish signed APKs to GitHub Release
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.config.outputs.version }}
@@ -1012,6 +1099,7 @@ jobs:
           echo "GitHub Release published from persisted source: ${TAG} @ ${SOURCE_COMMIT}"
 
       - name: Sync Android release metadata to WordPress
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1059,6 +1147,7 @@ jobs:
       # remains only as a manual/fallback reconciler.
 
       - name: Send signed APK files to Telegram
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

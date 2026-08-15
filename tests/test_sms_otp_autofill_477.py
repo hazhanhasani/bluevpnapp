@@ -29,9 +29,14 @@ class SmsOtpAutoFill477Tests(unittest.TestCase):
         self.assertIn('SmsRetriever.SEND_PERMISSION', helper)
         self.assertIn("'۰' -> '0'", helper)
 
+    def test_autofill_hint_is_compile_sdk_compatible(self):
+        activity=(ROOT/'android-source/BlueVpnSubscriptionsActivity.kt').read_text(encoding='utf-8')
+        self.assertNotIn('View.AUTOFILL_HINT_SMS_OTP', activity)
+        self.assertIn('AUTOFILL_HINT_SMS_OTP_COMPAT="smsOTPCode"', activity)
+
     def test_release_version(self):
         brand=json.loads((ROOT/'branding/app.json').read_text(encoding='utf-8'))
-        self.assertEqual(brand['version_name'],'4.7.8')
-        self.assertEqual(brand['version_code'],40708)
+        self.assertEqual(brand['version_name'],'4.7.10')
+        self.assertEqual(brand['version_code'],40710)
 
 if __name__ == '__main__': unittest.main()

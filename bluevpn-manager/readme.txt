@@ -1,15 +1,14 @@
 === BlueVPN Manager ===
-Version: 4.7.8
-Stable tag: 4.7.8
+Version: 4.7.10
+Stable tag: 4.7.10
 Requires PHP: 8.0
 
 
-== 4.7.8 ==
-* WARP stability release: single-process native Aether racing, persistent identity, serialized launches and adaptive transport history.
-* Feature: live PasarGuard group and Marzban inbound catalogs can be loaded from the selected panel and chosen per plan.
-* Feature: paid provisioning now honors the selected PasarGuard groups and selected Marzban inbounds; empty selection keeps the existing all-active behavior.
-* Security: provider catalog is admin-only, nonce-protected AJAX and never exposes panel credentials.
-* Database: adds per-plan marzban_inbounds_json with backward-safe dbDelta migration.
+== 4.7.10 ==
+* Build pipeline: manual Android builds now default to Fast CI while production repository-dispatch builds remain Full.
+* Build cache: pinned Aether, libhevtun and libv2ray artifacts are reused across compatible Android builds.
+* Android build: compile and assemble run in one Gradle invocation; signed Fast artifacts are uploaded before production WordPress convergence.
+* Existing provider group/inbound selection and paid provisioning behavior from 4.7.5 remains unchanged.
 
 == 4.7.4 ==
 * Fix: PasarGuard/Marzban/GuardCore panels can be deleted safely from Control Center.

@@ -1,11 +1,18 @@
-# BlueVPN 4.7.8
+# BlueVPN 4.7.10
 
-Version 4.7.8 adds permissionless Android SMS OTP autofill: BlueVPN starts one-time SMS User Consent listening before OTP transmission, buffers early arrivals, fills the six-digit code, and verifies it automatically after consent. No READ_SMS or RECEIVE_SMS permission is requested.
-Version 4.7.8 hardens the free WARP path: BlueVPN no longer launches several Aether processes concurrently against one WARP identity. Endpoint discovery/racing is delegated to the pinned Aether v1.6 native scanner, while BlueVPN keeps one persistent per-device identity, serializes launches, reuses quick reconnect, and ranks transports per network from observed runtime success/failure. Paid provider access selection from 4.7.5 remains unchanged.
+Version 4.7.10 introduces a two-mode GitHub Actions pipeline. Manual `workflow_dispatch` builds default to **fast** mode, while production `repository_dispatch` builds remain **full** by default. Fast mode still performs the real Android compile, assemble, signing and regression gates, but uploads the signed APK immediately after signing and skips the production WordPress convergence / GitHub Release publication barriers.
 
-WordPress hardening in this release makes public health output minimal, moves operational details behind `manage_options`, adds device-scoped OTP throttling, and short-circuits duplicate BluePay webhook deliveries before order activation. The release gate still performs a real pinned v2rayNG Android compile and `assemblePlaystoreRelease` in GitHub Actions; Python-only success cannot publish an APK.
+The Android pipeline now caches the pinned Aether native binaries, `libhevtun`, and the resolved `libv2ray.aar`. Gradle compile + assemble are executed in one Gradle invocation with build cache and parallel execution enabled, avoiding a second project configuration pass. Cache keys remain tied to pinned runtime inputs, not the BlueVPN release version, so a normal app version bump does not force a needless Aether rebuild.
 
-Local verification performed for this source bundle: 168 Python regression tests passed, PHP lint passed for the Manager and site theme, the release validator passed, the pure Kotlin WARP policy behavior test executed successfully on the JVM, and `BlueVpnWarpEngine.kt` compiled against Android/v2rayNG API stubs to catch Kotlin syntax/type regressions. A full local Android Gradle build could not be executed in the artifact sandbox because outbound DNS to GitHub is unavailable, so the pinned upstream checkout cannot be materialized here; the GitHub workflow is the authoritative full Android build gate.
+Version 4.7.9 added permissionless Android SMS OTP autofill with one-time SMS User Consent and no `READ_SMS` / `RECEIVE_SMS` permission. Version 4.7.6 hardened the free WARP path around a single pinned Aether process, persistent identity, native scan/quick reconnect and adaptive transport history.
+
+Local verification for 4.7.10: **203 Python regression tests passed**, all BlueVPN Manager PHP files passed syntax lint, the release validator passed, all three GitHub workflow YAML files parsed successfully, and Python CI scripts compiled. A complete Android Gradle build cannot be materialized in this artifact sandbox because the pinned upstream v2rayNG checkout requires outbound GitHub access; GitHub Actions remains the authoritative Android build environment.
+
+### CI modes
+
+- `workflow_dispatch → build_mode=fast` — signed test APK as quickly as possible; no production WordPress wait or GitHub Release publication.
+- `workflow_dispatch → build_mode=full` — complete production release path.
+- `repository_dispatch` — defaults to `full` so the existing WordPress/build automation keeps its production safety barriers unless the caller explicitly chooses fast mode.
 
 ## v4.5.9 — Fast Authentication + Background Bootstrap
 

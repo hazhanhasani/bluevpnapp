@@ -1,10 +1,17 @@
 === BlueVPN Manager ===
-Version: 4.4.7
-Stable tag: 4.4.7
+Version: 4.4.8
+Stable tag: 4.4.8
 Requires PHP: 8.0
 
 
-== 4.4.7 ==
+== 4.4.8 ==
+* سرعت دانلود/آپلود و مدت اتصال در Home با ticker زیرثانیه‌ای محلی نمایش داده می‌شوند؛ Heartbeat شبکه‌ای مستقل و rate-limited باقی مانده است.
+* BlueAI بلافاصله بعد از CONNECTED یک RTT واقعی می‌فرستد و در حالت فعال تقریباً هر 10 ثانیه تازه می‌شود.
+* Logout یک barrier قطعی Free/Premium می‌سازد؛ تا پایان همگام‌سازی Pool رایگان Connect جدید اجرا نمی‌شود و GUID انتخاب‌شده Premium فوراً پاک می‌شود.
+* Endpointهای Premium اخیر با fingerprint معنایی قرنطینه می‌شوند تا GUID تازه‌ی همان کانفیگ نتواند وارد اتصال Free شود.
+
+
+== 4.4.6 ==
 * دریافت Beta به نشست واقعی حساب متصل شد؛ Access Token در صورت نیاز با Refresh Token بازسازی می‌شود.
 * بررسی دستی Beta پس از Sync پس‌زمینه، metadata را دوباره می‌خواند تا Release تازه از دست نرود.
 * Cache کانال بروزرسانی در مرزهای Login/Logout/Invalid Session پاک می‌شود.

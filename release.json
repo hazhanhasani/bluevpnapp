@@ -1,12 +1,12 @@
 {
-  "version": "4.4.7",
-  "version_code": 40407,
+  "version": "4.4.8",
+  "version_code": 40408,
   "channel": "beta",
-  "build_id": "20260815-v4.4.7-live-telemetry-entitlement-isolation",
-  "built_at": "2026-08-15T02:00:00Z",
-  "android_version": "4.4.7",
-  "android_version_code": 40407,
-  "description": "BlueVPN 4.4.7: رصد زنده نرم سرعت/زمان، RTT واقعی سریع‌تر در BlueAI، و جداسازی سخت Premium/Free پس از Logout تا حذف کامل امکان استفاده از سرور قبلی اشتراکی در پلن رایگان.",
+  "build_id": "20260815-v4.4.8-permanent-free-premium-ownership-isolation",
+  "built_at": "2026-08-15T02:20:00Z",
+  "android_version": "4.4.8",
+  "android_version_code": 40408,
+  "description": "BlueVPN 4.4.8: مالکیت معنایی دائمی Profileها، حذف TTL مرز Free/Premium و اجرای کامل مرز امنیتی هنگام Logout و باطل‌شدن نشست.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -200,7 +200,11 @@
     "beta-manual-check-release-convergence-retry",
     "release-channel-auth-diagnostics",
     "mobile-config-cache-invalidated-on-auth-boundary",
-    "post-release-wordpress-sync-grace"
+    "post-release-wordpress-sync-grace",
+    "subsecond-live-home-traffic-ui",
+    "immediate-real-rtt-heartbeat",
+    "strict-premium-to-free-transition-barrier",
+    "semantic-premium-endpoint-quarantine"
   ],
-  "version_source": "v4.4.7-live-telemetry-entitlement-isolation"
+  "version_source": "v4.4.8-permanent-free-premium-ownership-isolation"
 }

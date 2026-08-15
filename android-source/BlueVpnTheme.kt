@@ -56,12 +56,12 @@ object BlueVpnPerformance {
     }
 
     /**
-     * Home telemetry is visual state, not a network poll.  Reading TrafficStats
-     * is cheap, so keep download/upload and duration feeling genuinely live.
-     * Network/AI heartbeats remain independently rate-limited.
+     * Home telemetry is presentation-only and must feel live. Reading Android's
+     * UID byte counters is local/cheap, so keep this well below one second even
+     * on low-RAM devices. Network heartbeats remain independently rate-limited.
      */
     fun statsIntervalMs(context: Context): Long =
-        if (isLowEnd(context)) 1_000L else 500L
+        if (isLowEnd(context)) 750L else 400L
 
     fun locationSyncIntervalMs(context: Context): Long =
         if (isLowEnd(context)) 120_000L else 60_000L

@@ -18,12 +18,14 @@ import java.util.concurrent.atomic.AtomicBoolean
  * an authenticated account and is rate-limited server-side by device identity.
  */
 object BlueVpnLiveReporter {
-    private const val INITIAL_DELAY_SECONDS = 3L
-    private const val ACTIVE_DELAY_SECONDS = 12L
+    // A fresh RTT must reach BlueAI quickly after CONNECTED. The payload is
+    // tiny; the expensive multi-sample RTT probe remains bounded to 2 samples
+    // on low-end devices and 3 elsewhere.
+    private const val INITIAL_DELAY_SECONDS = 2L
+    private const val ACTIVE_DELAY_SECONDS = 10L
     private const val SCREEN_OFF_DELAY_SECONDS = 30L
     private const val POWER_SAVE_DELAY_SECONDS = 45L
     private const val IDLE_DELAY_SECONDS = 30L
-    private const val LOW_END_ACTIVE_DELAY_SECONDS = 20L
 
     private val started = AtomicBoolean(false)
     private val executor = Executors.newSingleThreadScheduledExecutor {
@@ -36,6 +38,16 @@ object BlueVpnLiveReporter {
     fun start(context: Context) {
         if (!started.compareAndSet(false, true)) return
         schedule(context.applicationContext, INITIAL_DELAY_SECONDS)
+    }
+
+    /** Push a one-shot fresh heartbeat shortly after CONNECTED. */
+    fun kick(context: Context, delayMs: Long = 900L) {
+        val app = context.applicationContext
+        executor.schedule(
+            { runCatching { reportOnce(app) } },
+            delayMs.coerceIn(150L, 5_000L),
+            TimeUnit.MILLISECONDS,
+        )
     }
 
     private fun schedule(app: Context, delaySeconds: Long) {
@@ -80,7 +92,7 @@ object BlueVpnLiveReporter {
 
     private fun nextDelaySeconds(app: Context): Long {
         if (!BlueVpnAi.hasActiveSession(app)) return IDLE_DELAY_SECONDS
-        if (BlueVpnPerformance.isLowEnd(app)) return LOW_END_ACTIVE_DELAY_SECONDS
+        if (BlueVpnPerformance.isLowEnd(app)) return 20L
         val power = app.getSystemService(Context.POWER_SERVICE) as PowerManager
         return when {
             power.isPowerSaveMode -> POWER_SAVE_DELAY_SECONDS

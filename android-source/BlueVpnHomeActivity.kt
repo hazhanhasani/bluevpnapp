@@ -60,6 +60,7 @@ import com.v2ray.ang.bluevpn.BlueVpnConnectionMode
 import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnFreeStoryAdGate
 import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
+import com.v2ray.ang.bluevpn.BlueVpnLiveReporter
 import com.v2ray.ang.bluevpn.BlueVpnUpdateManager
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
@@ -1914,6 +1915,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                     // telemetry later but cannot hold the UI in CONNECTING or
                     // tear down this upstream-successful session.
                     connectionVerified = true
+                    BlueVpnLiveReporter.kick(this)
                     BlueVpnPreferences.markConnected(this, resetTimer = false)
                     BlueVpnRuntimeGate.markConnectionActive(this)
                     BlueVpnAccountManager.startFreeSession(this)
@@ -3012,38 +3014,6 @@ private fun dpHome(value: Int): Int =
 
         val entitlement = BlueVpnEntitlement.resolveUi(this)
         applyEntitlementPresentation(entitlement)
-
-        // Premium -> Free is a hard pool boundary.  Never attach a Free UI to
-        // an old Premium daemon or reuse its selected GUID while logout
-        // reconciliation is still enabling the dedicated Free subscriptions.
-        if (entitlement.isFree && (
-                BlueVpnAccountManager.freeTransitionPending(this) ||
-                mainViewModel.isRunning.value == true
-            )) {
-            hideConnectingOverlay()
-            connectButton.isEnabled = false
-            statusText.text = "در حال جداسازی پلن رایگان"
-            statusCaption.text = "اتصال قبلی Premium کامل متوقف و Pool رایگان فعال می‌شود"
-            runCatching { CoreServiceManager.stopVService(this) }
-            MmkvManager.setSelectServer("")
-            lifecycleScope.launch(Dispatchers.IO) {
-                val result = BlueVpnAccountManager.completeFreeEntitlementTransition(
-                    this@BlueVpnHomeActivity
-                )
-                withContext(Dispatchers.Main) {
-                    connectButton.isEnabled = true
-                    if (result.isSuccess && mainViewModel.isRunning.value != true) {
-                        beginSmartConnection()
-                    } else {
-                        statusText.text = "Pool رایگان هنوز آماده نیست"
-                        statusCaption.text = result.exceptionOrNull()?.message
-                            ?: "چند لحظه دیگر دوباره تلاش کنید"
-                    }
-                }
-            }
-            return
-        }
-
         if (!entitlement.canConnect) {
             hideConnectingOverlay()
             statusText.text = "دسترسی اتصال آماده نیست"
@@ -3296,6 +3266,8 @@ private fun dpHome(value: Int): Int =
         // candidateAllowed() on the UI thread for every route, which could block
         // Android long enough to show the system "BlueVPN is not responding" ANR.
         val generation = ++connectionPreparationGeneration
+        val entitlementIdentityAtStart = BlueVpnAccountManager
+            .entitlementIdentityFingerprint(this)
         statusCaption.text = "در حال آماده‌سازی سریع Pool اتصال"
         lifecycleScope.launch(Dispatchers.Default) {
             val prepared = runCatching {
@@ -3334,13 +3306,24 @@ private fun dpHome(value: Int): Int =
             }
 
             withContext(Dispatchers.Main) {
+                val entitlementIdentityNow = BlueVpnAccountManager
+                    .entitlementIdentityFingerprint(this@BlueVpnHomeActivity)
                 if (
                     generation != connectionPreparationGeneration ||
+                    entitlementIdentityNow != entitlementIdentityAtStart ||
                     userDisconnecting ||
                     isFinishing ||
                     isDestroyed
                 ) {
+                    // The account/plan changed while candidate preparation was
+                    // running (for example Premium -> logout -> Free). Never
+                    // apply a queue prepared for the previous entitlement.
+                    connectionEntitlementGuids = emptySet()
                     BlueVpnRuntimeGate.endConnection(this@BlueVpnHomeActivity)
+                    if (!userDisconnecting && !isFinishing && !isDestroyed) {
+                        pendingConnectionRequest = true
+                        handler.postDelayed({ beginSmartConnection() }, 120L)
+                    }
                     return@withContext
                 }
                 connectionEntitlementGuids = prepared.first
@@ -3680,6 +3663,7 @@ private fun dpHome(value: Int): Int =
                     existingSessionRetryCount = 0
                     lastVerifiedLatency = latency
                     connectionVerified = true
+                    BlueVpnLiveReporter.kick(this)
                     BlueVpnPreferences.markConnected(
                         this@BlueVpnHomeActivity,
                         resetTimer = false
@@ -3705,6 +3689,7 @@ private fun dpHome(value: Int): Int =
                     BlueVpnPreferences.connectedAt(this@BlueVpnHomeActivity) > 0L
                 ) {
                     connectionVerified = true
+                    BlueVpnLiveReporter.kick(this)
                     renderConnectionState(true)
                 } else {
                     connectionVerified = false
@@ -4138,6 +4123,7 @@ private fun dpHome(value: Int): Int =
         BlueVpnRuntimeGate.markConnectionActive(this)
         BlueVpnAccountManager.startFreeSession(this)
         connectionVerified = true
+        BlueVpnLiveReporter.kick(this)
         connectButton.isEnabled = true
         resetTrafficBaseline()
         requestDashboardRefresh()

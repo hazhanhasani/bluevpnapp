@@ -1,4 +1,4 @@
-## 4.4.7 Beta release-channel boundary
+## 4.4.6 Beta release-channel boundary
 
 Beta eligibility remains server-authoritative (`customers.beta_tester=1` + active authenticated session). Android refreshes stale access credentials before requesting release metadata and rechecks the cache-first WordPress snapshot after a manual refresh. Stable users remain isolated from Beta releases.
 
@@ -112,12 +112,3 @@ The Android workflow now treats the WordPress Manager and schema versions as min
 
 
 4.4.0: Telegram Deploy Bot can publish/install BlueVPN Manager automatically; SMS pattern synchronization is multi-page and deduplicated.
-
-
-## 4.4.7 live telemetry + entitlement isolation hotfix
-- Home download/upload telemetry refreshes every 500 ms (1 s on low-end devices); no network polling is tied to this UI ticker.
-- Premium connected duration remains a monotonic local timer; Free displays the exact remaining session time in the same metric strip.
-- BlueAI verified RTT heartbeat starts after ~3 s and refreshes about every 12 s while interactive (power-aware when backgrounded).
-- Live dashboard never fabricates 0 ms; server stores only measured/verified RTT.
-- Logout establishes a hard Premium -> Free transition barrier: old Xray is stopped, selected Premium GUID is cleared synchronously, Free connect is blocked until the dedicated Free pool is reconciled and ready.
-- Free candidate selection remains strict to the Free subscription GUID set and cannot fall back to Premium last-known-good profiles.

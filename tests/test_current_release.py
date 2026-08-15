@@ -460,12 +460,11 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("private val authSessionEpoch = AtomicLong(0L)", self.account)
         logout = block(self.account, "fun logout(c: Context)", "private fun invalidateSession")
         self.assertIn("authSessionEpoch.incrementAndGet()", logout)
-        self.assertIn("completeFreeEntitlementTransition", logout)
-        self.assertIn('MmkvManager.setSelectServer("")', logout)
-        self.assertIn("BlueVpnRuntimeGate.endConnection", logout)
-        transition = block(self.account, "fun completeFreeEntitlementTransition", "fun apiBaseUrl")
-        self.assertIn("premiumActive = false", transition)
-        self.assertIn("prepareFreeAccess(appContext, force = false)", transition)
+        self.assertIn("enforceFreeBoundaryTransition(appContext)", logout)
+        boundary = block(self.account, "private fun enforceFreeBoundaryTransition", "fun logout")
+        self.assertIn("reconcileSubscriptionMode(", boundary)
+        self.assertIn("premiumActive = false", boundary)
+        self.assertIn("prepareFreeAccess(appContext, force = true)", boundary)
         refresh = block(self.account, "private fun refreshSession", "private fun authenticatedRequest")
         self.assertIn("expectedAuthEpoch", refresh)
         self.assertIn("expectedEpoch = expectedAuthEpoch", refresh)
@@ -672,8 +671,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         report_once = block(reporter, "private fun reportOnce", "private fun nextDelaySeconds")
         self.assertNotIn("BlueVpnAccountManager.hasSession", report_once)
         self.assertIn("BlueVpnAi.hasActiveSession", report_once)
-        self.assertIn("ACTIVE_DELAY_SECONDS = 12L", reporter)
-        self.assertIn("INITIAL_DELAY_SECONDS = 3L", reporter)
+        self.assertIn("ACTIVE_DELAY_SECONDS = 10L", reporter)
 
     def test_79_android_blueai_sends_tier_and_schema_capability(self):
         ai = text("android-source/BlueVpnAi.kt")
@@ -1023,6 +1021,67 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("sleep 5", workflow)
         self.assertIn("bluevpn-wordpress-mobile-config-after-sync.json", workflow)
         self.assertIn("release_refresh_mode", workflow)
+
+    def test_117_home_live_metrics_are_subsecond_local_not_network_polled(self):
+        theme = text("android-source/BlueVpnTheme.kt")
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        self.assertIn("if (isLowEnd(context)) 750L else 400L", theme)
+        self.assertIn("readTunnelTrafficBytes()", home)
+        self.assertIn("updateLiveStats()", home)
+
+    def test_118_blueai_gets_immediate_and_frequent_real_rtt_heartbeat(self):
+        reporter = text("android-source/BlueVpnLiveReporter.kt")
+        ai = text("android-source/BlueVpnAi.kt")
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        self.assertIn("INITIAL_DELAY_SECONDS = 2L", reporter)
+        self.assertIn("ACTIVE_DELAY_SECONDS = 10L", reporter)
+        self.assertIn("fun kick(context: Context", reporter)
+        self.assertIn("HEARTBEAT_INTERVAL = 8 * 1000L", ai)
+        self.assertIn("BlueVpnLiveReporter.kick(this)", home)
+
+    def test_119_logout_blocks_connect_until_free_pool_reconciled_and_clears_selected_guid(self):
+        account = text("android-source/BlueVpnAccountManager.kt")
+        self.assertIn("setEntitlementReconcilePending(appContext, true)", account)
+        self.assertIn('MmkvManager.setSelectServer("")', account)
+        self.assertIn("prepareFreeAccess(appContext, force = true)", account)
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        self.assertIn("entitlementReconcilePending(this)", home)
+
+    def test_120_free_pool_quarantines_semantically_same_premium_endpoints_permanently(self):
+        account = text("android-source/BlueVpnAccountManager.kt")
+        self.assertIn("rememberPremiumBoundaryFingerprints", account)
+        self.assertIn("KEY_EVER_PREMIUM_FINGERPRINTS", account)
+        self.assertIn("hardIsolationAllowed", account)
+        self.assertNotIn("PREMIUM_BOUNDARY_TTL_MS", account)
+        self.assertIn("entitlementIdentityAtStart", text("android-source/BlueVpnHomeActivity.kt"))
+
+    def test_121_profile_ownership_registry_is_tier_and_source_aware(self):
+        account = text("android-source/BlueVpnAccountManager.kt")
+        self.assertIn('OWNERSHIP_PREFS = "bluevpn_profile_ownership"', account)
+        self.assertIn('"PREMIUM:$it"', account)
+        self.assertIn('"FREE:${sourceId.trim()}"', account)
+        self.assertIn("KEY_OWNER_MAP_JSON", account)
+        self.assertIn("registerFreePoolOwnership", account)
+        self.assertIn("registerPremiumPoolOwnership", account)
+
+    def test_122_hard_isolation_rejects_cross_tier_semantic_collisions(self):
+        account = text("android-source/BlueVpnAccountManager.kt")
+        gate = block(account, "private fun hardIsolationAllowed", "private fun rememberPremiumBoundaryFingerprints")
+        self.assertIn("fingerprint !in everFree", gate)
+        self.assertIn("fingerprint !in everPremium", gate)
+        preferred = block(account, "fun preferredServerGuids", "fun entitlementPoolFingerprint")
+        self.assertGreaterEqual(preferred.count("hardIsolationAllowed"), 3)
+        candidate = block(account, "fun candidateAllowed(", "/**\n     * Force account/subscription reconciliation")
+        self.assertIn("hardIsolationAllowed(c, guid)", candidate)
+
+    def test_123_automatic_session_invalidation_crosses_same_free_boundary_as_logout(self):
+        account = text("android-source/BlueVpnAccountManager.kt")
+        invalid = block(account, "private fun invalidateSession", "fun requestOtp")
+        self.assertIn("rememberPremiumBoundaryFingerprints(appContext)", invalid)
+        self.assertIn("enforceFreeBoundaryTransition(appContext)", invalid)
+        boundary = block(account, "private fun enforceFreeBoundaryTransition", "fun logout")
+        self.assertIn('MmkvManager.setSelectServer("")', boundary)
+        self.assertIn("prepareFreeAccess(appContext, force = true)", boundary)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -143,7 +143,7 @@ final class BlueVPN_AI {
             'ai_client_version' => self::clean($p['ai_client_version'] ?? ($p['app_version'] ?? ''), 40, ''),
             'connected' => 1, 'verified' => 1, 'tunnel_running' => 1, 'vpn_transport' => 1,
             'verification_source' => self::clean($p['verification_source'] ?? '', 80, ''),
-            'ping_ms' => self::clamp(($p['ping_ms'] ?? 0) ?: ($p['verification_latency_ms'] ?? 0), 0, 10000),
+            'ping_ms' => self::clamp($p['ping_ms'] ?? 0, 0, 10000),
             'ping_min_ms' => self::clamp($p['ping_min_ms'] ?? 0, 0, 10000),
             'ping_max_ms' => self::clamp($p['ping_max_ms'] ?? 0, 0, 10000),
             'jitter_ms' => self::clamp($p['jitter_ms'] ?? 0, 0, 10000),
@@ -273,7 +273,7 @@ final class BlueVPN_AI {
         $proofOk=false;$proofError=''; if($type==='heartbeat')[$proofOk,$proofError]=self::heartbeat_proof($p); $success=$type==='heartbeat'?$proofOk:BlueVPN_Utils::boolish($p['success']??false);
         $event=[
             'customer_id'=>(int)$customer['id'],'device_id'=>self::clean($p['device_id']??'',80,''),'config_key'=>$config,'location_key'=>self::clean($p['location_key']??'',24,'unknown'),'location_title'=>self::clean($p['location_title']??'',100,'نامشخص'),'operator'=>$operator,'network_type'=>$network,'mode'=>$mode,'plan_tier'=>$planTier,'ai_schema_version'=>self::clamp($p['ai_schema_version']??1,1,100,1),'ai_client_version'=>self::clean($p['ai_client_version']??($p['app_version']??''),40,''),'event_type'=>$type,'success'=>$success?1:0,
-            'ping_ms'=>self::clamp(($p['ping_ms']??0)?:($p['verification_latency_ms']??0),0,10000),'jitter_ms'=>self::clamp($p['jitter_ms']??0,0,10000),'packet_loss_x100'=>self::clamp($p['packet_loss_x100']??0,0,10000),'duration_seconds'=>self::clamp($p['duration_seconds']??0,0,31536000),'health_score'=>self::clamp($p['health_score']??0,0,100),'download_bytes'=>self::clamp($p['download_bytes']??0,0,PHP_INT_MAX),'upload_bytes'=>self::clamp($p['upload_bytes']??0,0,PHP_INT_MAX),'failure_reason'=>self::clean($type==='heartbeat'?$proofError:($p['failure_reason']??''),500,''),'app_version'=>self::clean($p['app_version']??'',40,''),'android_version'=>self::clean($p['android_version']??'',40,''),'device_model'=>self::clean($p['device_model']??'',160,''),'hour_bucket'=>$bucket,'created_at'=>BlueVPN_Utils::now_mysql(),
+            'ping_ms'=>self::clamp($p['ping_ms']??0,0,10000),'jitter_ms'=>self::clamp($p['jitter_ms']??0,0,10000),'packet_loss_x100'=>self::clamp($p['packet_loss_x100']??0,0,10000),'duration_seconds'=>self::clamp($p['duration_seconds']??0,0,31536000),'health_score'=>self::clamp($p['health_score']??0,0,100),'download_bytes'=>self::clamp($p['download_bytes']??0,0,PHP_INT_MAX),'upload_bytes'=>self::clamp($p['upload_bytes']??0,0,PHP_INT_MAX),'failure_reason'=>self::clean($type==='heartbeat'?$proofError:($p['failure_reason']??''),500,''),'app_version'=>self::clean($p['app_version']??'',40,''),'android_version'=>self::clean($p['android_version']??'',40,''),'device_model'=>self::clean($p['device_model']??'',160,''),'hour_bucket'=>$bucket,'created_at'=>BlueVPN_Utils::now_mysql(),
         ];
         $wpdb->insert(BlueVPN_DB::table('ai_connection_events'),$event);
         if($type==='heartbeat'){

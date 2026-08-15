@@ -774,7 +774,6 @@ object BlueVpnAi {
             .put("vpn_transport", true)
             .put("internet_verified", true)
             .put("verification_source", verification.source)
-            .put("verification_latency_ms", verification.latencyMs.coerceAtLeast(0L))
             .put("probe_age_ms", probeAgeMs)
             .put("heartbeat_seq", sequence)
             .put("traffic_active", trafficActive)

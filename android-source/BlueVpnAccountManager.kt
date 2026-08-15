@@ -160,6 +160,7 @@ object BlueVpnAccountManager {
     private val authSessionEpoch = AtomicLong(0L)
     private val freePrepareLock = Any()
     private val mobileConfigLock = Any()
+    private val profileOwnershipLock = Any()
     private val plansLock = Any()
     @Volatile private var freePrepareRunning = false
     @Volatile private var freeSnapshotCacheAt = 0L
@@ -177,8 +178,13 @@ object BlueVpnAccountManager {
     private const val FREE_SUB = "BlueVPN Free"
     private const val FREE_PREFS = "bluevpn_free_access"
     private const val PREMIUM_LKG_PREFS = "bluevpn_premium_lkg"
+    private const val OWNERSHIP_PREFS = "bluevpn_profile_ownership"
     private const val KEY_PENDING_ENTITLEMENT_RECONCILE = "pending_entitlement_reconcile"
-    private const val KEY_FREE_TRANSITION_PENDING = "free_transition_pending"
+    private const val KEY_PREMIUM_BOUNDARY_FINGERPRINTS = "premium_boundary_fingerprints"
+    private const val KEY_PREMIUM_BOUNDARY_SAVED_AT = "premium_boundary_saved_at"
+    private const val KEY_EVER_FREE_FINGERPRINTS = "ever_free_fingerprints"
+    private const val KEY_EVER_PREMIUM_FINGERPRINTS = "ever_premium_fingerprints"
+    private const val KEY_OWNER_MAP_JSON = "owner_map_json"
     private const val FREE_ALARM_ACTION = "com.v2ray.ang.bluevpn.FREE_SESSION_EXPIRED"
     private const val AUTO_SYNC_INTERVAL_MS = 5 * 60_000L
     private const val FREE_SUB_REFRESH_INTERVAL_MS = 60 * 60_000L
@@ -193,52 +199,6 @@ object BlueVpnAccountManager {
 
     private fun backup(c: Context) =
         c.getSharedPreferences(BACKUP, Context.MODE_PRIVATE)
-
-    /**
-     * Hard Premium -> Free ownership barrier.  Logout may stop Xray immediately,
-     * while v2rayNG still needs a short asynchronous window to disable the
-     * account subscription rows and re-enable the dedicated Free pool.  During
-     * that window no new Free connection is allowed to reuse the old daemon or
-     * selected Premium GUID.
-     */
-    fun freeTransitionPending(c: Context): Boolean =
-        c.applicationContext.getSharedPreferences(FREE_PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_FREE_TRANSITION_PENDING, false)
-
-    private fun setFreeTransitionPending(c: Context, pending: Boolean) {
-        c.applicationContext.getSharedPreferences(FREE_PREFS, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_FREE_TRANSITION_PENDING, pending).commit()
-    }
-
-    fun completeFreeEntitlementTransition(c: Context): Result<Boolean> = runCatching {
-        val appContext = c.applicationContext
-        // The old Premium daemon must be fully stopped before mutating MMKV.
-        runCatching { CoreServiceManager.stopVService(appContext) }
-        BlueVpnRuntimeGate.endConnection(appContext)
-        MmkvManager.setSelectServer("")
-        // CoreVpnService stops asynchronously.  Do not rewrite subscription MMKV
-        // while Android still exposes the old VPN transport.
-        val stopDeadline = android.os.SystemClock.elapsedRealtime() + 4_000L
-        while (BlueVpnAi.hasVpnTransport(appContext) &&
-            android.os.SystemClock.elapsedRealtime() < stopDeadline) {
-            Thread.sleep(120L)
-        }
-        if (BlueVpnAi.hasVpnTransport(appContext)) {
-            throw IllegalStateException("Premium tunnel is still stopping")
-        }
-        reconcileSubscriptionMode(
-            c = appContext,
-            premiumActive = false,
-            premiumUrl = "",
-            forceRefresh = false,
-        )
-        prepareFreeAccess(appContext, force = false).getOrThrow()
-        val ready = preferredServerGuids(appContext).isNotEmpty()
-        if (!ready) throw IllegalStateException("Free pool is not ready")
-        ensureEntitlementSelection(appContext)
-        setFreeTransitionPending(appContext, false)
-        true
-    }
 
     private class ApiException(
         val status: Int,
@@ -692,6 +652,7 @@ object BlueVpnAccountManager {
         MmkvManager.decodeSubscriptions()
             .filter { it.subscription.enabled && it.subscription.remarks.startsWith(FREE_SUB) }
             .forEach { installedGuids += it.guid }
+        registerFreePoolOwnership(c)
         if (selectedFingerprint != null) {
             val refreshedServerGuids = installedGuids.flatMap { subscriptionGuid ->
                 runCatching { MmkvManager.decodeServerList(subscriptionGuid) }
@@ -811,6 +772,124 @@ object BlueVpnAccountManager {
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .toSet()
+
+    /**
+     * Preserve the semantic endpoint identities owned by the Premium pool at
+     * the exact authentication boundary. v2rayNG may regenerate GUIDs during a
+     * later Free import, so GUID-only isolation is not enough to prevent a
+     * freshly-imported duplicate of the just-used Premium route from leaking
+     * into the first Free connection.
+     */
+    private fun ownershipPrefs(c: Context) =
+        c.applicationContext.getSharedPreferences(OWNERSHIP_PREFS, Context.MODE_PRIVATE)
+
+    private fun premiumOwnerTag(c: Context): String =
+        premiumOwnerKey(c).takeIf { it.isNotBlank() }?.let { "PREMIUM:$it" }.orEmpty()
+
+    private fun freeOwnerTag(sourceId: String): String = "FREE:${sourceId.trim()}"
+
+    private fun updateOwnershipRegistry(
+        c: Context,
+        ownerTag: String,
+        serverGuids: Collection<String>,
+    ) {
+        if (ownerTag.isBlank()) return
+        val fingerprints = serverGuids.asSequence()
+            .mapNotNull { BlueVpnProfileManager.fingerprintGuid(it) }
+            .filter { it.isNotBlank() }
+            .toSet()
+        if (fingerprints.isEmpty()) return
+        synchronized(profileOwnershipLock) {
+            val storage = ownershipPrefs(c)
+            val root = runCatching { JSONObject(storage.getString(KEY_OWNER_MAP_JSON, "{}").orEmpty()) }
+                .getOrElse { JSONObject() }
+            // Current ownership is replaceable for the same logical source/account,
+            // while the cross-tier history below is intentionally permanent.
+            val keys = mutableListOf<String>()
+            val iterator = root.keys()
+            while (iterator.hasNext()) keys += iterator.next()
+            keys.forEach { fp ->
+                val arr = root.optJSONArray(fp) ?: JSONArray()
+                val owners = (0 until arr.length()).mapNotNull { arr.optString(it).takeIf(String::isNotBlank) }
+                    .filter { it != ownerTag }
+                    .toMutableSet()
+                if (owners.isEmpty()) root.remove(fp)
+                else root.put(fp, JSONArray(owners.toList()))
+            }
+            fingerprints.forEach { fp ->
+                val arr = root.optJSONArray(fp) ?: JSONArray()
+                val owners = (0 until arr.length()).mapNotNull { arr.optString(it).takeIf(String::isNotBlank) }
+                    .toMutableSet()
+                owners += ownerTag
+                root.put(fp, JSONArray(owners.toList()))
+            }
+            val isFree = ownerTag.startsWith("FREE:")
+            val historyKey = if (isFree) KEY_EVER_FREE_FINGERPRINTS else KEY_EVER_PREMIUM_FINGERPRINTS
+            val history = storage.getStringSet(historyKey, emptySet()).orEmpty().toMutableSet()
+            history += fingerprints
+            storage.edit()
+                .putString(KEY_OWNER_MAP_JSON, root.toString())
+                .putStringSet(historyKey, history)
+                .commit()
+        }
+    }
+
+    private fun registerFreePoolOwnership(c: Context) {
+        val rows = MmkvManager.decodeSubscriptions()
+            .filter { it.subscription.enabled && it.subscription.remarks.startsWith(FREE_SUB) }
+        rows.forEach { row ->
+            val sourceId = row.subscription.remarks.substringAfter("•", "").trim()
+                .ifBlank { row.guid.trim() }
+            val guids = runCatching { MmkvManager.decodeServerList(row.guid) }.getOrDefault(emptyList())
+            updateOwnershipRegistry(c, freeOwnerTag(sourceId), guids)
+        }
+    }
+
+    private fun registerPremiumPoolOwnership(c: Context, serverGuids: Collection<String>) {
+        val tag = premiumOwnerTag(c)
+        if (tag.isNotBlank()) updateOwnershipRegistry(c, tag, serverGuids)
+    }
+
+    private fun ownersForFingerprint(c: Context, fingerprint: String): Set<String> = synchronized(profileOwnershipLock) {
+        val raw = ownershipPrefs(c).getString(KEY_OWNER_MAP_JSON, "{}").orEmpty()
+        val arr = runCatching { JSONObject(raw).optJSONArray(fingerprint) }.getOrNull() ?: return@synchronized emptySet()
+        (0 until arr.length()).mapNotNull { arr.optString(it).takeIf(String::isNotBlank) }.toSet()
+    }
+
+    /**
+     * Permanent semantic ownership gate. A profile that has ever belonged to the
+     * opposite tier is never eligible for the current tier, even if v2rayNG later
+     * regenerates its GUID or the app is restarted days later.
+     */
+    private fun hardIsolationAllowed(c: Context, serverGuid: String): Boolean {
+        val fingerprint = BlueVpnProfileManager.fingerprintGuid(serverGuid) ?: return false
+        val storage = ownershipPrefs(c)
+        val everFree = storage.getStringSet(KEY_EVER_FREE_FINGERPRINTS, emptySet()).orEmpty()
+        val everPremium = storage.getStringSet(KEY_EVER_PREMIUM_FINGERPRINTS, emptySet()).orEmpty()
+        val owners = ownersForFingerprint(c, fingerprint)
+        return if (premiumEntitlementActive(c)) {
+            val current = premiumOwnerTag(c)
+            current.isNotBlank() && current in owners && fingerprint !in everFree
+        } else {
+            owners.any { it.startsWith("FREE:") } && fingerprint !in everPremium
+        }
+    }
+
+    private fun rememberPremiumBoundaryFingerprints(c: Context) {
+        if (!premiumEntitlementActive(c)) return
+        val exact = usableServerGuids(managedSubscriptionGuids(c))
+        registerPremiumPoolOwnership(c, exact)
+        val fingerprints = exact.mapNotNull { BlueVpnProfileManager.fingerprintGuid(it) }.toSet()
+        if (fingerprints.isEmpty()) return
+        freePrefs(c.applicationContext).edit()
+            .putStringSet(KEY_PREMIUM_BOUNDARY_FINGERPRINTS, fingerprints)
+            .putLong(KEY_PREMIUM_BOUNDARY_SAVED_AT, System.currentTimeMillis())
+            .apply()
+    }
+
+    private fun premiumBoundaryFingerprints(c: Context): Set<String> =
+        ownershipPrefs(c).getStringSet(KEY_EVER_PREMIUM_FINGERPRINTS, emptySet())
+            .orEmpty().filter { it.isNotBlank() }.toSet()
 
     private fun sha256(value: String): String =
         MessageDigest.getInstance("SHA-256")
@@ -978,17 +1057,24 @@ object BlueVpnAccountManager {
      */
     fun preferredServerGuids(c: Context): List<String> {
         val exact = usableServerGuids(entitlementSubscriptionGuids(c))
-        if (!premiumEntitlementActive(c)) return exact
+        if (!premiumEntitlementActive(c)) {
+            registerFreePoolOwnership(c)
+            // Free profiles are accepted only when their semantic owner is a
+            // configured Free source and that endpoint has never belonged to Premium.
+            return exact.filter { guid -> hardIsolationAllowed(c, guid) }
+        }
         if (exact.isNotEmpty()) {
-            // Snapshot the last complete exact Premium pool before any later
-            // v2rayNG import can rotate/delete volatile server GUIDs.
-            rememberPremiumLastKnownGood(c, exact)
-            return exact
+            registerPremiumPoolOwnership(c, exact)
+            val isolated = exact.filter { guid -> hardIsolationAllowed(c, guid) }
+            // Snapshot only profiles that survived the permanent tier boundary.
+            rememberPremiumLastKnownGood(c, isolated)
+            return isolated
         }
         // Premium may temporarily lose its exact MMKV list while an import is
-        // rebuilding it. Fall back only to this account identity's own saved
-        // non-Free pool; never to the global local-profile catalogue or another account.
-        return premiumLastKnownGoodServerGuids(c)
+        // rebuilding it. The LKG still has to pass the same semantic ownership gate.
+        val fallback = premiumLastKnownGoodServerGuids(c)
+        registerPremiumPoolOwnership(c, fallback)
+        return fallback.filter { guid -> hardIsolationAllowed(c, guid) }
     }
 
     fun entitlementPoolFingerprint(c: Context): String {
@@ -1043,9 +1129,9 @@ object BlueVpnAccountManager {
     ): Boolean {
         val guid = serverGuid.trim()
         if (guid.isNotBlank()) {
-            // preferredServerGuids() is strict for Free mode and contains the
-            // last-known-good compatibility ladder for Premium mode.
-            return guid in entitlementServerGuids
+            // Membership and semantic ownership are both mandatory. This second
+            // gate protects direct/manual/AI callers from stale cached pools.
+            return guid in entitlementServerGuids && hardIsolationAllowed(c, guid)
         }
 
         val id = subscriptionId.orEmpty().trim()
@@ -1551,10 +1637,39 @@ object BlueVpnAccountManager {
         return snapshot
     }
 
+    private fun enforceFreeBoundaryTransition(c: Context) {
+        val appContext = c.applicationContext
+        runCatching { CoreServiceManager.stopVService(appContext) }
+        runCatching { BlueVpnPreferences.clearConnected(appContext) }
+        setEntitlementReconcilePending(appContext, true)
+        runCatching { MmkvManager.setSelectServer("") }
+        BlueVpnPreferences.clearConnected(appContext)
+        BlueVpnPreferences.setAutomaticSelection(appContext)
+        BlueVpnPreferences.beginHealthSession(appContext)
+        BlueVpnSmartSelector.clear(appContext)
+        BlueVpnLocationUtil.invalidateCache()
+        stopFreeSession(appContext, expired = false)
+        appContext.getSharedPreferences("bluevpn_subscription_info", Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        subscriptionInstallExecutor.execute {
+            runCatching {
+                reconcileSubscriptionMode(appContext, premiumActive = false, premiumUrl = "", forceRefresh = false)
+                prepareFreeAccess(appContext, force = true).getOrThrow()
+                ensureEntitlementSelection(appContext)
+            }
+            BlueVpnLocationUtil.invalidateCache()
+        }
+    }
+
     fun logout(c: Context) {
         val appContext = c.applicationContext
         val id = deviceId(appContext)
         val access = token(appContext)
+
+        // Snapshot the exact Premium endpoint identities before credentials are
+        // destroyed. The following Free session quarantines those endpoints so
+        // a regenerated GUID cannot reconnect to the same Premium route/IP.
+        rememberPremiumBoundaryFingerprints(appContext)
 
         // Cross an explicit authentication boundary before touching UI/MMKV. Any
         // /account or /auth/refresh response that started before this point is now
@@ -1573,38 +1688,7 @@ object BlueVpnAccountManager {
             invalidateMobileConfigCache()
         }
 
-        // Logout is a hard transport + entitlement boundary.  Mark the Free
-        // transition before stopping Xray, clear the exact Premium GUID
-        // immediately, and release runtime ownership so no later UI action can
-        // interpret the old Brazil/other Premium tunnel as a Free connection.
-        setFreeTransitionPending(appContext, true)
-        runCatching { CoreServiceManager.stopVService(appContext) }
-        MmkvManager.setSelectServer("")
-        BlueVpnRuntimeGate.endConnection(appContext)
-        runCatching { BlueVpnPreferences.clearConnected(appContext) }
-
-        // Logout is also an entitlement boundary. Drop every account-owned UI
-        // choice immediately so the home screen can fall back to guest/free
-        // without showing the previous Premium account for another frame.
-        BlueVpnPreferences.clearConnected(appContext)
-        BlueVpnPreferences.setAutomaticSelection(appContext)
-        BlueVpnPreferences.beginHealthSession(appContext)
-        BlueVpnSmartSelector.clear(appContext)
-        BlueVpnLocationUtil.invalidateCache()
-        stopFreeSession(appContext, expired = false)
-
-        appContext.getSharedPreferences(
-            "bluevpn_subscription_info",
-            Context.MODE_PRIVATE
-        ).edit().clear().commit()
-
-        // Complete the Premium -> Free MMKV ownership swap off the UI thread.
-        // Cached Free profiles may exist while their subscription rows are still
-        // disabled from Premium mode, so merely pruning Premium is insufficient.
-        subscriptionInstallExecutor.execute {
-            runCatching { completeFreeEntitlementTransition(appContext).getOrThrow() }
-            BlueVpnLocationUtil.invalidateCache()
-        }
+        enforceFreeBoundaryTransition(appContext)
 
         // Remote session revocation is best-effort and never blocks the UI. The
         // captured access token is used because local credentials are already gone.
@@ -1628,11 +1712,16 @@ object BlueVpnAccountManager {
         c: Context,
         code: String,
     ) {
-        val id = deviceId(c)
-        val email = snapshot(c).email
+        val appContext = c.applicationContext
+        // Automatic auth loss is the same security boundary as explicit Logout.
+        // Capture Premium ownership before credentials disappear, then perform the
+        // full tunnel/selection/MMKV transition to Free.
+        rememberPremiumBoundaryFingerprints(appContext)
+        val id = deviceId(appContext)
+        val email = snapshot(appContext).email
         synchronized(authStateLock) {
             authSessionEpoch.incrementAndGet()
-            prefs(c).edit()
+            prefs(appContext).edit()
                 .remove("token")
                 .remove("refresh_token")
                 .putString("email", email)
@@ -1640,7 +1729,7 @@ object BlueVpnAccountManager {
                 .putString("auth_error", code)
                 .commit()
 
-            backup(c).edit()
+            backup(appContext).edit()
                 .remove("token")
                 .remove("refresh_token")
                 .putString("email", email)
@@ -1649,6 +1738,7 @@ object BlueVpnAccountManager {
             invalidateAccountSnapshot()
             invalidateMobileConfigCache()
         }
+        enforceFreeBoundaryTransition(appContext)
     }
 
     fun requestOtp(

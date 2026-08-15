@@ -475,19 +475,65 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
     }
 
     private static function download_telegram_zip(string $fileId, string $name, array $s): string {
-        $file = self::api('getFile', ['file_id' => $fileId], $s);
-        if (is_wp_error($file)) throw new RuntimeException($file->get_error_message());
-        $path = (string)($file['file_path'] ?? '');
-        if ($path === '') throw new RuntimeException('Telegram file_path را برنگرداند.');
-        $token = self::bot_token($s);
-        $url = 'https://api.telegram.org/file/bot' . rawurlencode($token) . '/' . str_replace('%2F', '/', rawurlencode($path));
+        if (!class_exists('ZipArchive')) throw new RuntimeException('PHP ZipArchive روی سرور فعال نیست.');
         if (!function_exists('download_url')) require_once ABSPATH . 'wp-admin/includes/file.php';
-        $tmp = download_url($url, 300);
-        if (is_wp_error($tmp)) throw new RuntimeException($tmp->get_error_message());
-        $size = @filesize($tmp) ?: 0;
-        if ($size > (int)$s['max_zip_mb'] * 1024 * 1024) { @unlink($tmp); throw new RuntimeException('ZIP از محدودیت حجم بیشتر است.'); }
-        if (!class_exists('ZipArchive')) { @unlink($tmp); throw new RuntimeException('PHP ZipArchive روی سرور فعال نیست.'); }
-        return $tmp;
+
+        $lastError = '';
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            // Ask Telegram for file_path again on every attempt. A freshly uploaded
+            // document can briefly point at a CDN object that is not fully readable yet.
+            $file = self::api('getFile', ['file_id' => $fileId], $s);
+            if (is_wp_error($file)) {
+                $lastError = $file->get_error_message();
+                if ($attempt < 3) { sleep($attempt); continue; }
+                throw new RuntimeException($lastError);
+            }
+            $path = (string)($file['file_path'] ?? '');
+            if ($path === '') throw new RuntimeException('Telegram file_path را برنگرداند.');
+
+            $token = self::bot_token($s);
+            $url = 'https://api.telegram.org/file/bot' . rawurlencode($token) . '/' . str_replace('%2F', '/', rawurlencode($path));
+            $tmp = download_url($url, 300);
+            if (is_wp_error($tmp)) {
+                $lastError = $tmp->get_error_message();
+                if ($attempt < 3) { sleep($attempt); continue; }
+                throw new RuntimeException($lastError);
+            }
+
+            $size = (int)(@filesize($tmp) ?: 0);
+            if ($size > (int)$s['max_zip_mb'] * 1024 * 1024) {
+                @unlink($tmp);
+                throw new RuntimeException('ZIP از محدودیت حجم بیشتر است.');
+            }
+            if ($size < 22) {
+                $lastError = 'فایل دریافتی از Telegram ناقص است (' . $size . ' bytes).';
+                @unlink($tmp);
+                if ($attempt < 3) { sleep($attempt); continue; }
+                break;
+            }
+
+            $head = (string)@file_get_contents($tmp, false, null, 0, 4);
+            // ZIP may begin with a local file header, an empty archive header, or a
+            // spanned archive marker. Reject HTML/JSON/error bodies early.
+            if (!in_array($head, ["PK\x03\x04", "PK\x05\x06", "PK\x07\x08"], true)) {
+                $lastError = 'پاسخ Telegram ZIP نیست؛ امضای فایل معتبر دریافت نشد.';
+                @unlink($tmp);
+                if ($attempt < 3) { sleep($attempt); continue; }
+                break;
+            }
+
+            $zip = new ZipArchive();
+            $open = $zip->open($tmp, ZipArchive::RDONLY);
+            if ($open === true) {
+                $zip->close();
+                return $tmp;
+            }
+            $lastError = 'ZipArchive نتوانست فایل دانلودشده را باز کند (code=' . (string)$open . ', size=' . $size . ').';
+            @unlink($tmp);
+            if ($attempt < 3) sleep($attempt);
+        }
+
+        throw new RuntimeException('ZIP دانلودشده از Telegram معتبر/کامل نیست. سه بار دریافت مجدد انجام شد. ' . $lastError);
     }
 
     private static function deploy_zip_to_github(string $zipPath, array $s): array {
@@ -835,7 +881,7 @@ BLUEVPN_ASKPASS_CHECK;
 
     private static function extract_zip_safely(string $zipPath, array $s): string {
         $zip = new ZipArchive();
-        if ($zip->open($zipPath) !== true) throw new RuntimeException('ZIP معتبر نیست.');
+        if (($open = $zip->open($zipPath, ZipArchive::RDONLY)) !== true) throw new RuntimeException('ZIP معتبر نیست (ZipArchive code=' . (string)$open . ', size=' . (string)((int)(@filesize($zipPath) ?: 0)) . ').');
         $count = $zip->numFiles;
         if ($count > (int)$s['max_files']) { $zip->close(); throw new RuntimeException('تعداد فایل‌های ZIP بیش از حد مجاز است.'); }
         $total = 0;

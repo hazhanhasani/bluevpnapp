@@ -1,12 +1,12 @@
 {
-  "version": "4.4.10",
-  "version_code": 40410,
+  "version": "4.5.1",
+  "version_code": 40501,
   "channel": "beta",
-  "build_id": "20260815-v4.4.10-coroutine-context-build-hotfix",
-  "built_at": "2026-08-15T07:10:00Z",
-  "android_version": "4.4.10",
-  "android_version_code": 40410,
-  "description": "BlueVPN 4.4.10: رفع خطای Kotlin در LiveReporter داخل withContext با استفاده صریح از Activity Context؛ تمام تغییرات BlueAI Subscription Pool Orchestrator نسخه 4.4.9 حفظ شده‌اند.",
+  "build_id": "20260815-v4.5.1-telegram-zip-retry-hardening",
+  "built_at": "2026-08-15T08:10:00Z",
+  "android_version": "4.5.1",
+  "android_version_code": 40501,
+  "description": "BlueVPN 4.5.1: مقاوم‌سازی دریافت ZIP از Telegram با اعتبارسنجی امضای ZIP، تشخیص دانلود ناقص، سه بار دریافت مجدد و گزارش دقیق ZipArchive؛ بدون تغییر در مسیر اتصال v4.5.0.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -211,7 +211,13 @@
     "cross-tier-exact-config-quarantine",
     "endpoint-overlap-diagnostics",
     "connect-time-pool-inventory-revalidation",
-    "kotlin-coroutine-context-live-reporter-hotfix"
+    "kotlin-coroutine-context-live-reporter-hotfix",
+    "subscription-guid-source-authoritative-tier-ownership",
+    "premium-preserving-cross-tier-collision-policy",
+    "free-copy-blocked-on-exact-premium-collision",
+    "no-semantic-dedupe-in-entitlement-filter",
+    "stale-route-cache-entitlement-revalidation",
+    "blueai-pool-orchestrator-v2"
   ],
-  "version_source": "v4.4.10-coroutine-context-build-hotfix"
+  "version_source": "v4.5.1-telegram-zip-retry-hardening"
 }

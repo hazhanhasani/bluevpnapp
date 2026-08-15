@@ -1097,25 +1097,46 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("AngConfigManager.updateConfigViaSub(row)", subscription)
         self.assertIn("BlueVpnPoolOrchestrator.reconcile(context)", subscription)
 
-    def test_126_exact_cross_tier_configs_are_quarantined_not_ranked(self):
+    def test_126_exact_cross_tier_configs_block_free_copy_without_losing_premium(self):
         orchestrator = text("android-source/BlueVpnPoolOrchestrator.kt")
-        self.assertIn("quarantined", orchestrator)
         self.assertIn("Tier.FREE in it && Tier.PREMIUM in it", orchestrator)
-        self.assertIn("KEY_QUARANTINED", orchestrator)
-        self.assertIn("return false", orchestrator)
+        self.assertIn("KEY_BLOCKED_FREE_GUIDS", orchestrator)
+        self.assertIn("desiredTier == Tier.FREE", orchestrator)
+        self.assertIn("Premium copy remains usable", orchestrator)
 
-    def test_127_endpoint_overlap_is_diagnostic_while_semantic_identity_is_security_boundary(self):
+    def test_127_endpoint_overlap_is_diagnostic_while_subscription_source_is_security_boundary(self):
         profiles = text("android-source/BlueVpnProfileManager.kt")
         orchestrator = text("android-source/BlueVpnPoolOrchestrator.kt")
         self.assertIn("fun endpointFingerprintGuid", profiles)
         self.assertIn("endpointOverlapWarnings", orchestrator)
-        self.assertIn("exact semantic collisions are blocked", orchestrator)
+        self.assertIn("producing subscription row is the authority", orchestrator)
 
     def test_live_reporter_uses_activity_context_inside_with_context(self):
         home = (ROOT / "android-source" / "BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
         self.assertIn("BlueVpnLiveReporter.kick(this@BlueVpnHomeActivity)", home)
         self.assertNotIn("BlueVpnLiveReporter.kick(this)\n                    BlueVpnPreferences.markConnected(\n                        this@BlueVpnHomeActivity,", home)
         self.assertNotIn("BlueVpnLiveReporter.kick(this)\n                    renderConnectionState(true)", home)
+
+    def test_129_pool_owner_is_current_subscription_guid_not_semantic_history(self):
+        orchestrator = text("android-source/BlueVpnPoolOrchestrator.kt")
+        self.assertIn("KEY_GUID_OWNERS", orchestrator)
+        self.assertIn("guidOwner[guid]", orchestrator)
+        self.assertIn("owner != desiredTier", orchestrator)
+        self.assertIn("producing subscription row is the authority", orchestrator)
+
+    def test_130_exact_collision_blocks_free_copy_but_preserves_premium_copy(self):
+        orchestrator = text("android-source/BlueVpnPoolOrchestrator.kt")
+        self.assertIn("KEY_BLOCKED_FREE_GUIDS", orchestrator)
+        self.assertIn("desiredTier == Tier.FREE", orchestrator)
+        self.assertIn("Premium copy remains usable", orchestrator)
+        self.assertNotIn("owners.size == 1", orchestrator)
+
+    def test_131_location_stale_cache_cannot_show_routes_outside_current_entitlement(self):
+        locations = text("android-source/BlueVpnLocationUtil.kt")
+        stale = block(locations, "if (resolved.isEmpty() && previous.isNotEmpty())", "synchronized(this) {\n            contextCandidateCache = resolved")
+        self.assertIn("stillOwned", stale)
+        self.assertIn("BlueVpnAccountManager.candidateAllowed", stale)
+        self.assertNotIn("return previous", stale)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

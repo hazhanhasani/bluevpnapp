@@ -875,13 +875,25 @@ private fun unknownLocation(): BlueVpnLocation =
                 if (location == candidate.location) candidate else candidate.copy(location = location)
             }
         if (resolved.isEmpty() && previous.isNotEmpty()) {
-            // Never let a transient empty import replace a healthy visible pool.
-            // A later MMKV broadcast will retry; until then the engine guard still
-            // validates every selected GUID against the current entitlement.
-            synchronized(this) {
-                contextCandidateCacheDirty = true
+            // Stale-while-revalidate is safe only while the old GUIDs still belong
+            // to the *current* entitlement inventory. Keeping an arbitrary previous
+            // list here made routes look mixed after a subscription refresh even
+            // though the final connect gate would reject them.
+            val stillOwned = previous.filter { candidate ->
+                val profile = MmkvManager.decodeServerConfig(candidate.guid) ?: return@filter false
+                BlueVpnAccountManager.candidateAllowed(
+                    context,
+                    candidate.guid,
+                    profile.subscriptionId,
+                    entitlementServerGuids,
+                )
             }
-            return previous
+            if (stillOwned.isNotEmpty()) {
+                synchronized(this) {
+                    contextCandidateCacheDirty = true
+                }
+                return stillOwned
+            }
         }
         synchronized(this) {
             contextCandidateCache = resolved

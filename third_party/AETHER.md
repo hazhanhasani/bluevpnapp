@@ -1,6 +1,6 @@
 # Aether integration notice
 
-BlueVPN 4.6.3 optionally packages **Aether** as the primary Free-tier Cloudflare WARP transport.
+BlueVPN 4.6.4 optionally packages **Aether** as the primary Free-tier Cloudflare WARP transport.
 
 - Upstream source: https://github.com/CluvexStudio/Aether
 - Pinned revision: `a26159b82a70048b459e0128213c71767abecb8a`

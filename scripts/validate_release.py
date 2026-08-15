@@ -101,6 +101,7 @@ def main() -> None:
     require("BlueVpnEngineManager" not in home + account, "legacy engine abstraction remains")
     require("beginWarpFreeConnection()" in home, "Free WARP routing entrypoint missing")
     require("BlueVpnWarpEngine.isBridgeGuid" in home, "WARP bridge is not isolated from subscription candidates")
+    require("import com.v2ray.ang.bluevpn.BlueVpnWarpEngine" in home, "BlueVpnHomeActivity is missing the explicit WARP engine import")
     require('BRIDGE_SUBSCRIPTION_ID = "bluevpn_free_warp_aether"' in warp, "dedicated WARP bridge ownership missing")
     require("127.0.0.1" in warp and "1819" in warp, "Aether loopback SOCKS boundary missing")
     require("Aether loopback port is already occupied" in warp, "WARP local port hijack must fail closed")

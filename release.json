@@ -1,13 +1,14 @@
 {
-  "version": "4.6.3",
-  "version_code": 40603,
+  "version": "4.6.4",
+  "version_code": 40604,
   "channel": "beta",
-  "build_id": "20260815-v4.6.3-aether-warp-free-engine",
+  "build_id": "20260815-v4.6.4-warp-engine-import-build-hotfix",
   "built_at": "2026-08-15T16:25:00Z",
-  "android_version": "4.6.3",
-  "android_version_code": 40603,
-  "description": "BlueVPN 4.6.3: Free primary transport moves to a pinned Aether/Cloudflare WARP process with a loopback SOCKS bridge into the stock v2rayNG VpnService; Premium Xray subscriptions remain unchanged and the isolated legacy Free pool is retained only as a bounded fallback.",
+  "android_version": "4.6.4",
+  "android_version_code": 40604,
+  "description": "BlueVPN 4.6.4: fixes the Aether/WARP Free engine Android compile boundary by importing BlueVpnWarpEngine explicitly into BlueVpnHomeActivity; the 4.6.3 WARP integration and Premium Xray runtime remain unchanged.",
   "features": [
+    "warp-engine-home-explicit-import-build-fix",
     "aether-warp-free-primary-engine",
     "aether-pinned-a26159b82a70048b459e0128213c71767abecb8a",
     "no-oblivion-app-code-copied",
@@ -256,5 +257,5 @@
     "locations-nonblocking-during-mmkv-import",
     "metadata-only-manual-account-refresh"
   ],
-  "version_source": "v4.6.3-aether-warp-free-engine"
+  "version_source": "v4.6.4-warp-engine-import-build-hotfix"
 }

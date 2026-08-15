@@ -71,6 +71,7 @@ class CurrentReleaseTests(unittest.TestCase):
     def test_05b_free_aether_warp_engine_is_pinned_and_isolated(self):
         self.assertIn("beginWarpFreeConnection()", self.home)
         self.assertIn("BlueVpnWarpEngine.isBridgeGuid", self.home)
+        self.assertIn("import com.v2ray.ang.bluevpn.BlueVpnWarpEngine", self.home)
         self.assertIn('BRIDGE_SUBSCRIPTION_ID = "bluevpn_free_warp_aether"', self.warp)
         self.assertIn("Aether loopback port is already occupied", self.warp)
         self.assertIn('AETHER_COMMIT = "a26159b82a70048b459e0128213c71767abecb8a"', self.aether_build)

@@ -1,10 +1,10 @@
 === BlueVPN Manager ===
-Version: 4.6.1
-Stable tag: 4.6.1
+Version: 4.6.2
+Stable tag: 4.6.2
 Requires PHP: 8.0
 
 
-== 4.6.1 ==
+== 4.6.2 ==
 = Pool sync single-owner / nonblocking locations =
 
 == 4.6.0 ==

@@ -53,6 +53,9 @@ object BlueVpnPoolOrchestrator {
     private const val MAX_SCAN_AGE_MS = 8_000L
 
     private val lock = Any()
+    @Volatile private var memoryOwners: Map<String, Tier> = emptyMap()
+    @Volatile private var memoryBlockedFree: Set<String> = emptySet()
+    @Volatile private var memoryBuiltAt: Long = 0L
 
     fun reconcile(context: Context): Snapshot = synchronized(lock) {
         val app = context.applicationContext
@@ -133,6 +136,13 @@ object BlueVpnPoolOrchestrator {
             scannedSubscriptions = scannedSubscriptions,
             builtAt = now,
         )
+        // Publish one immutable in-memory ownership snapshot for the whole pool.
+        // Hot candidate filtering must not re-read/re-parse SharedPreferences JSON
+        // for every GUID.
+        memoryOwners = guidOwner.toMap()
+        memoryBlockedFree = blockedFreeGuids.toSet()
+        memoryBuiltAt = System.currentTimeMillis()
+
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_GUID_OWNERS, guidOwnersJson.toString())
             .putString(KEY_FINGERPRINT_TIERS, fingerprintTiersJson.toString())
@@ -157,32 +167,22 @@ object BlueVpnPoolOrchestrator {
 
     fun allowed(context: Context, serverGuid: String, desiredTier: Tier): Boolean {
         val guid = serverGuid.trim()
-        if (guid.isBlank() || MmkvManager.decodeServerConfig(guid) == null) return false
-        ensureFresh(context, guid)
-        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val owner = ownerForGuid(prefs.getString(KEY_GUID_OWNERS, "{}").orEmpty(), guid)
-        if (owner != desiredTier) return false
-
-        // Exact cross-tier collision policy is asymmetric by design: Free never
-        // receives a semantic config also present in Premium, while the Premium
-        // copy remains available. This prevents both leakage and route loss.
-        if (
-            desiredTier == Tier.FREE &&
-            guid in prefs.getStringSet(KEY_BLOCKED_FREE_GUIDS, emptySet()).orEmpty()
-        ) return false
+        if (guid.isBlank()) return false
+        ensureMemoryFresh(context, guid)
+        if (memoryOwners[guid] != desiredTier) return false
+        if (desiredTier == Tier.FREE && guid in memoryBlockedFree) return false
         return true
     }
 
     fun filterAllowed(context: Context, guids: Collection<String>, desiredTier: Tier): List<String> {
         if (guids.isEmpty()) return emptyList()
-        ensureFresh(context, guids.firstOrNull().orEmpty())
+        ensureMemoryFresh(context, guids.firstOrNull().orEmpty())
+        val owners = memoryOwners
+        val blocked = memoryBlockedFree
         return guids.asSequence()
             .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .filter { allowed(context, it, desiredTier) }
-            // Do not semantic-dedupe here. Distinct GUIDs from the authoritative
-            // subscription must reach v2rayNG even when BlueVPN cannot model an
-            // upstream-only field that differentiates them.
+            .filter { it.isNotBlank() && owners[it] == desiredTier }
+            .filter { desiredTier != Tier.FREE || it !in blocked }
             .distinct()
             .toList()
     }
@@ -209,9 +209,20 @@ object BlueVpnPoolOrchestrator {
 
     fun reset(context: Context) {
         synchronized(lock) {
+            memoryOwners = emptyMap()
+            memoryBlockedFree = emptySet()
+            memoryBuiltAt = 0L
+            BlueVpnProfileManager.invalidateCaches()
             context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().clear().commit()
         }
+    }
+
+    private fun ensureMemoryFresh(context: Context, probeGuid: String) {
+        val now = System.currentTimeMillis()
+        if (memoryOwners.isNotEmpty() && now - memoryBuiltAt <= MAX_SCAN_AGE_MS &&
+            (probeGuid.isBlank() || memoryOwners.containsKey(probeGuid))) return
+        reconcile(context)
     }
 
     private fun ensureFresh(context: Context, probeGuid: String) {

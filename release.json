@@ -1,12 +1,12 @@
 {
-  "version": "4.6.1",
-  "version_code": 40601,
+  "version": "4.6.2",
+  "version_code": 40602,
   "channel": "beta",
-  "build_id": "20260815-v4.6.1-pool-sync-single-owner",
+  "build_id": "20260815-v4.6.2-pool-hotpath-fix",
   "built_at": "2026-08-15T14:35:00Z",
-  "android_version": "4.6.1",
-  "android_version_code": 40601,
-  "description": "BlueVPN 4.6.1: اصلاح منطقی دریافت Pool؛ حذف retry تو در توی importer رسمی v2rayNG، یک مالک برای refresh دستی، و جلوگیری از قفل صفحه مکان‌ها هنگام mutation.",
+  "android_version": "4.6.2",
+  "android_version_code": 40602,
+  "description": "BlueVPN 4.6.2: cache-first Pool hot path, batched in-memory tier ownership, cached profile reflection/fingerprints, bounded 12/8 smart scan, and authoritative stock v2rayNG ping success.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -246,5 +246,5 @@
     "locations-nonblocking-during-mmkv-import",
     "metadata-only-manual-account-refresh"
   ],
-  "version_source": "v4.6.1-pool-sync-single-owner"
+  "version_source": "v4.6.2-pool-hotpath-fix"
 }

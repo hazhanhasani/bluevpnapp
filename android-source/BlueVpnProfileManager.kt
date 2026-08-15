@@ -6,6 +6,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
 import java.util.Locale
+import java.lang.reflect.Method
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * v2rayNG-native profile metadata catalogue for BlueVPN.
@@ -55,6 +57,9 @@ object BlueVpnProfileManager {
     // Remarks, description, subscriptionId and addedTime are intentionally
     // excluded because they are presentation/ownership metadata, not endpoint
     // identity. Keeping the transport-specific fields prevents false de-dupes.
+    private val getterCache = ConcurrentHashMap<Class<*>, Map<String, Method>>()
+    private val fingerprintCache = ConcurrentHashMap<String, String>()
+
     private val identityGetters = listOf(
         "getConfigType",
         "getServer",
@@ -169,8 +174,13 @@ object BlueVpnProfileManager {
 
     fun fingerprintGuid(guid: String): String? {
         if (guid.isBlank()) return null
+        fingerprintCache[guid]?.let { return it }
         val profile = MmkvManager.decodeServerConfig(guid) ?: return null
-        return fingerprint(profile, MmkvManager.decodeServerRaw(guid))
+        return fingerprint(profile, MmkvManager.decodeServerRaw(guid)).also { fingerprintCache[guid] = it }
+    }
+
+    fun invalidateCaches() {
+        fingerprintCache.clear()
     }
 
     /**
@@ -317,11 +327,13 @@ object BlueVpnProfileManager {
 
 
     private fun readGetter(profile: ProfileItem, name: String): String {
-        val method = profile.javaClass.methods.firstOrNull {
-            it.name == name && it.parameterTypes.isEmpty()
-        } ?: return ""
-        return runCatching { method.invoke(profile)?.toString().orEmpty().trim() }
-            .getOrDefault("")
+        val methods = getterCache.getOrPut(profile.javaClass) {
+            profile.javaClass.methods.asSequence()
+                .filter { it.parameterTypes.isEmpty() }
+                .associateBy { it.name }
+        }
+        val method = methods[name] ?: return ""
+        return runCatching { method.invoke(profile)?.toString().orEmpty().trim() }.getOrDefault("")
     }
 
     private fun normalizeField(getter: String, value: String): String = when (getter) {

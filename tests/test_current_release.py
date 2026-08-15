@@ -1121,7 +1121,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         orchestrator = text("android-source/BlueVpnPoolOrchestrator.kt")
         self.assertIn("KEY_GUID_OWNERS", orchestrator)
         self.assertIn("guidOwner[guid]", orchestrator)
-        self.assertIn("owner != desiredTier", orchestrator)
+        self.assertIn("memoryOwners[guid] != desiredTier", orchestrator)
         self.assertIn("producing subscription row is the authority", orchestrator)
 
     def test_130_exact_collision_blocks_free_copy_but_preserves_premium_copy(self):
@@ -1202,12 +1202,13 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         home = text("android-source/BlueVpnHomeActivity.kt")
         self.assertIn("private val networkSweepTicker: Runnable = object : Runnable", home)
 
-    def test_142_auto_mode_forces_complete_entitlement_inventory_before_sweep(self):
+    def test_142_auto_mode_is_cache_first_and_never_forces_full_scan(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
         self.assertIn("if (selectionMode == BlueVpnSelectionMode.AUTO)", home)
-        self.assertIn("forceRefresh = true", home)
-        self.assertIn("BlueAI همه کانفیگ‌های Free را از Pool فعلی جمع‌آوری می‌کند", home)
-        self.assertIn("startNetworkSweepThenConnect(fullPool, BlueVpnSelectionMode.AUTO)", home)
+        self.assertIn("cached.take(12)", home)
+        auto = block(home, "// AUTO is cache-first", "if (!BlueVpnLocationUtil.hasCandidateCache(this))")
+        self.assertNotIn("forceRefresh = true", auto)
+        self.assertIn("scheduleIdleCandidateWarmup()", auto)
 
     def test_143_connection_status_text_is_two_line_and_track_is_bottom_anchored(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
@@ -1287,9 +1288,10 @@ def test_auth_ui_returns_immediately_after_session():
 
 def test_progressive_scanner_does_not_block_on_full_pool():
     home = (ROOT / "android-source" / "BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
-    assert ".take(32)" in home
+    assert ".take(8)" in home
+    assert "cached.take(12)" in home
     assert "val earlyQuorum" in home
-    assert "coerceAtMost(7_500L)" in home
+    assert "elapsed >= 2_200L" in home
     assert "اتصال فوری به بهترین گزینه" in home
 
 def test_ready_exact_pool_bypasses_background_reconcile_wait():

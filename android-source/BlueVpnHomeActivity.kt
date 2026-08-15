@@ -365,9 +365,9 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 // Do not make the user wait for a full 100-200 route sweep.
                 // The blocking phase only needs a trustworthy quorum; the full
                 // entitlement inventory stays available as progressive failover.
-                val quorumTarget = minOf(12, guids.size).coerceAtLeast(1)
-                val earlyQuorum = elapsed >= 1_600L && tested >= quorumTarget && healthy >= minOf(3, quorumTarget)
-                val timeout = elapsed >= (4_500L + guids.size.coerceAtMost(32) * 55L).coerceAtMost(7_500L)
+                val quorumTarget = minOf(4, guids.size).coerceAtLeast(1)
+                val earlyQuorum = elapsed >= 700L && tested >= quorumTarget && healthy >= 1
+                val timeout = elapsed >= 2_200L
                 withContext(Dispatchers.Main) {
                     networkSweepPollInFlight = false
                     if (!networkSweepInProgress || generation != networkSweepGeneration) return@withContext
@@ -2036,10 +2036,14 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             val upstreamDelay = parseV2rayNgDelayMs(result)
             if (upstreamDelay != null && mainViewModel.isRunning.value == true) {
                 lastVerifiedLatency = upstreamDelay
-                // Quality telemetry only; RUNNING already established connection.
-                if (!failoverActive && connectionVerified) {
-                    recordCurrentConnection(upstreamDelay)
+                // Stock v2rayNG real-ping is authoritative proof that the active
+                // candidate is alive. Promote it immediately; the HTTP probe is
+                // only a fallback for routes whose upstream ping is inconclusive.
+                if (failoverActive && isExactAttemptRunning()) {
+                    completeFailover(upstreamDelay)
+                    return@observe
                 }
+                if (connectionVerified) recordCurrentConnection(upstreamDelay)
             }
 
             if (startupOptimizationActive) {
@@ -3312,38 +3316,17 @@ private fun dpHome(value: Int): Int =
             return
         }
 
-        // AUTO mode always rebuilds the complete entitlement-isolated inventory
-        // before the real network sweep. This applies equally to Free and Premium:
-        // no stale visible cache, top-N shortcut, or previously selected route can
-        // cause the free tier to skip part of its subscription pool.
+        // AUTO is cache-first. A connect request must never force a full MMKV
+        // rebuild; subscription refresh has a separate single owner. If the cache
+        // is warm we connect from it immediately, while idle warm-up may rebuild
+        // the complete inventory later without blocking the user.
         if (selectionMode == BlueVpnSelectionMode.AUTO) {
-            if (candidateLoadInProgress) {
-                pendingConnectionRequest = true
+            val cached = BlueVpnLocationUtil.cachedCandidates(this)
+            if (cached.isNotEmpty()) {
+                startNetworkSweepThenConnect(cached.take(12), BlueVpnSelectionMode.AUTO)
+                scheduleIdleCandidateWarmup()
                 return
             }
-            candidateLoadInProgress = true
-            pendingConnectionRequest = true
-            statusText.text = "آماده‌سازی اسکن کامل"
-            statusCaption.visibility = View.VISIBLE
-            statusCaption.text = if (entitlement.tier == BlueVpnPlanTier.FREE) {
-                "BlueAI همه کانفیگ‌های Free را از Pool فعلی جمع‌آوری می‌کند"
-            } else {
-                "BlueAI همه کانفیگ‌های Premium را از Pool فعلی جمع‌آوری می‌کند"
-            }
-            lifecycleScope.launch(Dispatchers.Default) {
-                val fullPool = BlueVpnLocationUtil.allCandidates(
-                    this@BlueVpnHomeActivity,
-                    forceRefresh = true,
-                )
-                withContext(Dispatchers.Main) {
-                    candidateLoadInProgress = false
-                    if (isFinishing || isDestroyed || !pendingConnectionRequest) return@withContext
-                    pendingConnectionRequest = false
-                    startNetworkSweepThenConnect(fullPool, BlueVpnSelectionMode.AUTO)
-                    scheduleIdleCandidateWarmup()
-                }
-            }
-            return
         }
 
         if (!BlueVpnLocationUtil.hasCandidateCache(this)) {
@@ -3417,7 +3400,7 @@ private fun dpHome(value: Int): Int =
             compareBy<BlueVpnLocationUtil.Candidate> { if (it.delay > 0L) 0 else 1 }
                 .thenBy { if (it.delay > 0L) it.delay else Long.MAX_VALUE }
         )
-        networkSweepGuids = sweepOrder.map { it.guid }.distinct().take(32)
+        networkSweepGuids = sweepOrder.map { it.guid }.distinct().take(8)
         networkSweepBlockingTotal = networkSweepGuids.size
         networkSweepTotal = candidates.map { it.guid }.distinct().size
 

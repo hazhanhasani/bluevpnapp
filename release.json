@@ -1,12 +1,12 @@
 {
-  "version": "4.5.3",
-  "version_code": 40503,
+  "version": "4.5.4",
+  "version_code": 40504,
   "channel": "beta",
-  "build_id": "20260815-v4.5.3-premium-sub-import-hardening",
-  "built_at": "2026-08-15T08:10:00Z",
-  "android_version": "4.5.3",
-  "android_version_code": 40503,
-  "description": "BlueVPN 4.5.3: ترمیم مسیر Premium Subscription؛ آمادگی Pool فقط با کانفیگ واقعی ساب فعلی سنجیده می‌شود، LKG دیگر Import خالی را پنهان نمی‌کند و پس از تغییر URL/Pool قدیمی به اشتراک جدید نشت نمی‌کند.",
+  "build_id": "20260815-v4.5.4-live-ai-sweep-verification",
+  "built_at": "2026-08-15T10:10:00Z",
+  "android_version": "4.5.4",
+  "android_version_code": 40504,
+  "description": "BlueVPN 4.5.4: تحلیل همه مسیرهای مجاز با TestService رسمی v2rayNG روی شبکه فعلی، تأیید اجباری اینترنت واقعی قبل از CONNECTED، رابط اتصال روان بدون خط تزئینی مزاحم و نمایش سرعت Live با EWMA بدون پرش مداوم به صفر.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -217,7 +217,12 @@
     "free-copy-blocked-on-exact-premium-collision",
     "no-semantic-dedupe-in-entitlement-filter",
     "stale-route-cache-entitlement-revalidation",
-    "blueai-pool-orchestrator-v2"
+    "blueai-pool-orchestrator-v2",
+    "entitlement-scoped-v2rayng-real-ping-sweep",
+    "real-internet-verification-before-connected",
+    "dynamic-connecting-orb-low-end",
+    "live-throughput-ewma-zero-hold",
+    "250ms-local-telemetry-sampling"
   ],
-  "version_source": "v4.5.3-premium-sub-import-hardening"
+  "version_source": "v4.5.4-live-ai-sweep-verification"
 }

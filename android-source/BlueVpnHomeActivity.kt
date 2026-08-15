@@ -47,6 +47,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.BuildConfig
+import com.v2ray.ang.dto.TestServiceMessage
 import com.v2ray.ang.R
 import com.v2ray.ang.core.CoreServiceManager
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
@@ -76,6 +77,7 @@ import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.handler.SubscriptionUpdater
 import com.v2ray.ang.viewmodel.MainViewModel
 import com.v2ray.ang.util.Utils
+import com.v2ray.ang.util.MessageUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -189,6 +191,19 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var lastGuestPreparationAt = 0L
     private var startupWarmupPosted = false
     private var candidateLoadInProgress = false
+    private var networkSweepInProgress = false
+    private var networkSweepGeneration = 0
+    private var networkSweepStartedAt = 0L
+    private var networkSweepTotal = 0
+    private var networkSweepPollInFlight = false
+    private var networkSweepGuids: List<String> = emptyList()
+    private var networkSweepCandidates: List<BlueVpnLocationUtil.Candidate> = emptyList()
+    private var networkSweepSelectionMode: BlueVpnSelectionMode = BlueVpnSelectionMode.AUTO
+    private var smoothedDownloadBps = 0.0
+    private var smoothedUploadBps = 0.0
+    private var lastTrafficSampleElapsed = 0L
+    private var lastNonZeroDownloadElapsed = 0L
+    private var lastNonZeroUploadElapsed = 0L
     private var pendingConnectionRequest = false
     private var runtimeGateRetryScheduled = false
     private var runtimeGateWaitStartedAt = 0L
@@ -319,6 +334,55 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 this,
                 BlueVpnPerformance.statsIntervalMs(this@BlueVpnHomeActivity),
             )
+        }
+    }
+
+    private val networkSweepTicker = object : Runnable {
+        override fun run() {
+            if (!networkSweepInProgress || networkSweepPollInFlight) return
+            networkSweepPollInFlight = true
+            val generation = networkSweepGeneration
+            val guids = networkSweepGuids.toList()
+            val startedAt = networkSweepStartedAt
+            lifecycleScope.launch(Dispatchers.Default) {
+                var tested = 0
+                var healthy = 0
+                var failed = 0
+                var best = Long.MAX_VALUE
+                guids.forEach { guid ->
+                    val delay = MmkvManager.decodeServerAffiliationInfo(guid)?.testDelayMillis ?: 0L
+                    if (delay != 0L) tested += 1
+                    if (delay > 0L) {
+                        healthy += 1
+                        if (delay < best) best = delay
+                    } else if (delay < 0L) {
+                        failed += 1
+                    }
+                }
+                val elapsed = SystemClock.elapsedRealtime() - startedAt
+                val complete = guids.isNotEmpty() && tested >= guids.size
+                val timeout = elapsed >= (8_000L + guids.size.coerceAtMost(240) * 45L).coerceAtMost(18_000L)
+                withContext(Dispatchers.Main) {
+                    networkSweepPollInFlight = false
+                    if (!networkSweepInProgress || generation != networkSweepGeneration) return@withContext
+                    val bestText = if (best != Long.MAX_VALUE) " • بهترین ${best}ms" else ""
+                    if (::connectingCaption.isInitialized) {
+                        connectingCaption.text = "تست واقعی $tested از ${guids.size} مسیر • سالم $healthy$bestText"
+                    }
+                    if (::connectingLocation.isInitialized) {
+                        connectingLocation.text = when {
+                            healthy >= 1 && tested >= guids.size -> "رتبه‌بندی نهایی بر اساس شبکه شما"
+                            healthy >= 1 -> "در حال دسته‌بندی کیفیت اتصال‌ها"
+                            else -> "در حال تست کانفیگ‌ها با اینترنت شما"
+                        }
+                    }
+                    if (complete || timeout) {
+                        finishNetworkSweep(generation, timedOut = timeout && !complete)
+                    } else {
+                        handler.postDelayed({ if (networkSweepInProgress) handler.post(networkSweepTicker) }, 280L)
+                    }
+                }
+            }
         }
     }
 
@@ -507,6 +571,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
         private var accent = Color.parseColor("#3978FF")
         private var phase = 0f
+        private var pulse = 0f
         private var animator: ValueAnimator? = null
 
         fun setAccent(color: Int) {
@@ -515,17 +580,18 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         }
 
         fun start() {
-            if (lowEnd || animator?.isRunning == true) {
-                invalidate()
-                return
-            }
-            animator = ValueAnimator.ofFloat(0f, 360f).apply {
-                duration = 2_400L
+            if (animator?.isRunning == true) return
+            // Low-end devices still animate. The old implementation disabled the
+            // animator completely, which made the connecting screen look frozen.
+            animator = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = if (lowEnd) 2_800L else 2_000L
                 repeatCount = ValueAnimator.INFINITE
                 interpolator = LinearInterpolator()
-                addUpdateListener {
-                    phase = it.animatedValue as Float
-                    invalidate()
+                addUpdateListener { value ->
+                    val t = value.animatedValue as Float
+                    phase = t * 360f
+                    pulse = (0.5f - 0.5f * kotlin.math.cos(t * Math.PI * 2.0).toFloat())
+                    postInvalidateOnAnimation()
                 }
                 start()
             }
@@ -546,29 +612,37 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             val side = width.coerceAtMost(height).toFloat()
             val cx = width / 2f
             val cy = height / 2f
-            val radius = side * 0.39f
+            val radius = side * 0.36f
 
-            fill.color = Color.argb(22, Color.red(accent), Color.green(accent), Color.blue(accent))
-            canvas.drawCircle(cx, cy, radius * 1.22f, fill)
+            // A soft breathing halo entirely inside the component. The previous
+            // outer partial arc looked like a stray line before the globe.
+            fill.color = Color.argb(14 + (pulse * 18f).toInt(), Color.red(accent), Color.green(accent), Color.blue(accent))
+            canvas.drawCircle(cx, cy, radius * (1.18f + pulse * 0.025f), fill)
 
-            stroke.color = Color.argb(205, Color.red(accent), Color.green(accent), Color.blue(accent))
-            stroke.strokeWidth = side * 0.015f
+            stroke.color = Color.argb(220, Color.red(accent), Color.green(accent), Color.blue(accent))
+            stroke.strokeWidth = side * 0.014f
             canvas.drawCircle(cx, cy, radius, stroke)
             canvas.drawOval(cx - radius * 0.46f, cy - radius, cx + radius * 0.46f, cy + radius, stroke)
             canvas.drawOval(cx - radius, cy - radius * 0.42f, cx + radius, cy + radius * 0.42f, stroke)
 
-            stroke.color = Color.argb(120, 255, 255, 255)
-            stroke.strokeWidth = side * 0.008f
-            canvas.drawArc(
-                cx - radius * 1.08f, cy - radius * 1.08f,
-                cx + radius * 1.08f, cy + radius * 1.08f,
-                phase, 82f, false, stroke,
-            )
-            val angle = Math.toRadians(phase.toDouble())
-            val dotX = cx + kotlin.math.cos(angle).toFloat() * radius * 1.08f
-            val dotY = cy + kotlin.math.sin(angle).toFloat() * radius * 1.08f
+            // Two moving nodes stay on the globe itself, so the animation feels
+            // continuous without an orphan progress line.
+            val angle1 = Math.toRadians(phase.toDouble())
+            val angle2 = Math.toRadians((phase + 180f).toDouble())
             fill.color = Color.WHITE
-            canvas.drawCircle(dotX, dotY, side * 0.022f, fill)
+            canvas.drawCircle(
+                cx + kotlin.math.cos(angle1).toFloat() * radius,
+                cy + kotlin.math.sin(angle1).toFloat() * radius * 0.42f,
+                side * 0.021f,
+                fill,
+            )
+            fill.color = Color.argb(205, Color.red(accent), Color.green(accent), Color.blue(accent))
+            canvas.drawCircle(
+                cx + kotlin.math.cos(angle2).toFloat() * radius * 0.46f,
+                cy + kotlin.math.sin(angle2).toFloat() * radius,
+                side * 0.017f,
+                fill,
+            )
 
             label.color = Color.WHITE
             label.textSize = side * 0.105f
@@ -1902,24 +1976,24 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 }
 
                 active && failoverActive -> {
-                    // Match stock v2rayNG: START_SUCCESS/RUNNING is authoritative.
-                    // Extra BlueVPN HTTP/DNS probes may observe quality, but they
-                    // must never reject or stop a tunnel that v2rayNG started.
+                    // RUNNING proves only that Xray/VpnService started. BlueVPN
+                    // must not expose CONNECTED until a real request traverses the
+                    // selected tunnel. This prevents "connected but no internet"
+                    // routes from winning merely because the core started.
                     handler.removeCallbacks(attemptTimeout)
-                    completeFailover(null)
+                    renderVerifyingState()
+                    scheduleConnectionVerification()
                 }
 
                 active -> {
-                    // Runtime parity with stock v2rayNG: a running CoreVpnService
-                    // is already the connection state. Quality checks may update
-                    // telemetry later but cannot hold the UI in CONNECTING or
-                    // tear down this upstream-successful session.
-                    connectionVerified = true
-                    BlueVpnLiveReporter.kick(this)
-                    BlueVpnPreferences.markConnected(this, resetTimer = false)
-                    BlueVpnRuntimeGate.markConnectionActive(this)
-                    BlueVpnAccountManager.startFreeSession(this)
-                    renderConnectionState(true)
+                    // Activity recreation can observe an already-running core.
+                    // Re-verify end-to-end Internet instead of promoting RUNNING
+                    // directly to a healthy BlueVPN connection.
+                    if (!connectionVerified && !existingSessionCheckInProgress) {
+                        verifyExistingRunningSession(preserveServiceOnFailure = true)
+                    } else if (connectionVerified) {
+                        renderConnectionState(true)
+                    }
                 }
 
                 !failoverActive -> {
@@ -2049,6 +2123,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         handler.removeCallbacks(startupOptimizationTimeout)
         handler.removeCallbacks(disconnectRetry)
         handler.removeCallbacks(freeSessionTicker)
+        handler.removeCallbacks(networkSweepTicker)
         handler.removeCallbacks(delayedAdsStart)
         handler.removeCallbacks(navigationUnlock)
         if (isFinishing && mainViewModel.isRunning.value != true) {
@@ -2849,6 +2924,7 @@ private fun dpHome(value: Int): Int =
             userDisconnecting ||
             mainViewModel.isRunning.value == true ||
             failoverActive ||
+            networkSweepInProgress ||
             freeStoryGateActive ||
             healthProbeInProgress
         ) {
@@ -2942,6 +3018,7 @@ private fun dpHome(value: Int): Int =
             !BlueVpnAccountManager.entitlementReconcilePending(this) ||
             mainViewModel.isRunning.value == true ||
             failoverActive ||
+            networkSweepInProgress ||
             userDisconnecting ||
             isFinishing ||
             isDestroyed
@@ -3196,7 +3273,7 @@ private fun dpHome(value: Int): Int =
         }
 
         exactManualCandidate()?.let { exact ->
-            startSmartConnectionWithCandidates(listOf(exact), selectionMode)
+            startNetworkSweepThenConnect(listOf(exact), selectionMode)
             return
         }
         if (selectionMode == BlueVpnSelectionMode.MANUAL_SERVER) {
@@ -3237,7 +3314,7 @@ private fun dpHome(value: Int): Int =
                     candidateLoadInProgress = false
                     if (isFinishing || isDestroyed || !pendingConnectionRequest) return@withContext
                     pendingConnectionRequest = false
-                    startSmartConnectionWithCandidates(fast, selectionMode)
+                    startNetworkSweepThenConnect(fast, selectionMode)
                     scheduleIdleCandidateWarmup()
                 }
             }
@@ -3254,7 +3331,95 @@ private fun dpHome(value: Int): Int =
                 it.guid == BlueVpnPreferences.manualServerGuid(this)
             }
         }
-        startSmartConnectionWithCandidates(scopedCache, selectionMode)
+        startNetworkSweepThenConnect(scopedCache, selectionMode)
+    }
+
+    private fun startNetworkSweepThenConnect(
+        candidates: List<BlueVpnLocationUtil.Candidate>,
+        selectionMode: BlueVpnSelectionMode,
+    ) {
+        if (candidates.size <= 1 || selectionMode == BlueVpnSelectionMode.MANUAL_SERVER) {
+            startSmartConnectionWithCandidates(candidates, selectionMode)
+            return
+        }
+        networkSweepGeneration += 1
+        val generation = networkSweepGeneration
+        networkSweepInProgress = true
+        networkSweepStartedAt = SystemClock.elapsedRealtime()
+        networkSweepCandidates = candidates
+        networkSweepSelectionMode = selectionMode
+        networkSweepGuids = candidates.map { it.guid }.distinct()
+        networkSweepTotal = networkSweepGuids.size
+
+        showConnectingOverlay(
+            title = "تحلیل هوشمند شبکه",
+            caption = "تست واقعی ۰ از $networkSweepTotal مسیر",
+            location = "در حال تست کانفیگ‌ها با اینترنت شما",
+        )
+        statusText.text = "تحلیل کیفیت سرورها"
+        statusCaption.visibility = View.VISIBLE
+        statusCaption.text = "BlueAI همه مسیرهای مجاز این پلن را با شبکه فعلی دسته‌بندی می‌کند"
+        updateConnectLabel("لغو اتصال")
+        connectButton.isEnabled = true
+
+        // Use v2rayNG's own TestService for the exact entitlement-isolated GUIDs.
+        // This tests all routes without importing/recompiling them in BlueVPN.
+        MmkvManager.clearAllTestDelayResults(networkSweepGuids)
+        MessageUtil.sendMsg2TestService(
+            this,
+            TestServiceMessage(key = AppConfig.MSG_MEASURE_CONFIG_CANCEL),
+        )
+        MessageUtil.sendMsg2TestService(
+            this,
+            TestServiceMessage(
+                key = AppConfig.MSG_MEASURE_CONFIG_START,
+                serverGuids = networkSweepGuids,
+            ),
+        )
+        handler.removeCallbacks(networkSweepTicker)
+        handler.post(networkSweepTicker)
+
+        // Generation is captured by ticker/finish so a logout, cancel or new
+        // connection request cannot apply stale test results.
+        if (generation != networkSweepGeneration) return
+    }
+
+    private fun finishNetworkSweep(generation: Int, timedOut: Boolean) {
+        if (!networkSweepInProgress || generation != networkSweepGeneration) return
+        networkSweepInProgress = false
+        networkSweepPollInFlight = false
+        handler.removeCallbacks(networkSweepTicker)
+        MessageUtil.sendMsg2TestService(
+            this,
+            TestServiceMessage(key = AppConfig.MSG_MEASURE_CONFIG_CANCEL),
+        )
+
+        val original = networkSweepCandidates
+        val mode = networkSweepSelectionMode
+        val refreshed = original.mapNotNull { candidate ->
+            val profile = MmkvManager.decodeServerConfig(candidate.guid) ?: return@mapNotNull null
+            val delay = MmkvManager.decodeServerAffiliationInfo(candidate.guid)?.testDelayMillis ?: 0L
+            candidate.copy(profile = profile, delay = delay)
+        }
+        val healthy = refreshed.filter { it.delay > 0L }
+        val unknown = refreshed.filter { it.delay == 0L }
+        val failed = refreshed.filter { it.delay < 0L }
+        failed.forEach { BlueVpnPreferences.markSessionInactive(this, it.guid) }
+        healthy.forEach { BlueVpnPreferences.clearSessionInactive(this, it.guid) }
+
+        // Healthy real-ping routes are always ranked first. Unknown routes stay
+        // as reserve because REALITY/WS/gRPC can be valid even when a generic
+        // delay probe is inconclusive. Hard failures are excluded for this cycle.
+        val ready = (healthy + unknown).distinctBy { it.guid }
+        statusCaption.text = when {
+            healthy.isNotEmpty() -> "${healthy.size} مسیر سالم • ${failed.size} ناموفق • انتخاب سریع‌ترین مسیر"
+            timedOut && unknown.isNotEmpty() -> "تست کامل زمان‌بر شد؛ مسیرهای نامشخص با تأیید واقعی Xray بررسی می‌شوند"
+            else -> "هیچ مسیر سالمی در تست اولیه پیدا نشد؛ بررسی واقعی Xray ادامه دارد"
+        }
+        startSmartConnectionWithCandidates(
+            if (ready.isNotEmpty()) ready else refreshed,
+            mode,
+        )
     }
 
     private fun startSmartConnectionWithCandidates(
@@ -4300,6 +4465,14 @@ private fun dpHome(value: Int): Int =
 
     private fun cancelFailover() {
         // Connection ownership is released only after CoreVpnService reports
+        networkSweepGeneration += 1
+        networkSweepInProgress = false
+        networkSweepPollInFlight = false
+        handler.removeCallbacks(networkSweepTicker)
+        MessageUtil.sendMsg2TestService(
+            this,
+            TestServiceMessage(key = AppConfig.MSG_MEASURE_CONFIG_CANCEL),
+        )
         // NOT_RUNNING/STOP_SUCCESS. If no core is active, releasing immediately
         // is safe (for example VPN permission denial before the first start).
         if (mainViewModel.isRunning.value != true) {
@@ -4565,22 +4738,44 @@ private fun dpHome(value: Int): Int =
             durationValue.text = formatDuration(elapsedSeconds)
         }
 
-        val now = System.currentTimeMillis()
+        val now = SystemClock.elapsedRealtime()
         val (rx, tx) = readTunnelTrafficBytes()
 
-        if (lastTrafficAt > 0L && rx >= 0L && tx >= 0L) {
-            val seconds = max(0.001, (now - lastTrafficAt) / 1000.0)
+        if (lastTrafficSampleElapsed > 0L && rx >= 0L && tx >= 0L) {
+            val seconds = max(0.05, (now - lastTrafficSampleElapsed) / 1000.0)
             val down = max(0L, rx - lastRx)
             val up = max(0L, tx - lastTx)
             sessionDownloadBytes += down
             sessionUploadBytes += up
-            downloadSpeed.text = "${formatBytes((down / seconds).toLong())}/s"
-            uploadSpeed.text = "${formatBytes((up / seconds).toLong())}/s"
+            val rawDown = down / seconds
+            val rawUp = up / seconds
+
+            // EWMA + short zero-hold: packet traffic is bursty, so a 250–400 ms
+            // sample can legitimately contain zero bytes. Showing literal zero
+            // between bursts made the UI flash 0 → value → 0 every second.
+            val alpha = 0.38
+            if (rawDown > 0.0) {
+                smoothedDownloadBps = if (smoothedDownloadBps <= 0.0) rawDown else smoothedDownloadBps * (1.0 - alpha) + rawDown * alpha
+                lastNonZeroDownloadElapsed = now
+            } else if (now - lastNonZeroDownloadElapsed > 2_200L) {
+                smoothedDownloadBps *= 0.72
+                if (smoothedDownloadBps < 24.0) smoothedDownloadBps = 0.0
+            }
+            if (rawUp > 0.0) {
+                smoothedUploadBps = if (smoothedUploadBps <= 0.0) rawUp else smoothedUploadBps * (1.0 - alpha) + rawUp * alpha
+                lastNonZeroUploadElapsed = now
+            } else if (now - lastNonZeroUploadElapsed > 2_200L) {
+                smoothedUploadBps *= 0.72
+                if (smoothedUploadBps < 24.0) smoothedUploadBps = 0.0
+            }
+            downloadSpeed.text = "${formatBytes(smoothedDownloadBps.toLong())}/s"
+            uploadSpeed.text = "${formatBytes(smoothedUploadBps.toLong())}/s"
         }
 
         lastRx = rx
         lastTx = tx
-        lastTrafficAt = now
+        lastTrafficAt = System.currentTimeMillis()
+        lastTrafficSampleElapsed = now
 
         // Background live reporting owns periodic tunnel verification.
         // Do not duplicate heartbeats and real-ping tests from the Activity;
@@ -4592,6 +4787,11 @@ private fun dpHome(value: Int): Int =
         lastRx = rx
         lastTx = tx
         lastTrafficAt = System.currentTimeMillis()
+        lastTrafficSampleElapsed = SystemClock.elapsedRealtime()
+        smoothedDownloadBps = 0.0
+        smoothedUploadBps = 0.0
+        lastNonZeroDownloadElapsed = lastTrafficSampleElapsed
+        lastNonZeroUploadElapsed = lastTrafficSampleElapsed
         sessionDownloadBytes = 0L
         sessionUploadBytes = 0L
     }

@@ -61,7 +61,7 @@ object BlueVpnPerformance {
      * on low-RAM devices. Network heartbeats remain independently rate-limited.
      */
     fun statsIntervalMs(context: Context): Long =
-        if (isLowEnd(context)) 750L else 400L
+        if (isLowEnd(context)) 400L else 250L
 
     fun locationSyncIntervalMs(context: Context): Long =
         if (isLowEnd(context)) 120_000L else 60_000L

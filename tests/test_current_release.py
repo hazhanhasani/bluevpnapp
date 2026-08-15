@@ -1025,7 +1025,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
     def test_117_home_live_metrics_are_subsecond_local_not_network_polled(self):
         theme = text("android-source/BlueVpnTheme.kt")
         home = text("android-source/BlueVpnHomeActivity.kt")
-        self.assertIn("if (isLowEnd(context)) 750L else 400L", theme)
+        self.assertIn("if (isLowEnd(context)) 400L else 250L", theme)
         self.assertIn("readTunnelTrafficBytes()", home)
         self.assertIn("updateLiveStats()", home)
 
@@ -1171,6 +1171,31 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn('putString("url_$owner", account.subscriptionUrl.trim())', account)
         self.assertIn('if (savedUrl.isBlank() || savedUrl != currentUrl) return emptyList()', account)
         self.assertIn('currentPoolIdentity != savedPoolIdentity', account)
+
+    def test_137_auto_connection_sweeps_exact_entitlement_guids_with_v2rayng_test_service(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        self.assertIn("serverGuids = networkSweepGuids", home)
+        self.assertIn("AppConfig.MSG_MEASURE_CONFIG_START", home)
+        self.assertIn("تست واقعی $tested از ${guids.size} مسیر", home)
+
+    def test_138_running_core_does_not_bypass_end_to_end_verification(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        block = home[home.index("active && failoverActive ->"):home.index("active -> {", home.index("active && failoverActive ->"))]
+        self.assertIn("scheduleConnectionVerification()", block)
+        self.assertNotIn("completeFailover(null)", block)
+
+    def test_139_connecting_orb_animates_on_low_end_and_has_no_outer_arc(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        globe = home[home.index("private class ConnectingGlobeView"):home.index("private class HeaderGlyphView")]
+        self.assertIn("duration = if (lowEnd) 2_800L else 2_000L", globe)
+        self.assertNotIn("if (lowEnd || animator?.isRunning", globe)
+        self.assertNotIn("canvas.drawArc", globe)
+
+    def test_140_live_speed_uses_ewma_and_zero_hold(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        self.assertIn("smoothedDownloadBps", home)
+        self.assertIn("lastNonZeroDownloadElapsed", home)
+        self.assertIn("now - lastNonZeroDownloadElapsed > 2_200L", home)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

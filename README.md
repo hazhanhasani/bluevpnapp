@@ -1,3 +1,10 @@
+## v4.5.4 — Live AI sweep + verified connection
+
+- Tests every allowed Free/Premium route with the official v2rayNG TestService on the current network before AUTO ranking.
+- Never promotes Core RUNNING to BlueVPN CONNECTED until an HTTP proof traverses the selected Xray tunnel.
+- Connecting orb remains animated on low-end devices and removes the stray outer arc.
+- Download/upload telemetry samples locally at 250–400 ms and uses EWMA/zero-hold to avoid 0/value flicker.
+
 
 ## v4.5.3 — Free subscription import repair
 

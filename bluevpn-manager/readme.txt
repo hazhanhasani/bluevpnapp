@@ -1,10 +1,10 @@
 === BlueVPN Manager ===
-Version: 4.7.2
-Stable tag: 4.7.2
+Version: 4.7.3
+Stable tag: 4.7.3
 Requires PHP: 8.0
 
 
-== 4.7.2 ==
+== 4.7.3 ==
 * Cloudflare Endpoint Racing روی رنج‌ها و پورت‌های معتبر WARP اضافه شد.
 * آخرین Edge سالم برای هر نوع شبکه ذخیره می‌شود و Endpoint خراب cooldown می‌گیرد.
 * Turbo scan و WireGuard fallback به‌صورت پیش‌فرض فعال شدند.

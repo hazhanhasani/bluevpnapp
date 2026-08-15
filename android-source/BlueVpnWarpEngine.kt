@@ -122,8 +122,9 @@ object BlueVpnWarpEngine {
             for ((index, strategy) in strategies.withIndex()) {
                 ensureGeneration(myGeneration, strategy)
                 if (SystemClock.elapsedRealtime() >= totalDeadline) break
-                if (isBackedOff(prefs, shape.signature, strategy)) continue
 
+                // A strategy-level backoff must never suppress a valid per-network LKG.
+                // Probe the cached/direct route first; only suppress expensive scan fallback.
                 if (policy.warpEndpointRacingEnabled && strategy != Strategy.GOOL) {
                     val candidates = edgeCandidates(prefs, shape.signature, strategy, policy.warpEndpointRaceBreadth)
                     if (candidates.isNotEmpty()) {
@@ -141,6 +142,9 @@ object BlueVpnWarpEngine {
                     }
                     advanceEdgeCursor(prefs, shape.signature, strategy, policy.warpEndpointRaceBreadth)
                 }
+
+                // Backoff applies to the costly native scan, not to the fast LKG/direct probe above.
+                if (isBackedOff(prefs, shape.signature, strategy)) continue
 
                 ensureGeneration(myGeneration, strategy)
                 state = if (index == 0) State.SCANNING else State.SWITCHING_STRATEGY
@@ -486,7 +490,19 @@ object BlueVpnWarpEngine {
         prefs.edit().putString("lkg:$sig",strategy.name).putLong("lkg_at:$sig",System.currentTimeMillis()).putString("edge:$sig:${strategy.name}",c.authority).putLong("edge_at:$sig:${strategy.name}",System.currentTimeMillis()).putInt("$prefix:ok",min(MAX_HISTORY,ok)).putInt("$prefix:consecutive",0).putLong("$prefix:latency",win.latencyMs).putString("$prefix:country",win.country.orEmpty()).remove("edge_backoff:$sig:${strategy.name}:${c.authority}").remove("backoff:$sig:${strategy.name}").apply()
     }
     private fun backoffMs(code: ErrorCode, count: Int): Long = BlueVpnWarpPolicy.backoffMs(code.name, count)
-    private fun recordEdgeFailure(prefs: SharedPreferences, sig: String, strategy: Strategy, c: EdgeCandidate, code: ErrorCode) { val prefix="edge_stat:$sig:${strategy.name}:${c.authority}"; val fail=min(MAX_HISTORY,prefs.getInt("$prefix:fail",0)+1); val consecutive=prefs.getInt("$prefix:consecutive",0)+1; prefs.edit().putInt("$prefix:fail",fail).putInt("$prefix:consecutive",consecutive).putLong("edge_backoff:$sig:${strategy.name}:${c.authority}",System.currentTimeMillis()+backoffMs(code,consecutive)).apply() }
+    private fun recordEdgeFailure(prefs: SharedPreferences, sig: String, strategy: Strategy, c: EdgeCandidate, code: ErrorCode) {
+        val prefix="edge_stat:$sig:${strategy.name}:${c.authority}"
+        val fail=min(MAX_HISTORY,prefs.getInt("$prefix:fail",0)+1)
+        val consecutive=prefs.getInt("$prefix:consecutive",0)+1
+        val edit=prefs.edit().putInt("$prefix:fail",fail).putInt("$prefix:consecutive",consecutive)
+            .putLong("edge_backoff:$sig:${strategy.name}:${c.authority}",System.currentTimeMillis()+backoffMs(code,consecutive))
+        if (prefs.getString("edge:$sig:${strategy.name}", "") == c.authority) {
+            edit.remove("edge:$sig:${strategy.name}").remove("edge_at:$sig:${strategy.name}")
+            // Keep strategy history, but force the next connect to race rather than trust stale LKG.
+            if (cachedStrategy(prefs, sig) == strategy) edit.remove("lkg_at:$sig")
+        }
+        edit.apply()
+    }
     private fun advanceEdgeCursor(prefs: SharedPreferences, sig: String, strategy: Strategy, breadth: Int) { val key="edge_cursor:$sig:${strategy.name}"; prefs.edit().putInt(key,(prefs.getInt(key,0)+breadth.coerceIn(2,16))%8192).apply() }
     private fun isBackedOff(prefs: SharedPreferences, sig: String, s: Strategy): Boolean = prefs.getLong("backoff:$sig:${s.name}",0L)>System.currentTimeMillis()
     private fun recordFailure(prefs: SharedPreferences, sig: String, s: Strategy, code: ErrorCode) { val key="fail:$sig:${s.name}"; val count=prefs.getInt(key,0)+1; prefs.edit().putInt(key,count).putLong("backoff:$sig:${s.name}",System.currentTimeMillis()+backoffMs(code,count)).apply() }

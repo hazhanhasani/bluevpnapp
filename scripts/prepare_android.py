@@ -352,6 +352,14 @@ def patch_manifest() -> None:
         text,
         "android.permission.CHANGE_NETWORK_STATE",
     )
+    text = _ensure_manifest_permission(
+        text,
+        "android.permission.FOREGROUND_SERVICE",
+    )
+    text = _ensure_manifest_permission(
+        text,
+        "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
+    )
 
     text = text.replace(
         'android:name="androidx.core.content.FileProvider"',
@@ -374,6 +382,22 @@ def patch_manifest() -> None:
             install_activity_node + "    </application>",
             1,
         )
+
+    warp_keepalive_name = "com.v2ray.ang.bluevpn.BlueVpnWarpKeepAliveService"
+    if warp_keepalive_name not in text:
+        service_node = (
+            '\n        <service\n'
+            '            android:name="com.v2ray.ang.bluevpn.BlueVpnWarpKeepAliveService"\n'
+            '            android:enabled="true"\n'
+            '            android:exported="false"\n'
+            '            android:stopWithTask="false"\n'
+            '            android:foregroundServiceType="specialUse">\n'
+            '            <property\n'
+            '                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"\n'
+            '                android:value="Maintains the local WARP proxy required by an active BlueVPN tunnel" />\n'
+            '        </service>\n'
+        )
+        text = text.replace("</application>", service_node + "    </application>", 1)
 
     free_receiver_name = "com.v2ray.ang.bluevpn.BlueVpnFreeSessionReceiver"
     if free_receiver_name not in text:
@@ -525,6 +549,7 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnIrcfIntelligence.kt": ROOT / "android-source/BlueVpnIrcfIntelligence.kt",
         bluevpn_dir / "BlueVpnPoolOrchestrator.kt": ROOT / "android-source/BlueVpnPoolOrchestrator.kt",
         bluevpn_dir / "BlueVpnWarpEngine.kt": ROOT / "android-source/BlueVpnWarpEngine.kt",
+        bluevpn_dir / "BlueVpnWarpKeepAliveService.kt": ROOT / "android-source/BlueVpnWarpKeepAliveService.kt",
         bluevpn_dir / "BlueVpnWarpPolicy.kt": ROOT / "android-source/BlueVpnWarpPolicy.kt",
         java_dir / "BlueVpnServersActivity.kt": ROOT / "android-source/BlueVpnServersActivity.kt",
         java_dir / "BlueVpnSubscriptionsActivity.kt": ROOT / "android-source/BlueVpnSubscriptionsActivity.kt",

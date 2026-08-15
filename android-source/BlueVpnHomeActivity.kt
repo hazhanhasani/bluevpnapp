@@ -68,6 +68,7 @@ import com.v2ray.ang.bluevpn.BlueVpnPreferences
 import com.v2ray.ang.bluevpn.BlueVpnRouteIntelligence
 import com.v2ray.ang.bluevpn.BlueVpnRuntimeGate
 import com.v2ray.ang.bluevpn.BlueVpnWarpEngine
+import com.v2ray.ang.bluevpn.BlueVpnWarpKeepAliveService
 import com.v2ray.ang.bluevpn.BlueVpnEntitlement
 import com.v2ray.ang.bluevpn.BlueVpnPlanTier
 import com.v2ray.ang.bluevpn.BlueVpnSelectionMode
@@ -2996,6 +2997,7 @@ private fun dpHome(value: Int): Int =
         disconnectRetry.reset()
 
         CoreServiceManager.stopVService(this)
+        BlueVpnWarpKeepAliveService.stop(this)
         lifecycleScope.launch(Dispatchers.IO) { BlueVpnWarpEngine.stop() }
         BlueVpnPreferences.clearConnected(this)
         BlueVpnAccountManager.stopFreeSession(this, expired = false)
@@ -3552,6 +3554,9 @@ private fun dpHome(value: Int): Int =
                     return@withContext
                 }
 
+                // Aether must outlive this Activity. A dedicated foreground service keeps
+                // the application/child process alive while v2rayNG owns the VPN TUN.
+                BlueVpnWarpKeepAliveService.start(this@BlueVpnHomeActivity)
                 connectionEntitlementGuids = setOf(guid)
                 failoverQueue = listOf(guid)
                 failoverReserveQueue = emptyList()

@@ -79,7 +79,7 @@ def main() -> None:
     lock = core / "Cargo.lock"
     if not lock.is_file():
         raise SystemExit("Pinned Aether Cargo.lock is missing")
-    provenance = ROOT / "reports" / "AETHER-PROVENANCE-4.7.2.txt"
+    provenance = ROOT / "reports" / "AETHER-PROVENANCE-4.7.3.txt"
     provenance.parent.mkdir(parents=True, exist_ok=True)
     lines = [f"commit={resolved}", f"cargo_lock_sha256={sha256(lock)}", "submodules=", submodules or "(none)"]
 

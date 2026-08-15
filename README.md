@@ -1,6 +1,6 @@
-# BlueVPN 4.7.2
+# BlueVPN 4.7.3
 
-Version 4.7.2 fixes the WordPress convergence barrier so it matches the security-hardened public `/health` contract: CI now accepts a compatible/newer Manager when public health reports `status=ok`, while schema and updater diagnostics remain admin-only. It still fails on an older Manager, malformed version, or degraded public health. The 4.7.1 authoritative release-test manifest and 4.6.10 WARP hardening remain unchanged.
+Version 4.7.3 fixes two P0 Free/WARP lifecycle regressions: the Aether child process is kept foreground-owned independently of Home Activity so backgrounding BlueVPN does not tear the free tunnel down, and reconnect now tries a valid per-network LKG before strategy scan backoff while immediately invalidating a failed cached endpoint. UI/branding are unchanged.
 
 WordPress hardening in this release makes public health output minimal, moves operational details behind `manage_options`, adds device-scoped OTP throttling, and short-circuits duplicate BluePay webhook deliveries before order activation. The release gate still performs a real pinned v2rayNG Android compile and `assemblePlaystoreRelease` in GitHub Actions; Python-only success cannot publish an APK.
 

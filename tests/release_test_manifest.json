@@ -7,6 +7,7 @@
     "test_security_4610.py",
     "test_warp_adaptive_469.py",
     "test_warp_endpoint_racing_469.py",
-    "test_warp_exit_guard_469.py"
+    "test_warp_exit_guard_469.py",
+    "test_warp_background_reconnect_473.py"
   ]
 }

@@ -38,6 +38,7 @@ def main() -> None:
     workflow = read(".github/workflows/build-apk.yml")
     profile = read("android-source/BlueVpnProfileManager.kt")
     warp = read("android-source/BlueVpnWarpEngine.kt")
+    warp_keepalive = read("android-source/BlueVpnWarpKeepAliveService.kt")
     aether_build = read("scripts/build_aether_android.py")
     notice = read("NOTICE.md")
     readme = read("README.md")

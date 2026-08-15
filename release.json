@@ -1,12 +1,12 @@
 {
-  "version": "4.7.2",
-  "version_code": 40702,
+  "version": "4.7.3",
+  "version_code": 40703,
   "channel": "beta",
-  "build_id": "20260815-v4.7.2-stable",
+  "build_id": "20260815-v4.7.3-stable",
   "built_at": "2026-08-15T18:55:00Z",
-  "android_version": "4.7.2",
-  "android_version_code": 40702,
-  "description": "BlueVPN 4.7.2: fixes the WordPress auto-update convergence gate to honor the security-minimal public health contract. Compatible/newer Manager versions with public status=ok no longer fail because schema/updater diagnostics are intentionally admin-only.",
+  "android_version": "4.7.3",
+  "android_version_code": 40703,
+  "description": "BlueVPN 4.7.3: keeps Free WARP/Aether alive independently of Home Activity via a sticky foreground keep-alive service, allows valid per-network LKG direct probes before strategy scan backoff, and invalidates failed cached endpoints immediately for fast reconnect.",
   "features": [
     "wordpress-minimal-health-convergence-barrier",
     "warp-engine-home-explicit-import-build-fix",
@@ -266,5 +266,5 @@
     "turbo-warp-scan-default",
     "wireguard-fallback-default-enabled"
   ],
-  "version_source": "v4.7.2-stable"
+  "version_source": "v4.7.3-stable"
 }

@@ -433,9 +433,9 @@ jobs:
           python scripts/build_aether_android.py 2>&1 | tee "$GITHUB_WORKSPACE/aether-build.log"
           test -x upstream/V2rayNG/app/src/main/jniLibs/arm64-v8a/libbluevpn_aether.so
           test -x upstream/V2rayNG/app/src/main/jniLibs/armeabi-v7a/libbluevpn_aether.so
-          test -s reports/AETHER-PROVENANCE-4.6.6.txt
-          grep -q 'commit=a26159b82a70048b459e0128213c71767abecb8a' reports/AETHER-PROVENANCE-4.6.6.txt
-          grep -q 'required_help_flags=PASS' reports/AETHER-PROVENANCE-4.6.6.txt
+          test -s reports/AETHER-PROVENANCE-4.6.7.txt
+          grep -q 'commit=a26159b82a70048b459e0128213c71767abecb8a' reports/AETHER-PROVENANCE-4.6.7.txt
+          grep -q 'required_help_flags=PASS' reports/AETHER-PROVENANCE-4.6.7.txt
 
       - name: Apply BlueVPN login and registration redesign
         shell: bash
@@ -457,9 +457,9 @@ jobs:
           echo "BUILD_STAGE=release-regression-gate" >> "$GITHUB_ENV"
           echo "release-regression-gate" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           {
-            python -m py_compile scripts/prepare_android.py scripts/build_aether_android.py scripts/validate_release.py tests/test_current_release.py tests/test_warp_adaptive_466.py
+            python -m py_compile scripts/prepare_android.py scripts/build_aether_android.py scripts/validate_release.py tests/test_current_release.py tests/test_warp_adaptive_467.py
             python scripts/validate_release.py
-            python -m unittest tests.test_current_release tests.test_warp_adaptive_466 -v
+            python -m unittest tests.test_current_release tests.test_warp_adaptive_467 -v
             while IFS= read -r -d '' file; do
               php -l "$file" >/dev/null
             done < <(find bluevpn-manager -type f -name '*.php' -print0)

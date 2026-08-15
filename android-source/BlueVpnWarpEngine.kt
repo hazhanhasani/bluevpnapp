@@ -60,7 +60,7 @@ object BlueVpnWarpEngine {
         if (guid.isBlank()) return false
         val resolved = profile ?: MmkvManager.decodeServerConfig(guid) ?: return false
         return resolved.subscriptionId == BRIDGE_SUBSCRIPTION_ID && resolved.configType == EConfigType.SOCKS &&
-            resolved.server == SOCKS_HOST && resolved.serverPort.toIntOrNull() in PORT_MIN..PORT_MAX
+            resolved.server == SOCKS_HOST && resolved.serverPort?.toIntOrNull()?.let { it in PORT_MIN..PORT_MAX } == true
     }
 
     suspend fun prepare(context: Context): Result<String> = runCatching { prepareAdaptive(context).guid }

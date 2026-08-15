@@ -1,12 +1,12 @@
 {
-  "version": "4.6.6",
-  "version_code": 40606,
+  "version": "4.6.7",
+  "version_code": 40607,
   "channel": "beta",
-  "build_id": "20260815-v4.6.6-warp-adaptive-quality",
+  "build_id": "20260815-v4.6.7-warp-nullability-hotfix",
   "built_at": "2026-08-15T16:45:00Z",
-  "android_version": "4.6.6",
-  "android_version_code": 40606,
-  "description": "BlueVPN 4.6.6: adaptive Aether/WARP strategy engine with non-interactive quick reconnect, staged validation, network-scoped route memory/backoff, post-bridge fallback, dynamic loopback port hardening, and schema-2 WordPress policy while Premium remains stock v2rayNG/Xray.",
+  "android_version": "4.6.7",
+  "android_version_code": 40607,
+  "description": "BlueVPN 4.6.7: Kotlin null-safety hotfix for WARP bridge profile detection; preserves the 4.6.6 adaptive Aether/WARP strategy engine and Premium v2rayNG/Xray runtime.",
   "features": [
     "warp-engine-home-explicit-import-build-fix",
     "aether-warp-free-primary-engine",
@@ -257,5 +257,5 @@
     "locations-nonblocking-during-mmkv-import",
     "metadata-only-manual-account-refresh"
   ],
-  "version_source": "v4.6.6-warp-adaptive-quality"
+  "version_source": "v4.6.7-warp-nullability-hotfix"
 }

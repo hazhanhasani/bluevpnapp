@@ -64,6 +64,11 @@ data class BlueVpnFreeAccessSnapshot(
     val subscriptionUrl: String,
     val subscriptions: List<BlueVpnFreeSubscription>,
     val sessionMinutes: Int,
+    val warpEnabled: Boolean,
+    val warpMode: String,
+    val warpFallbackEnabled: Boolean,
+    val warpStartTimeoutSeconds: Int,
+    val guestAllowed: Boolean,
 )
 
 object BlueVpnPersianDate {
@@ -283,11 +288,25 @@ object BlueVpnAccountManager {
             )
         }
 
+        val warp = free.optJSONObject("warp") ?: JSONObject()
+        val warpMode = warp.optString("mode", free.optString("engine_mode", "warp_fallback_pool"))
+            .trim().lowercase()
+            .takeIf { it in setOf("warp_only", "warp_fallback_pool", "pool_only") }
+            ?: "warp_fallback_pool"
+        val warpEnabled = warp.optBoolean("enabled", warpMode != "pool_only")
+        val warpFallbackEnabled = warp.optBoolean("fallback_pool_enabled", warpMode == "warp_fallback_pool")
+        val warpStartTimeoutSeconds = warp.optInt("start_timeout_seconds", 7).coerceIn(3, 20)
+        val guestAllowed = free.optBoolean("guest_allowed", true)
         val oldMinutes = storage.getInt("session_minutes", 60).coerceIn(15, 180)
         val newMinutes = free.optInt("session_minutes", 60).coerceIn(15, 180)
         val now = System.currentTimeMillis()
         storage.edit()
-            .putBoolean("enabled", free.optBoolean("enabled", false))
+            .putBoolean("enabled", free.optBoolean("enabled", warpEnabled))
+            .putBoolean("warp_enabled", warpEnabled)
+            .putString("warp_mode", warpMode)
+            .putBoolean("warp_fallback_enabled", warpFallbackEnabled)
+            .putInt("warp_start_timeout_seconds", warpStartTimeoutSeconds)
+            .putBoolean("guest_allowed", guestAllowed)
             .putString("subscription_url", legacyUrl)
             .putString("subscriptions_json", storedSources.toString())
             .putInt("session_minutes", newMinutes)
@@ -473,11 +492,27 @@ object BlueVpnAccountManager {
             )
         }
         val ordered = parsed.distinctBy { it.id }.sortedBy { it.priority }
+        // 4.6.5 migration rule: WARP is the primary Free engine. Devices
+        // upgrading from 4.6.4 do not have warp_enabled yet, so default it to
+        // true until the authoritative mobile/config response is persisted.
+        val warpMode = storage.getString("warp_mode", "warp_fallback_pool").orEmpty()
+            .takeIf { it in setOf("warp_only", "warp_fallback_pool", "pool_only") }
+            ?: "warp_fallback_pool"
+        val warpEnabled = if (storage.contains("warp_enabled")) {
+            storage.getBoolean("warp_enabled", true)
+        } else {
+            warpMode != "pool_only"
+        }
         val snapshot = BlueVpnFreeAccessSnapshot(
-            enabled = storage.getBoolean("enabled", false),
+            enabled = storage.getBoolean("enabled", warpEnabled) || warpEnabled,
             subscriptionUrl = ordered.firstOrNull()?.url.orEmpty(),
             subscriptions = ordered,
             sessionMinutes = storage.getInt("session_minutes", 60).coerceIn(15, 180),
+            warpEnabled = warpEnabled,
+            warpMode = warpMode,
+            warpFallbackEnabled = storage.getBoolean("warp_fallback_enabled", warpMode == "warp_fallback_pool"),
+            warpStartTimeoutSeconds = storage.getInt("warp_start_timeout_seconds", 7).coerceIn(3, 20),
+            guestAllowed = storage.getBoolean("guest_allowed", true),
         )
         freeSnapshotCache = snapshot
         freeSnapshotCacheAt = now
@@ -486,7 +521,19 @@ object BlueVpnAccountManager {
 
     fun freeAccessEnabled(c: Context): Boolean {
         val snapshot = freeAccessSnapshot(c)
-        return snapshot.enabled && snapshot.subscriptions.isNotEmpty()
+        val warpReadyByPolicy = snapshot.warpEnabled && snapshot.warpMode != "pool_only"
+        val legacyPoolReadyByPolicy = snapshot.subscriptions.isNotEmpty() && snapshot.warpMode != "warp_only"
+        return snapshot.enabled && (warpReadyByPolicy || legacyPoolReadyByPolicy)
+    }
+
+    fun warpFreeEnabled(c: Context): Boolean {
+        val snapshot = freeAccessSnapshot(c)
+        return snapshot.enabled && snapshot.warpEnabled && snapshot.warpMode != "pool_only"
+    }
+
+    fun warpFallbackEnabled(c: Context): Boolean {
+        val snapshot = freeAccessSnapshot(c)
+        return snapshot.enabled && snapshot.warpFallbackEnabled && snapshot.warpMode == "warp_fallback_pool"
     }
 
     fun isFreeMode(c: Context): Boolean =

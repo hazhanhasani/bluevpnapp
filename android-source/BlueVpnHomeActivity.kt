@@ -3020,7 +3020,8 @@ private fun dpHome(value: Int): Int =
         // public Free subscriptions in the background when Aether is packaged
         // and executable; the legacy pool is fetched only after a bounded WARP
         // startup failure and remains a compatibility fallback.
-        if (BlueVpnWarpEngine.supported(this) && SystemClock.elapsedRealtime() >= warpFallbackUntilElapsed) return
+        if (BlueVpnAccountManager.warpFreeEnabled(this) && BlueVpnWarpEngine.supported(this) &&
+            SystemClock.elapsedRealtime() >= warpFallbackUntilElapsed) return
         // Logged-in users without an active Premium entitlement are Free users too.
         if (BlueVpnAccountManager.premiumEntitlementActive(this) || freePreparationInProgress) return
         val now = SystemClock.elapsedRealtime()
@@ -3148,7 +3149,8 @@ private fun dpHome(value: Int): Int =
         // v2rayNG subscription path. If the native Aether binary cannot start,
         // fall back to the existing isolated Free subscription pool for this
         // connect attempt rather than leaving the user stuck.
-        if (entitlement.isFree && SystemClock.elapsedRealtime() >= warpFallbackUntilElapsed) {
+        if (entitlement.isFree && BlueVpnAccountManager.warpFreeEnabled(this) &&
+            SystemClock.elapsedRealtime() >= warpFallbackUntilElapsed) {
             if (beginWarpFreeConnection()) return
         } else if (entitlement.isPremium && BlueVpnWarpEngine.isRunning()) {
             lifecycleScope.launch(Dispatchers.IO) { BlueVpnWarpEngine.stop() }
@@ -3502,7 +3504,12 @@ private fun dpHome(value: Int): Int =
         if (warpPreparationInProgress) return true
         if (!BlueVpnWarpEngine.supported(this)) {
             warpFallbackUntilElapsed = SystemClock.elapsedRealtime() + 30_000L
-            return false
+            val canFallback = BlueVpnAccountManager.warpFallbackEnabled(this)
+            if (!canFallback) {
+                statusText.text = "WARP روی این دستگاه آماده نیست"
+                statusCaption.text = "نسخه سازگار موتور رایگان برای معماری دستگاه پیدا نشد"
+            }
+            return !canFallback
         }
 
         warpPreparationInProgress = true
@@ -3528,13 +3535,19 @@ private fun dpHome(value: Int): Int =
 
                 val guid = result.getOrNull().orEmpty()
                 if (guid.isBlank()) {
-                    // Bounded fallback: preserve the legacy isolated Free pool
-                    // for networks/devices where the native WARP engine cannot
-                    // start yet. Do not retry Aether in a tight UI loop.
+                    // Bounded fallback is policy-controlled by WordPress. WARP-only
+                    // mode must never silently fall back to public subscription
+                    // profiles, while fallback mode may preserve the legacy pool.
                     warpFallbackUntilElapsed = SystemClock.elapsedRealtime() + 30_000L
-                    statusCaption.text = "WARP آماده نشد • استفاده از Pool رایگان پشتیبان"
                     connectButton.isEnabled = true
-                    handler.post { beginSmartConnection() }
+                    if (BlueVpnAccountManager.warpFallbackEnabled(this@BlueVpnHomeActivity)) {
+                        statusCaption.text = "WARP آماده نشد • استفاده از Pool رایگان پشتیبان"
+                        handler.post { beginSmartConnection() }
+                    } else {
+                        hideConnectingOverlay()
+                        statusText.text = "WARP در دسترس نیست"
+                        statusCaption.text = "روی این شبکه مسیر WARP آماده نشد؛ دوباره تلاش کنید"
+                    }
                     return@withContext
                 }
 

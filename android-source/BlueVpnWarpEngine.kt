@@ -30,7 +30,6 @@ object BlueVpnWarpEngine {
     private const val SOCKS_HOST = "127.0.0.1"
     private const val SOCKS_PORT = 1819
     private const val NATIVE_NAME = "libbluevpn_aether.so"
-    private const val START_TIMEOUT_MS = 6_500L
 
     private val lock = Any()
     @Volatile
@@ -62,7 +61,9 @@ object BlueVpnWarpEngine {
             val app = context.applicationContext
             require(supported(app)) { "Aether runtime is not packaged for this device ABI" }
             ensureProcess(app)
-            require(awaitSocksReady()) { "Aether SOCKS endpoint did not become ready" }
+            val timeoutMs = BlueVpnAccountManager.freeAccessSnapshot(app)
+                .warpStartTimeoutSeconds.coerceIn(3, 20) * 1_000L
+            require(awaitSocksReady(timeoutMs)) { "Aether SOCKS endpoint did not become ready" }
             ensureBridgeProfile()
         }
     }
@@ -118,8 +119,8 @@ object BlueVpnWarpEngine {
         }
     }
 
-    private fun awaitSocksReady(): Boolean {
-        val deadline = SystemClock.elapsedRealtime() + START_TIMEOUT_MS
+    private fun awaitSocksReady(timeoutMs: Long): Boolean {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs.coerceIn(3_000L, 20_000L)
         while (SystemClock.elapsedRealtime() < deadline) {
             val current = synchronized(lock) { process }
             if (current == null || !current.isAlive) return false

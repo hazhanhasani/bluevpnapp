@@ -222,6 +222,13 @@ final class BlueVPN_API {
             'tapsell'=>$tapsell,
             'free_story_ads'=>$freeStoryAds,
             'free_access'=>BlueVPN_Ads::free_access_payload($s),
+            'free_engine'=>[
+                'primary'=>'aether_warp',
+                'premium_engine'=>'xray_v2rayng',
+                'isolated'=>true,
+                'guest_supported'=>true,
+                'schema'=>1,
+            ],
             'updated_at'=>$s['updated_at'],
             'updated_at_fa'=>BlueVPN_Utils::tehran_datetime_fa(),
         ]);

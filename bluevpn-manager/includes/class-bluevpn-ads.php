@@ -441,14 +441,19 @@ final class BlueVPN_Ads {
 
     public static function free_access_payload(array $settings): array {
         $items = self::free_sources($settings, true);
-        $enabled = !empty($settings['free_access_enabled']) && !empty($items);
+        $mode = sanitize_key((string)($settings['free_warp_mode'] ?? 'warp_fallback_pool'));
+        if (!in_array($mode, ['warp_only', 'warp_fallback_pool', 'pool_only'], true)) $mode = 'warp_fallback_pool';
+        $warpEnabled = $mode !== 'pool_only' && (!array_key_exists('free_warp_enabled', $settings) || !empty($settings['free_warp_enabled']));
+        $legacyPoolEnabled = $mode !== 'warp_only' && !empty($settings['free_access_enabled']) && !empty($items);
+        $fallbackEnabled = $mode === 'warp_fallback_pool' && $legacyPoolEnabled && (!array_key_exists('free_warp_fallback_enabled', $settings) || !empty($settings['free_warp_fallback_enabled']));
+        $enabled = $warpEnabled || $legacyPoolEnabled;
         $base = untrailingslashit(home_url('/'));
         $public = [];
         foreach ($items as $item) {
             $public[] = [
                 'id' => $item['id'],
                 'name' => $item['name'],
-                'subscription_url' => $enabled ? $base . '/api/v1/free/subscriptions/' . rawurlencode($item['id']) : '',
+                'subscription_url' => $legacyPoolEnabled ? $base . '/api/v1/free/subscriptions/' . rawurlencode($item['id']) : '',
                 'priority' => $item['priority'],
             ];
         }
@@ -456,12 +461,23 @@ final class BlueVPN_Ads {
             'enabled' => $enabled,
             'session_minutes' => max(15, min(180, (int)($settings['free_session_minutes'] ?? 60))),
             'auto_only' => true,
-            'guest_allowed' => true,
+            'guest_allowed' => !array_key_exists('free_warp_guest_allowed', $settings) || !empty($settings['free_warp_guest_allowed']),
             'account_required_for_free' => false,
             'manual_selection_requires_subscription' => true,
+            'engine_mode' => $mode,
+            'warp' => [
+                'enabled' => $warpEnabled,
+                'mode' => $mode,
+                'fallback_pool_enabled' => $fallbackEnabled,
+                'start_timeout_seconds' => max(3, min(20, (int)($settings['free_warp_start_timeout_seconds'] ?? 7))),
+                'provider' => 'Cloudflare WARP',
+                'runtime' => 'Aether',
+                'guest_allowed' => !array_key_exists('free_warp_guest_allowed', $settings) || !empty($settings['free_warp_guest_allowed']),
+            ],
+            'legacy_pool_enabled' => $legacyPoolEnabled,
             'subscription_url' => $public[0]['subscription_url'] ?? '',
             'subscriptions' => $public,
-            'label' => 'اتصال رایگان',
+            'label' => $warpEnabled ? 'اتصال رایگان WARP' : 'اتصال رایگان',
         ];
     }
 
@@ -873,6 +889,12 @@ final class BlueVPN_Ads {
         self::guard('bluevpn_free_save');
         $s = BlueVPN_DB::settings();
         $s['free_access_enabled'] = isset($_POST['free_access_enabled']);
+        $s['free_warp_enabled'] = isset($_POST['free_warp_enabled']);
+        $mode = sanitize_key((string)($_POST['free_warp_mode'] ?? 'warp_fallback_pool'));
+        $s['free_warp_mode'] = in_array($mode, ['warp_only','warp_fallback_pool','pool_only'], true) ? $mode : 'warp_fallback_pool';
+        $s['free_warp_fallback_enabled'] = isset($_POST['free_warp_fallback_enabled']);
+        $s['free_warp_guest_allowed'] = isset($_POST['free_warp_guest_allowed']);
+        $s['free_warp_start_timeout_seconds'] = max(3, min(20, (int)($_POST['free_warp_start_timeout_seconds'] ?? 7)));
         $s['free_session_minutes'] = max(15, min(180, (int)($_POST['free_session_minutes'] ?? 60)));
         BlueVPN_DB::save_settings($s);
         self::redirect('free', 'تنظیمات اتصال رایگان ذخیره شد.');
@@ -995,7 +1017,18 @@ final class BlueVPN_Ads {
 
     public static function render_free_admin(): void {
         $s = BlueVPN_DB::settings(); self::notice();
-        echo '<div class="bvc-card"><h2>اتصال رایگان</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_free_save'); echo '<input type="hidden" name="action" value="bluevpn_free_save"><div class="bvc-form-grid">'; self::checkbox('free_access_enabled', 'فعال', !empty($s['free_access_enabled'])); self::number('free_session_minutes', 'مدت هر Session (دقیقه)', (int)($s['free_session_minutes'] ?? 60), 15, 180); echo '</div>'; submit_button('ذخیره', 'primary', 'submit', false); echo '</form></div>';
+        echo '<div class="bvc-card"><h2>اتصال رایگان</h2><p>موتور اصلی Free می‌تواند Cloudflare WARP/Aether باشد و ساب‌های عمومی فقط نقش پشتیبان داشته باشند.</p><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_free_save'); echo '<input type="hidden" name="action" value="bluevpn_free_save"><div class="bvc-form-grid">';
+        self::checkbox('free_warp_enabled', 'WARP / Aether فعال', !array_key_exists('free_warp_enabled',$s)||!empty($s['free_warp_enabled']));
+        echo '<label>حالت موتور رایگان<select name="free_warp_mode">';
+        $mode=(string)($s['free_warp_mode']??'warp_fallback_pool');
+        foreach (['warp_fallback_pool'=>'WARP اصلی + Pool پشتیبان','warp_only'=>'فقط WARP','pool_only'=>'فقط Pool قدیمی'] as $v=>$l) echo '<option value="'.esc_attr($v).'" '.selected($mode,$v,false).'>'.esc_html($l).'</option>';
+        echo '</select></label>';
+        self::checkbox('free_warp_fallback_enabled', 'Fallback به Pool رایگان', !array_key_exists('free_warp_fallback_enabled',$s)||!empty($s['free_warp_fallback_enabled']));
+        self::checkbox('free_warp_guest_allowed', 'اتصال مهمان بدون ورود', !array_key_exists('free_warp_guest_allowed',$s)||!empty($s['free_warp_guest_allowed']));
+        self::number('free_warp_start_timeout_seconds', 'مهلت شروع WARP (ثانیه)', (int)($s['free_warp_start_timeout_seconds'] ?? 7), 3, 20);
+        self::checkbox('free_access_enabled', 'Pool رایگان قدیمی فعال', !empty($s['free_access_enabled']));
+        self::number('free_session_minutes', 'مدت هر Session (دقیقه)', (int)($s['free_session_minutes'] ?? 60), 15, 180);
+        echo '</div>'; submit_button('ذخیره موتور رایگان', 'primary', 'submit', false); echo '</form></div>';
         echo '<div class="bvc-card"><h2>افزودن ساب رایگان</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_free_add'); echo '<input type="hidden" name="action" value="bluevpn_free_add"><div class="bvc-form-grid">'; self::text('name', 'نام', 'سرور رایگان'); self::text('url', 'URL ساب', ''); self::number('priority', 'اولویت', 0, 0, 9999); echo '<label><input type="checkbox" name="active" value="1" checked> فعال</label></div>'; submit_button('افزودن', 'primary', 'submit', false); echo '</form></div>';
         echo '<div class="bvc-card"><h2>منابع</h2><table class="widefat striped bvc-table"><tr><th>نام</th><th>URL مبدا</th><th>Endpoint اپ</th><th>وضعیت</th><th>عملیات</th></tr>';
         foreach (self::free_sources($s) as $item) { $public = home_url('/api/v1/free/subscriptions/' . rawurlencode($item['id'])); echo '<tr><td>' . esc_html($item['name']) . '</td><td><code>' . esc_html($item['url']) . '</code></td><td><code>' . esc_html($public) . '</code></td><td>' . ($item['active'] ? 'فعال' : 'خاموش') . '</td><td>'; self::mini_form('bluevpn_free_toggle', 'bluevpn_free_toggle', $item['id'], $item['active'] ? 'خاموش' : 'روشن'); self::mini_form('bluevpn_free_delete', 'bluevpn_free_delete', $item['id'], 'حذف', true); echo '</td></tr>'; }

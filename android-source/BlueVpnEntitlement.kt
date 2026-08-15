@@ -62,7 +62,11 @@ object BlueVpnEntitlement {
         // On first launch mobile config may not be cached yet, so present FREE
         // immediately and let the existing preparation pipeline fetch the pool.
         // Once the server has explicitly disabled Free access, honor that state.
-        val freePlanEligible = !premiumEntitled && (!freeConfigKnown || free.enabled)
+        val warpEligible = free.warpEnabled && free.warpMode != "pool_only"
+        val legacyFreeEligible = free.subscriptions.isNotEmpty() && free.warpMode != "warp_only"
+        val guestPolicyAllows = account.email.isNotBlank() || free.guestAllowed
+        val freePlanEligible = !premiumEntitled && guestPolicyAllows &&
+            (!freeConfigKnown || (free.enabled && (warpEligible || legacyFreeEligible)))
         val tier = when {
             premiumReady -> BlueVpnPlanTier.PREMIUM
             freePlanEligible -> BlueVpnPlanTier.FREE
@@ -70,9 +74,14 @@ object BlueVpnEntitlement {
         }
         val identity = when (tier) {
             BlueVpnPlanTier.PREMIUM -> "premium|${account.poolIdentity.ifBlank { account.subscriptionUrl.trim() }}"
-            BlueVpnPlanTier.FREE -> "free|" + free.subscriptions
-                .sortedWith(compareBy<BlueVpnFreeSubscription> { it.priority }.thenBy { it.id })
-                .joinToString("|") { "${it.id}:${it.url.trim()}" }
+            BlueVpnPlanTier.FREE -> buildString {
+                append("free|")
+                append("warp=").append(free.warpEnabled).append(':').append(free.warpMode)
+                append("|fallback=").append(free.warpFallbackEnabled)
+                free.subscriptions
+                    .sortedWith(compareBy<BlueVpnFreeSubscription> { it.priority }.thenBy { it.id })
+                    .forEach { append('|').append(it.id).append(':').append(it.url.trim()) }
+            }
             BlueVpnPlanTier.UNAVAILABLE -> "unavailable"
         }
         return Base(tier, identity, account, free)
@@ -104,8 +113,12 @@ object BlueVpnEntitlement {
                 } else {
                     "پلن رایگان • ${account.email}"
                 },
-                poolLabel = "Cloudflare WARP",
-                connectionNotice = "هر اتصال رایگان تا ${free.sessionMinutes} دقیقه فعال است؛ مسیر اصلی Cloudflare WARP است و Pool رایگان فقط پشتیبان باقی می‌ماند.",
+                poolLabel = if (free.warpEnabled && free.warpMode != "pool_only") "Cloudflare WARP" else "Pool رایگان",
+                connectionNotice = when {
+                    free.warpEnabled && free.warpMode == "warp_only" -> "هر اتصال رایگان تا ${free.sessionMinutes} دقیقه فعال است و مستقیماً از Cloudflare WARP برقرار می‌شود."
+                    free.warpEnabled && free.warpFallbackEnabled -> "هر اتصال رایگان تا ${free.sessionMinutes} دقیقه فعال است؛ مسیر اصلی Cloudflare WARP است و Pool رایگان فقط پشتیبان است."
+                    else -> "هر اتصال رایگان تا ${free.sessionMinutes} دقیقه فعال است و فقط از Pool رایگان برقرار می‌شود."
+                },
                 sessionMinutes = free.sessionMinutes,
                 // A FREE entitlement may be visible before the first pool fetch.
                 // Connect then enters prepareFreeAccess() instead of incorrectly

@@ -1,12 +1,12 @@
 {
-  "version": "4.6.4",
-  "version_code": 40604,
+  "version": "4.6.5",
+  "version_code": 40605,
   "channel": "beta",
-  "build_id": "20260815-v4.6.4-warp-engine-import-build-hotfix",
+  "build_id": "20260815-v4.6.5-warp-free-entitlement-control-plane",
   "built_at": "2026-08-15T16:25:00Z",
-  "android_version": "4.6.4",
-  "android_version_code": 40604,
-  "description": "BlueVPN 4.6.4: fixes the Aether/WARP Free engine Android compile boundary by importing BlueVpnWarpEngine explicitly into BlueVpnHomeActivity; the 4.6.3 WARP integration and Premium Xray runtime remain unchanged.",
+  "android_version": "4.6.5",
+  "android_version_code": 40605,
+  "description": "BlueVPN 4.6.5: fixes the Free WARP entitlement/control-plane boundary so guest and non-Premium users can connect through Aether/WARP even when no legacy Free subscription pool exists; WordPress and DB settings gain explicit WARP/Pool engine policy controls while Premium Xray isolation remains unchanged.",
   "features": [
     "warp-engine-home-explicit-import-build-fix",
     "aether-warp-free-primary-engine",
@@ -257,5 +257,5 @@
     "locations-nonblocking-during-mmkv-import",
     "metadata-only-manual-account-refresh"
   ],
-  "version_source": "v4.6.4-warp-engine-import-build-hotfix"
+  "version_source": "v4.6.5-warp-free-entitlement-control-plane"
 }

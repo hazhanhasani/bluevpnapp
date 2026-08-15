@@ -583,6 +583,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     "در حال خواندن Pool رایگان…"
                 entitlement.isPremium ->
                     "سرورهای اشتراک هنوز دریافت نشده‌اند؛ تازه‌سازی را بزنید"
+                entitlement.isFree && BlueVpnAccountManager.warpFreeEnabled(this) -> "WARP رایگان فعال است • انتخاب سرور توسط Cloudflare/Aether انجام می‌شود"
                 entitlement.isFree -> "سرور رایگان فعالی برای نمایش پیدا نشد"
                 else -> "دسترسی فعالی برای دریافت سرور وجود ندارد"
             }

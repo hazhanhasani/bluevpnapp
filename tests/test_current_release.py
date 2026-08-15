@@ -84,6 +84,19 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertNotIn("BlueVpnEngineManager", self.home + self.account)
         self.assertNotIn("BlueVpnSingBox", self.home + self.account)
 
+
+    def test_05d_warp_free_entitlement_is_independent_of_legacy_pool(self):
+        entitlement = text("android-source/BlueVpnEntitlement.kt")
+        ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
+        db = text("bluevpn-manager/includes/class-bluevpn-db.php")
+        api = text("bluevpn-manager/includes/class-bluevpn-api.php")
+        self.assertIn('val warpEligible = free.warpEnabled', entitlement)
+        self.assertIn('warpReadyByPolicy = snapshot.warpEnabled', self.account)
+        self.assertIn("'free_warp_enabled' => true", db)
+        self.assertIn("'warp_fallback_pool'", ads)
+        self.assertIn("'primary'=>'aether_warp'", api)
+        self.assertIn('warpFreeEnabled(this)', self.home)
+
     def test_06_no_singbox_ci(self):
         self.assertNotIn("sing-box", self.workflow.lower())
         self.assertNotIn("actions/setup-go", self.workflow)
@@ -643,7 +656,8 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("BlueVpnAccountManager.premiumEntitlementActive(this)", helper)
         self.assertNotIn("BlueVpnAccountManager.hasSession(this) || freePreparationInProgress", helper)
         self.assertIn("fun freeAccessConfigured", account)
-        self.assertIn("val freePlanEligible = !premiumEntitled && (!freeConfigKnown || free.enabled)", entitlement)
+        self.assertIn("val warpEligible = free.warpEnabled", entitlement)
+        self.assertIn("val legacyFreeEligible = free.subscriptions.isNotEmpty()", entitlement)
         self.assertIn('"پلن رایگان • ${account.email}"', entitlement)
 
     def test_72_free_entitlement_is_not_conflated_with_pool_readiness(self):

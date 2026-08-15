@@ -1,8 +1,12 @@
 === BlueVPN Manager ===
-Version: 4.6.4
-Stable tag: 4.6.4
+Version: 4.6.5
+Stable tag: 4.6.5
 Requires PHP: 8.0
 
+
+== 4.6.5 ==
+* Free WARP entitlement is independent from legacy free-subscription availability.
+* Adds WARP/Pool engine policy controls to WordPress and schema 1.11.0.
 
 == 4.6.4 ==
 = Pool sync single-owner / nonblocking locations =

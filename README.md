@@ -388,7 +388,7 @@ The Android workflow now treats the WordPress Manager and schema versions as min
 - IranPayamak/FarazSMS pattern sync now walks all pages, deduplicates Pattern UID values, and stops safely if pagination is ignored.
 - Pattern GET requests remain body-free for PHP 8.4 compatibility.
 
-## Free engine (4.6.4)
+## Free engine (4.6.5)
 
-BlueVPN 4.6.4 introduces an isolated Free-tier WARP path: pinned Aether is built from source in CI, exposes a loopback SOCKS5 endpoint, and is bridged into the existing stock v2rayNG VPN service. Premium subscriptions continue to use the existing v2rayNG/Xray path unchanged. If Aether cannot become ready within the bounded startup window, the legacy isolated Free subscription pool is retained as a fallback. See `third_party/AETHER.md` for source and licensing information.
+BlueVPN 4.6.5 introduces an isolated Free-tier WARP path: pinned Aether is built from source in CI, exposes a loopback SOCKS5 endpoint, and is bridged into the existing stock v2rayNG VPN service. Premium subscriptions continue to use the existing v2rayNG/Xray path unchanged. If Aether cannot become ready within the bounded startup window, the legacy isolated Free subscription pool is retained as a fallback. See `third_party/AETHER.md` for source and licensing information.
 

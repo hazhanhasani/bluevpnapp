@@ -1,12 +1,12 @@
 {
-  "version": "4.5.2",
-  "version_code": 40502,
+  "version": "4.5.3",
+  "version_code": 40503,
   "channel": "beta",
-  "build_id": "20260815-v4.5.2-free-sub-import-repair",
+  "build_id": "20260815-v4.5.3-premium-sub-import-hardening",
   "built_at": "2026-08-15T08:10:00Z",
-  "android_version": "4.5.2",
-  "android_version_code": 40502,
-  "description": "BlueVPN 4.5.2: ترمیم مسیر Import ساب رایگان؛ ردیف خالی دیگر به‌خاطر TTL از Parser رسمی v2rayNG جا نمی‌ماند، Import خالی به‌صورت محدود Retry می‌شود و Pool فقط پس از وجود کانفیگ واقعی Ready اعلام می‌شود.",
+  "android_version": "4.5.3",
+  "android_version_code": 40503,
+  "description": "BlueVPN 4.5.3: ترمیم مسیر Premium Subscription؛ آمادگی Pool فقط با کانفیگ واقعی ساب فعلی سنجیده می‌شود، LKG دیگر Import خالی را پنهان نمی‌کند و پس از تغییر URL/Pool قدیمی به اشتراک جدید نشت نمی‌کند.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -219,5 +219,5 @@
     "stale-route-cache-entitlement-revalidation",
     "blueai-pool-orchestrator-v2"
   ],
-  "version_source": "v4.5.2-free-sub-import-repair"
+  "version_source": "v4.5.3-premium-sub-import-hardening"
 }

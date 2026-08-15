@@ -1160,5 +1160,17 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("MmkvManager.decodeServerList(subscriptionGuid).isNotEmpty()", install)
         self.assertIn("BlueVpnPoolOrchestrator.reconcile(c)", install)
 
+    def test_135_premium_readiness_ignores_lkg_cache(self):
+        account = text("android-source/BlueVpnAccountManager.kt")
+        self.assertIn("private fun currentPremiumServerGuids", account)
+        self.assertIn("val currentPoolReady = !premiumActive || currentPremiumServerGuids(c).isNotEmpty()", account)
+        self.assertIn("forceRefresh = currentPremiumServerGuids(appContext).isEmpty()", account)
+
+    def test_136_premium_lkg_is_bound_to_current_source(self):
+        account = text("android-source/BlueVpnAccountManager.kt")
+        self.assertIn('putString("url_$owner", account.subscriptionUrl.trim())', account)
+        self.assertIn('if (savedUrl.isBlank() || savedUrl != currentUrl) return emptyList()', account)
+        self.assertIn('currentPoolIdentity != savedPoolIdentity', account)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

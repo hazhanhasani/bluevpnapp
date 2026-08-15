@@ -763,6 +763,18 @@ object BlueVpnAccountManager {
             .toSet()
     }
 
+    /**
+     * Authoritative current Premium pool. Unlike preferredServerGuids(), this
+     * never falls back to a previously imported account pool. Readiness and
+     * refresh decisions must use this exact list so a Last-Known-Good cache
+     * cannot hide an empty/failed import for the current subscription URL.
+     */
+    private fun currentPremiumServerGuids(c: Context): List<String> =
+        usableServerGuids(managedSubscriptionGuids(c))
+
+    private fun currentPremiumPoolReady(c: Context): Boolean =
+        premiumEntitlementActive(c) && currentPremiumServerGuids(c).isNotEmpty()
+
     fun entitlementSubscriptionGuids(c: Context): Set<String> = when {
         premiumEntitlementActive(c) -> managedSubscriptionGuids(c)
         isFreeMode(c) -> enabledFreeSubscriptionGuids(c)
@@ -937,8 +949,12 @@ object BlueVpnAccountManager {
         if (safe.isEmpty()) return
         val storage = c.applicationContext.getSharedPreferences(PREMIUM_LKG_PREFS, Context.MODE_PRIVATE)
         if (storage.getStringSet("servers_$owner", emptySet()).orEmpty() == safe) return
+        val account = snapshot(c)
+        val poolIdentity = prefs(c).getString("pool_identity", "").orEmpty().trim()
         storage.edit()
             .putStringSet("servers_$owner", safe)
+            .putString("url_$owner", account.subscriptionUrl.trim())
+            .putString("pool_$owner", poolIdentity)
             .putLong("saved_at_$owner", System.currentTimeMillis())
             .apply()
     }
@@ -948,8 +964,20 @@ object BlueVpnAccountManager {
         val owner = premiumOwnerKey(c)
         if (owner.isBlank()) return emptyList()
         val free = allFreeServerGuids()
-        return c.applicationContext
-            .getSharedPreferences(PREMIUM_LKG_PREFS, Context.MODE_PRIVATE)
+        val storage = c.applicationContext.getSharedPreferences(PREMIUM_LKG_PREFS, Context.MODE_PRIVATE)
+        val account = snapshot(c)
+        val currentUrl = account.subscriptionUrl.trim()
+        val currentPoolIdentity = prefs(c).getString("pool_identity", "").orEmpty().trim()
+        val savedUrl = storage.getString("url_$owner", "").orEmpty().trim()
+        val savedPoolIdentity = storage.getString("pool_$owner", "").orEmpty().trim()
+        // Never carry a stale Premium pool across provider URL/account-pool
+        // rotation. LKG is only a transient continuity cache for the exact
+        // current entitlement source.
+        if (savedUrl.isBlank() || savedUrl != currentUrl) return emptyList()
+        if (currentPoolIdentity.isNotBlank() && savedPoolIdentity.isNotBlank() &&
+            currentPoolIdentity != savedPoolIdentity
+        ) return emptyList()
+        return storage
             .getStringSet("servers_$owner", emptySet())
             .orEmpty()
             .asSequence()
@@ -1075,7 +1103,7 @@ object BlueVpnAccountManager {
      * plane, therefore pool ownership is strict and deterministic.
      */
     fun preferredServerGuids(c: Context): List<String> {
-        val exact = usableServerGuids(entitlementSubscriptionGuids(c))
+        val exact = if (premiumEntitlementActive(c)) currentPremiumServerGuids(c) else usableServerGuids(entitlementSubscriptionGuids(c))
         if (!premiumEntitlementActive(c)) {
             registerFreePoolOwnership(c)
             // Free profiles are accepted only when their semantic owner is a
@@ -1184,7 +1212,7 @@ object BlueVpnAccountManager {
                     c = appContext,
                     premiumActive = true,
                     premiumUrl = current.subscriptionUrl,
-                    forceRefresh = preferredServerGuids(appContext).isEmpty(),
+                    forceRefresh = currentPremiumServerGuids(appContext).isEmpty(),
                 )
             } else {
                 sync(appContext, force = true).getOrThrow()
@@ -1192,7 +1220,7 @@ object BlueVpnAccountManager {
         } else {
             prepareFreeAccess(appContext, force = true).getOrThrow()
         }
-        val premiumPoolReady = !premiumEntitlementActive(appContext) || preferredServerGuids(appContext).isNotEmpty()
+        val premiumPoolReady = !premiumEntitlementActive(appContext) || currentPremiumPoolReady(appContext)
         if (premiumPoolReady) {
             pruneInactiveManagedPools(appContext)
         }
@@ -1201,7 +1229,11 @@ object BlueVpnAccountManager {
         val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs.coerceIn(2_000L, 30_000L)
         var lastCount = 0
         do {
-            val guids = preferredServerGuids(appContext)
+            val guids = if (premiumEntitlementActive(appContext)) {
+                currentPremiumServerGuids(appContext)
+            } else {
+                preferredServerGuids(appContext)
+            }
             lastCount = guids.size
             if (lastCount > 0) {
                 BlueVpnLocationUtil.invalidateCache()
@@ -1349,7 +1381,7 @@ object BlueVpnAccountManager {
                 subscriptionRefreshRunning = false
             }
         }
-        val currentPoolReady = !premiumActive || preferredServerGuids(c).isNotEmpty()
+        val currentPoolReady = !premiumActive || currentPremiumServerGuids(c).isNotEmpty()
         if (changed || mustRefresh) {
             if (currentPoolReady) {
                 // Transactional swap complete: only now delete stale Premium
@@ -1378,7 +1410,7 @@ object BlueVpnAccountManager {
                 c = appContext,
                 premiumActive = true,
                 premiumUrl = account.subscriptionUrl,
-                forceRefresh = preferredServerGuids(appContext).isEmpty(),
+                forceRefresh = currentPremiumServerGuids(appContext).isEmpty(),
             )
         } else {
             val metadataReady = reconcileSubscriptionMode(

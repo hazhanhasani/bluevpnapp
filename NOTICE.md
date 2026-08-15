@@ -1,5 +1,5 @@
 
-BlueVPN v4.5.2 repair: Free subscription import readiness now follows actual v2rayNG parsed profiles instead of recent metadata timestamps.
+BlueVPN v4.5.3 repair: Premium readiness now requires actual profiles from the exact current subscription URL; stale LKG cannot mask an empty import or survive a provider/pool rotation.
 
 ## 4.4.6 Beta release-channel boundary
 

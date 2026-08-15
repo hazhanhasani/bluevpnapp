@@ -1,5 +1,5 @@
 
-## v4.5.2 — Free subscription import repair
+## v4.5.3 — Free subscription import repair
 
 - Free subscription rows with zero imported profiles are always refreshed through stock v2rayNG `AngConfigManager.updateConfigViaSub`, even inside the normal refresh TTL.
 - Empty/new imports receive one bounded retry; BlueVPN never substitutes its own parser.

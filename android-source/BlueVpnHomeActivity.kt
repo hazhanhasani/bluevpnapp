@@ -4878,8 +4878,18 @@ private fun dpHome(value: Int): Int =
         val profile = selected?.profile ?: selectedProfile?.takeIf { selectedAllowed }
         val automaticSelection =
             BlueVpnPreferences.smartBalance(this)
+        val freeWarpFailed = entitlement.isFree && BlueVpnWarpEngine.state == BlueVpnWarpEngine.State.FAILED
 
-        if (profile == null || !BlueVpnLocationUtil.isUsable(profile)) {
+        if (freeWarpFailed) {
+            // Do not present a stale cached location as "ready" when the WARP
+            // runtime itself failed. The cached route may be reused only after
+            // a subsequent successful WARP preparation.
+            serverName.text = "انتخاب خودکار سرور"
+            serverMeta.text = "WARP آماده نیست • مسیر قبلی موقتاً کنار گذاشته شد"
+            serverStatusValue.text = "برای تلاش بازیابی دوباره اتصال را بزنید"
+            locationValue.text = "—"
+            pingValue.text = "—"
+        } else if (profile == null || !BlueVpnLocationUtil.isUsable(profile)) {
             serverName.text =
                 if (automaticSelection) {
                     "انتخاب خودکار سرور"

@@ -126,6 +126,19 @@ object BlueVpnWarpEngine {
         if (strategies.isEmpty()) throw Failure(ErrorCode.CONFIG_INVALID, state, null, "No WARP strategy is allowed by policy")
         val totalDeadline = started + policy.warpTotalTimeoutSeconds.coerceIn(30, 90) * 1000L
         var last: Failure? = null
+        var attemptedStrategies = 0
+        val skippedStrategies = mutableListOf<Strategy>()
+        val forcedRecoveryStrategy = strategies
+            .filter { isBackedOff(prefs, shape.signature, it) }
+            .takeIf { it.size == strategies.size }
+            ?.minByOrNull { strategyBackoffUntil(prefs, shape.signature, it) }
+
+        // Never allow cooldown state to starve the entire connection attempt.
+        // If every allowed strategy is backed off, force one bounded recovery probe
+        // using the strategy whose cooldown expires first.
+        if (forcedRecoveryStrategy != null) {
+            prefs.edit().remove("backoff:${shape.signature}:${forcedRecoveryStrategy.name}").apply()
+        }
 
         try {
             for ((index, strategy) in strategies.withIndex()) {
@@ -139,8 +152,12 @@ object BlueVpnWarpEngine {
                 // Keep exactly one Aether process alive per attempt and delegate the actual race
                 // to Aether's native scanner.
                 val quick = policy.warpQuickReconnect && cachedStrategy(prefs, shape.signature) == strategy && isLkgFresh(prefs, shape.signature)
-                if (isBackedOff(prefs, shape.signature, strategy) && !quick) continue
+                if (isBackedOff(prefs, shape.signature, strategy) && !quick && strategy != forcedRecoveryStrategy) {
+                    skippedStrategies += strategy
+                    continue
+                }
 
+                attemptedStrategies += 1
                 ensureGeneration(myGeneration, strategy)
                 state = when {
                     quick -> State.TRYING_CACHED_ROUTE
@@ -167,7 +184,12 @@ object BlueVpnWarpEngine {
                 }
             }
             state = State.FAILED
-            val terminal = last ?: Failure(ErrorCode.WARP_RECONNECT_EXHAUSTED, state, null, "All allowed WARP strategies failed")
+            val terminal = last ?: Failure(
+                ErrorCode.WARP_RECONNECT_EXHAUSTED,
+                state,
+                forcedRecoveryStrategy,
+                "No WARP strategy completed; attempted=$attemptedStrategies skipped=${skippedStrategies.joinToString(",") { it.name }} recovery=${forcedRecoveryStrategy?.name ?: "none"}",
+            )
             lastFailure = terminal
             persistDiagnostic(app, terminal, SystemClock.elapsedRealtime() - lastAttemptStartedAt)
             throw terminal
@@ -494,7 +516,12 @@ object BlueVpnWarpEngine {
         edit.apply()
     }
     private fun advanceEdgeCursor(prefs: SharedPreferences, sig: String, strategy: Strategy, breadth: Int) { val key="edge_cursor:$sig:${strategy.name}"; prefs.edit().putInt(key,(prefs.getInt(key,0)+breadth.coerceIn(2,16))%8192).apply() }
-    private fun isBackedOff(prefs: SharedPreferences, sig: String, s: Strategy): Boolean = prefs.getLong("backoff:$sig:${s.name}",0L)>System.currentTimeMillis()
+    private fun strategyBackoffUntil(prefs: SharedPreferences, sig: String, s: Strategy): Long =
+        prefs.getLong("backoff:$sig:${s.name}", 0L)
+
+    private fun isBackedOff(prefs: SharedPreferences, sig: String, s: Strategy): Boolean =
+        strategyBackoffUntil(prefs, sig, s) > System.currentTimeMillis()
+
     private fun recordFailure(prefs: SharedPreferences, sig: String, s: Strategy, code: ErrorCode) {
         val key="fail:$sig:${s.name}"; val count=min(8,prefs.getInt(key,0)+1); val prefix="strategy_stat:$sig:${s.name}"
         prefs.edit().putInt(key,count).putInt("$prefix:fail",min(24,prefs.getInt("$prefix:fail",0)+1))

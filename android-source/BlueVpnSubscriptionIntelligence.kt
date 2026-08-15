@@ -114,20 +114,19 @@ object BlueVpnSubscriptionIntelligence {
                 // because BlueVPN refreshed metadata a few seconds ago. This was
                 // the root cause of a valid 200-node Free subscription appearing
                 // as an empty BlueVPN location pool.
-                val maxAttempts = if (aggressiveRepair || beforeCount == 0) 2 else 1
-                var result = SubscriptionUpdateResult(failureCount = 1)
-                var afterCount = beforeCount
-                for (attempt in 0 until maxAttempts) {
-                    result = runCatching { AngConfigManager.updateConfigViaSub(row) }
-                        .getOrDefault(SubscriptionUpdateResult(failureCount = 1))
-                    afterCount = runCatching {
-                        MmkvManager.decodeServerList(row.guid).count { guid ->
-                            guid.isNotBlank() && MmkvManager.decodeServerConfig(guid) != null
-                        }
-                    }.getOrDefault(0)
-                    if (result.successCount > 0 && result.configCount > 0 && afterCount > 0) break
-                    if (attempt + 1 < maxAttempts) Thread.sleep(180L)
-                }
+                // Stock v2rayNG already performs two bounded network paths in
+                // updateConfigViaSub(): first through its local HTTP proxy and then
+                // a direct fallback. Retrying the entire stock importer here doubled
+                // that retry tree (and every redirect timeout) and could keep an empty
+                // Premium pool busy for several minutes. One authoritative import is
+                // enough; a later user/background refresh is the retry boundary.
+                val result = runCatching { AngConfigManager.updateConfigViaSub(row) }
+                    .getOrDefault(SubscriptionUpdateResult(failureCount = 1))
+                val afterCount = runCatching {
+                    MmkvManager.decodeServerList(row.guid).count { guid ->
+                        guid.isNotBlank() && MmkvManager.decodeServerConfig(guid) != null
+                    }
+                }.getOrDefault(0)
 
                 if (result.successCount > 0 && result.configCount > 0 && afterCount > 0) {
                     totalConfigs += afterCount

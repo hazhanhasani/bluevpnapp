@@ -2069,6 +2069,7 @@ object BlueVpnAccountManager {
     fun sync(
         c: Context,
         force: Boolean = false,
+        deferEntitlementWork: Boolean = false,
     ): Result<BlueVpnAccountSnapshot> = runCatching {
         if (!hasSession(c)) error("AUTH_REQUIRED")
 
@@ -2127,6 +2128,7 @@ object BlueVpnAccountManager {
                 response.getJSONObject("account"),
                 forceSubscriptions = effectiveForce,
                 expectedAuthEpoch = expectedAuthEpoch,
+                deferEntitlementWork = deferEntitlementWork,
             )
         }
     }

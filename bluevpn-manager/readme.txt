@@ -1,8 +1,11 @@
 === BlueVPN Manager ===
-Version: 4.6.0
-Stable tag: 4.6.0
+Version: 4.6.1
+Stable tag: 4.6.1
 Requires PHP: 8.0
 
+
+== 4.6.1 ==
+= Pool sync single-owner / nonblocking locations =
 
 == 4.6.0 ==
 * رفع خطای Kotlin در BlueVpnHomeActivity هنگام ارسال Live heartbeat داخل withContext؛ Activity Context به‌صورت صریح به BlueVpnLiveReporter داده می‌شود.

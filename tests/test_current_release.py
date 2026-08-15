@@ -1149,8 +1149,9 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
     def test_133_subscription_aggressive_repair_is_not_ignored_and_retries_empty_import(self):
         subscription = text("android-source/BlueVpnSubscriptionIntelligence.kt")
         self.assertIn("aggressiveRepair = aggressiveRepair", subscription)
-        self.assertIn("val maxAttempts = if (aggressiveRepair || beforeCount == 0) 2 else 1", subscription)
-        self.assertIn("for (attempt in 0 until maxAttempts)", subscription)
+        self.assertNotIn("val maxAttempts = if (aggressiveRepair || beforeCount == 0) 2 else 1", subscription)
+        self.assertNotIn("for (attempt in 0 until maxAttempts)", subscription)
+        self.assertIn("One authoritative import is", subscription)
         self.assertIn("afterCount > 0", subscription)
 
     def test_134_free_pool_ready_requires_real_decodable_profiles(self):
@@ -1254,6 +1255,17 @@ class TestIrcfIntelligenceSuite(unittest.TestCase):
         self.assertIn("blueai_ircf_fragment", ai)
         self.assertIn("blueai_ircf_endpoints", ai)
 
+
+    def test_pool_sync_has_single_import_owner_and_locations_do_not_block_on_mmkv_mutation(self):
+        account = (ROOT / "android-source" / "BlueVpnAccountManager.kt").read_text(encoding="utf-8")
+        servers = (ROOT / "android-source" / "BlueVpnServersActivity.kt").read_text(encoding="utf-8")
+        subscription = (ROOT / "android-source" / "BlueVpnSubscriptionIntelligence.kt").read_text(encoding="utf-8")
+        self.assertIn("deferEntitlementWork: Boolean = false", account)
+        self.assertIn("deferEntitlementWork = deferEntitlementWork", account)
+        self.assertIn("force = true,\n                    deferEntitlementWork = true", servers)
+        self.assertIn("BlueVpnRuntimeGate.subscriptionMutationActive()", servers)
+        self.assertEqual(subscription.count("AngConfigManager.updateConfigViaSub(row)"), 1)
+        self.assertNotIn("Thread.sleep(180L)", subscription)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

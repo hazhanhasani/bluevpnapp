@@ -186,16 +186,23 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
         lifecycleScope.launch(Dispatchers.Default) {
             val result = runCatching {
-                var loaded = BlueVpnLocationUtil.allCandidates(
+                // Never enumerate/reconcile hundreds of profiles while the stock
+                // v2rayNG importer owns MMKV. That made Locations look frozen for
+                // the whole network timeout window. Keep any same-entitlement cache
+                // visible and let the importer broadcast trigger the trailing reload.
+                if (BlueVpnRuntimeGate.subscriptionMutationActive()) {
+                    return@runCatching BlueVpnLocationUtil.cachedCandidates(
+                        this@BlueVpnServersActivity,
+                    )
+                }
+                val loaded = BlueVpnLocationUtil.allCandidates(
                     this@BlueVpnServersActivity,
                     forceRefresh = requestedForce,
                 )
 
                 // IMPORTANT: an empty local pool is not permission to refresh the
-                // subscription. Automatic repair here used to call
-                // the old automatic repair path could mutate v2rayNG/MMKV and make the list
-                // disappear/reappear while the user was browsing Locations.
-                // Only the explicit "تازه‌سازی" action may reconcile/import.
+                // subscription. Only the explicit "تازه‌سازی" action may
+                // reconcile/import.
                 loaded
             }
 
@@ -476,9 +483,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 // 1) refresh authoritative account snapshot,
                 // 2) reconcile/import entitlement servers,
                 // 3) publish a new local candidate snapshot.
+                // Refresh account metadata first, but do not let sync() start a
+                // subscription import of its own. awaitEntitlementServers() below
+                // is the single owner of the MMKV import transaction. The previous
+                // two-owner pipeline could run the stock importer twice for one tap.
                 val account = BlueVpnAccountManager.sync(
                     this@BlueVpnServersActivity,
                     force = true,
+                    deferEntitlementWork = true,
                 ).getOrThrow()
                 if (
                     account.subscriptionActive &&
@@ -561,10 +573,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             val entitlement = uiEntitlement
             emptyText.text = when {
                 candidateLoadError.isNotBlank() -> candidateLoadError
+                BlueVpnRuntimeGate.subscriptionMutationActive() && entitlement.isPremium ->
+                    "در حال دریافت Pool اختصاصی Premium… صفحه قفل نیست و پس از آماده‌شدن خودکار نمایش داده می‌شود"
+                BlueVpnRuntimeGate.subscriptionMutationActive() && entitlement.isFree ->
+                    "در حال دریافت Pool رایگان… صفحه قفل نیست و پس از آماده‌شدن خودکار نمایش داده می‌شود"
                 candidateLoadInProgress && entitlement.isPremium ->
-                    "در حال همگام‌سازی Pool اختصاصی Premium…"
+                    "در حال خواندن Pool اختصاصی Premium…"
                 candidateLoadInProgress && entitlement.isFree ->
-                    "در حال دریافت Pool رایگان…"
+                    "در حال خواندن Pool رایگان…"
                 entitlement.isPremium ->
                     "سرورهای اشتراک هنوز دریافت نشده‌اند؛ تازه‌سازی را بزنید"
                 entitlement.isFree -> "سرور رایگان فعالی برای نمایش پیدا نشد"

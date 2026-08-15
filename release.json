@@ -1,12 +1,12 @@
 {
-  "version": "4.6.0",
-  "version_code": 40600,
+  "version": "4.6.1",
+  "version_code": 40601,
   "channel": "beta",
-  "build_id": "20260815-v4.6.0-kotlin-ime-build-hotfix",
-  "built_at": "2026-08-15T11:30:00Z",
-  "android_version": "4.6.0",
-  "android_version_code": 40600,
-  "description": "BlueVPN 4.6.0: Kotlin compile hotfix برای InputMethodManager؛ flags اکنون Int صریح 0 است. قابلیت‌های Runtime نسخه 4.5.10 حفظ شده‌اند.",
+  "build_id": "20260815-v4.6.1-pool-sync-single-owner",
+  "built_at": "2026-08-15T14:35:00Z",
+  "android_version": "4.6.1",
+  "android_version_code": 40601,
+  "description": "BlueVPN 4.6.1: اصلاح منطقی دریافت Pool؛ حذف retry تو در توی importer رسمی v2rayNG، یک مالک برای refresh دستی، و جلوگیری از قفل صفحه مکان‌ها هنگام mutation.",
   "features": [
     "official-v2rayng-2.2.6-full-runtime-base",
     "androidlibxraylite-resolved-from-v2rayng-submodule-v26.7.5",
@@ -240,7 +240,11 @@
     "early-healthy-quorum-connect",
     "exact-pool-ready-does-not-block-on-background-reconcile",
     "bounded-per-candidate-connect-timeout",
-    "release-gate-12s-runtime-timeout-alignment"
+    "release-gate-12s-runtime-timeout-alignment",
+    "single-owner-subscription-refresh",
+    "no-nested-stock-import-retry",
+    "locations-nonblocking-during-mmkv-import",
+    "metadata-only-manual-account-refresh"
   ],
-  "version_source": "v4.5.6-ircf-intelligence-suite"
+  "version_source": "v4.6.1-pool-sync-single-owner"
 }

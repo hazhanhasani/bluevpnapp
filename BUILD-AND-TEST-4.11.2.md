@@ -1,4 +1,4 @@
-# BlueVPN 4.11.2 — Connection Continuity / False Recovery Fix
+# BlueVPN 4.11.3 — Connection Continuity / False Recovery Fix
 
 Root cause:
 `BlueVpnLiveReporter` periodically converted repeated quality degradation into

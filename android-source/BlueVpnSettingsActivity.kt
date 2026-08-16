@@ -22,6 +22,7 @@ import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
 import com.v2ray.ang.bluevpn.BlueVpnBackgroundReliability
+import com.v2ray.ang.bluevpn.BlueVpnBackgroundOptimizer
 import com.v2ray.ang.bluevpn.BlueVpnEntitlement
 import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnTheme
@@ -54,6 +55,7 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
         } else {
             BlueVpnTheme.applySystemBars(this)
         }
+        BlueVpnBackgroundReliability.observeAndMaybeOptimize(this)
     }
 
     private fun applyThemeInPlace() {
@@ -315,16 +317,31 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
         val batteryText = if (state.batteryUnrestricted) "بدون محدودیت" else "محدود"
         val dataText = if (state.backgroundDataUnrestricted) "بدون محدودیت" else "محدود"
 
+        val optimizer = BlueVpnBackgroundOptimizer.snapshot(this)
+        val optimizerText = when {
+            BlueVpnBackgroundOptimizer.isRunning() -> "در حال تست کامل کانفیگ‌ها با شبکه فعلی"
+            optimizer != null && optimizer.completedAt > 0L ->
+                "آخرین بهینه‌سازی: ${optimizer.tested}/${optimizer.total} • سریع ${optimizer.fast} • پایدار ${optimizer.stable} • ذخیره ${optimizer.reserve} • ناموفق ${optimizer.failed}"
+            else -> "هنوز تست کامل پس‌زمینه انجام نشده"
+        }
+
         AlertDialog.Builder(this)
             .setTitle("پایداری اتصال در پس‌زمینه")
             .setMessage(
                 "بهینه‌سازی باتری: $batteryText\n" +
                     "داده پس‌زمینه: $dataText\n\n" +
-                    "BlueVPN برای حفظ اتصال هنگام خروج از برنامه به اجرای Foreground Service ادامه می‌دهد، " +
-                    "اما Android یا پوسته سازنده دستگاه می‌تواند با Battery Optimization یا Data Saver آن را محدود کند."
+                    "$optimizerText\n\n" +
+                    "پس از آزاد شدن محدودیت‌های پس‌زمینه، BlueVPN همه کانفیگ‌های مجاز پلن را با شبکه واقعی همین دستگاه در Batchهای کوچک تست و رتبه‌بندی می‌کند."
             )
-            .setPositiveButton("داده پس‌زمینه") { _, _ ->
-                BlueVpnBackgroundReliability.openBackgroundDataSettings(this)
+            .setPositiveButton(
+                if (state.fullyReady) "تست کامل کانفیگ‌ها" else "داده پس‌زمینه"
+            ) { _, _ ->
+                if (state.fullyReady) {
+                    BlueVpnBackgroundOptimizer.forceStart(this)
+                    Toast.makeText(this, "تست کامل کانفیگ‌ها در پس‌زمینه شروع شد", Toast.LENGTH_LONG).show()
+                } else {
+                    BlueVpnBackgroundReliability.openBackgroundDataSettings(this)
+                }
             }
             .setNeutralButton("باتری") { _, _ ->
                 BlueVpnBackgroundReliability.openBatterySettings(this)

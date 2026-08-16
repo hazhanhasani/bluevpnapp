@@ -1,4 +1,4 @@
-# BlueVPN 4.11.2 build/test summary
+# BlueVPN 4.11.3 build/test summary
 
 ## Android system notification fix
 - Declares and requests POST_NOTIFICATIONS on Android 13+.

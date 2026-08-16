@@ -58,8 +58,12 @@ object BlueVpnSmartSelector {
             BlueVpnNativeNetworkAdaptation.rankingAdjustment(context, candidate.guid)
         val intelligence = BlueVpnIntelligenceCore.routeEvidence(context, candidate.guid)
         val routeEvidence = BlueVpnRouteIntelligence.evidence(context, candidate.guid)
+        val backgroundAdjustment =
+            BlueVpnBackgroundOptimizer.rankingAdjustment(context, candidate.guid)
+        val backgroundEvidence =
+            BlueVpnBackgroundOptimizer.evidence(context, candidate.guid)
 
-        var score = latency * 50 / 100
+        var score = latency * 42 / 100
         score += cloud * 14 / 100
         score += personal * 14 / 100
         score += freshness.coerceIn(0, 34) * 12 / 34
@@ -67,6 +71,7 @@ object BlueVpnSmartSelector {
         score += ircfAdjustment
         score += nativeNetworkAdjustment
         score += intelligence.scoreAdjustment
+        score += backgroundAdjustment
         if (BlueVpnExperience.isFavorite(context, candidate.location.key)) score += 3
         if (failed) score -= 24
         if (inactive) score -= 55
@@ -77,6 +82,7 @@ object BlueVpnSmartSelector {
             routeEvidence?.let { add(it) }
             if (nativeNetworkAdjustment != 0) add("Network adaptation: $nativeNetworkAdjustment")
             if (intelligence.reason.isNotBlank()) add("AI: ${intelligence.reason}")
+            backgroundEvidence?.let { add(it) }
             add(when {
                 inactive -> "در این نشست ناموفق"
                 failed -> "خطای اخیر"
@@ -87,9 +93,11 @@ object BlueVpnSmartSelector {
             })
         }.joinToString(" • ")
         val baseConfidence = when {
-            candidate.delay > 0L && (freshness > 0 || personal != 50 || cloud != 50) -> 92
-            candidate.delay > 0L -> 78
-            freshness > 0 || personal != 50 || cloud != 50 -> 64
+            backgroundEvidence != null && candidate.delay > 0L -> 96
+            backgroundEvidence != null -> 90
+            candidate.delay > 0L && (freshness > 0 || personal != 50 || cloud != 50) -> 88
+            candidate.delay > 0L -> 76
+            freshness > 0 || personal != 50 || cloud != 50 -> 62
             else -> 45
         }
         val confidence = BlueVpnIntelligenceCore.calibratedConfidence(

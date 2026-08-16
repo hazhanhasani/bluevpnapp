@@ -109,4 +109,25 @@ object BlueVpnBackgroundReliability {
             }
         }
     }
+
+    fun observeAndMaybeOptimize(context: Context): Boolean {
+        val app = context.applicationContext
+        val current = state(app)
+        val prefs = app.getSharedPreferences("bluevpn_background_reliability", Context.MODE_PRIVATE)
+        val previousReady = prefs.getBoolean("last_background_ready", false)
+        prefs.edit().putBoolean("last_background_ready", current.fullyReady).apply()
+
+        if (!current.fullyReady) {
+            BlueVpnBackgroundOptimizer.markPending(app)
+            return false
+        }
+
+        // Transition into unrestricted background access is the primary trigger.
+        // If permission was already granted before this version, maybeStart()
+        // still runs once because no fresh network/entitlement snapshot exists.
+        return BlueVpnBackgroundOptimizer.maybeStart(
+            app,
+            force = !previousReady,
+        )
+    }
 }

@@ -1,4 +1,4 @@
-# BlueVPN 4.11.2 — Connection Stability + Exhaustive WARP Recovery
+# BlueVPN 4.11.3 — Connection Stability + Exhaustive WARP Recovery
 
 Fixes:
 - Predictive failover no longer reacts to one noisy RTT/loss sample.

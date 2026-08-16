@@ -29,6 +29,7 @@ import com.v2ray.ang.bluevpn.BlueVpnEntitlement
 import com.v2ray.ang.bluevpn.BlueVpnPlanTier
 import com.v2ray.ang.bluevpn.BlueVpnSelectionMode
 import com.v2ray.ang.bluevpn.BlueVpnSmartSelector
+import com.v2ray.ang.bluevpn.BlueVpnBackgroundOptimizer
 import com.v2ray.ang.bluevpn.BlueVpnLocation
 import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
 import com.v2ray.ang.bluevpn.BlueVpnPalette
@@ -732,9 +733,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         })
+        val backgroundBucket =
+            BlueVpnBackgroundOptimizer.bestBucket(this, group.servers.map { it.guid })
         val availability = when {
             group.location.key == "unknown" -> "در حال شناسایی لوکیشن"
             group.usableRoutes <= 0 -> "در انتظار بررسی"
+            backgroundBucket != null ->
+                "دسته‌بندی شبکه شما: ${BlueVpnBackgroundOptimizer.bucketLabel(backgroundBucket)}"
             else -> "آماده اتصال"
         }
         content.addView(textView(availability, 10.5f, palette.textMuted, Gravity.END).apply {

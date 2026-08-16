@@ -2273,6 +2273,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         navigationLocked = false
         BlueVpnUpdateManager.resumePendingInstall(this)
         applyEntitlementPresentation(BlueVpnEntitlement.resolveUi(this))
+        BlueVpnBackgroundReliability.observeAndMaybeOptimize(this)
         BlueVpnAccountManager.enforceFreeSession(this)
         if (BlueVpnAccountManager.consumeFreeExpiredNotice(this)) {
             Toast.makeText(

@@ -1748,7 +1748,7 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
         echo '</div>';
         global $wpdb; $jobs = $wpdb->get_results('SELECT * FROM ' . self::jobs_table() . ' ORDER BY created_at DESC LIMIT 30', ARRAY_A);
         echo '<h2>آخرین عملیات‌ها</h2><table class="widefat striped"><tr><th>نوع</th><th>وضعیت</th><th>Chat</th><th>Commit</th><th>Run</th><th>خطا</th><th>زمان</th></tr>';
-        foreach ($jobs as $j) echo '<tr><td>' . esc_html((string)$j['kind']) . '</td><td>' . esc_html((string)$j['status']) . '</td><td>' . esc_html((string)$j['chat_id']) . '</td><td><code>' . esc_html(substr((string)$j['commit_sha'],0,12)) . '</code></td><td>' . (!empty($j['run_url']) ? '<a href="' . esc_url((string)$j['run_url']) . '" target="_blank" rel="noopener">GitHub</a>' : '') . '</td><td>' . esc_html(mb_substr((string)$j['last_error'],0,160)) . '</td><td>' . esc_html((string)$j['created_at']) . '</td></tr>';
+        foreach ($jobs as $j) echo '<tr><td>' . esc_html((string)$j['kind']) . '</td><td>' . esc_html((string)$j['status']) . '</td><td>' . esc_html((string)$j['chat_id']) . '</td><td><code>' . esc_html(substr((string)$j['commit_sha'],0,12)) . '</code></td><td>' . (!empty($j['run_url']) ? '<a href="' . esc_url((string)$j['run_url']) . '" target="_blank" rel="noopener">GitHub</a>' : '') . '</td><td>' . esc_html(mb_substr((string)$j['last_error'],0,160)) . '</td><td>' . esc_html(BlueVPN_Utils::tehran_datetime_fa($j['created_at'])) . '</td></tr>';
         echo '</table></div>';
         BlueVPN_Unified_UI::shell_close();
     }

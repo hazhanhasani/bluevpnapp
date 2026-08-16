@@ -67,12 +67,26 @@ final class BlueVPN_Utils {
         return is_string($encoded) ? $encoded : '{}';
     }
 
-    public static function tehran_datetime_fa(?string $utcMysql = null, bool $withSeconds = true): string {
+    public static function tehran_datetime_fa($value = null, bool $withSeconds = true): string {
         try {
-            $dt = $utcMysql
-                ? new DateTime($utcMysql, new DateTimeZone('UTC'))
-                : new DateTime('now', new DateTimeZone('UTC'));
-            $dt->setTimezone(new DateTimeZone('Asia/Tehran'));
+            $tehran = new DateTimeZone('Asia/Tehran');
+            if ($value === null || $value === '') {
+                $dt = new DateTimeImmutable('now', $tehran);
+            } elseif (is_int($value) || (is_string($value) && ctype_digit(trim($value)) && strlen(trim($value)) >= 9)) {
+                $dt = (new DateTimeImmutable('@' . (string)$value))->setTimezone($tehran);
+            } else {
+                $raw = trim((string)$value);
+                if ($raw === '' || $raw === '—') return $raw;
+                // Values already rendered in the Persian/Jalali panel format are kept intact.
+                if (preg_match('/^(?:13|14)\d{2}[\/\-]\d{1,2}[\/\-]\d{1,2}/u', $raw)) return $raw;
+                // ISO-8601 carries its own timezone. MySQL values in BlueVPN are UTC by contract.
+                if (preg_match('/(?:T|Z$|[+\-]\d{2}:?\d{2}$)/', $raw)) {
+                    $dt = new DateTimeImmutable($raw);
+                } else {
+                    $dt = new DateTimeImmutable($raw, new DateTimeZone('UTC'));
+                }
+                $dt = $dt->setTimezone($tehran);
+            }
             [$jy, $jm, $jd] = self::gregorian_to_jalali(
                 (int)$dt->format('Y'),
                 (int)$dt->format('n'),
@@ -81,8 +95,19 @@ final class BlueVPN_Utils {
             $time = $withSeconds ? $dt->format('H:i:s') : $dt->format('H:i');
             return sprintf('%04d/%02d/%02d، %s', $jy, $jm, $jd, $time);
         } catch (Throwable $e) {
-            return '';
+            return is_scalar($value) ? (string)$value : '';
         }
+    }
+
+    public static function tehran_date_fa($value = null): string {
+        $full = self::tehran_datetime_fa($value, false);
+        if ($full === '') return '';
+        $parts = explode('،', $full, 2);
+        return trim((string)($parts[0] ?? $full));
+    }
+
+    public static function tehran_timezone_name(): string {
+        return 'Asia/Tehran';
     }
 
     public static function gregorian_to_jalali(int $gy, int $gm, int $gd): array {

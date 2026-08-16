@@ -1,4 +1,4 @@
-# BlueVPN 4.11.4 — Full-Pool Background AI Optimizer
+# BlueVPN 4.11.6 — Full-Pool Background AI Optimizer
 
 When Android background restrictions become fully unrestricted, BlueVPN now
 starts a progressive full-pool optimizer for the active entitlement.

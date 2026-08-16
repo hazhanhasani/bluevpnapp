@@ -1,12 +1,12 @@
 {
-  "version": "4.11.4",
-  "version_code": 41104,
+  "version": "4.11.6",
+  "version_code": 41106,
   "channel": "beta",
-  "build_id": "20260816-v4.11.4-fast-ci",
+  "build_id": "20260816-v4.11.6-fast-ci",
   "built_at": "2026-08-15T22:45:00Z",
-  "android_version": "4.11.4",
-  "android_version_code": 41104,
-  "description": "BlueVPN 4.11.4 upgrades the WordPress panel/site payment stack to BluPal, adds verified idempotent payment-to-provisioning orchestration, expands MySQL payment/provision audit tables, and introduces a crowd-tested Telegram public free-config pool ranked by real user-network probes.",
+  "android_version": "4.11.6",
+  "android_version_code": 41106,
+  "description": "BlueVPN 4.11.6 upgrades the WordPress panel/site payment stack to BluPal, adds verified idempotent payment-to-provisioning orchestration, expands MySQL payment/provision audit tables, and introduces a crowd-tested Telegram public free-config pool ranked by real user-network probes.",
   "features": [
     "bluevpn-site-blue-cyan-theme",
     "crowd-tested-free-pool-ranking",
@@ -286,5 +286,5 @@
     "gradle-build-cache-and-parallel",
     "signed-apk-upload-before-production-barriers"
   ],
-  "version_source": "v4.11.4-fast-ci"
+  "version_source": "v4.11.6-fast-ci"
 }

@@ -68,6 +68,126 @@ final class BlueVPN_Payments {
         return home_url('/api/v1/webhooks/blupal');
     }
 
+    public static function callback_url(): string {
+        return home_url('/bluevpn/payment/callback/');
+    }
+
+    private static function order_by_payment_id(string $paymentId): ?array {
+        global $wpdb;
+        if ($paymentId === '') return null;
+        $row = $wpdb->get_row(
+            $wpdb->prepare(
+                'SELECT * FROM ' . BlueVPN_DB::table('orders') . ' WHERE payment_id=%s LIMIT 1',
+                $paymentId
+            ),
+            ARRAY_A
+        );
+        return $row ?: null;
+    }
+
+    private static function callback_invoice_id(): string {
+        foreach (['invoice_id','payment_id','invoice','id'] as $key) {
+            if (!isset($_GET[$key])) continue;
+            $value = sanitize_text_field(wp_unslash((string)$_GET[$key]));
+            if (preg_match('/^[A-Za-z0-9_-]{1,180}$/', $value)) return $value;
+        }
+        return '';
+    }
+
+    private static function callback_refresh_order(array $order): array {
+        // Callback is browser-facing and untrusted. Never accept status/amount
+        // from query parameters. Re-read the invoice from BluPal with X-API-Key.
+        return self::refresh_remote($order);
+    }
+
+    public static function render_callback_page(): void {
+        nocache_headers();
+        header('Content-Type: text/html; charset=' . get_bloginfo('charset'));
+        header('X-Robots-Tag: noindex, nofollow', true);
+
+        $invoiceId = self::callback_invoice_id();
+        $order = $invoiceId !== '' ? self::order_by_payment_id($invoiceId) : null;
+        $status = 'unknown';
+        $title = 'بازگشت از بلوپال';
+        $message = 'بازگشت از صفحه پرداخت دریافت شد. وضعیت پرداخت از سرور بلوپال بررسی می‌شود.';
+        $tone = 'pending';
+        $autoRefresh = false;
+
+        if ($order) {
+            try {
+                $order = self::callback_refresh_order($order);
+            } catch (Throwable $e) {
+                error_log('BlueVPN BluPal callback verify: ' . $e->getMessage());
+            }
+            $status = (string)($order['status'] ?? 'pending');
+            if ($status === 'activated') {
+                $title = 'پرداخت موفق و سرویس فعال شد';
+                $message = 'پرداخت شما تأیید شد و اشتراک BlueVPN با موفقیت فعال شده است.';
+                $tone = 'success';
+            } elseif (in_array($status, ['partial_needs_sync','paid_needs_sync','paid'], true)) {
+                $title = 'پرداخت تأیید شد';
+                $message = 'پرداخت موفق است و فعال‌سازی سرویس در حال تکمیل است. این صفحه خودکار دوباره بررسی می‌شود.';
+                $tone = 'pending';
+                $autoRefresh = true;
+            } elseif (in_array($status, self::FAILED, true) || in_array($status, ['invoice_failed','expired_local','abandoned'], true)) {
+                $title = 'پرداخت تکمیل نشد';
+                $message = 'وضعیت نهایی این پرداخت موفق نیست. اگر مبلغ از حساب شما کسر شده، از پشتیبانی BlueVPN پیگیری کنید.';
+                $tone = 'error';
+            } else {
+                $title = 'در حال تأیید پرداخت';
+                $message = 'فاکتور هنوز در وضعیت نهایی قرار نگرفته است. چند لحظه دیگر دوباره بررسی می‌کنیم.';
+                $tone = 'pending';
+                $autoRefresh = true;
+            }
+        } elseif ($invoiceId !== '') {
+            $title = 'فاکتور پیدا نشد';
+            $message = 'شناسه بازگشتی بلوپال با هیچ سفارش BlueVPN تطبیق نداشت. اطلاعات پرداختی در این صفحه پذیرفته یا فعال نمی‌شود.';
+            $tone = 'error';
+        } else {
+            // BluPal's public API document does not describe the query string
+            // appended to Callback page. Keep this endpoint valid even if no
+            // invoice id is supplied, while relying on Webhook/app polling for
+            // authoritative activation.
+            $title = 'بازگشت از بلوپال انجام شد';
+            $message = 'برای امنیت، موفقیت پرداخت از پارامترهای مرورگر تشخیص داده نمی‌شود. BlueVPN وضعیت فاکتور را از Webhook و API بلوپال بررسی می‌کند. می‌توانید به برنامه برگردید.';
+            $tone = 'pending';
+        }
+
+        $refreshUrl = $invoiceId !== '' ? add_query_arg('invoice_id', rawurlencode($invoiceId), self::callback_url()) : '';
+        $home = home_url('/');
+        $logo = 'BlueVPN';
+        ?>
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="<?php echo esc_attr(get_bloginfo('charset')); ?>">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title><?php echo esc_html($title); ?> | BlueVPN</title>
+<?php if ($autoRefresh && $refreshUrl !== ''): ?><meta http-equiv="refresh" content="5;url=<?php echo esc_url($refreshUrl); ?>"><?php endif; ?>
+<style>
+:root{color-scheme:dark;--bg:#060a12;--panel:#0d1422;--line:#22304a;--blue:#4386ff;--cyan:#35d7ff;--text:#f7f9ff;--muted:#9aa7bd;--ok:#31d19a;--bad:#ff6b79}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;font-family:Tahoma,Arial,sans-serif;background:radial-gradient(circle at 50% 15%,#112849 0,#07101e 32%,var(--bg) 68%);color:var(--text);display:grid;place-items:center;padding:22px}.card{width:min(560px,100%);background:linear-gradient(180deg,rgba(17,27,45,.96),rgba(9,15,27,.98));border:1px solid var(--line);border-radius:28px;padding:28px;box-shadow:0 28px 90px #0008}.brand{font-size:30px;font-weight:900;letter-spacing:.3px;color:#fff}.brand b{color:var(--blue)}.icon{width:74px;height:74px;border-radius:24px;display:grid;place-items:center;margin:28px 0 18px;font-size:34px;background:#13223b;border:1px solid #29446f}.success .icon{color:var(--ok)}.error .icon{color:var(--bad)}.pending .icon{color:var(--cyan)}h1{font-size:26px;margin:0 0 12px;line-height:1.55}p{margin:0;color:var(--muted);font-size:15px;line-height:2}.meta{margin-top:22px;padding:15px 17px;border-radius:17px;background:#070c15;border:1px solid #1d293d;color:#aeb8c9;font-size:13px}.actions{display:flex;gap:10px;margin-top:24px;flex-wrap:wrap}.btn{flex:1;min-width:170px;text-decoration:none;text-align:center;padding:14px 18px;border-radius:16px;font-weight:800;background:linear-gradient(135deg,var(--blue),#2466e8);color:#fff;border:0}.btn.secondary{background:#111b2d;border:1px solid #2a3954;color:#dce6f7}.hint{margin-top:18px;font-size:12px;color:#718099}
+</style>
+</head>
+<body>
+<main class="card <?php echo esc_attr($tone); ?>">
+<div class="brand"><b>Blue</b>VPN</div>
+<div class="icon"><?php echo $tone === 'success' ? '✓' : ($tone === 'error' ? '!' : '↻'); ?></div>
+<h1><?php echo esc_html($title); ?></h1>
+<p><?php echo esc_html($message); ?></p>
+<?php if ($invoiceId !== ''): ?><div class="meta">شناسه فاکتور بلوپال: <strong><?php echo esc_html($invoiceId); ?></strong><?php if ($order): ?><br>وضعیت BlueVPN: <strong><?php echo esc_html($status); ?></strong><?php endif; ?></div><?php endif; ?>
+<div class="actions">
+<?php if ($autoRefresh && $refreshUrl !== ''): ?><a class="btn" href="<?php echo esc_url($refreshUrl); ?>">بررسی دوباره</a><?php endif; ?>
+<a class="btn secondary" href="<?php echo esc_url($home); ?>">بازگشت به BlueVPN</a>
+</div>
+<div class="hint">وضعیت پرداخت فقط از API سرور بلوپال و Webhook معتبر می‌شود؛ پارامترهای مرورگر باعث فعال‌سازی سرویس نمی‌شوند.</div>
+</main>
+</body>
+</html>
+        <?php
+        exit;
+    }
+
     private static function order_row(string $id, int $customerId): ?array {
         global $wpdb; $t=BlueVPN_DB::table('orders');
         $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%s AND customer_id=%d LIMIT 1",$id,$customerId),ARRAY_A); return $row?:null;

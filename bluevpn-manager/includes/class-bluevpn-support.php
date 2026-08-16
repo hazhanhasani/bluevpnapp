@@ -951,7 +951,7 @@ final class BlueVPN_Support {
                 $status=(string)$c['status'];
                 $title=trim((string)$c['subject'])?:'بدون عنوان';
                 echo '<a class="bvs-conv'.($active?' is-active':'').'" href="'.esc_url(admin_url('admin.php?page=bluevpn-support&conversation='.(int)$c['id'])).'">';
-                echo '<div class="bvs-conv-top"><span class="bvs-conv-title">'.esc_html($title).'</span><span class="bvs-conv-time">'.esc_html((string)$c['last_message_at']).'</span></div>';
+                echo '<div class="bvs-conv-top"><span class="bvs-conv-title">'.esc_html($title).'</span><span class="bvs-conv-time">'.esc_html(BlueVPN_Utils::tehran_datetime_fa($c['last_message_at'])).'</span></div>';
                 echo '<div class="bvs-conv-meta"><span class="bvs-dot '.esc_attr($status).'"></span><span>'.esc_html((string)$c['department_name']).'</span><span>•</span><span>'.esc_html($status).'</span>';
                 if(($sla['state']??'on_time')!=='on_time')echo '<span class="bvs-sla-bad">• SLA</span>';
                 echo '</div></a>';
@@ -1011,7 +1011,7 @@ final class BlueVPN_Support {
                     $label=$sender==='customer'?'کاربر':($sender==='operator'?'پشتیبانی':'سیستم');
                     echo '<div class="bvs-msg-row '.esc_attr($sender).'"><div class="bvs-msg '.esc_attr($sender).'">';
                     echo '<div>'.nl2br(esc_html((string)$m['body'])).'</div>';
-                    echo '<div class="bvs-msg-meta"><span>'.esc_html($label).'</span><span>'.esc_html((string)$m['created_at']).'</span></div>';
+                    echo '<div class="bvs-msg-meta"><span>'.esc_html($label).'</span><span>'.esc_html(BlueVPN_Utils::tehran_datetime_fa($m['created_at'])).'</span></div>';
                     echo '</div></div>';
                 }
             }
@@ -1079,8 +1079,8 @@ final class BlueVPN_Support {
 
             echo '<div class="bvs-section"><h3>SLA</h3>';
             echo '<div class="bvs-mini-list">';
-            echo '<div class="bvs-mini-item"><div><strong>پاسخ اولیه</strong><br><small>'.esc_html((string)$sla['first_response_due_at']).'</small></div><span class="bvs-pill">'.(!empty($sla['first_response_overdue'])?'عقب‌افتاده':'عادی').'</span></div>';
-            echo '<div class="bvs-mini-item"><div><strong>حل گفتگو</strong><br><small>'.esc_html((string)$sla['resolution_due_at']).'</small></div><span class="bvs-pill">'.(!empty($sla['resolution_overdue'])?'عقب‌افتاده':'عادی').'</span></div>';
+            echo '<div class="bvs-mini-item"><div><strong>پاسخ اولیه</strong><br><small>'.esc_html(BlueVPN_Utils::tehran_datetime_fa($sla['first_response_due_at'])).'</small></div><span class="bvs-pill">'.(!empty($sla['first_response_overdue'])?'عقب‌افتاده':'عادی').'</span></div>';
+            echo '<div class="bvs-mini-item"><div><strong>حل گفتگو</strong><br><small>'.esc_html(BlueVPN_Utils::tehran_datetime_fa($sla['resolution_due_at'])).'</small></div><span class="bvs-pill">'.(!empty($sla['resolution_overdue'])?'عقب‌افتاده':'عادی').'</span></div>';
             echo '</div></div>';
 
             echo '<div class="bvs-section"><h3>فایل</h3>';
@@ -1097,7 +1097,7 @@ final class BlueVPN_Support {
             echo '<textarea name="note" rows="3" required placeholder="فقط اپراتورها می‌بینند"></textarea>';
             echo '<button style="margin-top:8px" class="bvs-btn bvs-btn-soft">ثبت یادداشت</button></form>';
             foreach((array)$notes as $n){
-                echo '<div class="bvs-note">'.nl2br(esc_html((string)$n['body'])).'<br><small>'.esc_html((string)$n['created_at']).'</small></div>';
+                echo '<div class="bvs-note">'.nl2br(esc_html((string)$n['body'])).'<br><small>'.esc_html(BlueVPN_Utils::tehran_datetime_fa($n['created_at'])).'</small></div>';
             }
             echo '</div>';
         } else {

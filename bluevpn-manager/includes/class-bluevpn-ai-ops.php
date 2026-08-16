@@ -416,14 +416,14 @@ final class BlueVPN_AI_Ops {
         echo '<h3>Incidentهای فعال</h3><table class="widefat striped bvc-table"><tr><th>شدت</th><th>نوع</th><th>Scope</th><th>عنوان</th><th>تکرار</th><th>پیشنهاد</th><th>آخرین مشاهده</th></tr>';
         if (!$incidents) echo '<tr><td colspan="7">Incident فعالی وجود ندارد.</td></tr>';
         foreach ((array)$incidents as $r) {
-            echo '<tr><td>'.esc_html((string)$r['severity']).'</td><td>'.esc_html((string)$r['incident_type']).'</td><td>'.esc_html((string)$r['scope_type'].':'.(string)$r['scope_key']).'</td><td>'.esc_html((string)$r['title']).'</td><td>'.(int)$r['occurrence_count'].'</td><td>'.esc_html((string)$r['recommended_action']).'</td><td>'.esc_html((string)$r['last_seen_at']).'</td></tr>';
+            echo '<tr><td>'.esc_html((string)$r['severity']).'</td><td>'.esc_html((string)$r['incident_type']).'</td><td>'.esc_html((string)$r['scope_type'].':'.(string)$r['scope_key']).'</td><td>'.esc_html((string)$r['title']).'</td><td>'.(int)$r['occurrence_count'].'</td><td>'.esc_html((string)$r['recommended_action']).'</td><td>'.esc_html(BlueVPN_Utils::tehran_datetime_fa($r['last_seen_at'])).'</td></tr>';
         }
         echo '</table>';
 
         echo '<h3 style="margin-top:24px">Reconciliation اخیر</h3><table class="widefat striped bvc-table"><tr><th>کاربر</th><th>سفارش</th><th>مسئله</th><th>اقدام</th><th>نتیجه</th><th>زمان</th></tr>';
         if (!$recentRuns) echo '<tr><td colspan="6">هنوز Reconciliation اجرا نشده است.</td></tr>';
         foreach ((array)$recentRuns as $r) {
-            echo '<tr><td>'.(int)$r['customer_id'].'</td><td>'.esc_html((string)$r['order_id']).'</td><td>'.esc_html((string)$r['issue_type']).'</td><td>'.esc_html((string)$r['action_taken']).'</td><td>'.esc_html((string)$r['outcome']).'</td><td>'.esc_html((string)$r['created_at']).'</td></tr>';
+            echo '<tr><td>'.(int)$r['customer_id'].'</td><td>'.esc_html((string)$r['order_id']).'</td><td>'.esc_html((string)$r['issue_type']).'</td><td>'.esc_html((string)$r['action_taken']).'</td><td>'.esc_html((string)$r['outcome']).'</td><td>'.esc_html(BlueVPN_Utils::tehran_datetime_fa($r['created_at'])).'</td></tr>';
         }
         echo '</table></div>';
     }

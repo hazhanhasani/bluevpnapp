@@ -294,7 +294,7 @@ final class BlueVPN_Admin {
         foreach (BlueVPN_Migration::table_order() as $name) {
             $x = $status['tables'][$name];
             $label = $x['status']==='synced'?'✅ همگام':($x['status']==='error'?'❌ خطا':($x['status']==='checking'?'⏳ بررسی':'⏳ نیاز به Sync'));
-            echo '<tr data-mig-table="'.esc_attr($name).'"><td><code>'.esc_html($name).'</code></td><td data-col="source">'.esc_html($x['source']===null?'—':(string)$x['source']).'</td><td data-col="local">'.esc_html($x['local']===null?'—':(string)$x['local']).'</td><td data-col="missing">'.esc_html($x['missing']===null?'—':(string)$x['missing']).'</td><td data-col="status">'.esc_html($label).'</td><td data-col="updated">'.esc_html($x['updated_at']?:'—').'</td><td data-col="error">'.esc_html($x['error']).'</td></tr>';
+            echo '<tr data-mig-table="'.esc_attr($name).'"><td><code>'.esc_html($name).'</code></td><td data-col="source">'.esc_html($x['source']===null?'—':(string)$x['source']).'</td><td data-col="local">'.esc_html($x['local']===null?'—':(string)$x['local']).'</td><td data-col="missing">'.esc_html($x['missing']===null?'—':(string)$x['missing']).'</td><td data-col="status">'.esc_html($label).'</td><td data-col="updated">'.esc_html(!empty($x['updated_at'])?BlueVPN_Utils::tehran_datetime_fa($x['updated_at']):'—').'</td><td data-col="error">'.esc_html($x['error']).'</td></tr>';
         }
         echo '</tbody></table></div>';
 
@@ -520,10 +520,10 @@ final class BlueVPN_Admin {
         $auth = !empty($diag['authenticated']);
         echo '<div class="bvp-card"><h3>دسترسی GitHub</h3><p class="'.($auth?'bvp-ok':'bvp-warn').'"><strong>'.($auth?'Authenticated':'Unauthenticated').'</strong></p><small>'.($auth?'از GITHUB_TOKEN مهاجرت‌شده ربات برای Release API و دانلود Asset استفاده می‌شود.':'Updater بدون Token است؛ مخزن خصوصی یا Rate Limit می‌تواند آپدیت را متوقف کند.').'</small></div>';
         $last_bg = BlueVPN_GitHub_Updater::last_background_check();
-        echo '<div class="bvp-card"><h3>بررسی خودکار GitHub</h3><p class="bvp-ok"><strong>هر ۲ دقیقه</strong></p><small>'.($last_bg ? 'آخرین اجرا: '.esc_html(wp_date('Y-m-d H:i:s', $last_bg)) : 'در انتظار اولین اجرای پس‌زمینه').'</small></div>';
+        echo '<div class="bvp-card"><h3>بررسی خودکار GitHub</h3><p class="bvp-ok"><strong>هر ۲ دقیقه</strong></p><small>'.($last_bg ? 'آخرین اجرا: '.esc_html(BlueVPN_Utils::tehran_datetime_fa((int)$last_bg)) : 'در انتظار اولین اجرای پس‌زمینه').'</small></div>';
         $auto_status = BlueVPN_GitHub_Updater::auto_update_status();
         $auto_class = in_array((string)$auto_status['status'], ['installed','up_to_date'], true) ? 'bvp-ok' : (((string)$auto_status['status'] === 'never') ? 'bvp-warn' : 'bvp-warn');
-        echo '<div class="bvp-card"><h3>آخرین نصب خودکار</h3><p class="'.esc_attr($auto_class).'"><strong>'.esc_html((string)$auto_status['status']).'</strong></p><small>'.esc_html((string)$auto_status['message']).($auto_status['at'] ? ' · '.esc_html(wp_date('Y-m-d H:i:s', (int)$auto_status['at'])) : '').'</small></div>';
+        echo '<div class="bvp-card"><h3>آخرین نصب خودکار</h3><p class="'.esc_attr($auto_class).'"><strong>'.esc_html((string)$auto_status['status']).'</strong></p><small>'.esc_html((string)$auto_status['message']).($auto_status['at'] ? ' · '.esc_html(BlueVPN_Utils::tehran_datetime_fa((int)$auto_status['at'])) : '').'</small></div>';
         echo '</div>';
 
         echo '<div class="bvp-card" style="max-width:900px;margin-top:18px"><h2>تنظیمات Updater</h2>';

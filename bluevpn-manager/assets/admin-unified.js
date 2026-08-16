@@ -16,8 +16,8 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')setOpen(false)});
 document.querySelectorAll('.bluevpn-nav-item').forEach(a=>a.addEventListener('click',()=>setOpen(false)));
 const clock=q('#bluevpnLiveClock');
 if(clock){
-  const tick=()=>{try{clock.textContent=new Intl.DateTimeFormat('fa-IR-u-ca-persian',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Tehran'}).format(new Date())}catch(_){}};
-  tick(); setInterval(tick,30000);
+  const tick=()=>{try{clock.textContent=new Intl.DateTimeFormat('fa-IR-u-ca-persian',{calendar:'persian',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZone:'Asia/Tehran'}).format(new Date())}catch(_){}};
+  tick(); setInterval(tick,1000);
 }
 // Convert Control Center data tables to labeled mobile cards without changing desktop markup.
 document.querySelectorAll('table.bvc-table').forEach(table=>{

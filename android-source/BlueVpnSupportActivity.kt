@@ -444,7 +444,7 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
         val chooserScroll = ScrollView(this).apply {
             isFillViewport = true
             isVerticalScrollBarEnabled = false
-            addView(departmentList, ScrollView.LayoutParams(-1, -2))
+            addView(departmentList, FrameLayout.LayoutParams(-1, -2))
         }
         body.addView(chooserScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         body.addView(cancel, LinearLayout.LayoutParams(-1, dp(48)).apply {

@@ -54,6 +54,7 @@ import com.v2ray.ang.R
 import com.v2ray.ang.core.CoreServiceManager
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
 import com.v2ray.ang.bluevpn.BlueVpnBackgroundReliability
+import com.v2ray.ang.bluevpn.BlueVpnBackgroundOptimizer
 import com.v2ray.ang.bluevpn.BlueVpnAdsCarouselView
 import com.v2ray.ang.bluevpn.BlueVpnAi
 import com.v2ray.ang.bluevpn.BlueVpnDynamicBackgroundView

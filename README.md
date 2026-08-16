@@ -541,3 +541,7 @@ usage, or entitlement expiry.
 
 Support tables are now part of the canonical BlueVPN database backup/restore
 inventory. Main manager schema inventory is 1.19.0; Support schema is 1.2.0.
+
+
+## 4.11.9 — Kotlin Release Build Fix
+Fixes the release compilation blockers found by GitHub Actions after 4.11.8: the missing `BlueVpnBackgroundOptimizer` import in `BlueVpnHomeActivity` and the invalid `ScrollView.LayoutParams` reference in `BlueVpnSupportActivity`. A dedicated regression test now guards both compile surfaces and verifies that `prepare_android.py` overlays the optimizer source.

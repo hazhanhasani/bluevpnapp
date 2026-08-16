@@ -1,13 +1,16 @@
 {
-  "version": "4.11.8",
-  "version_code": 41108,
+  "version": "4.11.9",
+  "version_code": 41109,
   "channel": "beta",
-  "build_id": "20260816-v4.11.8-release-hardening",
+  "build_id": "20260817-v4.11.9-kotlin-build-fix",
   "built_at": "2026-08-16T19:49:58Z",
-  "android_version": "4.11.8",
-  "android_version_code": 41108,
-  "description": "BlueVPN 4.11.8 hardens live support for release with explicit Department → Topic → Message routing, idempotent conversation/message submission, validated operator transfers, and adds full GuardCore API participation to the missing-subscription repair scan alongside PasarGuard and Marzban.",
+  "android_version": "4.11.9",
+  "android_version_code": 41109,
+  "description": "BlueVPN 4.11.9 fixes the two Kotlin release blockers introduced by 4.11.8 support/pool hardening: the missing BlueVpnBackgroundOptimizer import in HomeActivity and the invalid ScrollView.LayoutParams reference in SupportActivity. Release gates now explicitly cover both compile surfaces.",
   "features": [
+    "kotlin-build-fix-background-optimizer-import",
+    "kotlin-build-fix-support-layoutparams",
+    "release-gate-compile-surface-4119",
     "support-canonical-backup-inventory",
     "wordpress-schema-1.19.0",
     "support-conversation-list-n-plus-one-removed",
@@ -302,5 +305,5 @@
     "gradle-build-cache-and-parallel",
     "signed-apk-upload-before-production-barriers"
   ],
-  "version_source": "v4.11.8-release-hardening"
+  "version_source": "v4.11.9-kotlin-build-fix"
 }

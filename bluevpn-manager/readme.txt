@@ -1,8 +1,13 @@
 === BlueVPN Manager ===
-Version: 4.11.8
-Stable tag: 4.11.8
+Version: 4.11.9
+Stable tag: 4.11.9
 Requires PHP: 8.0
 
+
+== 4.11.9 ==
+* Android Build: import جاافتاده BlueVpnBackgroundOptimizer در BlueVpnHomeActivity اضافه شد.
+* Android Build: ScrollView.LayoutParams نامعتبر در SupportActivity با FrameLayout.LayoutParams سازگار جایگزین شد.
+* CI: Regression gate جدید این دو Compile Surface را قبل از Gradle بررسی می‌کند.
 
 == 4.11.8 ==
 * Support: انتخاب درخواست سه‌مرحله‌ای «بخش → موضوع → پیام» و رفع باگ ازبین‌رفتن انتخاب موضوع.

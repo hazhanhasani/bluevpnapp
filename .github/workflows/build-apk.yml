@@ -516,12 +516,10 @@ jobs:
           echo "BUILD_STAGE=release-regression-gate" >> "$GITHUB_ENV"
           echo "release-regression-gate" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           {
-            python -m py_compile scripts/prepare_android.py scripts/build_aether_android.py scripts/validate_release.py tests/test_current_release.py tests/test_warp_adaptive_469.py tests/test_warp_endpoint_racing_469.py tests/test_warp_exit_guard_469.py tests/test_security_4610.py
+            python -m py_compile scripts/prepare_android.py scripts/build_aether_android.py scripts/validate_release.py scripts/validate_php_release.py tests/test_current_release.py tests/test_warp_adaptive_469.py tests/test_warp_endpoint_racing_469.py tests/test_warp_exit_guard_469.py tests/test_security_4610.py
             python scripts/validate_release.py
             python -m unittest discover -s tests -v
-            while IFS= read -r -d '' file; do
-              php -l "$file" >/dev/null
-            done < <(find bluevpn-manager -type f -name '*.php' -print0)
+            python scripts/validate_php_release.py
             echo "BlueVPN release regression gate passed."
           } 2>&1 | tee "$GITHUB_WORKSPACE/stability-gate.log"
 

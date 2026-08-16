@@ -1,4 +1,4 @@
-# BlueVPN 4.9.9 — Native Network Adaptation
+# BlueVPN 4.9.10 — Native Network Adaptation
 
 Correction:
 - Mahsa-Core / MahsaNG is NOT integrated into the BlueVPN runtime.

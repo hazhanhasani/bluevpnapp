@@ -15,6 +15,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "tests" / "release_test_manifest.json"
+PHP_MANIFEST = ROOT / "bluevpn-manager" / "release_php_manifest.json"
 
 RETIRED_FILES = [
     "android-source/BlueVpnEngineManager.kt",
@@ -62,9 +63,52 @@ def remove_stale_test_modules(approved: set[str], removed: list[str]) -> None:
             path.unlink()
             removed.append(f"tests/{path.name}")
 
+def load_authoritative_php_files() -> set[str]:
+    try:
+        payload = json.loads(PHP_MANIFEST.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SystemExit(f"ERROR: cannot read release PHP manifest: {exc}") from exc
+    if payload.get("schema") != 1 or payload.get("authoritative") is not True:
+        raise SystemExit("ERROR: invalid/non-authoritative release PHP manifest")
+    names = payload.get("php_files")
+    if not isinstance(names, list) or not names:
+        raise SystemExit("ERROR: release PHP manifest is empty")
+    approved: set[str] = set()
+    for raw in names:
+        if not isinstance(raw, str) or not raw.endswith(".php"):
+            raise SystemExit(f"ERROR: invalid PHP manifest entry: {raw!r}")
+        rel = Path(raw)
+        if rel.is_absolute() or ".." in rel.parts:
+            raise SystemExit(f"ERROR: unsafe PHP manifest entry: {raw!r}")
+        approved.add(rel.as_posix())
+    return approved
+
+
+def remove_stale_php_files(approved: set[str], removed: list[str]) -> None:
+    manager = ROOT / "bluevpn-manager"
+    if not manager.is_dir():
+        raise SystemExit("ERROR: bluevpn-manager directory is missing")
+
+    missing = sorted(
+        rel for rel in approved
+        if not (manager / rel).is_file()
+    )
+    if missing:
+        raise SystemExit(
+            "ERROR: release PHP manifest references missing files: "
+            + ", ".join(missing)
+        )
+
+    for path in sorted(manager.rglob("*.php")):
+        rel = path.relative_to(manager).as_posix()
+        if rel not in approved:
+            path.unlink()
+            removed.append(f"bluevpn-manager/{rel}")
+
 
 removed: list[str] = []
 remove_stale_test_modules(load_authoritative_tests(), removed)
+remove_stale_php_files(load_authoritative_php_files(), removed)
 
 for rel in RETIRED_FILES:
     path = ROOT / rel

@@ -1,10 +1,10 @@
 === BlueVPN Manager ===
-Version: 4.9.9
-Stable tag: 4.9.9
+Version: 4.9.10
+Stable tag: 4.9.10
 Requires PHP: 8.0
 
 
-== 4.9.9 ==
+== 4.9.10 ==
 * Build pipeline: manual Android builds now default to Fast CI while production repository-dispatch builds remain Full.
 * Build cache: pinned Aether, libhevtun and libv2ray artifacts are reused across compatible Android builds.
 * Android build: compile and assemble run in one Gradle invocation; signed Fast artifacts are uploaded before production WordPress convergence.

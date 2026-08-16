@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "authoritative": true,
+  "php_files": [
+    "bluevpn-manager.php",
+    "includes/class-bluevpn-admin.php",
+    "includes/class-bluevpn-ads.php",
+    "includes/class-bluevpn-ai-ops.php",
+    "includes/class-bluevpn-ai.php",
+    "includes/class-bluevpn-api.php",
+    "includes/class-bluevpn-app-release-manager.php",
+    "includes/class-bluevpn-auth.php",
+    "includes/class-bluevpn-compat.php",
+    "includes/class-bluevpn-control-center.php",
+    "includes/class-bluevpn-cron.php",
+    "includes/class-bluevpn-db.php",
+    "includes/class-bluevpn-frontend.php",
+    "includes/class-bluevpn-github-updater.php",
+    "includes/class-bluevpn-migration.php",
+    "includes/class-bluevpn-payments.php",
+    "includes/class-bluevpn-production.php",
+    "includes/class-bluevpn-providers.php",
+    "includes/class-bluevpn-sms-notifications.php",
+    "includes/class-bluevpn-sms-otp.php",
+    "includes/class-bluevpn-telegram-bot.php",
+    "includes/class-bluevpn-unified-ui.php",
+    "includes/class-bluevpn-utils.php"
+  ]
+}

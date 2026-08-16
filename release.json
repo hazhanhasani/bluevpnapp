@@ -1,13 +1,15 @@
 {
-  "version": "4.11.9",
-  "version_code": 41109,
+  "version": "4.11.10",
+  "version_code": 41110,
   "channel": "beta",
-  "build_id": "20260817-v4.11.9-kotlin-build-fix",
+  "build_id": "20260817-v4.11.10-iran-time-fix",
   "built_at": "2026-08-16T19:49:58Z",
-  "android_version": "4.11.9",
-  "android_version_code": 41109,
-  "description": "BlueVPN 4.11.9 fixes the two Kotlin release blockers introduced by 4.11.8 support/pool hardening: the missing BlueVpnBackgroundOptimizer import in HomeActivity and the invalid ScrollView.LayoutParams reference in SupportActivity. Release gates now explicitly cover both compile surfaces.",
+  "android_version": "4.11.10",
+  "android_version_code": 41110,
+  "description": "BlueVPN 4.11.10 fixes support-chat timestamps by parsing UTC MySQL/ISO timestamps and rendering message time in Asia/Tehran instead of displaying the raw UTC clock. It keeps the 4.11.9 Kotlin release fixes intact.",
   "features": [
+    "support-message-time-asia-tehran",
+    "support-mysql-utc-timestamp-parser",
     "kotlin-build-fix-background-optimizer-import",
     "kotlin-build-fix-support-layoutparams",
     "release-gate-compile-surface-4119",
@@ -305,5 +307,5 @@
     "gradle-build-cache-and-parallel",
     "signed-apk-upload-before-production-barriers"
   ],
-  "version_source": "v4.11.9-kotlin-build-fix"
+  "version_source": "v4.11.10-iran-time-fix"
 }

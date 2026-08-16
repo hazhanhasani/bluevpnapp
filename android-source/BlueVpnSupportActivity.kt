@@ -31,6 +31,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
 import com.v2ray.ang.bluevpn.BlueVpnPalette
+import com.v2ray.ang.bluevpn.BlueVpnPersianDate
 import com.v2ray.ang.bluevpn.BlueVpnSupportNotifications
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
@@ -1385,8 +1386,11 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
 
     private fun formatMessageTime(raw: String): String {
         if (raw.isBlank()) return "اکنون"
-        val match = Regex("""(\d{2}):(\d{2}):\d{2}""").find(raw)
-        return match?.let { "${it.groupValues[1]}:${it.groupValues[2]}" } ?: raw.takeLast(5)
+        return BlueVpnPersianDate.formatIso(raw, includeTime = true)
+            ?.substringAfter("ساعت ")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: raw.takeLast(5)
     }
 
     private fun humanSize(bytes: Long): String = when {

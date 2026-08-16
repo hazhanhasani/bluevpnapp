@@ -111,6 +111,8 @@ object BlueVpnPersianDate {
             "yyyy-MM-dd'T'HH:mm:ssXXX",
             "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
             "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd HH:mm:ss.SSS",
+            "yyyy-MM-dd HH:mm:ss",
             "yyyy-MM-dd",
         )
         val millis = patterns.firstNotNullOfOrNull { pattern ->
@@ -1750,6 +1752,8 @@ object BlueVpnAccountManager {
             "yyyy-MM-dd'T'HH:mm:ssXXX",
             "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
             "yyyy-MM-dd'T'HH:mm:ss'Z'",
+            "yyyy-MM-dd HH:mm:ss.SSS",
+            "yyyy-MM-dd HH:mm:ss",
             "yyyy-MM-dd",
         )
         return patterns.firstNotNullOfOrNull { pattern ->

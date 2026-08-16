@@ -1,10 +1,10 @@
 === BlueVPN Manager ===
-Version: 4.11.3
-Stable tag: 4.11.3
+Version: 4.11.4
+Stable tag: 4.11.4
 Requires PHP: 8.0
 
 
-== 4.11.3 ==
+== 4.11.4 ==
 * Build pipeline: manual Android builds now default to Fast CI while production repository-dispatch builds remain Full.
 * Build cache: pinned Aether, libhevtun and libv2ray artifacts are reused across compatible Android builds.
 * Android build: compile and assemble run in one Gradle invocation; signed Fast artifacts are uploaded before production WordPress convergence.
@@ -82,7 +82,7 @@ Requires PHP: 8.0
 == قابلیت‌های جاری ==
 - احراز هویت، حساب، پلن، سفارش، دستگاه و Session روی MySQL.
 - Providerهای PasarGuard، Marzban و GuardCore و Subscription Bridge بومی WordPress.
-- BlueAI، تبلیغات، اتصال رایگان، BluePay، OTP و اعلان‌های پیامکی.
+- BlueAI، تبلیغات، اتصال رایگان، BluPal، OTP و اعلان‌های پیامکی.
 - بروزرسانی خودکار افزونه با کنترل انتشار و پایش سلامت.
 - Backup/Restore، Health dashboard و ابزارهای مدیریتی BlueVPN.
 - Migration Bridge فقط برای بازیابی/انتقال داده‌های قدیمی و نه به‌عنوان Runtime اصلی.

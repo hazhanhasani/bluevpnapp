@@ -1,4 +1,4 @@
-# BlueVPN 4.11.3 — Fast CI Build/Test Summary
+# BlueVPN 4.11.4 — Fast CI Build/Test Summary
 
 ## Goal
 Reduce the feedback loop for GitHub APK builds without weakening the production release path.

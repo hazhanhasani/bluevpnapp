@@ -121,7 +121,7 @@ object BlueVpnIntelligenceCore {
             "NETWORK_CHANGED" in s || "NETWORK LOST" in s -> FailureClass.NETWORK_CHANGED
             "SUBSCRIPTION" in s || "ENTITLEMENT" in s -> FailureClass.SUBSCRIPTION
             "PROVISION" in s || "PANEL" in s -> FailureClass.PROVISIONING
-            "PAYMENT" in s || "BLUEPAY" in s -> FailureClass.PAYMENT
+            "PAYMENT" in s || "BLUPAL" in s || "BLUEPAY" in s -> FailureClass.PAYMENT
             "PROCESS_KILLED" in s || "BACKGROUND_KILL" in s -> FailureClass.PROCESS_KILLED
             "BACKEND" in s || "HTTP 5" in s -> FailureClass.BACKEND
             else -> FailureClass.UNKNOWN

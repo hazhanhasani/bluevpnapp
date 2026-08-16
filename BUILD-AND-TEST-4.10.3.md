@@ -1,4 +1,4 @@
-# BlueVPN 4.11.3 — Live Support Foundation
+# BlueVPN 4.11.4 — Live Support Foundation
 
 Implemented as one shared support system:
 - Android private chat screen inside BlueVPN.

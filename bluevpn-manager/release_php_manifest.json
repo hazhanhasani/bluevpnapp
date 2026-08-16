@@ -14,6 +14,7 @@
     "includes/class-bluevpn-control-center.php",
     "includes/class-bluevpn-cron.php",
     "includes/class-bluevpn-db.php",
+    "includes/class-bluevpn-free-sources.php",
     "includes/class-bluevpn-frontend.php",
     "includes/class-bluevpn-github-updater.php",
     "includes/class-bluevpn-migration.php",

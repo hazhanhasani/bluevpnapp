@@ -15,7 +15,8 @@ final class BlueVPN_DB {
             'marzban_panels', 'guardcore_panels', 'plans', 'customers',
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
-            'webhook_deliveries', 'bot_settings', 'bot_jobs', 'ai_connection_events', 'ai_live_connections',
+            'payment_events', 'provisioning_attempts', 'webhook_deliveries',
+            'free_config_sources', 'free_configs', 'free_config_reports', 'bot_settings', 'bot_jobs', 'ai_connection_events', 'ai_live_connections',
             'ai_route_aggregates', 'ai_feedback', 'ai_incidents', 'ai_reconciliation_runs',
         ];
     }
@@ -367,12 +368,14 @@ final class BlueVPN_DB {
 
         $queries[] = "CREATE TABLE {$t('payment_settings')} (
             id bigint unsigned NOT NULL,
-            base_url varchar(500) NOT NULL DEFAULT 'https://bluepay-production.up.railway.app',
+            provider varchar(32) NOT NULL DEFAULT 'blupal',
+            base_url varchar(500) NOT NULL DEFAULT 'https://blupal.net/api',
             api_key_enc longtext NULL,
-            callback_secret_enc longtext NULL,
-            fee_mode varchar(30) NOT NULL DEFAULT 'default',
-            ttl_minutes int NOT NULL DEFAULT 30,
+            card_number varchar(32) NOT NULL DEFAULT '',
             active tinyint(1) NOT NULL DEFAULT 0,
+            last_test_ok tinyint(1) NOT NULL DEFAULT 0,
+            last_test_message longtext NULL,
+            last_test_at datetime NULL,
             updated_at datetime NULL,
             PRIMARY KEY  (id)
         ) $cc;";
@@ -385,6 +388,14 @@ final class BlueVPN_DB {
             amount_toman bigint NOT NULL DEFAULT 0,
             payment_id varchar(180) NOT NULL DEFAULT '',
             payment_url longtext NULL,
+            payment_provider varchar(32) NOT NULL DEFAULT 'blupal',
+            payment_mode varchar(20) NOT NULL DEFAULT '',
+            amount_rial bigint NOT NULL DEFAULT 0,
+            final_amount_rial bigint NOT NULL DEFAULT 0,
+            transaction_id varchar(180) NOT NULL DEFAULT '',
+            payer_name varchar(180) NOT NULL DEFAULT '',
+            payer_card varchar(80) NOT NULL DEFAULT '',
+            payer_bank_name varchar(180) NOT NULL DEFAULT '',
             status varchar(40) NOT NULL DEFAULT 'created',
             gateway_json longtext NULL,
             activation_error longtext NULL,
@@ -406,6 +417,106 @@ final class BlueVPN_DB {
             KEY ix_order_customer_status_created (customer_id, status, created_at),
             KEY ix_order_status_expiry (status, expires_at),
             KEY ix_order_payment_status (payment_id, status)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('payment_events')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            order_id varchar(36) NULL,
+            provider varchar(32) NOT NULL DEFAULT 'blupal',
+            provider_invoice_id varchar(180) NOT NULL DEFAULT '',
+            transaction_id varchar(180) NOT NULL DEFAULT '',
+            event_type varchar(80) NOT NULL DEFAULT '',
+            status varchar(40) NOT NULL DEFAULT '',
+            amount_rial bigint NOT NULL DEFAULT 0,
+            final_amount_rial bigint NOT NULL DEFAULT 0,
+            verified tinyint(1) NOT NULL DEFAULT 0,
+            payload_json longtext NULL,
+            created_at datetime NULL,
+            PRIMARY KEY  (id),
+            KEY ix_payment_event_order (order_id),
+            KEY ix_payment_event_invoice (provider_invoice_id),
+            KEY ix_payment_event_status (status, created_at)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('provisioning_attempts')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            order_id varchar(36) NULL,
+            customer_id bigint unsigned NULL,
+            plan_id bigint unsigned NULL,
+            trigger_source varchar(40) NOT NULL DEFAULT '',
+            attempt_no int NOT NULL DEFAULT 1,
+            status varchar(40) NOT NULL DEFAULT 'started',
+            result_json longtext NULL,
+            error_message longtext NULL,
+            started_at datetime NULL,
+            finished_at datetime NULL,
+            created_at datetime NULL,
+            PRIMARY KEY  (id),
+            KEY ix_provision_order (order_id),
+            KEY ix_provision_customer (customer_id, created_at),
+            KEY ix_provision_status (status, created_at)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('free_config_sources')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            source_key varchar(80) NOT NULL DEFAULT '',
+            source_type varchar(30) NOT NULL DEFAULT 'telegram_public',
+            title varchar(160) NOT NULL DEFAULT '',
+            url varchar(800) NOT NULL DEFAULT '',
+            enabled tinyint(1) NOT NULL DEFAULT 1,
+            priority int NOT NULL DEFAULT 100,
+            fetch_interval_seconds int NOT NULL DEFAULT 300,
+            max_items int NOT NULL DEFAULT 400,
+            last_fetch_at datetime NULL,
+            last_status varchar(40) NOT NULL DEFAULT '',
+            last_error longtext NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY uq_free_source_key (source_key),
+            KEY ix_free_source_enabled (enabled, priority)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('free_configs')} (
+            id varchar(64) NOT NULL,
+            source_id bigint unsigned NULL,
+            protocol varchar(24) NOT NULL DEFAULT '',
+            config_uri longtext NULL,
+            country_hint varchar(80) NOT NULL DEFAULT '',
+            source_ping_ms int NOT NULL DEFAULT 0,
+            source_post_url varchar(800) NOT NULL DEFAULT '',
+            score decimal(8,3) NOT NULL DEFAULT 0,
+            reports_count int NOT NULL DEFAULT 0,
+            successes int NOT NULL DEFAULT 0,
+            failures int NOT NULL DEFAULT 0,
+            avg_latency_ms decimal(10,2) NOT NULL DEFAULT 0,
+            avg_jitter_ms decimal(10,2) NOT NULL DEFAULT 0,
+            avg_loss_x100 decimal(10,2) NOT NULL DEFAULT 0,
+            active tinyint(1) NOT NULL DEFAULT 1,
+            first_seen_at datetime NULL,
+            last_seen_at datetime NULL,
+            last_report_at datetime NULL,
+            PRIMARY KEY  (id),
+            KEY ix_free_config_source (source_id, active),
+            KEY ix_free_config_score (active, score, reports_count),
+            KEY ix_free_config_seen (last_seen_at)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('free_config_reports')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            config_id varchar(64) NOT NULL,
+            network_hash varchar(64) NOT NULL DEFAULT '',
+            device_hash varchar(64) NOT NULL DEFAULT '',
+            bucket varchar(20) NOT NULL DEFAULT '',
+            latency_ms int NOT NULL DEFAULT 0,
+            jitter_ms int NOT NULL DEFAULT 0,
+            loss_x100 int NOT NULL DEFAULT 0,
+            success tinyint(1) NOT NULL DEFAULT 0,
+            app_version varchar(32) NOT NULL DEFAULT '',
+            created_at datetime NULL,
+            PRIMARY KEY  (id),
+            KEY ix_free_report_config (config_id, created_at),
+            KEY ix_free_report_network (network_hash, created_at)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('sms_deliveries')} (
@@ -897,14 +1008,25 @@ final class BlueVPN_DB {
         if (!$wpdb->get_var("SELECT id FROM {$payment} WHERE id=1")) {
             $wpdb->insert($payment, [
                 'id' => 1,
-                'base_url' => 'https://bluepay-production.up.railway.app',
+                'provider' => 'blupal',
+                'base_url' => 'https://blupal.net/api',
                 'api_key_enc' => '',
-                'callback_secret_enc' => '',
-                'fee_mode' => 'default',
-                'ttl_minutes' => 30,
+                'card_number' => '',
                 'active' => 0,
                 'updated_at' => $now,
             ]);
+        }
+        else {
+            $existingPayment=$wpdb->get_row("SELECT * FROM {$payment} WHERE id=1",ARRAY_A)?:[];
+            $provider=(string)($existingPayment['provider']??'');
+            $base=(string)($existingPayment['base_url']??'');
+            if($provider!=='blupal'||stripos($base,'bluepay')!==false||stripos($base,'railway.app')!==false){
+                // Never reuse a BluePay credential against BluPal. Migration is
+                // intentionally fail-closed until the admin enters a BluPal key.
+                $wpdb->update($payment,[
+                    'provider'=>'blupal','base_url'=>'https://blupal.net/api','api_key_enc'=>'','card_number'=>'','active'=>0,'updated_at'=>$now,
+                ],['id'=>1]);
+            }
         }
 
         $bot = self::table('bot_settings');

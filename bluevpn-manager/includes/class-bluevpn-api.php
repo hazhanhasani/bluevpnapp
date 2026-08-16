@@ -15,6 +15,7 @@ final class BlueVPN_API {
             ['/ad-assets/(?P<asset_id>[A-Za-z0-9_-]{6,64})','GET','ad_asset'],
             ['/free/subscription','GET','free_subscription'],
             ['/free/subscriptions/(?P<item_id>[A-Za-z0-9_-]{1,64})','GET','free_subscription'],
+            ['/free/curated','GET','free_curated'], ['/free/probes','POST','free_probe'],
             ['/auth/register','POST','register'], ['/auth/login','POST','login'],
             ['/auth/otp/request','POST','otp_request'], ['/auth/otp/verify','POST','otp_verify'],
             ['/auth/refresh','POST','refresh'], ['/auth/logout','POST','logout'],
@@ -36,7 +37,7 @@ final class BlueVPN_API {
             ['/orders/(?P<order_id>[A-Za-z0-9_-]{8,80})/checkout/heartbeat','POST','checkout_heartbeat'],
             ['/orders/(?P<order_id>[A-Za-z0-9_-]{8,80})/checkout/close','POST','checkout_close'],
             ['/orders/(?P<order_id>[A-Za-z0-9_-]{8,80})/check-after-success','GET','check_after_success'],
-            ['/webhooks/bluepay','POST','bluepay_webhook'],
+            ['/webhooks/blupal','POST','blupal_webhook'],
             ['/sub/(?P<token>[A-Za-z0-9_-]{10,100})','GET','subscription'],
         ];
         foreach ($routes as [$route,$method,$handler]) register_rest_route('bluevpn/v1',$route,['methods'=>$method,'callback'=>[self::class,$handler],'permission_callback'=>'__return_true']);
@@ -106,7 +107,7 @@ final class BlueVPN_API {
             'features' => [
                 'advertising' => true, 'ad_assets' => true, 'tapsell' => true, 'free_story_ads' => true, 'free_access' => true,
                 'blueai_events' => true, 'blueai_recommendations' => true, 'blueai_dashboard' => true, 'blueai_live_tier_monitoring' => true,
-                'orders' => true, 'bluepay_webhook' => true, 'bind_phone_otp' => true, 'provider_sync' => true, 'live_support' => true, 'support_attachments' => true, 'support_sla' => true, 'support_background_notifications' => true,
+                'orders' => true, 'blupal_webhook' => true, 'bind_phone_otp' => true, 'provider_sync' => true, 'live_support' => true, 'support_attachments' => true, 'support_sla' => true, 'support_background_notifications' => true,
             ],
             'static_api_key_required' => false,
             'cutover_ready' => get_option('bluevpn_manager_cutover_ready','0') === '1',
@@ -249,6 +250,8 @@ final class BlueVPN_API {
     }
     public static function ad_asset(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Ads::asset_response($r); }
     public static function free_subscription(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Ads::free_subscription($r); }
+    public static function free_curated(WP_REST_Request $r): WP_REST_Response { $limit=max(10,min(300,(int)($r->get_param('limit')?:80)));$text=BlueVPN_Free_Sources::subscription_text($limit);$res=new WP_REST_Response($text,200);$res->header('Content-Type','text/plain; charset=utf-8');$res->header('X-BlueVPN-Raw','1');$res->header('Cache-Control','public, max-age=60');return $res; }
+    public static function free_probe(WP_REST_Request $r): WP_REST_Response { $device=(string)$r->get_header('x-device-id');$app=(string)$r->get_header('user-agent');return self::ok(['success'=>true,'result'=>BlueVPN_Free_Sources::report(self::body($r),$device,$app)]); }
 
     public static function bind_phone_otp_request(WP_REST_Request $r): WP_REST_Response {
         try { $c=BlueVPN_Auth::current_customer($r); $b=self::body($r); return self::ok(BlueVPN_SMS_OTP::request_bind($c,(string)($b['phone']??''),(string)($b['device_id']??''))); }
@@ -299,7 +302,7 @@ final class BlueVPN_API {
     public static function check_after_success(WP_REST_Request $r): WP_REST_Response {
         try{$c=BlueVPN_Auth::current_customer($r);$result=BlueVPN_Payments::get($c,(string)$r['order_id'],true);$status=(string)($result['order']['status']??'');$pending=in_array($status,['','pending','created','creating','creating_invoice','processing','waiting','unpaid','paid','paid_needs_sync','partial_needs_sync'],true);return self::ok(array_merge(['success'=>true,'confirmed'=>$status==='activated','pending'=>$pending,'attempts'=>1,'elapsed_seconds'=>0,'retry_after_seconds'=>$pending?5:0,'server_time'=>BlueVPN_Utils::iso_now(),'server_time_fa'=>BlueVPN_Utils::tehran_datetime_fa(),'calendar'=>'jalali','timezone'=>'Asia/Tehran'],$result));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);}
     }
-    public static function bluepay_webhook(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Payments::webhook($r); }
+    public static function blupal_webhook(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Payments::webhook($r); }
 
     public static function otp_request(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);return self::ok(BlueVPN_SMS_OTP::request((string)($b['phone']??''),(string)($b['device_id']??'')));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);}catch(Throwable $e){return self::unexpected($e,'otp_request');} }
     public static function otp_verify(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);return self::ok(BlueVPN_SMS_OTP::verify((string)($b['phone']??''),(string)($b['challenge_id']??''),(string)($b['code']??''),(string)($b['device_id']??''),(string)($b['device_name']??'')));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);}catch(Throwable $e){return self::unexpected($e,'otp_verify');} }

@@ -50,7 +50,7 @@ final class BlueVPN_Unified_UI {
             ],
             'سرویس‌ها' => [
                 ['bluevpn-sms', 'SMS / OTP', 'sms'],
-                ['bluevpn-bluepay', 'BluePay', 'wallet'],
+                ['bluevpn-payments', 'پرداخت / بلوپال', 'wallet'],
                 ['bluevpn-support', 'پشتیبانی آنلاین', 'support'],
                 ['bluevpn-telegram-bot', 'ربات تلگرام', 'bot'],
                 ['bluevpn-manual', 'فعال‌سازی دستی', 'manual'],

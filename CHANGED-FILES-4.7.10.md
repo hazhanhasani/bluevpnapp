@@ -1,11 +1,11 @@
-# Changed Files — BlueVPN 4.11.3
+# Changed Files — BlueVPN 4.11.4
 
 - `.github/workflows/build-apk.yml` — Fast/Full modes, native artifact caches, one-pass Gradle compile+assemble, immediate Fast signed artifact.
-- `branding/app.json` — 4.11.3 / 41103.
-- `release.json` — 4.11.3 Fast CI release metadata.
-- `bluevpn-manager/bluevpn-manager.php` — synchronized 4.11.3 version.
-- `bluevpn-manager/readme.txt` — synchronized 4.11.3 changelog.
+- `branding/app.json` — 4.11.4 / 41104.
+- `release.json` — 4.11.4 Fast CI release metadata.
+- `bluevpn-manager/bluevpn-manager.php` — synchronized 4.11.4 version.
+- `bluevpn-manager/readme.txt` — synchronized 4.11.4 changelog.
 - `README.md` — Fast CI operating modes and verification status.
 - `tests/test_fast_ci_4710.py` — regression coverage for Fast/Full CI contract.
 - `tests/release_test_manifest.json` — includes the Fast CI regression suite.
-- `tests/test_sms_otp_autofill_477.py` / `tests/test_warp_adaptive_469.py` — current version contract updated to 4.11.3.
+- `tests/test_sms_otp_autofill_477.py` / `tests/test_warp_adaptive_469.py` — current version contract updated to 4.11.4.

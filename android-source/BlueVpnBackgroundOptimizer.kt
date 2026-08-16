@@ -292,6 +292,20 @@ object BlueVpnBackgroundOptimizer {
                             "BACKGROUND_POOL_PROBE_${bucket.name}"
                         },
                     )
+                    val raw = MmkvManager.decodeServerRaw(candidate.guid).orEmpty().trim()
+                    if (raw.isNotBlank()) {
+                        val configId = MessageDigest.getInstance("SHA-256")
+                            .digest(raw.toByteArray(Charsets.UTF_8))
+                            .joinToString("") { "%02x".format(it) }
+                        val report = JSONObject()
+                            .put("config_id", configId)
+                            .put("network_id", network.id)
+                            .put("bucket", bucket.key)
+                            .put("latency_ms", average)
+                            .put("jitter_ms", jitter)
+                            .put("loss_x100", lossX100)
+                        BlueVpnAccountManager.reportFreeConfigProbe(context, report)
+                    }
                 }
                 persistPartial(context, network.id, entitlement, candidates.size, results)
                 delay(INTER_BATCH_DELAY_MS)

@@ -39,7 +39,7 @@ final class BlueVPN_Admin {
             ['bluevpn-guardcore','GuardCore','guardcore'],
             ['bluevpn-guardcore-queue','صف GuardCore','guardcore-manual'],
             ['bluevpn-plans','پلن‌ها','plans'],
-            ['bluevpn-bluepay','BluePay','bluepay'],
+            ['bluevpn-payments','پرداخت / بلوپال','blupal'],
             ['bluevpn-manual','فعال‌سازی دستی','manual'],
             ['bluevpn-customers','کاربران','customers'],
             ['bluevpn-orders','پرداخت‌ها','orders'],

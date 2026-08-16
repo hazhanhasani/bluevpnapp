@@ -501,7 +501,7 @@ private fun loadPlans(generation:Int){
   ).format(p.optInt("price_toman"))
 
   box.addView(button(
-   "$price تومان • پرداخت امن با BluePay",
+   "$price تومان • پرداخت امن با بلوپال",
    "#1676FF"
   ).apply{
    textSize=13.5f

@@ -2166,6 +2166,10 @@ object BlueVpnAccountManager {
         }
     }
 
+    fun reportFreeConfigProbe(c: Context, payload: JSONObject): Result<JSONObject> = runCatching {
+        request(c.applicationContext, "POST", "/api/v1/free/probes", payload, false)
+    }
+
     fun supportRequest(
         c: Context,
         method: String,
@@ -2771,7 +2775,7 @@ object BlueVpnAccountManager {
             throw ApiException(
                 0,
                 when {
-                    invoiceRequest -> "BLUEPAY_TIMEOUT"
+                    invoiceRequest -> "BLUPAL_TIMEOUT"
                     otpRequest -> "SMS_REQUEST_TIMEOUT"
                     else -> "NETWORK_TIMEOUT"
                 },

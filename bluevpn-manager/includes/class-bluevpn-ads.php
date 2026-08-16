@@ -305,6 +305,17 @@ final class BlueVPN_Ads {
         $version = self::client_version($request);
         $supported = $version === '' || self::version_key($version) >= self::version_key('3.0.48');
         $enabled = $configured && $supported;
+        if (class_exists('BlueVPN_Free_Sources')) {
+            $curatedCount=count(BlueVPN_Free_Sources::curated(300));
+            if($curatedCount>0){
+                $public[]=[
+                    'id'=>'telegram-curated','name'=>'Pool هوشمند رایگان','subscription_url'=>$base.'/api/v1/free/curated','priority'=>5,
+                ];
+                $legacyPoolEnabled = $mode !== 'warp_only' && !empty($settings['free_access_enabled']);
+                $fallbackEnabled = $mode === 'warp_fallback_pool' && $legacyPoolEnabled && (!array_key_exists('free_warp_fallback_enabled', $settings) || !empty($settings['free_warp_fallback_enabled']));
+                $enabled = $warpEnabled || $legacyPoolEnabled;
+            }
+        }
         return [
             'enabled' => $enabled,
             'autoplay' => !empty($settings['ads_autoplay']),
@@ -1089,6 +1100,15 @@ final class BlueVPN_Ads {
         echo '<div class="bvc-card"><h2>منابع</h2><table class="widefat striped bvc-table"><tr><th>نام</th><th>URL مبدا</th><th>Endpoint اپ</th><th>وضعیت</th><th>عملیات</th></tr>';
         foreach (self::free_sources($s) as $item) { $public = home_url('/api/v1/free/subscriptions/' . rawurlencode($item['id'])); echo '<tr><td>' . esc_html($item['name']) . '</td><td><code>' . esc_html($item['url']) . '</code></td><td><code>' . esc_html($public) . '</code></td><td>' . ($item['active'] ? 'فعال' : 'خاموش') . '</td><td>'; self::mini_form('bluevpn_free_toggle', 'bluevpn_free_toggle', $item['id'], $item['active'] ? 'خاموش' : 'روشن'); self::mini_form('bluevpn_free_delete', 'bluevpn_free_delete', $item['id'], 'حذف', true); echo '</td></tr>'; }
         echo '</table></div>';
+        if(class_exists('BlueVPN_Free_Sources')){
+            BlueVPN_Free_Sources::seed();global $wpdb;$st=BlueVPN_DB::table('free_config_sources');$ct=BlueVPN_DB::table('free_configs');
+            $sources=$wpdb->get_results("SELECT * FROM {$st} ORDER BY priority,id",ARRAY_A)?:[];
+            $total=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$ct} WHERE active=1");$tested=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$ct} WHERE active=1 AND reports_count>0");$strong=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$ct} WHERE active=1 AND reports_count>=2 AND score>=65");
+            echo '<div class="bvc-grid"><div class="bvc-card bvc-kpi"><span>کانفیگ فعال جمع‌آوری‌شده</span><strong>'.number_format($total).'</strong></div><div class="bvc-card bvc-kpi"><span>تست‌شده با اینترنت کاربران</span><strong>'.number_format($tested).'</strong></div><div class="bvc-card bvc-kpi"><span>Pool منتخب</span><strong>'.number_format($strong).'</strong></div></div>';
+            echo '<div class="bvc-card"><h2>منابع خودکار عمومی</h2><p>سرور فقط کانفیگ‌های عمومی را جمع می‌کند؛ تست واقعی روی اینترنت کاربران انجام و نتیجه ناشناس برای رتبه‌بندی Pool برگردانده می‌شود.</p><table class="widefat striped bvc-table"><tr><th>منبع</th><th>آخرین دریافت</th><th>وضعیت</th><th>عملیات</th></tr>';
+            foreach($sources as $src){echo '<tr><td><strong>'.esc_html($src['title']).'</strong><br><code>'.esc_html($src['url']).'</code></td><td>'.esc_html($src['last_fetch_at']?:'—').'</td><td>'.esc_html($src['last_status']?:($src['enabled']?'آماده':'خاموش')).($src['last_error']?'<br><small class="bvc-bad">'.esc_html(mb_substr($src['last_error'],0,160)).'</small>':'').'</td><td><div class="bvc-actions"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_free_source_refresh_'.(int)$src['id']);echo '<input type="hidden" name="action" value="bluevpn_free_source_refresh"><input type="hidden" name="source_id" value="'.(int)$src['id'].'"><button class="button">دریافت الآن</button></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_free_source_toggle_'.(int)$src['id']);echo '<input type="hidden" name="action" value="bluevpn_free_source_toggle"><input type="hidden" name="source_id" value="'.(int)$src['id'].'"><button class="button">'.($src['enabled']?'خاموش':'روشن').'</button></form></div></td></tr>';}
+            echo '</table><h3 style="margin-top:18px">افزودن کانال عمومی Telegram</h3><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_free_source_save');echo '<input type="hidden" name="action" value="bluevpn_free_source_save"><div class="bvc-form-grid"><label>عنوان<input name="title" value="VPNhub | کانفیگ رایگان"></label><label>Preview URL<input name="url" value="https://t.me/s/persianvpnhub" required></label><label>فاصله دریافت (ثانیه)<input type="number" name="fetch_interval_seconds" min="60" value="300"></label><label>حداکثر آیتم<input type="number" name="max_items" min="10" max="1000" value="400"></label><label>اولویت<input type="number" name="priority" value="10"></label></div><p><button class="button button-primary">ذخیره منبع</button></p></form></div>';
+        }
     }
 
     private static function target_editor(array $item = []): void {

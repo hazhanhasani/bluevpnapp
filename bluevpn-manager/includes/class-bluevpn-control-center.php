@@ -28,7 +28,13 @@ final class BlueVPN_Control_Center {
         foreach([
             'bluevpn_cc_save_provider'=>'save_provider','bluevpn_cc_toggle_provider'=>'toggle_provider','bluevpn_cc_delete_provider'=>'delete_provider','bluevpn_cc_test_provider'=>'test_provider',
             'bluevpn_cc_save_payment'=>'save_payment','bluevpn_cc_save_sms'=>'save_sms','bluevpn_cc_refresh_sms_patterns'=>'refresh_sms_patterns','bluevpn_cc_smart_assign_sms_patterns'=>'smart_assign_sms_patterns','bluevpn_cc_save_sms_templates'=>'save_sms_templates','bluevpn_cc_test_sms_template'=>'test_sms_template','bluevpn_cc_process_sms'=>'process_sms','bluevpn_cc_broadcast_sms'=>'broadcast_sms','bluevpn_cc_retry_sms'=>'retry_sms','bluevpn_cc_sync_customer'=>'sync_customer','bluevpn_cc_repair_customer_providers'=>'repair_customer_providers','bluevpn_cc_save_plan_routing'=>'save_plan_routing',
-            'bluevpn_cc_manual_activate'=>'manual_activate','bluevpn_cc_attach_guardcore'=>'attach_guardcore','bluevpn_cc_refresh_guardcore_stats'=>'refresh_guardcore_stats','bluevpn_cc_export_backup'=>'export_backup',
+            'bluevpn_cc_manual_activate'=>'manual_activate','bluevpn_cc_attach_guardcore'=>'attach_guardcore',
+            'bluevpn_cc_refresh_guardcore_stats'=>'refresh_guardcore_stats',
+            'bluevpn_cc_guardcore_refresh_catalog'=>'guardcore_refresh_catalog',
+            'bluevpn_cc_guardcore_bootstrap_key'=>'guardcore_bootstrap_key',
+            'bluevpn_cc_guardcore_subscription_action'=>'guardcore_subscription_action',
+            'bluevpn_cc_guardcore_node_action'=>'guardcore_node_action',
+            'bluevpn_cc_export_backup'=>'export_backup',
             'bluevpn_cc_create_private_backup'=>'create_private_backup','bluevpn_cc_restore_backup'=>'restore_backup','bluevpn_cc_finalize_cutover'=>'finalize_cutover',
             'bluevpn_cc_save_plan'=>'save_plan','bluevpn_cc_delete_plan'=>'delete_plan','bluevpn_cc_restore_plan'=>'restore_plan',
             'bluevpn_cc_revoke_device'=>'revoke_device','bluevpn_cc_revoke_session'=>'revoke_session','bluevpn_cc_logout_customer'=>'logout_customer','bluevpn_cc_set_customer_status'=>'set_customer_status',
@@ -111,8 +117,26 @@ final class BlueVPN_Control_Center {
         self::input('name','نام',$current['name']??'',true);self::input('base_url','Base URL',$current['base_url']??'',true);
         if($provider==='pasarguard'){self::select('auth_mode','روش ورود',['api_key'=>'API Key','password'=>'Username / Password'],$current['auth_mode']??'api_key');self::input('api_key','API Key','',false,'password');self::input('username','نام کاربری','',false);self::input('password','رمز','',false,'password');self::textarea('proxy_settings_json','Proxy Settings JSON',$current['proxy_settings_json']??'{"vless":{}}');}
         elseif($provider==='marzban'){self::input('username','نام کاربری مدیر','',false);self::input('password','رمز مدیر','',false,'password');self::textarea('proxies_json','Proxies JSON',$current['proxies_json']??'{}');self::textarea('inbounds_json','Inbounds JSON',$current['inbounds_json']??'{}');}
-        else{self::select('auth_mode','حالت',['manual'=>'Manual','api_key'=>'API Key','password'=>'Username / Password'],$current['auth_mode']??'manual');self::input('global_subscription_url','Global Subscription',$current['global_subscription_url']??'');self::input('api_key','API Key','',false,'password');self::input('username','نام کاربری','');self::input('password','رمز','',false,'password');self::select('usage_unit','واحد مصرف',['bytes'=>'Bytes','gb'=>'GB'],$current['usage_unit']??'bytes');self::select('expire_mode','نوع انقضا',['days'=>'Days','seconds'=>'Seconds','timestamp'=>'Timestamp'],$current['expire_mode']??'days');self::textarea('services_json','Services JSON',$current['services_json']??'[]');}
+        else{
+            self::select('auth_mode','حالت',['manual'=>'Manual','api_key'=>'API Key','password'=>'Username / Password'],$current['auth_mode']??'manual');
+            self::input('global_subscription_url','Global Subscription',$current['global_subscription_url']??'');
+            self::input('api_key','API Key','',false,'password');
+            self::input('username','نام کاربری','');
+            self::input('password','رمز','',false,'password');
+            self::select('usage_unit','واحد limit_usage',['bytes'=>'Bytes','gb'=>'GB'],$current['usage_unit']??'bytes');
+            self::select('expire_mode','واحد limit_expire',['days'=>'Days','seconds'=>'Seconds','timestamp'=>'Timestamp'],$current['expire_mode']??'days');
+            if($edit){
+                echo '<div class="bvc-note" style="grid-column:1/-1">GuardCore API 0.13: برای حساب‌های دارای TOTP، بعد از ذخیره Username/Password از دکمه «دریافت API Key با TOTP» استفاده کن. BlueVPN سپس برای عملیات خودکار از X-API-Key استفاده می‌کند.</div>';
+            }
+        }
         echo '<label><input type="checkbox" name="verify_tls" value="1" '.checked(!isset($current['verify_tls'])||(int)($current['verify_tls']??1)===1,true,false).'> SSL Verify</label><label><input type="checkbox" name="active" value="1" '.checked(!isset($current['active'])||(int)($current['active']??1)===1,true,false).'> فعال</label></div>';submit_button($edit?'ذخیره تغییرات':'افزودن پنل','primary','submit',false);echo '</form></div>';
+        if($provider==='guardcore'&&$edit){
+            echo '<div class="bvc-grid">';
+            echo '<div class="bvc-card"><h3>GuardCore API 0.13</h3><p>نسخه شناسایی‌شده: <code>'.self::esc($current['api_version']??'نامشخص').'</code></p>';
+            echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_guardcore_refresh_catalog_'.$edit);echo '<input type="hidden" name="action" value="bluevpn_cc_guardcore_refresh_catalog"><input type="hidden" name="panel_id" value="'.$edit.'"><button class="button button-primary">همگام‌سازی Service / Node / Stats</button></form></div>';
+            echo '<div class="bvc-card"><h3>TOTP → API Key</h3><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_guardcore_bootstrap_key_'.$edit);echo '<input type="hidden" name="action" value="bluevpn_cc_guardcore_bootstrap_key"><input type="hidden" name="panel_id" value="'.$edit.'"><label>کد TOTP فعلی<input name="totp_code" inputmode="numeric" pattern="[0-9]{6,8}" maxlength="8" placeholder="123456"></label><p><button class="button">دریافت و ذخیره API Key</button></p></form></div>';
+            echo '</div>';
+        }
         echo '<table class="widefat striped bvc-table"><tr><th>ID</th><th>نام</th><th>URL</th><th>وضعیت</th><th>آخرین تست</th><th>عملیات</th></tr>';foreach($rows as $x){$test=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_test_provider&provider='.$provider.'&id='.(int)$x['id']),'bluevpn_cc_test_provider_'.$provider.'_'.$x['id']);$toggle=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_toggle_provider&provider='.$provider.'&id='.(int)$x['id']),'bluevpn_cc_toggle_provider_'.$provider.'_'.$x['id']);$delete=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_delete_provider&provider='.$provider.'&id='.(int)$x['id']),'bluevpn_cc_delete_provider_'.$provider.'_'.$x['id']);echo '<tr><td>'.(int)$x['id'].'</td><td>'.self::esc($x['name']).'</td><td><code>'.self::esc($x['base_url']).'</code></td><td>'.((int)$x['active']?'<span class="bvc-ok">فعال</span>':'<span class="bvc-bad">غیرفعال</span>').'</td><td>'.((int)$x['last_test_ok']?'<span class="bvc-ok">✅</span>':'<span class="bvc-bad">'.($x['last_test_at']?'❌':'—').'</span>').' '.self::esc($x['last_test_message']??'').'</td><td><div class="bvc-actions"><a class="button" href="'.esc_url(self::url($provider==='pasarguard'?'panels':$provider,['edit'=>(int)$x['id']])).'">ویرایش</a><a class="button" href="'.esc_url($test).'">تست</a><a class="button" href="'.esc_url($toggle).'">'.((int)$x['active']?'غیرفعال':'فعال').'‌کردن</a><a class="button button-link-delete" href="'.esc_url($delete).'" onclick="return confirm(&quot;این پنل از BlueVPN حذف شود؟ اتصال پلن‌ها و کاربران به این پنل نیز پاک می‌شود؛ کاربران فعال در اولین Sync/Provision به Provider جایگزین منتقل می‌شوند.&quot;)">حذف</a></div></td></tr>';}echo '</table>';
     }
     private static function input(string $name,string $label,$value='',bool $required=false,string $type='text'): void { echo '<label>'.self::esc($label).'<input type="'.$type.'" name="'.esc_attr($name).'" value="'.esc_attr((string)$value).'" '.($required?'required':'').'></label>'; }
@@ -150,7 +174,81 @@ final class BlueVPN_Control_Center {
     private static function tab_marzban(): void { self::provider_tab('marzban'); }
     private static function tab_guardcore(): void {
         self::provider_tab('guardcore');
+        self::guardcore_api_dashboard();
         self::guardcore_assignments_panel();
+    }
+
+    private static function guardcore_api_dashboard(): void {
+        global $wpdb;
+        $t=BlueVPN_DB::table('guardcore_panels');
+        $panels=$wpdb->get_results("SELECT * FROM {$t} WHERE active=1 ORDER BY id",ARRAY_A)?:[];
+        if(!$panels)return;
+
+        echo '<div class="bvc-card" style="margin-top:18px"><h2>GuardCore API 0.13 — وضعیت زنده</h2>';
+        foreach($panels as $panel){
+            if(($panel['auth_mode']??'manual')==='manual')continue;
+            $catalog=BlueVPN_Providers::guardcore_catalog((int)$panel['id'],false);
+            echo '<div style="margin:14px 0;border:1px solid #dcdcde;border-radius:12px;padding:14px">';
+            echo '<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center"><div><strong>'.self::esc($panel['name']).'</strong> <code>#'.(int)$panel['id'].'</code><br><small>API: '.self::esc($catalog['version']??$panel['api_version']??'نامشخص').'</small></div>';
+            echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_guardcore_refresh_catalog_'.(int)$panel['id']);echo '<input type="hidden" name="action" value="bluevpn_cc_guardcore_refresh_catalog"><input type="hidden" name="panel_id" value="'.(int)$panel['id'].'"><button class="button">Refresh API</button></form></div>';
+
+            if(empty($catalog['ok'])){
+                echo '<p class="bvc-bad">'.self::esc($catalog['message']??'خطای GuardCore').'</p></div>';
+                continue;
+            }
+
+            $services=(array)($catalog['services']??[]);
+            $nodes=(array)($catalog['nodes']??[]);
+            $stats=(array)($catalog['stats']??[]);
+            $sub=(array)($stats['subscriptions']??[]);
+            $status=(array)($stats['status']??[]);
+            $nodeStats=(array)($stats['nodes']??[]);
+            $admin=(array)($stats['admin']??[]);
+
+            echo '<div class="bvc-grid" style="margin-top:12px">';
+            foreach([
+                ['Serviceها',count($services)],
+                ['Nodeها',count($nodes)],
+                ['Subscription کل',(int)($sub['total']??0)],
+                ['فعال',(int)($status['active']??$sub['active']??0)],
+                ['آنلاین',(int)($status['online']??0)],
+                ['مصرف کل',self::fmt_bytes((int)($status['total_usage']??$sub['total_usage']??0))],
+                ['مصرف ۷ روز',self::fmt_bytes((int)(($stats['usage_7d']['total']??0)))],
+            ] as $metric){
+                echo '<div class="bvc-card"><strong>'.self::esc($metric[0]).'</strong><div style="font-size:22px;margin-top:4px">'.self::esc($metric[1]).'</div></div>';
+            }
+            echo '</div>';
+
+            echo '<div class="bvc-grid">';
+            echo '<div><h3>Serviceها</h3><table class="widefat striped bvc-table"><tr><th>ID</th><th>نام</th><th>Nodeها</th><th>کاربر</th></tr>';
+            foreach($services as $service){
+                echo '<tr><td><code>'.(int)($service['id']??0).'</code></td><td>'.self::esc($service['remark']??'').'</td><td>'.self::esc(implode(',',array_map('intval',(array)($service['node_ids']??[])))).'</td><td>'.(int)($service['users_count']??0).'</td></tr>';
+            }
+            echo '</table></div>';
+
+            echo '<div><h3>Nodeها</h3><table class="widefat striped bvc-table"><tr><th>ID</th><th>نام</th><th>نوع</th><th>وضعیت</th><th>مصرف</th><th>عملیات</th></tr>';
+            foreach($nodes as $node){
+                $nodeId=(int)($node['id']??0);$enabled=!empty($node['enabled']);
+                echo '<tr><td><code>'.$nodeId.'</code></td><td>'.self::esc($node['remark']??'').'</td><td>'.self::esc($node['category']??'').'</td><td>'.($enabled?'<span class="bvc-ok">فعال</span>':'<span class="bvc-bad">غیرفعال</span>').'</td><td>'.self::fmt_bytes((int)($node['current_usage']??0)).'</td><td>';
+                echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_guardcore_node_action_'.(int)$panel['id'].'_'.$nodeId);echo '<input type="hidden" name="action" value="bluevpn_cc_guardcore_node_action"><input type="hidden" name="panel_id" value="'.(int)$panel['id'].'"><input type="hidden" name="node_id" value="'.$nodeId.'"><input type="hidden" name="enable" value="'.($enabled?'0':'1').'"><button class="button button-small">'.($enabled?'غیرفعال‌کردن':'فعال‌کردن').'</button></form>';
+                echo '</td></tr>';
+            }
+            echo '</table></div>';
+            echo '</div>';
+
+            $reached=BlueVPN_Providers::guardcore_reached((int)$panel['id'],10);
+            if($reached){
+                echo '<h3>آخرین Subscriptionهای Limit/Expire شده</h3><table class="widefat striped bvc-table"><tr><th>Username</th><th>Limited</th><th>Expired</th><th>زمان</th></tr>';
+                foreach($reached as $row){
+                    echo '<tr><td><code>'.self::esc($row['username']??'').'</code></td><td>'.(!empty($row['limited'])?'بله':'خیر').'</td><td>'.(!empty($row['expired'])?'بله':'خیر').'</td><td>'.self::esc($row['reached_at']??'').'</td></tr>';
+                }
+                echo '</table>';
+            }
+
+            echo '<p><small>Admin: '.self::esc($admin['username']??'').' • Role: '.self::esc($admin['role']??'').' • Node active: '.(int)($nodeStats['active_nodes']??0).'/'.(int)($nodeStats['total_nodes']??count($nodes)).' • TOTP: '.(!empty($admin['totp_status'])?'فعال':'غیرفعال').'</small></p>';
+            echo '</div>';
+        }
+        echo '</div>';
     }
 
     private static function guardcore_assignments_panel(): void {
@@ -225,7 +323,7 @@ final class BlueVPN_Control_Center {
             echo '</div></div>';
 
             echo '<table class="widefat striped bvc-table"><thead><tr>';
-            echo '<th>کاربر</th><th>Username</th><th>Subscription ID</th><th>وضعیت</th><th>کانفیگ GuardCore</th><th>کل کانفیگ تجمیعی</th><th>آخرین Snapshot</th><th>خطا</th>';
+            echo '<th>کاربر</th><th>Username</th><th>Subscription ID</th><th>وضعیت</th><th>کانفیگ GuardCore</th><th>کل کانفیگ تجمیعی</th><th>آخرین Snapshot</th><th>عملیات API</th><th>خطا</th>';
             echo '</tr></thead><tbody>';
 
             foreach($users as $u){
@@ -244,10 +342,45 @@ final class BlueVPN_Control_Center {
                 echo '<td>'.($updated?($gcOk?'<strong>'.(int)$gcCount.'</strong>':'<span class="bvc-bad">ناموفق</span>'):'در انتظار Snapshot').'</td>';
                 echo '<td>'.($updated?'<strong>'.(int)$total.'</strong>':'—').'</td>';
                 echo '<td>'.($updated?esc_html(wp_date('Y-m-d H:i:s',$updated)):'—').'</td>';
+                echo '<td>';
+                if((int)$group['panel_id']>0&&($group['auth_mode']??'manual')!=='manual'&&!empty($u['guardcore_username'])){
+                    echo '<a class="button button-small" style="margin:2px" href="'.esc_url(self::url('guardcore',['gc_panel'=>(int)$group['panel_id'],'gc_user'=>(string)$u['guardcore_username']])).'">جزئیات</a>';
+                    foreach(['enable'=>'فعال','disable'=>'غیرفعال','revoke'=>'Revoke','reset'=>'Reset'] as $op=>$labelOp){
+                        echo '<form style="display:inline-block;margin:2px" method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+                        wp_nonce_field('bluevpn_cc_guardcore_subscription_action_'.(int)$group['panel_id'].'_'.(int)$u['id']);
+                        echo '<input type="hidden" name="action" value="bluevpn_cc_guardcore_subscription_action"><input type="hidden" name="panel_id" value="'.(int)$group['panel_id'].'"><input type="hidden" name="customer_id" value="'.(int)$u['id'].'"><input type="hidden" name="username" value="'.esc_attr((string)$u['guardcore_username']).'"><input type="hidden" name="operation" value="'.esc_attr($op).'"><button class="button button-small">'.esc_html($labelOp).'</button></form>';
+                    }
+                }else echo '—';
+                echo '</td>';
                 echo '<td>'.(!empty($u['guardcore_last_error'])?'<span class="bvc-bad">'.self::esc(mb_substr((string)$u['guardcore_last_error'],0,120)).'</span>':'—').'</td>';
                 echo '</tr>';
             }
             echo '</tbody></table></div>';
+        }
+        $inspectPanel=(int)($_GET['gc_panel']??0);
+        $inspectUser=sanitize_text_field((string)($_GET['gc_user']??''));
+        if($inspectPanel>0&&$inspectUser!==''){
+            $detail=BlueVPN_Providers::guardcore_subscription_detail($inspectPanel,$inspectUser);
+            echo '<div class="bvc-card" style="margin-top:16px"><h2>جزئیات GuardCore — <code>'.self::esc($inspectUser).'</code></h2>';
+            if(empty($detail['ok']))echo '<p class="bvc-bad">'.self::esc($detail['message']??'خطا').'</p>';
+            else{
+                $d=(array)$detail['subscription'];
+                echo '<div class="bvc-grid">';
+                foreach([
+                    ['وضعیت',$d['status']??''],
+                    ['آنلاین',!empty($d['is_online'])?'بله':'خیر'],
+                    ['آخرین درخواست',$d['last_request_at']??'—'],
+                    ['Agent',$d['last_client_agent']??'—'],
+                    ['مصرف جاری',self::fmt_bytes((int)($d['used_traffic']??0))],
+                    ['مصرف کل',self::fmt_bytes((int)($d['total_usage']??0))],
+                    ['انقضا',$d['expire']??'—'],
+                    ['Serviceها',implode(',',array_map('intval',(array)($d['service_ids']??[])))],
+                ] as $metric)echo '<div class="bvc-card"><strong>'.self::esc($metric[0]).'</strong><div>'.self::esc($metric[1]).'</div></div>';
+                echo '</div>';
+                $logs=(array)($detail['usages']??[]);
+                if($logs){echo '<h3>Usage Log</h3><table class="widefat striped bvc-table"><tr><th>زمان</th><th>مصرف</th></tr>';foreach(array_slice(array_reverse($logs),0,30) as $log)echo '<tr><td>'.self::esc($log['created_at']??'').'</td><td>'.self::fmt_bytes((int)($log['usage']??0)).'</td></tr>';echo '</table>';}
+            }
+            echo '</div>';
         }
         echo '</div>';
     }
@@ -269,6 +402,26 @@ final class BlueVPN_Control_Center {
         }
         echo '</div></div>';
     }
+    private static function guardcore_service_picker(string $panelSelectName,array $panels,array $selected=[]): void {
+        $selected=array_values(array_unique(array_filter(array_map('intval',$selected),static fn($v)=>$v>0)));
+        $catalog=[];
+        foreach($panels as $panel){
+            $services=BlueVPN_Utils::json_decode_array((string)($panel['services_json']??''),[]);
+            $catalog[(int)$panel['id']]=array_values(array_map(static function($service){
+                return [
+                    'id'=>(int)($service['id']??0),
+                    'remark'=>(string)($service['remark']??'Service'),
+                    'users_count'=>(int)($service['users_count']??0),
+                ];
+            },$services));
+        }
+        $uid='gc_picker_'.substr(md5($panelSelectName.'|'.wp_json_encode($selected).'|'.wp_rand()),0,8);
+        echo '<div id="'.esc_attr($uid).'" class="bvc-access-picker" data-gc-service-picker data-panel-select="'.esc_attr($panelSelectName).'" data-selected="'.esc_attr(wp_json_encode($selected)).'" data-catalog="'.esc_attr(wp_json_encode($catalog,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES)).'">';
+        echo '<div class="bvc-access-picker-head"><div><strong>Serviceهای GuardCore</strong><small>از API رسمی GuardCore دریافت می‌شوند. Serviceهای این پلن را انتخاب کن.</small></div></div>';
+        echo '<div class="bvc-access-items" data-gc-items></div></div>';
+        echo '<script>(function(){var root=document.getElementById('.wp_json_encode($uid).');if(!root)return;var form=root.closest("form");var select=form&&form.querySelector("select[name=\\"'.esc_js($panelSelectName).'\\"]");var items=root.querySelector("[data-gc-items]");var catalog=JSON.parse(root.dataset.catalog||"{}");var selected=(JSON.parse(root.dataset.selected||"[]")||[]).map(String);function render(){items.innerHTML="";var rows=catalog[String(select?select.value:0)]||[];if(!rows.length){items.innerHTML="<span class=\\"bvc-note\\">Service ذخیره‌شده‌ای برای این پنل نیست؛ ابتدا GuardCore را Refresh API کن.</span>";return;}rows.forEach(function(x){var l=document.createElement("label");l.className="bvc-access-chip";var c=document.createElement("input");c.type="checkbox";c.name="guardcore_service_ids_selected[]";c.value=String(x.id);c.checked=selected.indexOf(String(x.id))>=0;var span=document.createElement("span");span.textContent=x.remark+" (#"+x.id+")";var small=document.createElement("small");small.textContent=(x.users_count||0)+" کاربر";l.append(c,span,small);items.appendChild(l);});}if(select)select.addEventListener("change",function(){selected=[];render();});render();})();</script>';
+    }
+
     private static function posted_ids(string $arrayName,string $legacyName): array {
         $raw=$_POST[$arrayName]??null;$values=[];
         if(is_array($raw))$values=$raw;elseif($arrayName==='group_ids_selected'&&isset($_POST['pasarguard_access_picker_present']))$values=[];else{$legacy=(string)wp_unslash($_POST[$legacyName]??'');$values=preg_split('/[,\s]+/',$legacy)?:[];}
@@ -331,11 +484,9 @@ final class BlueVPN_Control_Center {
         echo '<label>Marzban';$select('marzban_panel_id',$mzRows,0);echo '</label>';
         echo '<label>GuardCore';$select('guardcore_panel_id',$gcRows,0);echo '</label>';
         self::select('multi_provider_quota_mode','نحوه اعمال حجم',['split'=>'تقسیم حجم بین Providerها','full'=>'حجم کامل روی هر Provider'],'split');
-        echo '</div>';self::access_picker('pasarguard','panel_id',[]);self::access_picker('marzban','marzban_panel_id',[]);echo '</div>';
+        echo '</div>';self::access_picker('pasarguard','panel_id',[]);self::access_picker('marzban','marzban_panel_id',[]);self::guardcore_service_picker('guardcore_panel_id',$gcRows,[]);echo '</div>';
 
-        echo '<details class="bvc-advanced-options"><summary>تنظیمات پیشرفته Provider</summary><div class="bvc-form-grid">';
-        self::input('guardcore_service_ids','GuardCore Service IDs','');
-        echo '</div><div class="bvc-helper">PasarGuard و Marzban را از فهرست زنده بالا انتخاب کن؛ اگر هیچ Group/Inbound مشخصی انتخاب نشود، همه موارد فعال همان پنل استفاده می‌شوند. اگر GuardCore روی حالت خودکار است، Service ID لازم است.</div></details>';
+        echo '<details class="bvc-advanced-options"><summary>تنظیمات پیشرفته Provider</summary><div class="bvc-helper">GuardCore Serviceها از API رسمی پنل خوانده می‌شوند؛ ID دستی دیگر لازم نیست.</div></details>';
 
         echo '<div class="bvc-form-section"><label class="bvc-field-full">توضیحات<textarea name="description" rows="3" placeholder="توضیح کوتاه برای نمایش یا مدیریت پلن"></textarea></label></div>';
         echo '<div class="bvc-form-actions"><button class="button button-primary">افزودن پلن</button></div>';
@@ -391,7 +542,7 @@ final class BlueVPN_Control_Center {
             echo '</div>';self::access_picker('pasarguard','panel_id',$groupSelected);self::access_picker('marzban','marzban_panel_id',$mzSelected);
 
             echo '<details class="bvc-advanced-options"><summary>Group ID / Service ID</summary><div class="bvc-form-grid">';
-            echo '<label>GuardCore Service IDs<input name="guardcore_service_ids" value="'.esc_attr($serviceIds).'" placeholder="10,20"></label>';
+            echo '</div>';self::guardcore_service_picker('guardcore_panel_id',$gcRows,BlueVPN_Utils::json_decode_array((string)($x['guardcore_service_ids_json']??''),[]));echo '<div class="bvc-form-grid">';
             echo '</div></details>';
 
             echo '<div class="bvc-form-actions"><button class="button button-primary">ذخیره مسیر</button></div>';
@@ -410,7 +561,7 @@ final class BlueVPN_Control_Center {
             echo '<label>Marzban';$select('marzban_panel_id',$mzRows,(int)$x['marzban_panel_id']);echo '</label>';
             echo '<label>GuardCore';$select('guardcore_panel_id',$gcRows,(int)$x['guardcore_panel_id']);echo '</label>';
             echo '<label>اعمال حجم<select name="multi_provider_quota_mode"><option value="split" '.selected($quotaMode,'split',false).'>Split</option><option value="full" '.selected($quotaMode,'full',false).'>Full</option></select></label>';
-            echo '<label>GuardCore Service IDs<input name="guardcore_service_ids" value="'.esc_attr($serviceIds).'"></label>';
+            echo '</div>';self::guardcore_service_picker('guardcore_panel_id',$gcRows,BlueVPN_Utils::json_decode_array((string)($x['guardcore_service_ids_json']??''),[]));echo '<div class="bvc-form-grid">';
             echo '<label><input type="checkbox" name="active" value="1" '.checked($active,true,false).'> فعال</label>';
             echo '<label style="grid-column:1/-1">توضیحات<textarea name="description" rows="3">'.esc_textarea((string)$x['description']).'</textarea></label>';
             echo '</div>';self::access_picker('pasarguard','panel_id',$groupSelected);self::access_picker('marzban','marzban_panel_id',$mzSelected);echo '<div class="bvc-form-actions"><button class="button button-primary">ذخیره همه تغییرات</button></div></form></div></details>';
@@ -581,7 +732,7 @@ final class BlueVPN_Control_Center {
         $secret=function(string $post,string $col)use($old){$v=trim((string)wp_unslash($_POST[$post]??''));return $v!==''?BlueVPN_Utils::encrypt_secret($v):(string)($old[$col]??'');};
         if($provider==='pasarguard'){$data+=['auth_mode'=>sanitize_key((string)($_POST['auth_mode']??'api_key')),'api_key_enc'=>$secret('api_key','api_key_enc'),'username_enc'=>$secret('username','username_enc'),'password_enc'=>$secret('password','password_enc'),'proxy_settings_json'=>self::sanitize_json($_POST['proxy_settings_json']??'{}','{}')];}
         elseif($provider==='marzban'){$data+=['username_enc'=>$secret('username','username_enc'),'password_enc'=>$secret('password','password_enc'),'proxies_json'=>self::sanitize_json($_POST['proxies_json']??'{}','{}'),'inbounds_json'=>self::sanitize_json($_POST['inbounds_json']??'{}','{}')];}
-        else{$data+=['global_subscription_url'=>esc_url_raw(wp_unslash($_POST['global_subscription_url']??'')),'auth_mode'=>sanitize_key((string)($_POST['auth_mode']??'manual')),'api_key_enc'=>$secret('api_key','api_key_enc'),'username_enc'=>$secret('username','username_enc'),'password_enc'=>$secret('password','password_enc'),'usage_unit'=>sanitize_key((string)($_POST['usage_unit']??'bytes')),'expire_mode'=>sanitize_key((string)($_POST['expire_mode']??'days')),'services_json'=>self::sanitize_json($_POST['services_json']??'[]','[]')];}
+        else{$data+=['global_subscription_url'=>esc_url_raw(wp_unslash($_POST['global_subscription_url']??'')),'auth_mode'=>sanitize_key((string)($_POST['auth_mode']??'manual')),'api_key_enc'=>$secret('api_key','api_key_enc'),'username_enc'=>$secret('username','username_enc'),'password_enc'=>$secret('password','password_enc'),'usage_unit'=>sanitize_key((string)($_POST['usage_unit']??'bytes')),'expire_mode'=>sanitize_key((string)($_POST['expire_mode']??'days'))];}
         if($id)$ok=$wpdb->update($t,$data,['id'=>$id]);else{$data['created_at']=BlueVPN_Utils::now_mysql();$ok=$wpdb->insert($t,$data);}self::redirect($provider==='pasarguard'?'panels':$provider,$ok===false?'ذخیره پنل ناموفق بود.':'پنل ذخیره شد.',$ok===false);
     }
     private static function sanitize_json($value,string $fallback): string { $raw=trim((string)wp_unslash($value));$d=json_decode($raw,true);return is_array($d)?wp_json_encode($d,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES):$fallback; }
@@ -610,7 +761,7 @@ final class BlueVPN_Control_Center {
     public static function save_plan_routing(): void {
         self::guard();global $wpdb;$id=(int)($_POST['plan_id']??0);check_admin_referer('bluevpn_cc_save_plan_routing_'.$id);$pt=BlueVPN_DB::table('plans');$plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$pt} WHERE id=%d AND deleted=0",$id),ARRAY_A);if(!$plan)self::redirect('plans','پلن پیدا نشد.',true);
         $ids=function(string $name): array {$raw=(string)wp_unslash($_POST[$name]??'');$out=[];foreach(preg_split('/[,\s]+/',$raw)?:[] as $v){$n=(int)$v;if($n>0&&!in_array($n,$out,true))$out[]=$n;}return array_slice($out,0,200);};
-        $pg=max(0,(int)($_POST['panel_id']??0));$mz=max(0,(int)($_POST['marzban_panel_id']??0));$gc=max(0,(int)($_POST['guardcore_panel_id']??0));$services=$ids('guardcore_service_ids');$groups=self::posted_ids('group_ids_selected','group_ids');$mzInbounds=self::posted_marzban_inbounds();$mode=in_array((string)($_POST['multi_provider_quota_mode']??'split'),['split','full'],true)?(string)$_POST['multi_provider_quota_mode']:'split';
+        $pg=max(0,(int)($_POST['panel_id']??0));$mz=max(0,(int)($_POST['marzban_panel_id']??0));$gc=max(0,(int)($_POST['guardcore_panel_id']??0));$services=self::posted_ids('guardcore_service_ids_selected','guardcore_service_ids');$groups=self::posted_ids('group_ids_selected','group_ids');$mzInbounds=self::posted_marzban_inbounds();$mode=in_array((string)($_POST['multi_provider_quota_mode']??'split'),['split','full'],true)?(string)$_POST['multi_provider_quota_mode']:'split';
         foreach([[$pg,'pasarguard_panels','PasarGuard'],[$mz,'marzban_panels','Marzban'],[$gc,'guardcore_panels','GuardCore']] as [$panelId,$table,$label])if($panelId>0&&!$wpdb->get_var($wpdb->prepare('SELECT id FROM '.BlueVPN_DB::table($table).' WHERE id=%d',$panelId)))self::redirect('plans',$label.' انتخاب‌شده پیدا نشد.',true);
         if($gc>0){$g=$wpdb->get_row($wpdb->prepare('SELECT auth_mode FROM '.BlueVPN_DB::table('guardcore_panels').' WHERE id=%d',$gc),ARRAY_A);if($g&&($g['auth_mode']??'manual')!=='manual'&&!$services)self::redirect('plans','برای GuardCore خودکار حداقل یک Service ID وارد کن.',true);}
         $ok=$wpdb->update($pt,['panel_id'=>$pg?:null,'marzban_panel_id'=>$mz?:null,'guardcore_panel_id'=>$gc?:null,'group_ids_json'=>BlueVPN_Utils::json_encode($groups),'marzban_inbounds_json'=>BlueVPN_Utils::json_encode($mzInbounds),'guardcore_service_ids_json'=>BlueVPN_Utils::json_encode($services),'marzban_quota_mode'=>$mode,'multi_provider_quota_mode'=>$mode],['id'=>$id]);self::redirect('plans',$ok===false?'ذخیره Routing ناموفق بود.':'Routing پلن ذخیره شد.',$ok===false);
@@ -620,7 +771,7 @@ final class BlueVPN_Control_Center {
         $plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$pt} WHERE id=%d AND deleted=0",$id),ARRAY_A);if(!$plan)self::redirect('plans','پلن پیدا نشد.',true);
         $title=sanitize_text_field(wp_unslash($_POST['title']??''));if($title==='')self::redirect('plans','عنوان پلن نمی‌تواند خالی باشد.',true);
         $ids=function(string $name): array {$raw=(string)wp_unslash($_POST[$name]??'');$out=[];foreach(preg_split('/[,\s]+/',$raw)?:[] as $v){$n=(int)$v;if($n>0&&!in_array($n,$out,true))$out[]=$n;}return array_slice($out,0,200);};
-        $pg=max(0,(int)($_POST['panel_id']??0));$mz=max(0,(int)($_POST['marzban_panel_id']??0));$gc=max(0,(int)($_POST['guardcore_panel_id']??0));$services=$ids('guardcore_service_ids');$groups=self::posted_ids('group_ids_selected','group_ids');$mzInbounds=self::posted_marzban_inbounds();$mode=in_array((string)($_POST['multi_provider_quota_mode']??'split'),['split','full'],true)?(string)$_POST['multi_provider_quota_mode']:'split';
+        $pg=max(0,(int)($_POST['panel_id']??0));$mz=max(0,(int)($_POST['marzban_panel_id']??0));$gc=max(0,(int)($_POST['guardcore_panel_id']??0));$services=self::posted_ids('guardcore_service_ids_selected','guardcore_service_ids');$groups=self::posted_ids('group_ids_selected','group_ids');$mzInbounds=self::posted_marzban_inbounds();$mode=in_array((string)($_POST['multi_provider_quota_mode']??'split'),['split','full'],true)?(string)$_POST['multi_provider_quota_mode']:'split';
         foreach([[$pg,'pasarguard_panels','PasarGuard'],[$mz,'marzban_panels','Marzban'],[$gc,'guardcore_panels','GuardCore']] as [$panelId,$table,$label])if($panelId>0&&!$wpdb->get_var($wpdb->prepare('SELECT id FROM '.BlueVPN_DB::table($table).' WHERE id=%d',$panelId)))self::redirect('plans',$label.' انتخاب‌شده پیدا نشد.',true);
         if($gc>0){$g=$wpdb->get_row($wpdb->prepare('SELECT auth_mode FROM '.BlueVPN_DB::table('guardcore_panels').' WHERE id=%d',$gc),ARRAY_A);if($g&&($g['auth_mode']??'manual')!=='manual'&&!$services)self::redirect('plans','برای GuardCore خودکار حداقل یک Service ID وارد کن.',true);}
         $data=[
@@ -805,6 +956,45 @@ final class BlueVPN_Control_Center {
         }
         self::redirect('manual',$r['message'],!$r['ok']&&!($r['partial']??false));
     }
+    public static function guardcore_refresh_catalog(): void {
+        self::guard();
+        $id=(int)($_POST['panel_id']??0);
+        check_admin_referer('bluevpn_cc_guardcore_refresh_catalog_'.$id);
+        $r=BlueVPN_Providers::guardcore_catalog($id,true);
+        self::redirect('guardcore',$r['ok']?'GuardCore API همگام شد: '.($r['version']??''):'همگام‌سازی GuardCore ناموفق: '.($r['message']??''),empty($r['ok']));
+    }
+
+    public static function guardcore_bootstrap_key(): void {
+        self::guard();
+        $id=(int)($_POST['panel_id']??0);
+        check_admin_referer('bluevpn_cc_guardcore_bootstrap_key_'.$id);
+        $code=preg_replace('/\D+/','',(string)wp_unslash($_POST['totp_code']??''))?:'';
+        $r=BlueVPN_Providers::guardcore_bootstrap_api_key($id,$code);
+        self::redirect('guardcore',$r['message'],empty($r['ok']));
+    }
+
+    public static function guardcore_node_action(): void {
+        self::guard();
+        $panelId=(int)($_POST['panel_id']??0);
+        $nodeId=(int)($_POST['node_id']??0);
+        check_admin_referer('bluevpn_cc_guardcore_node_action_'.$panelId.'_'.$nodeId);
+        $enable=!empty($_POST['enable']);
+        $r=BlueVPN_Providers::guardcore_node_action($panelId,$nodeId,$enable);
+        self::redirect('guardcore',$r['message'],empty($r['ok']));
+    }
+
+    public static function guardcore_subscription_action(): void {
+        self::guard();
+        $panelId=(int)($_POST['panel_id']??0);
+        $customerId=(int)($_POST['customer_id']??0);
+        $username=sanitize_text_field(wp_unslash($_POST['username']??''));
+        $op=sanitize_key((string)($_POST['operation']??''));
+        check_admin_referer('bluevpn_cc_guardcore_subscription_action_'.$panelId.'_'.$customerId);
+        $r=BlueVPN_Providers::guardcore_subscription_action($panelId,$username,$op);
+        if(!empty($r['ok'])&&$customerId>0)BlueVPN_Providers::request_background_sync($customerId);
+        self::redirect('guardcore',$r['message'],empty($r['ok']));
+    }
+
     public static function refresh_guardcore_stats(): void {
         self::guard();
         check_admin_referer('bluevpn_cc_refresh_guardcore_stats');

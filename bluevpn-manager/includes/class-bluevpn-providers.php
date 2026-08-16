@@ -62,6 +62,29 @@ final class BlueVPN_Providers {
         if($tok==='')throw new RuntimeException('توکن Marzban دریافت نشد.');
         return ['Authorization'=>'Bearer '.$tok];
     }
+    private static function gc_token_headers(array $p,string $totpCode=''): array {
+        $u=BlueVPN_Utils::decrypt_secret((string)($p['username_enc']??''));
+        $pw=BlueVPN_Utils::decrypt_secret((string)($p['password_enc']??''));
+        if($u===''||$pw==='')throw new RuntimeException('نام کاربری یا رمز GuardCore تنظیم نشده است.');
+
+        $query=$totpCode!==''?'?totp_code='.rawurlencode($totpCode):'';
+        $r=self::req(
+            'POST',
+            self::join_url((string)$p['base_url'],'/api/admins/token'.$query),
+            [],
+            null,
+            (bool)$p['verify_tls'],
+            ['grant_type'=>'password','username'=>$u,'password'=>$pw]
+        );
+        if($r['code']>=400){
+            $suffix=$r['code']===401&&$totpCode===''?' — اگر TOTP فعال است کد یک‌بارمصرف لازم است.':'';
+            throw new RuntimeException('ورود GuardCore ناموفق: HTTP '.$r['code'].' '.mb_substr($r['body'],0,220).$suffix);
+        }
+        $tok=(string)($r['json']['access_token']??'');
+        if($tok==='')throw new RuntimeException('توکن GuardCore دریافت نشد.');
+        return ['Authorization'=>'Bearer '.$tok];
+    }
+
     private static function gc_headers(array $p): array {
         $mode=(string)($p['auth_mode']??'manual');
         if($mode==='manual')return [];
@@ -70,15 +93,230 @@ final class BlueVPN_Providers {
             if($key==='')throw new RuntimeException('کلید API GuardCore تنظیم نشده است.');
             return ['X-API-Key'=>$key];
         }
-        $u=BlueVPN_Utils::decrypt_secret((string)($p['username_enc']??''));
-        $pw=BlueVPN_Utils::decrypt_secret((string)($p['password_enc']??''));
-        if($u===''||$pw==='')throw new RuntimeException('نام کاربری یا رمز GuardCore تنظیم نشده است.');
-        $r=self::req('POST',self::join_url((string)$p['base_url'],'/api/admins/token'),[],null,(bool)$p['verify_tls'],['grant_type'=>'password','username'=>$u,'password'=>$pw]);
-        if($r['code']>=400)throw new RuntimeException('ورود GuardCore ناموفق: HTTP '.$r['code'].' '.mb_substr($r['body'],0,220));
-        $tok=(string)($r['json']['access_token']??'');
-        if($tok==='')throw new RuntimeException('توکن GuardCore دریافت نشد.');
-        return ['Authorization'=>'Bearer '.$tok];
+        return self::gc_token_headers($p);
     }
+
+    public static function guardcore_bootstrap_api_key(int $panelId,string $totpCode=''): array {
+        $p=self::panel('guardcore',$panelId);
+        if(!$p)return ['ok'=>false,'message'=>'پنل GuardCore پیدا نشد.'];
+        if(($p['auth_mode']??'manual')==='manual')return ['ok'=>false,'message'=>'پنل GuardCore روی Manual است.'];
+        try{
+            $headers=self::gc_token_headers($p,trim($totpCode));
+            $r=self::req('GET',self::join_url((string)$p['base_url'],'/api/admins/current'),$headers,null,(bool)$p['verify_tls']);
+            if($r['code']>=400)throw new RuntimeException('خواندن Admin فعلی ناموفق: HTTP '.$r['code']);
+            $key=trim((string)($r['json']['api_key']??''));
+            if($key==='')throw new RuntimeException('GuardCore API Key را در پاسخ Admin برنگرداند.');
+            global $wpdb;
+            $wpdb->update(
+                BlueVPN_DB::table('guardcore_panels'),
+                [
+                    'api_key_enc'=>BlueVPN_Utils::encrypt_secret($key),
+                    'auth_mode'=>'api_key',
+                    'last_sync_at'=>BlueVPN_Utils::now_mysql(),
+                ],
+                ['id'=>$panelId]
+            );
+            return ['ok'=>true,'message'=>'API Key از GuardCore دریافت شد و پنل برای عملیات خودکار روی API Key قرار گرفت.'];
+        }catch(Throwable $e){
+            return ['ok'=>false,'message'=>$e->getMessage()];
+        }
+    }
+
+    private static function gc_request(array $p,string $method,string $path,?array $json=null,array $query=[]): array {
+        if($query){
+            $path.=(str_contains($path,'?')?'&':'?').http_build_query($query,'','&',PHP_QUERY_RFC3986);
+        }
+        return self::req(
+            $method,
+            self::join_url((string)$p['base_url'],$path),
+            self::gc_headers($p),
+            $json,
+            (bool)$p['verify_tls']
+        );
+    }
+
+    public static function guardcore_catalog(int $panelId,bool $force=false): array {
+        $p=self::panel('guardcore',$panelId);
+        if(!$p)return ['ok'=>false,'message'=>'پنل GuardCore پیدا نشد.'];
+        if(($p['auth_mode']??'manual')==='manual'){
+            return ['ok'=>true,'manual'=>true,'services'=>[],'nodes'=>[],'stats'=>[],'capabilities'=>[],'version'=>'manual'];
+        }
+
+        $cachedAt=!empty($p['last_sync_at'])?(strtotime((string)$p['last_sync_at'].' UTC')?:0):0;
+        if(!$force&&$cachedAt>0&&(time()-$cachedAt)<300){
+            return [
+                'ok'=>true,
+                'cached'=>true,
+                'version'=>(string)($p['api_version']??''),
+                'services'=>BlueVPN_Utils::json_decode_array((string)($p['services_json']??''),[]),
+                'nodes'=>BlueVPN_Utils::json_decode_array((string)($p['nodes_json']??''),[]),
+                'stats'=>BlueVPN_Utils::json_decode_array((string)($p['stats_json']??''),[]),
+                'capabilities'=>BlueVPN_Utils::json_decode_array((string)($p['capabilities_json']??''),[]),
+            ];
+        }
+
+        try{
+            $base=(string)$p['base_url'];
+            $version='';
+            $capabilities=[
+                'subscriptions'=>true,
+                'subscription_stats'=>true,
+                'subscription_status_stats'=>true,
+                'subscription_usage'=>true,
+                'subscription_actions'=>['enable','disable','revoke','reset'],
+                'services'=>true,
+                'nodes'=>true,
+                'nodes_stats'=>true,
+                'admins'=>true,
+                'totp'=>true,
+                'auto_renewals'=>true,
+            ];
+
+            // OpenAPI is public in GuardCore 0.13.0. Failure here does not block API use.
+            try{
+                $open=self::req('GET',self::join_url($base,'/openapi.json'),[],null,(bool)$p['verify_tls'],[],8);
+                if($open['code']<400&&is_array($open['json'])){
+                    $version=(string)($open['json']['info']['version']??'');
+                    $paths=array_keys((array)($open['json']['paths']??[]));
+                    $capabilities['openapi_paths']=$paths;
+                }
+            }catch(Throwable $ignore){}
+
+            $services=self::gc_request($p,'GET','/api/services');
+            $nodes=self::gc_request($p,'GET','/api/nodes');
+            $nodeStats=self::gc_request($p,'GET','/api/nodes/stats');
+            $subStats=self::gc_request($p,'GET','/api/subscriptions/stats');
+            $statusStats=self::gc_request($p,'GET','/api/stats/subscriptions/status');
+            $admin=self::gc_request($p,'GET','/api/admins/current');
+            $agents=self::gc_request($p,'GET','/api/stats/agents');
+            $start=gmdate('Y-m-d',time()-7*DAY_IN_SECONDS);
+            $end=gmdate('Y-m-d');
+            $usage=self::gc_request($p,'GET','/api/stats/usage',null,['start_date'=>$start,'end_date'=>$end]);
+            $mostUsage=self::gc_request($p,'GET','/api/stats/subscriptions/most_usage',null,['start_date'=>$start,'end_date'=>$end]);
+
+            foreach([
+                'services'=>$services,'nodes'=>$nodes,'node_stats'=>$nodeStats,
+                'subscription_stats'=>$subStats,'status_stats'=>$statusStats,'admin'=>$admin,
+                'agents'=>$agents,'usage'=>$usage,'most_usage'=>$mostUsage,
+            ] as $name=>$response){
+                if($response['code']>=400){
+                    throw new RuntimeException('GuardCore '.$name.' ناموفق: HTTP '.$response['code'].' '.mb_substr($response['body'],0,180));
+                }
+            }
+
+            if($version==='')$version='0.13-compatible';
+            $stats=[
+                'nodes'=>$nodeStats['json'],
+                'subscriptions'=>$subStats['json'],
+                'status'=>$statusStats['json'],
+                'usage_7d'=>$usage['json'],
+                'most_usage_7d'=>$mostUsage['json'],
+                'agents'=>$agents['json'],
+                'admin'=>[
+                    'username'=>(string)($admin['json']['username']??''),
+                    'role'=>(string)($admin['json']['role']??''),
+                    'current_count'=>(int)($admin['json']['current_count']??0),
+                    'left_count'=>(int)($admin['json']['left_count']??0),
+                    'current_usage'=>(int)($admin['json']['current_usage']??0),
+                    'left_usage'=>(int)($admin['json']['left_usage']??0),
+                    'totp_status'=>(bool)($admin['json']['totp_status']??false),
+                ],
+            ];
+
+            global $wpdb;
+            $wpdb->update(
+                BlueVPN_DB::table('guardcore_panels'),
+                [
+                    'api_version'=>$version,
+                    'services_json'=>BlueVPN_Utils::json_encode((array)$services['json']),
+                    'nodes_json'=>BlueVPN_Utils::json_encode((array)$nodes['json']),
+                    'stats_json'=>BlueVPN_Utils::json_encode($stats),
+                    'capabilities_json'=>BlueVPN_Utils::json_encode($capabilities),
+                    'last_sync_at'=>BlueVPN_Utils::now_mysql(),
+                ],
+                ['id'=>$panelId]
+            );
+
+            return [
+                'ok'=>true,'cached'=>false,'version'=>$version,
+                'services'=>(array)$services['json'],
+                'nodes'=>(array)$nodes['json'],
+                'stats'=>$stats,
+                'capabilities'=>$capabilities,
+            ];
+        }catch(Throwable $e){
+            return ['ok'=>false,'message'=>$e->getMessage()];
+        }
+    }
+
+    public static function guardcore_subscription_detail(int $panelId,string $username): array {
+        $p=self::panel('guardcore',$panelId);
+        if(!$p)return ['ok'=>false,'message'=>'پنل GuardCore پیدا نشد.'];
+        try{
+            $user=self::gc_user($p,$username);
+            if(!$user)return ['ok'=>false,'message'=>'Subscription در GuardCore پیدا نشد.'];
+            $usage=self::guardcore_subscription_usage($panelId,$username);
+            return ['ok'=>true,'subscription'=>$user,'usages'=>$usage['ok']?($usage['data']['usages']??[]):[]];
+        }catch(Throwable $e){
+            return ['ok'=>false,'message'=>$e->getMessage()];
+        }
+    }
+
+    public static function guardcore_node_action(int $panelId,int $nodeId,bool $enable): array {
+        $p=self::panel('guardcore',$panelId);
+        if(!$p||$nodeId<=0)return ['ok'=>false,'message'=>'Node یا پنل GuardCore نامعتبر است.'];
+        try{
+            $r=self::gc_request($p,'POST','/api/nodes/'.$nodeId.'/'.($enable?'enable':'disable'));
+            if($r['code']>=400)throw new RuntimeException('تغییر وضعیت Node ناموفق: HTTP '.$r['code'].' '.mb_substr($r['body'],0,240));
+            self::guardcore_catalog($panelId,true);
+            return ['ok'=>true,'message'=>'وضعیت Node GuardCore بروزرسانی شد.'];
+        }catch(Throwable $e){
+            return ['ok'=>false,'message'=>$e->getMessage()];
+        }
+    }
+
+    public static function guardcore_subscription_action(int $panelId,string $username,string $action): array {
+        $p=self::panel('guardcore',$panelId);
+        if(!$p)return ['ok'=>false,'message'=>'پنل GuardCore پیدا نشد.'];
+        $username=trim($username);
+        $action=sanitize_key($action);
+        $paths=[
+            'enable'=>'/api/subscriptions/enable',
+            'disable'=>'/api/subscriptions/disable',
+            'revoke'=>'/api/subscriptions/revoke',
+            'reset'=>'/api/subscriptions/reset',
+        ];
+        if($username===''||!isset($paths[$action]))return ['ok'=>false,'message'=>'عملیات GuardCore نامعتبر است.'];
+        try{
+            $r=self::gc_request($p,'POST',$paths[$action],['usernames'=>[$username]]);
+            if($r['code']>=400)throw new RuntimeException('GuardCore '.$action.' ناموفق: HTTP '.$r['code'].' '.mb_substr($r['body'],0,260));
+            return ['ok'=>true,'message'=>'عملیات '.$action.' برای '.$username.' انجام شد.','data'=>$r['json']];
+        }catch(Throwable $e){
+            return ['ok'=>false,'message'=>$e->getMessage()];
+        }
+    }
+
+    public static function guardcore_subscription_usage(int $panelId,string $username): array {
+        $p=self::panel('guardcore',$panelId);
+        if(!$p)return ['ok'=>false,'message'=>'پنل GuardCore پیدا نشد.'];
+        try{
+            $r=self::gc_request($p,'GET','/api/subscriptions/'.rawurlencode($username).'/usages');
+            if($r['code']>=400)throw new RuntimeException('خواندن Usage GuardCore ناموفق: HTTP '.$r['code']);
+            return ['ok'=>true,'data'=>$r['json']];
+        }catch(Throwable $e){
+            return ['ok'=>false,'message'=>$e->getMessage()];
+        }
+    }
+
+    public static function guardcore_reached(int $panelId,int $size=20): array {
+        $p=self::panel('guardcore',$panelId);
+        if(!$p)return [];
+        try{
+            $r=self::gc_request($p,'GET','/api/stats/subscriptions/reacheds',null,['page'=>1,'size'=>max(1,min(100,$size))]);
+            return $r['code']<400&&is_array($r['json'])?$r['json']:[];
+        }catch(Throwable $e){return [];}
+    }
+
     private static function gc_usage_bytes(array $p,$value): int {
         $amount=is_numeric($value)?max(0,(float)$value):0;
         if(($p['usage_unit']??'bytes')==='gb')$amount*=1024*1024*1024;
@@ -98,8 +336,34 @@ final class BlueVPN_Providers {
         if(!$target)return 0;$ts=strtotime($target.' UTC');if(!$ts)return 0;if(($p['expire_mode']??'days')==='timestamp')return $ts;$remain=max(1,$ts-time());return (($p['expire_mode']??'days')==='seconds')?$remain:max(1,(int)ceil($remain/DAY_IN_SECONDS));
     }
     private static function gc_normalize(array $p,array $data): array {
-        $enabled=!array_key_exists('enabled',$data)||BlueVPN_Utils::boolish($data['enabled']);$activated=!array_key_exists('activated',$data)||BlueVPN_Utils::boolish($data['activated']);$expired=BlueVPN_Utils::boolish($data['expired']??false);$limited=BlueVPN_Utils::boolish($data['limited']??false);$status=($enabled&&$activated&&!$expired&&!$limited)?'active':(!$enabled?'disabled':(!$activated?'pending':($expired?'expired':($limited?'limited':'inactive'))));$link=(string)($data['link']??$data['subscription_url']??'');
-        return ['id'=>$data['id']??null,'username'=>(string)($data['username']??''),'subscription_url'=>self::absolute_url((string)$p['base_url'],$link),'status'=>$status,'expire'=>self::gc_expire($p,$data),'data_limit'=>self::gc_usage_bytes($p,$data['limit_usage']??0),'used_traffic'=>self::gc_usage_bytes($p,$data['current_usage']??$data['total_usage']??0),'raw'=>$data];
+        $enabled=!array_key_exists('enabled',$data)||BlueVPN_Utils::boolish($data['enabled']);
+        $activated=!array_key_exists('activated',$data)||BlueVPN_Utils::boolish($data['activated']);
+        $expired=BlueVPN_Utils::boolish($data['expired']??false);
+        $limited=BlueVPN_Utils::boolish($data['limited']??false);
+        $isActive=array_key_exists('is_active',$data)?BlueVPN_Utils::boolish($data['is_active']):($enabled&&$activated&&!$expired&&!$limited);
+        $status=$isActive?'active':(!$enabled?'disabled':(!$activated?'pending':($expired?'expired':($limited?'limited':'inactive'))));
+        $link=(string)($data['link']??$data['subscription_url']??'');
+        return [
+            'id'=>$data['id']??null,
+            'username'=>(string)($data['username']??''),
+            'owner_username'=>(string)($data['owner_username']??''),
+            'subscription_url'=>self::absolute_url((string)$p['base_url'],$link),
+            'status'=>$status,
+            'enabled'=>$enabled,
+            'activated'=>$activated,
+            'is_online'=>BlueVPN_Utils::boolish($data['is_online']??false),
+            'online_at'=>(string)($data['online_at']??''),
+            'last_request_at'=>(string)($data['last_request_at']??''),
+            'last_client_agent'=>(string)($data['last_client_agent']??''),
+            'expire'=>self::gc_expire($p,$data),
+            'data_limit'=>self::gc_usage_bytes($p,$data['limit_usage']??0),
+            'used_traffic'=>self::gc_usage_bytes($p,$data['current_usage']??$data['total_usage']??0),
+            'total_usage'=>self::gc_usage_bytes($p,$data['total_usage']??0),
+            'reset_usage'=>self::gc_usage_bytes($p,$data['reset_usage']??0),
+            'service_ids'=>array_values(array_map('intval',(array)($data['service_ids']??[]))),
+            'auto_renewals'=>(array)($data['auto_renewals']??[]),
+            'raw'=>$data,
+        ];
     }
     private static function gc_user(array $p,string $username): ?array {
         $r=self::req('GET',self::join_url((string)$p['base_url'],'/api/subscriptions/'.rawurlencode($username)),self::gc_headers($p),null,(bool)$p['verify_tls']);
@@ -110,8 +374,15 @@ final class BlueVPN_Providers {
         $payload=['limit_usage'=>self::gc_usage_encode($p,$quota),'limit_expire'=>self::gc_expire_encode($p,$expire),'service_ids'=>$serviceIds,'note'=>mb_substr($note,0,500)];
         if($remote===null){$body=[array_merge(['username'=>$username],$payload)];$r=self::req('POST',self::join_url((string)$p['base_url'],'/api/subscriptions'),self::gc_headers($p),$body,(bool)$p['verify_tls']);}
         else{$r=self::req('PUT',self::join_url((string)$p['base_url'],'/api/subscriptions/'.rawurlencode($username)),self::gc_headers($p),$payload,(bool)$p['verify_tls']);}
-        if($r['code']>=400)throw new RuntimeException('فعال‌سازی GuardCore ناموفق: HTTP '.$r['code'].' '.mb_substr($r['body'],0,420));$fresh=self::gc_user($p,$username);if(!$fresh)throw new RuntimeException('اشتراک GuardCore ساخته شد ولی قابل خواندن نیست.');
-        if(($fresh['status']??'')==='disabled'){$en=self::req('POST',self::join_url((string)$p['base_url'],'/api/subscriptions/enable'),self::gc_headers($p),['usernames'=>[$username]],(bool)$p['verify_tls']);if($en['code']<400)$fresh=self::gc_user($p,$username)?:$fresh;}return $fresh;
+        if($r['code']>=400)throw new RuntimeException('فعال‌سازی GuardCore ناموفق: HTTP '.$r['code'].' '.mb_substr($r['body'],0,420));
+        $fresh=self::gc_user($p,$username);
+        if(!$fresh)throw new RuntimeException('اشتراک GuardCore ساخته شد ولی قابل خواندن نیست.');
+        if(($fresh['status']??'')!=='active'){
+            $en=self::gc_request($p,'POST','/api/subscriptions/enable',['usernames'=>[$username]]);
+            if($en['code']>=400)throw new RuntimeException('فعال‌سازی نهایی GuardCore ناموفق: HTTP '.$en['code']);
+            $fresh=self::gc_user($p,$username)?:$fresh;
+        }
+        return $fresh;
     }
     public static function test(string $provider,int $id): array {
         try{
@@ -129,7 +400,14 @@ final class BlueVPN_Providers {
                 if(($p['auth_mode']??'manual')==='manual'){$ok=true;$msg='GuardCore در حالت دستی فعال است.';}
                 else{
                     $h=self::gc_headers($p);$r=self::req('GET',self::join_url($base,'/api/admins/current'),$h,null,$ssl);$ok=$r['code']<400;$msg=$ok?'ورود مدیر GuardCore موفق بود.':'HTTP '.$r['code'].' '.mb_substr($r['body'],0,220);
-                    if($ok){$sv=self::req('GET',self::join_url($base,'/api/services'),$h,null,$ssl);if($sv['code']<400&&is_array($sv['json'])){global $wpdb;$wpdb->update(BlueVPN_DB::table('guardcore_panels'),['services_json'=>BlueVPN_Utils::json_encode($sv['json'])],['id'=>$id]);$msg.=' '.count($sv['json']).' سرویس دریافت شد.';}else{$ok=false;$msg.=' دریافت Serviceها ناموفق بود: HTTP '.$sv['code'];}}
+                    if($ok){
+                        $catalog=self::guardcore_catalog($id,true);
+                        if(!empty($catalog['ok'])){
+                            $msg.=' API '.($catalog['version']??'').' • '.count((array)($catalog['services']??[])).' Service • '.count((array)($catalog['nodes']??[])).' Node دریافت شد.';
+                        }else{
+                            $ok=false;$msg.=' همگام‌سازی Catalog ناموفق: '.($catalog['message']??'');
+                        }
+                    }
                 }
             }
             self::store_test($provider,$id,$ok,$msg);return ['ok'=>$ok,'message'=>$msg];
@@ -514,6 +792,47 @@ final class BlueVPN_Providers {
         $text=trim($text);if($text==='')return [];$decoded=base64_decode(preg_replace('/\s+/','',$text),true);if($decoded!==false&&preg_match('~(?:vless|vmess|trojan|ss|hysteria2|tuic)://~i',$decoded))$text=$decoded;
         $lines=preg_split('/\R+/',trim($text))?:[];return array_values(array_filter(array_map('trim',$lines),fn($x)=>preg_match('~^(?:vless|vmess|trojan|ss|hysteria2|tuic)://~i',$x)));
     }
+    public static function reconcile_guardcore_expiries(int $limit=100): array {
+        global $wpdb;
+        $ct=BlueVPN_DB::table('customers');
+        $now=BlueVPN_Utils::now_mysql();
+        $rows=$wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT id,guardcore_panel_id,guardcore_username
+                 FROM {$ct}
+                 WHERE active=1
+                   AND subscription_status='active'
+                   AND subscription_expire IS NOT NULL
+                   AND subscription_expire<%s
+                   AND guardcore_panel_id IS NOT NULL
+                   AND guardcore_username<>''
+                 ORDER BY subscription_expire ASC
+                 LIMIT %d",
+                $now,max(1,min(500,$limit))
+            ),
+            ARRAY_A
+        )?:[];
+        $disabled=0;$errors=[];
+        foreach($rows as $row){
+            $r=self::guardcore_subscription_action(
+                (int)$row['guardcore_panel_id'],
+                (string)$row['guardcore_username'],
+                'disable'
+            );
+            if(!empty($r['ok'])){
+                $wpdb->update($ct,[
+                    'subscription_status'=>'inactive',
+                    'guardcore_status'=>'disabled',
+                    'last_sync_at'=>$now,
+                ],['id'=>(int)$row['id']]);
+                $disabled++;
+            }else{
+                $errors[]='#'.(int)$row['id'].': '.(string)($r['message']??'');
+            }
+        }
+        return ['checked'=>count($rows),'disabled'=>$disabled,'errors'=>$errors];
+    }
+
     private static function snapshot_option(int $customerId): string { return 'bluevpn_sub_snapshot_'.$customerId; }
     private static function snapshot_load(int $customerId): array {
         $raw=get_option(self::snapshot_option($customerId),[]);return is_array($raw)?$raw:[];

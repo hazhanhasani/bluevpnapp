@@ -1,4 +1,4 @@
-# BlueVPN 4.11.0 — Support EditText Kotlin Compile Fix
+# BlueVPN 4.11.1 — Support EditText Kotlin Compile Fix
 
 GitHub Android build failed in `BlueVpnSupportActivity.kt` because `messageInput`
 is an Android `EditText`. Kotlin exposes `EditText.text` as `Editable`, so direct

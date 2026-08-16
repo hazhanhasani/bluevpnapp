@@ -1,4 +1,4 @@
-# BlueVPN 4.10.7 build/test summary
+# BlueVPN 4.10.8 build/test summary
 
 ## Exit-country policy fix
 - Empty blocked-exit-country list is now authoritative in WordPress.

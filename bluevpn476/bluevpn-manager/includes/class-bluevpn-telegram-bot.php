@@ -466,8 +466,21 @@ final class BlueVPN_Telegram_Bot {
                 $deploy = self::deploy_zip_to_github($zip, $s);
                 @unlink($zip);
                 $commit = (string)$deploy['commit'];
+                if(empty($deploy['changed'])){
+                    throw new RuntimeException(
+                        'DEPLOY_COMMIT_NOT_APPLIED: Commit جدیدی روی GitHub ثبت نشده؛ repository_dispatch مسدود شد.'
+                    );
+                }
                 self::update_job($jobId, ['status' => 'dispatching', 'commit_sha' => $commit]);
-                self::send_message($job['chat_id'], "✅ فایل‌ها روی GitHub ثبت شد.\nCommit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>\nفایل‌های اعمال‌شده: <b>" . (int)$deploy['files'] . '</b>', [], $s);
+                self::send_message(
+                    $job['chat_id'],
+                    "✅ فایل‌ها روی GitHub ثبت و روی SHA مقصد تأیید شد.\n" .
+                    "نسخه: <code>" . esc_html((string)($deploy['expected_version']??'')) . "</code>\n" .
+                    "Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>\n" .
+                    "فایل‌های تغییرکرده: <b>" . (int)$deploy['files'] . "</b>",
+                    [],
+                    $s
+                );
             } else {
                 $commit = self::branch_head_sha($s);
                 self::update_job($jobId, ['status' => 'dispatching', 'commit_sha' => $commit]);
@@ -552,9 +565,136 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
         throw new RuntimeException('ZIP دانلودشده از Telegram معتبر/کامل نیست. سه بار دریافت مجدد انجام شد. ' . $lastError);
     }
 
+    private static function expected_release_from_tree(string $root): array {
+        $brandingPath=$root . '/branding/app.json';
+        $releasePath=$root . '/release.json';
+        $managerPath=$root . '/bluevpn-manager/bluevpn-manager.php';
+
+        if(!is_file($brandingPath)){
+            throw new RuntimeException('DEPLOY_VERSION_METADATA_MISSING: branding/app.json داخل ZIP وجود ندارد.');
+        }
+        $branding=json_decode((string)file_get_contents($brandingPath),true);
+        if(!is_array($branding)){
+            throw new RuntimeException('DEPLOY_VERSION_METADATA_INVALID: branding/app.json معتبر نیست.');
+        }
+        $version=trim((string)($branding['version_name']??''));
+        $code=(int)($branding['version_code']??0);
+        if($version===''||$code<=0){
+            throw new RuntimeException('DEPLOY_VERSION_METADATA_INVALID: version_name/version_code معتبر نیست.');
+        }
+
+        if(is_file($releasePath)){
+            $release=json_decode((string)file_get_contents($releasePath),true);
+            if(!is_array($release)){
+                throw new RuntimeException('DEPLOY_VERSION_METADATA_INVALID: release.json معتبر نیست.');
+            }
+            $releaseVersion=trim((string)($release['version']??''));
+            $releaseCode=(int)($release['version_code']??0);
+            if($releaseVersion!==$version||$releaseCode!==$code){
+                throw new RuntimeException(
+                    'DEPLOY_VERSION_MISMATCH: branding/app.json و release.json هم‌نسخه نیستند.' .
+                    ' branding=' . $version . '/' . $code .
+                    ' release=' . $releaseVersion . '/' . $releaseCode
+                );
+            }
+        }
+
+        if(is_file($managerPath)){
+            $manager=(string)file_get_contents($managerPath);
+            if(
+                !preg_match('/define\(\s*[\'"]BLUEVPN_MANAGER_VERSION[\'"]\s*,\s*[\'"]([^\'"]+)[\'"]\s*\)/',$manager,$m) ||
+                trim((string)$m[1])!==$version
+            ){
+                throw new RuntimeException(
+                    'DEPLOY_VERSION_MISMATCH: نسخه BlueVPN Manager با نسخه Android/Release یکسان نیست.'
+                );
+            }
+        }
+        return ['version'=>$version,'version_code'=>$code];
+    }
+
+    private static function github_file_at_commit(string $path,string $commitSha,array $s): string {
+        $payload=self::gh(
+            'GET',
+            self::repo_path($s) . '/contents/' . str_replace('%2F','/',rawurlencode($path)) .
+            '?ref=' . rawurlencode($commitSha),
+            null,
+            $s
+        );
+        $encoding=strtolower((string)($payload['encoding']??''));
+        $content=(string)($payload['content']??'');
+        if($encoding!=='base64'||$content===''){
+            throw new RuntimeException('DEPLOY_REMOTE_VERIFY_FAILED: فایل ' . $path . ' روی Commit مقصد قابل خواندن نیست.');
+        }
+        $decoded=base64_decode(str_replace(["\r","\n"],'',$content),true);
+        if($decoded===false){
+            throw new RuntimeException('DEPLOY_REMOTE_VERIFY_FAILED: محتوای ' . $path . ' روی GitHub قابل Decode نیست.');
+        }
+        return $decoded;
+    }
+
+    private static function verify_deployed_release(string $commitSha,array $expected,array $deploy,array $s): void {
+        if(empty($deploy['changed'])){
+            throw new RuntimeException(
+                'DEPLOY_COMMIT_NOT_APPLIED: ZIP هیچ Diff واقعی روی GitHub ایجاد نکرد؛ Build شروع نشد.'
+            );
+        }
+        if((int)($deploy['files']??0)+(int)($deploy['deleted']??0)<=0){
+            throw new RuntimeException(
+                'DEPLOY_COMMIT_NOT_APPLIED: تعداد فایل‌های تغییرکرده صفر است؛ Build شروع نشد.'
+            );
+        }
+
+        self::verify_commit_on_branch($commitSha,$s);
+
+        $commitPayload=self::gh(
+            'GET',
+            self::repo_path($s) . '/commits/' . rawurlencode($commitSha),
+            null,
+            $s
+        );
+        if(count((array)($commitPayload['files']??[]))===0){
+            throw new RuntimeException(
+                'DEPLOY_COMMIT_NOT_APPLIED: Commit مقصد در GitHub هیچ فایل تغییرکرده‌ای ندارد.'
+            );
+        }
+
+        $branding=json_decode(self::github_file_at_commit('branding/app.json',$commitSha,$s),true);
+        $remoteVersion=is_array($branding)?trim((string)($branding['version_name']??'')):'';
+        $remoteCode=is_array($branding)?(int)($branding['version_code']??0):0;
+        if($remoteVersion!==(string)$expected['version']||$remoteCode!==(int)$expected['version_code']){
+            throw new RuntimeException(
+                'DEPLOY_VERSION_NOT_APPLIED: نسخه روی SHA مقصد با ZIP یکسان نیست.' .
+                ' expected=' . (string)$expected['version'] . '/' . (int)$expected['version_code'] .
+                ' remote=' . $remoteVersion . '/' . $remoteCode .
+                ' sha=' . substr($commitSha,0,12)
+            );
+        }
+
+        $release=json_decode(self::github_file_at_commit('release.json',$commitSha,$s),true);
+        $releaseVersion=is_array($release)?trim((string)($release['version']??'')):'';
+        $releaseCode=is_array($release)?(int)($release['version_code']??0):0;
+        if($releaseVersion!==(string)$expected['version']||$releaseCode!==(int)$expected['version_code']){
+            throw new RuntimeException(
+                'DEPLOY_RELEASE_METADATA_NOT_APPLIED: release.json روی SHA مقصد هنوز نسخه مورد انتظار را ندارد.'
+            );
+        }
+
+        $managerRaw=self::github_file_at_commit('bluevpn-manager/bluevpn-manager.php',$commitSha,$s);
+        if(
+            !preg_match('/define\(\s*[\'"]BLUEVPN_MANAGER_VERSION[\'"]\s*,\s*[\'"]([^\'"]+)[\'"]\s*\)/',$managerRaw,$m) ||
+            trim((string)$m[1])!==(string)$expected['version']
+        ){
+            throw new RuntimeException(
+                'DEPLOY_MANAGER_VERSION_NOT_APPLIED: نسخه Manager روی SHA مقصد با ZIP یکسان نیست.'
+            );
+        }
+    }
+
     private static function deploy_zip_to_github(string $zipPath, array $s): array {
         $root = self::extract_zip_safely($zipPath, $s);
         $managerIncluded = is_file($root . '/bluevpn-manager/bluevpn-manager.php');
+        $expectedRelease = self::expected_release_from_tree($root);
         try {
             $gitError = '';
             if (self::git_cli_available()) {
@@ -562,6 +702,9 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
                     $result = self::deploy_extracted_via_git($root, $s);
                     $result['transport'] = 'git_https';
                     $result['manager_included'] = $managerIncluded;
+                    $result['expected_version'] = (string)$expectedRelease['version'];
+                    $result['expected_version_code'] = (int)$expectedRelease['version_code'];
+                    self::verify_deployed_release((string)$result['commit'],$expectedRelease,$result,$s);
                     return $result;
                 } catch (Throwable $e) {
                     $gitError = self::redact($e->getMessage(), $s);
@@ -572,7 +715,10 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
                 $result = self::deploy_extracted_via_rest($root, $s);
                 $result['transport'] = 'github_git_data_api';
                 $result['manager_included'] = $managerIncluded;
+                $result['expected_version'] = (string)$expectedRelease['version'];
+                $result['expected_version_code'] = (int)$expectedRelease['version_code'];
                 if ($gitError !== '') $result['git_cli_fallback_error'] = $gitError;
+                self::verify_deployed_release((string)$result['commit'],$expectedRelease,$result,$s);
                 return $result;
             } catch (Throwable $e) {
                 $restError = self::redact($e->getMessage(), $s);
@@ -880,6 +1026,11 @@ BLUEVPN_ASKPASS_CHECK;
             if (count($batch) >= 70) $flush();
         }
         $flush();
+        if($treeSha===$baseTree){
+            throw new RuntimeException(
+                'DEPLOY_COMMIT_NOT_APPLIED: GitHub Tree جدید با Tree قبلی یکسان است؛ Commit خالی ساخته نشد.'
+            );
+        }
         $newCommit = self::gh('POST', self::repo_path($s) . '/git/commits', [
             'message' => 'BlueVPN bot update ' . gmdate('Y-m-d H:i:s') . ' UTC',
             'tree' => $treeSha,
@@ -1116,6 +1267,18 @@ BLUEVPN_ASKPASS_CHECK;
     }
 
     private static function start_android_build_for_job(array $job, string $commit, array $s): void {
+        self::verify_commit_on_branch($commit,$s);
+        $commitPayload=self::gh(
+            'GET',
+            self::repo_path($s).'/commits/'.rawurlencode($commit),
+            null,
+            $s
+        );
+        if(count((array)($commitPayload['files']??[]))===0){
+            throw new RuntimeException(
+                'DEPLOY_COMMIT_NOT_APPLIED: Commit بدون Diff است؛ Build برای جلوگیری از ساخت نسخه قبلی شروع نشد.'
+            );
+        }
         $trigger = self::dispatch_build($commit, $s);
         self::update_job((string)$job['id'], ['status' => 'waiting_build', 'run_id' => 0, 'run_url' => '']);
         $triggerLabel = (string)($trigger['trigger'] ?? 'github');

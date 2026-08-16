@@ -1,4 +1,4 @@
-# BlueVPN 4.10.7 — Authoritative PHP Release Gate
+# BlueVPN 4.10.8 — Authoritative PHP Release Gate
 
 Build #277 failed in `release-regression-gate` while the visible test tail only
 contained passing tests. The gate previously executed `php -l` over every PHP file
@@ -9,7 +9,7 @@ Because releases are commonly applied as overlay ZIP updates, deleted PHP files
 from older versions can remain in GitHub even though they are not part of the
 current release.
 
-4.10.7:
+4.10.8:
 - adds an authoritative `bluevpn-manager/release_php_manifest.json`;
 - repository cleanup removes stale PHP files that are not shipped by this release;
 - the regression gate validates the exact PHP release file set;

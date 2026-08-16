@@ -11,6 +11,7 @@
     "test_blueai_control_plane_490.py",
     "test_connection_stability_warp_exhaustive_498.py",
     "test_current_release.py",
+    "test_deploy_bot_commit_version_gate_4108.py",
     "test_fast_ci_4710.py",
     "test_live_support_4103.py",
     "test_native_network_adaptation_no_mahsa_499.py",

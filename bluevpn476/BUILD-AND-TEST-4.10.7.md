@@ -1,10 +1,10 @@
-# BlueVPN 4.10.7 — Support Admin UI Rebuild
+# BlueVPN 4.10.8 — Support Admin UI Rebuild
 
 The WordPress support Inbox was rebuilt in code. The previous implementation used
 raw white WordPress-style cards and inline forms that ignored BlueVPN's dark
 control-center design.
 
-4.10.7 adds:
+4.10.8 adds:
 - dark BlueVPN design tokens;
 - four support summary cards;
 - real Inbox conversation list;

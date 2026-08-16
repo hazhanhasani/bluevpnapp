@@ -346,7 +346,7 @@ object BlueVpnAccountManager {
                     .takeIf { it.matches(Regex("[A-Z]{2}")) }
                     ?.let(::add)
             }
-            if (isEmpty()) add("IR")
+            // An explicit empty list is authoritative. Do not silently re-add IR.
         }
         val guestAllowed = free.optBoolean("guest_allowed", true)
         val oldMinutes = storage.getInt("session_minutes", 60).coerceIn(15, 180)
@@ -603,7 +603,7 @@ object BlueVpnAccountManager {
             warpGoolEnabled = storage.getBoolean("warp_gool_enabled", false),
             warpNoizeProfile = storage.getString("warp_noize_profile", "firewall").orEmpty().ifBlank { "firewall" },
             warpRequireExitTrace = storage.getBoolean("warp_require_exit_trace", true),
-            warpBlockedExitCountries = storage.getStringSet("warp_blocked_exit_countries", setOf("IR")).orEmpty().map { it.trim().uppercase(Locale.US) }.filter { it.matches(Regex("[A-Z]{2}")) }.toSet().ifEmpty { setOf("IR") },
+            warpBlockedExitCountries = storage.getStringSet("warp_blocked_exit_countries", emptySet()).orEmpty().map { it.trim().uppercase(Locale.US) }.filter { it.matches(Regex("[A-Z]{2}")) }.toSet(),
             guestAllowed = storage.getBoolean("guest_allowed", true),
         )
         freeSnapshotCache = snapshot

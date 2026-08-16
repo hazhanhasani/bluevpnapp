@@ -791,7 +791,7 @@ final class BlueVPN_DB {
             'free_warp_total_timeout_seconds' => 75,
             'free_warp_noize_profile' => 'firewall',
             'free_warp_require_exit_trace' => true,
-            'free_warp_blocked_exit_countries' => ['IR'],
+            'free_warp_blocked_exit_countries' => [],
             'free_warp_guest_allowed' => true,
             'free_subscription_url' => '',
             'free_subscription_items' => [],

@@ -337,6 +337,8 @@ object BlueVpnWarpEngine {
             country = body.lineSequence().firstOrNull { it.startsWith("loc=") }?.substringAfter("loc=")?.trim()?.uppercase(Locale.US)?.takeIf { it.matches(Regex("[A-Z]{2}")) }
             if (country != null) break
         }
+        // Exit-country blocking is entirely policy-driven. IR is allowed when the
+        // administrator removes IR from blocked_exit_countries.
         if (country != null && country in policy.warpBlockedExitCountries) {
             throw Failure(if (country == "IR") ErrorCode.EXIT_IRAN else ErrorCode.WARP_EXIT_COUNTRY_BLOCKED, state, strategy, "Blocked WARP exit country: $country")
         }

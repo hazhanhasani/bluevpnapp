@@ -490,7 +490,7 @@ final class BlueVPN_Ads {
                 'total_timeout_seconds' => max(30, min(90, (int)($settings['free_warp_total_timeout_seconds'] ?? 75))),
                 'noize_profile' => in_array(($settings['free_warp_noize_profile'] ?? 'firewall'), ['off','light','balanced','aggressive','firewall','gfw'], true) ? $settings['free_warp_noize_profile'] : 'firewall',
                 'require_exit_trace' => !array_key_exists('free_warp_require_exit_trace', $settings) || !empty($settings['free_warp_require_exit_trace']),
-                'blocked_exit_countries' => array_values(array_unique(array_filter(array_map(static function($code){ $code = strtoupper(trim((string)$code)); return preg_match('/^[A-Z]{2}$/', $code) ? $code : ''; }, (array)($settings['free_warp_blocked_exit_countries'] ?? ['IR']))))) ?: ['IR'],
+                'blocked_exit_countries' => array_values(array_unique(array_filter(array_map(static function($code){ $code = strtoupper(trim((string)$code)); return preg_match('/^[A-Z]{2}$/', $code) ? $code : ''; }, (array)($settings['free_warp_blocked_exit_countries'] ?? []))))),
                 'provider' => 'Cloudflare WARP',
                 'runtime' => 'Aether',
                 'guest_allowed' => !array_key_exists('free_warp_guest_allowed', $settings) || !empty($settings['free_warp_guest_allowed']),
@@ -926,9 +926,11 @@ final class BlueVPN_Ads {
         $s['free_warp_wireguard_enabled'] = isset($_POST['free_warp_wireguard_enabled']);
         $s['free_warp_gool_enabled'] = isset($_POST['free_warp_gool_enabled']);
         $s['free_warp_require_exit_trace'] = isset($_POST['free_warp_require_exit_trace']);
-        $blocked = preg_split('/[\s,;]+/', strtoupper((string)wp_unslash($_POST['free_warp_blocked_exit_countries'] ?? 'IR'))) ?: [];
+        $blockedRaw = trim((string)wp_unslash($_POST['free_warp_blocked_exit_countries'] ?? ''));
+        $blocked = $blockedRaw === '' ? [] : (preg_split('/[\s,;]+/', strtoupper($blockedRaw)) ?: []);
         $blocked = array_values(array_unique(array_filter(array_map('trim', $blocked), static fn($code) => (bool)preg_match('/^[A-Z]{2}$/', $code))));
-        $s['free_warp_blocked_exit_countries'] = $blocked ?: ['IR'];
+        // Empty is authoritative: admins may intentionally allow every WARP exit country, including IR.
+        $s['free_warp_blocked_exit_countries'] = $blocked;
         $s['free_warp_scan_mode'] = in_array(sanitize_key((string)($_POST['free_warp_scan_mode'] ?? 'turbo')), ['turbo','balanced','thorough','stealth','ironclad'], true) ? sanitize_key((string)$_POST['free_warp_scan_mode']) : 'turbo';
         $s['free_warp_ip_mode'] = in_array(sanitize_key((string)($_POST['free_warp_ip_mode'] ?? 'auto')), ['auto','v4','dual'], true) ? sanitize_key((string)$_POST['free_warp_ip_mode']) : 'auto';
         $s['free_warp_warm_timeout_seconds'] = max(4,min(12,(int)($_POST['free_warp_warm_timeout_seconds'] ?? 8)));
@@ -1076,7 +1078,7 @@ final class BlueVPN_Ads {
         self::checkbox('free_warp_wireguard_enabled', 'WireGuard fallback', !array_key_exists('free_warp_wireguard_enabled',$s)||!empty($s['free_warp_wireguard_enabled']));
         self::checkbox('free_warp_gool_enabled', 'WARP-in-WARP / gool', !empty($s['free_warp_gool_enabled']));
         self::checkbox('free_warp_require_exit_trace', 'تأیید اجباری کشور خروجی WARP', !array_key_exists('free_warp_require_exit_trace',$s)||!empty($s['free_warp_require_exit_trace']));
-        self::text('free_warp_blocked_exit_countries', 'کشورهای خروجی مسدود (ISO، جدا با کاما)', implode(',', (array)($s['free_warp_blocked_exit_countries'] ?? ['IR'])));
+        self::text('free_warp_blocked_exit_countries', 'کشورهای خروجی مسدود (ISO، جدا با کاما — خالی = همه مجاز)', implode(',', (array)($s['free_warp_blocked_exit_countries'] ?? [])));
         self::number('free_warp_warm_timeout_seconds', 'Warm timeout', (int)($s['free_warp_warm_timeout_seconds'] ?? 8), 4, 12);
         self::number('free_warp_cold_timeout_seconds', 'Cold timeout', (int)($s['free_warp_cold_timeout_seconds'] ?? 30), 15, 40);
         self::number('free_warp_total_timeout_seconds', 'Total timeout', (int)($s['free_warp_total_timeout_seconds'] ?? 75), 30, 90);

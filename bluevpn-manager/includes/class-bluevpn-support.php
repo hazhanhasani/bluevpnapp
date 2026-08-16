@@ -623,10 +623,12 @@ final class BlueVPN_Support {
     public static function admin_page(): void {
         if(!current_user_can('manage_options'))return;
         self::touch_current_operator();
+        $supportPageTitle='پشتیبانی آنلاین BlueVPN';
         BlueVPN_Unified_UI::shell_open(
             'پشتیبانی آنلاین',
             'گفتگوهای کاربران • اپراتورها • SLA • BlueAI'
         );
+
         global $wpdb;
         $cid=max(0,(int)($_GET['conversation']??0));
         $convs=$wpdb->get_results(
@@ -634,77 +636,530 @@ final class BlueVPN_Support {
              FROM ".self::table('conversations')." c
              LEFT JOIN ".self::table('departments')." d ON d.id=c.department_id
              LEFT JOIN ".self::table('operators')." o ON o.id=c.operator_id
-             ORDER BY FIELD(c.status,'waiting','open','pending_customer','resolved','closed'),c.last_message_at DESC LIMIT 100",ARRAY_A);
-        $depts=$wpdb->get_results("SELECT * FROM ".self::table('departments')." ORDER BY sort_order,id",ARRAY_A);
-        $ops=$wpdb->get_results("SELECT * FROM ".self::table('operators')." ORDER BY display_name",ARRAY_A);
-        echo '<div class="wrap"><h1>پشتیبانی آنلاین BlueVPN</h1>';
-        echo '<style>.bvs-grid{display:grid;grid-template-columns:340px 1fr;gap:16px}.bvs-card{background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:14px}.bvs-list a{display:block;padding:10px;border-bottom:1px solid #eee;text-decoration:none}.bvs-msg{padding:10px 12px;margin:8px 0;border-radius:12px;max-width:75%}.bvs-customer{background:#eaf2ff;margin-right:auto}.bvs-operator{background:#eef9ee;margin-left:auto}.bvs-system{background:#f5f5f5}</style>';
-        echo '<div class="bvs-grid"><div class="bvs-card bvs-list"><h2>گفتگوها</h2>';
-        foreach((array)$convs as $c){
-            $sla=self::sla_state($c);
-            $slaBadge=$sla['state']==='on_time'?'':(' • ⚠️ '.($sla['state']==='overdue'?'SLA حل':'SLA پاسخ'));
-            echo '<a href="'.esc_url(admin_url('admin.php?page=bluevpn-support&conversation='.(int)$c['id'])).'"><strong>#'.(int)$c['id'].' '.esc_html((string)$c['subject']).'</strong><br><small>'.esc_html((string)$c['department_name']).' • '.esc_html((string)$c['status']).esc_html($slaBadge).' • '.esc_html((string)$c['last_message_at']).'</small></a>';
+             ORDER BY FIELD(c.status,'waiting','open','pending_customer','resolved','closed'),
+                      c.last_message_at DESC
+             LIMIT 100",
+            ARRAY_A
+        );
+        $depts=$wpdb->get_results(
+            "SELECT * FROM ".self::table('departments')." ORDER BY sort_order,id",
+            ARRAY_A
+        );
+        $ops=$wpdb->get_results(
+            "SELECT * FROM ".self::table('operators')." ORDER BY display_name",
+            ARRAY_A
+        );
+
+        $stats=[
+            'all'=>count((array)$convs),
+            'waiting'=>0,
+            'open'=>0,
+            'overdue'=>0,
+        ];
+        foreach((array)$convs as $row){
+            $status=(string)($row['status']??'');
+            if($status==='waiting')$stats['waiting']++;
+            if(in_array($status,['open','pending_customer'],true))$stats['open']++;
+            $sla=self::sla_state($row);
+            if(($sla['state']??'')!=='on_time')$stats['overdue']++;
         }
-        echo '</div><div>';
-        if($cid>0){
-            $c=$wpdb->get_row($wpdb->prepare("SELECT * FROM ".self::table('conversations')." WHERE id=%d",$cid),ARRAY_A);
-            if($c){
-                $msgs=$wpdb->get_results($wpdb->prepare("SELECT * FROM ".self::table('messages')." WHERE conversation_id=%d ORDER BY id ASC",$cid),ARRAY_A);
-                $notes=$wpdb->get_results($wpdb->prepare("SELECT * FROM ".self::table('notes')." WHERE conversation_id=%d ORDER BY id DESC LIMIT 30",$cid),ARRAY_A);
-                $canned=$wpdb->get_results($wpdb->prepare(
-                    "SELECT * FROM ".self::table('canned_replies')." WHERE active=1 AND (department_id=0 OR department_id=%d) ORDER BY title",
-                    (int)$c['department_id']
-                ),ARRAY_A);
-                $suggestion=self::blueai_suggestion($cid);
-                $sla=self::sla_state($c);
-                echo '<div class="bvs-card"><h2>'.esc_html((string)$c['subject']).'</h2>';
-                echo '<p><strong>SLA:</strong> '.esc_html((string)$sla['state']).' • پاسخ: '.esc_html((string)$sla['first_response_due_at']).' • حل: '.esc_html((string)$sla['resolution_due_at']).'</p>';
-                foreach((array)$msgs as $m){
-                    echo '<div class="bvs-msg bvs-'.esc_attr((string)$m['sender_type']).'"><b>'.esc_html((string)$m['sender_type']).'</b><br>'.nl2br(esc_html((string)$m['body'])).'<br><small>'.esc_html((string)$m['created_at']).'</small></div>';
-                }
-                echo '<div style="background:#f0f6ff;padding:10px;border-radius:8px;margin:10px 0"><strong>پیشنهاد BlueAI:</strong><br>'.esc_html($suggestion).'</div>';
-                echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
-                wp_nonce_field('bluevpn_support_reply_'.$cid);
-                echo '<input type="hidden" name="action" value="bluevpn_support_reply"><input type="hidden" name="conversation_id" value="'.$cid.'">';
-                echo '<select id="bvs-canned-'.$cid.'" onchange="var t=document.getElementById(\'bvs-reply-'.$cid.'\');if(this.value)t.value=this.value"><option value="">پاسخ آماده...</option>';
-                foreach((array)$canned as $cr)echo '<option value="'.esc_attr((string)$cr['body']).'">'.esc_html((string)$cr['title']).'</option>';
-                echo '</select> <button type="button" class="button" onclick="document.getElementById(\'bvs-reply-'.$cid.'\').value='.esc_attr(wp_json_encode($suggestion)).'">استفاده از پیشنهاد BlueAI</button>';
-                echo '<textarea id="bvs-reply-'.$cid.'" name="message" class="large-text" rows="4" required placeholder="پاسخ اپراتور..."></textarea><p><button class="button button-primary">ارسال پاسخ</button></p></form>';
-                echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="bluevpn_support_assign"><input type="hidden" name="conversation_id" value="'.$cid.'">';
-                wp_nonce_field('bluevpn_support_assign_'.$cid);
-                echo '<select name="operator_id"><option value="0">بدون اپراتور</option>';
-                foreach((array)$ops as $o)echo '<option value="'.(int)$o['id'].'" '.selected((int)$c['operator_id'],(int)$o['id'],false).'>'.esc_html((string)$o['display_name']).'</option>';
-                echo '</select> <select name="department_id">';
-                foreach((array)$depts as $d)echo '<option value="'.(int)$d['id'].'" '.selected((int)$c['department_id'],(int)$d['id'],false).'>'.esc_html((string)$d['name']).'</option>';
-                echo '</select> <button class="button">تخصیص/انتقال</button></form>';
-                echo '<form style="margin-top:10px" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="bluevpn_support_status"><input type="hidden" name="conversation_id" value="'.$cid.'">';
-                wp_nonce_field('bluevpn_support_status_'.$cid);
-                echo '<select name="status"><option value="open">در حال پاسخ</option><option value="pending_customer">منتظر کاربر</option><option value="resolved">حل‌شده</option><option value="closed">بسته</option></select> <button class="button">تغییر وضعیت</button></form>';
-                echo '<form style="margin-top:10px" method="post" enctype="multipart/form-data" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="bluevpn_support_attachment"><input type="hidden" name="conversation_id" value="'.$cid.'">';
-                wp_nonce_field('bluevpn_support_attachment_'.$cid);
-                echo '<input type="file" name="attachment" accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,application/zip" required> <button class="button">ارسال فایل</button></form>';
-                echo '<h3>یادداشت داخلی</h3><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="bluevpn_support_note"><input type="hidden" name="conversation_id" value="'.$cid.'">';
-                wp_nonce_field('bluevpn_support_note_'.$cid);
-                echo '<textarea name="note" class="large-text" rows="2" required placeholder="فقط اپراتورها این یادداشت را می‌بینند"></textarea><button class="button">ثبت یادداشت داخلی</button></form>';
-                foreach((array)$notes as $n)echo '<div style="background:#fff8d7;padding:8px;margin-top:6px;border-radius:6px">'.nl2br(esc_html((string)$n['body'])).'<br><small>'.esc_html((string)$n['created_at']).'</small></div>';
-            }
+
+        echo '<style>
+        .bvs-app{
+            --bvs-bg:#08111d;
+            --bvs-panel:#0d1726;
+            --bvs-panel-2:#111e30;
+            --bvs-panel-3:#16243a;
+            --bvs-border:#22324a;
+            --bvs-text:#edf5ff;
+            --bvs-muted:#8ea0ba;
+            --bvs-accent:#24d6c3;
+            --bvs-blue:#4b83ff;
+            --bvs-danger:#ff6677;
+            --bvs-warning:#ffb34d;
+            color:var(--bvs-text);
+            direction:rtl;
+        }
+        .bvs-topstats{
+            display:grid;
+            grid-template-columns:repeat(4,minmax(0,1fr));
+            gap:12px;
+            margin:0 0 14px;
+        }
+        .bvs-stat{
+            background:linear-gradient(180deg,var(--bvs-panel-2),var(--bvs-panel));
+            border:1px solid var(--bvs-border);
+            border-radius:16px;
+            padding:14px 16px;
+            min-height:74px;
+        }
+        .bvs-stat-label{color:var(--bvs-muted);font-size:12px;margin-bottom:4px}
+        .bvs-stat-value{font-size:24px;font-weight:800;line-height:1}
+        .bvs-layout{
+            display:grid;
+            grid-template-columns:minmax(250px,320px) minmax(0,1fr) minmax(250px,310px);
+            gap:14px;
+            align-items:stretch;
+            min-height:660px;
+        }
+        .bvs-panel{
+            background:linear-gradient(180deg,var(--bvs-panel-2),var(--bvs-panel));
+            border:1px solid var(--bvs-border);
+            border-radius:18px;
+            overflow:hidden;
+            box-shadow:0 14px 34px rgba(0,0,0,.18);
+        }
+        .bvs-panel-head{
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:10px;
+            padding:14px 16px;
+            border-bottom:1px solid var(--bvs-border);
+        }
+        .bvs-panel-head h2,.bvs-panel-head h3{margin:0;color:var(--bvs-text);font-size:15px}
+        .bvs-pill{
+            display:inline-flex;
+            align-items:center;
+            gap:6px;
+            border:1px solid var(--bvs-border);
+            background:#0a1422;
+            color:var(--bvs-muted);
+            border-radius:999px;
+            padding:5px 9px;
+            font-size:10px;
+            white-space:nowrap;
+        }
+        .bvs-list{max-height:680px;overflow:auto}
+        .bvs-conv{
+            display:block;
+            padding:13px 14px;
+            text-decoration:none!important;
+            color:var(--bvs-text)!important;
+            border-bottom:1px solid rgba(34,50,74,.7);
+            transition:.15s ease;
+        }
+        .bvs-conv:hover,.bvs-conv.is-active{background:rgba(75,131,255,.10)}
+        .bvs-conv-top{
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:8px;
+            margin-bottom:5px;
+        }
+        .bvs-conv-title{
+            font-size:13px;
+            font-weight:700;
+            overflow:hidden;
+            text-overflow:ellipsis;
+            white-space:nowrap;
+            min-width:0;
+        }
+        .bvs-conv-time{font-size:9px;color:var(--bvs-muted);white-space:nowrap}
+        .bvs-conv-meta{
+            display:flex;
+            flex-wrap:wrap;
+            gap:5px;
+            align-items:center;
+            color:var(--bvs-muted);
+            font-size:10px;
+        }
+        .bvs-dot{width:7px;height:7px;border-radius:99px;display:inline-block;background:#73839b}
+        .bvs-dot.waiting{background:var(--bvs-warning)}
+        .bvs-dot.open,.bvs-dot.pending_customer{background:var(--bvs-accent)}
+        .bvs-dot.closed,.bvs-dot.resolved{background:#62708a}
+        .bvs-sla-bad{color:var(--bvs-warning);font-weight:700}
+        .bvs-chat{
+            display:flex;
+            flex-direction:column;
+            min-height:660px;
+        }
+        .bvs-chat-head{
+            padding:14px 16px;
+            border-bottom:1px solid var(--bvs-border);
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:12px;
+        }
+        .bvs-chat-title{min-width:0}
+        .bvs-chat-title strong{display:block;font-size:15px;color:var(--bvs-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .bvs-chat-title small{color:var(--bvs-muted)}
+        .bvs-chat-body{
+            flex:1;
+            min-height:370px;
+            max-height:500px;
+            overflow:auto;
+            padding:16px;
+            background:
+                radial-gradient(circle at 20% 10%,rgba(75,131,255,.06),transparent 34%),
+                linear-gradient(180deg,#091421,#0a1421);
+        }
+        .bvs-msg-row{display:flex;margin:8px 0}
+        .bvs-msg-row.customer{justify-content:flex-start}
+        .bvs-msg-row.operator{justify-content:flex-end}
+        .bvs-msg-row.system{justify-content:center}
+        .bvs-msg{
+            max-width:min(78%,620px);
+            border-radius:16px;
+            padding:10px 12px;
+            border:1px solid var(--bvs-border);
+            line-height:1.8;
+            font-size:12px;
+            box-shadow:0 6px 18px rgba(0,0,0,.10);
+        }
+        .bvs-msg.customer{background:#173056;border-color:#28528f}
+        .bvs-msg.operator{background:#102d2b;border-color:#1e5a55}
+        .bvs-msg.system{background:#121d2c;color:var(--bvs-muted)}
+        .bvs-msg-meta{display:flex;justify-content:space-between;gap:14px;margin-top:5px;color:#8da0bb;font-size:9px}
+        .bvs-ai{
+            margin:12px 14px 0;
+            padding:11px 12px;
+            border-radius:14px;
+            border:1px solid rgba(75,131,255,.35);
+            background:rgba(75,131,255,.08);
+        }
+        .bvs-ai strong{color:#86a9ff}
+        .bvs-compose{padding:12px 14px 14px}
+        .bvs-compose textarea,
+        .bvs-app input[type=text],
+        .bvs-app input[type=number],
+        .bvs-app select,
+        .bvs-app textarea{
+            width:100%;
+            box-sizing:border-box;
+            background:#081321!important;
+            color:var(--bvs-text)!important;
+            border:1px solid var(--bvs-border)!important;
+            border-radius:12px!important;
+            min-height:40px;
+            box-shadow:none!important;
+        }
+        .bvs-compose textarea{min-height:92px;resize:vertical;padding:10px 12px}
+        .bvs-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+        .bvs-row > *{min-width:0}
+        .bvs-btn{
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            border:0;
+            border-radius:11px;
+            min-height:40px;
+            padding:0 14px;
+            cursor:pointer;
+            font-weight:700;
+            text-decoration:none!important;
+        }
+        .bvs-btn-primary{background:linear-gradient(135deg,#4b83ff,#2d66e8);color:#fff}
+        .bvs-btn-soft{background:#132137;color:var(--bvs-text);border:1px solid var(--bvs-border)}
+        .bvs-btn-danger{background:rgba(255,102,119,.12);color:#ff8390;border:1px solid rgba(255,102,119,.3)}
+        .bvs-side-scroll{max-height:680px;overflow:auto;padding:12px}
+        .bvs-section{
+            background:#0a1422;
+            border:1px solid var(--bvs-border);
+            border-radius:14px;
+            padding:12px;
+            margin-bottom:10px;
+        }
+        .bvs-section h3{margin:0 0 10px;color:var(--bvs-text);font-size:13px}
+        .bvs-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+        .bvs-form-grid .wide{grid-column:1/-1}
+        .bvs-mini-list{display:grid;gap:7px}
+        .bvs-mini-item{
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            gap:8px;
+            border:1px solid var(--bvs-border);
+            background:#0d1928;
+            border-radius:11px;
+            padding:9px 10px;
+        }
+        .bvs-mini-item strong{font-size:11px}
+        .bvs-mini-item small{color:var(--bvs-muted);font-size:9px}
+        .bvs-note{
+            background:#2a2512;
+            border:1px solid #5e5122;
+            border-radius:11px;
+            padding:9px 10px;
+            margin-top:7px;
+            color:#f1df9c;
+            font-size:11px;
+        }
+        .bvs-empty{
+            min-height:620px;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            text-align:center;
+            padding:24px;
+            color:var(--bvs-muted);
+        }
+        .bvs-empty-icon{
+            width:64px;height:64px;border-radius:20px;
+            margin:0 auto 12px;
+            display:flex;align-items:center;justify-content:center;
+            background:rgba(36,214,195,.09);
+            border:1px solid rgba(36,214,195,.22);
+            font-size:28px;
+        }
+        .bvs-app input[type=file]{color:var(--bvs-muted);max-width:100%}
+        @media(max-width:1100px){
+            .bvs-layout{grid-template-columns:minmax(230px,300px) minmax(0,1fr)}
+            .bvs-right{grid-column:1/-1}
+            .bvs-side-scroll{max-height:none}
+        }
+        @media(max-width:760px){
+            .bvs-topstats{grid-template-columns:repeat(2,minmax(0,1fr))}
+            .bvs-layout{display:block}
+            .bvs-panel{margin-bottom:12px}
+            .bvs-list{max-height:280px}
+            .bvs-chat{min-height:560px}
+            .bvs-chat-body{max-height:420px}
+            .bvs-msg{max-width:90%}
+            .bvs-form-grid{grid-template-columns:1fr}
+            .bvs-form-grid .wide{grid-column:auto}
+            .bvs-row{align-items:stretch}
+            .bvs-row > *{width:100%}
+            .bvs-btn{width:100%}
+        }
+        </style>';
+
+        echo '<div class="bvs-app">';
+        echo '<div class="bvs-topstats">';
+        foreach([
+            ['همه گفتگوها',$stats['all']],
+            ['در انتظار',$stats['waiting']],
+            ['فعال',$stats['open']],
+            ['SLA عقب‌افتاده',$stats['overdue']],
+        ] as $stat){
+            echo '<div class="bvs-stat"><div class="bvs-stat-label">'.esc_html((string)$stat[0]).'</div><div class="bvs-stat-value">'.(int)$stat[1].'</div></div>';
+        }
+        echo '</div>';
+
+        echo '<div class="bvs-layout">';
+
+        echo '<section class="bvs-panel">';
+        echo '<div class="bvs-panel-head"><h2>گفتگوها</h2><span class="bvs-pill">'.(int)$stats['all'].' گفتگو</span></div>';
+        echo '<div class="bvs-list">';
+        if(!$convs){
+            echo '<div class="bvs-empty"><div><div class="bvs-empty-icon">💬</div><strong>هنوز گفتگویی نیست</strong><br><small>پیام‌های کاربران اینجا نمایش داده می‌شوند.</small></div></div>';
         } else {
-            echo '<div class="bvs-card"><h2>مدیریت بخش‌ها و اپراتورها</h2>';
-            echo '<h3>افزودن بخش</h3><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="bluevpn_support_department_save">';
-            wp_nonce_field('bluevpn_support_department_save');
-            echo '<input name="name" required placeholder="نام بخش"> <input name="description" placeholder="توضیح"> <input name="first_response_minutes" type="number" min="5" value="30" style="width:90px" title="SLA پاسخ"> <input name="resolution_minutes" type="number" min="30" value="1440" style="width:100px" title="SLA حل"> <button class="button">افزودن</button></form>';
-            echo '<h3>افزودن اپراتور</h3><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="bluevpn_support_operator_save">';
-            wp_nonce_field('bluevpn_support_operator_save');
-            echo '<input name="display_name" required placeholder="نام اپراتور"> <input name="wp_user_id" type="number" min="0" placeholder="WP User ID"> ';
-            foreach((array)$depts as $d)echo '<label style="margin:0 6px"><input type="checkbox" name="department_ids[]" value="'.(int)$d['id'].'"> '.esc_html((string)$d['name']).'</label>';
-            echo ' <button class="button">افزودن</button></form>';
-            echo '<h3>پاسخ آماده</h3><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="bluevpn_support_canned_save">';
-            wp_nonce_field('bluevpn_support_canned_save');
-            echo '<input name="title" required placeholder="عنوان"> <textarea name="body" required placeholder="متن پاسخ"></textarea> <button class="button">ذخیره</button></form>';
-            echo '<h3>بخش‌ها</h3><ul>'; foreach((array)$depts as $d)echo '<li>'.esc_html((string)$d['name']).' • SLA '.(int)$d['first_response_minutes'].'/'.(int)$d['resolution_minutes'].' دقیقه</li>'; echo '</ul>';
-            echo '<h3>اپراتورها</h3><ul>'; foreach((array)$ops as $o){echo '<li>'.esc_html((string)$o['display_name']).' • '.(!empty($o['online'])?'🟢 آنلاین':'⚪ آفلاین').' <form style="display:inline" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="bluevpn_support_operator_presence"><input type="hidden" name="operator_id" value="'.(int)$o['id'].'"><input type="hidden" name="online" value="'.(!empty($o['online'])?'0':'1').'">';wp_nonce_field('bluevpn_support_operator_presence_'.(int)$o['id']);echo '<button class="button button-small">'.(!empty($o['online'])?'آفلاین':'آنلاین').'</button></form></li>';} echo '</ul></div>';
+            foreach((array)$convs as $c){
+                $sla=self::sla_state($c);
+                $active=$cid===(int)$c['id'];
+                $status=(string)$c['status'];
+                $title=trim((string)$c['subject'])?:'بدون عنوان';
+                echo '<a class="bvs-conv'.($active?' is-active':'').'" href="'.esc_url(admin_url('admin.php?page=bluevpn-support&conversation='.(int)$c['id'])).'">';
+                echo '<div class="bvs-conv-top"><span class="bvs-conv-title">'.esc_html($title).'</span><span class="bvs-conv-time">'.esc_html((string)$c['last_message_at']).'</span></div>';
+                echo '<div class="bvs-conv-meta"><span class="bvs-dot '.esc_attr($status).'"></span><span>'.esc_html((string)$c['department_name']).'</span><span>•</span><span>'.esc_html($status).'</span>';
+                if(($sla['state']??'on_time')!=='on_time')echo '<span class="bvs-sla-bad">• SLA</span>';
+                echo '</div></a>';
+            }
         }
-        echo '</div></div></div>';
+        echo '</div></section>';
+
+        echo '<section class="bvs-panel bvs-chat">';
+        if($cid>0){
+            $c=$wpdb->get_row(
+                $wpdb->prepare("SELECT * FROM ".self::table('conversations')." WHERE id=%d",$cid),
+                ARRAY_A
+            );
+        } else {
+            $c=null;
+        }
+
+        if($c){
+            $msgs=$wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT * FROM ".self::table('messages')." WHERE conversation_id=%d ORDER BY id ASC",
+                    $cid
+                ),
+                ARRAY_A
+            );
+            $notes=$wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT * FROM ".self::table('notes')." WHERE conversation_id=%d ORDER BY id DESC LIMIT 30",
+                    $cid
+                ),
+                ARRAY_A
+            );
+            $canned=$wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT * FROM ".self::table('canned_replies')."
+                     WHERE active=1 AND (department_id=0 OR department_id=%d)
+                     ORDER BY title",
+                    (int)$c['department_id']
+                ),
+                ARRAY_A
+            );
+            $suggestion=self::blueai_suggestion($cid);
+            $sla=self::sla_state($c);
+
+            echo '<div class="bvs-chat-head">';
+            echo '<div class="bvs-chat-title"><strong>'.esc_html((string)$c['subject']).'</strong><small>#'.(int)$cid.' • '.esc_html((string)$c['status']).'</small></div>';
+            echo '<span class="bvs-pill">'.esc_html((string)($sla['state']??'on_time')).'</span>';
+            echo '</div>';
+
+            echo '<div class="bvs-chat-body" id="bvs-chat-body">';
+            if(!$msgs){
+                echo '<div class="bvs-empty"><div><div class="bvs-empty-icon">✦</div><strong>گفتگو آماده است</strong><br><small>اولین پیام در اینجا ظاهر می‌شود.</small></div></div>';
+            } else {
+                foreach((array)$msgs as $m){
+                    $sender=(string)$m['sender_type'];
+                    if(!in_array($sender,['customer','operator','system'],true))$sender='system';
+                    $label=$sender==='customer'?'کاربر':($sender==='operator'?'پشتیبانی':'سیستم');
+                    echo '<div class="bvs-msg-row '.esc_attr($sender).'"><div class="bvs-msg '.esc_attr($sender).'">';
+                    echo '<div>'.nl2br(esc_html((string)$m['body'])).'</div>';
+                    echo '<div class="bvs-msg-meta"><span>'.esc_html($label).'</span><span>'.esc_html((string)$m['created_at']).'</span></div>';
+                    echo '</div></div>';
+                }
+            }
+            echo '</div>';
+
+            echo '<div class="bvs-ai"><strong>پیشنهاد BlueAI</strong><div style="margin-top:5px">'.esc_html($suggestion).'</div></div>';
+
+            echo '<div class="bvs-compose">';
+            echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+            wp_nonce_field('bluevpn_support_reply_'.$cid);
+            echo '<input type="hidden" name="action" value="bluevpn_support_reply"><input type="hidden" name="conversation_id" value="'.$cid.'">';
+            echo '<div class="bvs-row" style="margin-bottom:8px">';
+            echo '<select id="bvs-canned-'.$cid.'" style="flex:1" onchange="var t=document.getElementById(\'bvs-reply-'.$cid.'\');if(this.value)t.value=this.value"><option value="">پاسخ آماده...</option>';
+            foreach((array)$canned as $cr){
+                echo '<option value="'.esc_attr((string)$cr['body']).'">'.esc_html((string)$cr['title']).'</option>';
+            }
+            echo '</select>';
+            echo '<button type="button" class="bvs-btn bvs-btn-soft" onclick="document.getElementById(\'bvs-reply-'.$cid.'\').value='.esc_attr(wp_json_encode($suggestion)).'">استفاده از BlueAI</button>';
+            echo '</div>';
+            echo '<textarea id="bvs-reply-'.$cid.'" name="message" required placeholder="پاسخ خود را بنویسید..."></textarea>';
+            echo '<div class="bvs-row" style="margin-top:8px"><button class="bvs-btn bvs-btn-primary">ارسال پاسخ</button></div>';
+            echo '</form>';
+            echo '</div>';
+        } else {
+            echo '<div class="bvs-empty"><div><div class="bvs-empty-icon">💬</div><strong>یک گفتگو را انتخاب کنید</strong><br><small>پیام‌های کاربر و پاسخ اپراتور اینجا نمایش داده می‌شوند.</small></div></div>';
+        }
+        echo '</section>';
+
+        echo '<aside class="bvs-panel bvs-right">';
+        echo '<div class="bvs-panel-head"><h3>'.($c?'مدیریت گفتگو':'مدیریت پشتیبانی').'</h3><span class="bvs-pill">BlueVPN</span></div>';
+        echo '<div class="bvs-side-scroll">';
+
+        if($c){
+            echo '<div class="bvs-section"><h3>ارجاع و وضعیت</h3>';
+            echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+            echo '<input type="hidden" name="action" value="bluevpn_support_assign"><input type="hidden" name="conversation_id" value="'.$cid.'">';
+            wp_nonce_field('bluevpn_support_assign_'.$cid);
+            echo '<div class="bvs-form-grid">';
+            echo '<select name="operator_id"><option value="0">بدون اپراتور</option>';
+            foreach((array)$ops as $o){
+                echo '<option value="'.(int)$o['id'].'" '.selected((int)$c['operator_id'],(int)$o['id'],false).'>'.esc_html((string)$o['display_name']).'</option>';
+            }
+            echo '</select>';
+            echo '<select name="department_id">';
+            foreach((array)$depts as $d){
+                echo '<option value="'.(int)$d['id'].'" '.selected((int)$c['department_id'],(int)$d['id'],false).'>'.esc_html((string)$d['name']).'</option>';
+            }
+            echo '</select>';
+            echo '<button class="bvs-btn bvs-btn-soft wide">تخصیص / انتقال</button></div></form>';
+
+            echo '<form style="margin-top:8px" method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+            echo '<input type="hidden" name="action" value="bluevpn_support_status"><input type="hidden" name="conversation_id" value="'.$cid.'">';
+            wp_nonce_field('bluevpn_support_status_'.$cid);
+            echo '<div class="bvs-row"><select name="status" style="flex:1">';
+            foreach([
+                'open'=>'در حال پاسخ',
+                'pending_customer'=>'منتظر کاربر',
+                'resolved'=>'حل‌شده',
+                'closed'=>'بسته',
+            ] as $value=>$label){
+                echo '<option value="'.esc_attr($value).'" '.selected((string)$c['status'],$value,false).'>'.esc_html($label).'</option>';
+            }
+            echo '</select><button class="bvs-btn bvs-btn-soft">ثبت وضعیت</button></div></form>';
+            echo '</div>';
+
+            echo '<div class="bvs-section"><h3>SLA</h3>';
+            echo '<div class="bvs-mini-list">';
+            echo '<div class="bvs-mini-item"><div><strong>پاسخ اولیه</strong><br><small>'.esc_html((string)$sla['first_response_due_at']).'</small></div><span class="bvs-pill">'.(!empty($sla['first_response_overdue'])?'عقب‌افتاده':'عادی').'</span></div>';
+            echo '<div class="bvs-mini-item"><div><strong>حل گفتگو</strong><br><small>'.esc_html((string)$sla['resolution_due_at']).'</small></div><span class="bvs-pill">'.(!empty($sla['resolution_overdue'])?'عقب‌افتاده':'عادی').'</span></div>';
+            echo '</div></div>';
+
+            echo '<div class="bvs-section"><h3>فایل</h3>';
+            echo '<form method="post" enctype="multipart/form-data" action="'.esc_url(admin_url('admin-post.php')).'">';
+            echo '<input type="hidden" name="action" value="bluevpn_support_attachment"><input type="hidden" name="conversation_id" value="'.$cid.'">';
+            wp_nonce_field('bluevpn_support_attachment_'.$cid);
+            echo '<input type="file" name="attachment" accept="image/jpeg,image/png,image/webp,application/pdf,text/plain,application/zip" required>';
+            echo '<button style="margin-top:8px" class="bvs-btn bvs-btn-soft">ارسال فایل</button></form></div>';
+
+            echo '<div class="bvs-section"><h3>یادداشت داخلی</h3>';
+            echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+            echo '<input type="hidden" name="action" value="bluevpn_support_note"><input type="hidden" name="conversation_id" value="'.$cid.'">';
+            wp_nonce_field('bluevpn_support_note_'.$cid);
+            echo '<textarea name="note" rows="3" required placeholder="فقط اپراتورها می‌بینند"></textarea>';
+            echo '<button style="margin-top:8px" class="bvs-btn bvs-btn-soft">ثبت یادداشت</button></form>';
+            foreach((array)$notes as $n){
+                echo '<div class="bvs-note">'.nl2br(esc_html((string)$n['body'])).'<br><small>'.esc_html((string)$n['created_at']).'</small></div>';
+            }
+            echo '</div>';
+        } else {
+            echo '<div class="bvs-section"><h3>افزودن بخش</h3>';
+            echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+            echo '<input type="hidden" name="action" value="bluevpn_support_department_save">';
+            wp_nonce_field('bluevpn_support_department_save');
+            echo '<div class="bvs-form-grid">';
+            echo '<input class="wide" name="name" required placeholder="نام بخش">';
+            echo '<input class="wide" name="description" placeholder="توضیح کوتاه">';
+            echo '<input name="first_response_minutes" type="number" min="5" value="30" title="SLA پاسخ">';
+            echo '<input name="resolution_minutes" type="number" min="30" value="1440" title="SLA حل">';
+            echo '<button class="bvs-btn bvs-btn-primary wide">افزودن بخش</button>';
+            echo '</div></form></div>';
+
+            echo '<div class="bvs-section"><h3>افزودن اپراتور</h3>';
+            echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+            echo '<input type="hidden" name="action" value="bluevpn_support_operator_save">';
+            wp_nonce_field('bluevpn_support_operator_save');
+            echo '<div class="bvs-form-grid"><input name="display_name" required placeholder="نام اپراتور"><input name="wp_user_id" type="number" min="0" placeholder="WP User ID">';
+            echo '<div class="wide" style="display:flex;gap:7px;flex-wrap:wrap">';
+            foreach((array)$depts as $d){
+                echo '<label class="bvs-pill"><input type="checkbox" name="department_ids[]" value="'.(int)$d['id'].'"> '.esc_html((string)$d['name']).'</label>';
+            }
+            echo '</div><button class="bvs-btn bvs-btn-primary wide">افزودن اپراتور</button></div></form></div>';
+
+            echo '<div class="bvs-section"><h3>پاسخ آماده</h3>';
+            echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+            echo '<input type="hidden" name="action" value="bluevpn_support_canned_save">';
+            wp_nonce_field('bluevpn_support_canned_save');
+            echo '<input name="title" required placeholder="عنوان پاسخ">';
+            echo '<textarea style="margin-top:8px" name="body" rows="3" required placeholder="متن پاسخ آماده"></textarea>';
+            echo '<button style="margin-top:8px" class="bvs-btn bvs-btn-soft">ذخیره پاسخ</button></form></div>';
+
+            echo '<div class="bvs-section"><h3>بخش‌ها</h3><div class="bvs-mini-list">';
+            foreach((array)$depts as $d){
+                echo '<div class="bvs-mini-item"><div><strong>'.esc_html((string)$d['name']).'</strong><br><small>SLA '.(int)$d['first_response_minutes'].' / '.(int)$d['resolution_minutes'].' دقیقه</small></div><span class="bvs-pill">فعال</span></div>';
+            }
+            echo '</div></div>';
+
+            echo '<div class="bvs-section"><h3>اپراتورها</h3><div class="bvs-mini-list">';
+            foreach((array)$ops as $o){
+                $online=!empty($o['online']);
+                echo '<div class="bvs-mini-item"><div><strong>'.esc_html((string)$o['display_name']).'</strong><br><small>'.($online?'آنلاین':'آفلاین').'</small></div>';
+                echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+                echo '<input type="hidden" name="action" value="bluevpn_support_operator_presence"><input type="hidden" name="operator_id" value="'.(int)$o['id'].'"><input type="hidden" name="online" value="'.($online?'0':'1').'">';
+                wp_nonce_field('bluevpn_support_operator_presence_'.(int)$o['id']);
+                echo '<button class="bvs-btn '.($online?'bvs-btn-danger':'bvs-btn-soft').'">'.($online?'آفلاین':'آنلاین').'</button></form></div>';
+            }
+            echo '</div></div>';
+        }
+
+        echo '</div></aside>';
+        echo '</div></div>';
+
+        echo '<script>
+        (function(){
+            var body=document.getElementById("bvs-chat-body");
+            if(body){body.scrollTop=body.scrollHeight;}
+        })();
+        </script>';
+
         BlueVPN_Unified_UI::shell_close();
     }
 

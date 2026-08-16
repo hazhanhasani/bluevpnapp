@@ -1,4 +1,4 @@
-# BlueVPN 4.10.1 — Overlay Alternate-Core Cleanup
+# BlueVPN 4.10.2 — Overlay Alternate-Core Cleanup
 
 GitHub Run #279 failed because `android-source/BlueVpnCoreFlavor.kt`, removed from
 the release, survived an overlay-style repository update.

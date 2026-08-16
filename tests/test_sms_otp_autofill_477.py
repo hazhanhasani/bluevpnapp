@@ -36,7 +36,7 @@ class SmsOtpAutoFill477Tests(unittest.TestCase):
 
     def test_release_version(self):
         brand=json.loads((ROOT/'branding/app.json').read_text(encoding='utf-8'))
-        self.assertEqual(brand['version_name'],'4.10.1')
-        self.assertEqual(brand['version_code'],41001)
+        self.assertEqual(brand['version_name'],'4.10.2')
+        self.assertEqual(brand['version_code'],41002)
 
 if __name__ == '__main__': unittest.main()

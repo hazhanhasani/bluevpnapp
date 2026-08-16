@@ -170,6 +170,13 @@ object BlueVpnRouteIntelligence {
             ),
         )
         rememberSticky(context, guid, now)
+        BlueVpnIntelligenceCore.recordRouteOutcome(
+            context = context,
+            guid = guid,
+            success = true,
+            latencyMs = sample,
+            jitterMs = jitter,
+        )
     }
 
     fun recordFailure(context: Context, guid: String, reason: String) {
@@ -201,6 +208,12 @@ object BlueVpnRouteIntelligence {
                 cooldownUntil = now + backoffMs,
                 lastFailureReason = reason.trim().take(MAX_LAST_REASON),
             ),
+        )
+        BlueVpnIntelligenceCore.recordRouteOutcome(
+            context = context,
+            guid = guid,
+            success = false,
+            reason = reason,
         )
     }
 

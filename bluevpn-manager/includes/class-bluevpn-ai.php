@@ -4,8 +4,8 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_AI {
     private const LIVE_TTL_SECONDS = 180;
     private const LIVE_PROBE_MAX_AGE_MS = 130000;
-    public const ENGINE_VERSION = '2.2.0';
-    public const SCHEMA_VERSION = 4;
+    public const ENGINE_VERSION = '3.0.0';
+    public const SCHEMA_VERSION = 5;
 
     public static function init(): void {
         add_action('admin_post_bluevpn_blueai_save', [self::class, 'save_settings']);
@@ -62,6 +62,9 @@ final class BlueVPN_AI {
             'ircf_subscription_refiner', 'adaptive_test_url_pool',
             'cloudflare_range_intelligence', 'fragment_earlydata_mux_scoring',
             'warp_masque_endpoint_profiles',
+            'network_fingerprint_v2', 'failure_classifier', 'route_circuit_breaker',
+            'shadow_decisions', 'predictive_degradation', 'operations_incidents',
+            'payment_provider_reconciliation', 'anomaly_detection', 'explainable_scoring',
         ];
     }
 
@@ -276,7 +279,7 @@ final class BlueVPN_AI {
         $proofOk=false;$proofError=''; if($type==='heartbeat')[$proofOk,$proofError]=self::heartbeat_proof($p); $success=$type==='heartbeat'?$proofOk:BlueVPN_Utils::boolish($p['success']??false);
         $event=[
             'customer_id'=>(int)$customer['id'],'device_id'=>self::clean($p['device_id']??'',80,''),'config_key'=>$config,'location_key'=>self::clean($p['location_key']??'',24,'unknown'),'location_title'=>self::clean($p['location_title']??'',100,'نامشخص'),'operator'=>$operator,'network_type'=>$network,'mode'=>$mode,'plan_tier'=>$planTier,'ai_schema_version'=>self::clamp($p['ai_schema_version']??1,1,100,1),'ai_client_version'=>self::clean($p['ai_client_version']??($p['app_version']??''),40,''),'event_type'=>$type,'success'=>$success?1:0,
-            'ping_ms'=>self::clamp($p['ping_ms']??0,0,10000),'jitter_ms'=>self::clamp($p['jitter_ms']??0,0,10000),'packet_loss_x100'=>self::clamp($p['packet_loss_x100']??0,0,10000),'duration_seconds'=>self::clamp($p['duration_seconds']??0,0,31536000),'health_score'=>self::clamp($p['health_score']??0,0,100),'download_bytes'=>self::clamp($p['download_bytes']??0,0,PHP_INT_MAX),'upload_bytes'=>self::clamp($p['upload_bytes']??0,0,PHP_INT_MAX),'failure_reason'=>self::clean($type==='heartbeat'?$proofError:($p['failure_reason']??''),500,''),'app_version'=>self::clean($p['app_version']??'',40,''),'android_version'=>self::clean($p['android_version']??'',40,''),'device_model'=>self::clean($p['device_model']??'',160,''),'hour_bucket'=>$bucket,'created_at'=>BlueVPN_Utils::now_mysql(),
+            'ping_ms'=>self::clamp($p['ping_ms']??0,0,10000),'jitter_ms'=>self::clamp($p['jitter_ms']??0,0,10000),'packet_loss_x100'=>self::clamp($p['packet_loss_x100']??0,0,10000),'duration_seconds'=>self::clamp($p['duration_seconds']??0,0,31536000),'health_score'=>self::clamp($p['health_score']??0,0,100),'download_bytes'=>self::clamp($p['download_bytes']??0,0,PHP_INT_MAX),'upload_bytes'=>self::clamp($p['upload_bytes']??0,0,PHP_INT_MAX),'failure_reason'=>self::clean($type==='heartbeat'?$proofError:($p['failure_reason']??''),500,''),'failure_class'=>self::clean($p['failure_class']??'',40,''),'network_signature'=>self::clean($p['network_signature']??'',40,''),'decision_confidence'=>self::clamp($p['decision_confidence']??0,0,100,0),'decision_reason'=>self::clean($p['decision_reason']??'',500,''),'app_version'=>self::clean($p['app_version']??'',40,''),'android_version'=>self::clean($p['android_version']??'',40,''),'device_model'=>self::clean($p['device_model']??'',160,''),'hour_bucket'=>$bucket,'created_at'=>BlueVPN_Utils::now_mysql(),
         ];
         $wpdb->insert(BlueVPN_DB::table('ai_connection_events'),$event);
         if($type==='heartbeat'){
@@ -500,6 +503,9 @@ final class BlueVPN_AI {
         $s['blueai_premium_enabled']=isset($_POST['blueai_premium_enabled']);
         $s['blueai_collective']=isset($_POST['blueai_collective']);
         $s['blueai_auto_heal']=isset($_POST['blueai_auto_heal']);
+        $s['blueai_shadow_mode']=isset($_POST['blueai_shadow_mode']);
+        $s['blueai_predictive_failover']=isset($_POST['blueai_predictive_failover']);
+        $s['blueai_anomaly_detection']=isset($_POST['blueai_anomaly_detection']);
         $s['blueai_min_samples']=max(1,min(100,(int)($_POST['blueai_min_samples']??3)));
         $s['blueai_live_refresh_seconds']=max(3,min(30,(int)($_POST['blueai_live_refresh_seconds']??5)));
         $s['blueai_ircf_enabled']=isset($_POST['blueai_ircf_enabled']);
@@ -530,6 +536,9 @@ final class BlueVPN_AI {
         echo '<label><input type="checkbox" name="blueai_premium_enabled" value="1" '.checked(!isset($s['blueai_premium_enabled'])||!empty($s['blueai_premium_enabled']),true,false).'> هوش پلن Premium</label>';
         echo '<label><input type="checkbox" name="blueai_collective" value="1" '.checked(!empty($s['blueai_collective']),true,false).'> یادگیری جمعی</label>';
         echo '<label><input type="checkbox" name="blueai_auto_heal" value="1" '.checked(!empty($s['blueai_auto_heal']),true,false).'> Auto Heal</label>';
+        echo '<label><input type="checkbox" name="blueai_shadow_mode" value="1" '.checked(!isset($s['blueai_shadow_mode'])||!empty($s['blueai_shadow_mode']),true,false).'> Shadow Learning</label>';
+        echo '<label><input type="checkbox" name="blueai_predictive_failover" value="1" '.checked(!isset($s['blueai_predictive_failover'])||!empty($s['blueai_predictive_failover']),true,false).'> Predictive Failover</label>';
+        echo '<label><input type="checkbox" name="blueai_anomaly_detection" value="1" '.checked(!isset($s['blueai_anomaly_detection'])||!empty($s['blueai_anomaly_detection']),true,false).'> Anomaly Detection</label>';
         echo '<label>حداقل نمونه<input type="number" min="1" max="100" name="blueai_min_samples" value="'.(int)($s['blueai_min_samples']??3).'"></label>';
         echo '<label>نوسازی پنل Live (ثانیه)<input type="number" min="3" max="30" name="blueai_live_refresh_seconds" value="'.(int)($s['blueai_live_refresh_seconds']??5).'"></label>';
         echo '<label><input type="checkbox" name="blueai_ircf_enabled" value="1" '.checked(!isset($s['blueai_ircf_enabled'])||!empty($s['blueai_ircf_enabled']),true,false).'> IRCF Intelligence</label>';
@@ -558,6 +567,7 @@ final class BlueVPN_AI {
 
         $ajax=admin_url('admin-ajax.php');$nonce=wp_create_nonce('bluevpn_ai_live');$refresh=max(3,min(30,(int)($s['blueai_live_refresh_seconds']??5)))*1000;
         echo '<script>(function(){const endpoint='.wp_json_encode($ajax).';const nonce='.wp_json_encode($nonce).';const interval='.(int)$refresh.';let running=false;async function refreshBlueAi(){if(running||document.visibilityState!=="visible")return;running=true;try{const body=new URLSearchParams({action:"bluevpn_ai_live_snapshot",nonce:nonce});const res=await fetch(endpoint,{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},body:body.toString()});const json=await res.json();if(!json.success||!json.data)return;const d=json.data;const set=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v};set("bvai-kpi-live",d.counts.total);set("bvai-kpi-free",d.counts.free);set("bvai-kpi-premium",d.counts.premium);set("bvai-live-ping",d.ping_clients>0?d.average_live_ping_ms+" ms":"—");set("bvai-live-ping-detail",d.ping_clients>0?("min "+d.minimum_live_ping_ms+" • max "+d.maximum_live_ping_ms+" • jitter "+d.average_live_jitter_ms+" • loss "+d.average_live_loss_pct+"%"):"در انتظار نمونه واقعی");set("bvai-degraded",d.degraded_routes);set("bvai-live-updated","همین حالا");const live=document.getElementById("bluevpn-ai-live-table");if(live)live.innerHTML=d.live_html;const versions=document.getElementById("bluevpn-ai-version-table");if(versions)versions.innerHTML=d.version_html;}catch(e){set("bvai-live-updated","خطا در نوسازی");}finally{running=false;}}setInterval(refreshBlueAi,interval);document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")refreshBlueAi();});})();</script>';
+        if (class_exists('BlueVPN_AI_Ops')) BlueVPN_AI_Ops::render_admin();
     }
 
 }

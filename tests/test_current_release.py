@@ -720,7 +720,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
     def test_79_android_blueai_sends_tier_and_schema_capability(self):
         ai = text("android-source/BlueVpnAi.kt")
         account = text("android-source/BlueVpnAccountManager.kt")
-        self.assertIn("AI_SCHEMA_VERSION = 3", ai)
+        self.assertIn("AI_SCHEMA_VERSION = 5", ai)
         self.assertIn('.put("plan_tier", planTier(context))', ai)
         self.assertIn('.put("ai_schema_version", AI_SCHEMA_VERSION)', ai)
         self.assertIn('"&plan_tier=" + java.net.URLEncoder.encode(planTier', account)

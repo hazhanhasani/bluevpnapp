@@ -76,6 +76,23 @@ object BlueVpnLiveReporter {
             app,
             requestedSamples = if (BlueVpnPerformance.isLowEnd(app)) 2 else 3,
         )
+        val selectedGuid = com.v2ray.ang.handler.MmkvManager.getSelectServer().orEmpty()
+        val health = BlueVpnIntelligenceCore.observeHealth(
+            context = app,
+            guid = selectedGuid,
+            pingMs = latency?.averageMs ?: 0L,
+            jitterMs = latency?.jitterMs ?: 0L,
+            packetLossX100 = latency?.packetLossX100 ?: 0,
+        )
+        if (health.degraded && selectedGuid.isNotBlank()) {
+            BlueVpnRouteIntelligence.recordFailure(
+                app,
+                selectedGuid,
+                "PREDICTIVE_DEGRADATION:${health.reason}",
+            )
+            BlueVpnSystemController.predictiveFailover(app)
+        }
+
         BlueVpnAi.heartbeat(
             app,
             pingMs = latency?.averageMs ?: 0L,
@@ -84,7 +101,7 @@ object BlueVpnLiveReporter {
             jitterMs = latency?.jitterMs ?: 0L,
             packetLossX100 = latency?.packetLossX100 ?: 0,
             pingSamples = latency?.samples ?: 0,
-            healthScore = 0,
+            healthScore = health.score,
             downloadBytes = rx,
             uploadBytes = tx,
         )

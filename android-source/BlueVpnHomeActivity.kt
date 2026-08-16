@@ -1,5 +1,6 @@
 package com.v2ray.ang.ui
 
+import android.Manifest
 import android.animation.ValueAnimator
 import android.app.Dialog
 import android.content.BroadcastReceiver
@@ -7,6 +8,7 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Color
@@ -101,6 +103,16 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
     private val mainViewModel: MainViewModel by viewModels()
     private val handler = Handler(Looper.getMainLooper())
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Toast.makeText(
+                    this,
+                    "برای نمایش وضعیت و کنترل‌های اتصال، اعلان BlueVPN را از تنظیمات فعال کنید",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
     private lateinit var palette: BlueVpnPalette
     private var themeDarkAtCreate = true
     private var themeConnectionGraceUntil = 0L
@@ -1812,6 +1824,12 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         coreFailureReceiverRegistered = true
     }
 
+    private fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         palette = BlueVpnTheme.palette(this)
@@ -1826,6 +1844,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         window.setBackgroundDrawable(ColorDrawable(palette.background))
         BlueVpnTheme.applySystemBars(this)
         setContentView(createScreen())
+        ensureNotificationPermission()
         if (BlueVpnUiGuard.consumeRecoveryNotice(this)) {
             Toast.makeText(
                 this,

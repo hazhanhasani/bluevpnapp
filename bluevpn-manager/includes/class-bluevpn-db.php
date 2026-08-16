@@ -16,7 +16,7 @@ final class BlueVPN_DB {
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
             'webhook_deliveries', 'bot_settings', 'bot_jobs', 'ai_connection_events', 'ai_live_connections',
-            'ai_route_aggregates', 'ai_feedback',
+            'ai_route_aggregates', 'ai_feedback', 'ai_incidents', 'ai_reconciliation_runs',
         ];
     }
 
@@ -514,6 +514,10 @@ final class BlueVPN_DB {
             download_bytes bigint unsigned NOT NULL DEFAULT 0,
             upload_bytes bigint unsigned NOT NULL DEFAULT 0,
             failure_reason longtext NULL,
+            failure_class varchar(40) NOT NULL DEFAULT '',
+            network_signature varchar(40) NOT NULL DEFAULT '',
+            decision_confidence int NOT NULL DEFAULT 0,
+            decision_reason varchar(500) NOT NULL DEFAULT '',
             app_version varchar(40) NOT NULL DEFAULT '',
             android_version varchar(40) NOT NULL DEFAULT '',
             device_model varchar(160) NOT NULL DEFAULT '',
@@ -624,6 +628,45 @@ final class BlueVPN_DB {
             KEY ix_ai_route_live_rank (operator, network_type, recent_score, updated_at),
             KEY ix_ai_route_location (location_key),
             KEY ix_ai_route_updated (updated_at)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('ai_incidents')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            incident_key varchar(96) NOT NULL DEFAULT '',
+            incident_type varchar(48) NOT NULL DEFAULT 'unknown',
+            severity varchar(16) NOT NULL DEFAULT 'warning',
+            status varchar(16) NOT NULL DEFAULT 'open',
+            scope_type varchar(32) NOT NULL DEFAULT 'global',
+            scope_key varchar(120) NOT NULL DEFAULT '',
+            title varchar(180) NOT NULL DEFAULT '',
+            evidence_json longtext NULL,
+            recommended_action longtext NULL,
+            occurrence_count int NOT NULL DEFAULT 1,
+            first_seen_at datetime NULL,
+            last_seen_at datetime NULL,
+            resolved_at datetime NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY uq_ai_incident_key (incident_key),
+            KEY ix_ai_incident_status_severity (status, severity, last_seen_at),
+            KEY ix_ai_incident_scope (scope_type, scope_key),
+            KEY ix_ai_incident_type (incident_type, last_seen_at)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('ai_reconciliation_runs')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            run_key varchar(96) NOT NULL DEFAULT '',
+            customer_id bigint unsigned NULL,
+            order_id varchar(64) NOT NULL DEFAULT '',
+            issue_type varchar(48) NOT NULL DEFAULT '',
+            action_taken varchar(80) NOT NULL DEFAULT '',
+            outcome varchar(24) NOT NULL DEFAULT '',
+            detail longtext NULL,
+            created_at datetime NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY uq_ai_reconcile_run_key (run_key),
+            KEY ix_ai_reconcile_customer (customer_id, created_at),
+            KEY ix_ai_reconcile_order (order_id),
+            KEY ix_ai_reconcile_outcome (outcome, created_at)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('ai_feedback')} (
@@ -745,6 +788,9 @@ final class BlueVPN_DB {
             'blueai_premium_enabled' => true,
             'blueai_collective' => true,
             'blueai_auto_heal' => true,
+            'blueai_shadow_mode' => true,
+            'blueai_predictive_failover' => true,
+            'blueai_anomaly_detection' => true,
             'blueai_min_samples' => 3,
             'blueai_live_refresh_seconds' => 5,
             'blueai_privacy_message' => 'فقط شاخص‌های فنی اتصال و بدون محتوای ترافیک جمع‌آوری می‌شود.',

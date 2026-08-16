@@ -178,7 +178,14 @@ object BlueVpnWarpEngine {
                         awaitValidatedDataPlane(myGeneration, process ?: throw Failure(ErrorCode.AETHER_START_FAILED, state, strategy, "Aether process missing"), port, strategy, policy)
                     } ?: false
                     if (!ok) throw Failure(ErrorCode.WARP_START_TIMEOUT, state, strategy, "Strategy exceeded startup budget")
-                    recordStrategySuccess(prefs, shape.signature, strategy, SystemClock.elapsedRealtime() - started)
+                    val startupLatency = SystemClock.elapsedRealtime() - started
+                    recordStrategySuccess(prefs, shape.signature, strategy, startupLatency)
+                    BlueVpnIntelligenceCore.recordRouteOutcome(
+                        context = app,
+                        guid = "warp:${strategy.name}",
+                        success = true,
+                        latencyMs = startupLatency,
+                    )
                     clearIranPoisonState(prefs, shape.signature)
                     activeStrategy = strategy; activePort = port; state = State.SOCKS_READY
                     return@withContext Prepared(ensureBridgeProfile(port), strategy, port, SystemClock.elapsedRealtime() - started)
@@ -186,6 +193,13 @@ object BlueVpnWarpEngine {
                     last = f
                     lastFailure = f
                     recordFailure(prefs, shape.signature, strategy, f.code)
+                    BlueVpnIntelligenceCore.recordRouteOutcome(
+                        context = app,
+                        guid = "warp:${strategy.name}",
+                        success = false,
+                        reason = "${f.code.name}:${f.detail}",
+                        exitCountry = if (f.code == ErrorCode.EXIT_IRAN) "IR" else "",
+                    )
                     persistDiagnostic(app, f, SystemClock.elapsedRealtime() - lastAttemptStartedAt)
                     stopProcessOnly(wait = true)
                 }

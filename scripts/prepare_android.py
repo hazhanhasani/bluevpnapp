@@ -365,6 +365,10 @@ def patch_manifest() -> None:
         text,
         "android.permission.FOREGROUND_SERVICE_SPECIAL_USE",
     )
+    text = _ensure_manifest_permission(
+        text,
+        "android.permission.POST_NOTIFICATIONS",
+    )
 
     text = text.replace(
         'android:name="androidx.core.content.FileProvider"',
@@ -584,6 +588,7 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnExperience.kt": ROOT / "android-source/BlueVpnExperience.kt",
         bluevpn_dir / "BlueVpnTheme.kt": ROOT / "android-source/BlueVpnTheme.kt",
         bluevpn_dir / "BlueVpnAi.kt": ROOT / "android-source/BlueVpnAi.kt",
+        bluevpn_dir / "BlueVpnIntelligenceCore.kt": ROOT / "android-source/BlueVpnIntelligenceCore.kt",
         bluevpn_dir / "BlueVpnLiveReporter.kt": ROOT / "android-source/BlueVpnLiveReporter.kt",
         bluevpn_dir / "BlueVpnBootstrap.kt": ROOT / "android-source/BlueVpnBootstrap.kt",
         bluevpn_dir / "BlueVpnRuntimeGate.kt": ROOT / "android-source/BlueVpnRuntimeGate.kt",

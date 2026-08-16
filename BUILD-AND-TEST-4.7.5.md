@@ -6,7 +6,7 @@ Implemented live per-plan provider access selection:
 - Marzban: admin-only live `/api/inbounds` catalog; selected protocol/tag pairs are persisted in `plans.marzban_inbounds_json` and enforced during provision/repair.
 - Empty selection remains backward compatible: all active groups/inbounds are used.
 - Catalog endpoint is protected by `manage_options` and WordPress nonce; credentials/raw provider payloads are not returned to the browser.
-- Schema upgraded to 1.12.0 using the existing dbDelta upgrade path.
+- Schema upgraded to 1.13.0 using the existing dbDelta upgrade path.
 
 Validation executed locally:
 

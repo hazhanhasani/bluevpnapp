@@ -38,6 +38,27 @@ object BlueVpnSystemController {
         }
     }
 
+    fun predictiveFailover(context: Context) {
+        val app = context.applicationContext
+        if (!BlueVpnIntelligenceCore.claimPredictiveFailover(app)) return
+        scope.launch {
+            if (BlueVpnAccountManager.isFreeMode(app) && BlueVpnAccountManager.warpFreeEnabled(app)) {
+                restart(app)
+                return@launch
+            }
+            val current = com.v2ray.ang.handler.MmkvManager.getSelectServer().orEmpty()
+            val entitlement = BlueVpnEntitlement.resolve(app)
+            val candidates = BlueVpnLocationUtil.cachedCandidates(app)
+                .filter { it.guid != current && it.guid in entitlement.serverGuids }
+                .filter { BlueVpnAccountManager.candidateAllowed(app, it.guid, it.profile.subscriptionId, entitlement.serverGuids.toSet()) }
+            val next = BlueVpnSmartSelector.connectionOrderTrusted(app, candidates).firstOrNull()?.candidate
+            if (next != null) {
+                com.v2ray.ang.handler.MmkvManager.setSelectServer(next.guid)
+            }
+            restart(app)
+        }
+    }
+
     fun restart(context: Context) {
         val app = context.applicationContext
         scope.launch {

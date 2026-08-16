@@ -54,6 +54,7 @@ object BlueVpnSmartSelector {
         val latency = delayScore(candidate.delay)
         val routeAdjustment = BlueVpnRouteIntelligence.rankingAdjustment(context, candidate.guid)
         val ircfAdjustment = BlueVpnIrcfIntelligence.rankingAdjustment(context, candidate.guid)
+        val intelligence = BlueVpnIntelligenceCore.routeEvidence(context, candidate.guid)
         val routeEvidence = BlueVpnRouteIntelligence.evidence(context, candidate.guid)
 
         var score = latency * 50 / 100
@@ -62,6 +63,7 @@ object BlueVpnSmartSelector {
         score += freshness.coerceIn(0, 34) * 12 / 34
         score += routeAdjustment
         score += ircfAdjustment
+        score += intelligence.scoreAdjustment
         if (BlueVpnExperience.isFavorite(context, candidate.location.key)) score += 3
         if (failed) score -= 24
         if (inactive) score -= 55
@@ -70,6 +72,7 @@ object BlueVpnSmartSelector {
         val evidence = buildList {
             add(if (candidate.delay > 0L) "پینگ ${candidate.delay}ms" else "پینگ نامشخص")
             routeEvidence?.let { add(it) }
+            if (intelligence.reason.isNotBlank()) add("AI: ${intelligence.reason}")
             add(when {
                 inactive -> "در این نشست ناموفق"
                 failed -> "خطای اخیر"
@@ -79,12 +82,13 @@ object BlueVpnSmartSelector {
                 else -> "اتصال سازگار"
             })
         }.joinToString(" • ")
-        val confidence = when {
+        val baseConfidence = when {
             candidate.delay > 0L && (freshness > 0 || personal != 50 || cloud != 50) -> 92
             candidate.delay > 0L -> 78
             freshness > 0 || personal != 50 || cloud != 50 -> 64
             else -> 45
         }
+        val confidence = maxOf(baseConfidence, intelligence.confidence).coerceIn(0, 98)
         return ScoredCandidate(candidate, score, confidence, evidence)
     }
 
@@ -156,11 +160,31 @@ object BlueVpnSmartSelector {
         )
         .toList()
 
+    private fun recordShadowComparison(
+        context: Context,
+        ranked: List<ScoredCandidate>,
+    ) {
+        if (ranked.size < 2) return
+        val actual = ranked.first()
+        val legacy = ranked.maxByOrNull {
+            it.score - BlueVpnIntelligenceCore.routeEvidence(context, it.candidate.guid).scoreAdjustment
+        } ?: return
+        BlueVpnIntelligenceCore.recordShadowDecision(
+            context = context,
+            actualGuid = actual.candidate.guid,
+            shadowGuid = legacy.candidate.guid,
+            actualScore = actual.score,
+            shadowScore = legacy.score,
+            reason = "adaptive-vs-legacy",
+        )
+    }
+
     fun connectionOrderTrusted(
         context: Context,
         candidates: List<BlueVpnLocationUtil.Candidate>,
     ): List<ScoredCandidate> {
         val ranked = rankTrusted(context, candidates)
+        recordShadowComparison(context, ranked)
         if (ranked.size < 2) return ranked
         val sticky = BlueVpnRouteIntelligence.stickyCandidate(context, ranked)
         if (sticky != null && sticky.candidate.guid != ranked.first().candidate.guid) {
@@ -183,6 +207,7 @@ object BlueVpnSmartSelector {
         candidates: List<BlueVpnLocationUtil.Candidate>,
     ): List<ScoredCandidate> {
         val ranked = rank(context, candidates)
+        recordShadowComparison(context, ranked)
         if (ranked.size < 2) return ranked
 
         // Desktop-style URL-test behaviour: keep a recently verified route while

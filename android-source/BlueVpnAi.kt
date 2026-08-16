@@ -33,10 +33,12 @@ object BlueVpnAi {
     private const val KEY_LAST_PROBE_AT = "last_probe_at"
     private const val KEY_LAST_PROBE_SOURCE = "last_probe_source"
     private const val KEY_LAST_PROBE_LATENCY = "last_probe_latency"
+    private const val KEY_SHADOW_MODE = "shadow_mode"
+    private const val KEY_PREDICTIVE_FAILOVER = "predictive_failover"
     private const val SYNC_INTERVAL = 5 * 60 * 1000L
     private const val HEARTBEAT_INTERVAL = 8 * 1000L
-    private const val AI_SCHEMA_VERSION = 3
-    private const val AI_ENGINE_FAMILY = "blueai-adaptive-v2"
+    private const val AI_SCHEMA_VERSION = 5
+    private const val AI_ENGINE_FAMILY = "blueai-control-plane-v3"
     private const val PROBE_CACHE_MAX_AGE_MS = 125 * 1000L
 
     data class NetworkSnapshot(
@@ -286,6 +288,12 @@ object BlueVpnAi {
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    fun shadowModeEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_SHADOW_MODE, true)
+
+    fun predictiveFailoverEnabled(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_PREDICTIVE_FAILOVER, true)
 
     fun enabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_ENABLED, true)
@@ -594,13 +602,20 @@ object BlueVpnAi {
 
         run {
             val network = network(context)
-            BlueVpnAccountManager.aiRecommendations(
+            val response = BlueVpnAccountManager.aiRecommendations(
                 context,
                 network.operator,
                 network.networkType,
                 BlueVpnExperience.mode(context).key,
                 planTier(context),
-            ).getOrNull()?.optJSONArray("recommendations")?.let { rows ->
+            ).getOrNull()
+            response?.let {
+                prefs(context).edit()
+                    .putBoolean(KEY_SHADOW_MODE, it.optBoolean("shadow_mode", true))
+                    .putBoolean(KEY_PREDICTIVE_FAILOVER, it.optBoolean("predictive_failover", true))
+                    .apply()
+            }
+            response?.optJSONArray("recommendations")?.let { rows ->
                 for (index in 0 until rows.length()) {
                     val row = rows.optJSONObject(index) ?: continue
                     val key = row.optString("config_key")
@@ -849,6 +864,8 @@ object BlueVpnAi {
             .put("ai_schema_version", AI_SCHEMA_VERSION)
             .put("ai_client_version", BuildConfig.VERSION_NAME)
             .put("ai_engine_family", AI_ENGINE_FAMILY)
+            .put("network_signature", BlueVpnIntelligenceCore.networkFingerprint(context).id)
+            .put("shadow_summary", BlueVpnIntelligenceCore.shadowSummary(context))
             .put("hour_bucket", Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
 
     private fun updatePersonal(

@@ -2,7 +2,9 @@
   "schema": 1,
   "authoritative": true,
   "tests": [
+    "test_android_notification_controls_484.py",
     "test_android_system_integration_478.py",
+    "test_blueai_control_plane_490.py",
     "test_current_release.py",
     "test_fast_ci_4710.py",
     "test_provider_access_picker_475.py",

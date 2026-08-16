@@ -1,11 +1,11 @@
 {
-  "version": "4.12.2",
-  "version_code": 41202,
+  "version": "4.12.3",
+  "version_code": 41203,
   "channel": "beta",
   "build_id": "20260817-v4.11.10-iran-time-fix",
   "built_at": "2026-08-16T19:49:58Z",
-  "android_version": "4.12.2",
-  "android_version_code": 41202,
+  "android_version": "4.12.3",
+  "android_version_code": 41203,
   "description": "BlueVPN 4.11.10 fixes support-chat timestamps by parsing UTC MySQL/ISO timestamps and rendering message time in Asia/Tehran instead of displaying the raw UTC clock. It keeps the 4.11.9 Kotlin release fixes intact.",
   "features": [
     "support-message-time-asia-tehran",
@@ -307,5 +307,5 @@
     "gradle-build-cache-and-parallel",
     "signed-apk-upload-before-production-barriers"
   ],
-  "version_source": "v4.12.2-runner-python-pregradle-fix"
+  "version_source": "source_declared_release_version"
 }

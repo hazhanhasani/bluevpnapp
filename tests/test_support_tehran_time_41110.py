@@ -22,10 +22,10 @@ class SupportTehranTime41110(unittest.TestCase):
         import json
         app = json.loads((ROOT / 'branding/app.json').read_text())
         release = json.loads((ROOT / 'release.json').read_text())
-        self.assertEqual((app['version_name'], app['version_code']), ('4.12.2', 41202))
-        self.assertEqual((release['version'], release['version_code']), ('4.12.2', 41202))
-        self.assertEqual(app['version_source'], 'v4.12.2-runner-python-pregradle-fix')
-        self.assertEqual(release['version_source'], 'v4.12.2-runner-python-pregradle-fix')
+        self.assertEqual((app['version_name'], app['version_code']), ('4.12.3', 41203))
+        self.assertEqual((release['version'], release['version_code']), ('4.12.3', 41203))
+        self.assertEqual(app['version_source'], 'source_declared_release_version')
+        self.assertEqual(release['version_source'], 'source_declared_release_version')
 
 if __name__ == '__main__':
     unittest.main()

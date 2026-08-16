@@ -178,6 +178,7 @@ jobs:
           release["version_code"] = version_code
           release["android_version"] = version
           release["android_version_code"] = version_code
+          release["version_source"] = "source_declared_release_version"
           release_path.write_text(
               json.dumps(release, ensure_ascii=False, indent=2) + "\n",
               encoding="utf-8",

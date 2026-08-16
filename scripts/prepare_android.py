@@ -487,6 +487,12 @@ def patch_system_notification() -> None:
         "Intent(service, MainActivity::class.java)",
         "Intent(service, BlueVpnHomeActivity::class.java)",
     )
+    # Public system UI uses BlueVPN branding. Transport/provider details remain
+    # available only in diagnostics/admin tooling.
+    text = text.replace(
+        ".setContentTitle(currentConfig?.remarks ?: service.getString(R.string.app_name))",
+        ".setContentTitle(if (currentConfig?.remarks?.startsWith(\"BlueVPN Free\") == true) \"BlueVPN Free\" else (currentConfig?.remarks ?: service.getString(R.string.app_name)))",
+    )
     # BlueVPN keeps lightweight 3-second traffic stats visible in the persistent VPN notification.
     text = text.replace(
         "        if (MmkvManager.decodeSettingsBool(AppConfig.PREF_SPEED_ENABLED) != true) return\n",

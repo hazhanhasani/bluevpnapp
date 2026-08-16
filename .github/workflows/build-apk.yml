@@ -728,29 +728,40 @@ jobs:
             exit 1
           fi
 
-          python scripts/validate_android_apk.py "${SIGNED_APKS[@]}"
-
           BUILD_TOOLS="$ANDROID_HOME/build-tools/37.0.0"
+          APKANALYZER="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
+          test -x "$APKANALYZER" || {
+            echo "::error::apkanalyzer is unavailable at $APKANALYZER"
+            exit 1
+          }
+
           mkdir -p reports/apk-manifest
+          MANIFEST_ARGS=()
 
           for apk in "${SIGNED_APKS[@]}"; do
             base="$(basename "$apk" .apk)"
-            manifest_dump="reports/apk-manifest/${base}.txt"
+            manifest_dump="reports/apk-manifest/${base}.xml"
 
-            "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$apk" > "reports/apk-manifest/${base}-signature.txt"
-            "$BUILD_TOOLS/aapt2" dump xmltree "$apk" --file AndroidManifest.xml > "$manifest_dump"
+            "$BUILD_TOOLS/apksigner" verify \
+              --verbose \
+              --print-certs \
+              "$apk" \
+              > "reports/apk-manifest/${base}-signature.txt"
 
-            grep -q "com.v2ray.ang.bluevpn.BlueVpnWarpKeepAliveService" "$manifest_dump"
-            grep -q "com.v2ray.ang.bluevpn.BlueVpnQuickTileService" "$manifest_dump"
-            grep -q "com.v2ray.ang.bluevpn.BlueVpnSystemActionReceiver" "$manifest_dump"
-            grep -q "android.permission.POST_NOTIFICATIONS" "$manifest_dump"
-            grep -q "android.permission.FOREGROUND_SERVICE" "$manifest_dump"
-
-            unzip -l "$apk" | grep -q "lib/arm64-v8a/libbluevpn_aether.so"
-            unzip -l "$apk" | grep -q "lib/armeabi-v7a/libbluevpn_aether.so"
+            # Decode the binary APK manifest with the Android SDK tool designed
+            # for APK inspection. Validation itself is performed by our Python
+            # parser so CLI formatting differences cannot create false failures.
+            "$APKANALYZER" manifest print "$apk" > "$manifest_dump"
+            test -s "$manifest_dump"
+            MANIFEST_ARGS+=(--manifest-xml "$manifest_dump")
           done
 
-          echo "Signed APK production runtime contract: PASS" | tee reports/APK-RUNTIME-CONTRACT.txt
+          python scripts/validate_android_apk.py \
+            "${SIGNED_APKS[@]}" \
+            "${MANIFEST_ARGS[@]}"
+
+          echo "Signed APK production runtime contract: PASS" \
+            | tee reports/APK-RUNTIME-CONTRACT.txt
 
       - name: Upload APK runtime validation report
         uses: actions/upload-artifact@v6

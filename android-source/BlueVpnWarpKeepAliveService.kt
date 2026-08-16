@@ -29,7 +29,7 @@ import kotlin.math.max
 class BlueVpnWarpKeepAliveService : Service() {
     companion object {
         private const val CHANNEL = "bluevpn_vpn_status_v2"
-        private const val NOTIFICATION_ID = 7319
+        private const val NOTIFICATION_ID = 1
         private const val ACTION_START = "com.v2ray.ang.bluevpn.WARP_KEEPALIVE_START"
         private const val ACTION_STOP = "com.v2ray.ang.bluevpn.WARP_KEEPALIVE_STOP"
         private const val UPDATE_MS = 3_000L
@@ -87,8 +87,10 @@ class BlueVpnWarpKeepAliveService : Service() {
 
         // Android requires startForeground immediately after startForegroundService.
         startForeground(NOTIFICATION_ID, buildNotification(0L, 0L))
+        // CoreVpnService/v2rayNG owns the single visible BlueVPN notification.
+        // This service only shares the same foreground notification ID so Android
+        // does not render a second card.
         handler.removeCallbacks(updater)
-        handler.postDelayed(updater, UPDATE_MS)
         return START_STICKY
     }
 
@@ -125,10 +127,7 @@ class BlueVpnWarpKeepAliveService : Service() {
     }
 
     private fun buildNotification(rxPerSec: Long, txPerSec: Long): android.app.Notification {
-        val strategy = BlueVpnWarpEngine.currentStrategy()?.name
-            ?.replace('_', ' ')
-            ?.let { "WARP • $it" }
-            ?: if (BlueVpnWarpEngine.isRunning()) "WARP" else "VPN"
+        val strategy = if (BlueVpnWarpEngine.isRunning()) "اتصال رایگان BlueVPN" else "اتصال BlueVPN"
 
         val openIntent = Intent(this, BlueVpnHomeActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)

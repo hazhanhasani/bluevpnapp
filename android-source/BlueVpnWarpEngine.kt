@@ -406,7 +406,7 @@ object BlueVpnWarpEngine {
     private fun ensureBridgeProfile(port: Int): String {
         MmkvManager.decodeServerList(BRIDGE_SUBSCRIPTION_ID).forEach { guid -> val p = MmkvManager.decodeServerConfig(guid); if (p?.serverPort == port.toString() && isBridgeGuid(guid, p)) { bridgeGuid = guid; return guid } }
         MmkvManager.removeServerViaSubid(BRIDGE_SUBSCRIPTION_ID)
-        val profile = ProfileItem.create(EConfigType.SOCKS).apply { subscriptionId = BRIDGE_SUBSCRIPTION_ID; remarks = "BlueVPN Free • Cloudflare WARP"; description = "Local Aether WARP bridge"; server = SOCKS_HOST; serverPort = port.toString() }
+        val profile = ProfileItem.create(EConfigType.SOCKS).apply { subscriptionId = BRIDGE_SUBSCRIPTION_ID; remarks = "BlueVPN Free"; description = "BlueVPN Free local bridge"; server = SOCKS_HOST; serverPort = port.toString() }
         return MmkvManager.encodeServerConfig("", profile).also { bridgeGuid = it }
     }
 

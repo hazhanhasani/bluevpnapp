@@ -1,4 +1,4 @@
-# BlueVPN 4.9.2 build/test summary
+# BlueVPN 4.9.4 build/test summary
 
 ## Fixes
 - Prevent WARP backoff starvation: if every allowed strategy is cooling down, force one bounded recovery probe using the strategy whose cooldown expires first.

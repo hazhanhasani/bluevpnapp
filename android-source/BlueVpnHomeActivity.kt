@@ -3524,20 +3524,20 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun warpFailureTitle(code: BlueVpnWarpEngine.ErrorCode?): String = when (code) {
-        BlueVpnWarpEngine.ErrorCode.EXIT_IRAN, BlueVpnWarpEngine.ErrorCode.WARP_EXIT_COUNTRY_BLOCKED -> "خروجی ایران رد شد"
-        BlueVpnWarpEngine.ErrorCode.SOCKS_FAILED, BlueVpnWarpEngine.ErrorCode.WARP_SOCKS_HANDSHAKE_FAILED -> "مسیر WARP آماده نشد"
-        BlueVpnWarpEngine.ErrorCode.AETHER_CRASHED, BlueVpnWarpEngine.ErrorCode.WARP_PROCESS_EXITED -> "موتور WARP متوقف شد"
-        BlueVpnWarpEngine.ErrorCode.WARP_START_TIMEOUT, BlueVpnWarpEngine.ErrorCode.TCP_TIMEOUT, BlueVpnWarpEngine.ErrorCode.UDP_BLOCKED -> "شبکه به WARP پاسخ نداد"
-        BlueVpnWarpEngine.ErrorCode.EXIT_VALIDATION_FAILED, BlueVpnWarpEngine.ErrorCode.WARP_EXIT_TRACE_UNAVAILABLE -> "تأیید خروجی WARP ناموفق بود"
-        BlueVpnWarpEngine.ErrorCode.NO_INTERNET, BlueVpnWarpEngine.ErrorCode.WARP_DATA_PLANE_FAILED -> "اینترنت از WARP عبور نکرد"
-        else -> "WARP در دسترس نیست"
+        BlueVpnWarpEngine.ErrorCode.EXIT_IRAN, BlueVpnWarpEngine.ErrorCode.WARP_EXIT_COUNTRY_BLOCKED -> "مسیر خروجی مجاز نبود"
+        BlueVpnWarpEngine.ErrorCode.SOCKS_FAILED, BlueVpnWarpEngine.ErrorCode.WARP_SOCKS_HANDSHAKE_FAILED -> "مسیر رایگان آماده نشد"
+        BlueVpnWarpEngine.ErrorCode.AETHER_CRASHED, BlueVpnWarpEngine.ErrorCode.WARP_PROCESS_EXITED -> "موتور اتصال رایگان متوقف شد"
+        BlueVpnWarpEngine.ErrorCode.WARP_START_TIMEOUT, BlueVpnWarpEngine.ErrorCode.TCP_TIMEOUT, BlueVpnWarpEngine.ErrorCode.UDP_BLOCKED -> "شبکه به مسیر رایگان پاسخ نداد"
+        BlueVpnWarpEngine.ErrorCode.EXIT_VALIDATION_FAILED, BlueVpnWarpEngine.ErrorCode.WARP_EXIT_TRACE_UNAVAILABLE -> "تأیید مسیر خروجی ناموفق بود"
+        BlueVpnWarpEngine.ErrorCode.NO_INTERNET, BlueVpnWarpEngine.ErrorCode.WARP_DATA_PLANE_FAILED -> "اینترنت از مسیر رایگان عبور نکرد"
+        else -> "اتصال رایگان در دسترس نیست"
     }
 
     private fun warpFailureCaption(failure: BlueVpnWarpEngine.Failure?): String {
         if (failure == null) return "روی این شبکه مسیر WARP آماده نشد؛ دوباره تلاش کنید"
         val strategy = failure.strategy?.name?.replace('_', ' ') ?: "AUTO"
         if (failure.code == BlueVpnWarpEngine.ErrorCode.EXIT_IRAN) {
-            return "مسیر $strategy خروجی ایران داد؛ مسیر برای این شبکه جریمه شد و بازیابی خودکار انجام می‌شود"
+            return "مسیر رایگان فعلی مناسب نبود؛ مسیر برای این شبکه جریمه شد و بازیابی خودکار انجام می‌شود"
         }
         return "${failure.code.name} • $strategy • ${failure.detail.take(90)}"
     }
@@ -3558,9 +3558,9 @@ private fun dpHome(value: Int): Int =
         pendingConnectionRequest = false
         connectButton.isEnabled = false
         statusText.text = "در حال اتصال رایگان"
-        statusCaption.text = "در حال یافتن مسیر Cloudflare WARP"
+        statusCaption.text = "در حال آماده‌سازی اتصال رایگان BlueVPN"
         showConnectingOverlay(
-            title = "Cloudflare WARP",
+            title = "BlueVPN Free",
             caption = "Aether مسیر قابل عبور را روی شبکه فعلی پیدا می‌کند",
             location = "اتصال رایگان",
         )
@@ -3832,7 +3832,7 @@ private fun dpHome(value: Int): Int =
         }
         val location = BlueVpnLocationUtil.detect(profile.remarks, profile.server)
         val locationName = if (warpBridge) {
-            "☁️ Cloudflare WARP"
+            "BlueVPN Free"
         } else {
             location?.let { "${it.flag} ${it.title}" } ?: "انتخاب خودکار"
         }
@@ -4920,8 +4920,8 @@ private fun dpHome(value: Int): Int =
             // runtime itself failed. The cached route may be reused only after
             // a subsequent successful WARP preparation.
             serverName.text = "انتخاب خودکار سرور"
-            serverMeta.text = "WARP آماده نیست • مسیر قبلی موقتاً کنار گذاشته شد"
-            serverStatusValue.text = "برای تلاش بازیابی دوباره اتصال را بزنید"
+            serverMeta.text = "اتصال رایگان آماده نیست • مسیر قبلی موقتاً کنار گذاشته شد"
+            serverStatusValue.text = "برای تلاش مجدد، دوباره اتصال را بزنید"
             locationValue.text = "—"
             pingValue.text = "—"
         } else if (profile == null || !BlueVpnLocationUtil.isUsable(profile)) {

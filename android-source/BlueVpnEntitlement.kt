@@ -113,10 +113,10 @@ object BlueVpnEntitlement {
                 } else {
                     "پلن رایگان • ${account.email}"
                 },
-                poolLabel = if (free.warpEnabled && free.warpMode != "pool_only") "Cloudflare WARP" else "Pool رایگان",
+                poolLabel = if (free.warpEnabled && free.warpMode != "pool_only") "BlueVPN Free" else "Pool رایگان",
                 connectionNotice = when {
-                    free.warpEnabled && free.warpMode == "warp_only" -> "هر اتصال رایگان تا ${free.sessionMinutes} دقیقه فعال است و مستقیماً از Cloudflare WARP برقرار می‌شود."
-                    free.warpEnabled && free.warpFallbackEnabled -> "هر اتصال رایگان تا ${free.sessionMinutes} دقیقه فعال است؛ مسیر اصلی Cloudflare WARP است و Pool رایگان فقط پشتیبان است."
+                    free.warpEnabled && free.warpMode == "warp_only" -> "هر اتصال رایگان تا ${free.sessionMinutes} دقیقه فعال است و از مسیر رایگان BlueVPN برقرار می‌شود."
+                    free.warpEnabled && free.warpFallbackEnabled -> "هر اتصال رایگان تا ${free.sessionMinutes} دقیقه فعال است؛ مسیر اصلی BlueVPN Free است و Pool رایگان فقط پشتیبان است."
                     else -> "هر اتصال رایگان تا ${free.sessionMinutes} دقیقه فعال است و فقط از Pool رایگان برقرار می‌شود."
                 },
                 sessionMinutes = free.sessionMinutes,

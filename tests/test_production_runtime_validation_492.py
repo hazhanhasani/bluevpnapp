@@ -41,10 +41,11 @@ class ProductionRuntimeValidation492(unittest.TestCase):
         validate=s.index("Validate signed APK runtime contract")
         self.assertGreater(validate,sign)
         self.assertIn("validate_android_apk.py",s)
-        self.assertIn("BlueVpnWarpKeepAliveService",s)
-        self.assertIn("BlueVpnQuickTileService",s)
-        self.assertIn("BlueVpnSystemActionReceiver",s)
-        self.assertIn("POST_NOTIFICATIONS",s)
+        validator=self.text("scripts/validate_android_apk.py")
+        self.assertIn("BlueVpnWarpKeepAliveService",validator)
+        self.assertIn("BlueVpnQuickTileService",validator)
+        self.assertIn("BlueVpnSystemActionReceiver",validator)
+        self.assertIn("POST_NOTIFICATIONS",validator)
         self.assertIn("apksigner",s)
 
     def test_prepare_android_installs_runtime_audit(self):

@@ -86,6 +86,10 @@ object BlueVpnSystemController {
             scope.launch { startFreeWarp(app) }
         } else {
             CoreServiceManager.startVServiceFromToggle(app)
+            // The Quick Settings / system-control path can start Premium without
+            // an Activity. Keep application lifecycle ownership independent from
+            // BlueVpnHomeActivity while stock v2rayNG owns the VPN TUN.
+            BlueVpnWarpKeepAliveService.start(app)
         }
     }
 

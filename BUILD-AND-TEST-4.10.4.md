@@ -1,4 +1,4 @@
-# BlueVPN 4.10.10 — Premium Instant UI + Live Support Phase 2
+# BlueVPN 4.11.0 — Premium Instant UI + Live Support Phase 2
 
 Premium:
 - Premium no longer exposes long `در حال اتصال` / `در حال تأیید اتصال` states.

@@ -518,33 +518,85 @@ final class BlueVPN_Providers {
     private static function snapshot_load(int $customerId): array {
         $raw=get_option(self::snapshot_option($customerId),[]);return is_array($raw)?$raw:[];
     }
-    private static function snapshot_store(int $customerId,array $lines,array $errors=[]): void {
+    private static function snapshot_store(int $customerId,array $lines,array $errors=[],array $sourceStats=[]): void {
         if(!$lines)return;
         update_option(self::snapshot_option($customerId),[
-            'lines'=>array_values($lines),'updated_at'=>time(),'errors'=>array_values($errors),
+            'lines'=>array_values($lines),
+            'updated_at'=>time(),
+            'errors'=>array_values($errors),
+            'sources'=>$sourceStats,
         ],false);
     }
     private static function customer_sources(array $c): array {
-        $out=[];foreach(['pasarguard_subscription_url','marzban_subscription_url','guardcore_subscription_url'] as $k){$url=trim((string)($c[$k]??''));if($url!==''&&!in_array($url,$out,true))$out[]=$url;}return $out;
+        $out=[];
+        foreach([
+            'pasarguard'=>'pasarguard_subscription_url',
+            'marzban'=>'marzban_subscription_url',
+            'guardcore'=>'guardcore_subscription_url',
+        ] as $provider=>$field){
+            $url=trim((string)($c[$field]??''));
+            if($url==='')continue;
+            $key=$provider;
+            $suffix=2;
+            while(isset($out[$key])){$key=$provider.'_'.$suffix;$suffix++;}
+            $out[$key]=$url;
+        }
+        return $out;
     }
     public static function refresh_subscription_snapshot(int $customerId): array {
         global $wpdb;$t=BlueVPN_DB::table('customers');$c=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%d AND active=1 LIMIT 1",$customerId),ARRAY_A);if(!$c)return ['ok'=>false,'message'=>'customer not found'];
-        $sources=self::customer_sources($c);$lines=[];$seen=[];$errors=[];$successSources=0;
-        foreach($sources as $url){
+        $sources=self::customer_sources($c);$lines=[];$seen=[];$errors=[];$successSources=0;$sourceStats=[];
+        foreach($sources as $provider=>$url){
             $r=wp_remote_get($url,['timeout'=>8,'redirection'=>2,'sslverify'=>true,'headers'=>['User-Agent'=>'BlueVPN-WordPress/'.BLUEVPN_MANAGER_VERSION,'Accept'=>'text/plain,*/*']]);
-            if(is_wp_error($r)){$errors[]=$r->get_error_message();continue;}
-            $code=(int)wp_remote_retrieve_response_code($r);if($code>=400){$errors[]='HTTP '.$code;continue;}
+            if(is_wp_error($r)){
+                $errors[]=$provider.': '.$r->get_error_message();
+                $sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>$r->get_error_message()];
+                continue;
+            }
+            $code=(int)wp_remote_retrieve_response_code($r);
+            if($code>=400){
+                $errors[]=$provider.': HTTP '.$code;
+                $sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>'HTTP '.$code];
+                continue;
+            }
             $successSources++;
-            foreach(self::subscription_lines((string)wp_remote_retrieve_body($r)) as $line){$key=sha1($line);if(isset($seen[$key]))continue;$seen[$key]=1;$lines[]=$line;}
+            $providerLines=self::subscription_lines((string)wp_remote_retrieve_body($r));
+            $sourceStats[$provider]=[
+                'ok'=>true,
+                'count'=>count($providerLines),
+                'url_hash'=>hash('sha256',$url),
+                'content_hash'=>hash('sha256',implode("\n",$providerLines)),
+                'updated_at'=>time(),
+            ];
+            foreach($providerLines as $line){
+                $key=sha1($line);
+                if(isset($seen[$key]))continue;
+                $seen[$key]=1;
+                $lines[]=$line;
+            }
         }
         $old=self::snapshot_load($customerId);
         // Never replace a complete last-good pool with a partial response caused
         // by a temporarily unavailable panel. First bootstrap may use partial.
         $complete=$successSources===count($sources)&&count($errors)===0;
-        if($lines&&($complete||empty($old['lines'])))self::snapshot_store($customerId,$lines,$errors);
+        if($lines&&($complete||empty($old['lines'])))self::snapshot_store($customerId,$lines,$errors,$sourceStats);
         $effective=$complete||empty($old['lines'])?$lines:(array)$old['lines'];
-        return ['ok'=>!empty($effective),'fresh'=>$complete,'lines'=>$effective,'errors'=>$errors];
+        $effectiveSources=$complete||empty($old['sources'])?$sourceStats:(array)($old['sources']??[]);
+        return ['ok'=>!empty($effective),'fresh'=>$complete,'lines'=>$effective,'sources'=>$effectiveSources,'errors'=>$errors];
     }
+    public static function subscription_snapshot_stats(int $customerId): array {
+        $snapshot=self::snapshot_load($customerId);
+        $sources=is_array($snapshot['sources']??null)?$snapshot['sources']:[];
+        $guardcore=is_array($sources['guardcore']??null)?$sources['guardcore']:[];
+        return [
+            'updated_at'=>(int)($snapshot['updated_at']??0),
+            'total_count'=>is_array($snapshot['lines']??null)?count($snapshot['lines']):0,
+            'guardcore_count'=>(int)($guardcore['count']??0),
+            'guardcore_ok'=>(bool)($guardcore['ok']??false),
+            'guardcore_content_hash'=>(string)($guardcore['content_hash']??''),
+        ];
+    }
+
     public static function request_background_snapshot(int $customerId): bool {
         if($customerId<=0)return false;
         if(wp_next_scheduled('bluevpn_refresh_subscription_snapshot',[$customerId]))return false;

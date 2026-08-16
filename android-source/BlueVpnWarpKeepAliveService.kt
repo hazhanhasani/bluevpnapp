@@ -20,11 +20,14 @@ import java.util.Locale
 import kotlin.math.max
 
 /**
- * Foreground owner for an active Free/WARP session.
+ * Application-lifecycle foreground owner for an active BlueVPN session.
  *
- * The service is application-lifecycle owned, not Activity-lifecycle owned.
- * It also exposes the persistent BlueVPN system notification with live traffic
- * and BlueVPN-aware Stop/Restart actions.
+ * Free/WARP additionally needs this owner to keep Aether alive; Premium uses the
+ * same lightweight owner so leaving the Activity cannot make the app process
+ * disposable while stock v2rayNG/CoreVpnService owns the VPN TUN.
+ *
+ * The service exposes the persistent BlueVPN system notification with live
+ * traffic and BlueVPN-aware Stop/Restart actions.
  */
 class BlueVpnWarpKeepAliveService : Service() {
     companion object {

@@ -1,4 +1,4 @@
-# BlueVPN 4.10.10 — Deploy Bot Commit/Version Gate
+# BlueVPN 4.11.0 — Deploy Bot Commit/Version Gate
 
 Fixes the Telegram Deploy Bot bug where the bot could report hundreds of files
 as applied even when the resulting GitHub commit had no real diff, allowing

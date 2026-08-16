@@ -21,6 +21,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
+import com.v2ray.ang.bluevpn.BlueVpnBackgroundReliability
 import com.v2ray.ang.bluevpn.BlueVpnEntitlement
 import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnTheme
@@ -136,6 +137,14 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
         )
 
         sectionLabel(content, "اتصال")
+        val backgroundState = BlueVpnBackgroundReliability.state(this)
+        content.addView(
+            settingRow(
+                title = "پایداری اتصال در پس‌زمینه",
+                value = backgroundState.title,
+                description = backgroundState.description,
+            ) { showBackgroundReliability() },
+        )
         content.addView(
             settingRow(
                 title = "انتخاب خودکار بهترین سرور",
@@ -299,6 +308,29 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
         }
         card.addView(row)
         return card
+    }
+
+    private fun showBackgroundReliability() {
+        val state = BlueVpnBackgroundReliability.state(this)
+        val batteryText = if (state.batteryUnrestricted) "بدون محدودیت" else "محدود"
+        val dataText = if (state.backgroundDataUnrestricted) "بدون محدودیت" else "محدود"
+
+        AlertDialog.Builder(this)
+            .setTitle("پایداری اتصال در پس‌زمینه")
+            .setMessage(
+                "بهینه‌سازی باتری: $batteryText\n" +
+                    "داده پس‌زمینه: $dataText\n\n" +
+                    "BlueVPN برای حفظ اتصال هنگام خروج از برنامه به اجرای Foreground Service ادامه می‌دهد، " +
+                    "اما Android یا پوسته سازنده دستگاه می‌تواند با Battery Optimization یا Data Saver آن را محدود کند."
+            )
+            .setPositiveButton("داده پس‌زمینه") { _, _ ->
+                BlueVpnBackgroundReliability.openBackgroundDataSettings(this)
+            }
+            .setNeutralButton("باتری") { _, _ ->
+                BlueVpnBackgroundReliability.openBatterySettings(this)
+            }
+            .setNegativeButton("بستن", null)
+            .show()
     }
 
     private fun showThemeChooser() {

@@ -28,7 +28,7 @@ final class BlueVPN_Control_Center {
         foreach([
             'bluevpn_cc_save_provider'=>'save_provider','bluevpn_cc_toggle_provider'=>'toggle_provider','bluevpn_cc_delete_provider'=>'delete_provider','bluevpn_cc_test_provider'=>'test_provider',
             'bluevpn_cc_save_payment'=>'save_payment','bluevpn_cc_save_sms'=>'save_sms','bluevpn_cc_refresh_sms_patterns'=>'refresh_sms_patterns','bluevpn_cc_smart_assign_sms_patterns'=>'smart_assign_sms_patterns','bluevpn_cc_save_sms_templates'=>'save_sms_templates','bluevpn_cc_test_sms_template'=>'test_sms_template','bluevpn_cc_process_sms'=>'process_sms','bluevpn_cc_broadcast_sms'=>'broadcast_sms','bluevpn_cc_retry_sms'=>'retry_sms','bluevpn_cc_sync_customer'=>'sync_customer','bluevpn_cc_repair_customer_providers'=>'repair_customer_providers','bluevpn_cc_save_plan_routing'=>'save_plan_routing',
-            'bluevpn_cc_manual_activate'=>'manual_activate','bluevpn_cc_attach_guardcore'=>'attach_guardcore','bluevpn_cc_export_backup'=>'export_backup',
+            'bluevpn_cc_manual_activate'=>'manual_activate','bluevpn_cc_attach_guardcore'=>'attach_guardcore','bluevpn_cc_refresh_guardcore_stats'=>'refresh_guardcore_stats','bluevpn_cc_export_backup'=>'export_backup',
             'bluevpn_cc_create_private_backup'=>'create_private_backup','bluevpn_cc_restore_backup'=>'restore_backup','bluevpn_cc_finalize_cutover'=>'finalize_cutover',
             'bluevpn_cc_save_plan'=>'save_plan','bluevpn_cc_delete_plan'=>'delete_plan','bluevpn_cc_restore_plan'=>'restore_plan',
             'bluevpn_cc_revoke_device'=>'revoke_device','bluevpn_cc_revoke_session'=>'revoke_session','bluevpn_cc_logout_customer'=>'logout_customer','bluevpn_cc_set_customer_status'=>'set_customer_status',
@@ -148,7 +148,110 @@ final class BlueVPN_Control_Center {
     }
     private static function tab_panels(): void { self::provider_tab('pasarguard'); }
     private static function tab_marzban(): void { self::provider_tab('marzban'); }
-    private static function tab_guardcore(): void { self::provider_tab('guardcore'); }
+    private static function tab_guardcore(): void {
+        self::provider_tab('guardcore');
+        self::guardcore_assignments_panel();
+    }
+
+    private static function guardcore_assignments_panel(): void {
+        global $wpdb;
+        $customers=BlueVPN_DB::table('customers');
+        $panels=BlueVPN_DB::table('guardcore_panels');
+
+        $rows=$wpdb->get_results(
+            "SELECT c.id,c.email,c.phone,c.active,c.subscription_status,
+                    c.guardcore_panel_id,c.guardcore_username,c.guardcore_subscription_id,
+                    c.guardcore_subscription_url,c.guardcore_status,c.guardcore_expire,
+                    c.guardcore_last_error,p.name panel_name,p.auth_mode,p.global_subscription_url
+             FROM {$customers} c
+             LEFT JOIN {$panels} p ON p.id=c.guardcore_panel_id
+             WHERE c.guardcore_panel_id IS NOT NULL
+                OR (c.guardcore_subscription_url IS NOT NULL AND TRIM(c.guardcore_subscription_url)<>'')
+             ORDER BY c.id DESC
+             LIMIT 500",
+            ARRAY_A
+        )?:[];
+
+        $byPanel=[];
+        foreach($rows as $row){
+            $pid=(int)($row['guardcore_panel_id']??0);
+            $key=$pid>0?(string)$pid:'manual-unbound';
+            if(!isset($byPanel[$key]))$byPanel[$key]=[
+                'panel_id'=>$pid,
+                'panel_name'=>(string)($row['panel_name']??'GuardCore Manual'),
+                'auth_mode'=>(string)($row['auth_mode']??'manual'),
+                'global_url'=>(string)($row['global_subscription_url']??''),
+                'users'=>[],
+            ];
+            $stats=BlueVPN_Providers::subscription_snapshot_stats((int)$row['id']);
+            $row['_snapshot']=$stats;
+            $byPanel[$key]['users'][]=$row;
+        }
+
+        echo '<div class="bvc-card" style="margin-top:18px">';
+        echo '<div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">';
+        echo '<div><h2 style="margin-bottom:4px">آمار تخصیص GuardCore</h2><p style="margin:0">تعداد کانفیگ‌های آخرین Snapshot و کاربرانی که هر Subscription به آن‌ها اختصاص داده شده است.</p></div>';
+        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+        wp_nonce_field('bluevpn_cc_refresh_guardcore_stats');
+        echo '<input type="hidden" name="action" value="bluevpn_cc_refresh_guardcore_stats">';
+        echo '<button class="button button-primary">بروزرسانی آمار GuardCore</button></form></div>';
+
+        if(!$byPanel){
+            echo '<div class="bvc-note" style="margin-top:14px">هنوز هیچ کاربری به GuardCore متصل نشده است.</div></div>';
+            return;
+        }
+
+        foreach($byPanel as $group){
+            $users=(array)$group['users'];
+            $counts=[];
+            $fresh=0;
+            foreach($users as $u){
+                $st=(array)$u['_snapshot'];
+                if(!empty($st['updated_at']))$fresh++;
+                if(!empty($st['guardcore_ok']))$counts[]=(int)$st['guardcore_count'];
+            }
+            $globalCount=$counts?max($counts):0;
+            $sameGlobal=(string)$group['global_url']!=='';
+
+            echo '<div style="margin-top:16px;border:1px solid #dcdcde;border-radius:12px;overflow:hidden">';
+            echo '<div style="padding:12px 14px;background:#f6f7f7;display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap">';
+            echo '<div><strong>'.self::esc($group['panel_name']).'</strong> <code>#'.(int)$group['panel_id'].'</code><br><small>حالت: '.self::esc($group['auth_mode']).'</small></div>';
+            echo '<div><strong>'.count($users).'</strong> کاربر • ';
+            if($sameGlobal){
+                echo '<strong>'.(int)$globalCount.'</strong> کانفیگ در Global Subscription';
+            }else{
+                echo '<strong>'.count($counts).'</strong> Snapshot دارای آمار';
+            }
+            echo '</div></div>';
+
+            echo '<table class="widefat striped bvc-table"><thead><tr>';
+            echo '<th>کاربر</th><th>Username</th><th>Subscription ID</th><th>وضعیت</th><th>کانفیگ GuardCore</th><th>کل کانفیگ تجمیعی</th><th>آخرین Snapshot</th><th>خطا</th>';
+            echo '</tr></thead><tbody>';
+
+            foreach($users as $u){
+                $st=(array)$u['_snapshot'];
+                $label=trim((string)($u['phone']?:$u['email']))?:('#'.(int)$u['id']);
+                $updated=(int)($st['updated_at']??0);
+                $gcCount=(int)($st['guardcore_count']??0);
+                $total=(int)($st['total_count']??0);
+                $gcOk=!empty($st['guardcore_ok']);
+
+                echo '<tr>';
+                echo '<td>#'.(int)$u['id'].' '.self::esc($label).'</td>';
+                echo '<td><code>'.self::esc($u['guardcore_username']).'</code></td>';
+                echo '<td>'.(!empty($u['guardcore_subscription_id'])?'<code>'.(int)$u['guardcore_subscription_id'].'</code>':'—').'</td>';
+                echo '<td>'.self::esc($u['guardcore_status']).'</td>';
+                echo '<td>'.($updated?($gcOk?'<strong>'.(int)$gcCount.'</strong>':'<span class="bvc-bad">ناموفق</span>'):'در انتظار Snapshot').'</td>';
+                echo '<td>'.($updated?'<strong>'.(int)$total.'</strong>':'—').'</td>';
+                echo '<td>'.($updated?esc_html(wp_date('Y-m-d H:i:s',$updated)):'—').'</td>';
+                echo '<td>'.(!empty($u['guardcore_last_error'])?'<span class="bvc-bad">'.self::esc(mb_substr((string)$u['guardcore_last_error'],0,120)).'</span>':'—').'</td>';
+                echo '</tr>';
+            }
+            echo '</tbody></table></div>';
+        }
+        echo '</div>';
+    }
+
     private static function tab_guardcore_manual(): void {
         global $wpdb;$t=BlueVPN_DB::table('customers');$rows=$wpdb->get_results("SELECT id,email,phone,guardcore_username,guardcore_status,guardcore_subscription_url,guardcore_last_error FROM {$t} WHERE guardcore_status IN ('manual_pending','pending') OR (guardcore_panel_id IS NOT NULL AND guardcore_subscription_url='') ORDER BY id DESC LIMIT 100",ARRAY_A);
         echo '<div class="bvc-note">برای GuardCoreهای Manual، لینک اشتراک را اینجا ثبت کن؛ بعد وضعیت کاربر Active می‌شود.</div><table class="widefat striped bvc-table"><tr><th>کاربر</th><th>Username</th><th>وضعیت</th><th>لینک</th></tr>';foreach($rows as $x){echo '<tr><td>#'.(int)$x['id'].' '.self::esc($x['phone']?:$x['email']).'</td><td><code>'.self::esc($x['guardcore_username']).'</code></td><td>'.self::esc($x['guardcore_status']).'</td><td><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_attach_guardcore_'.$x['id']);echo '<input type="hidden" name="action" value="bluevpn_cc_attach_guardcore"><input type="hidden" name="customer_id" value="'.(int)$x['id'].'"><input class="regular-text" name="subscription_url" value="'.esc_attr((string)$x['guardcore_subscription_url']).'"> <button class="button button-primary">ثبت</button></form></td></tr>';}echo '</table>';
@@ -702,6 +805,28 @@ final class BlueVPN_Control_Center {
         }
         self::redirect('manual',$r['message'],!$r['ok']&&!($r['partial']??false));
     }
+    public static function refresh_guardcore_stats(): void {
+        self::guard();
+        check_admin_referer('bluevpn_cc_refresh_guardcore_stats');
+        global $wpdb;
+        $t=BlueVPN_DB::table('customers');
+        $ids=$wpdb->get_col(
+            "SELECT id FROM {$t}
+             WHERE active=1
+               AND (
+                    guardcore_panel_id IS NOT NULL
+                    OR (guardcore_subscription_url IS NOT NULL AND TRIM(guardcore_subscription_url)<>'')
+               )
+             ORDER BY id DESC
+             LIMIT 500"
+        )?:[];
+        $queued=0;
+        foreach($ids as $id){
+            if(BlueVPN_Providers::request_background_snapshot((int)$id))$queued++;
+        }
+        self::redirect('guardcore','بروزرسانی آمار GuardCore برای '.$queued.' کاربر در صف قرار گرفت.');
+    }
+
     public static function attach_guardcore(): void { self::guard();$id=(int)($_POST['customer_id']??0);check_admin_referer('bluevpn_cc_attach_guardcore_'.$id);$r=BlueVPN_Providers::attach_guardcore($id,(string)wp_unslash($_POST['subscription_url']??''));self::redirect('guardcore-manual',$r['message'],!$r['ok']); }
     public static function save_app_update_policy(): void {
         self::guard();check_admin_referer('bluevpn_cc_save_app_update_policy');

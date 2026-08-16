@@ -53,6 +53,7 @@ import com.v2ray.ang.dto.TestServiceMessage
 import com.v2ray.ang.R
 import com.v2ray.ang.core.CoreServiceManager
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
+import com.v2ray.ang.bluevpn.BlueVpnBackgroundReliability
 import com.v2ray.ang.bluevpn.BlueVpnAdsCarouselView
 import com.v2ray.ang.bluevpn.BlueVpnAi
 import com.v2ray.ang.bluevpn.BlueVpnDynamicBackgroundView
@@ -4222,6 +4223,7 @@ private fun dpHome(value: Int): Int =
         existingSessionRetryCount = 0
         lastVerifiedLatency = latency
         connectionVerified = true
+        BlueVpnWarpKeepAliveService.start(this)
         BlueVpnLiveReporter.kick(this)
         BlueVpnPreferences.markConnected(this, resetTimer = false)
         BlueVpnRuntimeGate.markConnectionActive(this)
@@ -4720,6 +4722,32 @@ private fun dpHome(value: Int): Int =
         }
     }
 
+    private fun maybePromptBackgroundReliability() {
+        if (!BlueVpnBackgroundReliability.shouldPrompt(this) || isFinishing || isDestroyed) return
+        BlueVpnBackgroundReliability.markPromptShown(this)
+        val state = BlueVpnBackgroundReliability.state(this)
+
+        AlertDialog.Builder(this)
+            .setTitle("جلوگیری از قطع اتصال در پس‌زمینه")
+            .setMessage(
+                buildString {
+                    append("برای اینکه BlueVPN بعد از خروج از برنامه قطع نشود، محدودیت‌های پس‌زمینه را بررسی کنید.\n\n")
+                    append("باتری: ")
+                    append(if (state.batteryUnrestricted) "مناسب" else "محدود")
+                    append("\nداده پس‌زمینه: ")
+                    append(if (state.backgroundDataUnrestricted) "مناسب" else "محدود")
+                }
+            )
+            .setPositiveButton("تنظیم داده") { _, _ ->
+                BlueVpnBackgroundReliability.openBackgroundDataSettings(this)
+            }
+            .setNeutralButton("تنظیم باتری") { _, _ ->
+                BlueVpnBackgroundReliability.openBatterySettings(this)
+            }
+            .setNegativeButton("بعداً", null)
+            .show()
+    }
+
     private fun finalizeSuccessfulConnection(
         verifiedDelay: Long,
         completedLiveSwitch: Boolean,
@@ -4730,6 +4758,7 @@ private fun dpHome(value: Int): Int =
 
         BlueVpnPreferences.markConnected(this, resetTimer = true)
         BlueVpnRuntimeGate.markConnectionActive(this)
+        BlueVpnWarpKeepAliveService.start(this)
         BlueVpnAccountManager.startFreeSession(this)
         connectionVerified = true
         if (attemptedGuid.isNotBlank() && BlueVpnWarpEngine.isBridgeGuid(attemptedGuid)) BlueVpnWarpEngine.markConnected()
@@ -4744,6 +4773,7 @@ private fun dpHome(value: Int): Int =
 
         recordCurrentConnection(verifiedDelay)
         refreshVerifiedExitLocation()
+        maybePromptBackgroundReliability()
         statusCaption.text =
             if (completedLiveSwitch) {
                 "مکان اتصال با موفقیت تغییر کرد"

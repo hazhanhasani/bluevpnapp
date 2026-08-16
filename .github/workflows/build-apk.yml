@@ -515,13 +515,75 @@ jobs:
           set -euo pipefail
           echo "BUILD_STAGE=release-regression-gate" >> "$GITHUB_ENV"
           echo "release-regression-gate" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
-          {
-            python -m py_compile scripts/prepare_android.py scripts/build_aether_android.py scripts/validate_release.py scripts/validate_php_release.py tests/test_current_release.py tests/test_warp_adaptive_469.py tests/test_warp_endpoint_racing_469.py tests/test_warp_exit_guard_469.py tests/test_security_4610.py
+          : > "$GITHUB_WORKSPACE/stability-gate.log"
+          rm -f "$GITHUB_WORKSPACE/.bluevpn-regression-substage"
+
+          run_gate() {
+            local name="$1"
+            shift
+            echo "$name" > "$GITHUB_WORKSPACE/.bluevpn-regression-substage"
+            {
+              echo
+              echo "========== REGRESSION SUBSTAGE: $name =========="
+              echo "COMMAND: $*"
+              echo "STARTED_AT: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            } | tee -a "$GITHUB_WORKSPACE/stability-gate.log"
+
+            set +e
+            "$@" 2>&1 | tee -a "$GITHUB_WORKSPACE/stability-gate.log"
+            local rc=${PIPESTATUS[0]}
+            set -e
+
+            if [ "$rc" -ne 0 ]; then
+              {
+                echo "REGRESSION_SUBSTAGE_FAILED=$name"
+                echo "REGRESSION_EXIT_CODE=$rc"
+                echo "::error title=BlueVPN regression gate::$name failed with exit code $rc"
+              } | tee -a "$GITHUB_WORKSPACE/stability-gate.log"
+              exit "$rc"
+            fi
+
+            {
+              echo "REGRESSION_SUBSTAGE_PASS=$name"
+              echo "FINISHED_AT: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            } | tee -a "$GITHUB_WORKSPACE/stability-gate.log"
+          }
+
+          # Overlay-style repository updates can leave retired files behind.
+          # Re-run authoritative cleanup immediately before the release gate so
+          # the test/PHP set being validated is exactly the current release.
+          run_gate repository-cleanup \
+            python scripts/cleanup_repository.py
+
+          run_gate pycompile \
+            python -m py_compile \
+              scripts/prepare_android.py \
+              scripts/build_aether_android.py \
+              scripts/validate_release.py \
+              scripts/validate_php_release.py \
+              scripts/cleanup_repository.py \
+              tests/test_current_release.py \
+              tests/test_warp_adaptive_469.py \
+              tests/test_warp_endpoint_racing_469.py \
+              tests/test_warp_exit_guard_469.py \
+              tests/test_security_4610.py
+
+          run_gate release-validator \
             python scripts/validate_release.py
-            python -m unittest discover -s tests -v
+
+          run_gate python-regression \
+            python -m unittest discover \
+              -s tests \
+              -p 'test_*.py' \
+              -v \
+              -f
+
+          run_gate php-release \
             python scripts/validate_php_release.py
-            echo "BlueVPN release regression gate passed."
-          } 2>&1 | tee "$GITHUB_WORKSPACE/stability-gate.log"
+
+          rm -f "$GITHUB_WORKSPACE/.bluevpn-regression-substage"
+          echo "BlueVPN release regression gate passed." \
+            | tee -a "$GITHUB_WORKSPACE/stability-gate.log"
 
       - name: Upload failed Android source preparation log
         if: ${{ failure() }}
@@ -531,6 +593,7 @@ jobs:
           path: |
             prepare-android.log
             stability-gate.log
+            .bluevpn-regression-substage
           if-no-files-found: ignore
           retention-days: 7
 
@@ -1304,6 +1367,12 @@ jobs:
               Path("android-build.log"),
           )
           report_path = Path("telegram-build-error.txt")
+          substage_path = Path(".bluevpn-regression-substage")
+          regression_substage = (
+              substage_path.read_text(encoding="utf-8", errors="replace").strip()
+              if substage_path.exists()
+              else ""
+          )
 
           header = [
               "❌ Build اپلیکیشن BlueVPN ناموفق بود",
@@ -1314,6 +1383,11 @@ jobs:
               f"Branch: {os.getenv('GITHUB_REF_NAME', 'نامشخص')}",
               f"Actor: {os.getenv('GITHUB_ACTOR', 'نامشخص')}",
               f"Stage: {stage}",
+              *(
+                  [f"Regression substage: {regression_substage}"]
+                  if regression_substage
+                  else []
+              ),
               f"Log: {log_path.name}",
               f"Run: {os.getenv('GITHUB_SERVER_URL', '')}/"
               f"{os.getenv('GITHUB_REPOSITORY', '')}/actions/runs/"
@@ -1333,7 +1407,11 @@ jobs:
               ]
 
               pattern = re.compile(
-                  r"(^|\s)(e:|error:|fatal:)|::error::|"
+                  r"(^|\\s)(e:|error:|fatal:)|::error::|"
+                  r"REGRESSION_SUBSTAGE_FAILED|REGRESSION_EXIT_CODE|"
+                  r"^FAIL:|^ERROR:|FAILED \\(failures=|FAILED \\(errors=|"
+                  r"AssertionError|Traceback \\(most recent call last\\)|"
+                  r"PHP LINT FAILED|stale/unshipped PHP|"
                   r"WORDPRESS_[A-Z0-9_]+|"
                   r"unresolved reference|cannot access|"
                   r"compilation error|execution failed for task|"

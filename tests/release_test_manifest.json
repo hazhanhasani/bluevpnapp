@@ -21,6 +21,7 @@
     "test_single_notification_branding_493.py",
     "test_sms_otp_autofill_477.py",
     "test_split_apk_abi_validation_496.py",
+    "test_staged_regression_gate_4100.py",
     "test_warp_adaptive_469.py",
     "test_warp_background_reconnect_473.py",
     "test_warp_backoff_recovery_481.py",

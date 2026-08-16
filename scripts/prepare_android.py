@@ -596,8 +596,8 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnTheme.kt": ROOT / "android-source/BlueVpnTheme.kt",
         bluevpn_dir / "BlueVpnAi.kt": ROOT / "android-source/BlueVpnAi.kt",
         bluevpn_dir / "BlueVpnIntelligenceCore.kt": ROOT / "android-source/BlueVpnIntelligenceCore.kt",
+        bluevpn_dir / "BlueVpnNativeNetworkAdaptation.kt": ROOT / "android-source/BlueVpnNativeNetworkAdaptation.kt",
         bluevpn_dir / "BlueVpnRuntimeAudit.kt": ROOT / "android-source/BlueVpnRuntimeAudit.kt",
-        bluevpn_dir / "BlueVpnCoreFlavor.kt": ROOT / "android-source/BlueVpnCoreFlavor.kt",
         bluevpn_dir / "BlueVpnLiveReporter.kt": ROOT / "android-source/BlueVpnLiveReporter.kt",
         bluevpn_dir / "BlueVpnBootstrap.kt": ROOT / "android-source/BlueVpnBootstrap.kt",
         bluevpn_dir / "BlueVpnRuntimeGate.kt": ROOT / "android-source/BlueVpnRuntimeGate.kt",
@@ -700,20 +700,6 @@ def add_source_notice() -> None:
     )
 
 
-def patch_bluevpn_core_flavor() -> None:
-    path = APP / "src/main/java/com/v2ray/ang/bluevpn/BlueVpnCoreFlavor.kt"
-    text = path.read_text(encoding="utf-8")
-    mode = os.environ.get("BLUEVPN_CORE_MODE", "stock").strip().lower()
-    if mode not in {"stock", "mahsa-canary"}:
-        raise RuntimeError(f"Unsupported BLUEVPN_CORE_MODE: {mode}")
-    source_pin = (
-        "GFW-knocker/AndroidLibXrayLite@8a5c4d4549338e13fa00ac1fe1e431074823f339"
-        if mode == "mahsa-canary"
-        else "2dust/AndroidLibXrayLite@" + str(CONFIG.get("android_lib_xray_ref", "upstream"))
-    )
-    text = text.replace("__BLUEVPN_CORE_FAMILY__", mode)
-    text = text.replace("__BLUEVPN_CORE_SOURCE_PIN__", source_pin)
-    path.write_text(text, encoding="utf-8")
 
 def main() -> None:
     if not APP.exists():
@@ -726,7 +712,6 @@ def main() -> None:
     patch_app_config()
     inject_bootstrap()
     inject_bluevpn_home()
-    patch_bluevpn_core_flavor()
     assert_upstream_runtime_unchanged(runtime_snapshot)
     generate_icons()
     add_source_notice()

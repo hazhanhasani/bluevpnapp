@@ -1,4 +1,4 @@
-# BlueVPN 4.9.8 — Production Runtime Validation
+# BlueVPN 4.9.9 — Production Runtime Validation
 
 Implemented:
 - Privacy-safe bounded runtime lifecycle audit.

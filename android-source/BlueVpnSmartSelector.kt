@@ -54,6 +54,8 @@ object BlueVpnSmartSelector {
         val latency = delayScore(candidate.delay)
         val routeAdjustment = BlueVpnRouteIntelligence.rankingAdjustment(context, candidate.guid)
         val ircfAdjustment = BlueVpnIrcfIntelligence.rankingAdjustment(context, candidate.guid)
+        val nativeNetworkAdjustment =
+            BlueVpnNativeNetworkAdaptation.rankingAdjustment(context, candidate.guid)
         val intelligence = BlueVpnIntelligenceCore.routeEvidence(context, candidate.guid)
         val routeEvidence = BlueVpnRouteIntelligence.evidence(context, candidate.guid)
 
@@ -63,6 +65,7 @@ object BlueVpnSmartSelector {
         score += freshness.coerceIn(0, 34) * 12 / 34
         score += routeAdjustment
         score += ircfAdjustment
+        score += nativeNetworkAdjustment
         score += intelligence.scoreAdjustment
         if (BlueVpnExperience.isFavorite(context, candidate.location.key)) score += 3
         if (failed) score -= 24
@@ -72,6 +75,7 @@ object BlueVpnSmartSelector {
         val evidence = buildList {
             add(if (candidate.delay > 0L) "پینگ ${candidate.delay}ms" else "پینگ نامشخص")
             routeEvidence?.let { add(it) }
+            if (nativeNetworkAdjustment != 0) add("Network adaptation: $nativeNetworkAdjustment")
             if (intelligence.reason.isNotBlank()) add("AI: ${intelligence.reason}")
             add(when {
                 inactive -> "در این نشست ناموفق"

@@ -476,6 +476,7 @@ object BlueVpnIntelligenceCore {
         .put("shadow", shadowSummary(context))
         .put("events", readArray(prefs(context).getString(EVENT_KEY, "[]")))
         .put("runtime_audit", BlueVpnRuntimeAudit.snapshot(context))
+        .put("native_network_adaptation", BlueVpnNativeNetworkAdaptation.diagnostics(context))
 
     private fun readArray(raw: String?): JSONArray =
         runCatching { JSONArray(raw ?: "[]") }.getOrElse { JSONArray() }

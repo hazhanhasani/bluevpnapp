@@ -11,7 +11,7 @@
     "test_connection_stability_warp_exhaustive_498.py",
     "test_current_release.py",
     "test_fast_ci_4710.py",
-    "test_mahsa_core_canary_497.py",
+    "test_native_network_adaptation_no_mahsa_499.py",
     "test_production_runtime_validation_492.py",
     "test_provider_access_picker_475.py",
     "test_provider_entitlement_474.py",

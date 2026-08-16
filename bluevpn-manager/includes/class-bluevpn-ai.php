@@ -147,8 +147,6 @@ final class BlueVPN_AI {
             'plan_tier' => $planTier,
             'ai_schema_version' => self::clamp($p['ai_schema_version'] ?? 1, 1, 100, 1),
             'ai_client_version' => self::clean($p['ai_client_version'] ?? ($p['app_version'] ?? ''), 40, ''),
-            'core_family' => self::clean($p['core_family'] ?? 'stock', 32, 'stock'),
-            'core_source_pin' => self::clean($p['core_source_pin'] ?? '', 160, ''),
             'connected' => 1, 'verified' => 1, 'tunnel_running' => 1, 'vpn_transport' => 1,
             'verification_source' => self::clean($p['verification_source'] ?? '', 80, ''),
             'ping_ms' => self::clamp($p['ping_ms'] ?? 0, 0, 10000),
@@ -280,7 +278,7 @@ final class BlueVPN_AI {
         if(!self::tier_enabled($planTier)) return ['accepted'=>false,'reason'=>'tier_disabled','plan_tier'=>$planTier,'engine_version'=>self::ENGINE_VERSION,'schema_version'=>self::SCHEMA_VERSION];
         $proofOk=false;$proofError=''; if($type==='heartbeat')[$proofOk,$proofError]=self::heartbeat_proof($p); $success=$type==='heartbeat'?$proofOk:BlueVPN_Utils::boolish($p['success']??false);
         $event=[
-            'customer_id'=>(int)$customer['id'],'device_id'=>self::clean($p['device_id']??'',80,''),'config_key'=>$config,'location_key'=>self::clean($p['location_key']??'',24,'unknown'),'location_title'=>self::clean($p['location_title']??'',100,'نامشخص'),'operator'=>$operator,'network_type'=>$network,'mode'=>$mode,'plan_tier'=>$planTier,'ai_schema_version'=>self::clamp($p['ai_schema_version']??1,1,100,1),'ai_client_version'=>self::clean($p['ai_client_version']??($p['app_version']??''),40,''),'core_family'=>self::clean($p['core_family']??'stock',32,'stock'),'core_source_pin'=>self::clean($p['core_source_pin']??'',160,''),'event_type'=>$type,'success'=>$success?1:0,
+            'customer_id'=>(int)$customer['id'],'device_id'=>self::clean($p['device_id']??'',80,''),'config_key'=>$config,'location_key'=>self::clean($p['location_key']??'',24,'unknown'),'location_title'=>self::clean($p['location_title']??'',100,'نامشخص'),'operator'=>$operator,'network_type'=>$network,'mode'=>$mode,'plan_tier'=>$planTier,'ai_schema_version'=>self::clamp($p['ai_schema_version']??1,1,100,1),'ai_client_version'=>self::clean($p['ai_client_version']??($p['app_version']??''),40,''),'event_type'=>$type,'success'=>$success?1:0,
             'ping_ms'=>self::clamp($p['ping_ms']??0,0,10000),'jitter_ms'=>self::clamp($p['jitter_ms']??0,0,10000),'packet_loss_x100'=>self::clamp($p['packet_loss_x100']??0,0,10000),'duration_seconds'=>self::clamp($p['duration_seconds']??0,0,31536000),'health_score'=>self::clamp($p['health_score']??0,0,100),'download_bytes'=>self::clamp($p['download_bytes']??0,0,PHP_INT_MAX),'upload_bytes'=>self::clamp($p['upload_bytes']??0,0,PHP_INT_MAX),'failure_reason'=>self::clean($type==='heartbeat'?$proofError:($p['failure_reason']??''),500,''),'failure_class'=>self::clean($p['failure_class']??'',40,''),'network_signature'=>self::clean($p['network_signature']??'',40,''),'decision_confidence'=>self::clamp($p['decision_confidence']??0,0,100,0),'decision_reason'=>self::clean($p['decision_reason']??'',500,''),'app_version'=>self::clean($p['app_version']??'',40,''),'android_version'=>self::clean($p['android_version']??'',40,''),'device_model'=>self::clean($p['device_model']??'',160,''),'hour_bucket'=>$bucket,'created_at'=>BlueVPN_Utils::now_mysql(),
         ];
         $wpdb->insert(BlueVPN_DB::table('ai_connection_events'),$event);
@@ -303,7 +301,6 @@ final class BlueVPN_AI {
         $merged=array_merge($agg,$update);$details=self::score_details($merged,self::recent_stats($config,$operator,$network,$mode,$planTier));
         $update['score']=$details['score'];$update['recent_score']=$details['score'];$update['confidence_score']=$details['confidence'];$update['recent_success_rate']=$details['recent_success_rate'];$update['adaptive_sample_weight']=$details['recent_effective_samples'];
         $wpdb->update($at,$update,['id'=>(int)$agg['id']]);
-        self::update_core_aggregate($event);
         if ($success && class_exists('BlueVPN_AI_Ops')) {
             BlueVPN_AI_Ops::observe_connection_outcome($event);
         }
@@ -311,71 +308,6 @@ final class BlueVPN_AI {
     }
 
 
-    private static function update_core_aggregate(array $event): void {
-        global $wpdb;
-        $t=BlueVPN_DB::table('ai_core_aggregates');
-        $core=self::clean($event['core_family']??'stock',32,'stock');
-        if(!in_array($core,['stock','mahsa-canary'],true))$core='stock';
-        $operator=self::canonical_operator($event['operator']??'');
-        $network=mb_strtolower(self::clean($event['network_type']??'',30,'unknown'));
-        $tier=self::normalize_plan_tier($event['plan_tier']??'unknown');
-        $row=$wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$t} WHERE core_family=%s AND operator=%s AND network_type=%s AND plan_tier=%s LIMIT 1",
-            $core,$operator,$network,$tier
-        ),ARRAY_A);
-        $now=BlueVPN_Utils::now_mysql();
-        if(!$row){
-            $wpdb->insert($t,[
-                'core_family'=>$core,'operator'=>$operator,'network_type'=>$network,'plan_tier'=>$tier,
-                'sample_count'=>0,'success_count'=>0,'failure_count'=>0,'updated_at'=>$now,
-            ]);
-            $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%d",(int)$wpdb->insert_id),ARRAY_A);
-        }
-        if(!$row)return;
-        $success=!empty($event['success']);
-        $ping=(int)($event['ping_ms']??0);
-        $jitter=(int)($event['jitter_ms']??0);
-        $loss=(int)($event['packet_loss_x100']??0);
-        $update=[
-            'sample_count'=>(int)$row['sample_count']+1,
-            'success_count'=>(int)$row['success_count']+($success?1:0),
-            'failure_count'=>(int)$row['failure_count']+($success?0:1),
-            'total_ping_ms'=>(int)$row['total_ping_ms']+max(0,$ping),
-            'ping_samples'=>(int)$row['ping_samples']+($ping>0?1:0),
-            'total_jitter_ms'=>(int)$row['total_jitter_ms']+max(0,$jitter),
-            'total_packet_loss_x100'=>(int)$row['total_packet_loss_x100']+max(0,$loss),
-            'updated_at'=>$now,
-        ];
-        $update[$success?'last_success_at':'last_failure_at']=$now;
-        $wpdb->update($t,$update,['id'=>(int)$row['id']]);
-    }
-
-    public static function core_comparison(string $operator='unknown',string $network='unknown',string $tier='free'): array {
-        global $wpdb;
-        $t=BlueVPN_DB::table('ai_core_aggregates');
-        $operator=self::canonical_operator($operator);
-        $network=mb_strtolower(self::clean($network,30,'unknown'));
-        $tier=self::normalize_plan_tier($tier);
-        $rows=$wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$t} WHERE operator=%s AND network_type=%s AND plan_tier=%s ORDER BY sample_count DESC",
-            $operator,$network,$tier
-        ),ARRAY_A);
-        $out=[];
-        foreach((array)$rows as $r){
-            $samples=max(1,(int)$r['sample_count']);
-            $pingSamples=max(1,(int)$r['ping_samples']);
-            $out[]=[
-                'core_family'=>(string)$r['core_family'],
-                'samples'=>(int)$r['sample_count'],
-                'success_rate'=>round(((int)$r['success_count']*100)/$samples,1),
-                'average_ping_ms'=>round((int)$r['total_ping_ms']/$pingSamples,1),
-                'average_jitter_ms'=>round((int)$r['total_jitter_ms']/$samples,1),
-                'average_loss_pct'=>round(((int)$r['total_packet_loss_x100']/$samples)/100,2),
-                'updated_at'=>(string)$r['updated_at'],
-            ];
-        }
-        return $out;
-    }
 
     public static function recommendations(string $operator,string $network,string $mode,$bucket=null,int $limit=30,string $planTier='free'): array {
         global $wpdb;

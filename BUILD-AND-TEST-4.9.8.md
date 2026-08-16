@@ -1,4 +1,4 @@
-# BlueVPN 4.9.8 — Connection Stability + Exhaustive WARP Recovery
+# BlueVPN 4.9.9 — Connection Stability + Exhaustive WARP Recovery
 
 Fixes:
 - Predictive failover no longer reacts to one noisy RTT/loss sample.

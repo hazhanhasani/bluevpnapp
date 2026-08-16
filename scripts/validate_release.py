@@ -190,7 +190,6 @@ def main() -> None:
     require("Overlay BlueVPN UI and control plane on v2rayNG" in workflow, "overlay stage missing")
     require("repository: SagerNet/sing-box" not in workflow, "sing-box checkout still exists")
     require("SagerNet/sing-box" not in workflow, "sing-box setup still exists")
-    require("build-mahsa-core-canary" in workflow, "Mahsa canary build stage missing")
     require('git checkout --force "$XRAY_REF"' not in workflow, "CI still moves AndroidLibXrayLite away from the v2rayNG submodule commit")
     require('CURRENT_COMMIT="$(git rev-parse HEAD)"' in workflow, "CI does not read v2rayNG-pinned core submodule commit")
     require('CURRENT_TAG="$(git describe --tags --abbrev=0' in workflow, "CI does not resolve the nearest official AndroidLibXrayLite tag from the pinned submodule")

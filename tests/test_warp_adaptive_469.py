@@ -7,7 +7,7 @@ ACCOUNT=(ROOT/'android-source/BlueVpnAccountManager.kt').read_text()
 class WarpAdaptive4610Tests(unittest.TestCase):
     def test_version(self):
         app=json.loads((ROOT/'branding/app.json').read_text()); rel=json.loads((ROOT/'release.json').read_text())
-        self.assertEqual((app['version_name'],app['version_code']),('4.9.8',40908)); self.assertEqual(rel['version'],'4.9.8')
+        self.assertEqual((app['version_name'],app['version_code']),('4.9.9',40909)); self.assertEqual(rel['version'],'4.9.9')
     def test_authoritative_false_is_not_or_merged(self):
         self.assertIn('enabled = storage.getBoolean("enabled", warpEnabled),',ACCOUNT)
         self.assertNotIn('enabled = storage.getBoolean("enabled", warpEnabled) || warpEnabled',ACCOUNT)

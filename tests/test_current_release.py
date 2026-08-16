@@ -104,10 +104,11 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("'primary'=>'aether_warp'", api)
         self.assertIn('warpFreeEnabled(this)', self.home)
 
-    def test_06_no_singbox_ci(self):
-        self.assertNotIn("repository: SagerNet/sing-box", self.workflow)
-        self.assertNotIn("SING_BOX_JSON", self.workflow)
-        self.assertIn("Build pinned Mahsa-Core canary AAR", self.workflow)
+    def test_06_no_alternate_core_ci(self):
+        self.assertNotIn("SagerNet/sing-box", self.workflow)
+        self.assertNotIn("GFW-knocker/AndroidLibXrayLite", self.workflow)
+        self.assertNotIn("mahsa-canary", self.workflow)
+        self.assertNotIn("actions/setup-go", self.workflow)
 
     def test_07_no_runtime_or_parser_patch_functions(self):
         self.assertNotIn("patch_v2rayng_runtime_lifecycle", self.prepare)

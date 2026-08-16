@@ -16,7 +16,7 @@ final class BlueVPN_DB {
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
             'webhook_deliveries', 'bot_settings', 'bot_jobs', 'ai_connection_events', 'ai_live_connections',
-            'ai_route_aggregates', 'ai_core_aggregates', 'ai_feedback', 'ai_incidents', 'ai_reconciliation_runs',
+            'ai_route_aggregates', 'ai_feedback', 'ai_incidents', 'ai_reconciliation_runs',
         ];
     }
 
@@ -504,8 +504,6 @@ final class BlueVPN_DB {
             plan_tier varchar(16) NOT NULL DEFAULT 'unknown',
             ai_schema_version int NOT NULL DEFAULT 1,
             ai_client_version varchar(40) NOT NULL DEFAULT '',
-            core_family varchar(32) NOT NULL DEFAULT 'stock',
-            core_source_pin varchar(160) NOT NULL DEFAULT '',
             event_type varchar(30) NOT NULL DEFAULT 'session',
             success tinyint(1) NOT NULL DEFAULT 0,
             ping_ms int NOT NULL DEFAULT 0,
@@ -535,7 +533,6 @@ final class BlueVPN_DB {
             KEY ix_ai_event_context (operator, network_type, created_at),
             KEY ix_ai_event_tier_context (plan_tier, operator, network_type, created_at),
             KEY ix_ai_event_version_tier (app_version, plan_tier, created_at),
-            KEY ix_ai_event_core_context (core_family, operator, network_type, created_at),
             KEY ix_ai_event_route (config_key, created_at),
             KEY ix_ai_event_success (success),
             KEY ix_ai_event_hour (hour_bucket),
@@ -556,8 +553,6 @@ final class BlueVPN_DB {
             plan_tier varchar(16) NOT NULL DEFAULT 'unknown',
             ai_schema_version int NOT NULL DEFAULT 1,
             ai_client_version varchar(40) NOT NULL DEFAULT '',
-            core_family varchar(32) NOT NULL DEFAULT 'stock',
-            core_source_pin varchar(160) NOT NULL DEFAULT '',
             connected tinyint(1) NOT NULL DEFAULT 0,
             verified tinyint(1) NOT NULL DEFAULT 0,
             tunnel_running tinyint(1) NOT NULL DEFAULT 0,
@@ -592,7 +587,6 @@ final class BlueVPN_DB {
             KEY ix_ai_live_operator (operator, expires_at),
             KEY ix_ai_live_tier (plan_tier, connected, expires_at),
             KEY ix_ai_live_version (app_version, plan_tier, last_seen_at),
-            KEY ix_ai_live_core (core_family, operator, network_type, last_seen_at),
             KEY ix_ai_live_seen (last_seen_at),
             KEY ix_ai_live_device_state (device_id, connected, expires_at)
         ) $cc;";
@@ -637,27 +631,6 @@ final class BlueVPN_DB {
         ) $cc;";
 
 
-        $queries[] = "CREATE TABLE {$t('ai_core_aggregates')} (
-            id bigint unsigned NOT NULL AUTO_INCREMENT,
-            core_family varchar(32) NOT NULL DEFAULT 'stock',
-            operator varchar(100) NOT NULL DEFAULT 'unknown',
-            network_type varchar(30) NOT NULL DEFAULT 'unknown',
-            plan_tier varchar(16) NOT NULL DEFAULT 'unknown',
-            sample_count int NOT NULL DEFAULT 0,
-            success_count int NOT NULL DEFAULT 0,
-            failure_count int NOT NULL DEFAULT 0,
-            total_ping_ms bigint unsigned NOT NULL DEFAULT 0,
-            ping_samples int NOT NULL DEFAULT 0,
-            total_jitter_ms bigint unsigned NOT NULL DEFAULT 0,
-            total_packet_loss_x100 bigint unsigned NOT NULL DEFAULT 0,
-            last_success_at datetime NULL,
-            last_failure_at datetime NULL,
-            updated_at datetime NULL,
-            PRIMARY KEY (id),
-            UNIQUE KEY uq_ai_core_context (core_family, operator, network_type, plan_tier),
-            KEY ix_ai_core_rank (operator, network_type, plan_tier, success_count, sample_count),
-            KEY ix_ai_core_updated (updated_at)
-        ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('ai_incidents')} (
             id bigint unsigned NOT NULL AUTO_INCREMENT,

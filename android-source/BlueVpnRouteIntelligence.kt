@@ -177,6 +177,7 @@ object BlueVpnRouteIntelligence {
             latencyMs = sample,
             jitterMs = jitter,
         )
+        BlueVpnNativeNetworkAdaptation.observeSuccess(context, guid)
     }
 
     fun recordFailure(context: Context, guid: String, reason: String) {
@@ -215,6 +216,7 @@ object BlueVpnRouteIntelligence {
             success = false,
             reason = reason,
         )
+        BlueVpnNativeNetworkAdaptation.observeFailure(context, guid, reason)
     }
 
     /**

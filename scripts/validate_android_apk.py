@@ -7,12 +7,15 @@ import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
-REQUIRED_APK_ENTRIES = {
+COMMON_REQUIRED_APK_ENTRIES = {
     "AndroidManifest.xml",
     "classes.dex",
     "resources.arsc",
-    "lib/arm64-v8a/libbluevpn_aether.so",
-    "lib/armeabi-v7a/libbluevpn_aether.so",
+}
+
+SUPPORTED_AETHER_ABIS = {
+    "arm64-v8a",
+    "armeabi-v7a",
 }
 
 REQUIRED_PERMISSIONS = {
@@ -32,6 +35,14 @@ REQUIRED_RECEIVERS = {
 ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 
 
+def aether_abis_in_apk(names: set[str]) -> set[str]:
+    found = set()
+    for abi in SUPPORTED_AETHER_ABIS:
+        if f"lib/{abi}/libbluevpn_aether.so" in names:
+            found.add(abi)
+    return found
+
+
 def validate_apk(path: Path) -> dict:
     if not path.is_file() or path.stat().st_size < 100_000:
         raise ValueError(f"APK missing or implausibly small: {path}")
@@ -42,7 +53,7 @@ def validate_apk(path: Path) -> dict:
             raise ValueError(f"Corrupt APK entry: {bad}")
 
         names = set(zf.namelist())
-        missing = sorted(REQUIRED_APK_ENTRIES - names)
+        missing = sorted(COMMON_REQUIRED_APK_ENTRIES - names)
         if missing:
             raise ValueError(f"APK runtime contract missing entries: {missing}")
 
@@ -53,21 +64,51 @@ def validate_apk(path: Path) -> dict:
         if not dex:
             raise ValueError("No DEX payload found")
 
-        for abi in ("arm64-v8a", "armeabi-v7a"):
+        found_abis = aether_abis_in_apk(names)
+        if not found_abis:
+            raise ValueError(
+                f"APK contains no supported BlueVPN Aether runtime: {path.name}"
+            )
+
+        aether_sizes = {}
+        for abi in sorted(found_abis):
             entry = f"lib/{abi}/libbluevpn_aether.so"
             info = zf.getinfo(entry)
             if info.file_size < 100_000:
                 raise ValueError(
                     f"Aether binary too small for {abi}: {info.file_size}"
                 )
+            aether_sizes[abi] = info.file_size
 
     return {
         "apk": path.name,
         "size": path.stat().st_size,
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "aether_abis": sorted(found_abis),
+        "aether_sizes": aether_sizes,
         "required_entries": "PASS",
         "zip_integrity": "PASS",
     }
+
+
+def validate_apk_set(paths: list[Path]) -> list[dict]:
+    if not paths:
+        raise ValueError("No APKs supplied")
+
+    reports = [validate_apk(path) for path in paths]
+
+    covered = set()
+    for report in reports:
+        covered.update(report["aether_abis"])
+
+    missing_coverage = sorted(SUPPORTED_AETHER_ABIS - covered)
+    if missing_coverage:
+        raise ValueError(
+            "Signed APK set does not cover all required Aether ABIs: "
+            f"{missing_coverage}; covered={sorted(covered)}"
+        )
+
+    return reports
 
 
 def validate_manifest_xml(path: Path) -> dict:
@@ -135,14 +176,21 @@ def main() -> None:
         parser.error("provide at least one APK or --manifest-xml")
 
     report = {
-        "schema": 2,
+        "schema": 3,
         "apks": [],
         "manifests": [],
+        "aggregate_aether_coverage": [],
     }
 
     try:
-        for raw in args.apks:
-            report["apks"].append(validate_apk(Path(raw)))
+        apk_paths = [Path(raw) for raw in args.apks]
+        if apk_paths:
+            report["apks"] = validate_apk_set(apk_paths)
+            covered = set()
+            for item in report["apks"]:
+                covered.update(item["aether_abis"])
+            report["aggregate_aether_coverage"] = sorted(covered)
+
         for raw in args.manifest_xml:
             report["manifests"].append(validate_manifest_xml(Path(raw)))
     except (ValueError, OSError, ET.ParseError, zipfile.BadZipFile) as exc:

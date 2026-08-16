@@ -28,10 +28,13 @@ class ProductionRuntimeValidation492(unittest.TestCase):
         s=self.text("android-source/BlueVpnIntelligenceCore.kt")
         self.assertIn('put("runtime_audit", BlueVpnRuntimeAudit.snapshot(context))',s)
 
-    def test_apk_validator_requires_both_aether_abis(self):
+    def test_apk_validator_requires_aggregate_aether_abi_coverage(self):
         s=self.text("scripts/validate_android_apk.py")
-        self.assertIn("lib/arm64-v8a/libbluevpn_aether.so",s)
-        self.assertIn("lib/armeabi-v7a/libbluevpn_aether.so",s)
+        self.assertIn('SUPPORTED_AETHER_ABIS = {',s)
+        self.assertIn('"arm64-v8a"',s)
+        self.assertIn('"armeabi-v7a"',s)
+        self.assertIn("validate_apk_set",s)
+        self.assertIn("aggregate_aether_coverage",s)
         self.assertIn("zip_integrity",s)
         self.assertIn("sha256",s)
 

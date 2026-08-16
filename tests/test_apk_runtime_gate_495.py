@@ -28,9 +28,10 @@ class ApkRuntimeGate495(unittest.TestCase):
         block=s[start:end]
         self.assertIn("apksigner", block)
         self.assertIn("unzip -t", block)
-        self.assertIn("lib/arm64-v8a/libbluevpn_aether.so", block)
-        self.assertIn("lib/armeabi-v7a/libbluevpn_aether.so", block)
-        self.assertIn("classes", block)
+        self.assertIn("validate_android_apk.py", block)
+        validator=self.text("scripts/validate_android_apk.py")
+        self.assertIn("lib/{abi}/libbluevpn_aether.so", validator)
+        self.assertIn("classes", validator)
 
 if __name__=="__main__":
     unittest.main()

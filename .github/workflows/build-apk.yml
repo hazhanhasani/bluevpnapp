@@ -775,12 +775,9 @@ jobs:
 
             unzip -t "$apk" > "reports/apk-runtime/${base}-zip-test.txt"
 
-            unzip -l "$apk" \
-              | grep -q "lib/arm64-v8a/libbluevpn_aether.so"
-
-            unzip -l "$apk" \
-              | grep -q "lib/armeabi-v7a/libbluevpn_aether.so"
-
+            # ABI coverage is validated across the complete signed APK set by
+            # validate_android_apk.py. Individual ABI-split APKs are not required
+            # to embed the other architecture's native runtime.
             unzip -l "$apk" \
               | grep -Eq '(^|[[:space:]])classes([0-9]*)?\.dex([[:space:]]|$)'
           done

@@ -1,4 +1,4 @@
-# BlueVPN 4.11.1 — Support Admin Sidebar Fix
+# BlueVPN 4.11.2 — Support Admin Sidebar Fix
 
 The live-support backend and WordPress submenu existed in 4.10.4, but BlueVPN's
 custom standalone admin sidebar is not generated from WordPress's `$submenu`.

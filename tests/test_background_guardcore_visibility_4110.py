@@ -23,11 +23,11 @@ class BackgroundGuardCoreVisibility4110(unittest.TestCase):
         self.assertGreaterEqual(s.count("BlueVpnWarpKeepAliveService.start(this)"),2)
         self.assertIn("maybePromptBackgroundReliability()",s)
 
-    def test_system_premium_start_has_keepalive_without_activity(self):
+    def test_system_premium_start_uses_stock_core_foreground_owner(self):
         s=self.text("android-source/BlueVpnSystemController.kt")
         premium=s[s.index("} else {",s.index("fun start(context")):s.index("private suspend fun startFreeWarp")]
         self.assertIn("CoreServiceManager.startVServiceFromToggle(app)",premium)
-        self.assertIn("BlueVpnWarpKeepAliveService.start(app)",premium)
+        self.assertNotIn("BlueVpnWarpKeepAliveService.start(app)",premium)
 
     def test_guardcore_snapshot_records_provider_specific_count_without_raw_configs(self):
         s=self.text("bluevpn-manager/includes/class-bluevpn-providers.php")

@@ -43,21 +43,17 @@ object BlueVpnSystemController {
         val app = context.applicationContext
         BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.PREDICTIVE_FAILOVER)
         if (!BlueVpnIntelligenceCore.claimPredictiveFailover(app)) return
-        scope.launch {
-            if (BlueVpnAccountManager.isFreeMode(app) && BlueVpnAccountManager.warpFreeEnabled(app)) {
-                restart(app)
-                return@launch
-            }
-            val current = com.v2ray.ang.handler.MmkvManager.getSelectServer().orEmpty()
-            val entitlement = BlueVpnEntitlement.resolve(app)
-            val candidates = BlueVpnLocationUtil.cachedCandidates(app)
-                .filter { it.guid != current && it.guid in entitlement.serverGuids }
-                .filter { BlueVpnAccountManager.candidateAllowed(app, it.guid, it.profile.subscriptionId, entitlement.serverGuids.toSet()) }
-            val next = BlueVpnSmartSelector.connectionOrderTrusted(app, candidates).firstOrNull()?.candidate
-            if (next != null) {
-                com.v2ray.ang.handler.MmkvManager.setSelectServer(next.guid)
-            }
-            restart(app)
+
+        // Compatibility entry point only. Predictive/quality telemetry must not
+        // stop a live VPN. Record the current route as degraded so the *next*
+        // explicit reconnect can prefer another candidate.
+        val current = com.v2ray.ang.handler.MmkvManager.getSelectServer().orEmpty()
+        if (current.isNotBlank()) {
+            BlueVpnRouteIntelligence.recordFailure(
+                app,
+                current,
+                "PREDICTIVE_DEGRADATION_NON_DESTRUCTIVE",
+            )
         }
     }
 
@@ -85,11 +81,10 @@ object BlueVpnSystemController {
         if (BlueVpnAccountManager.isFreeMode(app) && BlueVpnAccountManager.warpFreeEnabled(app)) {
             scope.launch { startFreeWarp(app) }
         } else {
+            // Premium is already owned by stock v2rayNG/CoreVpnService, which is
+            // itself a foreground VpnService. A second foreground owner is not
+            // needed and may contend for the same visible notification.
             CoreServiceManager.startVServiceFromToggle(app)
-            // The Quick Settings / system-control path can start Premium without
-            // an Activity. Keep application lifecycle ownership independent from
-            // BlueVpnHomeActivity while stock v2rayNG owns the VPN TUN.
-            BlueVpnWarpKeepAliveService.start(app)
         }
     }
 

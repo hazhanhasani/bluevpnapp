@@ -1870,14 +1870,34 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         ensureNotificationPermission()
         BlueVpnSupportNotifications.schedule(this)
         if (BlueVpnUiGuard.consumeRecoveryNotice(this)) {
-            recoveryCleanupRequired = true
-            connectionVerified = false
-            BlueVpnPreferences.clearConnected(this)
-            Toast.makeText(
-                this,
-                "BlueVPN پس از توقف غیرمنتظره بازیابی شد؛ اتصال قبلی پیش از تلاش بعدی پاک‌سازی می‌شود",
-                Toast.LENGTH_LONG,
-            ).show()
+            val freeWarp =
+                BlueVpnAccountManager.isFreeMode(this) &&
+                    BlueVpnAccountManager.warpFreeEnabled(this)
+            val transportAlive =
+                CoreServiceManager.isRunning() &&
+                    (!freeWarp || BlueVpnWarpEngine.isRunning())
+            val hadConnectedSession = BlueVpnPreferences.connectedAt(this) > 0L
+
+            if (transportAlive) {
+                // Activity/process recovery is not a VPN failure. Preserve both
+                // Premium and Free/WARP when their actual transports are alive.
+                recoveryCleanupRequired = false
+                connectionVerified = hadConnectedSession
+                Toast.makeText(
+                    this,
+                    "BlueVPN بازیابی شد؛ اتصال فعال بدون قطع‌شدن حفظ شد",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } else {
+                recoveryCleanupRequired = hadConnectedSession
+                connectionVerified = false
+                BlueVpnPreferences.clearConnected(this)
+                Toast.makeText(
+                    this,
+                    "BlueVPN بازیابی شد؛ مسیر قبلی واقعاً متوقف شده بود و دوباره بررسی می‌شود",
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
 
         connectButton = findViewById(R.id.bluevpn_connect_button)
@@ -4223,7 +4243,9 @@ private fun dpHome(value: Int): Int =
         existingSessionRetryCount = 0
         lastVerifiedLatency = latency
         connectionVerified = true
-        BlueVpnWarpKeepAliveService.start(this)
+        if (BlueVpnAccountManager.isFreeMode(this) && BlueVpnAccountManager.warpFreeEnabled(this)) {
+            BlueVpnWarpKeepAliveService.start(this)
+        }
         BlueVpnLiveReporter.kick(this)
         BlueVpnPreferences.markConnected(this, resetTimer = false)
         BlueVpnRuntimeGate.markConnectionActive(this)
@@ -4245,19 +4267,57 @@ private fun dpHome(value: Int): Int =
 
         existingSessionCheckInProgress = false
         existingSessionRetryCount = 0
+
+        val freeWarp =
+            BlueVpnAccountManager.isFreeMode(this) &&
+                BlueVpnAccountManager.warpFreeEnabled(this)
+        val transportAlive =
+            CoreServiceManager.isRunning() &&
+                (!freeWarp || BlueVpnWarpEngine.isRunning())
+
+        if (transportAlive) {
+            // End-to-end HTTP/RTT probes are noisy on Iranian mobile networks.
+            // They may lower route confidence, but they are not permission to
+            // destroy a live TUN/Aether session. Keep traffic uninterrupted.
+            connectionVerified = BlueVpnPreferences.connectedAt(this) > 0L
+            recoveryCleanupRequired = false
+            pendingConnectionRequest = false
+            renderConnectionState(true)
+            statusCaption.text =
+                "$reason؛ اتصال فعال حفظ شد و بررسی بدون قطع اتصال تکرار می‌شود"
+
+            handler.postDelayed({
+                val stillFreeWarp =
+                    BlueVpnAccountManager.isFreeMode(this) &&
+                        BlueVpnAccountManager.warpFreeEnabled(this)
+                val stillAlive =
+                    CoreServiceManager.isRunning() &&
+                        (!stillFreeWarp || BlueVpnWarpEngine.isRunning())
+                if (
+                    stillAlive &&
+                    !isFinishing &&
+                    !isDestroyed &&
+                    !userDisconnecting &&
+                    !terminalFailureStopping &&
+                    !failoverActive
+                ) {
+                    connectionVerified = false
+                    verifyExistingRunningSession(preserveServiceOnFailure = true)
+                }
+            }, 15_000L)
+            return
+        }
+
+        // Hard recovery is only allowed after actual transport death.
         connectionVerified = false
         BlueVpnPreferences.clearConnected(this)
         BlueVpnRuntimeGate.endConnection(this)
         recoveryCleanupRequired = true
         pendingConnectionRequest = true
-        if (premiumInstantUiEnabled()) {
-            renderPremiumInstantConnectedUi("بازیابی هوشمند")
-        } else {
-            statusText.text = "در حال بازیابی اتصال"
-            statusCaption.text = "$reason؛ مسیر سالم دیگری از اشتراک بررسی می‌شود"
-            updateConnectLabel("در حال بازیابی")
-            connectButton.isEnabled = false
-        }
+        statusText.text = "در حال بازیابی اتصال"
+        statusCaption.text = "$reason؛ سرویس اتصال متوقف شده و مسیر سالم دیگری بررسی می‌شود"
+        updateConnectLabel("در حال بازیابی")
+        connectButton.isEnabled = false
         CoreServiceManager.stopVService(this)
     }
 
@@ -4758,7 +4818,9 @@ private fun dpHome(value: Int): Int =
 
         BlueVpnPreferences.markConnected(this, resetTimer = true)
         BlueVpnRuntimeGate.markConnectionActive(this)
-        BlueVpnWarpKeepAliveService.start(this)
+        if (BlueVpnAccountManager.isFreeMode(this) && BlueVpnAccountManager.warpFreeEnabled(this)) {
+            BlueVpnWarpKeepAliveService.start(this)
+        }
         BlueVpnAccountManager.startFreeSession(this)
         connectionVerified = true
         if (attemptedGuid.isNotBlank() && BlueVpnWarpEngine.isBridgeGuid(attemptedGuid)) BlueVpnWarpEngine.markConnected()

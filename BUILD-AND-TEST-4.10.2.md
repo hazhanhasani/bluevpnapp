@@ -1,4 +1,4 @@
-# BlueVPN 4.11.1 — Premium Verification Recovery
+# BlueVPN 4.11.2 — Premium Verification Recovery
 
 Fixes the Premium state-machine regression visible on Android:
 - Xray RUNNING is not treated as CONNECTED without real data-plane proof.

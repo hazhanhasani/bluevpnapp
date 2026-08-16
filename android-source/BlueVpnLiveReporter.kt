@@ -85,12 +85,16 @@ object BlueVpnLiveReporter {
             packetLossX100 = latency?.packetLossX100 ?: 0,
         )
         if (health.shouldWarmFailover && selectedGuid.isNotBlank()) {
+            // Health telemetry is advisory while a VPN transport is alive.
+            // Mobile networks routinely produce short RTT/loss spikes; they must
+            // never tear down a working Premium or Free/WARP tunnel.
             BlueVpnRouteIntelligence.recordFailure(
                 app,
                 selectedGuid,
-                "PREDICTIVE_DEGRADATION_CONFIRMED:${health.reason}",
+                "PREDICTIVE_DEGRADATION_OBSERVED:${health.reason}",
             )
-            BlueVpnSystemController.predictiveFailover(app)
+            // A future connect may avoid this route, but the current connection
+            // is preserved. Hard recovery is owned by transport-liveness checks.
         }
 
         BlueVpnAi.heartbeat(

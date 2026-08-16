@@ -1,12 +1,12 @@
-# BlueVPN 4.11.1
+# BlueVPN 4.11.2
 
-Version 4.11.1 introduces a two-mode GitHub Actions pipeline. Manual `workflow_dispatch` builds default to **fast** mode, while production `repository_dispatch` builds remain **full** by default. Fast mode still performs the real Android compile, assemble, signing and regression gates, but uploads the signed APK immediately after signing and skips the production WordPress convergence / GitHub Release publication barriers.
+Version 4.11.2 introduces a two-mode GitHub Actions pipeline. Manual `workflow_dispatch` builds default to **fast** mode, while production `repository_dispatch` builds remain **full** by default. Fast mode still performs the real Android compile, assemble, signing and regression gates, but uploads the signed APK immediately after signing and skips the production WordPress convergence / GitHub Release publication barriers.
 
 The Android pipeline now caches the pinned Aether native binaries, `libhevtun`, and the resolved `libv2ray.aar`. Gradle compile + assemble are executed in one Gradle invocation with build cache and parallel execution enabled, avoiding a second project configuration pass. Cache keys remain tied to pinned runtime inputs, not the BlueVPN release version, so a normal app version bump does not force a needless Aether rebuild.
 
 Version 4.7.9 added permissionless Android SMS OTP autofill with one-time SMS User Consent and no `READ_SMS` / `RECEIVE_SMS` permission. Version 4.7.6 hardened the free WARP path around a single pinned Aether process, persistent identity, native scan/quick reconnect and adaptive transport history.
 
-Local verification for 4.11.1: **203 Python regression tests passed**, all BlueVPN Manager PHP files passed syntax lint, the release validator passed, all three GitHub workflow YAML files parsed successfully, and Python CI scripts compiled. A complete Android Gradle build cannot be materialized in this artifact sandbox because the pinned upstream v2rayNG checkout requires outbound GitHub access; GitHub Actions remains the authoritative Android build environment.
+Local verification for 4.11.2: **203 Python regression tests passed**, all BlueVPN Manager PHP files passed syntax lint, the release validator passed, all three GitHub workflow YAML files parsed successfully, and Python CI scripts compiled. A complete Android Gradle build cannot be materialized in this artifact sandbox because the pinned upstream v2rayNG checkout requires outbound GitHub access; GitHub Actions remains the authoritative Android build environment.
 
 ### CI modes
 
@@ -410,64 +410,64 @@ BlueVPN 4.6.5 introduces an isolated Free-tier WARP path: pinned Aether is built
 
 
 
-## 4.11.1 WARP failure diagnostics
+## 4.11.2 WARP failure diagnostics
 WARP failures now retain a privacy-safe structured code, stage, strategy and startup duration. The Home screen surfaces the actual failure class instead of collapsing every failure into a generic unavailable message. Sensitive token/OTP/secret-like values and URLs are redacted from persisted diagnostics.
 
 
-## 4.11.1 — BlueAI Control Plane v3
+## 4.11.2 — BlueAI Control Plane v3
 BlueAI now includes privacy-safe network fingerprints, unified failure classification, network-aware route scoring and quarantine, predictive failover, shadow decisions, anomaly detection, Provider/payment reconciliation, AI-assisted panel balancing, SMS/runtime incident detection, and an Operations Center. AI recommendations remain bounded by deterministic VPN/payment/provider state machines.
 
 
-## 4.11.1 — Production Runtime Validation
+## 4.11.2 — Production Runtime Validation
 Signed APKs now pass a post-signing runtime-contract gate in GitHub Actions. The gate verifies APK integrity, permanent signature, BlueVPN foreground service/tile/action receiver declarations, notification permissions, and both packaged Aether ABIs. Android also keeps a bounded privacy-safe lifecycle audit for production diagnostics.
 
 
-## 4.11.1 — Native Network Adaptation
+## 4.11.2 — Native Network Adaptation
 BlueVPN remains on the stock pinned v2rayNG/Xray runtime. The experimental Mahsa-Core integration was removed completely. Useful network-adaptation ideas are implemented natively: per-network route learning, UDP-blocked awareness, conditional preference for existing Fragment-capable routes, and bounded failure-aware scoring/circuit breaking based on BlueVPN's own verified outcomes.
 
 
-## 4.11.1 — Live Support
+## 4.11.2 — Live Support
 BlueVPN now includes the first production foundation of a private live-support system shared by Android, WordPress/MySQL and the existing Telegram admin bot. Customers choose a support department, open a conversation and exchange messages inside the app. WordPress provides an Inbox with departments, operators, assignment/transfer and statuses. The Telegram admin bot receives new messages and can reply with `/support_reply <conversation_id> <message>`. All customer REST operations are session-authenticated and conversation ownership is enforced server-side.
 
 
-## 4.11.1 — Premium Instant UI + Live Support Phase 2
+## 4.11.2 — Premium Instant UI + Live Support Phase 2
 Premium connection now uses an optimistic UI: after VPN permission is available and a Premium candidate is selected, the screen immediately shows `متصل` while Xray/data-plane verification continues privately. This does not persist CONNECTED or set `connectionVerified` until the real verification path succeeds. Failed Premium candidates are switched silently inside the same Premium entitlement pool.
 
 Live Support phase 2 adds bounded attachments, internal operator notes, department SLA, operator presence, canned replies, BlueAI reply suggestions, and authenticated background unread notifications. Attachments are MIME-sniffed server-side and capped at 4 MiB. Internal notes are never returned to customer REST endpoints.
 
 
-## 4.11.1 — Support Admin Sidebar
+## 4.11.2 — Support Admin Sidebar
 The live-support Inbox is now registered in both WordPress and BlueVPN's custom standalone sidebar. The previous release registered the WordPress submenu correctly, but the visible BlueVPN sidebar is generated from `BlueVPN_Unified_UI::nav()` and did not include the support slug. The support page now also renders inside the unified BlueVPN admin shell.
 
 
-## 4.11.1 — Live Support Chat UI
+## 4.11.2 — Live Support Chat UI
 The Android support screen was rebuilt as a real BlueVPN messenger surface while preserving the existing support backend. It now uses a branded support header, operator/department presence, conversation chips, a designed empty state, card-based department routing, message bubbles with timestamps/seen state/attachments, a compact inline composer, keyboard resize handling and automatic bottom scrolling.
 
 
-## 4.11.1 — Deploy Bot Commit/Version Verification
+## 4.11.2 — Deploy Bot Commit/Version Verification
 Telegram ZIP deployments are now fail-closed. The bot does not start GitHub Actions
 unless the uploaded ZIP creates a real GitHub diff and the exact resulting commit
 SHA exposes the expected BlueVPN version in branding/app.json, release.json and
 BlueVPN Manager metadata. Empty Git/REST commits are rejected before dispatch.
 
 
-## 4.11.1 — Deploy ZIP Root Detection
+## 4.11.2 — Deploy ZIP Root Detection
 Deploy Bot now detects the actual BlueVPN project root after ZIP extraction. Both flat archives (`branding/app.json` at ZIP root) and archives wrapped in a directory such as `bluevpn476/branding/app.json` are accepted. Version verification and GitHub deployment are performed against the resolved project root, while ambiguous/missing roots fail closed.
 
 
-## 4.11.1 — Support EditText Kotlin Compile Fix
+## 4.11.2 — Support EditText Kotlin Compile Fix
 Fixes the GitHub `compilePlaystoreReleaseKotlin` failure in `BlueVpnSupportActivity.kt`.
 All direct `String` assignments to `EditText.text` were replaced with `setText(...)`.
 A regression test now rejects any future `messageInput.text = ...` assignment.
 
 
-## 4.11.1 — Background Reliability + GuardCore Visibility
+## 4.11.2 — Background Reliability + GuardCore Visibility
 Verified Premium connections now acquire the same application-lifecycle foreground owner used by Free/WARP, so leaving the Activity does not make the app process disposable while stock v2rayNG owns the VPN TUN. Settings exposes the actual Android battery/background-data restriction state and links directly to the relevant system settings.
 
 GuardCore subscription snapshots now retain provider-specific safe metadata, including GuardCore config count and content hash. The GuardCore admin page shows assigned users, usernames, subscription IDs/status, per-user GuardCore config count, total aggregated config count and snapshot freshness, with a background refresh action.
 
 
-## 4.11.1 — GuardCore API 0.13
+## 4.11.2 — GuardCore API 0.13
 GuardCore integration now follows the supplied OpenAPI 0.13.0 contract more closely:
 TOTP-aware token login and API-key bootstrap, cached API capability/version discovery,
 official service and node catalogs, node/subscription statistics, 7-day usage,
@@ -478,3 +478,12 @@ enable/disable controls, and expiry reconciliation.
 The legacy configurable `limit_usage` and `limit_expire` unit modes remain because
 the supplied schema identifies these as integers but does not define their units.
 BlueVPN therefore does not invent or hard-code undocumented unit semantics.
+
+
+## 4.11.2 — Connection Continuity
+Repeated network-quality degradation no longer tears down an otherwise live
+Premium or Free/WARP VPN. Predictive degradation is advisory only and influences
+future route selection. Hard recovery now requires actual transport death:
+CoreVpnService must be down, or for Free/WARP the WARP engine must also be down.
+Activity/process recovery preserves live transports. The Free/WARP notification
+updater is also actually scheduled, fixing stale speed updates on that path.

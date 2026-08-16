@@ -40,13 +40,17 @@ class BlueAiControlPlane490(unittest.TestCase):
         self.assertIn("KEY_SHADOW_MODE",ai)
         self.assertIn("shadowModeEnabled",core)
 
-    def test_predictive_failover_can_switch_premium_route(self):
+    def test_predictive_failover_is_non_destructive_on_live_route(self):
         live=self.text("android-source/BlueVpnLiveReporter.kt")
         ctrl=self.text("android-source/BlueVpnSystemController.kt")
-        self.assertIn("predictiveFailover",live)
-        self.assertIn("claimPredictiveFailover",ctrl)
-        self.assertIn("MmkvManager.setSelectServer(next.guid)",ctrl)
-        self.assertIn("connectionOrderTrusted",ctrl)
+        self.assertIn("PREDICTIVE_DEGRADATION_OBSERVED",live)
+        block=ctrl[ctrl.index("fun predictiveFailover"):ctrl.index("fun restart")]
+        self.assertIn("claimPredictiveFailover",block)
+        self.assertIn("PREDICTIVE_DEGRADATION_NON_DESTRUCTIVE",block)
+        self.assertNotIn("MmkvManager.setSelectServer",block)
+        self.assertNotIn("connectionOrderTrusted",block)
+        self.assertNotIn("restart(app)",block)
+        self.assertNotIn("stopVService",block)
 
     def test_blueai_ops_has_anomaly_and_reconciliation_engines(self):
         s=self.text("bluevpn-manager/includes/class-bluevpn-ai-ops.php")

@@ -8,8 +8,8 @@ class PreGradlePython4121(unittest.TestCase):
     def test_release_version(self):
         app = json.loads((ROOT / "branding/app.json").read_text())
         rel = json.loads((ROOT / "release.json").read_text())
-        self.assertEqual((app["version_name"], app["version_code"]), ("4.12.1", 41201))
-        self.assertEqual((rel["version"], rel["version_code"]), ("4.12.1", 41201))
+        self.assertEqual((app["version_name"], app["version_code"]), ("4.12.2", 41202))
+        self.assertEqual((rel["version"], rel["version_code"]), ("4.12.2", 41202))
 
     def test_no_setup_python_after_aar(self):
         wf = (ROOT / ".github/workflows/build-apk.yml").read_text()

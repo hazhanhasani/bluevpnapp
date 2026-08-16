@@ -528,20 +528,35 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
           echo "BUILD_STAGE=repository-cleanup" >> "$GITHUB_ENV"
           echo "repository-cleanup" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          echo "Starting repository cleanup."
           python scripts/cleanup_repository.py
+          echo "Repository cleanup completed."
 
       - name: Overlay BlueVPN UI and control plane on v2rayNG
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
           echo "BUILD_STAGE=overlay-bluevpn" >> "$GITHUB_ENV"
           echo "overlay-bluevpn" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          echo "Starting BlueVPN Android overlay."
           python scripts/prepare_android.py 2>&1 | tee "$GITHUB_WORKSPACE/prepare-android.log"
+          echo "BlueVPN Android overlay completed."
+
+      - name: Mark Aether cache stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BUILD_STAGE=aether-cache" >> "$GITHUB_ENV"
+          echo "aether-cache" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          echo "Entering Aether cache restore stage." | tee -a "$GITHUB_WORKSPACE/android-build.log"
 
       - name: Restore pinned Aether runtime cache
         id: aether-cache
+        continue-on-error: true
         uses: actions/cache@v4
         with:
           path: |
@@ -552,15 +567,36 @@ jobs:
 
       - name: Setup Rust for BlueVPN Free WARP engine
         if: steps.aether-cache.outputs.cache-hit != 'true'
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,armv7-linux-androideabi
+        shell: bash
+        run: |
+          set -euo pipefail
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
+          echo "BUILD_STAGE=setup-rust" >> "$GITHUB_ENV"
+          echo "setup-rust" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          command -v rustup
+          command -v cargo
+          rustc --version
+          cargo --version
+          for target in aarch64-linux-android armv7-linux-androideabi; do
+            ok=0
+            for attempt in 1 2 3; do
+              if rustup target add "$target"; then
+                ok=1
+                break
+              fi
+              echo "rustup target add $target failed (attempt $attempt/3)."
+              sleep $((attempt * 3))
+            done
+            test "$ok" -eq 1
+          done
+          echo "Rust Android targets prepared successfully."
 
       - name: Build pinned Aether WARP runtime
         if: steps.aether-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
           echo "BUILD_STAGE=build-aether-warp" >> "$GITHUB_ENV"
           echo "build-aether-warp" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           python scripts/build_aether_android.py 2>&1 | tee "$GITHUB_WORKSPACE/aether-build.log"
@@ -569,6 +605,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
+          echo "BUILD_STAGE=verify-aether-warp" >> "$GITHUB_ENV"
+          echo "verify-aether-warp" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           test -x upstream/V2rayNG/app/src/main/jniLibs/arm64-v8a/libbluevpn_aether.so
           test -x upstream/V2rayNG/app/src/main/jniLibs/armeabi-v7a/libbluevpn_aether.so
           test -s reports/AETHER-PROVENANCE-4.7.6.txt
@@ -579,6 +618,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
+          echo "BUILD_STAGE=apply-auth-ui" >> "$GITHUB_ENV"
+          echo "apply-auth-ui" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           SOURCE="android-source/BlueVpnSubscriptionsActivity.kt"
           TARGET="upstream/V2rayNG/app/src/main/java/com/v2ray/ang/ui/BlueVpnSubscriptionsActivity.kt"
           test -f "$SOURCE"
@@ -592,6 +634,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
           echo "BUILD_STAGE=release-regression-gate" >> "$GITHUB_ENV"
           echo "release-regression-gate" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           : > "$GITHUB_WORKSPACE/stability-gate.log"

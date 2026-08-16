@@ -26,6 +26,7 @@
     "test_overlay_retired_core_cleanup_4101.py",
     "test_panel_tehran_datetime_4116.py",
     "test_pre_gradle_python_4121.py",
+    "test_pre_gradle_stage_hardening_4122.py",
     "test_pre_gradle_xray_download_4120.py",
     "test_premium_instant_ui_support_phase2_4104.py",
     "test_premium_verification_recovery_4102.py",

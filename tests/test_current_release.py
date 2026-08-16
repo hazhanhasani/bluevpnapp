@@ -83,7 +83,8 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertNotIn("warpFallbackUntilElapsed", self.home)
         self.assertIn('AETHER_COMMIT = "a26159b82a70048b459e0128213c71767abecb8a"', self.aether_build)
         self.assertIn("Build pinned Aether WARP runtime", self.workflow)
-        self.assertIn("dtolnay/rust-toolchain@stable", self.workflow)
+        self.assertNotIn("dtolnay/rust-toolchain@stable", self.workflow)
+        self.assertIn('rustup target add "$target"', self.workflow)
         self.assertIn("libbluevpn_aether.so", self.aether_build)
 
     def test_05c_premium_runtime_stays_stock_v2rayng(self):

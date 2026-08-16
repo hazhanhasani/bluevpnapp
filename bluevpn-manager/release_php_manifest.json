@@ -22,6 +22,7 @@
     "includes/class-bluevpn-providers.php",
     "includes/class-bluevpn-sms-notifications.php",
     "includes/class-bluevpn-sms-otp.php",
+    "includes/class-bluevpn-support.php",
     "includes/class-bluevpn-telegram-bot.php",
     "includes/class-bluevpn-unified-ui.php",
     "includes/class-bluevpn-utils.php"

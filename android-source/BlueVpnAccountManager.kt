@@ -2166,6 +2166,16 @@ object BlueVpnAccountManager {
         }
     }
 
+    fun supportRequest(
+        c: Context,
+        method: String,
+        path: String,
+        body: JSONObject? = null,
+    ): Result<JSONObject> = runCatching {
+        if (!hasSession(c)) error("AUTH_REQUIRED")
+        authenticatedRequest(c.applicationContext, method, path, body)
+    }
+
     private fun authenticatedRequest(
         c: Context,
         method: String,

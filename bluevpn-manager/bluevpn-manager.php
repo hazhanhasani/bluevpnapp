@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: BlueVPN Manager
- * Description: هسته حساب کاربری، اشتراک، پرداخت و API سرویس BlueVPN.
- * Version: 4.10.2
+ * Description: هسته حساب کاربری، اشتراک، پرداخت، پشتیبانی آنلاین و API سرویس BlueVPN.
+ * Version: 4.10.4
  * Author: BlueVPN
  * Requires at least: 6.2
  * Requires PHP: 8.0
@@ -14,8 +14,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('BLUEVPN_MANAGER_VERSION', '4.10.2');
-define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.14.0');
+define('BLUEVPN_MANAGER_VERSION', '4.10.4');
+define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.16.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
 define('BLUEVPN_MANAGER_URL', plugin_dir_url(__FILE__));
@@ -40,6 +40,7 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-admin.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-app-release-manager.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-github-updater.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-telegram-bot.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-support.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-migration.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-production.php';
 
@@ -55,6 +56,7 @@ register_activation_hook(__FILE__, function () {
     BlueVPN_App_Release_Manager::ensure_schedule();
     BlueVPN_GitHub_Updater::ensure_schedule();
     BlueVPN_Telegram_Bot::activate();
+    BlueVPN_Support::activate();
     BlueVPN_Production::activate();
 });
 
@@ -101,6 +103,7 @@ add_action('plugins_loaded', function () {
     BlueVPN_App_Release_Manager::init();
     BlueVPN_GitHub_Updater::init();
     BlueVPN_Telegram_Bot::init();
+    BlueVPN_Support::init();
     BlueVPN_Migration::init();
     BlueVPN_Production::init();
 });

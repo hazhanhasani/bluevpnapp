@@ -180,7 +180,12 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
                 title = "تماس با پشتیبانی",
                 value = "پاسخ‌گویی مستقیم",
                 description = "ارسال سؤال یا گزارش مشکل",
-            ) { openRemoteLink("support_url") },
+            ) {
+                BlueVpnUiGuard.start(
+                    this,
+                    Intent(this, BlueVpnSupportActivity::class.java),
+                )
+            },
         )
         content.addView(
             settingRow(

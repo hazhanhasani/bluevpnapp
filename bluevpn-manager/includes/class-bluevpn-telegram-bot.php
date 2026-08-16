@@ -256,6 +256,14 @@ final class BlueVPN_Telegram_Bot {
         }
         if ($chatId === null) return;
         $text = trim((string)($m['text'] ?? ''));
+        if (
+            $text !== '' &&
+            class_exists('BlueVPN_Support') &&
+            BlueVPN_Support::telegram_reply_command($text, (int)$userId)
+        ) {
+            self::send_message($chatId, '✅ پاسخ پشتیبانی داخل گفتگوی کاربر ثبت شد.', [], $s);
+            return;
+        }
         if ($text !== '' && self::capture_guardcore_link((string)$chatId, (string)$userId, $text, $s)) return;
         if (!empty($m['document']) && is_array($m['document'])) {
             $doc = $m['document'];
@@ -322,6 +330,14 @@ final class BlueVPN_Telegram_Bot {
             return new WP_Error('bluevpn_bot_http', 'Telegram API: ' . sanitize_text_field((string)($json['description'] ?? ('HTTP ' . $code))));
         }
         return $json['result'] ?? true;
+    }
+
+    public static function support_notify(string $text): void {
+        $s = self::settings();
+        if (empty($s['enabled'])) return;
+        foreach (self::admin_ids($s) as $chatId) {
+            self::send_message($chatId, $text, [], $s);
+        }
     }
 
     private static function send_message($chatId, string $text, array $replyMarkup = [], ?array $s = null) {

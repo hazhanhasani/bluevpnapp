@@ -22,6 +22,14 @@ final class BlueVPN_API {
             ['/plans','GET','plans'], ['/account','GET','account'], ['/account/sync','POST','account_sync'],
             ['/server-locations/resolve','POST','resolve_locations'], ['/server-locations/verify','POST','verify_location'],
             ['/ai/events','POST','ai_event'], ['/ai/recommendations','GET','ai_recommendations'], ['/ai/dashboard','GET','ai_dashboard'], ['/feedback','POST','feedback'],
+            ['/support/departments','GET','support_departments'],
+            ['/support/conversations','GET','support_conversations'],
+            ['/support/conversations','POST','support_create'],
+            ['/support/conversations/(?P<id>\d+)/messages','GET','support_messages'],
+            ['/support/conversations/(?P<id>\d+)/messages','POST','support_send'],
+            ['/support/conversations/(?P<id>\d+)/attachments','POST','support_attachment'],
+            ['/support/unread','GET','support_unread'],
+            ['/support/conversations/(?P<id>\d+)/close','POST','support_close'],
             ['/orders','POST','create_order'],
             ['/orders/(?P<order_id>[A-Za-z0-9_-]{8,80})','GET','order_status'],
             ['/orders/(?P<order_id>[A-Za-z0-9_-]{8,80})/checkout/open','POST','checkout_open'],
@@ -98,7 +106,7 @@ final class BlueVPN_API {
             'features' => [
                 'advertising' => true, 'ad_assets' => true, 'tapsell' => true, 'free_story_ads' => true, 'free_access' => true,
                 'blueai_events' => true, 'blueai_recommendations' => true, 'blueai_dashboard' => true, 'blueai_live_tier_monitoring' => true,
-                'orders' => true, 'bluepay_webhook' => true, 'bind_phone_otp' => true, 'provider_sync' => true,
+                'orders' => true, 'bluepay_webhook' => true, 'bind_phone_otp' => true, 'provider_sync' => true, 'live_support' => true, 'support_attachments' => true, 'support_sla' => true, 'support_background_notifications' => true,
             ],
             'static_api_key_required' => false,
             'cutover_ready' => get_option('bluevpn_manager_cutover_ready','0') === '1',
@@ -321,4 +329,13 @@ final class BlueVPN_API {
     public static function verify_location(WP_REST_Request $r): WP_REST_Response { try{BlueVPN_Auth::current_customer($r);$b=self::body($r);$key=strtolower(trim((string)($b['config_key']??'')));$cc=strtolower(trim((string)($b['country_code']??'')));if(!preg_match('/^[a-f0-9]{40}$/',$key))throw new BlueVPN_Auth_Exception(422,'SERVER_LOCATION_KEY_INVALID','شناسه سرور معتبر نیست');if(!preg_match('/^[a-z]{2}$/',$cc))throw new BlueVPN_Auth_Exception(422,'SERVER_COUNTRY_INVALID','کد کشور معتبر نیست');global $wpdb;$t=BlueVPN_DB::table('server_locations');$now=BlueVPN_Utils::now_mysql();$wpdb->replace($t,['config_key'=>$key,'country_code'=>$cc,'source'=>mb_substr(sanitize_key((string)($b['source']??'client_trace')),0,40),'confidence'=>100,'verified_at'=>$now,'updated_at'=>$now]);$row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE config_key=%s",$key),ARRAY_A);return self::ok(['success'=>true,'location'=>self::location_payload($row)]);}catch(BlueVPN_Auth_Exception $e){return self::fail($e);} }
     private static function location_payload(array $x): array { return ['config_key'=>$x['config_key'],'country_code'=>$x['country_code'],'source'=>$x['source'],'confidence'=>(int)$x['confidence'],'verified_at'=>BlueVPN_Utils::iso_from_mysql($x['verified_at']??null),'updated_at'=>BlueVPN_Utils::iso_from_mysql($x['updated_at']??null)]; }
     public static function subscription(WP_REST_Request $r): WP_REST_Response { global $wpdb;$t=BlueVPN_DB::table('customers');$token=(string)$r['token'];$c=$wpdb->get_row($wpdb->prepare("SELECT subscription_url FROM {$t} WHERE subscription_token=%s AND active=1 LIMIT 1",$token),ARRAY_A);if(!$c)return self::ok(['detail'=>['code'=>'SUBSCRIPTION_NOT_FOUND','message'=>'اشتراک پیدا نشد']],404);$res=self::ok(['success'=>true,'subscription_url'=>home_url('/sub/'.$token)],302);$res->header('Location',home_url('/sub/'.$token));return $res; }
+
+    public static function support_departments(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Support::api_departments($r); }
+    public static function support_conversations(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Support::api_conversations($r); }
+    public static function support_create(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Support::api_create($r); }
+    public static function support_messages(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Support::api_messages($r); }
+    public static function support_send(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Support::api_send($r); }
+    public static function support_attachment(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Support::api_attachment($r); }
+    public static function support_unread(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Support::api_unread($r); }
+    public static function support_close(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Support::api_close($r); }
 }

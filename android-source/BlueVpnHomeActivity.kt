@@ -76,6 +76,7 @@ import com.v2ray.ang.bluevpn.BlueVpnEntitlement
 import com.v2ray.ang.bluevpn.BlueVpnPlanTier
 import com.v2ray.ang.bluevpn.BlueVpnSelectionMode
 import com.v2ray.ang.bluevpn.BlueVpnSmartSelector
+import com.v2ray.ang.bluevpn.BlueVpnSupportNotifications
 import com.v2ray.ang.bluevpn.BlueVpnTapsellManager
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.SettingsManager
@@ -1866,6 +1867,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         BlueVpnTheme.applySystemBars(this)
         setContentView(createScreen())
         ensureNotificationPermission()
+        BlueVpnSupportNotifications.schedule(this)
         if (BlueVpnUiGuard.consumeRecoveryNotice(this)) {
             recoveryCleanupRequired = true
             connectionVerified = false
@@ -2017,10 +2019,14 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 active && failoverActive && waitingForCoreStop -> {
                     // We are still observing the old CoreVpnService. Never verify
                     // the next GUID against traffic from the previous route.
-                    updateConnectLabel("لغو اتصال")
-                    connectButton.isEnabled = true
-                    statusText.text = "در حال تغییر اتصال"
-                    statusCaption.text = "در انتظار توقف کامل اتصال قبلی"
+                    if (premiumInstantUiEnabled()) {
+                        renderPremiumInstantConnectedUi()
+                    } else {
+                        updateConnectLabel("لغو اتصال")
+                        connectButton.isEnabled = true
+                        statusText.text = "در حال تغییر اتصال"
+                        statusCaption.text = "در انتظار توقف کامل اتصال قبلی"
+                    }
                 }
 
                 !active && failoverActive && waitingForCoreStop -> {
@@ -3173,10 +3179,14 @@ private fun dpHome(value: Int): Int =
             BlueVpnRuntimeGate.endConnection(this)
             handler.removeCallbacks(verificationTimeout)
             verificationDeadlineGuid = ""
-            statusText.text = "در حال پاک‌سازی اتصال قبلی"
-            statusCaption.text = "پس از توقف کامل Xray، اتصال Premium دوباره از Pool اشتراک بررسی می‌شود"
-            connectButton.isEnabled = false
-            updateConnectLabel("در حال پاک‌سازی")
+            if (premiumInstantUiEnabled()) {
+                renderPremiumInstantConnectedUi("بازیابی هوشمند")
+            } else {
+                statusText.text = "در حال پاک‌سازی اتصال قبلی"
+                statusCaption.text = "پس از توقف کامل Xray، اتصال دوباره از Pool مجاز بررسی می‌شود"
+                connectButton.isEnabled = false
+                updateConnectLabel("در حال پاک‌سازی")
+            }
             CoreServiceManager.stopVService(this)
             return
         }
@@ -3904,17 +3914,21 @@ private fun dpHome(value: Int): Int =
             location?.let { "${it.flag} ${it.title}" } ?: "انتخاب خودکار"
         }
 
-        showConnectingOverlay(
-            title = "در حال اتصال",
-            caption = "در حال بررسی و برقراری اتصال امن",
-            location = locationName,
-        )
-        statusText.text = "در حال اتصال"
-        statusCaption.visibility = View.VISIBLE
-        statusCaption.text =
-            "در حال برقراری اتصال امن"
-        updateConnectLabel("لغو اتصال")
-        connectButton.isEnabled = true
+        if (premiumInstantUiEnabled() && !warpBridge) {
+            connectingLocation.text = locationName
+            renderPremiumInstantConnectedUi(locationName)
+        } else {
+            showConnectingOverlay(
+                title = "در حال اتصال",
+                caption = "در حال بررسی و برقراری اتصال امن",
+                location = locationName,
+            )
+            statusText.text = "در حال اتصال"
+            statusCaption.visibility = View.VISIBLE
+            statusCaption.text = "در حال برقراری اتصال امن"
+            updateConnectLabel("لغو اتصال")
+            connectButton.isEnabled = true
+        }
 
         // Runtime parity rule: once a profile is imported by v2rayNG and is
         // inside the active entitlement pool, BlueVPN does not reinterpret,
@@ -3926,8 +3940,12 @@ private fun dpHome(value: Int): Int =
         if (mainViewModel.isRunning.value == true) {
             waitingForCoreStop = true
             coreStopRetryCount = 0
-            statusText.text = "در حال تغییر اتصال"
-            statusCaption.text = "در انتظار توقف کامل اتصال قبلی"
+            if (premiumInstantUiEnabled() && !warpBridge) {
+                renderPremiumInstantConnectedUi(locationName)
+            } else {
+                statusText.text = "در حال تغییر اتصال"
+                statusCaption.text = "در انتظار توقف کامل اتصال قبلی"
+            }
             CoreServiceManager.stopVService(this@BlueVpnHomeActivity)
             handler.removeCallbacks(coreStopTimeout)
             handler.postDelayed(coreStopTimeout, 8_000L)
@@ -4042,7 +4060,31 @@ private fun dpHome(value: Int): Int =
         MmkvManager.encodeSettings(AppConfig.PREF_MODE, "VPN")
     }
 
+    private fun premiumInstantUiEnabled(): Boolean =
+        !BlueVpnEntitlement.resolveUi(this).isFree
+
+    private fun renderPremiumInstantConnectedUi(location: String? = null) {
+        if (!premiumInstantUiEnabled() || userDisconnecting) return
+        hideConnectingOverlay()
+        applyOrbVisual(OrbVisualState.CONNECTED)
+        updateConnectLabel("قطع اتصال")
+        connectButton.isEnabled = true
+        statusText.text = "متصل"
+        statusCaption.visibility = View.VISIBLE
+        statusCaption.text =
+            location?.takeIf { it.isNotBlank() }?.let { "اتصال Premium • $it" }
+                ?: "اتصال Premium فعال است"
+        statusDot.backgroundTintList =
+            ColorStateList.valueOf(Color.parseColor("#35D07F"))
+    }
+
     private fun renderVerifyingState() {
+        if (premiumInstantUiEnabled()) {
+            renderPremiumInstantConnectedUi(
+                connectingLocation.text.toString().takeIf { it.isNotBlank() }
+            )
+            return
+        }
         if (failoverActive) {
             showConnectingOverlay(
                 title = "در حال تأیید اتصال",
@@ -4206,10 +4248,14 @@ private fun dpHome(value: Int): Int =
         BlueVpnRuntimeGate.endConnection(this)
         recoveryCleanupRequired = true
         pendingConnectionRequest = true
-        statusText.text = "در حال بازیابی اتصال"
-        statusCaption.text = "$reason؛ مسیر سالم دیگری از اشتراک بررسی می‌شود"
-        updateConnectLabel("در حال بازیابی")
-        connectButton.isEnabled = false
+        if (premiumInstantUiEnabled()) {
+            renderPremiumInstantConnectedUi("بازیابی هوشمند")
+        } else {
+            statusText.text = "در حال بازیابی اتصال"
+            statusCaption.text = "$reason؛ مسیر سالم دیگری از اشتراک بررسی می‌شود"
+            updateConnectLabel("در حال بازیابی")
+            connectButton.isEnabled = false
+        }
         CoreServiceManager.stopVService(this)
     }
 
@@ -4247,8 +4293,14 @@ private fun dpHome(value: Int): Int =
                     // single BlueVPN probe. Reality/WS/gRPC/TLS can need a longer
                     // warm-up on Iranian mobile networks, and public probe URLs can
                     // be filtered independently of the tunnel itself.
-                    statusText.text = "در حال تأیید اینترنت"
-                    statusCaption.text = "تست واقعی ${round + 1} از ۳"
+                    if (premiumInstantUiEnabled()) {
+                        renderPremiumInstantConnectedUi(
+                            connectingLocation.text.toString().takeIf { it.isNotBlank() }
+                        )
+                    } else {
+                        statusText.text = "در حال تأیید اینترنت"
+                        statusCaption.text = "تست واقعی ${round + 1} از ۳"
+                    }
                     mainViewModel.testCurrentServerRealPing()
                     handler.postDelayed({
                         if (
@@ -4820,14 +4872,17 @@ private fun dpHome(value: Int): Int =
             return
         }
 
-        statusText.text = "تغییر اتصال خودکار"
-        statusCaption.text =
-            "گزینه بهتر به‌صورت خودکار در حال بررسی است"
-        showConnectingOverlay(
-            title = "در حال تغییر اتصال",
-            caption = "اتصال قبلی پاسخ نداد؛ گزینه بعدی بررسی می‌شود",
-            location = "انتخاب خودکار",
-        )
+        if (premiumInstantUiEnabled()) {
+            renderPremiumInstantConnectedUi("انتخاب هوشمند")
+        } else {
+            statusText.text = "تغییر اتصال خودکار"
+            statusCaption.text = "گزینه بهتر به‌صورت خودکار در حال بررسی است"
+            showConnectingOverlay(
+                title = "در حال تغییر اتصال",
+                caption = "اتصال قبلی پاسخ نداد؛ گزینه بعدی بررسی می‌شود",
+                location = "انتخاب خودکار",
+            )
+        }
 
         handler.postDelayed({
             if (failoverActive) startCurrentCandidate()

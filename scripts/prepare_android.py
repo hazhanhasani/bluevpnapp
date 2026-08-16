@@ -97,6 +97,7 @@ def patch_build_gradle() -> None:
         'implementation("com.google.guava:guava:33.6.0-android")',
         'implementation("ir.tapsell.plus:tapsell-plus-sdk-android:2.3.3")',
         'implementation("com.google.android.gms:play-services-auth-api-phone:18.3.1")',
+        'implementation("androidx.work:work-runtime:2.10.0")',
     )
     for dependency in required_dependencies:
         if dependency not in text:
@@ -341,6 +342,10 @@ def patch_manifest() -> None:
         '            android:theme="@style/BlueVpnHomeTheme" />\n\n'
         '        <activity\n'
         '            android:name=".ui.BlueVpnSettingsActivity"\n'
+        '            android:exported="false"\n'
+        '            android:theme="@style/BlueVpnHomeTheme" />\n\n'
+        '        <activity\n'
+        '            android:name=".ui.BlueVpnSupportActivity"\n'
         '            android:exported="false"\n'
         '            android:theme="@style/BlueVpnHomeTheme" />'
     )
@@ -597,6 +602,7 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnAi.kt": ROOT / "android-source/BlueVpnAi.kt",
         bluevpn_dir / "BlueVpnIntelligenceCore.kt": ROOT / "android-source/BlueVpnIntelligenceCore.kt",
         bluevpn_dir / "BlueVpnNativeNetworkAdaptation.kt": ROOT / "android-source/BlueVpnNativeNetworkAdaptation.kt",
+        bluevpn_dir / "BlueVpnSupportNotifications.kt": ROOT / "android-source/BlueVpnSupportNotifications.kt",
         bluevpn_dir / "BlueVpnRuntimeAudit.kt": ROOT / "android-source/BlueVpnRuntimeAudit.kt",
         bluevpn_dir / "BlueVpnLiveReporter.kt": ROOT / "android-source/BlueVpnLiveReporter.kt",
         bluevpn_dir / "BlueVpnBootstrap.kt": ROOT / "android-source/BlueVpnBootstrap.kt",
@@ -619,6 +625,7 @@ def inject_bluevpn_home() -> None:
         java_dir / "BlueVpnSubscriptionsActivity.kt": ROOT / "android-source/BlueVpnSubscriptionsActivity.kt",
         bluevpn_dir / "BlueVpnSmsOtpAutoFill.kt": ROOT / "android-source/BlueVpnSmsOtpAutoFill.kt",
         java_dir / "BlueVpnSettingsActivity.kt": ROOT / "android-source/BlueVpnSettingsActivity.kt",
+        java_dir / "BlueVpnSupportActivity.kt": ROOT / "android-source/BlueVpnSupportActivity.kt",
     }
     for target, source in plain_overrides.items():
         if not source.exists():

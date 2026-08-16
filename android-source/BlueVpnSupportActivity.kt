@@ -686,7 +686,7 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
             withContext(Dispatchers.Main) {
                 setComposerEnabled(true)
                 result.onSuccess { json ->
-                    messageInput.text = ""
+                    messageInput.setText("")
                     val id = json.optJSONObject("conversation")?.optInt("id") ?: 0
                     if (id > 0) {
                         activeConversationId = id
@@ -1026,7 +1026,7 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
             .put("seen", false)
             .put("attachments", JSONArray())
 
-        messageInput.text = ""
+        messageInput.setText("")
         addMessageBubble(optimistic)
         scrollToBottom()
         setComposerEnabled(false)
@@ -1043,7 +1043,7 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
                 result.onSuccess {
                     loadMessages(incremental = false)
                 }.onFailure {
-                    messageInput.text = value
+                    messageInput.setText(value)
                     loadMessages(incremental = false)
                     Toast.makeText(
                         this@BlueVpnSupportActivity,

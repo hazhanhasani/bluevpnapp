@@ -1,4 +1,4 @@
-# BlueVPN 4.10.9 — Deploy ZIP Project Root Detection
+# BlueVPN 4.10.10 — Deploy ZIP Project Root Detection
 
 Fixes DEPLOY_VERSION_METADATA_MISSING for valid full-project ZIPs that contain
 the BlueVPN project inside a top-level directory such as `bluevpn476/`.

@@ -31,6 +31,7 @@
     "test_support_admin_sidebar_4105.py",
     "test_support_admin_ui_4107.py",
     "test_support_chat_ui_4106.py",
+    "test_support_edittext_compile_41010.py",
     "test_warp_adaptive_469.py",
     "test_warp_background_reconnect_473.py",
     "test_warp_backoff_recovery_481.py",

@@ -1,4 +1,4 @@
-# BlueVPN 4.10.9 — Live Support Chat UI
+# BlueVPN 4.10.10 — Live Support Chat UI
 
 Android support UI was rebuilt without changing the live-support backend contract.
 

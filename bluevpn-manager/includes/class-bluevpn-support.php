@@ -623,6 +623,10 @@ final class BlueVPN_Support {
     public static function admin_page(): void {
         if(!current_user_can('manage_options'))return;
         self::touch_current_operator();
+        BlueVPN_Unified_UI::shell_open(
+            'پشتیبانی آنلاین',
+            'گفتگوهای کاربران • اپراتورها • SLA • BlueAI'
+        );
         global $wpdb;
         $cid=max(0,(int)($_GET['conversation']??0));
         $convs=$wpdb->get_results(
@@ -701,6 +705,7 @@ final class BlueVPN_Support {
             echo '<h3>اپراتورها</h3><ul>'; foreach((array)$ops as $o){echo '<li>'.esc_html((string)$o['display_name']).' • '.(!empty($o['online'])?'🟢 آنلاین':'⚪ آفلاین').' <form style="display:inline" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="bluevpn_support_operator_presence"><input type="hidden" name="operator_id" value="'.(int)$o['id'].'"><input type="hidden" name="online" value="'.(!empty($o['online'])?'0':'1').'">';wp_nonce_field('bluevpn_support_operator_presence_'.(int)$o['id']);echo '<button class="button button-small">'.(!empty($o['online'])?'آفلاین':'آنلاین').'</button></form></li>';} echo '</ul></div>';
         }
         echo '</div></div></div>';
+        BlueVPN_Unified_UI::shell_close();
     }
 
     public static function admin_reply(): void {

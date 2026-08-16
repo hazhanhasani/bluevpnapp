@@ -1,12 +1,12 @@
 {
-  "version": "4.9.0",
-  "version_code": 40900,
+  "version": "4.9.2",
+  "version_code": 40902,
   "channel": "beta",
-  "build_id": "20260816-v4.9.0-fast-ci",
+  "build_id": "20260816-v4.9.2-fast-ci",
   "built_at": "2026-08-15T22:45:00Z",
-  "android_version": "4.9.0",
-  "android_version_code": 40900,
-  "description": "BlueVPN 4.9.0 introduces Fast CI for manual APK builds: cached Aether/libhevtun/libv2ray artifacts, a single Gradle compile+assemble invocation with build cache, and immediate signed APK artifact upload before production WordPress/release barriers. Repository-dispatch production builds remain full by default.",
+  "android_version": "4.9.2",
+  "android_version_code": 40902,
+  "description": "BlueVPN 4.9.2 introduces Fast CI for manual APK builds: cached Aether/libhevtun/libv2ray artifacts, a single Gradle compile+assemble invocation with build cache, and immediate signed APK artifact upload before production WordPress/release barriers. Repository-dispatch production builds remain full by default.",
   "features": [
     "wordpress-minimal-health-convergence-barrier",
     "warp-engine-home-explicit-import-build-fix",
@@ -279,5 +279,5 @@
     "gradle-build-cache-and-parallel",
     "signed-apk-upload-before-production-barriers"
   ],
-  "version_source": "v4.9.0-fast-ci"
+  "version_source": "v4.9.2-fast-ci"
 }

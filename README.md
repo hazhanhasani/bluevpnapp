@@ -1,12 +1,12 @@
-# BlueVPN 4.9.0
+# BlueVPN 4.9.2
 
-Version 4.9.0 introduces a two-mode GitHub Actions pipeline. Manual `workflow_dispatch` builds default to **fast** mode, while production `repository_dispatch` builds remain **full** by default. Fast mode still performs the real Android compile, assemble, signing and regression gates, but uploads the signed APK immediately after signing and skips the production WordPress convergence / GitHub Release publication barriers.
+Version 4.9.2 introduces a two-mode GitHub Actions pipeline. Manual `workflow_dispatch` builds default to **fast** mode, while production `repository_dispatch` builds remain **full** by default. Fast mode still performs the real Android compile, assemble, signing and regression gates, but uploads the signed APK immediately after signing and skips the production WordPress convergence / GitHub Release publication barriers.
 
 The Android pipeline now caches the pinned Aether native binaries, `libhevtun`, and the resolved `libv2ray.aar`. Gradle compile + assemble are executed in one Gradle invocation with build cache and parallel execution enabled, avoiding a second project configuration pass. Cache keys remain tied to pinned runtime inputs, not the BlueVPN release version, so a normal app version bump does not force a needless Aether rebuild.
 
 Version 4.7.9 added permissionless Android SMS OTP autofill with one-time SMS User Consent and no `READ_SMS` / `RECEIVE_SMS` permission. Version 4.7.6 hardened the free WARP path around a single pinned Aether process, persistent identity, native scan/quick reconnect and adaptive transport history.
 
-Local verification for 4.9.0: **203 Python regression tests passed**, all BlueVPN Manager PHP files passed syntax lint, the release validator passed, all three GitHub workflow YAML files parsed successfully, and Python CI scripts compiled. A complete Android Gradle build cannot be materialized in this artifact sandbox because the pinned upstream v2rayNG checkout requires outbound GitHub access; GitHub Actions remains the authoritative Android build environment.
+Local verification for 4.9.2: **203 Python regression tests passed**, all BlueVPN Manager PHP files passed syntax lint, the release validator passed, all three GitHub workflow YAML files parsed successfully, and Python CI scripts compiled. A complete Android Gradle build cannot be materialized in this artifact sandbox because the pinned upstream v2rayNG checkout requires outbound GitHub access; GitHub Actions remains the authoritative Android build environment.
 
 ### CI modes
 
@@ -410,9 +410,13 @@ BlueVPN 4.6.5 introduces an isolated Free-tier WARP path: pinned Aether is built
 
 
 
-## 4.9.0 WARP failure diagnostics
+## 4.9.2 WARP failure diagnostics
 WARP failures now retain a privacy-safe structured code, stage, strategy and startup duration. The Home screen surfaces the actual failure class instead of collapsing every failure into a generic unavailable message. Sensitive token/OTP/secret-like values and URLs are redacted from persisted diagnostics.
 
 
-## 4.9.0 — BlueAI Control Plane v3
+## 4.9.2 — BlueAI Control Plane v3
 BlueAI now includes privacy-safe network fingerprints, unified failure classification, network-aware route scoring and quarantine, predictive failover, shadow decisions, anomaly detection, Provider/payment reconciliation, AI-assisted panel balancing, SMS/runtime incident detection, and an Operations Center. AI recommendations remain bounded by deterministic VPN/payment/provider state machines.
+
+
+## 4.9.2 — Production Runtime Validation
+Signed APKs now pass a post-signing runtime-contract gate in GitHub Actions. The gate verifies APK integrity, permanent signature, BlueVPN foreground service/tile/action receiver declarations, notification permissions, and both packaged Aether ABIs. Android also keeps a bounded privacy-safe lifecycle audit for production diagnostics.

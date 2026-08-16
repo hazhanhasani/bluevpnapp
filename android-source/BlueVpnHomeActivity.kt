@@ -61,6 +61,7 @@ import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnConnectionMode
 import com.v2ray.ang.bluevpn.BlueVpnExperience
+import com.v2ray.ang.bluevpn.BlueVpnIntelligenceCore
 import com.v2ray.ang.bluevpn.BlueVpnFreeStoryAdGate
 import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
 import com.v2ray.ang.bluevpn.BlueVpnLiveReporter
@@ -4425,6 +4426,12 @@ private fun dpHome(value: Int): Int =
             attemptedGuid,
             (delay ?: lastVerifiedLatency).coerceAtLeast(1L),
         )
+        BlueVpnIntelligenceCore.resolveDecision(
+            context = this,
+            guid = attemptedGuid,
+            success = true,
+            latencyMs = (delay ?: lastVerifiedLatency).coerceAtLeast(1L),
+        )
 
         failoverActive = false
         failoverReserveQueue = emptyList()
@@ -4639,6 +4646,12 @@ private fun dpHome(value: Int): Int =
             BlueVpnPreferences.markSessionInactive(this, failedGuid)
             BlueVpnPreferences.markServerFailure(this, failedGuid)
             BlueVpnRouteIntelligence.recordFailure(this, failedGuid, reason)
+            BlueVpnIntelligenceCore.resolveDecision(
+                context = this,
+                guid = failedGuid,
+                success = false,
+                failureReason = reason,
+            )
             MmkvManager.encodeServerTestDelayMillis(failedGuid, -1L)
         }
 

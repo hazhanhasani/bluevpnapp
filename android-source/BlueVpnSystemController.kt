@@ -28,6 +28,7 @@ object BlueVpnSystemController {
 
     fun stop(context: Context) {
         val app = context.applicationContext
+        BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.VPN_STOP_REQUEST)
         CoreServiceManager.stopVService(app)
         BlueVpnWarpKeepAliveService.stop(app)
         scope.launch {
@@ -40,6 +41,7 @@ object BlueVpnSystemController {
 
     fun predictiveFailover(context: Context) {
         val app = context.applicationContext
+        BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.PREDICTIVE_FAILOVER)
         if (!BlueVpnIntelligenceCore.claimPredictiveFailover(app)) return
         scope.launch {
             if (BlueVpnAccountManager.isFreeMode(app) && BlueVpnAccountManager.warpFreeEnabled(app)) {
@@ -61,6 +63,7 @@ object BlueVpnSystemController {
 
     fun restart(context: Context) {
         val app = context.applicationContext
+        BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.VPN_RESTART_REQUEST)
         scope.launch {
             CoreServiceManager.stopVService(app)
             BlueVpnWarpKeepAliveService.stop(app)
@@ -73,6 +76,7 @@ object BlueVpnSystemController {
 
     fun start(context: Context) {
         val app = context.applicationContext
+        BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.SYSTEM_START_REQUEST)
         // Android requires an Activity to grant VPN consent the first time.
         if (VpnService.prepare(app) != null) {
             openHomeForConsent(app)
@@ -96,6 +100,7 @@ object BlueVpnSystemController {
             if (!CoreServiceManager.isRunning()) error("Xray bridge did not start")
             BlueVpnWarpKeepAliveService.start(app)
             BlueVpnWarpEngine.markConnected()
+            BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.VPN_CONNECTED, "free-warp")
             BlueVpnPreferences.markConnected(app, resetTimer = true)
             BlueVpnAccountManager.startFreeSession(app)
         }.onFailure {

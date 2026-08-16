@@ -309,6 +309,29 @@ final class BlueVPN_AI_Ops {
         return $walk($data);
     }
 
+    public static function observe_connection_outcome(array $event): void {
+        if (empty($event['success'])) return;
+        global $wpdb;
+        $t = BlueVPN_DB::table('ai_incidents');
+        $scopeKey = implode('|', [
+            (string)($event['config_key'] ?? ''),
+            (string)($event['plan_tier'] ?? 'unknown'),
+            (string)($event['operator'] ?? 'unknown'),
+            (string)($event['network_type'] ?? 'unknown'),
+        ]);
+        if ($scopeKey === '|||') return;
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$t}
+             SET status='resolved', resolved_at=%s
+             WHERE status='open'
+               AND incident_type='route_degradation'
+               AND scope_type='route'
+               AND scope_key=%s",
+            BlueVPN_Utils::now_mysql(),
+            $scopeKey
+        ));
+    }
+
     private static function resolve_scope(string $scopeType, string $scopeKey): void {
         global $wpdb;
         $t = BlueVPN_DB::table('ai_incidents');

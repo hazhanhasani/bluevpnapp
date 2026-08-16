@@ -715,6 +715,54 @@ jobs:
           echo "Generated signed APKs:"
           ls -lah dist
 
+      - name: Validate signed APK runtime contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BUILD_STAGE=apk-runtime-validation" >> "$GITHUB_ENV"
+          echo "apk-runtime-validation" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+
+          mapfile -t SIGNED_APKS < <(find dist -maxdepth 1 -type f -name '*.apk' | sort)
+          if [ "${#SIGNED_APKS[@]}" -eq 0 ]; then
+            echo "::error::No signed APK found for runtime validation."
+            exit 1
+          fi
+
+          python scripts/validate_android_apk.py "${SIGNED_APKS[@]}"
+
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/37.0.0"
+          mkdir -p reports/apk-manifest
+
+          for apk in "${SIGNED_APKS[@]}"; do
+            base="$(basename "$apk" .apk)"
+            manifest_dump="reports/apk-manifest/${base}.txt"
+
+            "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$apk" > "reports/apk-manifest/${base}-signature.txt"
+            "$BUILD_TOOLS/aapt2" dump xmltree "$apk" --file AndroidManifest.xml > "$manifest_dump"
+
+            grep -q "com.v2ray.ang.bluevpn.BlueVpnWarpKeepAliveService" "$manifest_dump"
+            grep -q "com.v2ray.ang.bluevpn.BlueVpnQuickTileService" "$manifest_dump"
+            grep -q "com.v2ray.ang.bluevpn.BlueVpnSystemActionReceiver" "$manifest_dump"
+            grep -q "android.permission.POST_NOTIFICATIONS" "$manifest_dump"
+            grep -q "android.permission.FOREGROUND_SERVICE" "$manifest_dump"
+
+            unzip -l "$apk" | grep -q "lib/arm64-v8a/libbluevpn_aether.so"
+            unzip -l "$apk" | grep -q "lib/armeabi-v7a/libbluevpn_aether.so"
+          done
+
+          echo "Signed APK production runtime contract: PASS" | tee reports/APK-RUNTIME-CONTRACT.txt
+
+      - name: Upload APK runtime validation report
+        uses: actions/upload-artifact@v6
+        with:
+          name: BlueVPN-${{ steps.config.outputs.version }}-runtime-validation
+          path: |
+            reports/android-apk-validation.json
+            reports/apk-manifest/
+            reports/APK-RUNTIME-CONTRACT.txt
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload fast signed APK artifact
         if: ${{ env.BLUEVPN_BUILD_MODE == 'fast' }}
         uses: actions/upload-artifact@v6

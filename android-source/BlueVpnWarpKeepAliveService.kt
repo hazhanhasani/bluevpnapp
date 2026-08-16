@@ -69,6 +69,7 @@ class BlueVpnWarpKeepAliveService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            BlueVpnRuntimeAudit.record(this, BlueVpnRuntimeAudit.Event.WARP_FOREGROUND_STOP)
             handler.removeCallbacks(updater)
             startedElapsed = 0L
             stopForeground(true)
@@ -77,6 +78,7 @@ class BlueVpnWarpKeepAliveService : Service() {
         }
 
         if (startedElapsed <= 0L) {
+            BlueVpnRuntimeAudit.record(this, BlueVpnRuntimeAudit.Event.WARP_FOREGROUND_START)
             startedElapsed = SystemClock.elapsedRealtime()
             lastSampleElapsed = startedElapsed
             lastRx = safeUidRx()
@@ -190,6 +192,7 @@ class BlueVpnWarpKeepAliveService : Service() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        BlueVpnRuntimeAudit.record(this, BlueVpnRuntimeAudit.Event.TASK_REMOVED)
         // Removing the UI from Recents must not disconnect the VPN.
         super.onTaskRemoved(rootIntent)
     }

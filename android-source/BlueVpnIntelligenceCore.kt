@@ -355,6 +355,78 @@ object BlueVpnIntelligenceCore {
         return true
     }
 
+    fun beginDecision(
+        context: Context,
+        guid: String,
+        score: Int,
+        confidence: Int,
+        reason: String,
+    ) {
+        if (guid.isBlank()) return
+        prefs(context).edit().putString(
+            "pending_decision",
+            JSONObject()
+                .put("guid", hashGuid(guid))
+                .put("raw_guid_hash", sha("pending:$guid").take(24))
+                .put("score", score.coerceIn(0, 100))
+                .put("confidence", confidence.coerceIn(0, 100))
+                .put("reason", sanitize(reason))
+                .put("network", networkFingerprint(context).id)
+                .put("at", System.currentTimeMillis())
+                .toString(),
+        ).apply()
+    }
+
+    fun resolveDecision(
+        context: Context,
+        guid: String,
+        success: Boolean,
+        latencyMs: Long = 0L,
+        failureReason: String = "",
+    ) {
+        val raw = prefs(context).getString("pending_decision", "").orEmpty()
+        if (raw.isBlank()) return
+        val pending = runCatching { JSONObject(raw) }.getOrNull() ?: return
+        val expected = sha("pending:$guid").take(24)
+        if (pending.optString("raw_guid_hash") != expected) return
+        val age = System.currentTimeMillis() - pending.optLong("at", 0L)
+        if (age !in 0..10 * 60_000L) {
+            prefs(context).edit().remove("pending_decision").apply()
+            return
+        }
+        val predicted = pending.optInt("score", 50)
+        val confidence = pending.optInt("confidence", 50)
+        val reward = if (success) {
+            (100 - (latencyMs / 10L).toInt().coerceAtMost(45)).coerceIn(40, 100)
+        } else {
+            0
+        }
+        val calibrationError = abs(predicted - reward)
+        val key = "calibration:${networkFingerprint(context).id}"
+        val old = prefs(context).getInt(key, 25)
+        val updated = ((old * 70) + (calibrationError * 30)) / 100
+        prefs(context).edit()
+            .putInt(key, updated.coerceIn(0, 100))
+            .remove("pending_decision")
+            .apply()
+        appendEvent(
+            context = context,
+            type = "decision_outcome",
+            guid = guid,
+            success = success,
+            latencyMs = latencyMs,
+            jitterMs = 0L,
+            packetLossX100 = 0,
+            failure = if (success) null else classifyFailure(failureReason),
+            exitCountry = "",
+        )
+    }
+
+    fun calibratedConfidence(context: Context, base: Int): Int {
+        val error = prefs(context).getInt("calibration:${networkFingerprint(context).id}", 25)
+        return (base - error / 3).coerceIn(20, 98)
+    }
+
     fun diagnostics(context: Context): JSONObject = JSONObject()
         .put("network", JSONObject().apply {
             val n = networkFingerprint(context)
@@ -369,6 +441,7 @@ object BlueVpnIntelligenceCore {
         })
         .put("shadow", shadowSummary(context))
         .put("events", readArray(prefs(context).getString(EVENT_KEY, "[]")))
+        .put("runtime_audit", BlueVpnRuntimeAudit.snapshot(context))
 
     private fun readArray(raw: String?): JSONArray =
         runCatching { JSONArray(raw ?: "[]") }.getOrElse { JSONArray() }

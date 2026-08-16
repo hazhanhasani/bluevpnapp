@@ -88,7 +88,10 @@ object BlueVpnSmartSelector {
             freshness > 0 || personal != 50 || cloud != 50 -> 64
             else -> 45
         }
-        val confidence = maxOf(baseConfidence, intelligence.confidence).coerceIn(0, 98)
+        val confidence = BlueVpnIntelligenceCore.calibratedConfidence(
+            context,
+            maxOf(baseConfidence, intelligence.confidence).coerceIn(0, 98),
+        )
         return ScoredCandidate(candidate, score, confidence, evidence)
     }
 
@@ -237,6 +240,13 @@ object BlueVpnSmartSelector {
             evaluated = evaluated,
         )
         val identity = BlueVpnEntitlement.resolveUi(context).identity
+        BlueVpnIntelligenceCore.beginDecision(
+            context,
+            decision.candidate.guid,
+            decision.score,
+            decision.confidence,
+            decision.reason,
+        )
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_LAST_AUTO_GUID, decision.candidate.guid)
             .putString(KEY_LAST_AUTO_IDENTITY, identity)

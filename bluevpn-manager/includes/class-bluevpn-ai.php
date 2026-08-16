@@ -301,6 +301,9 @@ final class BlueVPN_AI {
         $merged=array_merge($agg,$update);$details=self::score_details($merged,self::recent_stats($config,$operator,$network,$mode,$planTier));
         $update['score']=$details['score'];$update['recent_score']=$details['score'];$update['confidence_score']=$details['confidence'];$update['recent_success_rate']=$details['recent_success_rate'];$update['adaptive_sample_weight']=$details['recent_effective_samples'];
         $wpdb->update($at,$update,['id'=>(int)$agg['id']]);
+        if ($success && class_exists('BlueVPN_AI_Ops')) {
+            BlueVPN_AI_Ops::observe_connection_outcome($event);
+        }
         return ['accepted'=>true,'route_score'=>$details['score'],'samples'=>$sample,'confidence'=>$details['confidence'],'recent_effective_samples'=>$details['recent_effective_samples'],'recent_success_rate'=>round($details['recent_success_rate']*100,1),'average_jitter_ms'=>$details['average_jitter_ms'],'jitter_penalty'=>$details['jitter_penalty'],'blocked_for_operator'=>$details['blocked_for_operator'],'blocked_operator'=>$details['blocked_operator'],'block_reason'=>$details['block_reason'],'plan_tier'=>$planTier,'engine_version'=>self::ENGINE_VERSION,'schema_version'=>self::SCHEMA_VERSION];
     }
 

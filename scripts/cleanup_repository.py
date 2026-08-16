@@ -22,6 +22,8 @@ RETIRED_FILES = [
     "android-source/BlueVpnSingBoxProcess.kt",
     "android-source/BlueVpnSingBoxProfileCompiler.kt",
     "android-source/BlueVpnAiActivity.kt",
+    "android-source/BlueVpnCoreFlavor.kt",
+    "third_party/MAHSA_CORE_CANARY.md",
 ]
 RETIRED_DIRS = [
     "android-source/generated",

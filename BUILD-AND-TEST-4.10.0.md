@@ -1,10 +1,10 @@
-# BlueVPN 4.10.0 — Staged Regression Diagnostics
+# BlueVPN 4.10.1 — Staged Regression Diagnostics
 
 Build #278 stopped in release-regression-gate while the compact Telegram excerpt
 contained only passing test names. The single shell block did not identify which
 command returned exit code 1.
 
-4.10.0 converts the gate into explicit named substages:
+4.10.1 converts the gate into explicit named substages:
 - repository-cleanup
 - pycompile
 - release-validator

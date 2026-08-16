@@ -63,6 +63,11 @@ class RepositoryCleanup470Tests(unittest.TestCase):
 
             stale_php = root / "bluevpn-manager" / "includes" / "class-bluevpn-old-overlay.php"
             stale_php.write_text("<?php syntax from retired overlay;\n", encoding="utf-8")
+            stale_core = root / "android-source" / "BlueVpnCoreFlavor.kt"
+            stale_core.write_text("// retired alternate-core overlay\n", encoding="utf-8")
+            stale_provenance = root / "third_party" / "MAHSA_CORE_CANARY.md"
+            stale_provenance.parent.mkdir(parents=True, exist_ok=True)
+            stale_provenance.write_text("retired canary provenance\n", encoding="utf-8")
 
             cp = subprocess.run(
                 [sys.executable, str(root / "scripts" / "cleanup_repository.py")],
@@ -80,6 +85,8 @@ class RepositoryCleanup470Tests(unittest.TestCase):
             self.assertTrue((root / "bluevpn-manager" / "bluevpn-manager.php").exists())
             self.assertTrue((root / "bluevpn-manager" / "includes" / "class-bluevpn-current.php").exists())
             self.assertFalse(stale_php.exists())
+            self.assertFalse(stale_core.exists())
+            self.assertFalse(stale_provenance.exists())
             self.assertFalse((root / "android-source" / "generated").exists())
 
     def test_current_release_manifest_exactly_matches_shipped_python_test_modules(self):

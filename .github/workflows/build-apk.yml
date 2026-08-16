@@ -492,22 +492,37 @@ jobs:
           print(f"libv2ray.aar verified: size={size} sha256={sha256}")
           PY_AAR
 
-      - name: Mark Android source preparation stage
-        shell: bash
-        run: |
-          echo "BUILD_STAGE=prepare-android" >> "$GITHUB_ENV"
-          echo "prepare-android" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install branding tools
+      - name: Prepare Android Python environment
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --disable-pip-version-check pillow
+          echo "BUILD_STAGE=prepare-python-environment" >> "$GITHUB_ENV"
+          echo "prepare-python-environment" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
+
+          # ubuntu-latest already provides Python and it has been used by the
+          # earlier version-resolution/AAR-verification steps. Avoid a second
+          # setup-python action here: if that external action fails to resolve,
+          # the job used to stop immediately after the AAR verification with no
+          # useful error in android-build.log.
+          command -v python
+          python --version
+          python -m pip --version
+
+          echo "Installing BlueVPN Android branding tools."
+          python -m pip install \
+            --disable-pip-version-check \
+            --retries 5 \
+            --timeout 60 \
+            pillow
+          python - <<'PY_BRANDING'
+          from PIL import Image
+          print(f"Pillow ready: {Image.__version__ if hasattr(Image, '__version__') else 'ok'}")
+          PY_BRANDING
+
+          echo "BUILD_STAGE=prepare-android" >> "$GITHUB_ENV"
+          echo "prepare-android" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          echo "Android Python environment prepared successfully."
 
       - name: Remove retired BlueVPN runtime files
         shell: bash
@@ -774,7 +789,7 @@ jobs:
             --no-daemon \
             --build-cache \
             --parallel \
-            2>&1 | tee "$GITHUB_WORKSPACE/android-build.log"
+            2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
 
       - name: Show Android compiler errors
         if: ${{ failure() && env.BUILD_STAGE == 'gradle-compile' }}
@@ -1417,7 +1432,7 @@ jobs:
               else os.getenv("BUILD_STAGE", "pre-gradle")
           ) or "pre-gradle"
           candidates = []
-          if stage == "prepare-android":
+          if stage in {"prepare-python-environment", "prepare-android"}:
               candidates.append(Path("prepare-android.log"))
           elif stage == "release-regression-gate":
               candidates.append(Path("stability-gate.log"))

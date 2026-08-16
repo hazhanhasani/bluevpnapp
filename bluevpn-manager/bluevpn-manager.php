@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BlueVPN Manager
  * Description: هسته حساب کاربری، اشتراک، پرداخت و API سرویس BlueVPN.
- * Version: 4.9.6
+ * Version: 4.9.8
  * Author: BlueVPN
  * Requires at least: 6.2
  * Requires PHP: 8.0
@@ -14,8 +14,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('BLUEVPN_MANAGER_VERSION', '4.9.6');
-define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.13.0');
+define('BLUEVPN_MANAGER_VERSION', '4.9.8');
+define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.14.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
 define('BLUEVPN_MANAGER_URL', plugin_dir_url(__FILE__));

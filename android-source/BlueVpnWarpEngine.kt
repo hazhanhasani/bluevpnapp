@@ -134,17 +134,15 @@ object BlueVpnWarpEngine {
         var last: Failure? = null
         var attemptedStrategies = 0
         val skippedStrategies = mutableListOf<Strategy>()
-        val forcedRecoveryStrategy = strategies
-            .filter { isBackedOff(prefs, shape.signature, it) }
-            .takeIf { it.size == strategies.size }
-            ?.minByOrNull { strategyBackoffUntil(prefs, shape.signature, it) }
+        val allStrategiesBackedOff =
+            strategies.isNotEmpty() &&
+            strategies.all { isBackedOff(prefs, shape.signature, it) }
 
-        // Never allow cooldown state to starve the entire connection attempt.
-        // If every allowed strategy is backed off, force one bounded recovery probe
-        // using the strategy whose cooldown expires first.
-        if (forcedRecoveryStrategy != null) {
-            prefs.edit().remove("backoff:${shape.signature}:${forcedRecoveryStrategy.name}").apply()
-        }
+        // Never allow persisted cooldown state to starve an explicit user
+        // connection attempt. If every allowed strategy is backed off, this
+        // attempt gets one bounded recovery pass across ALL allowed strategies.
+        // Backoff remains persisted for later automatic/background work.
+        val recoveryProbeAll = allStrategiesBackedOff
 
         try {
             for ((index, strategy) in strategies.withIndex()) {
@@ -158,7 +156,7 @@ object BlueVpnWarpEngine {
                 // Keep exactly one Aether process alive per attempt and delegate the actual race
                 // to Aether's native scanner.
                 val quick = policy.warpQuickReconnect && cachedStrategy(prefs, shape.signature) == strategy && isLkgFresh(prefs, shape.signature)
-                if (isBackedOff(prefs, shape.signature, strategy) && !quick && strategy != forcedRecoveryStrategy) {
+                if (isBackedOff(prefs, shape.signature, strategy) && !quick && !recoveryProbeAll) {
                     skippedStrategies += strategy
                     continue
                 }
@@ -171,45 +169,131 @@ object BlueVpnWarpEngine {
                     index == 0 -> State.SCANNING
                     else -> State.SWITCHING_STRATEGY
                 }
-                val budget = if (quick) policy.warpWarmTimeoutSeconds.coerceIn(4, 12) else policy.warpColdTimeoutSeconds.coerceIn(15, 40)
-                try {
-                    val port = startWithPortRetries(app, strategy, quick, policy, null, shape)
-                    val ok = withTimeoutOrNull(min(budget, policy.warpStartTimeoutSeconds.coerceIn(3, 40)) * 1000L) {
-                        awaitValidatedDataPlane(myGeneration, process ?: throw Failure(ErrorCode.AETHER_START_FAILED, state, strategy, "Aether process missing"), port, strategy, policy)
-                    } ?: false
-                    if (!ok) throw Failure(ErrorCode.WARP_START_TIMEOUT, state, strategy, "Strategy exceeded startup budget")
-                    val startupLatency = SystemClock.elapsedRealtime() - started
-                    recordStrategySuccess(prefs, shape.signature, strategy, startupLatency)
-                    BlueVpnIntelligenceCore.recordRouteOutcome(
-                        context = app,
-                        guid = "warp:${strategy.name}",
-                        success = true,
-                        latencyMs = startupLatency,
-                    )
-                    clearIranPoisonState(prefs, shape.signature)
-                    activeStrategy = strategy; activePort = port; state = State.SOCKS_READY
-                    return@withContext Prepared(ensureBridgeProfile(port), strategy, port, SystemClock.elapsedRealtime() - started)
-                } catch (f: Failure) {
-                    last = f
-                    lastFailure = f
-                    recordFailure(prefs, shape.signature, strategy, f.code)
-                    BlueVpnIntelligenceCore.recordRouteOutcome(
-                        context = app,
-                        guid = "warp:${strategy.name}",
-                        success = false,
-                        reason = "${f.code.name}:${f.detail}",
-                        exitCountry = if (f.code == ErrorCode.EXIT_IRAN) "IR" else "",
-                    )
-                    persistDiagnostic(app, f, SystemClock.elapsedRealtime() - lastAttemptStartedAt)
-                    stopProcessOnly(wait = true)
+                val scanPlan = freshScanPlan(policy.warpScanMode)
+                val passes = buildList<Pair<Boolean, String?>> {
+                    if (quick) add(true to null)
+                    scanPlan.forEach { add(false to it) }
+                }
+                for ((passIndex, pass) in passes.withIndex()) {
+                    val quickPass = pass.first
+                    val scanMode = pass.second
+                    ensureGeneration(myGeneration, strategy)
+                    if (SystemClock.elapsedRealtime() >= totalDeadline) break
+                    try {
+                        if (!quickPass && quick) {
+                            state = State.SCANNING
+                            stopProcessOnly(wait = true)
+                        }
+                        val remainingMs =
+                            (totalDeadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+                        val remainingStrategies =
+                            (strategies.size - index).coerceAtLeast(1)
+                        val fairShareSeconds =
+                            (remainingMs / remainingStrategies / 1000L)
+                                .toInt()
+                                .coerceIn(6, 20)
+                        val configuredBudget = if (quickPass) {
+                            policy.warpWarmTimeoutSeconds.coerceIn(4, 12)
+                        } else {
+                            policy.warpColdTimeoutSeconds.coerceIn(8, 40)
+                        }
+                        val passBudget =
+                            min(configuredBudget, fairShareSeconds).coerceAtLeast(4)
+                        val port = startWithPortRetries(
+                            app,
+                            strategy,
+                            quickPass,
+                            policy,
+                            null,
+                            shape,
+                            scanMode,
+                        )
+                        val ok = withTimeoutOrNull(
+                            min(passBudget, policy.warpStartTimeoutSeconds.coerceIn(3, 40)) * 1000L
+                        ) {
+                            awaitValidatedDataPlane(
+                                myGeneration,
+                                process ?: throw Failure(ErrorCode.AETHER_START_FAILED, state, strategy, "Aether process missing"),
+                                port,
+                                strategy,
+                                policy,
+                            )
+                        } ?: false
+                        if (!ok) {
+                            throw Failure(
+                                ErrorCode.WARP_START_TIMEOUT,
+                                state,
+                                strategy,
+                                if (quickPass) {
+                                    "Cached route exceeded startup budget"
+                                } else {
+                                    "Fresh scan ${scanMode ?: "auto"} exceeded startup budget"
+                                },
+                            )
+                        }
+                        val startupLatency = SystemClock.elapsedRealtime() - started
+                        recordStrategySuccess(prefs, shape.signature, strategy, startupLatency)
+                        BlueVpnIntelligenceCore.recordRouteOutcome(
+                            context = app,
+                            guid = "warp:${strategy.name}",
+                            success = true,
+                            latencyMs = startupLatency,
+                        )
+                        clearIranPoisonState(prefs, shape.signature)
+                        activeStrategy = strategy
+                        activePort = port
+                        state = State.SOCKS_READY
+                        return@withContext Prepared(
+                            ensureBridgeProfile(port),
+                            strategy,
+                            port,
+                            SystemClock.elapsedRealtime() - started,
+                        )
+                    } catch (f: Failure) {
+                        last = f
+                        lastFailure = f
+                        // One bad cached endpoint or one bad native-scan winner
+                        // must not terminate a protocol. Retry with a fresh scan,
+                        // then an alternate scan profile, before condemning the
+                        // strategy. The global deadline still bounds the attempt.
+                        val hasAnotherPass = passIndex < passes.lastIndex
+                        val retryFresh =
+                            hasAnotherPass &&
+                            (quickPass || retryableFreshScanFailure(f.code))
+                        if (retryFresh) {
+                            val next = passes.getOrNull(passIndex + 1)
+                            persistDiagnostic(
+                                app,
+                                Failure(
+                                    f.code,
+                                    f.stage,
+                                    strategy,
+                                    "Route candidate failed; retrying strategy=${strategy.name} next_scan=${next?.second ?: "fresh"}: ${f.detail}",
+                                ),
+                                SystemClock.elapsedRealtime() - lastAttemptStartedAt,
+                            )
+                            stopProcessOnly(wait = true)
+                            continue
+                        }
+                        recordFailure(prefs, shape.signature, strategy, f.code)
+                        BlueVpnIntelligenceCore.recordRouteOutcome(
+                            context = app,
+                            guid = "warp:${strategy.name}",
+                            success = false,
+                            reason = "${f.code.name}:${f.detail}",
+                            exitCountry = if (f.code == ErrorCode.EXIT_IRAN) "IR" else "",
+                        )
+                        persistDiagnostic(app, f, SystemClock.elapsedRealtime() - lastAttemptStartedAt)
+                        stopProcessOnly(wait = true)
+                    }
                 }
             }
             state = State.FAILED
             val terminal = last ?: Failure(
                 ErrorCode.WARP_RECONNECT_EXHAUSTED,
                 state,
-                forcedRecoveryStrategy,
-                "No WARP strategy completed; attempted=$attemptedStrategies skipped=${skippedStrategies.joinToString(",") { it.name }} recovery=${forcedRecoveryStrategy?.name ?: "none"}",
+                null,
+                "No WARP strategy completed; attempted=$attemptedStrategies skipped=${skippedStrategies.joinToString(",") { it.name }} recovery_all=$recoveryProbeAll",
             )
             lastFailure = terminal
             persistDiagnostic(app, terminal, SystemClock.elapsedRealtime() - lastAttemptStartedAt)
@@ -244,9 +328,18 @@ object BlueVpnWarpEngine {
             if (p.warpWireGuardEnabled && p.warpAllowedTransports.contains("wireguard")) add(Strategy.WIREGUARD)
             if (p.warpGoolEnabled && p.warpAllowedTransports.contains("gool")) add(Strategy.GOOL)
         }
-        if (!p.warpAdaptiveEnabled) return listOfNotNull(cached ?: allowed.firstOrNull())
-        val ranked = allowed.sortedByDescending { strategyScore(prefs, sig, it) }
-        return buildList { if (p.warpQuickReconnect && cached != null) add(cached); addAll(ranked) }.distinct()
+        // Adaptive=false disables historical re-ordering, not safety fallback.
+        // A broken first transport must never terminate the whole WARP attempt
+        // while other explicitly-enabled transports are still available.
+        val ranked = if (p.warpAdaptiveEnabled) {
+            allowed.sortedByDescending { strategyScore(prefs, sig, it) }
+        } else {
+            allowed
+        }
+        return buildList {
+            if (p.warpQuickReconnect && cached != null) add(cached)
+            addAll(ranked)
+        }.distinct()
     }
 
     private fun cachedAllowed(strategy: Strategy, p: BlueVpnFreeAccessSnapshot): Boolean = when (strategy) {
@@ -257,14 +350,14 @@ object BlueVpnWarpEngine {
         Strategy.GOOL -> p.warpGoolEnabled && p.warpAllowedTransports.contains("gool")
     }
 
-    private suspend fun startWithPortRetries(context: Context, strategy: Strategy, quick: Boolean, policy: BlueVpnFreeAccessSnapshot, peer: String?, shape: NetworkShape): Int {
+    private suspend fun startWithPortRetries(context: Context, strategy: Strategy, quick: Boolean, policy: BlueVpnFreeAccessSnapshot, peer: String?, shape: NetworkShape, scanModeOverride: String? = null): Int {
         var last: Throwable? = null
         repeat(3) {
             val port = reservePort()
             try {
                 val p = launchMutex.withLock {
                     process?.takeIf { it.isAlive }?.let { stale -> terminateProcess(stale, true) }
-                    buildProcess(context, strategy, port, quick, policy, peer, shape).start().also { started ->
+                    buildProcess(context, strategy, port, quick, policy, peer, shape, scanModeOverride).start().also { started ->
                         process = started
                         activePort = port
                         activeStrategy = strategy
@@ -284,7 +377,7 @@ object BlueVpnWarpEngine {
         throw Failure(ErrorCode.AETHER_START_FAILED, state, strategy, last?.message ?: "Aether process could not start")
     }
 
-    private fun buildProcess(context: Context, strategy: Strategy, port: Int, quick: Boolean, p: BlueVpnFreeAccessSnapshot, peer: String?, shape: NetworkShape): ProcessBuilder {
+    private fun buildProcess(context: Context, strategy: Strategy, port: Int, quick: Boolean, p: BlueVpnFreeAccessSnapshot, peer: String?, shape: NetworkShape, scanModeOverride: String? = null): ProcessBuilder {
         val dataDir = persistentAetherDataDir(context)
         val config = File(dataDir, "aether.toml")
         val command = mutableListOf(nativeExecutable(context).absolutePath, "--bind", "$SOCKS_HOST:$port", "--config", config.absolutePath)
@@ -297,7 +390,9 @@ object BlueVpnWarpEngine {
         }
         if (!peer.isNullOrBlank()) command += listOf("--peer", peer)
         command += if (quick && peer.isNullOrBlank()) "--quick-reconnect" else "--no-quick-reconnect"
-        if (peer.isNullOrBlank()) command += listOf("--scan", normalizedScanMode(p.warpScanMode))
+        if (peer.isNullOrBlank()) {
+            command += listOf("--scan", normalizedScanMode(scanModeOverride ?: p.warpScanMode))
+        }
         command += listOf("--noize", normalizedNoize(strategy, p.warpNoizeProfile))
         when (effectiveIpMode(p.warpIpMode, shape)) { "v4" -> command += "-4"; else -> command += "--dual" }
         if (strategy in setOf(Strategy.MASQUE_H3, Strategy.MASQUE_H2, Strategy.MASQUE_H2_FRAGMENT)) {
@@ -313,6 +408,7 @@ object BlueVpnWarpEngine {
             it.environment()["XDG_DATA_HOME"] = dataDir.absolutePath
             it.environment()["TMPDIR"] = context.cacheDir.absolutePath
             it.environment()["AETHER_QUICK_RECONNECT"] = if (quick) "1" else "0"
+            it.environment()["BLUEVPN_SCAN_MODE"] = normalizedScanMode(scanModeOverride ?: p.warpScanMode)
             it.environment()["RUST_LOG"] = "info"
         }
     }
@@ -331,11 +427,17 @@ object BlueVpnWarpEngine {
         while (generation.get() == gen) {
             if (!p.isAlive) throw Failure(ErrorCode.AETHER_CRASHED, state, strategy, "Aether exited with ${runCatching { p.exitValue() }.getOrDefault(-1)}")
             if (canTcpConnect(port, 120)) {
-                sawPort = true; state = State.AETHER_DATA_PLANE_VALIDATING
-                if (!socksGreetingAndRemoteConnect(port, "www.cloudflare.com", 443, 1200)) throw Failure(ErrorCode.SOCKS_FAILED, state, strategy, "SOCKS5 greeting/remote CONNECT failed")
-                return validateViaSocks(port, policy, strategy)
+                sawPort = true
+                state = State.AETHER_DATA_PLANE_VALIDATING
+                // Binding the TCP socket can happen before the embedded SOCKS
+                // data plane is fully ready. Treat a transient greeting/CONNECT
+                // failure as "not ready yet" and keep polling inside the caller's
+                // bounded startup timeout instead of killing the whole strategy.
+                if (socksGreetingAndRemoteConnect(port, "www.cloudflare.com", 443, 1200)) {
+                    return validateViaSocks(port, policy, strategy)
+                }
             }
-            delay(if (sawPort) 150L else 70L)
+            delay(if (sawPort) 180L else 70L)
         }
         throw Failure(ErrorCode.WARP_CANCELLED, state, strategy, "Connection generation changed")
     }
@@ -548,7 +650,35 @@ object BlueVpnWarpEngine {
     }
     private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).joinToString("") { "%02x".format(it) }
     private fun effectiveIpMode(mode: String, shape: NetworkShape): String = BlueVpnWarpPolicy.effectiveIpMode(mode, shape.ipv4, shape.ipv6)
-    private fun normalizedScanMode(value: String): String = value.takeIf { it in setOf("turbo", "balanced", "thorough", "stealth", "ironclad") } ?: "turbo"
+    private fun normalizedScanMode(value: String): String =
+        value.takeIf { it in setOf("turbo", "balanced", "thorough", "stealth", "ironclad") } ?: "turbo"
+
+    private fun freshScanPlan(configured: String): List<String> {
+        val primary = normalizedScanMode(configured)
+        val fallback = when (primary) {
+            "turbo" -> "ironclad"
+            "balanced" -> "ironclad"
+            "thorough" -> "stealth"
+            "stealth" -> "ironclad"
+            "ironclad" -> "turbo"
+            else -> "ironclad"
+        }
+        return listOf(primary, fallback).distinct()
+    }
+
+    private fun retryableFreshScanFailure(code: ErrorCode): Boolean = code in setOf(
+        ErrorCode.WARP_START_TIMEOUT,
+        ErrorCode.TCP_TIMEOUT,
+        ErrorCode.UDP_BLOCKED,
+        ErrorCode.DNS_FAILED,
+        ErrorCode.SOCKS_FAILED,
+        ErrorCode.AETHER_START_FAILED,
+        ErrorCode.AETHER_CRASHED,
+        ErrorCode.EXIT_IRAN,
+        ErrorCode.WARP_EXIT_COUNTRY_BLOCKED,
+        ErrorCode.EXIT_VALIDATION_FAILED,
+        ErrorCode.NO_INTERNET,
+    )
     private fun normalizedNoize(strategy: Strategy, value: String): String = if (strategy in setOf(Strategy.WIREGUARD, Strategy.GOOL)) value.takeIf { it in setOf("aggressive", "balanced", "light", "off") } ?: "balanced" else value.takeIf { it in setOf("gfw", "firewall", "light", "off") } ?: "firewall"
 
     private fun edgeCandidates(prefs: SharedPreferences, sig: String, strategy: Strategy, breadth: Int): List<EdgeCandidate> {

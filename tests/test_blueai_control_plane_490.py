@@ -80,7 +80,7 @@ class BlueAiControlPlane490(unittest.TestCase):
         ai=self.text("bluevpn-manager/includes/class-bluevpn-ai.php")
         plugin=self.text("bluevpn-manager/bluevpn-manager.php")
         self.assertIn("ENGINE_VERSION = '3.0.0'",ai)
-        self.assertIn("SCHEMA_VERSION = 5",ai)
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.13.0'",plugin)
+        self.assertIn("SCHEMA_VERSION = 6",ai)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.14.0'",plugin)
 
 if __name__=="__main__": unittest.main()

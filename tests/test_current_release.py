@@ -105,8 +105,9 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn('warpFreeEnabled(this)', self.home)
 
     def test_06_no_singbox_ci(self):
-        self.assertNotIn("sing-box", self.workflow.lower())
-        self.assertNotIn("actions/setup-go", self.workflow)
+        self.assertNotIn("repository: SagerNet/sing-box", self.workflow)
+        self.assertNotIn("SING_BOX_JSON", self.workflow)
+        self.assertIn("Build pinned Mahsa-Core canary AAR", self.workflow)
 
     def test_07_no_runtime_or_parser_patch_functions(self):
         self.assertNotIn("patch_v2rayng_runtime_lifecycle", self.prepare)
@@ -720,7 +721,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
     def test_79_android_blueai_sends_tier_and_schema_capability(self):
         ai = text("android-source/BlueVpnAi.kt")
         account = text("android-source/BlueVpnAccountManager.kt")
-        self.assertIn("AI_SCHEMA_VERSION = 5", ai)
+        self.assertIn("AI_SCHEMA_VERSION = 6", ai)
         self.assertIn('.put("plan_tier", planTier(context))', ai)
         self.assertIn('.put("ai_schema_version", AI_SCHEMA_VERSION)', ai)
         self.assertIn('"&plan_tier=" + java.net.URLEncoder.encode(planTier', account)

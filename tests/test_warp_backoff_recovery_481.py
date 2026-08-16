@@ -3,9 +3,9 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 class WarpBackoffRecovery481(unittest.TestCase):
     def test_all_backed_off_forces_recovery_probe(self):
         s=(ROOT/"android-source/BlueVpnWarpEngine.kt").read_text()
-        self.assertIn("forcedRecoveryStrategy", s)
-        self.assertIn("it.size == strategies.size", s)
-        self.assertIn('remove("backoff:${shape.signature}:${forcedRecoveryStrategy.name}")', s)
+        self.assertIn("allStrategiesBackedOff", s)
+        self.assertIn("recoveryProbeAll", s)
+        self.assertIn("!quick && !recoveryProbeAll", s)
         self.assertIn("attemptedStrategies += 1", s)
     def test_terminal_diagnostics_include_skip_counts(self):
         s=(ROOT/"android-source/BlueVpnWarpEngine.kt").read_text()

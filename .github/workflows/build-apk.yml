@@ -14,6 +14,14 @@ on:
         options:
           - fast
           - full
+      core_mode:
+        description: Xray core family (stock is production; mahsa-canary is experimental)
+        required: true
+        default: stock
+        type: choice
+        options:
+          - stock
+          - mahsa-canary
   repository_dispatch:
     types:
       - bluevpn_build
@@ -43,6 +51,8 @@ jobs:
       # Manual builds default to FAST. Production repository_dispatch remains FULL
       # unless the caller explicitly asks for fast mode.
       BLUEVPN_BUILD_MODE: ${{ github.event_name == 'repository_dispatch' && (github.event.client_payload.build_mode || 'full') || (inputs.build_mode || 'fast') }}
+      # repository_dispatch/production defaults to stock. Mahsa requires explicit manual canary selection.
+      BLUEVPN_CORE_MODE: ${{ github.event_name == 'repository_dispatch' && (github.event.client_payload.core_mode || 'stock') || (inputs.core_mode || 'stock') }}
 
     steps:
       - name: Checkout BlueVPN project
@@ -59,6 +69,11 @@ jobs:
           echo "initialize-build" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           echo "BlueVPN pre-Gradle diagnostics initialized." | tee -a "$GITHUB_WORKSPACE/android-build.log"
           echo "Build mode: ${BLUEVPN_BUILD_MODE}" | tee -a "$GITHUB_WORKSPACE/android-build.log"
+          echo "Core mode: ${BLUEVPN_CORE_MODE}" | tee -a "$GITHUB_WORKSPACE/android-build.log"
+          if [ "$BLUEVPN_BUILD_MODE" = "full" ] && [ "$BLUEVPN_CORE_MODE" != "stock" ]; then
+            echo "::error::Experimental Mahsa-Core canary cannot be published as a full production release."
+            exit 1
+          fi
 
       - name: Synchronize checkout with latest branch
         shell: bash
@@ -427,6 +442,71 @@ jobs:
       - name: Verify libv2ray AAR
         shell: bash
         run: test -s upstream/V2rayNG/app/libs/libv2ray.aar
+
+      - name: Setup Go for Mahsa-Core canary
+        if: ${{ env.BLUEVPN_CORE_MODE == 'mahsa-canary' }}
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.3'
+          cache: false
+
+      - name: Restore Mahsa-Core canary AAR cache
+        if: ${{ env.BLUEVPN_CORE_MODE == 'mahsa-canary' }}
+        id: mahsa-core-cache
+        uses: actions/cache@v4
+        with:
+          path: cache/mahsa-core/libv2ray.aar
+          key: bluevpn-mahsa-core-8a5c4d4549338e13fa00ac1fe1e431074823f339-androidapi21-v1
+
+      - name: Build pinned Mahsa-Core canary AAR
+        if: ${{ env.BLUEVPN_CORE_MODE == 'mahsa-canary' && steps.mahsa-core-cache.outputs.cache-hit != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BUILD_STAGE=build-mahsa-core-canary" >> "$GITHUB_ENV"
+          echo "build-mahsa-core-canary" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+
+          rm -rf "$RUNNER_TEMP/mahsa-libv2ray"
+          git clone --filter=blob:none https://github.com/GFW-knocker/AndroidLibXrayLite.git "$RUNNER_TEMP/mahsa-libv2ray"
+          git -C "$RUNNER_TEMP/mahsa-libv2ray" checkout --detach 8a5c4d4549338e13fa00ac1fe1e431074823f339
+
+          ACTUAL="$(git -C "$RUNNER_TEMP/mahsa-libv2ray" rev-parse HEAD)"
+          test "$ACTUAL" = "8a5c4d4549338e13fa00ac1fe1e431074823f339"
+
+          grep -q 'github.com/GFW-knocker/Xray-core v1.26.5-mahsa-r1' "$RUNNER_TEMP/mahsa-libv2ray/go.mod"
+          grep -q 'golang.org/x/mobile v0.0.0-20260217195705-b56b3793a9c4' "$RUNNER_TEMP/mahsa-libv2ray/go.mod"
+
+          go install golang.org/x/mobile/cmd/gomobile@v0.0.0-20260217195705-b56b3793a9c4
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          gomobile init
+
+          pushd "$RUNNER_TEMP/mahsa-libv2ray"
+          go mod download
+          gomobile bind \
+            -v \
+            -androidapi 21 \
+            -ldflags='-s -w' \
+            -o libv2ray.aar \
+            ./
+          popd
+
+          mkdir -p cache/mahsa-core
+          cp "$RUNNER_TEMP/mahsa-libv2ray/libv2ray.aar" cache/mahsa-core/libv2ray.aar
+          test -s cache/mahsa-core/libv2ray.aar
+
+      - name: Install Mahsa-Core canary AAR
+        if: ${{ env.BLUEVPN_CORE_MODE == 'mahsa-canary' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s cache/mahsa-core/libv2ray.aar
+          cp cache/mahsa-core/libv2ray.aar upstream/V2rayNG/app/libs/libv2ray.aar
+          {
+            echo "core_family=mahsa-canary"
+            echo "android_lib_xray_commit=8a5c4d4549338e13fa00ac1fe1e431074823f339"
+            echo "mahsa_xray_core=v1.26.5-mahsa-r1"
+            echo "gomobile_module=v0.0.0-20260217195705-b56b3793a9c4"
+          } | tee reports/MAHSA-CORE-CANARY-PROVENANCE.txt
 
       - name: Mark Android source preparation stage
         shell: bash
@@ -800,7 +880,7 @@ jobs:
         if: ${{ env.BLUEVPN_BUILD_MODE == 'fast' }}
         uses: actions/upload-artifact@v6
         with:
-          name: BlueVPN-${{ steps.config.outputs.version }}-FAST-signed
+          name: BlueVPN-${{ steps.config.outputs.version }}-${{ env.BLUEVPN_CORE_MODE }}-FAST-signed
           path: dist/*.apk
           if-no-files-found: error
           retention-days: 14
@@ -813,7 +893,7 @@ jobs:
           {
             echo "## BlueVPN Fast Build"
             echo ""
-            echo "✅ Signed APK is ready. Production WordPress convergence and GitHub Release publication were intentionally skipped."
+            echo "✅ Signed APK is ready. Core: **${BLUEVPN_CORE_MODE}**. Production WordPress convergence and GitHub Release publication were intentionally skipped."
             echo ""
             echo "Use **build_mode=full** only for a production release."
           } >> "$GITHUB_STEP_SUMMARY"

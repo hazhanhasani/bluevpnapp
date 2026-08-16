@@ -15,7 +15,7 @@ class WarpEndpointRacing4610(unittest.TestCase):
 
     def test_native_scan_and_quick_reconnect_share_one_process(self):
         self.assertIn('command += if (quick && peer.isNullOrBlank()) "--quick-reconnect" else "--no-quick-reconnect"', ENGINE)
-        self.assertIn('if (peer.isNullOrBlank()) command += listOf("--scan"', ENGINE)
+        self.assertIn('command += listOf("--scan", normalizedScanMode(scanModeOverride ?: p.warpScanMode))', ENGINE)
         self.assertIn('val quick = policy.warpQuickReconnect && cachedStrategy', ENGINE)
 
     def test_persistent_per_device_identity(self):

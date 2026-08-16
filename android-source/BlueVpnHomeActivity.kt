@@ -1849,7 +1849,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         if (BlueVpnUiGuard.consumeRecoveryNotice(this)) {
             Toast.makeText(
                 this,
-                "برنامه پس از خطای قبلی در حالت سبک اجرا شد",
+                "BlueVPN پس از توقف غیرمنتظره بازیابی شد؛ اتصال دوباره با حالت پایدار ادامه می‌یابد",
                 Toast.LENGTH_LONG,
             ).show()
         }

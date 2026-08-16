@@ -30,6 +30,7 @@ final class BlueVPN_AI_Ops {
                 self::detect_payment_provisioning_anomalies();
                 self::detect_sms_anomalies();
                 self::detect_stale_live_sessions();
+                self::detect_core_canary_opportunities();
             }
             if (!empty($settings['blueai_enabled']) && !empty($settings['blueai_auto_heal'])) {
                 self::reconcile_customers(self::MAX_REPAIR_PER_RUN);
@@ -152,6 +153,57 @@ final class BlueVPN_AI_Ops {
                 ['stale_sessions'=>$count],
                 'Foreground service، battery optimization، process kill و network handover بررسی شود.'
             );
+        }
+    }
+
+    private static function detect_core_canary_opportunities(): void {
+        global $wpdb;
+        $t=BlueVPN_DB::table('ai_core_aggregates');
+        $rows=$wpdb->get_results(
+            "SELECT * FROM {$t}
+             WHERE core_family IN ('stock','mahsa-canary')
+               AND sample_count>=12
+               AND updated_at>=DATE_SUB(UTC_TIMESTAMP(), INTERVAL 14 DAY)
+             ORDER BY operator,network_type,plan_tier,core_family",
+            ARRAY_A
+        );
+        $groups=[];
+        foreach((array)$rows as $r){
+            $key=(string)$r['operator'].'|'.(string)$r['network_type'].'|'.(string)$r['plan_tier'];
+            $groups[$key][(string)$r['core_family']]=$r;
+        }
+        foreach($groups as $key=>$pair){
+            if(empty($pair['stock'])||empty($pair['mahsa-canary']))continue;
+            $stock=$pair['stock'];$mahsa=$pair['mahsa-canary'];
+            $stockSamples=max(1,(int)$stock['sample_count']);
+            $mahsaSamples=max(1,(int)$mahsa['sample_count']);
+            $stockSuccess=((int)$stock['success_count']*100)/$stockSamples;
+            $mahsaSuccess=((int)$mahsa['success_count']*100)/$mahsaSamples;
+            $stockPing=(int)$stock['ping_samples']>0?(int)$stock['total_ping_ms']/max(1,(int)$stock['ping_samples']):0;
+            $mahsaPing=(int)$mahsa['ping_samples']>0?(int)$mahsa['total_ping_ms']/max(1,(int)$mahsa['ping_samples']):0;
+            $evidence=[
+                'stock'=>['samples'=>$stockSamples,'success_rate'=>round($stockSuccess,1),'avg_ping_ms'=>round($stockPing,1)],
+                'mahsa_canary'=>['samples'=>$mahsaSamples,'success_rate'=>round($mahsaSuccess,1),'avg_ping_ms'=>round($mahsaPing,1)],
+            ];
+            if($mahsaSuccess>=$stockSuccess+5 && ($mahsaPing<=0||$stockPing<=0||$mahsaPing<=$stockPing*1.15)){
+                self::upsert_incident(
+                    'core-promote:'.substr(hash('sha256',$key),0,48),
+                    'core_canary_outperforms',
+                    'info','core_context',$key,
+                    'Mahsa-Core Canary در این شبکه بهتر از Stock عمل کرده',
+                    $evidence,
+                    'Canary را روی نمونه بیشتر ادامه دهید؛ پس از تأیید دستی می‌توان برای همین cohort به‌عنوان Core پیشنهادی Promote کرد.'
+                );
+            }elseif($mahsaSuccess+8<=$stockSuccess){
+                self::upsert_incident(
+                    'core-reject:'.substr(hash('sha256',$key),0,48),
+                    'core_canary_underperforms',
+                    'warning','core_context',$key,
+                    'Mahsa-Core Canary در این شبکه ضعیف‌تر از Stock بوده',
+                    $evidence,
+                    'برای این cohort Stock حفظ شود و Canary Promote نشود.'
+                );
+            }
         }
     }
 
@@ -410,6 +462,30 @@ final class BlueVPN_AI_Ops {
         echo '<input type="hidden" name="action" value="bluevpn_ai_ops_run">';
         submit_button('اجرای پایش و ترمیم امن','secondary','submit',false);
         echo '</form></div>';
+
+        $coreTable = BlueVPN_DB::table('ai_core_aggregates');
+        $coreRows = $wpdb->get_results(
+            "SELECT core_family,operator,network_type,plan_tier,sample_count,success_count,total_ping_ms,ping_samples,total_jitter_ms,total_packet_loss_x100,updated_at
+             FROM {$coreTable}
+             WHERE sample_count>0
+             ORDER BY updated_at DESC, sample_count DESC
+             LIMIT 30",
+            ARRAY_A
+        );
+        echo '<h3>مقایسه Coreهای BlueVPN</h3>';
+        echo '<p>Production روی Stock Xray باقی می‌ماند. Mahsa-Core فقط Canary است تا قبل از Promote شدن داده واقعی جمع شود.</p>';
+        echo '<table class="widefat striped bvc-table"><tr><th>Core</th><th>اپراتور</th><th>شبکه</th><th>پلن</th><th>نمونه</th><th>موفقیت</th><th>Ping</th><th>Jitter</th><th>Loss</th><th>آخرین داده</th></tr>';
+        if (!$coreRows) echo '<tr><td colspan="10">هنوز داده مقایسه‌ای Core ثبت نشده است.</td></tr>';
+        foreach ((array)$coreRows as $r) {
+            $samples=max(1,(int)$r['sample_count']);
+            $pingSamples=max(1,(int)$r['ping_samples']);
+            $success=round(((int)$r['success_count']*100)/$samples,1);
+            $ping=round((int)$r['total_ping_ms']/$pingSamples,1);
+            $jitter=round((int)$r['total_jitter_ms']/$samples,1);
+            $loss=round(((int)$r['total_packet_loss_x100']/$samples)/100,2);
+            echo '<tr><td>'.esc_html((string)$r['core_family']).'</td><td>'.esc_html((string)$r['operator']).'</td><td>'.esc_html((string)$r['network_type']).'</td><td>'.esc_html((string)$r['plan_tier']).'</td><td>'.(int)$r['sample_count'].'</td><td>'.esc_html($success.'%').'</td><td>'.esc_html($ping.' ms').'</td><td>'.esc_html($jitter.' ms').'</td><td>'.esc_html($loss.'%').'</td><td>'.esc_html((string)$r['updated_at']).'</td></tr>';
+        }
+        echo '</table>';
 
         echo '<h3>Incidentهای فعال</h3><table class="widefat striped bvc-table"><tr><th>شدت</th><th>نوع</th><th>Scope</th><th>عنوان</th><th>تکرار</th><th>پیشنهاد</th><th>آخرین مشاهده</th></tr>';
         if (!$incidents) echo '<tr><td colspan="7">Incident فعالی وجود ندارد.</td></tr>';

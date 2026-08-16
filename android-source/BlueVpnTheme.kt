@@ -46,7 +46,9 @@ object BlueVpnPerformance {
         val app = context.applicationContext
         val manager = app.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
         val maxHeapMb = (Runtime.getRuntime().maxMemory() / (1024L * 1024L)).toInt()
-        val lowEnd = BlueVpnUiGuard.safeMode(app) ||
+        // Crash recovery must not silently downgrade VPN/runtime behaviour.
+        // Low-end mode is based only on actual device capability.
+        val lowEnd =
             manager?.isLowRamDevice == true ||
             (manager?.memoryClass ?: 256) <= 128 ||
             maxHeapMb <= 192 ||

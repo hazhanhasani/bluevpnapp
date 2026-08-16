@@ -84,11 +84,11 @@ object BlueVpnLiveReporter {
             jitterMs = latency?.jitterMs ?: 0L,
             packetLossX100 = latency?.packetLossX100 ?: 0,
         )
-        if (health.degraded && selectedGuid.isNotBlank()) {
+        if (health.shouldWarmFailover && selectedGuid.isNotBlank()) {
             BlueVpnRouteIntelligence.recordFailure(
                 app,
                 selectedGuid,
-                "PREDICTIVE_DEGRADATION:${health.reason}",
+                "PREDICTIVE_DEGRADATION_CONFIRMED:${health.reason}",
             )
             BlueVpnSystemController.predictiveFailover(app)
         }

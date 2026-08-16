@@ -1,8 +1,8 @@
-# BlueVPN 4.9.6 — Stable APK Runtime Gate
+# BlueVPN 4.9.8 — Stable APK Runtime Gate
 
 Build #274 again proved the Android project itself builds successfully. The only failing stage was the post-sign APK runtime gate.
 
-4.9.6 removes manifest-decoder tooling from the post-signing gate entirely.
+4.9.8 removes manifest-decoder tooling from the post-signing gate entirely.
 
 Validation split:
 1. Exact generated AndroidManifest.xml is validated before Gradle for required permissions/services/receivers.

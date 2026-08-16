@@ -262,20 +262,54 @@ object BlueVpnIntelligenceCore {
                 - (jitterMs / 8).toInt().coerceAtMost(25)
                 - (packetLossX100 / 200).coerceAtMost(40)
         ).coerceIn(0, 100)
-        val previous = prefs(context).getInt("health:${networkFingerprint(context).id}:$guid", 100)
-        prefs(context).edit().putInt("health:${networkFingerprint(context).id}:$guid", score).apply()
+        val fingerprint = networkFingerprint(context).id
+        val healthKey = "health:$fingerprint:$guid"
+        val streakKey = "health_bad_streak:$fingerprint:$guid"
+        val previous = prefs(context).getInt(healthKey, score)
         val drop = previous - score
-        val degraded = score < 45 || drop >= 25 || packetLossX100 >= 2500
+        val badSample =
+            score < 45 ||
+            (previous > 0 && drop >= 25) ||
+            packetLossX100 >= 2500
+        val previousStreak = prefs(context).getInt(streakKey, 0)
+        val badStreak = if (badSample) (previousStreak + 1).coerceAtMost(8) else 0
+        prefs(context).edit()
+            .putInt(healthKey, score)
+            .putInt(streakKey, badStreak)
+            .apply()
+
+        // A single noisy RTT/loss probe must never restart a working VPN.
+        // Require repeated evidence and give a newly-connected tunnel time to warm up.
+        val connectedAt = BlueVpnPreferences.connectedAt(context)
+        val sessionAgeMs = if (connectedAt > 0L) {
+            (System.currentTimeMillis() - connectedAt).coerceAtLeast(0L)
+        } else {
+            0L
+        }
+        val degraded = badStreak >= 3
         val warm = BlueVpnAi.predictiveFailoverEnabled(context) &&
-            score < 60 && (drop >= 15 || jitterMs >= 150 || packetLossX100 >= 1500)
-        if (degraded || warm) {
-            appendEvent(context, "health_degradation", guid, !degraded, pingMs, jitterMs, packetLossX100, null, "")
+            badStreak >= 3 &&
+            sessionAgeMs >= 25_000L &&
+            (score < 60 || jitterMs >= 150 || packetLossX100 >= 1500)
+
+        if (badSample) {
+            appendEvent(
+                context,
+                if (degraded) "health_degradation_confirmed" else "health_degradation_sample",
+                guid,
+                !degraded,
+                pingMs,
+                jitterMs,
+                packetLossX100,
+                null,
+                "",
+            )
         }
         return HealthSignal(
             score = score,
             degraded = degraded,
             shouldWarmFailover = warm,
-            reason = "health=$score previous=$previous ping=$pingMs jitter=$jitterMs loss=$packetLossX100",
+            reason = "health=$score previous=$previous streak=$badStreak age_ms=$sessionAgeMs ping=$pingMs jitter=$jitterMs loss=$packetLossX100",
         )
     }
 

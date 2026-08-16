@@ -37,7 +37,7 @@ object BlueVpnAi {
     private const val KEY_PREDICTIVE_FAILOVER = "predictive_failover"
     private const val SYNC_INTERVAL = 5 * 60 * 1000L
     private const val HEARTBEAT_INTERVAL = 8 * 1000L
-    private const val AI_SCHEMA_VERSION = 5
+    private const val AI_SCHEMA_VERSION = 6
     private const val AI_ENGINE_FAMILY = "blueai-control-plane-v3"
     private const val PROBE_CACHE_MAX_AGE_MS = 125 * 1000L
 
@@ -864,6 +864,8 @@ object BlueVpnAi {
             .put("ai_schema_version", AI_SCHEMA_VERSION)
             .put("ai_client_version", BuildConfig.VERSION_NAME)
             .put("ai_engine_family", AI_ENGINE_FAMILY)
+            .put("core_family", BlueVpnCoreFlavor.FAMILY)
+            .put("core_source_pin", BlueVpnCoreFlavor.SOURCE_PIN)
             .put("network_signature", BlueVpnIntelligenceCore.networkFingerprint(context).id)
             .put("shadow_summary", BlueVpnIntelligenceCore.shadowSummary(context))
             .put("hour_bucket", Calendar.getInstance().get(Calendar.HOUR_OF_DAY))

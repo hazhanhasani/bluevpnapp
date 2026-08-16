@@ -1,9 +1,9 @@
-# BlueVPN 4.9.6 — APK Runtime Gate Hotfix
+# BlueVPN 4.9.8 — APK Runtime Gate Hotfix
 
 The Android Gradle build for 4.9.2 completed successfully, but the post-signing
 apk-runtime-validation gate produced a false failure.
 
-4.9.6 fixes the release gate:
+4.9.8 fixes the release gate:
 - Uses apkanalyzer manifest print to decode the binary APK manifest.
 - Manifest policy checks are performed by a deterministic Python XML parser.
 - The parser is unit-tested with valid and invalid BlueVPN manifest contracts.

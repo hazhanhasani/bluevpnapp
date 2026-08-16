@@ -22,8 +22,9 @@ class WarpBackgroundReconnect473Tests(unittest.TestCase):
     def test_lkg_uses_native_quick_reconnect_without_parallel_aether(self):
         warp=(ROOT/'android-source/BlueVpnWarpEngine.kt').read_text()
         quick=warp.index('val quick = policy.warpQuickReconnect && cachedStrategy')
-        start=warp.index('startWithPortRetries(app, strategy, quick, policy, null, shape)', quick)
+        start=warp.index('val port = startWithPortRetries(', quick)
         self.assertLess(quick, start)
+        self.assertIn('quickPass,', warp[start:start+500])
         self.assertNotIn('Channel<ProbeOutcome>', warp)
         self.assertNotIn('raceCandidates(', warp)
 

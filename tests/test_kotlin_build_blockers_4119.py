@@ -27,8 +27,8 @@ class KotlinBuildBlockers4119(unittest.TestCase):
         import json
         app=json.loads(self.text('branding/app.json'))
         rel=json.loads(self.text('release.json'))
-        self.assertEqual((app['version_name'],app['version_code']),('4.11.10',41110))
-        self.assertEqual((rel['version'],rel['version_code']),('4.11.10',41110))
+        self.assertEqual((app['version_name'],app['version_code']),('4.12.0',41200))
+        self.assertEqual((rel['version'],rel['version_code']),('4.12.0',41200))
 
 if __name__=='__main__':
     unittest.main()

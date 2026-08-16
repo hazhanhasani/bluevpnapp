@@ -408,25 +408,89 @@ jobs:
           echo "v2rayNG release Xray-core label (informational only): ${XRAY_RELEASE_LABEL:-unknown}"
           echo "tag=$CURRENT_TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Mark libv2ray artifact stage
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BUILD_STAGE=resolve-libv2ray-artifact" >> "$GITHUB_ENV"
+          echo "resolve-libv2ray-artifact" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          echo "Resolving libv2ray.aar for AndroidLibXrayLite ${{ steps.xray.outputs.tag }}." | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
       - name: Restore libv2ray AAR cache
         id: libv2ray-cache
+        continue-on-error: true
         uses: actions/cache@v4
         with:
           path: upstream/V2rayNG/app/libs/libv2ray.aar
           key: bluevpn-libv2ray-${{ runner.os }}-${{ steps.xray.outputs.tag }}
 
-      - name: Download libv2ray
+      - name: Download libv2ray AAR with retry and fallback
         if: steps.libv2ray-cache.outputs.cache-hit != 'true'
-        uses: robinraju/release-downloader@v1.13
-        with:
-          repository: 2dust/AndroidLibXrayLite
-          tag: ${{ steps.xray.outputs.tag }}
-          fileName: libv2ray.aar
-          out-file-path: upstream/V2rayNG/app/libs/
+        env:
+          XRAY_AAR_TAG: ${{ steps.xray.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
+
+          DEST="$GITHUB_WORKSPACE/upstream/V2rayNG/app/libs/libv2ray.aar"
+          TMP="${DEST}.part"
+          URL="https://github.com/2dust/AndroidLibXrayLite/releases/download/${XRAY_AAR_TAG}/libv2ray.aar"
+          mkdir -p "$(dirname "$DEST")"
+          rm -f "$TMP" "$DEST"
+
+          echo "Downloading libv2ray.aar from the upstream release asset: ${XRAY_AAR_TAG}"
+          if curl \
+            --fail \
+            --location \
+            --show-error \
+            --silent \
+            --connect-timeout 20 \
+            --max-time 240 \
+            --retry 5 \
+            --retry-delay 3 \
+            --retry-all-errors \
+            --output "$TMP" \
+            "$URL"
+          then
+            mv "$TMP" "$DEST"
+          else
+            rm -f "$TMP"
+            echo "Direct GitHub release download failed; falling back to gh release download."
+            gh release download "$XRAY_AAR_TAG" \
+              --repo 2dust/AndroidLibXrayLite \
+              --pattern libv2ray.aar \
+              --dir "$(dirname "$DEST")" \
+              --clobber
+          fi
 
       - name: Verify libv2ray AAR
         shell: bash
-        run: test -s upstream/V2rayNG/app/libs/libv2ray.aar
+        run: |
+          set -euo pipefail
+          exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1
+          echo "BUILD_STAGE=verify-libv2ray-artifact" >> "$GITHUB_ENV"
+          echo "verify-libv2ray-artifact" > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+
+          AAR="upstream/V2rayNG/app/libs/libv2ray.aar"
+          test -s "$AAR"
+          python - <<'PY_AAR'
+          from pathlib import Path
+          import hashlib
+          import zipfile
+
+          path = Path("upstream/V2rayNG/app/libs/libv2ray.aar")
+          size = path.stat().st_size
+          if size < 1_000_000:
+              raise SystemExit(f"libv2ray.aar is unexpectedly small: {size} bytes")
+          with zipfile.ZipFile(path) as archive:
+              bad = archive.testzip()
+              if bad is not None:
+                  raise SystemExit(f"Corrupt libv2ray.aar member: {bad}")
+          sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
+          print(f"libv2ray.aar verified: size={size} sha256={sha256}")
+          PY_AAR
 
       - name: Mark Android source preparation stage
         shell: bash

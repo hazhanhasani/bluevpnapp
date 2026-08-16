@@ -1,10 +1,10 @@
 === BlueVPN Manager ===
-Version: 4.11.10
-Stable tag: 4.11.10
+Version: 4.12.0
+Stable tag: 4.12.0
 Requires PHP: 8.0
 
 
-== 4.11.10 ==
+== 4.12.0 ==
 * زمان پیام‌های پشتیبانی در اندروید از UTC دیتابیس به Asia/Tehran تبدیل می‌شود و دیگر ساعت خام سرور نمایش داده نمی‌شود.
 * Parser مشترک اندروید اکنون timestampهای MySQL با قالب yyyy-MM-dd HH:mm:ss را نیز به‌عنوان UTC می‌خواند.
 * اصلاحات Kotlin نسخه 4.11.9 بدون تغییر حفظ شده‌اند.

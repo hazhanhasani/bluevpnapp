@@ -22,10 +22,10 @@ class SupportTehranTime41110(unittest.TestCase):
         import json
         app = json.loads((ROOT / 'branding/app.json').read_text())
         release = json.loads((ROOT / 'release.json').read_text())
-        self.assertEqual((app['version_name'], app['version_code']), ('4.11.10', 41110))
-        self.assertEqual((release['version'], release['version_code']), ('4.11.10', 41110))
-        self.assertEqual(app['version_source'], 'v4.11.10-iran-time-fix')
-        self.assertEqual(release['version_source'], 'v4.11.10-iran-time-fix')
+        self.assertEqual((app['version_name'], app['version_code']), ('4.12.0', 41200))
+        self.assertEqual((release['version'], release['version_code']), ('4.12.0', 41200))
+        self.assertEqual(app['version_source'], 'v4.12.0-pre-gradle-xray-download-hardening')
+        self.assertEqual(release['version_source'], 'v4.12.0-pre-gradle-xray-download-hardening')
 
 if __name__ == '__main__':
     unittest.main()

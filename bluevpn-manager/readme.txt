@@ -1,10 +1,19 @@
 === BlueVPN Manager ===
-Version: 4.11.6
-Stable tag: 4.11.6
+Version: 4.11.8
+Stable tag: 4.11.8
 Requires PHP: 8.0
 
 
-== 4.11.6 ==
+== 4.11.8 ==
+* Support: انتخاب درخواست سه‌مرحله‌ای «بخش → موضوع → پیام» و رفع باگ ازبین‌رفتن انتخاب موضوع.
+* Support: Retry امن و idempotent برای ساخت گفتگو و ارسال پیام؛ جلوگیری از ایجاد گفتگو/پیام تکراری هنگام timeout.
+* Support: انتقال گفتگو بین بخش/موضوع/اپراتور با اعتبارسنجی سمت سرور و فیلتر UI.
+* Support: Topic schema 1.2.0، موضوع‌های پیش‌فرض، اولویت موضوع و chooser اسکرول‌پذیر.
+* GuardCore: اسکن اشتراک‌های گمشده اکنون API GuardCore را مانند PasarGuard و Marzban بررسی می‌کند.
+* GuardCore: Mapping گمشده با تطبیق سخت‌گیرانه بازیابی و Serviceهای پلن بدون تغییر حجم/انقضا همگام می‌شوند.
+* Release hardening: PHP/Regression/manifest gates برای انتشار نهایی سخت‌گیرانه‌تر شدند.
+
+== 4.11.7 ==
 * Build pipeline: manual Android builds now default to Fast CI while production repository-dispatch builds remain Full.
 * Build cache: pinned Aether, libhevtun and libv2ray artifacts are reused across compatible Android builds.
 * Android build: compile and assemble run in one Gradle invocation; signed Fast artifacts are uploaded before production WordPress convergence.

@@ -1,4 +1,4 @@
-# BlueVPN 4.11.6 — Background Reliability + GuardCore Assignment Visibility
+# BlueVPN 4.11.7 — Background Reliability + GuardCore Assignment Visibility
 
 Android background reliability:
 - the lightweight application foreground owner now covers verified Premium as

@@ -41,6 +41,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.Locale
+import java.util.UUID
 
 class BlueVpnSupportActivity : HelperBaseActivity() {
 
@@ -58,6 +59,8 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
     private lateinit var emptyState: LinearLayout
     private lateinit var departmentSheet: MaterialCardView
     private lateinit var departmentList: LinearLayout
+    private lateinit var departmentTitle: TextView
+    private lateinit var departmentSubtitle: TextView
     private lateinit var conversationStrip: HorizontalScrollView
 
     private val handler = Handler(Looper.getMainLooper())
@@ -65,11 +68,28 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
     private var lastMessageId = 0
     private var resumed = false
     private var loadingMessages = false
+    private var loadingDepartments = false
+    private var openChooserWhenLoaded = false
+    private var pendingDepartmentId = 0
+    private var pendingTopicId = 0
+    private var pendingTopicName = ""
+    private var pendingDepartmentName = ""
+    private var pendingCreateRequestId = ""
+    private var retryMessageId = ""
+    private var retryMessageBody = ""
+
+    private data class Topic(
+        val id: Int,
+        val name: String,
+        val description: String,
+        val priority: String,
+    )
 
     private data class Department(
         val id: Int,
         val name: String,
         val description: String,
+        val topics: List<Topic>,
     )
 
     private val departments = mutableListOf<Department>()
@@ -104,13 +124,34 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
         }
 
         loadDepartments()
-        val requestedConversation = intent.getIntExtra("conversation_id", 0)
-        if (requestedConversation > 0) {
-            activeConversationId = requestedConversation
+        activeConversationId =
+            savedInstanceState?.getInt("support_active_conversation", 0)
+                ?: intent.getIntExtra("conversation_id", 0)
+        pendingDepartmentId = savedInstanceState?.getInt("support_pending_department", 0) ?: 0
+        pendingTopicId = savedInstanceState?.getInt("support_pending_topic", 0) ?: 0
+        pendingDepartmentName = savedInstanceState?.getString("support_pending_department_name").orEmpty()
+        pendingTopicName = savedInstanceState?.getString("support_pending_topic_name").orEmpty()
+        pendingCreateRequestId = savedInstanceState?.getString("support_create_request_id").orEmpty()
+        retryMessageId = savedInstanceState?.getString("support_retry_message_id").orEmpty()
+        retryMessageBody = savedInstanceState?.getString("support_retry_message_body").orEmpty()
+        val restoredDraft = savedInstanceState?.getString("support_draft").orEmpty()
+        if (restoredDraft.isNotBlank()) messageInput.setText(restoredDraft)
+
+        if (activeConversationId > 0) {
             loadConversations()
             loadMessages(incremental = false)
         } else {
             loadConversations()
+            if (pendingDepartmentId > 0) {
+                emptyState.visibility = View.GONE
+                messagesScroll.visibility = View.VISIBLE
+                composer.visibility = View.VISIBLE
+                operatorText.text = listOf(pendingDepartmentName, pendingTopicName)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" • ")
+                    .ifBlank { "پشتیبانی" }
+                operatorText.setTextColor(palette.accent)
+            }
         }
     }
 
@@ -128,6 +169,20 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
         handler.removeCallbacks(poll)
         super.onPause()
     }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt("support_active_conversation", activeConversationId)
+        outState.putInt("support_pending_department", pendingDepartmentId)
+        outState.putInt("support_pending_topic", pendingTopicId)
+        outState.putString("support_pending_department_name", pendingDepartmentName)
+        outState.putString("support_pending_topic_name", pendingTopicName)
+        outState.putString("support_create_request_id", pendingCreateRequestId)
+        outState.putString("support_retry_message_id", retryMessageId)
+        outState.putString("support_retry_message_body", retryMessageBody)
+        outState.putString("support_draft", messageInput.text?.toString().orEmpty())
+        super.onSaveInstanceState(outState)
+    }
+
 
     private fun createScreen(): View {
         val frame = FrameLayout(this).apply {
@@ -350,15 +405,15 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
             setPadding(dp(18), dp(20), dp(18), dp(18))
         }
 
-        val title = TextView(this).apply {
-            text = "موضوع گفتگو"
+        departmentTitle = TextView(this).apply {
+            text = "انتخاب بخش"
             textSize = 20f
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(palette.textPrimary)
             gravity = Gravity.END
         }
-        val subtitle = TextView(this).apply {
-            text = "پیام شما مستقیم به بخش مربوطه ارجاع می‌شود."
+        departmentSubtitle = TextView(this).apply {
+            text = "ابتدا بخش مربوط به درخواست خود را انتخاب کنید."
             textSize = 12f
             setTextColor(palette.textSecondary)
             gravity = Gravity.END
@@ -376,13 +431,22 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
             cornerRadius = dp(17)
             BlueVpnUiGuard.bind(this) {
                 departmentSheet.visibility = View.GONE
+                if (activeConversationId <= 0 && pendingTopicId <= 0) {
+                    pendingDepartmentId = 0
+                    pendingDepartmentName = ""
+                }
                 updateEmptyVisibility()
             }
         }
 
-        body.addView(title)
-        body.addView(subtitle)
-        body.addView(departmentList, LinearLayout.LayoutParams(-1, 0, 1f))
+        body.addView(departmentTitle)
+        body.addView(departmentSubtitle)
+        val chooserScroll = ScrollView(this).apply {
+            isFillViewport = true
+            isVerticalScrollBarEnabled = false
+            addView(departmentList, ScrollView.LayoutParams(-1, -2))
+        }
+        body.addView(chooserScroll, LinearLayout.LayoutParams(-1, 0, 1f))
         body.addView(cancel, LinearLayout.LayoutParams(-1, dp(48)).apply {
             topMargin = dp(12)
         })
@@ -419,7 +483,15 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
             cornerRadius = dp(20)
             BlueVpnUiGuard.bind(this) {
                 if (activeConversationId <= 0) {
-                    showDepartmentChooser()
+                    if (pendingDepartmentId > 0) {
+                        Toast.makeText(
+                            this@BlueVpnSupportActivity,
+                            "ابتدا پیام اول را ارسال کنید تا گفتگو ساخته شود؛ سپس فایل را پیوست کنید",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    } else {
+                        showDepartmentChooser()
+                    }
                 } else {
                     attachmentPicker.launch("*/*")
                 }
@@ -478,6 +550,13 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
     private fun renderSignedOut() {
         conversationBox.removeAllViews()
         activeConversationId = 0
+        pendingDepartmentId = 0
+        pendingTopicId = 0
+        pendingTopicName = ""
+        pendingDepartmentName = ""
+        pendingCreateRequestId = ""
+        retryMessageId = ""
+        retryMessageBody = ""
         messagesBox.removeAllViews()
         emptyState.visibility = View.VISIBLE
         departmentSheet.visibility = View.GONE
@@ -488,6 +567,11 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
     }
 
     private fun loadDepartments() {
+        if (loadingDepartments) {
+            openChooserWhenLoaded = true
+            return
+        }
+        loadingDepartments = true
         lifecycleScope.launch(Dispatchers.IO) {
             val result = BlueVpnAccountManager.supportRequest(
                 this@BlueVpnSupportActivity,
@@ -495,87 +579,231 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
                 "/api/v1/support/departments",
             )
             withContext(Dispatchers.Main) {
+                loadingDepartments = false
                 result.onSuccess { json ->
                     val rows = json.optJSONArray("departments") ?: JSONArray()
                     departments.clear()
                     for (i in 0 until rows.length()) {
                         val row = rows.optJSONObject(i) ?: continue
+                        val topicsJson = row.optJSONArray("topics") ?: JSONArray()
+                        val topics = mutableListOf<Topic>()
+                        for (j in 0 until topicsJson.length()) {
+                            val topic = topicsJson.optJSONObject(j) ?: continue
+                            val id = topic.optInt("id")
+                            if (id <= 0) continue
+                            topics += Topic(
+                                id = id,
+                                name = topic.optString("name", "موضوع"),
+                                description = topic.optString("description"),
+                                priority = topic.optString("priority", "normal"),
+                            )
+                        }
+                        val id = row.optInt("id")
+                        if (id <= 0) continue
                         departments += Department(
-                            id = row.optInt("id"),
+                            id = id,
                             name = row.optString("name", "پشتیبانی"),
                             description = row.optString("description"),
+                            topics = topics,
                         )
                     }
                     rebuildDepartmentList()
+                    if (openChooserWhenLoaded) {
+                        openChooserWhenLoaded = false
+                        showDepartmentChooser(resetSelection = true)
+                    }
                 }.onFailure {
-                    statusText.text = "دریافت بخش‌های پشتیبانی ناموفق بود. دوباره تلاش کنید."
+                    statusText.text = "دریافت بخش‌های پشتیبانی ناموفق بود. برای تلاش مجدد روی «گفتگوی جدید» بزنید."
+                    if (openChooserWhenLoaded) {
+                        Toast.makeText(
+                            this@BlueVpnSupportActivity,
+                            "دریافت موضوع‌های پشتیبانی ناموفق بود",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
+                    openChooserWhenLoaded = false
                 }
             }
         }
     }
 
     private fun rebuildDepartmentList() {
+        departmentTitle.text = "انتخاب بخش"
+        departmentSubtitle.text = "ابتدا بخش مربوط به درخواست خود را انتخاب کنید."
         departmentList.removeAllViews()
+
         departments.forEach { department ->
-            val card = MaterialCardView(this).apply {
-                radius = dp(18).toFloat()
-                cardElevation = 0f
-                setCardBackgroundColor(palette.surface)
-                strokeColor = palette.stroke
-                strokeWidth = dp(1)
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    departmentSheet.visibility = View.GONE
-                    beginNewConversation(department.id)
+            val card = supportChoiceCard(
+                title = department.name,
+                subtitle = department.description.ifBlank { "پشتیبانی BlueVPN" },
+                badge = if (department.topics.isNotEmpty()) "${department.topics.size} موضوع" else "",
+            ) {
+                if (department.topics.isEmpty()) {
+                    selectPendingTopic(
+                        department = department,
+                        topic = null,
+                    )
+                } else {
+                    showTopicChooser(department)
                 }
             }
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(14), dp(11), dp(14), dp(11))
-            }
-            val textStack = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.END
-            }
-            textStack.addView(TextView(this).apply {
-                text = department.name
-                textSize = 14f
-                setTypeface(typeface, Typeface.BOLD)
-                setTextColor(palette.textPrimary)
-                gravity = Gravity.END
-            })
-            textStack.addView(TextView(this).apply {
-                text = department.description.ifBlank { "پشتیبانی BlueVPN" }
-                textSize = 11f
-                setTextColor(palette.textMuted)
-                gravity = Gravity.END
-            })
-            val arrow = TextView(this).apply {
-                text = "‹"
-                textSize = 24f
-                setTextColor(palette.accent)
-                gravity = Gravity.CENTER
-            }
-            row.addView(textStack, LinearLayout.LayoutParams(0, -2, 1f))
-            row.addView(arrow, LinearLayout.LayoutParams(dp(34), dp(42)))
-            card.addView(row)
             departmentList.addView(card, LinearLayout.LayoutParams(-1, -2).apply {
                 bottomMargin = dp(8)
             })
         }
     }
 
-    private fun showDepartmentChooser() {
+    private fun supportChoiceCard(
+        title: String,
+        subtitle: String,
+        badge: String = "",
+        onClick: () -> Unit,
+    ): MaterialCardView {
+        val card = MaterialCardView(this).apply {
+            radius = dp(18).toFloat()
+            cardElevation = 0f
+            setCardBackgroundColor(palette.surface)
+            strokeColor = palette.stroke
+            strokeWidth = dp(1)
+            isClickable = true
+            isFocusable = true
+            setOnClickListener { onClick() }
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            setPadding(dp(14), dp(11), dp(14), dp(11))
+        }
+        val textStack = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.END
+        }
+        textStack.addView(TextView(this).apply {
+            text = title
+            textSize = 14f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(palette.textPrimary)
+            gravity = Gravity.END
+        })
+        textStack.addView(TextView(this).apply {
+            text = subtitle
+            textSize = 11f
+            setTextColor(palette.textMuted)
+            gravity = Gravity.END
+        })
+        val badgeView = TextView(this).apply {
+            text = badge.ifBlank { "‹" }
+            textSize = if (badge.isBlank()) 24f else 10.5f
+            setTextColor(palette.accent)
+            gravity = Gravity.CENTER
+            setPadding(dp(8), 0, dp(8), 0)
+        }
+        row.addView(textStack, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(badgeView, LinearLayout.LayoutParams(-2, dp(42)))
+        card.addView(row)
+        return card
+    }
+
+    private fun showTopicChooser(department: Department) {
+        pendingDepartmentId = department.id
+        pendingDepartmentName = department.name
+        pendingTopicId = 0
+        pendingTopicName = ""
+
+        departmentTitle.text = "انتخاب موضوع"
+        departmentSubtitle.text = "بخش ${department.name} • موضوع دقیق درخواست را انتخاب کنید."
+        departmentList.removeAllViews()
+
+        val back = MaterialButton(this).apply {
+            text = "بازگشت به بخش‌ها"
+            textSize = 12f
+            isAllCaps = false
+            setTextColor(palette.textSecondary)
+            backgroundTintList = ColorStateList.valueOf(palette.surfaceSoft)
+            cornerRadius = dp(16)
+            BlueVpnUiGuard.bind(this) {
+                pendingDepartmentId = 0
+                pendingDepartmentName = ""
+                rebuildDepartmentList()
+            }
+        }
+        departmentList.addView(back, LinearLayout.LayoutParams(-1, dp(46)).apply {
+            bottomMargin = dp(10)
+        })
+
+        department.topics.forEach { topic ->
+            val priorityLabel = when (topic.priority) {
+                "urgent" -> "فوری"
+                "high" -> "مهم"
+                "low" -> "عادی"
+                else -> ""
+            }
+            val card = supportChoiceCard(
+                title = topic.name,
+                subtitle = topic.description.ifBlank { department.name },
+                badge = priorityLabel,
+            ) {
+                selectPendingTopic(department, topic)
+            }
+            departmentList.addView(card, LinearLayout.LayoutParams(-1, -2).apply {
+                bottomMargin = dp(8)
+            })
+        }
+    }
+
+    private fun selectPendingTopic(
+        department: Department,
+        topic: Topic?,
+    ) {
+        pendingDepartmentId = department.id
+        pendingDepartmentName = department.name
+        pendingTopicId = topic?.id ?: 0
+        pendingTopicName = topic?.name.orEmpty()
+
+        departmentSheet.visibility = View.GONE
+        messagesScroll.visibility = View.VISIBLE
+        emptyState.visibility = View.GONE
+        composer.visibility = View.VISIBLE
+        operatorText.text = if (pendingTopicName.isNotBlank()) {
+            "${department.name} • ${pendingTopicName}"
+        } else {
+            department.name
+        }
+        operatorText.setTextColor(palette.accent)
+        statusText.text = if (pendingTopicName.isNotBlank()) {
+            "موضوع «${pendingTopicName}» انتخاب شد. پیام خود را بنویسید و ارسال کنید."
+        } else {
+            "بخش «${department.name}» انتخاب شد. پیام خود را بنویسید و ارسال کنید."
+        }
+        Toast.makeText(
+            this,
+            if (pendingTopicName.isNotBlank()) "موضوع «${pendingTopicName}» انتخاب شد" else "بخش «${department.name}» انتخاب شد",
+            Toast.LENGTH_SHORT,
+        ).show()
+        messageInput.hint = "پیام خود را بنویسید…"
+        messageInput.requestFocus()
+    }
+
+    private fun showDepartmentChooser(resetSelection: Boolean = true) {
         if (!BlueVpnAccountManager.hasSession(this)) {
             renderSignedOut()
             return
         }
+        if (resetSelection) {
+            pendingDepartmentId = 0
+            pendingDepartmentName = ""
+            pendingTopicId = 0
+            pendingTopicName = ""
+            pendingCreateRequestId = ""
+        }
         if (departments.isEmpty()) {
-            Toast.makeText(this, "بخش‌های پشتیبانی در حال دریافت هستند", Toast.LENGTH_SHORT).show()
+            openChooserWhenLoaded = true
+            statusText.text = "در حال دریافت بخش‌ها و موضوع‌های پشتیبانی…"
+            loadDepartments()
             return
         }
+        rebuildDepartmentList()
         emptyState.visibility = View.GONE
         messagesScroll.visibility = View.GONE
         departmentSheet.visibility = View.VISIBLE
@@ -630,13 +858,17 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
     private fun addConversationChip(row: JSONObject) {
         val id = row.optInt("id")
         val department = row.optJSONObject("department")?.optString("name").orEmpty()
+        val topic = row.optJSONObject("topic")?.optString("name").orEmpty()
         val unread = row.optInt("unread")
         val active = id == activeConversationId
 
         val button = MaterialButton(this).apply {
             text = buildString {
                 if (unread > 0) append("● ")
-                append(department.ifBlank { "پشتیبانی" })
+                append(
+                    if (topic.isNotBlank()) topic
+                    else department.ifBlank { "پشتیبانی" }
+                )
             }
             textSize = 11f
             isAllCaps = false
@@ -659,23 +891,27 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
         })
     }
 
-    private fun beginNewConversation(departmentId: Int) {
-        val firstMessage = messageInput.text?.toString()?.trim().orEmpty()
-        if (firstMessage.isBlank()) {
-            departmentSheet.visibility = View.GONE
-            messagesScroll.visibility = View.VISIBLE
-            emptyState.visibility = View.VISIBLE
-            statusText.text = "پیام‌تان را پایین صفحه بنویسید، سپس دوباره «شروع گفتگو» را بزنید."
-            messageInput.requestFocus()
-            return
-        }
+    private fun beginNewConversation(
+        departmentId: Int,
+        topicId: Int,
+        firstMessage: String,
+    ) {
+        val value = firstMessage.trim()
+        if (departmentId <= 0 || value.isBlank()) return
 
+        if (pendingCreateRequestId.isBlank()) {
+            pendingCreateRequestId = UUID.randomUUID().toString().replace("-", "")
+        }
+        val requestId = pendingCreateRequestId
         setComposerEnabled(false)
+
         lifecycleScope.launch(Dispatchers.IO) {
             val body = JSONObject()
                 .put("department_id", departmentId)
-                .put("subject", firstMessage.take(70))
-                .put("message", firstMessage)
+                .put("topic_id", topicId)
+                .put("subject", pendingTopicName.ifBlank { value.take(70) })
+                .put("message", value)
+                .put("client_request_id", requestId)
 
             val result = BlueVpnAccountManager.supportRequest(
                 this@BlueVpnSupportActivity,
@@ -686,21 +922,34 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
             withContext(Dispatchers.Main) {
                 setComposerEnabled(true)
                 result.onSuccess { json ->
-                    messageInput.setText("")
                     val id = json.optJSONObject("conversation")?.optInt("id") ?: 0
                     if (id > 0) {
+                        messageInput.setText("")
                         activeConversationId = id
                         lastMessageId = 0
+                        pendingDepartmentId = 0
+                        pendingTopicId = 0
+                        pendingTopicName = ""
+                        pendingDepartmentName = ""
+                        pendingCreateRequestId = ""
                         departmentSheet.visibility = View.GONE
                         messagesScroll.visibility = View.VISIBLE
                         emptyState.visibility = View.GONE
                         loadConversations()
                         loadMessages(incremental = false)
+                    } else {
+                        Toast.makeText(
+                            this@BlueVpnSupportActivity,
+                            "پاسخ ایجاد گفتگو کامل نبود؛ دوباره تلاش کنید",
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 }.onFailure {
+                    // Keep request id so a retry cannot duplicate a conversation
+                    // if the server committed before the response was lost.
                     Toast.makeText(
                         this@BlueVpnSupportActivity,
-                        "ایجاد گفتگو ناموفق بود",
+                        "ایجاد گفتگو ناموفق بود؛ پیام شما حفظ شد",
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
@@ -712,6 +961,11 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
         if (id <= 0) return
         activeConversationId = id
         lastMessageId = 0
+        pendingDepartmentId = 0
+        pendingTopicId = 0
+        pendingTopicName = ""
+        pendingDepartmentName = ""
+        pendingCreateRequestId = ""
         messagesBox.removeAllViews()
         emptyState.visibility = View.GONE
         departmentSheet.visibility = View.GONE
@@ -770,11 +1024,16 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
         if (conv == null) return
         val op = conv.optJSONObject("operator")
         val department = conv.optJSONObject("department")?.optString("name").orEmpty()
+        val topic = conv.optJSONObject("topic")?.optString("name").orEmpty()
         val state = conv.optString("status")
 
         if (op != null) {
             operatorText.text = buildString {
                 append(op.optString("display_name", "پشتیبانی"))
+                if (topic.isNotBlank()) {
+                    append(" • ")
+                    append(topic)
+                }
                 append(" • ")
                 append(if (op.optBoolean("online", false)) "آنلاین" else "پاسخ‌گو")
             }
@@ -784,6 +1043,10 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
         } else {
             operatorText.text = buildString {
                 append(department.ifBlank { "پشتیبانی" })
+                if (topic.isNotBlank()) {
+                    append(" • ")
+                    append(topic)
+                }
                 append(" • ")
                 append(
                     when (state) {
@@ -911,7 +1174,15 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
     private fun uploadAttachment(uri: Uri) {
         val cid = activeConversationId
         if (cid <= 0) {
-            showDepartmentChooser()
+            if (pendingDepartmentId > 0) {
+                Toast.makeText(
+                    this,
+                    "ابتدا پیام اول را ارسال کنید تا گفتگو ساخته شود",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            } else {
+                showDepartmentChooser()
+            }
             return
         }
 
@@ -1013,11 +1284,28 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
         if (value.isBlank()) return
 
         if (activeConversationId <= 0) {
-            showDepartmentChooser()
+            if (pendingDepartmentId <= 0) {
+                showDepartmentChooser(resetSelection = true)
+                return
+            }
+            beginNewConversation(
+                departmentId = pendingDepartmentId,
+                topicId = pendingTopicId,
+                firstMessage = value,
+            )
             return
         }
 
         val cid = activeConversationId
+        val clientMessageId =
+            if (retryMessageId.isNotBlank() && retryMessageBody == value) {
+                retryMessageId
+            } else {
+                UUID.randomUUID().toString().replace("-", "")
+            }
+        retryMessageId = clientMessageId
+        retryMessageBody = value
+
         val optimistic = JSONObject()
             .put("id", lastMessageId + 1)
             .put("sender", "customer")
@@ -1036,18 +1324,22 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
                 this@BlueVpnSupportActivity,
                 "POST",
                 "/api/v1/support/conversations/$cid/messages",
-                JSONObject().put("message", value),
+                JSONObject()
+                    .put("message", value)
+                    .put("client_message_id", clientMessageId),
             )
             withContext(Dispatchers.Main) {
                 setComposerEnabled(true)
                 result.onSuccess {
+                    retryMessageId = ""
+                    retryMessageBody = ""
                     loadMessages(incremental = false)
                 }.onFailure {
                     messageInput.setText(value)
                     loadMessages(incremental = false)
                     Toast.makeText(
                         this@BlueVpnSupportActivity,
-                        "ارسال پیام ناموفق بود",
+                        "ارسال پیام ناموفق بود؛ برای Retry دوباره ارسال کنید",
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
@@ -1066,9 +1358,19 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
         if (departmentSheet.visibility == View.VISIBLE) return
         if (activeConversationId <= 0) {
             messagesScroll.visibility = View.VISIBLE
-            emptyState.visibility = View.VISIBLE
-            operatorText.text = "پاسخ‌گویی آنلاین"
-            operatorText.setTextColor(palette.success)
+            if (pendingDepartmentId > 0) {
+                emptyState.visibility = View.GONE
+                operatorText.text = listOf(pendingDepartmentName, pendingTopicName)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" • ")
+                    .ifBlank { "پشتیبانی" }
+                operatorText.setTextColor(palette.accent)
+                composer.visibility = View.VISIBLE
+            } else {
+                emptyState.visibility = View.VISIBLE
+                operatorText.text = "پاسخ‌گویی آنلاین"
+                operatorText.setTextColor(palette.success)
+            }
         } else {
             emptyState.visibility =
                 if (messagesBox.childCount == 0) View.VISIBLE else View.GONE

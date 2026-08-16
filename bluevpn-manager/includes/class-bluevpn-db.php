@@ -18,6 +18,9 @@ final class BlueVPN_DB {
             'payment_events', 'provisioning_attempts', 'webhook_deliveries',
             'free_config_sources', 'free_configs', 'free_config_reports', 'bot_settings', 'bot_jobs', 'ai_connection_events', 'ai_live_connections',
             'ai_route_aggregates', 'ai_feedback', 'ai_incidents', 'ai_reconciliation_runs',
+            'support_departments', 'support_topics', 'support_operators', 'support_conversations',
+            'support_messages', 'support_events', 'support_attachments', 'support_notes',
+            'support_canned_replies',
         ];
     }
 

@@ -1,4 +1,4 @@
-# BlueVPN 4.11.6 — BluPal Callback + Friendly Webhook Routes
+# BlueVPN 4.11.7 — BluPal Callback + Friendly Webhook Routes
 
 - Defines the exact public Webhook URL `/api/v1/webhooks/blupal`.
 - Defines the required BluPal Callback page `/bluevpn/payment/callback/`.

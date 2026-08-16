@@ -454,8 +454,41 @@ final class BlueVPN_Ads {
         $items = self::free_sources($settings, true);
         $mode = sanitize_key((string)($settings['free_warp_mode'] ?? 'warp_fallback_pool'));
         if (!in_array($mode, ['warp_only', 'warp_fallback_pool', 'pool_only'], true)) $mode = 'warp_fallback_pool';
-        $warpEnabled = $mode !== 'pool_only' && (!array_key_exists('free_warp_enabled', $settings) || !empty($settings['free_warp_enabled']));
-        $legacyPoolEnabled = $mode !== 'warp_only' && !empty($settings['free_access_enabled']) && !empty($items);
+
+        $warpEnabled =
+            $mode !== 'pool_only' &&
+            (!array_key_exists('free_warp_enabled', $settings) || !empty($settings['free_warp_enabled']));
+
+        // Migration-safe intent inference: older 4.11.7 settings may have WARP
+        // disabled while `free_access_enabled` remained false because the UI
+        // called it "legacy pool". Treat that state as pool-only automatically.
+        $poolRequested =
+            !empty($settings['free_access_enabled']) ||
+            (!$warpEnabled && $mode !== 'warp_only');
+
+        $smartPoolAvailable =
+            $poolRequested &&
+            class_exists('BlueVPN_Free_Sources') &&
+            BlueVPN_Free_Sources::has_enabled_sources();
+
+        if ($smartPoolAvailable) {
+            // First-class local subscription generated from Telegram/public
+            // collectors and continuously re-ranked by real user-network probes.
+            $items[] = [
+                'id' => 'smart-curated',
+                'name' => 'BlueVPN Smart Free Pool',
+                'url' => 'bluevpn://smart-curated',
+                'active' => true,
+                'priority' => -100,
+            ];
+        }
+        $items = array_values(array_reduce($items, static function(array $carry,array $item): array {
+            $carry[(string)$item['id']] = $item;
+            return $carry;
+        }, []));
+        usort($items, static fn($a,$b) => [(int)$a['priority'],(string)$a['name']] <=> [(int)$b['priority'],(string)$b['name']]);
+
+        $legacyPoolEnabled = $mode !== 'warp_only' && $poolRequested && !empty($items);
         $fallbackEnabled = $mode === 'warp_fallback_pool' && $legacyPoolEnabled && (!array_key_exists('free_warp_fallback_enabled', $settings) || !empty($settings['free_warp_fallback_enabled']));
         $enabled = $warpEnabled || $legacyPoolEnabled;
         $base = untrailingslashit(home_url('/'));
@@ -575,9 +608,25 @@ final class BlueVPN_Ads {
 
     public static function free_subscription(WP_REST_Request $request): WP_REST_Response {
         $settings = BlueVPN_DB::settings();
-        if (empty($settings['free_access_enabled'])) return new WP_REST_Response(['detail' => ['code' => 'FREE_ACCESS_DISABLED', 'message' => 'اتصال رایگان فعال نیست']], 404);
-        $sources = self::free_sources($settings, true);
+        $mode = sanitize_key((string)($settings['free_warp_mode'] ?? 'warp_fallback_pool'));
+        if (!in_array($mode, ['warp_only','warp_fallback_pool','pool_only'], true)) $mode = 'warp_fallback_pool';
+        $warpEnabled = $mode !== 'pool_only' && (!array_key_exists('free_warp_enabled',$settings) || !empty($settings['free_warp_enabled']));
+        $poolEnabled = !empty($settings['free_access_enabled']) || (!$warpEnabled && $mode !== 'warp_only');
+        if (!$poolEnabled) {
+            return new WP_REST_Response(['detail' => ['code' => 'FREE_ACCESS_DISABLED', 'message' => 'اتصال رایگان فعال نیست']], 404);
+        }
+
         $id = (string)$request->get_param('item_id');
+        if ($id === 'smart-curated' && class_exists('BlueVPN_Free_Sources')) {
+            BlueVPN_Free_Sources::ensure_seeded_pool();
+            $body = BlueVPN_Free_Sources::subscription_text(160);
+            // Empty is still a valid temporary pool state; returning 200 lets
+            // Android keep the Free entitlement and retry without degrading the
+            // account to UNAVAILABLE.
+            return self::raw_text_response($body, 'text/plain', 'smart-curated');
+        }
+
+        $sources = self::free_sources($settings, true);
         $source = $id === '' ? ($sources[0] ?? null) : (array_values(array_filter($sources, static fn($x) => $x['id'] === $id))[0] ?? null);
         if (!$source) return new WP_REST_Response(['detail' => ['code' => 'FREE_SUBSCRIPTION_NOT_FOUND', 'message' => 'ساب رایگان پیدا نشد']], 404);
         return self::free_response_for_source($source);
@@ -920,10 +969,19 @@ final class BlueVPN_Ads {
     public static function save_free_settings(): void {
         self::guard('bluevpn_free_save');
         $s = BlueVPN_DB::settings();
-        $s['free_access_enabled'] = isset($_POST['free_access_enabled']);
-        $s['free_warp_enabled'] = isset($_POST['free_warp_enabled']);
+        $warpRequested = isset($_POST['free_warp_enabled']);
+        $s['free_warp_enabled'] = $warpRequested;
         $mode = sanitize_key((string)($_POST['free_warp_mode'] ?? 'warp_fallback_pool'));
-        $s['free_warp_mode'] = in_array($mode, ['warp_only','warp_fallback_pool','pool_only'], true) ? $mode : 'warp_fallback_pool';
+        $mode = in_array($mode, ['warp_only','warp_fallback_pool','pool_only'], true) ? $mode : 'warp_fallback_pool';
+
+        // Admin intent: disabling WARP means "use the Free Pool", not "disable
+        // free access entirely". Keep an explicit pool-only mode so the Android
+        // entitlement remains FREE and can fetch/test curated configs.
+        if (!$warpRequested && $mode !== 'warp_only') $mode = 'pool_only';
+        $s['free_warp_mode'] = $mode;
+        $s['free_access_enabled'] =
+            isset($_POST['free_access_enabled']) ||
+            (!$warpRequested && $mode === 'pool_only');
         $s['free_warp_fallback_enabled'] = isset($_POST['free_warp_fallback_enabled']);
         $s['free_warp_guest_allowed'] = isset($_POST['free_warp_guest_allowed']);
         $s['free_warp_start_timeout_seconds'] = max(3, min(40, (int)($_POST['free_warp_start_timeout_seconds'] ?? 30)));
@@ -1070,13 +1128,13 @@ final class BlueVPN_Ads {
 
     public static function render_free_admin(): void {
         $s = BlueVPN_DB::settings(); self::notice();
-        echo '<div class="bvc-card"><h2>اتصال رایگان</h2><p>موتور اصلی Free می‌تواند Cloudflare WARP/Aether باشد و ساب‌های عمومی فقط نقش پشتیبان داشته باشند.</p><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_free_save'); echo '<input type="hidden" name="action" value="bluevpn_free_save"><div class="bvc-form-grid">';
+        echo '<div class="bvc-card"><h2>اتصال رایگان</h2><p>اتصال رایگان می‌تواند با WARP یا Smart Free Pool کار کند. Smart Pool از منابع عمومی جمع‌آوری و با اینترنت واقعی کاربران رتبه‌بندی می‌شود.</p><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_free_save'); echo '<input type="hidden" name="action" value="bluevpn_free_save"><div class="bvc-form-grid">';
         self::checkbox('free_warp_enabled', 'WARP / Aether فعال', !array_key_exists('free_warp_enabled',$s)||!empty($s['free_warp_enabled']));
         echo '<label>حالت موتور رایگان<select name="free_warp_mode">';
         $mode=(string)($s['free_warp_mode']??'warp_fallback_pool');
-        foreach (['warp_fallback_pool'=>'WARP اصلی + Pool پشتیبان','warp_only'=>'فقط WARP','pool_only'=>'فقط Pool قدیمی'] as $v=>$l) echo '<option value="'.esc_attr($v).'" '.selected($mode,$v,false).'>'.esc_html($l).'</option>';
+        foreach (['warp_fallback_pool'=>'WARP اصلی + Smart Pool پشتیبان','warp_only'=>'فقط WARP','pool_only'=>'فقط Smart Free Pool'] as $v=>$l) echo '<option value="'.esc_attr($v).'" '.selected($mode,$v,false).'>'.esc_html($l).'</option>';
         echo '</select></label>';
-        self::checkbox('free_warp_fallback_enabled', 'Fallback به Pool رایگان', !array_key_exists('free_warp_fallback_enabled',$s)||!empty($s['free_warp_fallback_enabled']));
+        self::checkbox('free_warp_fallback_enabled', 'Fallback به Smart Free Pool', !array_key_exists('free_warp_fallback_enabled',$s)||!empty($s['free_warp_fallback_enabled']));
         self::checkbox('free_warp_guest_allowed', 'اتصال مهمان بدون ورود', !array_key_exists('free_warp_guest_allowed',$s)||!empty($s['free_warp_guest_allowed']));
         self::number('free_warp_start_timeout_seconds', 'مهلت شروع WARP (ثانیه)', (int)($s['free_warp_start_timeout_seconds'] ?? 30), 3, 40);
         self::checkbox('free_warp_adaptive_enabled', 'Strategy تطبیقی', !array_key_exists('free_warp_adaptive_enabled',$s)||!empty($s['free_warp_adaptive_enabled']));
@@ -1093,7 +1151,7 @@ final class BlueVPN_Ads {
         self::number('free_warp_warm_timeout_seconds', 'Warm timeout', (int)($s['free_warp_warm_timeout_seconds'] ?? 8), 4, 12);
         self::number('free_warp_cold_timeout_seconds', 'Cold timeout', (int)($s['free_warp_cold_timeout_seconds'] ?? 30), 15, 40);
         self::number('free_warp_total_timeout_seconds', 'Total timeout', (int)($s['free_warp_total_timeout_seconds'] ?? 75), 30, 90);
-        self::checkbox('free_access_enabled', 'Pool رایگان قدیمی فعال', !empty($s['free_access_enabled']));
+        self::checkbox('free_access_enabled', 'Smart Free Pool فعال', !empty($s['free_access_enabled']));
         self::number('free_session_minutes', 'مدت هر Session (دقیقه)', (int)($s['free_session_minutes'] ?? 60), 15, 180);
         echo '</div>'; submit_button('ذخیره موتور رایگان', 'primary', 'submit', false); echo '</form></div>';
         echo '<div class="bvc-card"><h2>افزودن ساب رایگان</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_free_add'); echo '<input type="hidden" name="action" value="bluevpn_free_add"><div class="bvc-form-grid">'; self::text('name', 'نام', 'سرور رایگان'); self::text('url', 'URL ساب', ''); self::number('priority', 'اولویت', 0, 0, 9999); echo '<label><input type="checkbox" name="active" value="1" checked> فعال</label></div>'; submit_button('افزودن', 'primary', 'submit', false); echo '</form></div>';

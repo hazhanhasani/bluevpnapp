@@ -1,4 +1,4 @@
-# BlueVPN 4.11.6 — Panel / Site / BluPal / Smart Free Pool
+# BlueVPN 4.11.7 — Panel / Site / BluPal / Smart Free Pool
 
 This release is a panel/WordPress release with a small Android reporting hook required for crowd-tested free-pool ranking.
 

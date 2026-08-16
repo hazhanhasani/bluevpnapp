@@ -10,8 +10,8 @@ class FastCi4710Tests(unittest.TestCase):
     def test_version_is_4710(self):
         app = json.loads((ROOT / 'branding/app.json').read_text(encoding='utf-8'))
         release = json.loads((ROOT / 'release.json').read_text(encoding='utf-8'))
-        self.assertEqual((app['version_name'], app['version_code']), ('4.11.6', 41106))
-        self.assertEqual((release['version'], release['version_code']), ('4.11.6', 41106))
+        self.assertEqual((app['version_name'], app['version_code']), ('4.11.8', 41108))
+        self.assertEqual((release['version'], release['version_code']), ('4.11.8', 41108))
 
     def test_manual_fast_and_repository_full_defaults_are_explicit(self):
         self.assertIn('default: fast', WORKFLOW)

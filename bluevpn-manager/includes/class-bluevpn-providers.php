@@ -369,6 +369,56 @@ final class BlueVPN_Providers {
         $r=self::req('GET',self::join_url((string)$p['base_url'],'/api/subscriptions/'.rawurlencode($username)),self::gc_headers($p),null,(bool)$p['verify_tls']);
         if($r['code']===404)return null;if($r['code']>=400)throw new RuntimeException('خواندن اشتراک GuardCore ناموفق: HTTP '.$r['code'].' '.mb_substr($r['body'],0,300));if(!$r['json'])throw new RuntimeException('پاسخ GuardCore معتبر نیست.');return self::gc_normalize($p,$r['json']);
     }
+    private static function gc_find_customer_subscription(array $p,array $customer,string $preferredUsername): ?array {
+        $preferredUsername=trim($preferredUsername);
+        if($preferredUsername!==''){
+            $direct=self::gc_user($p,$preferredUsername);
+            if($direct)return $direct;
+        }
+
+        // Lost local mappings can still be recovered safely from GuardCore 0.13
+        // using its subscription search. Matching is deliberately strict: we
+        // only attach exact customer identity candidates or a BlueVPN note that
+        // contains this WordPress customer id. Never attach on fuzzy similarity.
+        $candidates=[];
+        foreach([
+            $preferredUsername,
+            (string)($customer['email']??''),
+            (string)($customer['phone']??''),
+            (string)($customer['username']??''),
+        ] as $candidate){
+            $candidate=trim($candidate);
+            if($candidate!=='')$candidates[$candidate]=true;
+        }
+        $customerId=(int)($customer['id']??0);
+        if($customerId>0){
+            $seed=(string)(($customer['email']??'')?:($customer['phone']??'')?:$customerId);
+            $generated=substr('bv_'.$customerId.'_'.substr(sha1('gc:'.$seed),0,9),0,32);
+            if($generated!=='')$candidates[$generated]=true;
+        }
+        $searchTerms=array_keys($candidates);
+        if($customerId>0)$searchTerms[]='customer '.$customerId;
+        foreach(array_values(array_unique($searchTerms)) as $search){
+            $path='/api/subscriptions?search='.rawurlencode($search).'&page=1&size=50';
+            $r=self::gc_request($p,'GET',$path);
+            if($r['code']>=400)continue;
+            $rows=is_array($r['json'])?$r['json']:[];
+            foreach($rows as $row){
+                if(!is_array($row))continue;
+                $username=trim((string)($row['username']??''));
+                $note=trim((string)($row['note']??''));
+                $exact=$username!==''&&isset($candidates[$username]);
+                $owned=$customerId>0&&$note!==''&&(
+                    str_contains($note,'customer '.$customerId)||
+                    str_contains($note,'customer #'.$customerId)||
+                    str_contains($note,'customer_id='.$customerId)
+                );
+                if($exact||$owned)return self::gc_normalize($p,$row);
+            }
+        }
+        return null;
+    }
+
     private static function gc_provision(array $p,string $username,?string $expire,int $quota,array $serviceIds,string $note,?array $remote): array {
         $serviceIds=array_values(array_unique(array_filter(array_map('intval',$serviceIds),static fn($x)=>$x>0)));if(!$serviceIds)throw new RuntimeException('حداقل یک Service ID برای GuardCore لازم است.');
         $payload=['limit_usage'=>self::gc_usage_encode($p,$quota),'limit_expire'=>self::gc_expire_encode($p,$expire),'service_ids'=>$serviceIds,'note'=>mb_substr($note,0,500)];
@@ -656,12 +706,82 @@ final class BlueVPN_Providers {
 
         if($expectsGc){
             try{
-                $p=self::panel('guardcore',$gcId);$global=$p?trim((string)($p['global_subscription_url']??'')):'';
-                if(!$p||!(int)$p['active']||($p['auth_mode']??'manual')!=='manual'||$global==='')throw new RuntimeException('Global Subscription فعال پیدا نشد.');
-                $wasMapped=((int)($c['guardcore_panel_id']??0)===(int)$p['id']&&trim((string)($c['guardcore_subscription_url']??''))!=='');
-                $update['guardcore_panel_id']=(int)$p['id'];$update['guardcore_username']=self::username($c,'gc');$update['guardcore_subscription_url']=esc_url_raw($global);$update['guardcore_status']='active';$update['guardcore_expire']=$expire;$update['guardcore_last_error']='';
-                if($wasMapped){$existing++;$details['guardcore']='global_existing';}else{$attached++;$details['guardcore']='global_attached';}
-            }catch(Throwable $e){$errors[]='GuardCore: '.$e->getMessage();$details['guardcore']='error';}
+                $p=self::panel('guardcore',$gcId);
+                if(!$p||!(int)$p['active'])throw new RuntimeException('پنل GuardCore فعال پیدا نشد.');
+                $u=self::username($c,'gc');
+                $global=trim((string)($p['global_subscription_url']??''));
+                $wasMapped=
+                    ((int)($c['guardcore_panel_id']??0)===(int)$p['id'])&&
+                    (
+                        trim((string)($c['guardcore_subscription_url']??''))!==''||
+                        trim((string)($c['guardcore_username']??''))!==''
+                    );
+
+                if(($p['auth_mode']??'manual')==='manual'){
+                    if($global==='')throw new RuntimeException('Global Subscription فعال پیدا نشد.');
+                    $update['guardcore_panel_id']=(int)$p['id'];
+                    $update['guardcore_username']=$u;
+                    $update['guardcore_subscription_url']=esc_url_raw($global);
+                    $update['guardcore_status']='active';
+                    $update['guardcore_expire']=$expire;
+                    $update['guardcore_last_error']='';
+                    if($wasMapped){$existing++;$details['guardcore']='global_existing';}
+                    else{$attached++;$details['guardcore']='global_attached';}
+                }else{
+                    $serviceIds=array_values(array_unique(array_filter(array_map(
+                        'intval',
+                        BlueVPN_Utils::json_decode_array((string)($plan['guardcore_service_ids_json']??''),[])
+                    ),static fn($x)=>$x>0)));
+                    $remote=self::gc_find_customer_subscription($p,$c,$u);
+                    if(!$remote){
+                        if(!$serviceIds)throw new RuntimeException('برای ساخت اشتراک گمشده GuardCore، Serviceهای پلن مشخص نشده‌اند.');
+                        $remote=self::gc_provision(
+                            $p,$u,$expire,$quota,$serviceIds,
+                            'BlueVPN repair; customer '.$customerId,
+                            null
+                        );
+                        $created++;
+                        $details['guardcore']='created';
+                    }else{
+                        $existingUsername=trim((string)($remote['username']??''))?:$u;
+                        $u=$existingUsername;
+
+                        // Repair access selection without touching quota, usage
+                        // or expiry. GuardCore SubscriptionUpdate accepts a
+                        // partial service_ids payload.
+                        if($serviceIds){
+                            $remoteServices=array_values(array_unique(array_map('intval',(array)($remote['service_ids']??[]))));
+                            sort($remoteServices);$expectedServices=$serviceIds;sort($expectedServices);
+                            if($remoteServices!==$expectedServices){
+                                $sync=self::gc_request(
+                                    $p,'PUT',
+                                    '/api/subscriptions/'.rawurlencode($u),
+                                    ['service_ids'=>$serviceIds]
+                                );
+                                if($sync['code']>=400)throw new RuntimeException('همگام‌سازی Serviceهای GuardCore ناموفق: HTTP '.$sync['code']);
+                                $remote=self::gc_user($p,$u)?:$remote;
+                            }
+                        }
+
+                        if($wasMapped){$existing++;$details['guardcore']='services_synced';}
+                        else{$attached++;$details['guardcore']='attached_services_synced';}
+                    }
+
+                    $update['guardcore_panel_id']=(int)$p['id'];
+                    $update['guardcore_username']=$u;
+                    $update['guardcore_subscription_id']=is_numeric($remote['id']??null)?(int)$remote['id']:null;
+                    $update['guardcore_subscription_url']=(string)($remote['subscription_url']??'');
+                    $update['guardcore_status']=(string)($remote['status']??'active');
+                    $update['guardcore_expire']=$remote['expire']??$expire;
+                    $update['guardcore_data_limit_bytes']=(int)($remote['data_limit']??$quota);
+                    $update['guardcore_used_traffic_bytes']=(int)($remote['used_traffic']??0);
+                    $update['guardcore_last_error']='';
+                }
+            }catch(Throwable $e){
+                $errors[]='GuardCore: '.$e->getMessage();
+                $details['guardcore']='error';
+                $update['guardcore_last_error']=mb_substr($e->getMessage(),0,1800);
+            }
         }
 
         $repaired=$created+$attached;

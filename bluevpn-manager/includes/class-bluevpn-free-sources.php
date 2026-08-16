@@ -63,6 +63,20 @@ final class BlueVPN_Free_Sources {
         return ['ok'=>true,'added'=>$added,'seen'=>$seen,'total'=>count($uris)];
     }
 
+    public static function has_enabled_sources(): bool {
+        self::seed();
+        global $wpdb;
+        $t=BlueVPN_DB::table('free_config_sources');
+        return (int)$wpdb->get_var("SELECT COUNT(*) FROM {$t} WHERE enabled=1") > 0;
+    }
+
+    public static function ensure_seeded_pool(): void {
+        self::seed();
+        if (!self::has_enabled_sources()) return;
+        // Reuse the bounded cron policy. It fetches only sources that are due.
+        self::cron_refresh();
+    }
+
     public static function curated(int $limit=80): array {
         self::seed(); global $wpdb;$ct=BlueVPN_DB::table('free_configs');
         $limit=max(10,min(300,$limit));$fresh=gmdate('Y-m-d H:i:s',time()-2*DAY_IN_SECONDS);

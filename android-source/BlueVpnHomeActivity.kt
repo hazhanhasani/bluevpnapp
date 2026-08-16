@@ -2273,6 +2273,16 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         navigationLocked = false
         BlueVpnUpdateManager.resumePendingInstall(this)
         applyEntitlementPresentation(BlueVpnEntitlement.resolveUi(this))
+        if (
+            !BlueVpnAccountManager.premiumEntitlementActive(this) &&
+            BlueVpnAccountManager.freeAccessEnabled(this) &&
+            !BlueVpnAccountManager.warpFreeEnabled(this)
+        ) {
+            // Pool-only Free must proactively materialize the curated
+            // subscription so background AI can test it before the user taps
+            // Connect. WARP being disabled is not a reason to disable Free.
+            prepareFreePlanAccess(force = false)
+        }
         BlueVpnBackgroundReliability.observeAndMaybeOptimize(this)
         BlueVpnAccountManager.enforceFreeSession(this)
         if (BlueVpnAccountManager.consumeFreeExpiredNotice(this)) {
@@ -3109,10 +3119,10 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun prepareFreePlanAccess(force: Boolean) {
-        // WARP is the primary Free transport. Do not keep downloading/scanning
-        // public Free subscriptions in the background when Aether is packaged
-        // and executable; the legacy pool is fetched only after a bounded WARP
-        // startup failure and remains a compatibility fallback.
+        // When WARP is enabled it remains the primary Free transport and the
+        // Smart Pool is fetched lazily as fallback. When WARP is disabled,
+        // Smart Pool becomes the primary Free transport and is prepared
+        // proactively so background AI can benchmark it before Connect.
         if (BlueVpnAccountManager.warpFreeEnabled(this) && BlueVpnWarpEngine.supported(this) &&
             warpFallbackGeneration != connectionPreparationGeneration) return
         // Logged-in users without an active Premium entitlement are Free users too.
@@ -3130,6 +3140,11 @@ private fun dpHome(value: Int): Int =
                 if (prepared) {
                     BlueVpnLocationUtil.invalidateCache()
                     mainViewModel.reloadServerList()
+                    BlueVpnBackgroundOptimizer.markPending(this@BlueVpnHomeActivity)
+                    BlueVpnBackgroundOptimizer.maybeStart(
+                        this@BlueVpnHomeActivity,
+                        force = force,
+                    )
                 }
                 requestDashboardRefresh(force = true)
                 refreshSubscriptionInfo(force = true)
@@ -3267,7 +3282,7 @@ private fun dpHome(value: Int): Int =
 
         // Free primary engine: Aether/WARP. Premium remains on the exact stock
         // v2rayNG subscription path. If the native Aether binary cannot start,
-        // fall back to the existing isolated Free subscription pool for this
+        // fall back to the isolated Smart Free Pool for this
         // connect attempt rather than leaving the user stuck.
         if (entitlement.isFree && BlueVpnAccountManager.warpFreeEnabled(this) &&
             warpFallbackGeneration != connectionPreparationGeneration) {
@@ -3680,7 +3695,7 @@ private fun dpHome(value: Int): Int =
                     warpFallbackGeneration = connectionPreparationGeneration
                     connectButton.isEnabled = true
                     if (BlueVpnAccountManager.warpFallbackEnabled(this@BlueVpnHomeActivity)) {
-                        statusCaption.text = "WARP آماده نشد • استفاده از Pool رایگان پشتیبان"
+                        statusCaption.text = "WARP آماده نشد • استفاده از Smart Free Pool پشتیبان"
                         handler.post { beginSmartConnection() }
                     } else {
                         hideConnectingOverlay()

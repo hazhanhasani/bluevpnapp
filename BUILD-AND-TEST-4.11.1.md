@@ -1,4 +1,4 @@
-# BlueVPN 4.11.6 — GuardCore API 0.13 Integration
+# BlueVPN 4.11.7 — GuardCore API 0.13 Integration
 
 Source contract: GuardCore OpenAPI 3.1, API version 0.13.0 supplied from the official
 `api.cyberpower.space` Swagger/OpenAPI document.

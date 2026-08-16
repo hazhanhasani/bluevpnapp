@@ -27,10 +27,12 @@ class SupportChatUi4106(unittest.TestCase):
 
     def test_department_selection_is_chat_native(self):
         s=self.text("android-source/BlueVpnSupportActivity.kt")
-        self.assertIn("showDepartmentChooser()",s)
+        self.assertIn("showDepartmentChooser",s)
         self.assertIn("rebuildDepartmentList()",s)
-        self.assertIn("موضوع گفتگو",s)
-        self.assertIn("پیام شما مستقیم به بخش مربوطه ارجاع می‌شود",s)
+        self.assertIn("showTopicChooser",s)
+        self.assertIn("انتخاب بخش",s)
+        self.assertIn("انتخاب موضوع",s)
+        self.assertIn("موضوع دقیق درخواست را انتخاب کنید",s)
 
     def test_message_bubbles_have_identity_metadata_and_seen_state(self):
         s=self.text("android-source/BlueVpnSupportActivity.kt")

@@ -1,4 +1,4 @@
-# BlueVPN 4.11.6 — BlueAI Control Plane v3
+# BlueVPN 4.11.7 — BlueAI Control Plane v3
 
 Implemented:
 - Unified privacy-safe Android intelligence core and bounded event history.

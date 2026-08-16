@@ -1,4 +1,4 @@
-# BlueVPN 4.11.6 — Iran Date/Time Display
+# BlueVPN 4.11.7 — Iran Date/Time Display
 
 - Database and expiry calculations remain UTC.
 - All manager-facing date/time presentation uses Asia/Tehran.

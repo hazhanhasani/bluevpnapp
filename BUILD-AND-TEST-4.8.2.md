@@ -1,4 +1,4 @@
-# BlueVPN 4.11.6 build/test summary
+# BlueVPN 4.11.7 build/test summary
 
 ## WARP Iran-exit recovery
 - Tracks EXIT_IRAN per network signature across distinct WARP strategies.

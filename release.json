@@ -1,13 +1,29 @@
 {
-  "version": "4.11.6",
-  "version_code": 41106,
+  "version": "4.11.8",
+  "version_code": 41108,
   "channel": "beta",
-  "build_id": "20260816-v4.11.6-fast-ci",
-  "built_at": "2026-08-15T22:45:00Z",
-  "android_version": "4.11.6",
-  "android_version_code": 41106,
-  "description": "BlueVPN 4.11.6 upgrades the WordPress panel/site payment stack to BluPal, adds verified idempotent payment-to-provisioning orchestration, expands MySQL payment/provision audit tables, and introduces a crowd-tested Telegram public free-config pool ranked by real user-network probes.",
+  "build_id": "20260816-v4.11.8-release-hardening",
+  "built_at": "2026-08-16T19:49:58Z",
+  "android_version": "4.11.8",
+  "android_version_code": 41108,
+  "description": "BlueVPN 4.11.8 hardens live support for release with explicit Department → Topic → Message routing, idempotent conversation/message submission, validated operator transfers, and adds full GuardCore API participation to the missing-subscription repair scan alongside PasarGuard and Marzban.",
   "features": [
+    "support-canonical-backup-inventory",
+    "wordpress-schema-1.19.0",
+    "support-conversation-list-n-plus-one-removed",
+    "support-priority-aware-queue",
+    "support-draft-selection-recreation-safety",
+    "support-department-topic-message-routing",
+    "support-topic-schema-1.2.0",
+    "support-idempotent-conversation-create",
+    "support-idempotent-message-send",
+    "support-validated-operator-department-topic-transfer",
+    "support-scrollable-topic-chooser",
+    "support-stale-operator-autoassign-guard",
+    "guardcore-api-missing-subscription-scan",
+    "guardcore-lost-mapping-strict-identity-recovery",
+    "guardcore-plan-service-reconciliation-no-expiry-reset",
+    "provider-repair-pasarguard-marzban-guardcore",
     "bluevpn-site-blue-cyan-theme",
     "crowd-tested-free-pool-ranking",
     "telegram-public-free-config-source",
@@ -286,5 +302,5 @@
     "gradle-build-cache-and-parallel",
     "signed-apk-upload-before-production-barriers"
   ],
-  "version_source": "v4.11.6-fast-ci"
+  "version_source": "v4.11.8-release-hardening"
 }

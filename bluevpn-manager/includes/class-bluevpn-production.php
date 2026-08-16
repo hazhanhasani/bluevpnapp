@@ -68,6 +68,7 @@ final class BlueVPN_Production {
             'bluevpn_app_release_last_sync_v1',
             'bluevpn_bot_runtime_migrated_at',
             'bluevpn_sms_catalog_version',
+            'bluevpn_support_schema',
         ];
     }
 

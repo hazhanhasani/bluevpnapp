@@ -39,7 +39,7 @@ class PremiumInstantUiSupportPhase24104(unittest.TestCase):
 
     def test_support_phase2_schema(self):
         s=self.text("bluevpn-manager/includes/class-bluevpn-support.php")
-        self.assertIn("private const SCHEMA = '1.1.0'",s)
+        self.assertIn("private const SCHEMA = '1.2.0'",s)
         self.assertIn("self::table('attachments')",s)
         self.assertIn("self::table('notes')",s)
         self.assertIn("self::table('canned_replies')",s)

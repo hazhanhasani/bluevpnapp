@@ -1,4 +1,4 @@
-# BlueVPN 4.11.6 — Single Notification + Public Branding
+# BlueVPN 4.11.7 — Single Notification + Public Branding
 
 - Removed duplicate user-visible VPN notification by sharing the upstream CoreVpnService notification ID.
 - BlueVpnWarpKeepAliveService no longer runs its own 3-second notification refresh loop; v2rayNG/Xray Core notification is the single system UI owner.

@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class BlueVPN_Support {
-    private const SCHEMA = '1.1.0';
+    private const SCHEMA = '1.2.0';
 
     public static function init(): void {
         self::maybe_upgrade();
@@ -11,6 +11,7 @@ final class BlueVPN_Support {
         add_action('admin_post_bluevpn_support_assign', [self::class, 'admin_assign']);
         add_action('admin_post_bluevpn_support_status', [self::class, 'admin_status']);
         add_action('admin_post_bluevpn_support_department_save', [self::class, 'admin_department_save']);
+        add_action('admin_post_bluevpn_support_topic_save', [self::class, 'admin_topic_save']);
         add_action('admin_post_bluevpn_support_operator_save', [self::class, 'admin_operator_save']);
         add_action('admin_post_bluevpn_support_note', [self::class, 'admin_note']);
         add_action('admin_post_bluevpn_support_canned_save', [self::class, 'admin_canned_save']);
@@ -48,6 +49,22 @@ final class BlueVPN_Support {
             KEY ix_support_department_active (active,sort_order)
         ) $cc;");
 
+        dbDelta("CREATE TABLE " . self::table('topics') . " (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            department_id bigint unsigned NOT NULL,
+            name varchar(140) NOT NULL,
+            slug varchar(100) NOT NULL,
+            description varchar(255) NOT NULL DEFAULT '',
+            active tinyint(1) NOT NULL DEFAULT 1,
+            priority varchar(16) NOT NULL DEFAULT 'normal',
+            sort_order int NOT NULL DEFAULT 0,
+            created_at datetime NOT NULL,
+            updated_at datetime NOT NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY uq_support_topic_slug (department_id,slug),
+            KEY ix_support_topic_active (department_id,active,sort_order)
+        ) $cc;");
+
         dbDelta("CREATE TABLE " . self::table('operators') . " (
             id bigint unsigned NOT NULL AUTO_INCREMENT,
             wp_user_id bigint unsigned NOT NULL DEFAULT 0,
@@ -68,8 +85,10 @@ final class BlueVPN_Support {
             public_id varchar(40) NOT NULL,
             customer_id bigint unsigned NOT NULL,
             department_id bigint unsigned NOT NULL,
+            topic_id bigint unsigned NOT NULL DEFAULT 0,
             operator_id bigint unsigned NOT NULL DEFAULT 0,
             subject varchar(180) NOT NULL DEFAULT '',
+            client_request_id varchar(64) NULL,
             status varchar(24) NOT NULL DEFAULT 'waiting',
             priority varchar(16) NOT NULL DEFAULT 'normal',
             source varchar(16) NOT NULL DEFAULT 'android',
@@ -85,7 +104,9 @@ final class BlueVPN_Support {
             closed_at datetime NULL,
             PRIMARY KEY (id),
             UNIQUE KEY uq_support_public_id (public_id),
+            UNIQUE KEY uq_support_create_request (customer_id,client_request_id),
             KEY ix_support_customer (customer_id,status,last_message_at),
+            KEY ix_support_topic (department_id,topic_id,status,last_message_at),
             KEY ix_support_queue (department_id,status,priority,last_message_at),
             KEY ix_support_operator (operator_id,status,last_message_at),
             KEY ix_support_sla (status,first_response_due_at,resolution_due_at)
@@ -98,11 +119,13 @@ final class BlueVPN_Support {
             sender_id bigint unsigned NOT NULL DEFAULT 0,
             body text NOT NULL,
             message_type varchar(16) NOT NULL DEFAULT 'text',
+            client_message_id varchar(64) NULL,
             telegram_chat_id varchar(40) NOT NULL DEFAULT '',
             telegram_message_id varchar(40) NOT NULL DEFAULT '',
             created_at datetime NOT NULL,
             seen_at datetime NULL,
             PRIMARY KEY (id),
+            UNIQUE KEY uq_support_client_message (conversation_id,client_message_id),
             KEY ix_support_messages (conversation_id,id),
             KEY ix_support_unseen (conversation_id,sender_type,seen_at)
         ) $cc;");
@@ -189,6 +212,55 @@ final class BlueVPN_Support {
                 ]);
             }
         }
+        $topics=self::table('topics');
+        if ((int)$wpdb->get_var("SELECT COUNT(*) FROM {$topics}")===0) {
+            $topicRows=[
+                'technical'=>[
+                    ['اتصال برقرار نمی‌شود','connectivity','مشکل اتصال، قطع و وصل یا عدم دسترسی',10,'high'],
+                    ['سرعت و پایداری','performance','سرعت پایین، پینگ، نوسان یا قطعی',20,'normal'],
+                    ['لوکیشن و IP','location-ip','لوکیشن، IP خروجی یا دسترسی سرویس‌ها',30,'normal'],
+                    ['اپلیکیشن و خطا','app-error','باگ رابط، خطا یا مشکل عملکرد اپ',40,'normal'],
+                ],
+                'account'=>[
+                    ['ورود و حساب کاربری','login-account','ورود، ثبت‌نام، شماره یا ایمیل',10,'normal'],
+                    ['اشتراک فعال نیست','entitlement','فعال‌سازی، همگام‌سازی یا وضعیت اشتراک',20,'high'],
+                    ['حجم و زمان اشتراک','quota-expiry','حجم، تاریخ انقضا یا محدودیت دستگاه',30,'normal'],
+                ],
+                'billing'=>[
+                    ['پرداخت موفق ولی فعال نشده','paid-not-active','پرداخت تأیید شده اما سرویس فعال نشده',10,'urgent'],
+                    ['پرداخت ناموفق','payment-failed','خطای درگاه، فاکتور یا تراکنش ناموفق',20,'high'],
+                    ['برگشت وجه / مغایرت','refund-mismatch','مغایرت مبلغ یا بررسی بازگشت وجه',30,'high'],
+                ],
+                'sales'=>[
+                    ['خرید سرویس','purchase','راهنمای خرید یا انتخاب پلن',10,'normal'],
+                    ['تمدید سرویس','renewal','تمدید یا افزایش مدت و حجم',20,'normal'],
+                    ['ارتقای پلن','upgrade','تغییر یا ارتقای سرویس',30,'normal'],
+                ],
+                'resellers'=>[
+                    ['حساب نمایندگی','reseller-account','وضعیت نماینده و دسترسی‌ها',10,'normal'],
+                    ['کیف پول و تسویه','reseller-wallet','کیف پول، بدهی و تسویه',20,'high'],
+                    ['ربات و زیرمجموعه','reseller-bot','ربات، کاربران زیرمجموعه و عملیات فروش',30,'normal'],
+                ],
+            ];
+            foreach($topicRows as $departmentSlug=>$items){
+                $departmentId=(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$t} WHERE slug=%s LIMIT 1",$departmentSlug));
+                if($departmentId<=0)continue;
+                foreach($items as $row){
+                    $wpdb->insert($topics,[
+                        'department_id'=>$departmentId,
+                        'name'=>$row[0],
+                        'slug'=>$row[1],
+                        'description'=>$row[2],
+                        'active'=>1,
+                        'priority'=>$row[4],
+                        'sort_order'=>$row[3],
+                        'created_at'=>$now,
+                        'updated_at'=>$now,
+                    ]);
+                }
+            }
+        }
+
         $canned=self::table('canned_replies');
         if ((int)$wpdb->get_var("SELECT COUNT(*) FROM {$canned}")===0) {
             foreach ([
@@ -343,9 +415,55 @@ final class BlueVPN_Support {
 
     private static function serialize_conversation(array $c): array {
         global $wpdb;
-        $dept=$wpdb->get_row($wpdb->prepare("SELECT id,name,slug FROM ".self::table('departments')." WHERE id=%d",(int)$c['department_id']),ARRAY_A);
-        $op=null;
-        if ((int)$c['operator_id']>0) $op=$wpdb->get_row($wpdb->prepare("SELECT id,display_name,online FROM ".self::table('operators')." WHERE id=%d",(int)$c['operator_id']),ARRAY_A);
+
+        if(array_key_exists('department_name',$c)){
+            $dept=!empty($c['department_join_id'])?[
+                'id'=>(int)$c['department_join_id'],
+                'name'=>(string)$c['department_name'],
+                'slug'=>(string)($c['department_slug']??''),
+            ]:null;
+        }else{
+            $dept=$wpdb->get_row($wpdb->prepare(
+                "SELECT id,name,slug FROM ".self::table('departments')." WHERE id=%d",
+                (int)$c['department_id']
+            ),ARRAY_A);
+        }
+
+        if(array_key_exists('topic_name',$c)){
+            $topic=!empty($c['topic_join_id'])?[
+                'id'=>(int)$c['topic_join_id'],
+                'department_id'=>(int)$c['department_id'],
+                'name'=>(string)$c['topic_name'],
+                'slug'=>(string)($c['topic_slug']??''),
+                'description'=>(string)($c['topic_description']??''),
+                'priority'=>(string)($c['topic_priority']??'normal'),
+            ]:null;
+        }else{
+            $topic=null;
+            if((int)($c['topic_id']??0)>0){
+                $topic=$wpdb->get_row($wpdb->prepare(
+                    "SELECT id,department_id,name,slug,description,priority FROM ".self::table('topics')." WHERE id=%d",
+                    (int)$c['topic_id']
+                ),ARRAY_A);
+            }
+        }
+
+        if(array_key_exists('operator_name',$c)){
+            $op=!empty($c['operator_join_id'])?[
+                'id'=>(int)$c['operator_join_id'],
+                'display_name'=>(string)$c['operator_name'],
+                'online'=>(bool)$c['operator_online'],
+            ]:null;
+        }else{
+            $op=null;
+            if((int)$c['operator_id']>0){
+                $op=$wpdb->get_row($wpdb->prepare(
+                    "SELECT id,display_name,online FROM ".self::table('operators')." WHERE id=%d",
+                    (int)$c['operator_id']
+                ),ARRAY_A);
+            }
+        }
+
         return [
             'id'=>(int)$c['id'],
             'public_id'=>(string)$c['public_id'],
@@ -353,6 +471,7 @@ final class BlueVPN_Support {
             'status'=>(string)$c['status'],
             'priority'=>(string)$c['priority'],
             'department'=>$dept?:null,
+            'topic'=>$topic?:null,
             'operator'=>$op?:null,
             'unread'=>(int)$c['unread_customer'],
             'last_message_at'=>(string)$c['last_message_at'],
@@ -366,10 +485,29 @@ final class BlueVPN_Support {
             self::auth_customer($r);
             global $wpdb;
             $rows=$wpdb->get_results("SELECT id,name,slug,description FROM ".self::table('departments')." WHERE active=1 ORDER BY sort_order ASC,id ASC",ARRAY_A);
-            return new WP_REST_Response(['departments'=>array_map(static function($x){
-                return ['id'=>(int)$x['id'],'name'=>(string)$x['name'],'slug'=>(string)$x['slug'],'description'=>(string)$x['description']];
+            $topicRows=$wpdb->get_results("SELECT id,department_id,name,slug,description,priority FROM ".self::table('topics')." WHERE active=1 ORDER BY department_id,sort_order,id",ARRAY_A);
+            $topicMap=[];
+            foreach((array)$topicRows as $topic){
+                $topicMap[(int)$topic['department_id']][]=[
+                    'id'=>(int)$topic['id'],
+                    'name'=>(string)$topic['name'],
+                    'slug'=>(string)$topic['slug'],
+                    'description'=>(string)$topic['description'],
+                    'priority'=>(string)$topic['priority'],
+                ];
+            }
+            return new WP_REST_Response(['departments'=>array_map(static function($x) use($topicMap){
+                $id=(int)$x['id'];
+                return [
+                    'id'=>$id,
+                    'name'=>(string)$x['name'],
+                    'slug'=>(string)$x['slug'],
+                    'description'=>(string)$x['description'],
+                    'topics'=>$topicMap[$id]??[],
+                ];
             },(array)$rows)]);
         } catch (BlueVPN_Auth_Exception $e) { return self::auth_fail($e); }
+        catch(Throwable $e){ return self::server_fail($e,'support_departments'); }
     }
 
     public static function api_conversations(WP_REST_Request $r): WP_REST_Response {
@@ -377,11 +515,22 @@ final class BlueVPN_Support {
             $customer=self::auth_customer($r);
             global $wpdb;
             $rows=$wpdb->get_results($wpdb->prepare(
-                "SELECT * FROM ".self::table('conversations')." WHERE customer_id=%d ORDER BY last_message_at DESC LIMIT 30",
+                "SELECT c.*,
+                        d.id department_join_id,d.name department_name,d.slug department_slug,
+                        t.id topic_join_id,t.name topic_name,t.slug topic_slug,t.description topic_description,t.priority topic_priority,
+                        o.id operator_join_id,o.display_name operator_name,o.online operator_online
+                 FROM ".self::table('conversations')." c
+                 LEFT JOIN ".self::table('departments')." d ON d.id=c.department_id
+                 LEFT JOIN ".self::table('topics')." t ON t.id=c.topic_id
+                 LEFT JOIN ".self::table('operators')." o ON o.id=c.operator_id
+                 WHERE c.customer_id=%d
+                 ORDER BY c.last_message_at DESC
+                 LIMIT 30",
                 (int)$customer['id']
             ),ARRAY_A);
             return new WP_REST_Response(['conversations'=>array_map([self::class,'serialize_conversation'],(array)$rows)]);
         } catch (BlueVPN_Auth_Exception $e) { return self::auth_fail($e); }
+        catch(Throwable $e){ return self::server_fail($e,'support_conversations'); }
     }
 
     private static function auto_assign_operator(int $departmentId): int {
@@ -394,6 +543,7 @@ final class BlueVPN_Support {
              FROM {$operators} o
              LEFT JOIN {$conversations} c ON c.operator_id=o.id
              WHERE o.online=1
+               AND (o.last_seen_at IS NULL OR o.last_seen_at >= UTC_TIMESTAMP() - INTERVAL 10 MINUTE)
              GROUP BY o.id,o.department_ids,o.max_active
              ORDER BY active_count ASC,o.id ASC",
             ARRAY_A
@@ -413,30 +563,98 @@ final class BlueVPN_Support {
             self::rate_limit((int)$customer['id'],'create',4,120);
             $body=$r->get_json_params(); if(!is_array($body))$body=[];
             $dept=(int)($body['department_id']??0);
+            $topicId=max(0,(int)($body['topic_id']??0));
+            $clientRequestId=sanitize_key((string)($body['client_request_id']??''));
+            if(strlen($clientRequestId)>64)$clientRequestId=substr($clientRequestId,0,64);
             $message=self::clean_message($body['message']??'');
-            $subject=sanitize_text_field((string)($body['subject']??''));
-            if ($subject==='') $subject=mb_substr($message,0,80);
 
             global $wpdb;
-            $d=$wpdb->get_row($wpdb->prepare("SELECT * FROM ".self::table('departments')." WHERE id=%d AND active=1",$dept),ARRAY_A);
-            if(!$d) throw new BlueVPN_Auth_Exception(422,'SUPPORT_INVALID_DEPARTMENT','بخش پشتیبانی معتبر نیست');
+            $d=$wpdb->get_row(
+                $wpdb->prepare("SELECT * FROM ".self::table('departments')." WHERE id=%d AND active=1",$dept),
+                ARRAY_A
+            );
+            if(!$d)throw new BlueVPN_Auth_Exception(422,'SUPPORT_INVALID_DEPARTMENT','بخش پشتیبانی معتبر نیست');
+
+            if($clientRequestId!==''){
+                $existing=$wpdb->get_row($wpdb->prepare(
+                    "SELECT * FROM ".self::table('conversations')." WHERE customer_id=%d AND client_request_id=%s LIMIT 1",
+                    (int)$customer['id'],$clientRequestId
+                ),ARRAY_A);
+                if($existing){
+                    return new WP_REST_Response([
+                        'conversation'=>self::serialize_conversation($existing),
+                        'duplicate'=>true,
+                    ],200);
+                }
+            }
+
+            $topic=null;
+            if($topicId>0){
+                $topic=$wpdb->get_row($wpdb->prepare(
+                    "SELECT * FROM ".self::table('topics')." WHERE id=%d AND department_id=%d AND active=1 LIMIT 1",
+                    $topicId,$dept
+                ),ARRAY_A);
+                if(!$topic)throw new BlueVPN_Auth_Exception(422,'SUPPORT_INVALID_TOPIC','موضوع انتخاب‌شده متعلق به این بخش نیست یا غیرفعال شده است');
+            }else{
+                // Backward compatibility: older Android clients do not send
+                // topic_id. Pick the first active topic rather than rejecting.
+                $topic=$wpdb->get_row($wpdb->prepare(
+                    "SELECT * FROM ".self::table('topics')." WHERE department_id=%d AND active=1 ORDER BY sort_order,id LIMIT 1",
+                    $dept
+                ),ARRAY_A);
+                if($topic)$topicId=(int)$topic['id'];
+            }
+
+            $subject=sanitize_text_field((string)($body['subject']??''));
+            if($topic&&trim((string)$topic['name'])!=='')$subject=(string)$topic['name'];
+            if($subject==='')$subject=mb_substr($message,0,80);
+            $priority=$topic&&in_array((string)$topic['priority'],['low','normal','high','urgent'],true)
+                ?(string)$topic['priority']:'normal';
 
             $now=BlueVPN_Utils::now_mysql();
             $operatorId=self::auto_assign_operator($dept);
             $firstDue=gmdate('Y-m-d H:i:s',time()+max(5,(int)($d['first_response_minutes']??30))*60);
             $resolutionDue=gmdate('Y-m-d H:i:s',time()+max(30,(int)($d['resolution_minutes']??1440))*60);
             $public='chat_'.substr(hash('sha256',wp_generate_uuid4().'|'.$customer['id'].'|'.microtime(true)),0,20);
-            $wpdb->insert(self::table('conversations'),[
-                'public_id'=>$public,'customer_id'=>(int)$customer['id'],'department_id'=>$dept,
-                'operator_id'=>$operatorId,'subject'=>$subject,'status'=>$operatorId>0?'open':'waiting','priority'=>'normal','source'=>'android',
-                'unread_customer'=>0,'unread_operator'=>1,'last_message_at'=>$now,
-                'first_response_due_at'=>$firstDue,'resolution_due_at'=>$resolutionDue,
-                'created_at'=>$now,'updated_at'=>$now,
+            $inserted=$wpdb->insert(self::table('conversations'),[
+                'public_id'=>$public,
+                'customer_id'=>(int)$customer['id'],
+                'department_id'=>$dept,
+                'topic_id'=>$topicId,
+                'operator_id'=>$operatorId,
+                'subject'=>$subject,
+                'client_request_id'=>$clientRequestId!==''?$clientRequestId:null,
+                'status'=>$operatorId>0?'open':'waiting',
+                'priority'=>$priority,
+                'source'=>'android',
+                'unread_customer'=>0,
+                'unread_operator'=>1,
+                'last_message_at'=>$now,
+                'first_response_due_at'=>$firstDue,
+                'resolution_due_at'=>$resolutionDue,
+                'created_at'=>$now,
+                'updated_at'=>$now,
             ]);
+            if($inserted===false){
+                // If a concurrent retry won the unique idempotency race, return
+                // that conversation instead of surfacing a 500 or duplicating.
+                if($clientRequestId!==''){
+                    $existing=$wpdb->get_row($wpdb->prepare(
+                        "SELECT * FROM ".self::table('conversations')." WHERE customer_id=%d AND client_request_id=%s LIMIT 1",
+                        (int)$customer['id'],$clientRequestId
+                    ),ARRAY_A);
+                    if($existing)return new WP_REST_Response(['conversation'=>self::serialize_conversation($existing),'duplicate'=>true],200);
+                }
+                throw new RuntimeException('ذخیره گفتگوی پشتیبانی ناموفق بود.');
+            }
+
             $cid=(int)$wpdb->insert_id;
             self::insert_message($cid,'customer',(int)$customer['id'],$message);
-            self::event($cid,'customer',(int)$customer['id'],'conversation_created',['department_id'=>$dept]);
-            self::telegram_notify_new($cid,$customer,$d,$message);
+            self::event($cid,'customer',(int)$customer['id'],'conversation_created',[
+                'department_id'=>$dept,
+                'topic_id'=>$topicId,
+            ]);
+            self::telegram_notify_new($cid,$customer,$d,$message,$topic);
             return new WP_REST_Response(['conversation'=>self::serialize_conversation(self::conversation_row($cid))],201);
         } catch (BlueVPN_Auth_Exception $e) { return self::auth_fail($e); }
         catch(Throwable $e){ return self::server_fail($e,'support_create'); }
@@ -468,6 +686,7 @@ final class BlueVPN_Support {
                 },(array)$rows),
             ]);
         } catch (BlueVPN_Auth_Exception $e) { return self::auth_fail($e); }
+        catch(Throwable $e){ return self::server_fail($e,'support_messages'); }
     }
 
     public static function api_send(WP_REST_Request $r): WP_REST_Response {
@@ -476,15 +695,45 @@ final class BlueVPN_Support {
             self::rate_limit((int)$customer['id'],'message',12,60);
             $cid=(int)$r['id'];
             $conv=self::conversation_for_customer($cid,(int)$customer['id']);
-            if(!$conv) throw new BlueVPN_Auth_Exception(404,'SUPPORT_NOT_FOUND','گفتگو پیدا نشد');
-            if($conv['status']==='closed') throw new BlueVPN_Auth_Exception(409,'SUPPORT_CLOSED','این گفتگو بسته شده است');
+            if(!$conv)throw new BlueVPN_Auth_Exception(404,'SUPPORT_NOT_FOUND','گفتگو پیدا نشد');
+            if($conv['status']==='closed')throw new BlueVPN_Auth_Exception(409,'SUPPORT_CLOSED','این گفتگو بسته شده است');
+
             $body=$r->get_json_params(); if(!is_array($body))$body=[];
             $message=self::clean_message($body['message']??'');
-            $mid=self::insert_message($cid,'customer',(int)$customer['id'],$message);
+            $clientMessageId=sanitize_key((string)($body['client_message_id']??''));
+            if(strlen($clientMessageId)>64)$clientMessageId=substr($clientMessageId,0,64);
+
             global $wpdb;
+            if($clientMessageId!==''){
+                $existing=(int)$wpdb->get_var($wpdb->prepare(
+                    "SELECT id FROM ".self::table('messages')." WHERE conversation_id=%d AND client_message_id=%s LIMIT 1",
+                    $cid,$clientMessageId
+                ));
+                if($existing>0)return new WP_REST_Response(['ok'=>true,'message_id'=>$existing,'duplicate'=>true],200);
+            }
+
+            $mid=self::insert_message(
+                $cid,'customer',(int)$customer['id'],$message,'text',$clientMessageId
+            );
+            if($mid<=0){
+                if($clientMessageId!==''){
+                    $existing=(int)$wpdb->get_var($wpdb->prepare(
+                        "SELECT id FROM ".self::table('messages')." WHERE conversation_id=%d AND client_message_id=%s LIMIT 1",
+                        $cid,$clientMessageId
+                    ));
+                    if($existing>0)return new WP_REST_Response(['ok'=>true,'message_id'=>$existing,'duplicate'=>true],200);
+                }
+                throw new RuntimeException('ذخیره پیام پشتیبانی ناموفق بود.');
+            }
+
+            $now=BlueVPN_Utils::now_mysql();
             $wpdb->query($wpdb->prepare(
-                "UPDATE ".self::table('conversations')." SET unread_operator=unread_operator+1,status=IF(status='waiting','waiting','open'),last_message_at=%s,updated_at=%s WHERE id=%d",
-                BlueVPN_Utils::now_mysql(),BlueVPN_Utils::now_mysql(),$cid
+                "UPDATE ".self::table('conversations')."
+                 SET unread_operator=unread_operator+1,
+                     status=IF(status='waiting','waiting','open'),
+                     last_message_at=%s,updated_at=%s
+                 WHERE id=%d",
+                $now,$now,$cid
             ));
             self::telegram_notify_reply($cid,$customer,$message);
             return new WP_REST_Response(['ok'=>true,'message_id'=>$mid]);
@@ -520,6 +769,7 @@ final class BlueVPN_Support {
                 ]:null,
             ]);
         } catch (BlueVPN_Auth_Exception $e) { return self::auth_fail($e); }
+        catch(Throwable $e){ return self::server_fail($e,'support_unread'); }
     }
 
     public static function api_attachment(WP_REST_Request $r): WP_REST_Response {
@@ -563,6 +813,7 @@ final class BlueVPN_Support {
             self::set_status($cid,'closed','customer',(int)$customer['id']);
             return new WP_REST_Response(['ok'=>true]);
         } catch (BlueVPN_Auth_Exception $e) { return self::auth_fail($e); }
+        catch(Throwable $e){ return self::server_fail($e,'support_close'); }
     }
 
     private static function auth_fail(BlueVPN_Auth_Exception $e): WP_REST_Response {
@@ -577,13 +828,18 @@ final class BlueVPN_Support {
         global $wpdb;
         return (array)$wpdb->get_row($wpdb->prepare("SELECT * FROM ".self::table('conversations')." WHERE id=%d",$id),ARRAY_A);
     }
-    private static function insert_message(int $cid,string $type,int $sender,string $body,string $messageType='text'): int {
+    private static function insert_message(int $cid,string $type,int $sender,string $body,string $messageType='text',string $clientMessageId=''): int {
         global $wpdb;
-        $wpdb->insert(self::table('messages'),[
-            'conversation_id'=>$cid,'sender_type'=>$type,'sender_id'=>$sender,'body'=>$body,
-            'message_type'=>$messageType,'created_at'=>BlueVPN_Utils::now_mysql(),
+        $inserted=$wpdb->insert(self::table('messages'),[
+            'conversation_id'=>$cid,
+            'sender_type'=>$type,
+            'sender_id'=>$sender,
+            'body'=>$body,
+            'message_type'=>$messageType,
+            'client_message_id'=>$clientMessageId!==''?$clientMessageId:null,
+            'created_at'=>BlueVPN_Utils::now_mysql(),
         ]);
-        return (int)$wpdb->insert_id;
+        return $inserted===false?0:(int)$wpdb->insert_id;
     }
     private static function event(int $cid,string $actorType,int $actorId,string $type,array $payload=[]): void {
         global $wpdb;
@@ -632,17 +888,25 @@ final class BlueVPN_Support {
         global $wpdb;
         $cid=max(0,(int)($_GET['conversation']??0));
         $convs=$wpdb->get_results(
-            "SELECT c.*,d.name department_name,o.display_name operator_name
+            "SELECT c.*,d.name department_name,t.name topic_name,o.display_name operator_name
              FROM ".self::table('conversations')." c
              LEFT JOIN ".self::table('departments')." d ON d.id=c.department_id
+             LEFT JOIN ".self::table('topics')." t ON t.id=c.topic_id
              LEFT JOIN ".self::table('operators')." o ON o.id=c.operator_id
              ORDER BY FIELD(c.status,'waiting','open','pending_customer','resolved','closed'),
+                      FIELD(c.priority,'urgent','high','normal','low'),
                       c.last_message_at DESC
              LIMIT 100",
             ARRAY_A
         );
         $depts=$wpdb->get_results(
             "SELECT * FROM ".self::table('departments')." ORDER BY sort_order,id",
+            ARRAY_A
+        );
+        $topics=$wpdb->get_results(
+            "SELECT t.*,d.name department_name FROM ".self::table('topics')." t
+             LEFT JOIN ".self::table('departments')." d ON d.id=t.department_id
+             ORDER BY t.department_id,t.sort_order,t.id",
             ARRAY_A
         );
         $ops=$wpdb->get_results(
@@ -952,7 +1216,10 @@ final class BlueVPN_Support {
                 $title=trim((string)$c['subject'])?:'بدون عنوان';
                 echo '<a class="bvs-conv'.($active?' is-active':'').'" href="'.esc_url(admin_url('admin.php?page=bluevpn-support&conversation='.(int)$c['id'])).'">';
                 echo '<div class="bvs-conv-top"><span class="bvs-conv-title">'.esc_html($title).'</span><span class="bvs-conv-time">'.esc_html(BlueVPN_Utils::tehran_datetime_fa($c['last_message_at'])).'</span></div>';
-                echo '<div class="bvs-conv-meta"><span class="bvs-dot '.esc_attr($status).'"></span><span>'.esc_html((string)$c['department_name']).'</span><span>•</span><span>'.esc_html($status).'</span>';
+                echo '<div class="bvs-conv-meta"><span class="bvs-dot '.esc_attr($status).'"></span><span>'.esc_html((string)$c['department_name']).'</span>';
+                if(!empty($c['topic_name']))echo '<span>•</span><span>'.esc_html((string)$c['topic_name']).'</span>';
+                if(in_array((string)($c['priority']??'normal'),['urgent','high'],true))echo '<span>•</span><span class="bvs-sla-bad">'.((string)$c['priority']==='urgent'?'فوری':'مهم').'</span>';
+                echo '<span>•</span><span>'.esc_html($status).'</span>';
                 if(($sla['state']??'on_time')!=='on_time')echo '<span class="bvs-sla-bad">• SLA</span>';
                 echo '</div></a>';
             }
@@ -962,7 +1229,14 @@ final class BlueVPN_Support {
         echo '<section class="bvs-panel bvs-chat">';
         if($cid>0){
             $c=$wpdb->get_row(
-                $wpdb->prepare("SELECT * FROM ".self::table('conversations')." WHERE id=%d",$cid),
+                $wpdb->prepare(
+                    "SELECT c.*,d.name department_name,t.name topic_name
+                     FROM ".self::table('conversations')." c
+                     LEFT JOIN ".self::table('departments')." d ON d.id=c.department_id
+                     LEFT JOIN ".self::table('topics')." t ON t.id=c.topic_id
+                     WHERE c.id=%d",
+                    $cid
+                ),
                 ARRAY_A
             );
         } else {
@@ -997,7 +1271,8 @@ final class BlueVPN_Support {
             $sla=self::sla_state($c);
 
             echo '<div class="bvs-chat-head">';
-            echo '<div class="bvs-chat-title"><strong>'.esc_html((string)$c['subject']).'</strong><small>#'.(int)$cid.' • '.esc_html((string)$c['status']).'</small></div>';
+            $chatTitle=trim((string)($c['topic_name']??''))?:trim((string)$c['subject']);
+            echo '<div class="bvs-chat-title"><strong>'.esc_html($chatTitle).'</strong><small>#'.(int)$cid.' • '.esc_html((string)($c['department_name']??'')).' • '.esc_html((string)$c['status']).'</small></div>';
             echo '<span class="bvs-pill">'.esc_html((string)($sla['state']??'on_time')).'</span>';
             echo '</div>';
 
@@ -1052,12 +1327,17 @@ final class BlueVPN_Support {
             echo '<div class="bvs-form-grid">';
             echo '<select name="operator_id"><option value="0">بدون اپراتور</option>';
             foreach((array)$ops as $o){
-                echo '<option value="'.(int)$o['id'].'" '.selected((int)$c['operator_id'],(int)$o['id'],false).'>'.esc_html((string)$o['display_name']).'</option>';
+                echo '<option data-departments="'.esc_attr((string)$o['department_ids']).'" value="'.(int)$o['id'].'" '.selected((int)$c['operator_id'],(int)$o['id'],false).'>'.esc_html((string)$o['display_name']).'</option>';
             }
             echo '</select>';
-            echo '<select name="department_id">';
+            echo '<select name="department_id" id="bvs-department-select">';
             foreach((array)$depts as $d){
                 echo '<option value="'.(int)$d['id'].'" '.selected((int)$c['department_id'],(int)$d['id'],false).'>'.esc_html((string)$d['name']).'</option>';
+            }
+            echo '</select>';
+            echo '<select name="topic_id" id="bvs-topic-select"><option value="0">بدون موضوع مشخص</option>';
+            foreach((array)$topics as $topic){
+                echo '<option data-department="'.(int)$topic['department_id'].'" value="'.(int)$topic['id'].'" '.selected((int)($c['topic_id']??0),(int)$topic['id'],false).'>'.esc_html((string)$topic['department_name'].' — '.(string)$topic['name']).'</option>';
             }
             echo '</select>';
             echo '<button class="bvs-btn bvs-btn-soft wide">تخصیص / انتقال</button></div></form>';
@@ -1113,6 +1393,18 @@ final class BlueVPN_Support {
             echo '<button class="bvs-btn bvs-btn-primary wide">افزودن بخش</button>';
             echo '</div></form></div>';
 
+            echo '<div class="bvs-section"><h3>افزودن موضوع</h3>';
+            echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+            echo '<input type="hidden" name="action" value="bluevpn_support_topic_save">';
+            wp_nonce_field('bluevpn_support_topic_save');
+            echo '<div class="bvs-form-grid"><select class="wide" name="department_id" required><option value="">انتخاب بخش…</option>';
+            foreach((array)$depts as $d)echo '<option value="'.(int)$d['id'].'">'.esc_html((string)$d['name']).'</option>';
+            echo '</select><input class="wide" name="name" required placeholder="نام موضوع">';
+            echo '<input class="wide" name="description" placeholder="توضیح موضوع">';
+            echo '<select name="priority"><option value="normal">عادی</option><option value="high">مهم</option><option value="urgent">فوری</option><option value="low">کم</option></select>';
+            echo '<input name="sort_order" type="number" min="0" value="100" title="ترتیب">';
+            echo '<button class="bvs-btn bvs-btn-primary wide">افزودن موضوع</button></div></form></div>';
+
             echo '<div class="bvs-section"><h3>افزودن اپراتور</h3>';
             echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
             echo '<input type="hidden" name="action" value="bluevpn_support_operator_save">';
@@ -1138,6 +1430,12 @@ final class BlueVPN_Support {
             }
             echo '</div></div>';
 
+            echo '<div class="bvs-section"><h3>موضوع‌ها</h3><div class="bvs-mini-list">';
+            foreach((array)$topics as $topic){
+                echo '<div class="bvs-mini-item"><div><strong>'.esc_html((string)$topic['name']).'</strong><br><small>'.esc_html((string)$topic['department_name']).' • '.esc_html((string)$topic['priority']).'</small></div><span class="bvs-pill">'.(!empty($topic['active'])?'فعال':'غیرفعال').'</span></div>';
+            }
+            echo '</div></div>';
+
             echo '<div class="bvs-section"><h3>اپراتورها</h3><div class="bvs-mini-list">';
             foreach((array)$ops as $o){
                 $online=!empty($o['online']);
@@ -1157,6 +1455,33 @@ final class BlueVPN_Support {
         (function(){
             var body=document.getElementById("bvs-chat-body");
             if(body){body.scrollTop=body.scrollHeight;}
+            var dept=document.getElementById("bvs-department-select");
+            var topic=document.getElementById("bvs-topic-select");
+            var operator=document.querySelector("select[name=operator_id]");
+            function filterTopics(){
+                if(!dept)return;
+                var did=dept.value,selectedTopicVisible=false,selectedOperatorVisible=false;
+                if(topic){
+                    Array.prototype.forEach.call(topic.options,function(opt){
+                        if(!opt.dataset.department){opt.hidden=false;return;}
+                        var visible=opt.dataset.department===did;
+                        opt.hidden=!visible;
+                        if(visible&&opt.selected)selectedTopicVisible=true;
+                    });
+                    if(!selectedTopicVisible)topic.value="0";
+                }
+                if(operator){
+                    Array.prototype.forEach.call(operator.options,function(opt){
+                        if(!opt.value){opt.hidden=false;return;}
+                        var raw=opt.dataset.departments||"";
+                        var allowed=!raw||raw.split(",").indexOf(did)!==-1;
+                        opt.hidden=!allowed;
+                        if(allowed&&opt.selected)selectedOperatorVisible=true;
+                    });
+                    if(!selectedOperatorVisible)operator.value="0";
+                }
+            }
+            if(dept){dept.addEventListener("change",filterTopics);filterTopics();}
         })();
         </script>';
 
@@ -1178,13 +1503,59 @@ final class BlueVPN_Support {
         $cid=(int)($_POST['conversation_id']??0);
         check_admin_referer('bluevpn_support_assign_'.$cid);
         global $wpdb;
+
+        $conversation=self::conversation_row($cid);
+        if(!$conversation)wp_die('گفتگو پیدا نشد.',404);
+
+        $departmentId=max(0,(int)($_POST['department_id']??0));
+        if($departmentId<=0)wp_die('بخش انتخاب‌شده معتبر نیست.',422);
+        $department=$wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM ".self::table('departments')." WHERE id=%d AND active=1",
+            $departmentId
+        ),ARRAY_A);
+        if(!$department)wp_die('بخش انتخاب‌شده معتبر نیست.',422);
+
+        $topicId=max(0,(int)($_POST['topic_id']??0));
+        if($topicId>0){
+            $topic=$wpdb->get_row($wpdb->prepare(
+                "SELECT id FROM ".self::table('topics')." WHERE id=%d AND department_id=%d AND active=1",
+                $topicId,$departmentId
+            ),ARRAY_A);
+            if(!$topic)wp_die('موضوع انتخاب‌شده متعلق به این بخش نیست.',422);
+        }else{
+            $topicId=(int)$wpdb->get_var($wpdb->prepare(
+                "SELECT id FROM ".self::table('topics')." WHERE department_id=%d AND active=1 ORDER BY sort_order,id LIMIT 1",
+                $departmentId
+            ));
+        }
+
+        $operatorId=max(0,(int)($_POST['operator_id']??0));
+        if($operatorId>0){
+            $operator=$wpdb->get_row($wpdb->prepare(
+                "SELECT * FROM ".self::table('operators')." WHERE id=%d",
+                $operatorId
+            ),ARRAY_A);
+            if(!$operator)wp_die('اپراتور انتخاب‌شده معتبر نیست.',422);
+            $operatorDepartments=array_values(array_filter(array_map('intval',explode(',',(string)$operator['department_ids']))));
+            if($operatorDepartments&&!in_array($departmentId,$operatorDepartments,true)){
+                wp_die('این اپراتور برای بخش انتخاب‌شده مجاز نیست.',422);
+            }
+        }
+
         $wpdb->update(self::table('conversations'),[
-            'operator_id'=>max(0,(int)($_POST['operator_id']??0)),
-            'department_id'=>max(1,(int)($_POST['department_id']??1)),
+            'operator_id'=>$operatorId,
+            'department_id'=>$departmentId,
+            'topic_id'=>$topicId,
             'updated_at'=>BlueVPN_Utils::now_mysql(),
         ],['id'=>$cid]);
+        self::event($cid,'operator',get_current_user_id(),'conversation_assigned',[
+            'department_id'=>$departmentId,
+            'topic_id'=>$topicId,
+            'operator_id'=>$operatorId,
+        ]);
         wp_safe_redirect(admin_url('admin.php?page=bluevpn-support&conversation='.$cid));exit;
     }
+
     public static function admin_status(): void {
         if(!current_user_can('manage_options'))wp_die('Forbidden',403);
         $cid=(int)($_POST['conversation_id']??0);
@@ -1204,14 +1575,73 @@ final class BlueVPN_Support {
         }
         wp_safe_redirect(admin_url('admin.php?page=bluevpn-support'));exit;
     }
+    public static function admin_topic_save(): void {
+        if(!current_user_can('manage_options'))wp_die('Forbidden',403);
+        check_admin_referer('bluevpn_support_topic_save');
+        global $wpdb;
+        $departmentId=max(0,(int)($_POST['department_id']??0));
+        if($departmentId<=0)wp_die('بخش انتخاب‌شده معتبر نیست.',422);
+        $department=$wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM ".self::table('departments')." WHERE id=%d AND active=1",
+            $departmentId
+        ),ARRAY_A);
+        if(!$department)wp_die('بخش انتخاب‌شده معتبر نیست.',422);
+
+        $name=sanitize_text_field(wp_unslash($_POST['name']??''));
+        if($name==='')wp_die('نام موضوع الزامی است.',422);
+        $description=sanitize_text_field(wp_unslash($_POST['description']??''));
+        $priority=sanitize_key((string)($_POST['priority']??'normal'));
+        if(!in_array($priority,['low','normal','high','urgent'],true))$priority='normal';
+        $sort=max(0,(int)($_POST['sort_order']??100));
+        $baseSlug=sanitize_title($name);
+        if($baseSlug==='')$baseSlug='topic';
+        $baseSlug=substr($baseSlug,0,72);
+        $slug=$baseSlug;
+        $suffix=1;
+        while((int)$wpdb->get_var($wpdb->prepare(
+            "SELECT COUNT(*) FROM ".self::table('topics')." WHERE department_id=%d AND slug=%s",
+            $departmentId,$slug
+        ))>0){
+            $suffix++;
+            $slug=$baseSlug.'-'.$suffix;
+        }
+        $now=BlueVPN_Utils::now_mysql();
+        $wpdb->insert(self::table('topics'),[
+            'department_id'=>$departmentId,
+            'name'=>$name,
+            'slug'=>$slug,
+            'description'=>$description,
+            'active'=>1,
+            'priority'=>$priority,
+            'sort_order'=>$sort,
+            'created_at'=>$now,
+            'updated_at'=>$now,
+        ]);
+        wp_safe_redirect(admin_url('admin.php?page=bluevpn-support'));exit;
+    }
+
     public static function admin_operator_save(): void {
         if(!current_user_can('manage_options'))wp_die('Forbidden',403);
         check_admin_referer('bluevpn_support_operator_save');
         $name=sanitize_text_field(wp_unslash($_POST['display_name']??''));
         if($name!==''){
             global $wpdb;$now=BlueVPN_Utils::now_mysql();
-            $departmentIds=array_values(array_unique(array_filter(array_map('intval',(array)($_POST['department_ids']??[])))));
-            $wpdb->insert(self::table('operators'),['wp_user_id'=>max(0,(int)($_POST['wp_user_id']??0)),'display_name'=>$name,'department_ids'=>implode(',',$departmentIds),'online'=>1,'max_active'=>20,'created_at'=>$now,'updated_at'=>$now]);
+            $requested=array_values(array_unique(array_filter(array_map('intval',(array)($_POST['department_ids']??[])))));
+            $validDepartmentIds=array_map('intval',$wpdb->get_col(
+                "SELECT id FROM ".self::table('departments')." WHERE active=1"
+            )?:[]);
+            $departmentIds=array_values(array_intersect($requested,$validDepartmentIds));
+            $wpUserId=max(0,(int)($_POST['wp_user_id']??0));
+            if($wpUserId>0&&!get_user_by('id',$wpUserId))wp_die('WP User ID معتبر نیست.',422);
+            $wpdb->insert(self::table('operators'),[
+                'wp_user_id'=>$wpUserId,
+                'display_name'=>$name,
+                'department_ids'=>implode(',',$departmentIds),
+                'online'=>1,
+                'max_active'=>20,
+                'created_at'=>$now,
+                'updated_at'=>$now,
+            ]);
         }
         wp_safe_redirect(admin_url('admin.php?page=bluevpn-support'));exit;
     }
@@ -1317,13 +1747,15 @@ final class BlueVPN_Support {
         return 'customer';
     }
 
-    private static function telegram_notify_new(int $cid,array $customer,array $dept,string $message): void {
+    private static function telegram_notify_new(int $cid,array $customer,array $dept,string $message,?array $topic=null): void {
         if(!class_exists('BlueVPN_Telegram_Bot'))return;
         BlueVPN_Telegram_Bot::support_notify(
             "💬 <b>گفتگوی جدید پشتیبانی</b>\n".
             "شناسه: <code>#{$cid}</code>\n".
             "کاربر: <code>".esc_html(self::customer_label($customer))."</code>\n".
-            "بخش: <b>".esc_html((string)$dept['name'])."</b>\n\n".
+            "بخش: <b>".esc_html((string)$dept['name'])."</b>\n".
+            ($topic?"موضوع: <b>".esc_html((string)($topic['name']??''))."</b>\n":"").
+            "\n".
             esc_html(mb_substr($message,0,1800)).
             "\n\nپاسخ: <code>/support_reply {$cid} متن پاسخ</code>"
         );

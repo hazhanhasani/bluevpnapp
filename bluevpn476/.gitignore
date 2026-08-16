@@ -1,0 +1,29 @@
+# Generated / local
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.log
+*.tmp
+*.bak
+.DS_Store
+.idea/
+.vscode/
+
+# Android / Gradle
+upstream/
+sing-box-core/
+android-source/generated/
+.gradle/
+**/build/
+*.apk
+*.aab
+*.apks
+
+# Release packaging
+*.zip
+dist/
+
+# Local secrets
+.env
+.env.*
+!.env.example

@@ -1,0 +1,208 @@
+name: Release BlueVPN Site Theme
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'bluevpn-site/**'
+      - '.github/workflows/bluevpn-site-theme-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bluevpn-site-theme-release-main
+  cancel-in-progress: true
+
+jobs:
+  release-theme:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout latest main branch
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Read and validate theme version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          style = Path('bluevpn-site/style.css')
+          functions = Path('bluevpn-site/functions.php')
+          if not style.is_file() or not functions.is_file():
+              raise SystemExit('BlueVPN Site theme source is incomplete')
+
+          style_text = style.read_text(encoding='utf-8')
+          functions_text = functions.read_text(encoding='utf-8')
+          header = re.search(r'(?mi)^Version:\s*(\d+\.\d+\.\d+)\s*$', style_text)
+          const = re.search(
+              r"define\(\s*['\"]BLUEVPN_SITE_VERSION['\"]\s*,\s*['\"](\d+\.\d+\.\d+)['\"]\s*\)\s*;",
+              functions_text,
+          )
+          if not header or not const:
+              raise SystemExit('Theme Version header/constant not found')
+          if header.group(1) != const.group(1):
+              raise SystemExit(
+                  f'Theme version mismatch: style={header.group(1)} constant={const.group(1)}'
+              )
+
+          version = header.group(1)
+          match = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)', version)
+          if not match:
+              raise SystemExit(f'Invalid BlueVPN Site version: {version}')
+          if int(match.group(3)) > 10:
+              raise SystemExit(f'BlueVPN Site patch must stay within x.y.0..x.y.10: {version}')
+
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as out:
+              out.write(f'version={version}\n')
+          print(f'BlueVPN Site release version: {version}')
+          PY
+
+      - name: Enforce theme version bump on source changes
+        if: github.event_name == 'push'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${BEFORE_SHA:-}" ] || [ "$BEFORE_SHA" = "0000000000000000000000000000000000000000" ]; then
+            echo "No previous commit available; version bump guard skipped."
+            exit 0
+          fi
+          if ! git cat-file -e "${BEFORE_SHA}:bluevpn-site/style.css" 2>/dev/null; then
+            echo "Theme did not exist in previous commit; version bump guard skipped."
+            exit 0
+          fi
+          PREVIOUS_VERSION="$(git show "${BEFORE_SHA}:bluevpn-site/style.css" | sed -nE 's/^Version:[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*$/\1/p' | head -n 1)"
+          if [ -n "$PREVIOUS_VERSION" ] && [ "$PREVIOUS_VERSION" = "$CURRENT_VERSION" ]; then
+            echo "::error::bluevpn-site changed without a theme version bump. Current=$CURRENT_VERSION"
+            exit 1
+          fi
+          echo "Theme version advanced: ${PREVIOUS_VERSION:-unknown} -> $CURRENT_VERSION"
+
+      - name: Lint theme PHP and build installable ZIP
+        env:
+          THEME_VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r -d '' file; do
+            php -l "$file" >/dev/null
+          done < <(find bluevpn-site -type f -name '*.php' -print0)
+
+          rm -rf "$RUNNER_TEMP/bluevpn-site-release"
+          mkdir -p "$RUNNER_TEMP/bluevpn-site-release/bluevpn-site"
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='tests' \
+            bluevpn-site/ \
+            "$RUNNER_TEMP/bluevpn-site-release/bluevpn-site/"
+
+          ASSET="bluevpn-site-theme-v${THEME_VERSION}.zip"
+          (
+            cd "$RUNNER_TEMP/bluevpn-site-release"
+            zip -qr "$GITHUB_WORKSPACE/$ASSET" bluevpn-site
+          )
+
+          unzip -t "$ASSET" >/dev/null
+          sha256sum "$ASSET" > "${ASSET}.sha256"
+
+          FIRST_ENTRY="$(unzip -Z1 "$ASSET" | head -n 1)"
+          case "$FIRST_ENTRY" in
+            bluevpn-site/*) ;;
+            *)
+              echo "::error::Theme ZIP root must be bluevpn-site/, got: $FIRST_ENTRY"
+              exit 1
+              ;;
+          esac
+
+      - name: Publish or refresh GitHub theme release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          THEME_VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="bluevpn-site-v${THEME_VERSION}"
+          ASSET="bluevpn-site-theme-v${THEME_VERSION}.zip"
+          NOTES="BlueVPN Site ${THEME_VERSION} — پوسته رسمی وب BlueVPN. این بسته توسط GitHub Actions ساخته شده و WordPress آن را به‌صورت خودکار دریافت و نصب می‌کند."
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              "$ASSET" \
+              "${ASSET}.sha256" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target main \
+              --title "BlueVPN Site ${THEME_VERSION}" \
+              --notes "$NOTES" \
+              --latest=false
+          else
+            gh release create "$TAG" \
+              "$ASSET" \
+              "${ASSET}.sha256" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target main \
+              --title "BlueVPN Site ${THEME_VERSION}" \
+              --notes "$NOTES" \
+              --latest=false
+          fi
+
+      - name: Verify published theme updater contract
+        env:
+          GH_TOKEN: ${{ github.token }}
+          THEME_VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="bluevpn-site-v${THEME_VERSION}"
+          ASSET="bluevpn-site-theme-v${THEME_VERSION}.zip"
+
+          rm -rf "$RUNNER_TEMP/bluevpn-site-verify"
+          mkdir -p "$RUNNER_TEMP/bluevpn-site-verify"
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "$ASSET" \
+            --dir "$RUNNER_TEMP/bluevpn-site-verify" \
+            --clobber
+
+          REMOTE="$RUNNER_TEMP/bluevpn-site-verify/$ASSET"
+          unzip -t "$REMOTE" >/dev/null
+          REMOTE_VERSION="$(
+            unzip -p "$REMOTE" bluevpn-site/style.css \
+              | sed -nE 's/^Version:[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+)[[:space:]]*$/\1/p' \
+              | head -n 1
+          )"
+          if [ "$REMOTE_VERSION" != "$THEME_VERSION" ]; then
+            echo "::error::Published theme version mismatch. Expected=$THEME_VERSION Remote=$REMOTE_VERSION"
+            exit 1
+          fi
+
+          echo "Verified theme updater contract: $TAG / $ASSET / version=$REMOTE_VERSION"
+
+      - name: Upload theme build artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: BlueVPN-Site-${{ steps.version.outputs.version }}
+          path: |
+            bluevpn-site-theme-v${{ steps.version.outputs.version }}.zip
+            bluevpn-site-theme-v${{ steps.version.outputs.version }}.zip.sha256
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,292 @@
+<?php
+if (!defined('ABSPATH')) exit;
+
+final class BlueVPN_Production {
+    public const BACKUP_HOOK = 'bluevpn_daily_private_backup';
+    private const BACKUP_RETENTION = 7;
+    private const BACKUP_OPTION = 'bluevpn_manager_last_backup';
+    private const RESTORE_OPTION = 'bluevpn_manager_last_restore';
+
+    public static function init(): void {
+        add_action(self::BACKUP_HOOK, [self::class, 'cron_backup']);
+        self::ensure_schedule();
+    }
+
+    public static function activate(): void { self::ensure_schedule(); }
+    public static function deactivate(): void { self::unschedule(); }
+
+    public static function ensure_schedule(): void {
+        if (!wp_next_scheduled(self::BACKUP_HOOK)) {
+            wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', self::BACKUP_HOOK);
+        }
+    }
+
+    public static function unschedule(): void {
+        $ts = wp_next_scheduled(self::BACKUP_HOOK);
+        while ($ts) {
+            wp_unschedule_event($ts, self::BACKUP_HOOK);
+            $ts = wp_next_scheduled(self::BACKUP_HOOK);
+        }
+    }
+
+    private static function backup_dir(): string {
+        $preferred = trailingslashit(dirname(ABSPATH)) . 'bluevpn-private-backups';
+        if ((is_dir($preferred) && is_writable($preferred)) || @wp_mkdir_p($preferred)) {
+            return untrailingslashit($preferred);
+        }
+        $u = wp_upload_dir();
+        $fallback = trailingslashit((string)$u['basedir']) . 'bluevpn-private-backups';
+        if (!is_dir($fallback)) wp_mkdir_p($fallback);
+        // Apache protection + directory-index protection. On nginx the randomized
+        // filenames still avoid predictable public paths; admins should prefer the
+        // parent-of-ABSPATH location when permissions allow it.
+        if (is_dir($fallback)) {
+            @file_put_contents($fallback.'/.htaccess', "Require all denied\nDeny from all\n");
+            @file_put_contents($fallback.'/index.php', "<?php http_response_code(404); exit;\n");
+        }
+        return untrailingslashit($fallback);
+    }
+
+    /**
+     * Persistent WordPress options that are part of the BlueVPN control plane.
+     * Runtime locks/transients and backup-status options are intentionally excluded.
+     */
+    private static function option_names(): array {
+        return [
+            'bluevpn_manager_cutover_ready',
+            'bluevpn_manager_app_cutover_enabled',
+            'bluevpn_manager_legacy_bridge_disabled',
+            'bluevpn_manager_production_finalized_at',
+            'bluevpn_migration_settings',
+            'bluevpn_migration_state',
+            'bluevpn_migration_runtime_secret_state',
+            'bluevpn_github_updater_settings',
+            'bluevpn_github_installed_release_v2',
+            'bluevpn_app_release_manager_settings_v1',
+            'bluevpn_app_release_manager_status_v1',
+            'bluevpn_app_release_fingerprint_v1',
+            'bluevpn_app_release_last_sync_v1',
+            'bluevpn_bot_runtime_migrated_at',
+            'bluevpn_sms_catalog_version',
+        ];
+    }
+
+    private static function canonical_payload(): array {
+        global $wpdb;
+        $tables = [];
+        foreach (BlueVPN_DB::table_names() as $name) {
+            $table = BlueVPN_DB::table($name);
+            $tables[$name] = $wpdb->get_results("SELECT * FROM {$table}", ARRAY_A) ?: [];
+        }
+        $options = [];
+        foreach (self::option_names() as $name) {
+            $value = get_option($name, null);
+            if ($value !== null) $options[$name] = $value;
+        }
+        return [
+            'meta' => [
+                'format' => 'bluevpn-wordpress-backup-v3',
+                'version' => BLUEVPN_MANAGER_VERSION,
+                'schema_version' => BLUEVPN_MANAGER_SCHEMA_VERSION,
+                'site' => home_url('/'),
+                'created_at' => BlueVPN_Utils::iso_now(),
+                'table_count' => count($tables),
+                'option_count' => count($options),
+            ],
+            'tables' => $tables,
+            'options' => $options,
+        ];
+    }
+
+    private static function encode_backup(array $payload): string {
+        $core = wp_json_encode($payload, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        if (!is_string($core)) throw new RuntimeException('ساخت JSON بکاپ ناموفق بود.');
+        $wrapper = [
+            'checksum' => hash('sha256', $core),
+            'payload' => $payload,
+        ];
+        $json = wp_json_encode($wrapper, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        if (!is_string($json)) throw new RuntimeException('ساخت فایل بکاپ ناموفق بود.');
+        return $json;
+    }
+
+    public static function create_backup(string $reason='manual'): array {
+        $dir = self::backup_dir();
+        if (!is_dir($dir) || !is_writable($dir)) throw new RuntimeException('مسیر خصوصی Backup قابل نوشتن نیست.');
+        $json = self::encode_backup(self::canonical_payload());
+        $suffix = substr(hash('sha256', wp_generate_password(32, true, true).microtime(true)), 0, 12);
+        $name = 'bluevpn-'.gmdate('Ymd-His').'-'.$suffix.'.json';
+        $path = trailingslashit($dir).$name;
+        if (@file_put_contents($path, $json, LOCK_EX) === false) throw new RuntimeException('نوشتن فایل Backup ناموفق بود.');
+        @chmod($path, 0600);
+        $info = ['ok'=>true,'path'=>$path,'filename'=>$name,'size'=>filesize($path)?:strlen($json),'reason'=>$reason,'created_at'=>BlueVPN_Utils::iso_now(),'checksum'=>hash_file('sha256',$path)?:''];
+        update_option(self::BACKUP_OPTION, $info, false);
+        self::prune_backups();
+        return $info;
+    }
+
+    public static function cron_backup(): void {
+        try { self::create_backup('scheduled'); }
+        catch (Throwable $e) {
+            update_option(self::BACKUP_OPTION, ['ok'=>false,'error'=>$e->getMessage(),'reason'=>'scheduled','created_at'=>BlueVPN_Utils::iso_now()], false);
+            error_log('BlueVPN scheduled backup: '.$e->getMessage());
+        }
+    }
+
+    private static function prune_backups(): void {
+        $dir = self::backup_dir();
+        $files = glob(trailingslashit($dir).'bluevpn-*.json') ?: [];
+        usort($files, static fn($a,$b)=>(@filemtime($b)?:0)<=> (@filemtime($a)?:0));
+        foreach (array_slice($files, self::BACKUP_RETENTION) as $file) @unlink($file);
+    }
+
+    public static function backup_status(): array {
+        $last = get_option(self::BACKUP_OPTION, []);
+        return is_array($last) ? $last : [];
+    }
+
+    public static function restore_status(): array {
+        $last = get_option(self::RESTORE_OPTION, []);
+        return is_array($last) ? $last : [];
+    }
+
+    public static function validate_backup_json(string $json): array {
+        if (strlen($json) < 20) throw new RuntimeException('فایل Backup خالی یا ناقص است.');
+        $wrapper = json_decode($json, true);
+        if (!is_array($wrapper) || !isset($wrapper['payload']) || !is_array($wrapper['payload'])) throw new RuntimeException('ساختار Backup معتبر نیست.');
+        $payload = $wrapper['payload'];
+        $format = (string)($payload['meta']['format'] ?? '');
+        if (!in_array($format, ['bluevpn-wordpress-backup-v2','bluevpn-wordpress-backup-v3'], true)) throw new RuntimeException('فرمت Backup پشتیبانی نمی‌شود.');
+        if (!isset($payload['tables']) || !is_array($payload['tables'])) throw new RuntimeException('بخش جداول در Backup وجود ندارد.');
+        if (isset($payload['options']) && !is_array($payload['options'])) throw new RuntimeException('بخش تنظیمات WordPress در Backup معتبر نیست.');
+        $core = wp_json_encode($payload, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+        if (!is_string($core) || empty($wrapper['checksum']) || !hash_equals((string)$wrapper['checksum'], hash('sha256',$core))) throw new RuntimeException('Checksum فایل Backup معتبر نیست.');
+        $allowed = array_flip(BlueVPN_DB::table_names());
+        foreach ($payload['tables'] as $name=>$rows) {
+            if (!isset($allowed[$name])) throw new RuntimeException('جدول ناشناخته در Backup: '.$name);
+            if (!is_array($rows)) throw new RuntimeException('داده جدول '.$name.' معتبر نیست.');
+            foreach ($rows as $row) if (!is_array($row)) throw new RuntimeException('ردیف نامعتبر در جدول '.$name.'.');
+        }
+        if (!empty($payload['options'])) {
+            $allowedOptions = array_flip(self::option_names());
+            foreach ($payload['options'] as $name=>$value) {
+                if (!isset($allowedOptions[$name])) throw new RuntimeException('Option ناشناخته در Backup: '.$name);
+                // WordPress options can be scalars/arrays; resources/objects are never valid JSON backup values.
+                if (is_object($value) || is_resource($value)) throw new RuntimeException('Option نامعتبر در Backup: '.$name);
+            }
+        }
+        return $payload;
+    }
+
+    public static function restore_from_json(string $json): array {
+        global $wpdb;
+        $payload = self::validate_backup_json($json);
+        // Always take a rollback snapshot before a destructive restore.
+        $pre = self::create_backup('pre-restore');
+        $wpdb->query('START TRANSACTION');
+        try {
+            foreach ($payload['tables'] as $name=>$rows) {
+                $table = BlueVPN_DB::table((string)$name);
+                $columns = $wpdb->get_col("DESCRIBE {$table}", 0) ?: [];
+                if (!$columns) throw new RuntimeException('جدول مقصد پیدا نشد: '.$name);
+                $allowedCols = array_flip(array_map('strval',$columns));
+                if ($wpdb->query("DELETE FROM {$table}") === false) throw new RuntimeException('پاک‌سازی جدول '.$name.' ناموفق بود: '.$wpdb->last_error);
+                foreach ($rows as $row) {
+                    $clean = [];
+                    foreach ($row as $k=>$v) if (isset($allowedCols[$k])) $clean[$k] = $v;
+                    if (!$clean) continue;
+                    if ($wpdb->insert($table, $clean) === false) throw new RuntimeException('Restore جدول '.$name.' ناموفق بود: '.$wpdb->last_error);
+                }
+            }
+            $wpdb->query('COMMIT');
+        } catch (Throwable $e) {
+            $wpdb->query('ROLLBACK');
+            update_option(self::RESTORE_OPTION, ['ok'=>false,'error'=>$e->getMessage(),'at'=>BlueVPN_Utils::iso_now(),'pre_restore_backup'=>$pre['filename']??''], false);
+            throw $e;
+        }
+        // Bring an older snapshot forward to the current schema without deleting
+        // restored data that belongs to known tables.
+        BlueVPN_DB::install_schema();
+        BlueVPN_DB::seed_defaults();
+        BlueVPN_DB::seed_release_channels();
+        BlueVPN_DB::enforce_six_digit_otp();
+        BlueVPN_SMS_Notifications::seed_templates();
+        BlueVPN_SMS_Notifications::schedule();
+        // Restore the BlueVPN control-plane options only after the current schema
+        // is installed. Never roll the schema marker itself back to an old value.
+        if (!empty($payload['options']) && is_array($payload['options'])) {
+            $allowedOptions = array_flip(self::option_names());
+            foreach ($payload['options'] as $name=>$value) {
+                if (isset($allowedOptions[$name])) update_option((string)$name, $value, false);
+            }
+        }
+        update_option('bluevpn_manager_schema_version', BLUEVPN_MANAGER_SCHEMA_VERSION, false);
+        // Reconcile recurring jobs with the restored settings instead of trusting
+        // stale cron rows from the host where the backup was created.
+        $migrationSettings = BlueVPN_Migration::settings();
+        BlueVPN_Migration::sync_cron_schedule(!empty($migrationSettings['auto_sync']));
+        BlueVPN_Migration::sync_auto_schedule(!empty($migrationSettings['auto_migrate']));
+        self::ensure_schedule();
+        $result = ['ok'=>true,'at'=>BlueVPN_Utils::iso_now(),'source_version'=>(string)($payload['meta']['version']??''),'source_schema'=>(string)($payload['meta']['schema_version']??''),'pre_restore_backup'=>$pre['filename']??'','restored_options'=>count((array)($payload['options']??[]))];
+        update_option(self::RESTORE_OPTION, $result, false);
+        return $result;
+    }
+
+    public static function health_summary(): array {
+        global $wpdb;
+        $checks = [];
+        $db = BlueVPN_DB::status();
+        $checks['database'] = ['ok'=>!empty($db['ready']),'message'=>!empty($db['ready'])?'MySQL و Schema آماده‌اند':'Schema دیتابیس ناقص است'];
+
+        $sms = BlueVPN_DB::table('sms_deliveries');
+        $smsFailed = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$sms} WHERE status='failed'");
+        $smsStuck = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$sms} WHERE status='sending' AND sending_started_at IS NOT NULL AND sending_started_at<%s", gmdate('Y-m-d H:i:s',time()-10*MINUTE_IN_SECONDS)));
+        $checks['sms_queue'] = ['ok'=>$smsStuck===0 && $smsFailed<25,'message'=>'failed='.$smsFailed.'، stuck='.$smsStuck,'failed'=>$smsFailed,'stuck'=>$smsStuck];
+
+        $orders = BlueVPN_DB::table('orders');
+        $old = gmdate('Y-m-d H:i:s', time()-2*HOUR_IN_SECONDS);
+        $stuckOrders = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$orders} WHERE status IN ('creating_invoice','paid_needs_sync','partial_needs_sync') AND created_at<%s",$old));
+        $checks['payments'] = ['ok'=>$stuckOrders===0,'message'=>$stuckOrders===0?'سفارش گیرکرده قدیمی وجود ندارد':$stuckOrders.' سفارش نیازمند رسیدگی است','stuck'=>$stuckOrders];
+
+        $backup = self::backup_status();
+        $backupTs = !empty($backup['created_at']) ? strtotime((string)$backup['created_at']) : false;
+        $backupFresh = !empty($backup['ok']) && $backupTs && $backupTs > time()-2*DAY_IN_SECONDS;
+        $backupPublic=['ok'=>!empty($backup['ok']),'filename'=>(string)($backup['filename']??''),'size'=>(int)($backup['size']??0),'created_at'=>(string)($backup['created_at']??''),'error'=>(string)($backup['error']??'')];
+        $checks['backup'] = ['ok'=>(bool)$backupFresh,'message'=>$backupFresh?'Backup اخیر موجود است':'Backup سالم در ۴۸ ساعت اخیر ثبت نشده','last'=>$backupPublic];
+
+        $cron = wp_next_scheduled(self::BACKUP_HOOK);
+        $checks['cron'] = ['ok'=>(bool)$cron,'message'=>$cron?'Backup cron برنامه‌ریزی شده است':'Backup cron زمان‌بندی نشده است','next'=>$cron?:0];
+
+        $cut = get_option('bluevpn_manager_cutover_ready','0')==='1';
+        $app = get_option('bluevpn_manager_app_cutover_enabled','0')==='1';
+        $checks['cutover'] = ['ok'=>$cut && $app,'message'=>($cut&&$app)?'WordPress مقصد نهایی اپ است':'Cutover کامل اپ هنوز تأیید نشده'];
+
+        $providers = 0; $providerBad = 0;
+        foreach (['pasarguard_panels','marzban_panels','guardcore_panels'] as $logical) {
+            $t = BlueVPN_DB::table($logical);
+            $providers += (int)$wpdb->get_var("SELECT COUNT(*) FROM {$t} WHERE active=1");
+            $providerBad += (int)$wpdb->get_var("SELECT COUNT(*) FROM {$t} WHERE active=1 AND last_test_at IS NOT NULL AND last_test_ok=0");
+        }
+        $checks['providers'] = ['ok'=>$providerBad===0,'message'=>$providers.' Provider فعال؛ '.$providerBad.' تست ناموفق','active'=>$providers,'failed'=>$providerBad];
+
+        $okCount = count(array_filter($checks, static fn($x)=>!empty($x['ok'])));
+        $score = (int)round($okCount * 100 / max(1,count($checks)));
+        return ['ok'=>$score===100,'score'=>$score,'checks'=>$checks,'generated_at'=>BlueVPN_Utils::iso_now()];
+    }
+
+    public static function finalize_cutover(): array {
+        if (get_option('bluevpn_manager_cutover_ready','0') !== '1' || get_option('bluevpn_manager_app_cutover_enabled','0') !== '1') {
+            throw new RuntimeException('برای پایان‌دادن Bridge ابتدا مهاجرت و Cutover اپ باید هر دو تأیید شده باشند.');
+        }
+        $backup = self::create_backup('pre-final-cutover');
+        BlueVPN_Migration::stop_auto();
+        BlueVPN_Migration::sync_cron_schedule(false);
+        BlueVPN_Migration::clear_token();
+        $cfg = BlueVPN_Migration::settings();
+        $cfg['source_url']=''; $cfg['auto_migrate']=false; $cfg['auto_sync']=false;
+        update_option(BlueVPN_Migration::SETTINGS_OPTION, $cfg, false);
+        update_option('bluevpn_manager_legacy_bridge_disabled','1',false);
+        update_option('bluevpn_manager_production_finalized_at',BlueVPN_Utils::iso_now(),false);
+        return ['ok'=>true,'backup'=>$backup['filename']??'','finalized_at'=>BlueVPN_Utils::iso_now()];
+    }
+}

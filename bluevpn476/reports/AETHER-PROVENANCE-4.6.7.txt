@@ -1,0 +1,8 @@
+commit=a26159b82a70048b459e0128213c71767abecb8a
+release=v1.6.0
+cargo_lock_sha256=3f48fd945727564b0e19e79b3bd492c16d9738d7f88f1945956f9eaeb6a66d78
+submodules=NOT AVAILABLE WITHOUT GIT CHECKOUT (.gitmodules absent at exact commit)
+host_version=NOT RUN (cargo missing)
+host_help=NOT RUN (cargo missing)
+arm64-v8a_sha256=NOT RUN (cargo/NDK missing)
+armeabi-v7a_sha256=NOT RUN (cargo/NDK missing)

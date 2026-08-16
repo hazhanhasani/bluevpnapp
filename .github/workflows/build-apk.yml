@@ -572,31 +572,58 @@ jobs:
           text = path.read_text(encoding="utf-8")
           ET.parse(path)
 
-          permission = (
-              "android.permission.REQUEST_INSTALL_PACKAGES"
-          )
+          android = "{http://schemas.android.com/apk/res/android}"
+          root = ET.parse(path).getroot()
 
-          if text.count(permission) != 1:
+          permissions = {
+              el.attrib.get(android + "name", "")
+              for el in root.findall("uses-permission")
+          }
+          required_permissions = {
+              "android.permission.REQUEST_INSTALL_PACKAGES",
+              "android.permission.POST_NOTIFICATIONS",
+              "android.permission.FOREGROUND_SERVICE",
+          }
+          missing_permissions = sorted(required_permissions - permissions)
+          if missing_permissions:
               raise SystemExit(
-                  "REQUEST_INSTALL_PACKAGES must exist exactly once"
+                  f"Generated manifest missing permissions: {missing_permissions}"
               )
 
-          xml_declaration = text.find("<?xml")
-          manifest_opening = text.find("<manifest")
-          permission_position = text.find(
-              "android.permission.REQUEST_INSTALL_PACKAGES"
-          )
+          app = root.find("application")
+          if app is None:
+              raise SystemExit("Generated manifest has no application node")
 
-          if not (
-              xml_declaration >= 0
-              and manifest_opening > xml_declaration
-              and permission_position > manifest_opening
-          ):
+          services = {
+              el.attrib.get(android + "name", "")
+              for el in app.findall("service")
+          }
+          receivers = {
+              el.attrib.get(android + "name", "")
+              for el in app.findall("receiver")
+          }
+
+          required_services = {
+              "com.v2ray.ang.bluevpn.BlueVpnWarpKeepAliveService",
+              "com.v2ray.ang.bluevpn.BlueVpnQuickTileService",
+          }
+          required_receivers = {
+              "com.v2ray.ang.bluevpn.BlueVpnSystemActionReceiver",
+          }
+
+          missing_services = sorted(required_services - services)
+          missing_receivers = sorted(required_receivers - receivers)
+
+          if missing_services:
               raise SystemExit(
-                  "Install permission is outside the manifest root"
+                  f"Generated manifest missing services: {missing_services}"
+              )
+          if missing_receivers:
+              raise SystemExit(
+                  f"Generated manifest missing receivers: {missing_receivers}"
               )
 
-          print("AndroidManifest.xml validation passed")
+          print("Generated AndroidManifest.xml runtime contract: PASS")
           PY
 
       - name: Build unsigned release APKs
@@ -729,36 +756,34 @@ jobs:
           fi
 
           BUILD_TOOLS="$ANDROID_HOME/build-tools/37.0.0"
-          APKANALYZER="$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer"
-          test -x "$APKANALYZER" || {
-            echo "::error::apkanalyzer is unavailable at $APKANALYZER"
-            exit 1
-          }
+          mkdir -p reports/apk-runtime
 
-          mkdir -p reports/apk-manifest
-          MANIFEST_ARGS=()
+          # Manifest/component policy was already validated against the exact
+          # generated AndroidManifest.xml before Gradle. Post-signing validation
+          # now verifies only properties that must be proven on the final APK:
+          # signature, archive integrity, DEX payload, and packaged native Aether.
+          python scripts/validate_android_apk.py "${SIGNED_APKS[@]}"
 
           for apk in "${SIGNED_APKS[@]}"; do
             base="$(basename "$apk" .apk)"
-            manifest_dump="reports/apk-manifest/${base}.xml"
 
             "$BUILD_TOOLS/apksigner" verify \
               --verbose \
               --print-certs \
               "$apk" \
-              > "reports/apk-manifest/${base}-signature.txt"
+              > "reports/apk-runtime/${base}-signature.txt"
 
-            # Decode the binary APK manifest with the Android SDK tool designed
-            # for APK inspection. Validation itself is performed by our Python
-            # parser so CLI formatting differences cannot create false failures.
-            "$APKANALYZER" manifest print "$apk" > "$manifest_dump"
-            test -s "$manifest_dump"
-            MANIFEST_ARGS+=(--manifest-xml "$manifest_dump")
+            unzip -t "$apk" > "reports/apk-runtime/${base}-zip-test.txt"
+
+            unzip -l "$apk" \
+              | grep -q "lib/arm64-v8a/libbluevpn_aether.so"
+
+            unzip -l "$apk" \
+              | grep -q "lib/armeabi-v7a/libbluevpn_aether.so"
+
+            unzip -l "$apk" \
+              | grep -Eq '(^|[[:space:]])classes([0-9]*)?\.dex([[:space:]]|$)'
           done
-
-          python scripts/validate_android_apk.py \
-            "${SIGNED_APKS[@]}" \
-            "${MANIFEST_ARGS[@]}"
 
           echo "Signed APK production runtime contract: PASS" \
             | tee reports/APK-RUNTIME-CONTRACT.txt
@@ -769,7 +794,7 @@ jobs:
           name: BlueVPN-${{ steps.config.outputs.version }}-runtime-validation
           path: |
             reports/android-apk-validation.json
-            reports/apk-manifest/
+            reports/apk-runtime/
             reports/APK-RUNTIME-CONTRACT.txt
           if-no-files-found: error
           retention-days: 14

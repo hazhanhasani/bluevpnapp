@@ -5,6 +5,7 @@
     "test_android_notification_controls_484.py",
     "test_android_system_integration_478.py",
     "test_apk_runtime_gate_494.py",
+    "test_apk_runtime_gate_495.py",
     "test_blueai_closed_loop_491.py",
     "test_blueai_control_plane_490.py",
     "test_current_release.py",

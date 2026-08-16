@@ -1,4 +1,4 @@
-# BlueVPN 4.9.4 — Closed-loop BlueAI
+# BlueVPN 4.9.5 — Closed-loop BlueAI
 
 - Every automatic route decision now creates a bounded pending decision record.
 - Actual verified success/failure resolves that decision and updates local calibration error.

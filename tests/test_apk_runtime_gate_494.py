@@ -42,12 +42,11 @@ class ApkRuntimeGate494(unittest.TestCase):
             with self.assertRaises(ValueError):
                 apkval.validate_manifest_xml(p)
 
-    def test_workflow_uses_apkanalyzer_not_aapt2_xmltree(self):
+    def test_workflow_does_not_depend_on_aapt2_xmltree(self):
         s=(ROOT/".github/workflows/build-apk.yml").read_text()
-        self.assertIn("apkanalyzer",s)
-        self.assertIn("manifest print",s)
         self.assertNotIn('aapt2" dump xmltree',s)
-        self.assertIn("--manifest-xml",s)
+        self.assertIn("Generated AndroidManifest.xml runtime contract: PASS",s)
+        self.assertIn("Validate signed APK runtime contract",s)
 
 if __name__=="__main__":
     unittest.main()

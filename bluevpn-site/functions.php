@@ -1,7 +1,7 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-define('BLUEVPN_SITE_VERSION', '1.0.10');
+define('BLUEVPN_SITE_VERSION', '1.1.0');
 
 define('BLUEVPN_SITE_DIR', get_template_directory());
 define('BLUEVPN_SITE_URL', get_template_directory_uri());
@@ -11,6 +11,46 @@ function bluevpn_site_visual_url(string $file): string {
     $safe = preg_replace('/[^a-z0-9._-]/i', '', $file);
     return BLUEVPN_SITE_URL . '/assets/images/illustrations/' . $safe;
 }
+
+
+function bluevpn_site_app_screenshot_url(string $slot = 'home'): string {
+    $map = [
+        'home' => 'bluevpn_app_screenshot_id',
+        'locations' => 'bluevpn_app_locations_screenshot_id',
+        'account' => 'bluevpn_app_account_screenshot_id',
+        'support' => 'bluevpn_app_support_screenshot_id',
+    ];
+    $setting = $map[$slot] ?? $map['home'];
+    $id = (int) get_theme_mod($setting, 0);
+    if ($id <= 0 && $slot !== 'home') $id = (int) get_theme_mod($map['home'], 0);
+    if ($id > 0) {
+        $url = wp_get_attachment_image_url($id, 'large');
+        if (is_string($url) && $url !== '') return $url;
+    }
+    return '';
+}
+
+function bluevpn_site_customize_register($wp_customize): void {
+    if (!class_exists('WP_Customize_Media_Control')) return;
+    $wp_customize->add_section('bluevpn_app_media', [
+        'title' => 'BlueVPN • تصاویر واقعی اپلیکیشن',
+        'description' => 'این تصاویر مستقیماً در صفحه اصلی استفاده می‌شوند. برای نتیجه حرفه‌ای، اسکرین‌شات واقعی و بدون برش از خود BlueVPN انتخاب کن.',
+        'priority' => 31,
+    ]);
+    $slots = [
+        'bluevpn_app_screenshot_id' => ['صفحه اصلی / اتصال', 'تصویر اصلی Hero و صفحه دانلود.'],
+        'bluevpn_app_locations_screenshot_id' => ['صفحه لوکیشن‌ها', 'در بخش نمایش واقعی اپ کنار تصویر اصلی استفاده می‌شود.'],
+        'bluevpn_app_account_screenshot_id' => ['صفحه حساب / اشتراک', 'در بخش حساب و اشتراک استفاده می‌شود.'],
+        'bluevpn_app_support_screenshot_id' => ['صفحه پشتیبانی', 'برای بخش‌های پشتیبانی و توسعه‌های بعدی قالب.'],
+    ];
+    foreach ($slots as $id => $meta) {
+        $wp_customize->add_setting($id, ['default'=>0,'sanitize_callback'=>'absint']);
+        $wp_customize->add_control(new WP_Customize_Media_Control($wp_customize, $id, [
+            'label'=>$meta[0], 'description'=>$meta[1], 'section'=>'bluevpn_app_media', 'mime_type'=>'image'
+        ]));
+    }
+}
+add_action('customize_register', 'bluevpn_site_customize_register');
 
 require_once BLUEVPN_SITE_DIR . '/inc/helpers.php';
 require_once BLUEVPN_SITE_DIR . '/inc/class-bluevpn-site-updater.php';

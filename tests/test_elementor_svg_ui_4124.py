@@ -28,11 +28,15 @@ class ElementorSvgUi4124Tests(unittest.TestCase):
             root=ET.parse(p).getroot()
             self.assertTrue(root.tag.endswith('svg'))
 
-    def test_widgets_reference_svg_assets(self):
-        src=(ROOT/'bluevpn-site/inc/elementor/widgets.php').read_text()
-        for name in ['bluevpn-hero-orbit.svg','bluevpn-global-shield.svg','bluevpn-speed-tunnel.svg','bluevpn-premium-cards.svg']:
-            self.assertIn(name, src)
-        self.assertIn("BLUEVPN_SITE_VERSION', '1.0.10", (ROOT/'bluevpn-site/functions.php').read_text())
+    def test_real_app_first_home_widget_and_media_slots(self):
+        widgets=(ROOT/'bluevpn-site/inc/elementor/widgets.php').read_text()
+        functions=(ROOT/'bluevpn-site/functions.php').read_text()
+        home=(ROOT/'bluevpn-site/inc/home-v2.php').read_text()
+        self.assertIn("bluevpn-home-v2", widgets)
+        for slot in ['bluevpn_app_screenshot_id','bluevpn_app_locations_screenshot_id','bluevpn_app_account_screenshot_id','bluevpn_app_support_screenshot_id']:
+            self.assertIn(slot, functions)
+        self.assertIn('تصویر واقعی اپلیکیشن BlueVPN', home)
+        self.assertIn("BLUEVPN_SITE_VERSION', '1.1.0", functions)
 
 if __name__ == '__main__':
     unittest.main()

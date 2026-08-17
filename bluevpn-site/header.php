@@ -2,7 +2,7 @@
 <html <?php language_attributes(); ?> dir="rtl">
 <head>
 <meta charset="<?php bloginfo('charset'); ?>">
-<meta name="viewport" content="width=1080,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#06101f">
 <?php wp_head(); ?>
 </head>

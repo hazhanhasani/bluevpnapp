@@ -91,6 +91,36 @@ class TestCrossComponentReleaseAudit(unittest.TestCase):
 
 
 class CurrentReleaseTests(unittest.TestCase):
+    def test_00_tapsell_is_primary_and_story_is_fallback(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        flow = home.split("private fun beginFreeStoryGate(", 1)[1].split(
+            "private fun maybePromptBackgroundReliability()", 1
+        )[0]
+        self.assertIn("finalizeSuccessfulConnection(", flow)
+        self.assertIn("BlueVpnTapsellManager.onVerifiedConnection(", flow)
+        self.assertIn("onUnavailable = {", flow)
+        self.assertIn("showFirstPartyFreeStory()", flow)
+        self.assertLess(
+            flow.index("BlueVpnTapsellManager.onVerifiedConnection("),
+            flow.index("showFirstPartyFreeStory()"),
+        )
+
+        finalize = home.split("private fun finalizeSuccessfulConnection(", 1)[1].split(
+            "private fun refreshVerifiedExitLocation()", 1
+        )[0]
+        self.assertNotIn("BlueVpnTapsellManager.onVerifiedConnection(", finalize)
+
+    def test_00_tapsell_init_timeout_cannot_silently_block_ads(self):
+        manager = text("android-source/BlueVpnTapsellManager.kt")
+        self.assertIn("INIT_REQUEST_FALLBACK_MS", manager)
+        self.assertIn("initialization_timeout_requesting", manager)
+        self.assertIn("continueOnce()", manager)
+        self.assertIn("onUnavailable?.invoke()", manager)
+        self.assertIn(
+            "requestInterstitial(current, loaded, onUnavailable)",
+            manager,
+        )
+
     def test_00_tapsell_mediation_migration_contract(self):
         manager = text("android-source/BlueVpnTapsellManager.kt")
         prepare = text("scripts/prepare_android.py")
@@ -1015,15 +1045,12 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
 
     def test_88_free_story_is_post_connect_and_never_owns_connection_state(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
-        fn = home.split("private fun beginFreeStoryGate(", 1)[1].split(
+        fn = home.split("private fun showFirstPartyFreeStory()", 1)[1].split(
             "private fun maybePromptBackgroundReliability()", 1
         )[0]
-        self.assertLess(
-            fn.index("finalizeSuccessfulConnection("),
-            fn.index("val gate = BlueVpnFreeStoryAdGate(this)"),
-        )
         self.assertNotIn("connectionVerified = false", fn)
         self.assertNotIn("BlueVpnPreferences.clearConnected(this)", fn)
+        self.assertNotIn("stopConnectionImmediately()", fn)
 
     def test_89_story_background_abort_does_not_stop_vpn(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
@@ -1039,17 +1066,14 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         )[0]
         self.assertNotIn("stopConnectionImmediately()", aborted)
 
-    def test_90_story_media_failure_is_fail_open_and_tapsell_is_nonblocking_fallback(self):
+    def test_90_tapsell_failure_falls_back_to_story_without_touching_vpn(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
-        fn = home.split("private fun beginFreeStoryGate(", 1)[1].split(
+        flow = home.split("private fun beginFreeStoryGate(", 1)[1].split(
             "private fun maybePromptBackgroundReliability()", 1
         )[0]
-        unavailable = fn.split("Outcome.UNAVAILABLE", 1)[1].split(
-            "Outcome.ABORTED", 1
-        )[0]
-        self.assertIn("BlueVpnTapsellManager.onVerifiedConnection", unavailable)
-        self.assertNotIn("stopConnectionImmediately()", unavailable)
-        self.assertIn("!freeStoryGateActive", home)
+        self.assertIn("onUnavailable = {", flow)
+        self.assertIn("showFirstPartyFreeStory()", flow)
+        self.assertNotIn("stopConnectionImmediately()", flow)
 
     def test_91_wordpress_convergence_accepts_newer_manager_and_schema(self):
         workflow = text(".github/workflows/build-apk.yml")

@@ -1,8 +1,14 @@
 === BlueVPN Manager ===
-Version: 4.14.6
-Stable tag: 4.14.6
+Version: 4.14.7
+Stable tag: 4.14.7
 Requires PHP: 8.0
 
+
+== 4.14.7 ==
+- Tapsell Mediation is now the primary Free post-connect ad when enabled; BlueVPN Story is fallback only.
+- Fixes the previous story-first logic that could prevent Tapsell from ever being requested.
+- Adds initialization timeout fallback so a delayed Mediation initialization callback cannot silently block ad requests forever.
+- No-fill/init/request/show errors fall back to the first-party story while VPN remains connected.
 
 == 4.14.6 ==
 - Migrates Android advertising from deprecated Tapsell Plus to native Tapsell Mediation 1.4.0-alpha03.

@@ -1,23 +1,23 @@
 {
-  "app_name": "BlueVPN",
-  "application_id": "ir.blluepanel.bluevpn",
-  "version_name": "4.14.6",
-  "version_code": 41406,
-  "deep_link_scheme": "bluevpn",
-  "api_base_url": "https://bot.blluepanel.ir",
-  "website_url": "https://bot.blluepanel.ir",
-  "support_url": "",
-  "renew_url": "",
-  "upstream_ref": "2.2.6",
-  "build_abis": [
-    "arm64-v8a",
-    "armeabi-v7a"
-  ],
-  "version_source": "source_declared_release_version",
-  "android_lib_xray_ref": "v26.7.5",
-  "xray_core_release_label": "v26.6.27",
-  "free_engine": "aether-warp-primary",
-  "aether_ref": "a26159b82a70048b459e0128213c71767abecb8a",
-  "tapsell_app_id": "",
-  "tapsell_mediation_version": "1.4.0-alpha03"
+    "app_name": "BlueVPN",
+    "application_id": "ir.blluepanel.bluevpn",
+    "version_name": "4.14.7",
+    "version_code": 41407,
+    "deep_link_scheme": "bluevpn",
+    "api_base_url": "https://bot.blluepanel.ir",
+    "website_url": "https://bot.blluepanel.ir",
+    "support_url": "",
+    "renew_url": "",
+    "upstream_ref": "2.2.6",
+    "build_abis": [
+        "arm64-v8a",
+        "armeabi-v7a"
+    ],
+    "version_source": "source_declared_release_version",
+    "android_lib_xray_ref": "v26.7.5",
+    "xray_core_release_label": "v26.6.27",
+    "free_engine": "aether-warp-primary",
+    "aether_ref": "a26159b82a70048b459e0128213c71767abecb8a",
+    "tapsell_app_id": "91684967-c18a-4da4-a6f5-a8b76711828a",
+    "tapsell_mediation_version": "1.4.0-alpha03"
 }

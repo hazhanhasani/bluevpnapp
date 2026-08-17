@@ -4772,10 +4772,7 @@ private fun dpHome(value: Int): Int =
             return
         }
 
-        // The VPN connection is finalized before any advertising work starts.
-        // Ads are UI-only and are never allowed to own or mutate connection state.
-        freeStoryGate?.release()
-        freeStoryGateActive = true
+        // Commit VPN state first. Advertising is always post-connect UI.
         finalizeSuccessfulConnection(
             verifiedDelay,
             completedLiveSwitch,
@@ -4788,9 +4785,40 @@ private fun dpHome(value: Int): Int =
             mainViewModel.isRunning.value != true ||
             !connectionVerified
         ) {
-            freeStoryGateActive = false
             return
         }
+
+        val sessionId = BlueVpnPreferences.connectedAt(this)
+
+        // Tapsell Mediation is primary when configured. The first-party story
+        // is used only when Tapsell is disabled, misconfigured, no-fill, init
+        // fails/times out, or an ad cannot be shown.
+        BlueVpnTapsellManager.onVerifiedConnection(
+            activity = this,
+            sessionId = sessionId,
+            onUnavailable = {
+                if (
+                    !userDisconnecting &&
+                    mainViewModel.isRunning.value == true &&
+                    connectionVerified &&
+                    BlueVpnPreferences.connectedAt(this) == sessionId
+                ) {
+                    showFirstPartyFreeStory()
+                }
+            },
+        )
+    }
+
+    private fun showFirstPartyFreeStory() {
+        if (
+            userDisconnecting ||
+            mainViewModel.isRunning.value != true ||
+            !connectionVerified ||
+            freeStoryGateActive
+        ) return
+
+        freeStoryGate?.release()
+        freeStoryGateActive = true
 
         val gate = BlueVpnFreeStoryAdGate(this)
         freeStoryGate = gate
@@ -4808,22 +4836,15 @@ private fun dpHome(value: Int): Int =
                 }
 
                 BlueVpnFreeStoryAdGate.Outcome.UNAVAILABLE -> {
-                    // First-party media/config failure is fail-open. Tapsell may
-                    // be attempted as a separate non-blocking fallback.
-                    if (mainViewModel.isRunning.value == true && connectionVerified) {
-                        BlueVpnTapsellManager.onVerifiedConnection(
-                            this,
-                            BlueVpnPreferences.connectedAt(this),
-                        )
-                    }
+                    // Both providers unavailable: fail-open, VPN stays connected.
                 }
 
                 BlueVpnFreeStoryAdGate.Outcome.ABORTED -> {
-                    // User left/dismissed the ad. Keep the VPN untouched.
+                    // Dismiss/background never affects VPN.
                 }
 
                 BlueVpnFreeStoryAdGate.Outcome.ACTION_OPENED -> {
-                    // CTA navigation is independent from the VPN lifecycle.
+                    // CTA navigation never affects VPN.
                 }
             }
         }
@@ -4892,20 +4913,6 @@ private fun dpHome(value: Int): Int =
                 "اتصال امن برقرار شد و پایش خودکار فعال است"
             }
 
-        // First-party story and Tapsell must never stack on the same successful
-        // Free connection. Tapsell remains the fallback when no story could be
-        // served or the story feature is disabled in the panel.
-        if (
-            !completedLiveSwitch &&
-            !storyAdShown &&
-            !freeStoryGateActive &&
-            BlueVpnEntitlement.resolveUi(this).isFree
-        ) {
-            BlueVpnTapsellManager.onVerifiedConnection(
-                this,
-                BlueVpnPreferences.connectedAt(this),
-            )
-        }
     }
 
     private fun refreshVerifiedExitLocation() {

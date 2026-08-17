@@ -37,6 +37,7 @@ object BlueVpnTapsellManager {
     private const val KEY_STATUS = "status"
     private const val KEY_LAST_ERROR = "last_error"
     private const val CONFIG_CACHE_MS = 60_000L
+    private const val INIT_REQUEST_FALLBACK_MS = 4_500L
 
     private data class Config(
         val enabled: Boolean,
@@ -83,8 +84,15 @@ object BlueVpnTapsellManager {
         }
     }
 
-    fun onVerifiedConnection(activity: Activity, sessionId: Long) {
-        if (activity.isFinishing || activity.isDestroyed || sessionId <= 0L) return
+    fun onVerifiedConnection(
+        activity: Activity,
+        sessionId: Long,
+        onUnavailable: (() -> Unit)? = null,
+    ) {
+        if (activity.isFinishing || activity.isDestroyed || sessionId <= 0L) {
+            onUnavailable?.invoke()
+            return
+        }
 
         val app = activity.applicationContext
         if (!BlueVpnEntitlement.resolveUi(app).isFree) {
@@ -96,12 +104,15 @@ object BlueVpnTapsellManager {
         pendingActivity = WeakReference(activity)
 
         loadConfig(app, force = false) { loaded ->
-            if (
-                !loaded.valid ||
-                !BlueVpnEntitlement.resolveUi(app).isFree ||
-                !buildAppIdMatches(app, loaded)
-            ) {
+            if (!loaded.valid || !BlueVpnEntitlement.resolveUi(app).isFree) {
                 cancelPending()
+                onUnavailable?.invoke()
+                return@loadConfig
+            }
+
+            if (!buildAppIdMatches(app, loaded)) {
+                cancelPending()
+                onUnavailable?.invoke()
                 return@loadConfig
             }
 
@@ -109,24 +120,33 @@ object BlueVpnTapsellManager {
                 val target = pendingActivity?.get()
                 if (target == null || target.isFinishing || target.isDestroyed) {
                     cancelPending()
+                    onUnavailable?.invoke()
                     return@post
                 }
 
                 if (readyAdId.isNotBlank()) {
-                    showReadyAd(target, loaded)
+                    showReadyAd(target, loaded, onUnavailable)
                     return@post
                 }
 
-                ensureInitialized(app, loaded) {
-                    val current = pendingActivity?.get()
-                    if (
-                        current != null &&
-                        !current.isFinishing &&
-                        !current.isDestroyed
-                    ) {
-                        requestInterstitial(current, loaded)
-                    }
-                }
+                ensureInitialized(
+                    context = app,
+                    loaded = loaded,
+                    after = {
+                        val current = pendingActivity?.get()
+                        if (
+                            current != null &&
+                            !current.isFinishing &&
+                            !current.isDestroyed
+                        ) {
+                            requestInterstitial(current, loaded, onUnavailable)
+                        } else {
+                            cancelPending()
+                            onUnavailable?.invoke()
+                        }
+                    },
+                    onUnavailable = onUnavailable,
+                )
             }
         }
     }
@@ -240,9 +260,16 @@ object BlueVpnTapsellManager {
         context: Context,
         loaded: Config,
         after: (() -> Unit)? = null,
+        onUnavailable: (() -> Unit)? = null,
     ) {
-        if (!loaded.valid || !BlueVpnEntitlement.resolveUi(context).isFree) return
-        if (!buildAppIdMatches(context, loaded)) return
+        if (!loaded.valid || !BlueVpnEntitlement.resolveUi(context).isFree) {
+            onUnavailable?.invoke()
+            return
+        }
+        if (!buildAppIdMatches(context, loaded)) {
+            onUnavailable?.invoke()
+            return
+        }
 
         if (initialized) {
             after?.invoke()
@@ -250,20 +277,29 @@ object BlueVpnTapsellManager {
         }
 
         if (initializing) {
-            if (after != null) {
-                main.postDelayed({
-                    if (initialized) {
-                        after()
-                    } else if (!initializing) {
-                        ensureInitialized(context, loaded, after)
-                    }
-                }, 350L)
-            }
+            // Do not wait forever for the aggregate adapter callback. Some
+            // devices/adapters report initialization late even though requests
+            // can already be issued.
+            main.postDelayed({
+                if (initialized) {
+                    after?.invoke()
+                } else {
+                    recordStatus(context, "initialization_wait_timeout")
+                    after?.invoke()
+                }
+            }, INIT_REQUEST_FALLBACK_MS)
             return
         }
 
         initializing = true
         recordStatus(context, "initializing")
+        val delivered = AtomicBoolean(false)
+
+        fun continueOnce() {
+            if (delivered.compareAndSet(false, true)) {
+                after?.invoke()
+            }
+        }
 
         runCatching {
             Tapsell.setInitializationListener {
@@ -271,20 +307,35 @@ object BlueVpnTapsellManager {
                     initialized = true
                     initializing = false
                     recordStatus(context, "initialized")
-                    after?.invoke()
+                    continueOnce()
                 }
             }
             Tapsell.initialize(context.applicationContext)
+
+            // Fail-open timeout for SDK initialization callback. This does not
+            // mark the SDK initialized; it only allows one real ad request to
+            // determine availability instead of silently doing nothing forever.
+            main.postDelayed({
+                if (!delivered.get()) {
+                    initializing = false
+                    recordStatus(context, "initialization_timeout_requesting")
+                    continueOnce()
+                }
+            }, INIT_REQUEST_FALLBACK_MS)
         }.onFailure {
             initializing = false
             recordStatus(context, "init_error", it.message.orEmpty())
             Log.w(TAG, "Tapsell Mediation initialization failed", it)
+            if (delivered.compareAndSet(false, true)) {
+                onUnavailable?.invoke()
+            }
         }
     }
 
     private fun requestInterstitial(
         activity: Activity,
         loaded: Config,
+        onUnavailable: (() -> Unit)? = null,
     ) {
         if (activity.isFinishing || activity.isDestroyed) return
         if (!loaded.valid || readyAdId.isNotBlank()) return
@@ -333,6 +384,7 @@ object BlueVpnTapsellManager {
                             Log.w(TAG, "Interstitial request failed: $message")
                             pendingSessionId = 0L
                             pendingActivity = null
+                            onUnavailable?.invoke()
                         }
                     }
                 },
@@ -343,15 +395,17 @@ object BlueVpnTapsellManager {
             Log.w(TAG, "Interstitial request exception", it)
             pendingSessionId = 0L
             pendingActivity = null
+            onUnavailable?.invoke()
         }
     }
 
     private fun showReadyAd(
         activity: Activity,
         loaded: Config,
+        onUnavailable: (() -> Unit)? = null,
     ) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
-            main.post { showReadyAd(activity, loaded) }
+            main.post { showReadyAd(activity, loaded, onUnavailable) }
             return
         }
 
@@ -404,6 +458,7 @@ object BlueVpnTapsellManager {
                         readyAdId = ""
                         recordStatus(activity, "show_error", message)
                         Log.w(TAG, "Interstitial show failed: $message")
+                        onUnavailable?.invoke()
                     }
                 },
             )
@@ -418,6 +473,7 @@ object BlueVpnTapsellManager {
             pendingActivity = null
             recordStatus(activity, "show_exception", it.message.orEmpty())
             Log.w(TAG, "Interstitial show exception", it)
+            onUnavailable?.invoke()
         }
     }
 

@@ -91,6 +91,21 @@ class TestCrossComponentReleaseAudit(unittest.TestCase):
 
 
 class CurrentReleaseTests(unittest.TestCase):
+    def test_00_location_scroll_and_network_recovery_regressions(self):
+        servers = text("android-source/BlueVpnServersActivity.kt")
+        self.assertIn("lastRenderedStructureFingerprint", servers)
+        self.assertIn("locationStructureFingerprint", servers)
+        self.assertIn("locationsScrollView.scrollY", servers)
+        self.assertIn("locationsScrollView.scrollTo(0, preservedScrollY)", servers)
+        self.assertIn("if (nextFingerprint != lastRenderedStructureFingerprint)", servers)
+
+        recovery = text("android-source/BlueVpnNetworkRecoveryManager.kt")
+        self.assertNotIn("BlueVpnWarpKeepAliveService.requestNetworkRecovery(", recovery)
+
+        keepalive = text("android-source/BlueVpnWarpKeepAliveService.kt")
+        recovery_api = keepalive.split("fun requestNetworkRecovery", 1)[1].split("private val handler", 1)[0]
+        self.assertNotIn("BlueVpnSystemController.restart(app)", recovery_api)
+
     def test_00_repository_hygiene_bot_contract(self):
         bot = text("bluevpn-manager/includes/class-bluevpn-telegram-bot.php")
         self.assertIn("private static function repository_junk_path", bot)

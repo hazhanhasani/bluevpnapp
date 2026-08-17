@@ -61,7 +61,6 @@ class BlueVpnWarpKeepAliveService : Service() {
         fun requestNetworkRecovery(context: Context) {
             val app = context.applicationContext
             if (!BlueVpnWarpEngine.isRunning()) return
-            if (BlueVpnPreferences.connectedAt(app) <= 0L) return
 
             val now = SystemClock.elapsedRealtime()
             synchronized(BlueVpnWarpKeepAliveService::class.java) {
@@ -69,12 +68,13 @@ class BlueVpnWarpKeepAliveService : Service() {
                 lastRecoveryRequestElapsed = now
             }
 
+            // Compatibility hook only. Reconnect/rebind ownership stays inside the
+            // active engine/state machine; never restart the whole VPN service here.
             BlueVpnRuntimeAudit.record(
                 app,
                 BlueVpnRuntimeAudit.Event.NETWORK_CHANGE,
-                "recovery-request"
+                "recovery-observed"
             )
-            BlueVpnSystemController.restart(app)
         }
     }
 

@@ -66,6 +66,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private lateinit var palette: BlueVpnPalette
     private var themeDarkAtCreate = true
     private lateinit var listContainer: LinearLayout
+    private lateinit var locationsScrollView: ScrollView
     private lateinit var emptyText: TextView
     private lateinit var refreshButton: MaterialButton
     private lateinit var entitlementSubtitle: TextView
@@ -86,6 +87,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var accountSyncInProgress = false
     private var accountSyncPending = false
     private var renderedPremiumMode: Boolean? = null
+    private var lastRenderedStructureFingerprint: String = ""
     private val healthStatusViews = LinkedHashMap<String, TextView>()
     private val healthRefreshRunnable = Runnable {
         refreshVisibleHealthPresentation()
@@ -114,8 +116,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
         mainViewModel.startListenBroadcast()
         mainViewModel.updateListAction.observe(this) {
-            // A real local importer/list change may update the screen, but it must
-            // never trigger a forced subscription refresh or account sync.
+            // v2rayNG can publish list notifications in bursts while tests/import
+            // state changes. Treat the broadcast only as cache invalidation. The
+            // candidate loader below compares a structural fingerprint and redraws
+            // only when the actual location membership/order changed.
             BlueVpnLocationUtil.invalidateResolvedCache()
             stopRefreshing()
             scheduleCandidateReload(force = false)
@@ -246,7 +250,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                         loaded.firstOrNull()?.let { MmkvManager.setSelectServer(it.guid) }
                     }
                 }
-                renderLocations()
+
+                val nextFingerprint = locationStructureFingerprint(loaded)
+                if (nextFingerprint != lastRenderedStructureFingerprint) {
+                    renderLocations()
+                } else {
+                    // Health/ping changes must not destroy and recreate rows.
+                    refreshVisibleHealthPresentation()
+                }
 
                 // Coalesce the importer's burst of broadcasts into at most one
                 // trailing retry, and retry only while the pool is still empty.
@@ -292,12 +303,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 0, 0, dp(16))
         }
-        val scroll = ScrollView(this).apply {
+        locationsScrollView = ScrollView(this).apply {
             isFillViewport = true
             overScrollMode = View.OVER_SCROLL_NEVER
             addView(listContainer)
         }
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(locationsScrollView, LinearLayout.LayoutParams(-1, 0, 1f))
         return frame
     }
 
@@ -546,6 +557,32 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         button.setTextColor(if (active) android.graphics.Color.WHITE else palette.textSecondary)
     }
 
+    private fun locationStructureFingerprint(
+        candidates: List<BlueVpnLocationUtil.Candidate>,
+    ): String {
+        val automatic = BlueVpnPreferences.smartBalance(this)
+        val preferred = BlueVpnPreferences.preferredLocation(this)
+        val selected = MmkvManager.getSelectServer()
+        val entitlement = BlueVpnEntitlement.resolveUi(this)
+        val payload = buildString {
+            append(selectedTab.name).append('|')
+            append(query).append('|')
+            append(automatic).append('|')
+            append(preferred).append('|')
+            append(selected).append('|')
+            append(entitlement.manualSelectionAllowed).append('|')
+            candidates
+                .sortedBy { it.guid }
+                .forEach {
+                    append(it.guid).append(':')
+                    append(it.location.key).append(':')
+                    append(BlueVpnPreferences.isSessionInactive(this@BlueVpnServersActivity, it.guid))
+                    append(';')
+                }
+        }
+        return payload.hashCode().toString()
+    }
+
     private fun renderLocations() {
         if (!::listContainer.isInitialized || isFinishing || isDestroyed) return
         renderGeneration++
@@ -598,6 +635,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             }
             emptyText.visibility = View.VISIBLE
             return
+        }
+        val preservedScrollY = if (::locationsScrollView.isInitialized) {
+            locationsScrollView.scrollY
+        } else {
+            0
         }
         listContainer.removeAllViews()
         healthStatusViews.clear()
@@ -675,7 +717,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 }
             }
         }
+        lastRenderedStructureFingerprint = locationStructureFingerprint(candidates)
         renderHandler.post(appendChunk)
+        if (::locationsScrollView.isInitialized && preservedScrollY > 0) {
+            locationsScrollView.post {
+                locationsScrollView.scrollTo(0, preservedScrollY)
+            }
+        }
     }
 
     private fun availabilityLabel(

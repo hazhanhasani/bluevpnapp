@@ -1,8 +1,14 @@
 === BlueVPN Manager ===
-Version: 4.14.1
-Stable tag: 4.14.1
+Version: 4.14.2
+Stable tag: 4.14.2
 Requires PHP: 8.0
 
+
+== 4.14.2 ==
+- Stops location-list rebuilds when list/test broadcasts do not change location membership.
+- Preserves location scroll position across legitimate structural redraws.
+- Removes destructive VPN restart from ConnectivityManager network callbacks.
+- Keeps reconnect ownership inside the active connection engine/state machine.
 
 == 4.14.1 ==
 - Fixes GitHub Actions repository-hygiene regression gate when CI creates runtime reports/logs after checkout.

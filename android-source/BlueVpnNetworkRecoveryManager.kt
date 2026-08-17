@@ -27,15 +27,11 @@ object BlueVpnNetworkRecoveryManager {
                     BlueVpnRuntimeAudit.Event.NETWORK_CHANGE,
                     "available"
                 )
-                // Give the active engine a chance to restore transport without
-                // destroying user state.
-                try {
-                    BlueVpnWarpKeepAliveService.requestNetworkRecovery(
-                        context.applicationContext
-                    )
-                } catch (_: Throwable) {
-                    // Some builds do not include WARP keepalive recovery.
-                }
+                // Do not restart the VPN from a ConnectivityManager callback.
+                // onAvailable is also fired for the initial/default network and
+                // during noisy handovers; restarting here created connect loops and
+                // could kill a session while it was still VERIFYING. The active
+                // engine/state machine is the single owner of reconnect behavior.
             }
 
             override fun onLost(network: Network) {

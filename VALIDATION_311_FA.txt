@@ -1,8 +1,0 @@
-گزارش اعتبارسنجی BlueVPN 3.0.11
-
-- نسخه فعال Backend و Android: 3.0.11 / 30011
-- مجوز CHANGE_NETWORK_STATE در prepare_android.py: اضافه شد
-- تشخیص EPERM و Binding socket failure: اضافه شد
-- fallback خودکار به URL.openConnection: اضافه شد
-- پیام خطای فارسی دانلودر: اضافه شد
-- BlueAI نسخه 3.0.10: حفظ شد

@@ -1,8 +1,18 @@
 === BlueVPN Manager ===
-Version: 4.13.9
-Stable tag: 4.13.9
+Version: 4.14.0
+Stable tag: 4.14.0
 Requires PHP: 8.0
 
+
+== 4.14.0 ==
+- Full platform deploys keep GitHub as an authoritative clean mirror.
+- Generated reports, caches, duplicate root readmes and obsolete tracked files are removed automatically.
+- Manager-only deploys never perform repository-wide cleanup.
+
+== 4.13.10 ==
+- Location ping/test broadcasts no longer rebuild the whole location list.
+- Visible health labels update in-place, preserving touch targets, scroll position and manual selection.
+- Adds a regression gate preventing per-ping removeAllViews/render loops.
 
 == 4.13.9 ==
 - Home idle/error refresh throttled; no constant one-second redraw loop.

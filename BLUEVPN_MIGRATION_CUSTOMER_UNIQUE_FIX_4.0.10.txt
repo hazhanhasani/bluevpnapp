@@ -1,6 +1,0 @@
-BlueVPN 4.0.10
-
-Root cause fixed: optional UNIQUE customer fields used empty-string sentinels in MySQL.
-Multiple Railway customers with blank email/phone/subscription_token could collapse under REPLACE.
-This release changes optional unique identity values to NULL, upgrades the existing schema, and normalizes imported rows before upsert.
-Exact repair can then restore missing Railway customer IDs without an endless retry loop.

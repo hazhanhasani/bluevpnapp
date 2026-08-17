@@ -86,6 +86,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var accountSyncInProgress = false
     private var accountSyncPending = false
     private var renderedPremiumMode: Boolean? = null
+    private val healthStatusViews = LinkedHashMap<String, TextView>()
+    private val healthRefreshRunnable = Runnable {
+        refreshVisibleHealthPresentation()
+    }
     private val searchRunnable = Runnable { renderLocations() }
     private val renderRunnable = Runnable {
         renderLocationsNow(renderGeneration)
@@ -117,11 +121,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             scheduleCandidateReload(force = false)
         }
         mainViewModel.updateTestResultAction.observe(this) {
-            // Ping/test-result broadcasts only change presentation. Re-render the
-            // current snapshot; do not rebuild the entitlement pool.
+            // Ping/test-result broadcasts can arrive every second. Rebuilding the
+            // whole LinearLayout here made every location disappear/reappear and
+            // made manual selection practically impossible. Keep the row tree
+            // stable and update only the visible health/status TextViews.
             BlueVpnLocationUtil.invalidateResolvedCache()
             stopRefreshing()
-            renderLocations()
+            renderHandler.removeCallbacks(healthRefreshRunnable)
+            renderHandler.postDelayed(healthRefreshRunnable, 180L)
         }
         renderLocations()
         loadCandidates(force = false)
@@ -571,6 +578,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 return
             }
             listContainer.removeAllViews()
+            healthStatusViews.clear()
             val entitlement = uiEntitlement
             emptyText.text = when {
                 candidateLoadError.isNotBlank() -> candidateLoadError
@@ -592,6 +600,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             return
         }
         listContainer.removeAllViews()
+        healthStatusViews.clear()
         val selectedLocation = candidates.firstOrNull { it.guid == selected }?.location?.key
         val recentKeys = BlueVpnExperience.history(this).map { it.locationKey }.distinct()
         val recentIndex = recentKeys.withIndex().associate { it.value to it.index }
@@ -669,6 +678,49 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         renderHandler.post(appendChunk)
     }
 
+    private fun availabilityLabel(
+        location: BlueVpnLocation,
+        servers: List<BlueVpnLocationUtil.Candidate>,
+    ): String {
+        val usableRoutes = servers.count {
+            !BlueVpnPreferences.isSessionInactive(this, it.guid)
+        }
+        val backgroundBucket =
+            BlueVpnBackgroundOptimizer.bestBucket(this, servers.map { it.guid })
+        return when {
+            location.key == "unknown" -> "در حال شناسایی لوکیشن"
+            usableRoutes <= 0 -> "در انتظار بررسی"
+            backgroundBucket != null ->
+                "دسته‌بندی شبکه شما: ${BlueVpnBackgroundOptimizer.bucketLabel(backgroundBucket)}"
+            else -> "آماده اتصال"
+        }
+    }
+
+    /**
+     * Ping/test broadcasts are presentation-only. Never clear/rebuild/re-sort
+     * the location list for them; update only the visible status labels.
+     */
+    private fun refreshVisibleHealthPresentation() {
+        if (
+            isFinishing ||
+            isDestroyed ||
+            !::listContainer.isInitialized ||
+            healthStatusViews.isEmpty()
+        ) return
+
+        val groups = BlueVpnLocationUtil.cachedCandidates(this)
+            .groupBy { it.location.key }
+
+        healthStatusViews.forEach { (locationKey, view) ->
+            val servers = groups[locationKey].orEmpty()
+            val location = servers.firstOrNull()?.location ?: return@forEach
+            val next = availabilityLabel(location, servers)
+            if (view.text?.toString() != next) {
+                view.text = next
+            }
+        }
+    }
+
     /**
      * User-facing selection is location-only. Internal subscription entries /
      * routes stay completely behind the location card and are ranked by the
@@ -733,20 +785,18 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         })
-        val backgroundBucket =
-            BlueVpnBackgroundOptimizer.bestBucket(this, group.servers.map { it.guid })
-        val availability = when {
-            group.location.key == "unknown" -> "در حال شناسایی لوکیشن"
-            group.usableRoutes <= 0 -> "در انتظار بررسی"
-            backgroundBucket != null ->
-                "دسته‌بندی شبکه شما: ${BlueVpnBackgroundOptimizer.bucketLabel(backgroundBucket)}"
-            else -> "آماده اتصال"
-        }
-        content.addView(textView(availability, 10.5f, palette.textMuted, Gravity.END).apply {
+        val availabilityView = textView(
+            availabilityLabel(group.location, group.servers),
+            10.5f,
+            palette.textMuted,
+            Gravity.END,
+        ).apply {
             setPadding(0, dp(5), 0, 0)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
-        })
+        }
+        healthStatusViews[group.location.key] = availabilityView
+        content.addView(availabilityView)
         row.addView(content, LinearLayout.LayoutParams(0, -1, 1f))
 
         val favoriteButton = MaterialButton(this).apply {

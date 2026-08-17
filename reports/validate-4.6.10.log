@@ -1,3 +1,0 @@
-BlueVPN 4.6.10 validation: PASS
-runtime=v2rayNG-2.2.6 androidlib=v26.7.5 xray-release-label=v26.6.27 sing-box=removed
-architecture=Free -> pinned Aether/WARP loopback SOCKS -> stock v2rayNG VpnService; Premium -> immutable stock v2rayNG/Xray

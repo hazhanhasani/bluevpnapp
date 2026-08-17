@@ -1,1 +1,0 @@
-Full Gradle build not run locally: upstream v2rayNG checkout is intentionally not bundled and this container cannot resolve github.com. GitHub Actions performs the authoritative pinned-upstream Gradle build.

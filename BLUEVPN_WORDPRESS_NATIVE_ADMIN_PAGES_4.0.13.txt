@@ -1,8 +1,0 @@
-BlueVPN 4.0.13 — WordPress Native Admin Pages
-
-- BlueVPN is now only the Overview dashboard.
-- Every Control Center section is a real WordPress submenu page.
-- BlueAI, Database, PasarGuard, Marzban, GuardCore, GuardCore Queue, Plans, BluePay, Manual Activation, Customers, Payments, SMS/OTP, and App/Update each have their own page.
-- Internal tab strip has been removed from Control Center pages.
-- Existing action redirects now return to the corresponding native WordPress submenu.
-- App and WordPress version seed: 4.0.13 / 40013.

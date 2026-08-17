@@ -1,6 +1,0 @@
-BlueVPN 4.12.10
-- Deploy only changed files to GitHub instead of uploading the whole ZIP.
-- Uses deterministic Git blob SHA comparison against the current recursive tree.
-- Skips unchanged files before POST /git/blobs and POST /git/trees.
-- Keeps shared 5xx/network retry logic from 4.12.9.
-- Returns success without creating an empty commit when there are no changes.

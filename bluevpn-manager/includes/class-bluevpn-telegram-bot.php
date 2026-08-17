@@ -989,6 +989,25 @@ BLUEVPN_ASKPASS;
 
             $copied = 0;
             $deleted = 0;
+
+            if (self::is_full_platform_root($root)) {
+                $authoritative = self::repository_authoritative_files($root);
+                $repoIt = new RecursiveIteratorIterator(
+                    new RecursiveDirectoryIterator($repo, FilesystemIterator::SKIP_DOTS),
+                    RecursiveIteratorIterator::CHILD_FIRST
+                );
+                foreach ($repoIt as $existing) {
+                    if ($existing->isDir()) continue;
+                    $path = $existing->getPathname();
+                    $rel = str_replace('\\', '/', substr($path, strlen($repo) + 1));
+                    if ($rel === '.git' || str_starts_with($rel, '.git/')) continue;
+                    if (!self::safe_repo_path($rel) || self::protected_path($rel)) continue;
+                    if (self::repository_junk_path($rel) || !isset($authoritative[$rel])) {
+                        @unlink($path);
+                        $deleted++;
+                    }
+                }
+            }
             $deleteFile = $root . '/.bluevpn-delete';
             if (is_file($deleteFile)) {
                 foreach (preg_split('/\r?\n/', (string)file_get_contents($deleteFile)) ?: [] as $line) {
@@ -1008,6 +1027,7 @@ BLUEVPN_ASKPASS;
                 if (!$file->isFile()) continue;
                 $rel = str_replace('\\', '/', substr($file->getPathname(), strlen($root) + 1));
                 if ($rel === '.bluevpn-delete' || str_starts_with($rel, '__MACOSX/') || str_starts_with($rel, '.git/')) continue;
+                if (self::repository_junk_path($rel)) continue;
                 if (!self::safe_repo_path($rel) || self::protected_path($rel)) continue;
                 $dest = $repo . '/' . $rel;
                 wp_mkdir_p(dirname($dest));
@@ -1201,6 +1221,7 @@ BLUEVPN_ASKPASS_CHECK;
             if (!$file->isFile()) continue;
             $rel = str_replace('\\', '/', substr($file->getPathname(), strlen($root) + 1));
             if ($rel === '.bluevpn-delete' || str_starts_with($rel, '__MACOSX/') || str_starts_with($rel, '.git/')) continue;
+            if (self::repository_junk_path($rel)) continue;
             if (!self::safe_repo_path($rel) || self::protected_path($rel)) continue;
             $entries[] = ['path' => $rel, 'file' => $file->getPathname()];
         }
@@ -1236,6 +1257,22 @@ BLUEVPN_ASKPASS_CHECK;
         } catch (Throwable $e) {
             // Safe fallback: deploy still works using the old full-upload behavior.
             $remoteFiles = [];
+        }
+
+        if (self::is_full_platform_root($root) && $remoteFiles) {
+            $authoritative = [];
+            foreach ($entries as $entry) {
+                $authoritative[(string)$entry['path']] = true;
+            }
+            foreach (array_keys($remoteFiles) as $remotePath) {
+                if (
+                    self::safe_repo_path($remotePath) &&
+                    !self::protected_path($remotePath) &&
+                    (self::repository_junk_path($remotePath) || !isset($authoritative[$remotePath]))
+                ) {
+                    $deletions[] = $remotePath;
+                }
+            }
         }
 
         $changedEntries = [];
@@ -1373,6 +1410,64 @@ BLUEVPN_ASKPASS_CHECK;
         $root = $base;
         if (count($items) === 1 && is_dir($base . '/' . $items[0])) $root = $base . '/' . $items[0];
         return $root;
+    }
+
+    private static function is_full_platform_root(string $root): bool {
+        return is_file($root . '/branding/app.json')
+            && is_file($root . '/release.json')
+            && is_file($root . '/bluevpn-manager/bluevpn-manager.php');
+    }
+
+    private static function repository_junk_path(string $path): bool {
+        $path = ltrim(str_replace('\\', '/', trim($path)), '/');
+        if ($path === '') return true;
+        if (
+            $path === '.pytest_cache' ||
+            str_starts_with($path, '.pytest_cache/') ||
+            str_contains($path, '/__pycache__/') ||
+            str_starts_with($path, '__pycache__/') ||
+            str_ends_with($path, '.pyc') ||
+            str_ends_with($path, '.pyo') ||
+            str_ends_with($path, '.log') ||
+            str_ends_with($path, '.tmp') ||
+            str_ends_with($path, '.temp') ||
+            str_starts_with($path, 'reports/')
+        ) return true;
+
+        if (!str_contains($path, '/')) {
+            if (preg_match('/^BUILD-AND-TEST-.*\.md$/i', $path)) return true;
+            if (preg_match('/^CHANGED-FILES-.*\.md$/i', $path)) return true;
+            if (preg_match('/^ROOT-CAUSE-.*\.md$/i', $path)) return true;
+            if (preg_match('/^BUILD_FIX_.*_FA\.md$/i', $path)) return true;
+            if (preg_match('/^FINAL_RELEASE_.*_FA\.md$/i', $path)) return true;
+            if (preg_match('/^VALIDATION_.*_FA\.txt$/i', $path)) return true;
+            if (preg_match('/^UPDATE-.*\.txt$/i', $path)) return true;
+            if ($path === 'NETWORK_RECOVERY_UPDATE.txt') return true;
+            if ($path === 'FIX_REPORT_FA.txt') return true;
+            if (in_array($path, ['README.txt','README_FA.txt','README_PLATFORM_FA.txt'], true)) return true;
+        }
+        return false;
+    }
+
+    private static function repository_authoritative_files(string $root): array {
+        $files = [];
+        $it = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+        );
+        foreach ($it as $file) {
+            if (!$file->isFile()) continue;
+            $rel = str_replace('\\', '/', substr($file->getPathname(), strlen($root) + 1));
+            if (
+                $rel === '.bluevpn-delete' ||
+                str_starts_with($rel, '__MACOSX/') ||
+                str_starts_with($rel, '.git/') ||
+                self::repository_junk_path($rel) ||
+                !self::safe_repo_path($rel) ||
+                self::protected_path($rel)
+            ) continue;
+            $files[$rel] = true;
+        }
+        return $files;
     }
 
     private static function safe_repo_path(string $path): bool {

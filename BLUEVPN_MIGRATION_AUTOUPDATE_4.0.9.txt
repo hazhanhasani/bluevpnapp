@@ -1,6 +1,0 @@
-BlueVPN 4.0.9
-- customers identity convergence: exact Railway PK audit + safe local rekey
-- stale migration errors clear only after key audit succeeds
-- final verify requires customer ID coverage, not row count alone
-- WordPress GitHub updater checks every 2 minutes and installs updates directly
-- non-blocking wp-cron kick is triggered from normal site traffic

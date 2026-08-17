@@ -1,9 +1,0 @@
-BlueVPN 3.0.27
-
-- Workflow به ساختار آخرین نسخه موفق بازگردانده شد.
-- runs-on ثابت روی ubuntu-latest است.
-- ورودی runner و dispatch جایگزین حذف شد.
-- Retry خودکار Runner از ربات Deploy حذف شد.
-- قابلیت شماره تماس و OTP فراز اس‌ام‌اس حفظ شده است.
-
-نتیجه: ۷۹ تست Backend موفق، اعتبارسنجی Android موفق، Python compileall موفق و ساختار ZIP سالم.

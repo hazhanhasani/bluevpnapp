@@ -1,5 +1,0 @@
-BlueVPN 4.12.9
-- Root fix for GitHub API 503 during /git/trees as well as /git/blobs.
-- Shared gh() now retries transient network errors and HTTP 408/425/429/500/502/503/504.
-- Honors Retry-After and adds small jitter.
-- Non-transient auth/permission errors still fail immediately.

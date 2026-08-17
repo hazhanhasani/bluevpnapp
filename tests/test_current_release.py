@@ -91,6 +91,27 @@ class TestCrossComponentReleaseAudit(unittest.TestCase):
 
 
 class CurrentReleaseTests(unittest.TestCase):
+    def test_00_repository_hygiene_bot_contract(self):
+        bot = text("bluevpn-manager/includes/class-bluevpn-telegram-bot.php")
+        self.assertIn("private static function repository_junk_path", bot)
+        self.assertIn("private static function repository_authoritative_files", bot)
+        self.assertIn("self::is_full_platform_root($root)", bot)
+        self.assertIn("!isset($authoritative[$remotePath])", bot)
+        root_names = {p.name for p in ROOT.iterdir()}
+        self.assertIn("README.md", root_names)
+        self.assertNotIn(".pytest_cache", root_names)
+        self.assertNotIn("reports", root_names)
+        self.assertFalse(any(name.startswith("BUILD-AND-TEST-") for name in root_names))
+        self.assertFalse(any(name.startswith("CHANGED-FILES-") for name in root_names))
+
+    def test_00_locations_ping_updates_do_not_rebuild_list(self):
+        source = text("android-source/BlueVpnServersActivity.kt")
+        observer = source.split("mainViewModel.updateTestResultAction.observe(this)", 1)[1].split("renderLocations()", 1)[0]
+        self.assertIn("healthRefreshRunnable", observer)
+        self.assertNotIn("listContainer.removeAllViews()", observer)
+        self.assertIn("private fun refreshVisibleHealthPresentation()", source)
+        self.assertIn("healthStatusViews[group.location.key] = availabilityView", source)
+
     @classmethod
     def setUpClass(cls):
         cls.app = json.loads(text("branding/app.json"))

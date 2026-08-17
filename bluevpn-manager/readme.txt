@@ -1,8 +1,12 @@
 === BlueVPN Manager ===
-Version: 4.13.1
-Stable tag: 4.13.1
+Version: 4.13.2
+Stable tag: 4.13.2
 Requires PHP: 8.0
 
+
+== 4.13.2 ==
+- Restores the exact flat-ZIP resolver compatibility path expected by the regression gate.
+- Keeps the 4.13.1 manager-only and wrapped-ZIP root resolver fixes intact.
 
 == 4.13.1 ==
 - Fix manager-only ZIP root detection after single-directory extraction collapse.

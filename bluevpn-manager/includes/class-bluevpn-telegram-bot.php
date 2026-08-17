@@ -686,6 +686,10 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
             return true;
         };
 
+        // Backward-compatible alias kept intentionally: the regression gate and older
+        // flat-ZIP deploy contract expect this exact $matches() fast path.
+        $matches = $matchesFull;
+
         $matchesManagerParent = static function (string $base): bool {
             return is_file($base . '/bluevpn-manager/bluevpn-manager.php');
         };
@@ -700,7 +704,7 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
                 && is_file($base . '/bluevpn-manager.php');
         };
 
-        if ($matchesFull($extractedRoot)) return $extractedRoot;
+        if($matches($extractedRoot))return $extractedRoot;
         if ($matchesManagerParent($extractedRoot)) return $extractedRoot;
         if ($isManagerDir($extractedRoot)) return dirname($extractedRoot);
 

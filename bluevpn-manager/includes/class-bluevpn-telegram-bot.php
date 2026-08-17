@@ -466,6 +466,10 @@ final class BlueVPN_Telegram_Bot {
                 $deploy = self::deploy_zip_to_github($zip, $s);
                 @unlink($zip);
                 $commit = (string)$deploy['commit'];
+                if ((string)($deploy['package_type'] ?? '') === 'manager_only') {
+                    $job['kind'] = 'manager_update';
+                    self::update_job($jobId, ['kind' => 'manager_update']);
+                }
                 if(empty($deploy['changed'])){
                     throw new RuntimeException(
                         'DEPLOY_COMMIT_NOT_APPLIED: Commit جدیدی روی GitHub ثبت نشده؛ repository_dispatch مسدود شد.'
@@ -567,22 +571,17 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
 
     private static function resolve_project_root(string $extractedRoot): string {
         $extractedRoot=rtrim($extractedRoot,'/\\');
-        $required=[
-            'branding/app.json',
-            'release.json',
-            'bluevpn-manager/bluevpn-manager.php',
-        ];
-
-        $matches=static function(string $base) use ($required): bool {
-            foreach($required as $rel){
-                if(!is_file($base . '/' . $rel))return false;
-            }
+        $fullRequired=['branding/app.json','release.json','bluevpn-manager/bluevpn-manager.php'];
+        $matchesFull=static function(string $base) use ($fullRequired): bool {
+            foreach($fullRequired as $rel){ if(!is_file($base . '/' . $rel))return false; }
             return true;
         };
+        $matchesManagerOnly=static function(string $base): bool {
+            return is_file($base . '/bluevpn-manager/bluevpn-manager.php');
+        };
+        if($matchesFull($extractedRoot))return $extractedRoot;
 
-        if($matches($extractedRoot))return $extractedRoot;
-
-        $candidates=[];
+        $fullCandidates=[];$managerCandidates=[];
         $scan=new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($extractedRoot,FilesystemIterator::SKIP_DOTS),
             RecursiveIteratorIterator::SELF_FIRST
@@ -592,26 +591,26 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
             $path=$item->getPathname();
             $relative=ltrim(str_replace('\\','/',substr($path,strlen($extractedRoot))),'/');
             if($relative==='')continue;
-            if(substr_count($relative,'/')>3)continue;
-            if($matches($path))$candidates[]=$path;
+            if(substr_count($relative,'/')>6)continue;
+            if($matchesFull($path))$fullCandidates[]=$path;
+            elseif($matchesManagerOnly($path))$managerCandidates[]=$path;
         }
-
-        if(!$candidates){
+        if($fullCandidates){$candidates=$fullCandidates;}
+        elseif($matchesManagerOnly($extractedRoot)){return $extractedRoot;}
+        elseif($managerCandidates){$candidates=$managerCandidates;}
+        else{
             throw new RuntimeException(
-                'DEPLOY_PROJECT_ROOT_NOT_FOUND: ریشه پروژه داخل ZIP پیدا نشد. ' .
-                'فایل‌های branding/app.json، release.json و bluevpn-manager/bluevpn-manager.php باید در یک Root مشترک باشند.'
+                'DEPLOY_PROJECT_ROOT_NOT_FOUND: ریشه معتبر BlueVPN داخل ZIP پیدا نشد. ' .
+                'پروژه کامل باید branding/app.json + release.json + bluevpn-manager/bluevpn-manager.php داشته باشد؛ ' .
+                'برای بروزرسانی فقط Manager وجود bluevpn-manager/bluevpn-manager.php کافی است.'
             );
         }
-
         usort($candidates,static function(string $a,string $b) use ($extractedRoot): int {
             $ra=ltrim(str_replace('\\','/',substr($a,strlen($extractedRoot))),'/');
             $rb=ltrim(str_replace('\\','/',substr($b,strlen($extractedRoot))),'/');
-            $da=$ra===''?0:substr_count($ra,'/')+1;
-            $db=$rb===''?0:substr_count($rb,'/')+1;
-            if($da!==$db)return $da<=>$db;
-            return strlen($a)<=>strlen($b);
+            $da=$ra===''?0:substr_count($ra,'/')+1;$db=$rb===''?0:substr_count($rb,'/')+1;
+            if($da!==$db)return $da<=>$db; return strlen($a)<=>strlen($b);
         });
-
         $best=(string)$candidates[0];
         if(count($candidates)>1){
             $firstRel=ltrim(str_replace('\\','/',substr($best,strlen($extractedRoot))),'/');
@@ -619,11 +618,7 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
             foreach(array_slice($candidates,1) as $candidate){
                 $rel=ltrim(str_replace('\\','/',substr($candidate,strlen($extractedRoot))),'/');
                 $depth=$rel===''?0:substr_count($rel,'/')+1;
-                if($depth===$firstDepth){
-                    throw new RuntimeException(
-                        'DEPLOY_PROJECT_ROOT_AMBIGUOUS: بیش از یک ریشه معتبر BlueVPN داخل ZIP پیدا شد.'
-                    );
-                }
+                if($depth===$firstDepth)throw new RuntimeException('DEPLOY_PROJECT_ROOT_AMBIGUOUS: بیش از یک ریشه معتبر BlueVPN داخل ZIP پیدا شد.');
                 break;
             }
         }
@@ -635,47 +630,34 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
         $releasePath=$root . '/release.json';
         $managerPath=$root . '/bluevpn-manager/bluevpn-manager.php';
 
-        if(!is_file($brandingPath)){
-            throw new RuntimeException('DEPLOY_VERSION_METADATA_MISSING: branding/app.json داخل ZIP وجود ندارد.');
+        if(!is_file($brandingPath) && is_file($managerPath)){
+            $manager=(string)file_get_contents($managerPath);
+            if(!preg_match('/define\(\s*[\'\"]BLUEVPN_MANAGER_VERSION[\'\"]\s*,\s*[\'\"]([^\'\"]+)[\'\"]\s*\)/',$manager,$m)){
+                throw new RuntimeException('DEPLOY_MANAGER_VERSION_MISSING: نسخه BlueVPN Manager داخل ZIP قابل تشخیص نیست.');
+            }
+            $version=trim((string)$m[1]);
+            if($version==='')throw new RuntimeException('DEPLOY_MANAGER_VERSION_INVALID: نسخه BlueVPN Manager معتبر نیست.');
+            return ['version'=>$version,'version_code'=>0,'mode'=>'manager_only'];
         }
+        if(!is_file($brandingPath))throw new RuntimeException('DEPLOY_VERSION_METADATA_MISSING: branding/app.json داخل ZIP وجود ندارد.');
         $branding=json_decode((string)file_get_contents($brandingPath),true);
-        if(!is_array($branding)){
-            throw new RuntimeException('DEPLOY_VERSION_METADATA_INVALID: branding/app.json معتبر نیست.');
+        if(!is_array($branding))throw new RuntimeException('DEPLOY_VERSION_METADATA_INVALID: branding/app.json معتبر نیست.');
+        $version=trim((string)($branding['version_name']??''));$code=(int)($branding['version_code']??0);
+        if($version===''||$code<=0)throw new RuntimeException('DEPLOY_VERSION_METADATA_INVALID: version_name/version_code معتبر نیست.');
+        if(!is_file($releasePath))throw new RuntimeException('DEPLOY_VERSION_METADATA_MISSING: release.json برای پروژه کامل وجود ندارد.');
+        $release=json_decode((string)file_get_contents($releasePath),true);
+        if(!is_array($release))throw new RuntimeException('DEPLOY_VERSION_METADATA_INVALID: release.json معتبر نیست.');
+        $releaseVersion=trim((string)($release['version']??''));$releaseCode=(int)($release['version_code']??0);
+        if($releaseVersion!==$version||$releaseCode!==$code){
+            throw new RuntimeException('DEPLOY_VERSION_MISMATCH: branding/app.json و release.json هم‌نسخه نیستند. branding=' . $version . '/' . $code . ' release=' . $releaseVersion . '/' . $releaseCode);
         }
-        $version=trim((string)($branding['version_name']??''));
-        $code=(int)($branding['version_code']??0);
-        if($version===''||$code<=0){
-            throw new RuntimeException('DEPLOY_VERSION_METADATA_INVALID: version_name/version_code معتبر نیست.');
-        }
-
-        if(is_file($releasePath)){
-            $release=json_decode((string)file_get_contents($releasePath),true);
-            if(!is_array($release)){
-                throw new RuntimeException('DEPLOY_VERSION_METADATA_INVALID: release.json معتبر نیست.');
-            }
-            $releaseVersion=trim((string)($release['version']??''));
-            $releaseCode=(int)($release['version_code']??0);
-            if($releaseVersion!==$version||$releaseCode!==$code){
-                throw new RuntimeException(
-                    'DEPLOY_VERSION_MISMATCH: branding/app.json و release.json هم‌نسخه نیستند.' .
-                    ' branding=' . $version . '/' . $code .
-                    ' release=' . $releaseVersion . '/' . $releaseCode
-                );
-            }
-        }
-
         if(is_file($managerPath)){
             $manager=(string)file_get_contents($managerPath);
-            if(
-                !preg_match('/define\(\s*[\'"]BLUEVPN_MANAGER_VERSION[\'"]\s*,\s*[\'"]([^\'"]+)[\'"]\s*\)/',$manager,$m) ||
-                trim((string)$m[1])!==$version
-            ){
-                throw new RuntimeException(
-                    'DEPLOY_VERSION_MISMATCH: نسخه BlueVPN Manager با نسخه Android/Release یکسان نیست.'
-                );
+            if(!preg_match('/define\(\s*[\'\"]BLUEVPN_MANAGER_VERSION[\'\"]\s*,\s*[\'\"]([^\'\"]+)[\'\"]\s*\)/',$manager,$m)||trim((string)$m[1])!==$version){
+                throw new RuntimeException('DEPLOY_VERSION_MISMATCH: نسخه BlueVPN Manager با نسخه Android/Release یکسان نیست.');
             }
         }
-        return ['version'=>$version,'version_code'=>$code];
+        return ['version'=>$version,'version_code'=>$code,'mode'=>'full_project'];
     }
 
     private static function github_file_at_commit(string $path,string $commitSha,array $s): string {
@@ -699,6 +681,15 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
     }
 
     private static function verify_deployed_release(string $commitSha,array $expected,array $deploy,array $s): void {
+        if((string)($expected['mode']??'full_project')==='manager_only'){
+            if(empty($deploy['changed']))throw new RuntimeException('DEPLOY_COMMIT_NOT_APPLIED: ZIP Manager هیچ Diff واقعی روی GitHub ایجاد نکرد.');
+            self::verify_commit_on_branch($commitSha,$s);
+            $managerRaw=self::github_file_at_commit('bluevpn-manager/bluevpn-manager.php',$commitSha,$s);
+            if(!preg_match('/define\(\s*[\'\"]BLUEVPN_MANAGER_VERSION[\'\"]\s*,\s*[\'\"]([^\'\"]+)[\'\"]\s*\)/',$managerRaw,$m)||trim((string)$m[1])!==(string)$expected['version']){
+                throw new RuntimeException('DEPLOY_MANAGER_VERSION_NOT_APPLIED: نسخه Manager روی SHA مقصد با ZIP یکسان نیست.');
+            }
+            return;
+        }
         if(empty($deploy['changed'])){
             throw new RuntimeException(
                 'DEPLOY_COMMIT_NOT_APPLIED: ZIP هیچ Diff واقعی روی GitHub ایجاد نکرد؛ Build شروع نشد.'
@@ -770,6 +761,7 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
                     $result['manager_included'] = $managerIncluded;
                     $result['expected_version'] = (string)$expectedRelease['version'];
                     $result['expected_version_code'] = (int)$expectedRelease['version_code'];
+                    $result['package_type'] = (string)($expectedRelease['mode'] ?? 'full_project');
                     self::verify_deployed_release((string)$result['commit'],$expectedRelease,$result,$s);
                     return $result;
                 } catch (Throwable $e) {
@@ -783,6 +775,7 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
                 $result['manager_included'] = $managerIncluded;
                 $result['expected_version'] = (string)$expectedRelease['version'];
                 $result['expected_version_code'] = (int)$expectedRelease['version_code'];
+                    $result['package_type'] = (string)($expectedRelease['mode'] ?? 'full_project');
                 if ($gitError !== '') $result['git_cli_fallback_error'] = $gitError;
                 self::verify_deployed_release((string)$result['commit'],$expectedRelease,$result,$s);
                 return $result;
@@ -1049,6 +1042,7 @@ BLUEVPN_ASKPASS_CHECK;
                 if (self::safe_repo_path($line) && !self::protected_path($line)) $deletions[] = $line;
             }
         }
+
         $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
         foreach ($it as $file) {
             if (!$file->isFile()) continue;
@@ -1058,46 +1052,123 @@ BLUEVPN_ASKPASS_CHECK;
             $entries[] = ['path' => $rel, 'file' => $file->getPathname()];
         }
         if (!$entries && !$deletions) throw new RuntimeException('ZIP فایل قابل اعمال ندارد.');
+
         $head = self::gh('GET', self::repo_path($s) . '/git/ref/heads/' . rawurlencode((string)$s['git_branch']), null, $s);
         $parent = (string)($head['object']['sha'] ?? '');
         if ($parent === '') throw new RuntimeException('SHA شاخه GitHub دریافت نشد.');
+
         $commit = self::gh('GET', self::repo_path($s) . '/git/commits/' . rawurlencode($parent), null, $s);
         $baseTree = (string)($commit['tree']['sha'] ?? '');
         if ($baseTree === '') throw new RuntimeException('Tree پایه GitHub دریافت نشد.');
+
+        // Build a path -> blob SHA map once. This prevents re-uploading the whole ZIP
+        // on every deploy. Git blob IDs are deterministic, so unchanged files can be
+        // skipped locally without a POST /git/blobs call.
+        $remoteFiles = [];
+        try {
+            $remoteTree = self::gh(
+                'GET',
+                self::repo_path($s) . '/git/trees/' . rawurlencode($baseTree) . '?recursive=1',
+                null,
+                $s
+            );
+            foreach ((array)($remoteTree['tree'] ?? []) as $node) {
+                if (!is_array($node) || (string)($node['type'] ?? '') !== 'blob') continue;
+                $path = str_replace('\\', '/', (string)($node['path'] ?? ''));
+                $sha = strtolower((string)($node['sha'] ?? ''));
+                if ($path !== '' && preg_match('/^[a-f0-9]{40}$/', $sha)) {
+                    $remoteFiles[$path] = $sha;
+                }
+            }
+        } catch (Throwable $e) {
+            // Safe fallback: deploy still works using the old full-upload behavior.
+            $remoteFiles = [];
+        }
+
+        $changedEntries = [];
+        foreach ($entries as $entry) {
+            $bytes = (string)file_get_contents($entry['file']);
+            $gitBlobSha = sha1('blob ' . strlen($bytes) . "\0" . $bytes);
+            if (isset($remoteFiles[$entry['path']]) && hash_equals($remoteFiles[$entry['path']], $gitBlobSha)) {
+                continue;
+            }
+            $entry['bytes'] = $bytes;
+            $entry['git_sha'] = $gitBlobSha;
+            $changedEntries[] = $entry;
+        }
+
+        $effectiveDeletions = [];
+        foreach (array_values(array_unique($deletions)) as $path) {
+            // Do not create a tree mutation for a path that is already absent.
+            if (!$remoteFiles || isset($remoteFiles[$path])) $effectiveDeletions[] = $path;
+        }
+
+        if (!$changedEntries && !$effectiveDeletions) {
+            return [
+                'commit' => $parent,
+                'files' => count($entries),
+                'uploaded' => 0,
+                'skipped' => count($entries),
+                'deleted' => 0,
+                'changed' => false,
+            ];
+        }
 
         $treeSha = $baseTree;
         $batch = [];
         $flush = static function () use (&$batch, &$treeSha, $s): void {
             if (!$batch) return;
-            $created = self::gh('POST', self::repo_path($s) . '/git/trees', ['base_tree' => $treeSha, 'tree' => $batch], $s);
+            $created = self::gh(
+                'POST',
+                self::repo_path($s) . '/git/trees',
+                ['base_tree' => $treeSha, 'tree' => $batch],
+                $s
+            );
             $treeSha = (string)($created['sha'] ?? '');
             if ($treeSha === '') throw new RuntimeException('GitHub Tree ساخته نشد.');
             $batch = [];
         };
-        foreach ($entries as $entry) {
-            $bytes = (string)file_get_contents($entry['file']);
+
+        foreach ($changedEntries as $entry) {
+            $bytes = (string)$entry['bytes'];
             $item = ['path' => $entry['path'], 'mode' => '100644', 'type' => 'blob'];
+
+            // Inline small UTF-8 text directly in the tree. Large/binary files use blobs.
             if (strlen($bytes) <= 300000 && !str_contains($bytes, "\0") && preg_match('//u', $bytes)) {
                 $item['content'] = $bytes;
             } else {
-                $blob = self::gh('POST', self::repo_path($s) . '/git/blobs', ['content' => base64_encode($bytes), 'encoding' => 'base64'], $s);
+                $blob = self::gh(
+                    'POST',
+                    self::repo_path($s) . '/git/blobs',
+                    ['content' => base64_encode($bytes), 'encoding' => 'base64'],
+                    $s
+                );
                 $sha = (string)($blob['sha'] ?? '');
                 if ($sha === '') throw new RuntimeException('آپلود Blob برای ' . $entry['path'] . ' ناموفق بود.');
                 $item['sha'] = $sha;
             }
+
             $batch[] = $item;
-            if (count($batch) >= 70) $flush();
+            if (count($batch) >= 50) $flush();
         }
-        foreach (array_values(array_unique($deletions)) as $path) {
+
+        foreach ($effectiveDeletions as $path) {
             $batch[] = ['path' => $path, 'mode' => '100644', 'type' => 'blob', 'sha' => null];
-            if (count($batch) >= 70) $flush();
+            if (count($batch) >= 50) $flush();
         }
         $flush();
-        if($treeSha===$baseTree){
-            throw new RuntimeException(
-                'DEPLOY_COMMIT_NOT_APPLIED: GitHub Tree جدید با Tree قبلی یکسان است؛ Commit خالی ساخته نشد.'
-            );
+
+        if ($treeSha === $baseTree) {
+            return [
+                'commit' => $parent,
+                'files' => count($entries),
+                'uploaded' => 0,
+                'skipped' => count($entries),
+                'deleted' => 0,
+                'changed' => false,
+            ];
         }
+
         $newCommit = self::gh('POST', self::repo_path($s) . '/git/commits', [
             'message' => 'BlueVPN bot update ' . gmdate('Y-m-d H:i:s') . ' UTC',
             'tree' => $treeSha,
@@ -1105,14 +1176,27 @@ BLUEVPN_ASKPASS_CHECK;
         ], $s);
         $newSha = (string)($newCommit['sha'] ?? '');
         if ($newSha === '') throw new RuntimeException('Commit GitHub ساخته نشد.');
-        $updatedRef = self::gh('PATCH', self::repo_path($s) . '/git/refs/heads/' . rawurlencode((string)$s['git_branch']), ['sha' => $newSha, 'force' => false], $s);
+
+        $updatedRef = self::gh(
+            'PATCH',
+            self::repo_path($s) . '/git/refs/heads/' . rawurlencode((string)$s['git_branch']),
+            ['sha' => $newSha, 'force' => false],
+            $s
+        );
         $patchedSha = (string)($updatedRef['object']['sha'] ?? '');
         if ($patchedSha === '' || !hash_equals($newSha, $patchedSha)) {
             self::verify_commit_on_branch($newSha, $s);
         }
-        return ['commit' => $newSha, 'files' => count($entries), 'deleted' => count($deletions), 'changed' => true];
-    }
 
+        return [
+            'commit' => $newSha,
+            'files' => count($entries),
+            'uploaded' => count($changedEntries),
+            'skipped' => count($entries) - count($changedEntries),
+            'deleted' => count($effectiveDeletions),
+            'changed' => true,
+        ];
+    }
     private static function extract_zip_safely(string $zipPath, array $s): string {
         $zip = new ZipArchive();
         if (($open = $zip->open($zipPath, ZipArchive::RDONLY)) !== true) throw new RuntimeException('ZIP معتبر نیست (ZipArchive code=' . (string)$open . ', size=' . (string)((int)(@filesize($zipPath) ?: 0)) . ').');
@@ -1166,6 +1250,7 @@ BLUEVPN_ASKPASS_CHECK;
     private static function gh(string $method, string $path, ?array $body, array $s) {
         $token = self::github_token($s);
         if ($token === '') throw new RuntimeException('GITHUB_TOKEN تنظیم نشده است.');
+
         $args = [
             'method' => $method,
             'timeout' => 45,
@@ -1181,19 +1266,78 @@ BLUEVPN_ASKPASS_CHECK;
             $args['headers']['Content-Type'] = 'application/json';
             $args['body'] = wp_json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         }
-        $res = wp_remote_request(self::GITHUB_API . $path, $args);
-        if (is_wp_error($res)) throw new RuntimeException($res->get_error_message());
-        $code = (int)wp_remote_retrieve_response_code($res);
-        $raw = wp_remote_retrieve_body($res);
-        $json = $raw !== '' ? json_decode($raw, true) : [];
-        if ($code < 200 || $code >= 300) {
+
+        // GitHub occasionally returns transient 5xx responses from Git Data endpoints
+        // (blobs, trees, commits and refs). Retrying only /git/blobs is not enough:
+        // a deploy can advance to /git/trees and fail there. Handle transient failures
+        // in one place so every GitHub API operation gets the same bounded policy.
+        $maxAttempts = 6;
+        $fallbackDelays = [2, 5, 10, 20, 35];
+        $lastError = '';
+
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            $res = wp_remote_request(self::GITHUB_API . $path, $args);
+
+            if (is_wp_error($res)) {
+                $lastError = $res->get_error_message();
+                if ($attempt < $maxAttempts) {
+                    $delay = $fallbackDelays[min($attempt - 1, count($fallbackDelays) - 1)];
+                    sleep($delay);
+                    continue;
+                }
+                throw new RuntimeException(
+                    'GitHub API ' . strtoupper($method) . ' ' . $path .
+                    ' network error after ' . $attempt . ' attempts: ' . $lastError
+                );
+            }
+
+            $code = (int)wp_remote_retrieve_response_code($res);
+            $raw = wp_remote_retrieve_body($res);
+            $json = $raw !== '' ? json_decode($raw, true) : [];
+            if ($code >= 200 && $code < 300) {
+                return is_array($json) ? $json : [];
+            }
+
             $message = is_array($json) ? (string)($json['message'] ?? '') : '';
-            throw new RuntimeException(
+            $lastError =
                 'GitHub API ' . strtoupper($method) . ' ' . $path . ' HTTP ' . $code .
-                ($message !== '' ? ': ' . $message : '')
-            );
+                ($message !== '' ? ': ' . $message : '');
+
+            $headers = wp_remote_retrieve_headers($res);
+            $retryAfter = 0;
+            if (is_object($headers) && method_exists($headers, 'offsetGet')) {
+                $retryAfter = (int)$headers->offsetGet('retry-after');
+            } elseif (is_array($headers)) {
+                $retryAfter = (int)($headers['retry-after'] ?? 0);
+            }
+
+            $messageLower = strtolower($message);
+            $isTransient = in_array($code, [408, 425, 429, 500, 502, 503, 504], true);
+            if ($code === 403 && (
+                $retryAfter > 0 ||
+                str_contains($messageLower, 'secondary rate limit') ||
+                str_contains($messageLower, 'temporarily unavailable')
+            )) {
+                $isTransient = true;
+            }
+
+            if (!$isTransient || $attempt >= $maxAttempts) {
+                throw new RuntimeException(
+                    $lastError .
+                    ($isTransient ? ' (retry budget exhausted after ' . $attempt . ' attempts)' : '')
+                );
+            }
+
+            $fallback = $fallbackDelays[min($attempt - 1, count($fallbackDelays) - 1)];
+            $delay = $retryAfter > 0 ? min(60, max(1, $retryAfter)) : $fallback;
+            // Small jitter avoids immediately colliding with another deploy retry.
+            try {
+                $delay += random_int(0, 2);
+            } catch (Throwable $ignored) {}
+            sleep($delay);
         }
-        return is_array($json) ? $json : [];
+
+        throw new RuntimeException($lastError !== '' ? $lastError : 'GitHub API request failed.');
     }
 
     private static function verify_commit_on_branch(string $commitSha, array $s): void {

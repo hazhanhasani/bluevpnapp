@@ -9,9 +9,9 @@ class PreGradleXrayDownload4120Tests(unittest.TestCase):
     def test_release_version_is_4120(self):
         app = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
         release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
-        self.assertEqual(app["version_name"], "4.12.4")
-        self.assertEqual(app["version_code"], 41204)
-        self.assertEqual(release["version"], "4.12.4")
+        self.assertEqual(app["version_name"], "4.12.8")
+        self.assertEqual(app["version_code"], 41208)
+        self.assertEqual(release["version"], "4.12.8")
 
     def test_libv2ray_download_is_logged_retriable_and_verified(self):
         workflow = (ROOT / ".github/workflows/build-apk.yml").read_text(encoding="utf-8")

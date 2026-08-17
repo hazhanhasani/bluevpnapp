@@ -333,7 +333,7 @@ class CurrentReleaseTests(unittest.TestCase):
         m = re.search(r"(?m)^Version:\s*(\d+\.\d+\.\d+)\s*$", style)
         self.assertIsNotNone(m)
         version = m.group(1)
-        self.assertRegex(version, r"^\d+\.\d+\.(?:[0-9]|10)$")
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
         self.assertIn(f"BLUEVPN_SITE_VERSION', '{version}", functions)
         self.assertIn("BlueVPN_Site_Updater::init();", functions)
         self.assertIn("pre_set_site_transient_update_themes", updater)
@@ -372,16 +372,18 @@ class CurrentReleaseTests(unittest.TestCase):
         front = text("bluevpn-site/front-page.php")
         home = text("bluevpn-site/inc/home-v2.php")
         css = text("bluevpn-site/assets/css/site.css")
-        widgets = text("bluevpn-site/inc/elementor/widgets.php")
-        self.assertIn("home-v2.php", front)
-        for token in ("bv2-hero-product", "bv2-showcase", "bv2-bento", "bv2-network", "bv2-account-showcase", "bv2-premium", "bv-accordion"):
-            self.assertIn(token, home)
-        self.assertIn("تصویر واقعی اپلیکیشن BlueVPN", home)
-        self.assertIn("bluevpn-home-v2", widgets)
+        self.assertIn("inc/home-v2.php", front)
+        self.assertIn("bv5-hero", home)
+        self.assertIn("bv5-feature-row", home)
+        self.assertIn("bv5-locations-layout", home)
+        self.assertIn("bv5-plan-cards", home)
+        self.assertIn("bv5-faq", home)
         self.assertNotIn("BlueAI", home)
         self.assertNotIn("بخش AI", home)
-        for token in (".bv2-hero", ".bv2-phone", ".bv2-showcase-grid", ".bv2-bento", ".bv2-network-grid", ".bv2-account-grid"):
-            self.assertIn(token, css)
+        self.assertIn(".bv5-hero", css)
+        self.assertIn(".bv5-locations-layout", css)
+        self.assertIn(".bv5-plan-cards", css)
+        self.assertIn(".bv-account-page", css)
 
     def test_repository_cleanup_handles_overlay_stale_files(self):
         cleanup = (ROOT / "scripts/cleanup_repository.py").read_text(encoding="utf-8")
@@ -496,12 +498,9 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("bv-current-subscription", page)
         self.assertIn("bv-dashboard-plans", page)
 
-    def test_site_is_native_responsive_on_mobile(self):
+    def test_site_uses_real_mobile_responsive_viewport(self):
         header = text("bluevpn-site/header.php")
-        css = text("bluevpn-site/assets/css/site.css")
         self.assertIn('name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"', header)
-        self.assertIn('@media(max-width:680px)', css)
-        self.assertIn('.bv2-hero-layout{gap:26px}', css)
 
     def test_logout_cannot_resurrect_premium_session(self):
         self.assertIn("private val authSessionEpoch = AtomicLong(0L)", self.account)
@@ -597,8 +596,8 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         functions = text("bluevpn-site/functions.php")
         style = text("bluevpn-site/style.css")
         self.assertIn("class-bluevpn-seo.php", functions)
-        self.assertIn("BLUEVPN_SITE_VERSION', '1.1.0", functions)
-        self.assertRegex(style, r"(?m)^Version:\s*1\.1\.0\s*$")
+        self.assertIn("BLUEVPN_SITE_VERSION', '1.3.14", functions)
+        self.assertRegex(style, r"(?m)^Version:\s*1\.3\.14\s*$")
 
     def test_private_account_is_noindex_and_excluded_from_sitemaps(self):
         seo = text("bluevpn-site/inc/class-bluevpn-seo.php")

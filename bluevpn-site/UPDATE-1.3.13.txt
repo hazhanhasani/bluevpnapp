@@ -1,0 +1,5 @@
+BlueVPN Site 1.3.13
+- Root fix: Locations section no longer uses shared bv5-screen-grid/bv5-screen-copy classes.
+- Dedicated isolated layout eliminates accumulated cascade conflicts.
+- Mobile copy is centered with explicit safe padding; screenshot is placed below it.
+- Other sections are untouched.

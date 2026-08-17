@@ -1,6 +1,6 @@
-BlueVPN Site 1.1.0 — Elementor + Real App UI
+BlueVPN Site 1.2.0 — Elementor + Real App UI
 
-صفحه خانه در نسخه 1.1.0 به یک لندینگ Product-led بازطراحی شده است.
+صفحه خانه در نسخه 1.2.0 به یک لندینگ Product-led بازطراحی شده است.
 
 نکات مهم:
 - صفحه خانه در Elementor با ویجت «BlueVPN • صفحه اصلی حرفه‌ای» ساخته می‌شود.

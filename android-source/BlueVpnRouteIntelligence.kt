@@ -43,6 +43,8 @@ object BlueVpnRouteIntelligence {
         val exitCountry: String = "",
         val exitColo: String = "",
         val exitChangedAt: Long = 0L,
+        val throughputEwmaBps: Long = 0L,
+        val throughputSampleAt: Long = 0L,
     ) {
         val samples: Int get() = successCount + failureCount
         val successRate: Int
@@ -99,6 +101,8 @@ object BlueVpnRouteIntelligence {
                 exitCountry = json.optString("cc").take(8),
                 exitColo = json.optString("colo").take(12),
                 exitChangedAt = json.optLong("ica", 0L).coerceAtLeast(0L),
+                throughputEwmaBps = json.optLong("tp", 0L).coerceAtLeast(0L),
+                throughputSampleAt = json.optLong("tpa", 0L).coerceAtLeast(0L),
             )
         }.getOrDefault(RouteSnapshot())
     }
@@ -121,6 +125,8 @@ object BlueVpnRouteIntelligence {
             .put("cc", value.exitCountry)
             .put("colo", value.exitColo)
             .put("ica", value.exitChangedAt)
+            .put("tp", value.throughputEwmaBps)
+            .put("tpa", value.throughputSampleAt)
         prefs(context).edit().putString(key, json.toString()).apply()
     }
 
@@ -178,6 +184,34 @@ object BlueVpnRouteIntelligence {
             jitterMs = jitter,
         )
         BlueVpnNativeNetworkAdaptation.observeSuccess(context, guid)
+    }
+
+    /**
+     * Learn real user-visible throughput without running a blocking speed test.
+     * Only meaningful transfer samples are recorded, so idle browsing does not
+     * make a healthy route look slow. The value is scoped to the physical network.
+     */
+    fun recordThroughput(context: Context, guid: String, bytesPerSecond: Long) {
+        if (guid.isBlank()) return
+        val sample = bytesPerSecond.coerceIn(64L * 1024L, 250L * 1024L * 1024L)
+        if (sample < 64L * 1024L) return
+        val old = snapshot(context, guid)
+        val learned = when {
+            old.throughputEwmaBps <= 0L -> sample
+            sample >= old.throughputEwmaBps ->
+                (old.throughputEwmaBps * 70L + sample * 30L) / 100L
+            sample >= old.throughputEwmaBps / 3L ->
+                (old.throughputEwmaBps * 90L + sample * 10L) / 100L
+            else -> old.throughputEwmaBps
+        }
+        save(
+            context,
+            guid,
+            old.copy(
+                throughputEwmaBps = learned.coerceAtLeast(0L),
+                throughputSampleAt = System.currentTimeMillis(),
+            ),
+        )
     }
 
     fun recordFailure(context: Context, guid: String, reason: String) {
@@ -258,9 +292,20 @@ object BlueVpnRouteIntelligence {
                 else -> 0
             }
         }
+        if (s.throughputEwmaBps > 0L &&
+            System.currentTimeMillis() - s.throughputSampleAt in 0..HISTORY_STALE_MS) {
+            adjustment += when {
+                s.throughputEwmaBps >= 20L * 1024L * 1024L -> 10
+                s.throughputEwmaBps >= 8L * 1024L * 1024L -> 8
+                s.throughputEwmaBps >= 3L * 1024L * 1024L -> 6
+                s.throughputEwmaBps >= 1L * 1024L * 1024L -> 4
+                s.throughputEwmaBps >= 256L * 1024L -> 2
+                else -> 0
+            }
+        }
         adjustment -= (s.consecutiveFailures * 8).coerceAtMost(32)
         if (s.cooldownUntil > now) adjustment -= 14
-        return adjustment.coerceIn(-36, 21)
+        return adjustment.coerceIn(-36, 30)
     }
 
     fun evidence(context: Context, guid: String): String? {
@@ -270,6 +315,10 @@ object BlueVpnRouteIntelligence {
         if (s.successCount > 0) pieces += "پایداری ${s.successRate}%"
         if (s.latencyEwmaMs > 0L) pieces += "میانگین ${s.latencyEwmaMs}ms"
         if (s.jitterEwmaMs > 0L) pieces += "نوسان ${s.jitterEwmaMs}ms"
+        if (s.throughputEwmaBps > 0L) {
+            val mbps = (s.throughputEwmaBps * 8.0 / 1_000_000.0)
+            pieces += "سرعت واقعی %.1fMbps".format(Locale.US, mbps)
+        }
         if (s.consecutiveFailures > 0) pieces += "${s.consecutiveFailures} خطای پیاپی"
         return pieces.take(3).joinToString(" • ").takeIf { it.isNotBlank() }
     }

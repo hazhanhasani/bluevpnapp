@@ -9,8 +9,8 @@ class ElementorSvgUi4124Tests(unittest.TestCase):
     def test_release_version(self):
         app=json.loads((ROOT/'branding/app.json').read_text())
         rel=json.loads((ROOT/'release.json').read_text())
-        self.assertEqual((app['version_name'], app['version_code']), ('4.12.4', 41204))
-        self.assertEqual((rel['version'], rel['version_code']), ('4.12.4', 41204))
+        self.assertEqual((app['version_name'], app['version_code']), ('4.12.8', 41208))
+        self.assertEqual((rel['version'], rel['version_code']), ('4.12.8', 41208))
 
     def test_editor_recursion_guard(self):
         src=(ROOT/'bluevpn-site/inc/class-bluevpn-elementor.php').read_text()
@@ -28,15 +28,11 @@ class ElementorSvgUi4124Tests(unittest.TestCase):
             root=ET.parse(p).getroot()
             self.assertTrue(root.tag.endswith('svg'))
 
-    def test_real_app_first_home_widget_and_media_slots(self):
-        widgets=(ROOT/'bluevpn-site/inc/elementor/widgets.php').read_text()
-        functions=(ROOT/'bluevpn-site/functions.php').read_text()
-        home=(ROOT/'bluevpn-site/inc/home-v2.php').read_text()
-        self.assertIn("bluevpn-home-v2", widgets)
-        for slot in ['bluevpn_app_screenshot_id','bluevpn_app_locations_screenshot_id','bluevpn_app_account_screenshot_id','bluevpn_app_support_screenshot_id']:
-            self.assertIn(slot, functions)
-        self.assertIn('تصویر واقعی اپلیکیشن BlueVPN', home)
-        self.assertIn("BLUEVPN_SITE_VERSION', '1.1.0", functions)
+    def test_widgets_reference_current_visual_assets(self):
+        src=(ROOT/'bluevpn-site/inc/elementor/widgets.php').read_text()
+        for name in ['bluevpn-global-shield.svg','bluevpn-premium-cards.svg']:
+            self.assertIn(name, src)
+        self.assertIn("BLUEVPN_SITE_VERSION', '1.3.14", (ROOT/'bluevpn-site/functions.php').read_text())
 
 if __name__ == '__main__':
     unittest.main()

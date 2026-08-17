@@ -221,6 +221,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var networkSweepCandidates: List<BlueVpnLocationUtil.Candidate> = emptyList()
     private var networkSweepSelectionMode: BlueVpnSelectionMode = BlueVpnSelectionMode.AUTO
     private var smoothedDownloadBps = 0.0
+    private var lastThroughputLearningAt = 0L
     private var smoothedUploadBps = 0.0
     private var lastTrafficSampleElapsed = 0L
     private var lastNonZeroDownloadElapsed = 0L
@@ -2262,6 +2263,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        BlueVpnNetworkRecoveryManager.start(applicationContext)
         BlueVpnTheme.applySystemBars(this)
         if (BlueVpnTheme.isDark(this) != themeDarkAtCreate) {
             window.setWindowAnimations(0)
@@ -3539,6 +3541,23 @@ private fun dpHome(value: Int): Int =
         candidates: List<BlueVpnLocationUtil.Candidate>,
         selectionMode: BlueVpnSelectionMode,
     ) {
+        if (candidates.isEmpty()) {
+            startSmartConnectionWithCandidates(candidates, selectionMode)
+            return
+        }
+
+        // Connect-first policy: a user's connect gesture must start the best
+        // locally-known route immediately. Route tests belong to idle/background
+        // intelligence and must never sit in front of the VPN handshake. This is
+        // especially important for Premium, but applies to Free Pool as well.
+        // Manual-server stays exact; manual-location and AUTO retain failover.
+        if (selectionMode != BlueVpnSelectionMode.MANUAL_SERVER) {
+            startSmartConnectionWithCandidates(candidates, selectionMode)
+            BlueVpnBackgroundOptimizer.markPending(this)
+            scheduleIdleCandidateWarmup()
+            return
+        }
+
         if (candidates.size <= 1 || selectionMode == BlueVpnSelectionMode.MANUAL_SERVER) {
             startSmartConnectionWithCandidates(candidates, selectionMode)
             return
@@ -3838,7 +3857,19 @@ private fun dpHome(value: Int): Int =
             return
         }
 
-        val orderedGuids = scoredQueue.map { it.candidate.guid }.distinct()
+        // A route already known to be failing on this physical network must not
+        // win the next user gesture merely because an old ping/AI score was high.
+        // Keep it as failover reserve so recovered servers are never deleted.
+        val connectionReadyQueue = if (selectionMode == BlueVpnSelectionMode.MANUAL_SERVER) {
+            scoredQueue
+        } else {
+            val ready = scoredQueue.filterNot { item ->
+                BlueVpnPreferences.failedRecently(this, item.candidate.guid) ||
+                    BlueVpnRouteIntelligence.isCoolingDown(this, item.candidate.guid)
+            }
+            if (ready.isEmpty()) scoredQueue else ready + scoredQueue.filter { it !in ready }
+        }
+        val orderedGuids = connectionReadyQueue.map { it.candidate.guid }.distinct()
         when (selectionMode) {
             BlueVpnSelectionMode.MANUAL_SERVER -> {
                 failoverQueue = orderedGuids.take(1)
@@ -3859,7 +3890,7 @@ private fun dpHome(value: Int): Int =
                 failoverReserveQueue = orderedGuids.drop(initialBatchSize)
             }
         }
-        val chosen = scoredQueue.first()
+        val chosen = connectionReadyQueue.first()
         if (selectionMode == BlueVpnSelectionMode.AUTO) {
             BlueVpnSmartSelector.recordAutomaticConnectionChoice(
                 this,
@@ -3877,14 +3908,14 @@ private fun dpHome(value: Int): Int =
         healthProbeInProgress = false
         connectButton.isEnabled = false
         statusText.text = if (liveLocationSwitch) "در حال تغییر لوکیشن" else when (selectionMode) {
-            BlueVpnSelectionMode.AUTO -> "بررسی بهترین اتصال"
+            BlueVpnSelectionMode.AUTO -> "در حال اتصال به بهترین مسیر"
             BlueVpnSelectionMode.MANUAL_LOCATION -> "اتصال به لوکیشن انتخاب‌شده"
             BlueVpnSelectionMode.MANUAL_SERVER -> "اتصال به سرور انتخاب‌شده"
         }
         statusCaption.text = if (liveLocationSwitch) {
             "اتصال به ${switchTargetTitle.ifBlank { "لوکیشن جدید" }}"
         } else when (selectionMode) {
-            BlueVpnSelectionMode.AUTO -> "اتصال پایدار قبلی حفظ می‌شود و فقط در صورت افت کیفیت جابه‌جا می‌شویم"
+            BlueVpnSelectionMode.AUTO -> "بهترین مسیر شناخته‌شده فوراً شروع می‌شود؛ بهینه‌سازی بقیه مسیرها در پس‌زمینه انجام می‌شود"
             BlueVpnSelectionMode.MANUAL_LOCATION -> "Failover فقط داخل همین لوکیشن انجام می‌شود"
             BlueVpnSelectionMode.MANUAL_SERVER -> "حالت دستی قفل است؛ Auto این انتخاب را تغییر نمی‌دهد"
         }
@@ -5373,6 +5404,20 @@ private fun dpHome(value: Int): Int =
             }
             downloadSpeed.text = "${formatBytes(smoothedDownloadBps.toLong())}/s"
             uploadSpeed.text = "${formatBytes(smoothedUploadBps.toLong())}/s"
+
+            if (
+                connectionVerified &&
+                attemptedGuid.isNotBlank() &&
+                smoothedDownloadBps >= 64.0 * 1024.0 &&
+                now - lastThroughputLearningAt >= 10_000L
+            ) {
+                lastThroughputLearningAt = now
+                BlueVpnRouteIntelligence.recordThroughput(
+                    this,
+                    attemptedGuid,
+                    smoothedDownloadBps.toLong(),
+                )
+            }
         }
 
         lastRx = rx
@@ -5393,6 +5438,7 @@ private fun dpHome(value: Int): Int =
         lastTrafficSampleElapsed = SystemClock.elapsedRealtime()
         smoothedDownloadBps = 0.0
         smoothedUploadBps = 0.0
+        lastThroughputLearningAt = 0L
         lastNonZeroDownloadElapsed = lastTrafficSampleElapsed
         lastNonZeroUploadElapsed = lastTrafficSampleElapsed
         sessionDownloadBytes = 0L

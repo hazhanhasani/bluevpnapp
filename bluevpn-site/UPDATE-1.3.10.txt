@@ -1,0 +1,6 @@
+BlueVPN Site 1.3.10
+- Based on 1.3.8 layout (1.3.9 broad CSS changes intentionally rolled back)
+- Surgical mobile text/card overflow fix
+- Location image/copy separation on narrow screens
+- Trust cards flexible height only on mobile
+- Account/support image kept below text on mobile

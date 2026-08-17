@@ -5,8 +5,10 @@ $cfg = bluevpn_site_mobile_config();
 $latest = (string)($cfg['latest_version'] ?? 'Android');
 $apk = (string)($cfg['apk_url'] ?? '');
 $shots = [
-  'home' => bluevpn_site_app_screenshot_url('home'),
-  'locations' => bluevpn_site_app_screenshot_url('locations'),
+  'home' => '',
+  'locations' => '',
+  'home_explicit' => '',
+  'locations_explicit' => '',
   'account' => bluevpn_site_app_screenshot_url('account'),
   'support' => bluevpn_site_app_screenshot_url('support'),
 ];

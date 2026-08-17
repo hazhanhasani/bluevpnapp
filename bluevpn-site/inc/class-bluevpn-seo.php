@@ -91,7 +91,7 @@ final class BlueVPN_Site_SEO {
         if (is_singular()) {
             $title = wp_strip_all_tags((string)get_the_title());
             $excerpt = trim(wp_strip_all_tags((string)get_the_excerpt()));
-            if ($excerpt === '') $excerpt = 'BlueVPN؛ تجربه ساده برای اتصال، دانلود، حساب کاربری و مدیریت اشتراک.';
+            if ($excerpt === '') $excerpt = 'BlueVPN؛ تجربه ساده برای اتصال، حساب کاربری و مدیریت اشتراک.';
             return [
                 'title' => $title !== '' ? $title . ' | BlueVPN' : 'BlueVPN',
                 'description' => wp_html_excerpt($excerpt, 155, '…'),
@@ -100,7 +100,7 @@ final class BlueVPN_Site_SEO {
         }
         return [
             'title' => 'BlueVPN',
-            'description' => 'BlueVPN برای Android؛ اتصال ساده، دانلود، پلن‌ها و مدیریت حساب کاربری.',
+            'description' => 'BlueVPN برای Android؛ اتصال ساده، پلن‌ها و مدیریت حساب کاربری.',
             'index' => !is_search() && !is_404(),
         ];
     }
@@ -172,7 +172,7 @@ final class BlueVPN_Site_SEO {
             'Support' => home_url('/support/'),
         ];
         echo "# BlueVPN\n\n";
-        echo "BlueVPN is an Android VPN application with a public website for product information, plans, downloads and support.\n\n";
+        echo "BlueVPN is an Android VPN application with a public website for product information, plans and support.\n\n";
         echo "## Important public pages\n";
         foreach ($urls as $label => $url) echo '- ' . $label . ': ' . esc_url_raw($url) . "\n";
         echo "\n## Private areas\n- Account pages are private user areas and should not be indexed or summarized as public documentation.\n";

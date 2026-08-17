@@ -1,7 +1,7 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-define('BLUEVPN_SITE_VERSION', '1.1.0');
+define('BLUEVPN_SITE_VERSION', '1.3.14');
 
 define('BLUEVPN_SITE_DIR', get_template_directory());
 define('BLUEVPN_SITE_URL', get_template_directory_uri());
@@ -22,12 +22,16 @@ function bluevpn_site_app_screenshot_url(string $slot = 'home'): string {
     ];
     $setting = $map[$slot] ?? $map['home'];
     $id = (int) get_theme_mod($setting, 0);
-    if ($id <= 0 && $slot !== 'home') $id = (int) get_theme_mod($map['home'], 0);
     if ($id > 0) {
         $url = wp_get_attachment_image_url($id, 'large');
         if (is_string($url) && $url !== '') return $url;
     }
-    return '';
+    $fallbacks = [
+        'home' => BLUEVPN_SITE_URL . '/assets/images/app-home-connection-clean.png',
+        'locations' => BLUEVPN_SITE_URL . '/assets/images/app-locations-clean.png',
+        'support' => BLUEVPN_SITE_URL . '/assets/images/app-support-real.jpg',
+    ];
+    return $fallbacks[$slot] ?? '';
 }
 
 function bluevpn_site_customize_register($wp_customize): void {
@@ -124,3 +128,8 @@ function bluevpn_site_admin_notice(): void {
     }
 }
 add_action('admin_notices', 'bluevpn_site_admin_notice');
+
+
+
+// BlueVPN Site 1.3.14 cache/debug marker.
+add_filter('body_class', static function($classes){ $classes[] = 'bluevpn-site-v1-3-14'; return $classes; });

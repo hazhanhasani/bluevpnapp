@@ -20,6 +20,7 @@
     "test_deploy_bot_project_root_4109.py",
     "test_elementor_svg_ui_4124.py",
     "test_fast_ci_4710.py",
+    "test_free_story_video_render_4125.py",
     "test_guardcore_api_013_4111.py",
     "test_kotlin_build_blockers_4119.py",
     "test_live_support_4103.py",
@@ -55,6 +56,7 @@
     "test_warp_exit_guard_469.py",
     "test_warp_exit_policy_empty_483.py",
     "test_warp_iran_identity_recovery_482.py",
-    "test_warp_off_smart_pool_4117.py"
+    "test_warp_off_smart_pool_4117.py",
+    "test_instant_ai_fastest_route_4127.py"
   ]
 }

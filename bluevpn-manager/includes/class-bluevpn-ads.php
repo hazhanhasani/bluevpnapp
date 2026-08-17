@@ -697,7 +697,7 @@ final class BlueVPN_Ads {
             $finfo = function_exists('finfo_open') ? @finfo_open(FILEINFO_MIME_TYPE) : false;
             $mime = $finfo ? strtolower((string)@finfo_file($finfo, (string)$file['tmp_name'])) : '';
             if ($finfo) @finfo_close($finfo);
-            if (!in_array($mime, ['video/mp4', 'video/webm'], true)) throw new RuntimeException('فرمت ویدئو استوری باید MP4 یا WebM باشد.');
+            if ($mime !== 'video/mp4') throw new RuntimeException('برای سازگاری با همه دستگاه‌ها، ویدئوی استوری باید MP4 با کدک H.264/AVC و صدای AAC باشد.');
         }
         $id = bin2hex(random_bytes(16));
         $ok = $wpdb->insert(BlueVPN_DB::table('ad_assets'), [
@@ -1058,7 +1058,7 @@ final class BlueVPN_Ads {
         $storyItems = self::story_items($s);
         $storyPayload = self::free_story_payload($s);
         $storyActive = count(array_filter($storyItems, static fn($x) => !empty($x['active'])));
-        echo '<div class="bvc-card" id="bluevpn-free-story-ads"><h2>استوری تبلیغاتی اتصال رایگان</h2><div class="bvc-note">پس از آماده‌شدن اتصال رایگان، یک عکس یا ویدئو به‌صورت تصادفی تمام‌صفحه نمایش داده می‌شود. تا پایان رسانه، Session رایگان نهایی و تایمر آن شروع نمی‌شود. می‌توانید برای هر استوری CTA داخلی مثل ثبت‌نام، خرید اشتراک یا تمدید تعیین کنید؛ لمس CTA اتصال رایگان درحال آماده‌سازی را متوقف کرده و کاربر را امن به مقصد می‌برد.</div>';
+        echo '<div class="bvc-card" id="bluevpn-free-story-ads"><h2>استوری تبلیغاتی اتصال رایگان</h2><div class="bvc-note">پس از آماده‌شدن اتصال رایگان، یک عکس یا ویدئو به‌صورت تصادفی تمام‌صفحه نمایش داده می‌شود. برای بیشترین سازگاری اندروید، ویدئو را با فرمت MP4 و کدک H.264/AVC + AAC آپلود کنید. تا پایان رسانه، Session رایگان نهایی و تایمر آن شروع نمی‌شود. می‌توانید برای هر استوری CTA داخلی مثل ثبت‌نام، خرید اشتراک یا تمدید تعیین کنید؛ لمس CTA اتصال رایگان درحال آماده‌سازی را متوقف کرده و کاربر را امن به مقصد می‌برد.</div>';
         echo '<div class="bvc-grid" style="margin:14px 0"><div class="bvc-card bvc-kpi"><span>استوری‌ها</span><strong>' . count($storyItems) . '</strong></div><div class="bvc-card bvc-kpi"><span>فعال</span><strong>' . $storyActive . '</strong></div><div class="bvc-card bvc-kpi"><span>قابل انتخاب</span><strong>' . count($storyPayload['items']) . '</strong></div></div>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_story_save'); echo '<input type="hidden" name="action" value="bluevpn_story_save"><div class="bvc-form-grid">';
         self::checkbox('free_story_ads_enabled', 'فعال‌سازی استوری برای پلن رایگان', !empty($s['free_story_ads_enabled']));
@@ -1073,7 +1073,7 @@ final class BlueVPN_Ads {
         self::text('title', 'عنوان', ''); self::text('subtitle', 'زیرعنوان', ''); self::target_editor(); self::text('button_text', 'متن دکمه', 'مشاهده');
         self::number('weight', 'وزن انتخاب تصادفی', 1, 1, 100); self::number('image_duration_seconds', 'مدت عکس (ثانیه)', (int)($s['free_story_ads_image_seconds'] ?? 6), 3, 30);
         echo '<label>شروع نمایش (اختیاری)<input type="datetime-local" name="start_at"></label><label>پایان نمایش (اختیاری)<input type="datetime-local" name="end_at"></label>';
-        echo '<label class="bluevpn-file-input">آپلود رسانه<input type="file" name="media" accept="image/webp,image/jpeg,image/png,video/mp4,video/webm"><span data-file-name>عکس تا ۶MB / ویدئو تا ۱۲MB</span></label>';
+        echo '<label class="bluevpn-file-input">آپلود رسانه<input type="file" name="media" accept="image/webp,image/jpeg,image/png,video/mp4"><span data-file-name>عکس تا ۶MB / ویدئو MP4 (H.264 + AAC) تا ۱۲MB</span></label>';
         echo '<label>یا URL مستقیم رسانه<input type="url" name="media_url" placeholder="https://..."></label><label style="display:flex;align-items:center;align-self:end;padding-bottom:8px"><input type="checkbox" name="active" value="1" checked> فعال</label>';
         echo '</div><div style="margin-top:14px">'; submit_button('افزودن استوری', 'primary', 'submit', false); echo '</div></form>';
 
@@ -1092,7 +1092,7 @@ final class BlueVPN_Ads {
                 echo '<label>نوع رسانه<select name="media_type"><option value="image" ' . selected($story['media_type'], 'image', false) . '>عکس</option><option value="video" ' . selected($story['media_type'], 'video', false) . '>ویدئو</option></select></label>';
                 echo '<label>عنوان<input type="text" name="title" value="' . esc_attr($story['title']) . '"></label><label>زیرعنوان<input type="text" name="subtitle" value="' . esc_attr($story['subtitle']) . '"></label>'; self::target_editor($story); echo '<label>متن دکمه<input type="text" name="button_text" value="' . esc_attr($story['button_text']) . '"></label>';
                 echo '<label>وزن<input type="number" name="weight" min="1" max="100" value="' . (int)$story['weight'] . '"></label><label>مدت عکس<input type="number" name="image_duration_seconds" min="3" max="30" value="' . (int)$story['image_duration_seconds'] . '"></label><label>شروع<input type="datetime-local" name="start_at"></label><label>پایان<input type="datetime-local" name="end_at"></label>';
-                echo '<label class="bluevpn-file-input">تعویض رسانه<input type="file" name="media" accept="image/webp,image/jpeg,image/png,video/mp4,video/webm"><span data-file-name>برای حفظ رسانه فعلی خالی بگذارید</span></label><label>URL رسانه<input type="text" name="media_url" value="' . esc_attr($story['media_url']) . '"></label><label style="display:flex;align-items:center;align-self:end;padding-bottom:8px"><input type="checkbox" name="active" value="1" ' . checked($on, true, false) . '> فعال</label>';
+                echo '<label class="bluevpn-file-input">تعویض رسانه<input type="file" name="media" accept="image/webp,image/jpeg,image/png,video/mp4"><span data-file-name>برای حفظ رسانه فعلی خالی بگذارید</span></label><label>URL رسانه<input type="text" name="media_url" value="' . esc_attr($story['media_url']) . '"></label><label style="display:flex;align-items:center;align-self:end;padding-bottom:8px"><input type="checkbox" name="active" value="1" ' . checked($on, true, false) . '> فعال</label>';
                 echo '</div><div style="margin-top:12px">'; submit_button('ذخیره استوری', 'primary', 'submit', false); echo '</div></form></details></div></article>';
             }
             echo '</div>';

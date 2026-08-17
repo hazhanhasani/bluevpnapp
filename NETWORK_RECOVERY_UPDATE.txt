@@ -1,0 +1,5 @@
+BlueVPN Network Recovery Update
+- Added BlueVpnNetworkRecoveryManager.
+- Observes Android network changes.
+- Avoids forcing full VPN restart on network transition.
+- Requests recovery path while preserving current session state.

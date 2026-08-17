@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class BlueVPN_Elementor_Integration {
-    private const SEED_VERSION = '3';
+    private const SEED_VERSION = '5';
     private const HEADER_OPTION = 'bluevpn_elementor_header_template_id';
     private const FOOTER_OPTION = 'bluevpn_elementor_footer_template_id';
     private const SEED_OPTION = 'bluevpn_elementor_seed_version';
@@ -249,11 +249,21 @@ final class BlueVPN_Elementor_Integration {
             $page = get_page_by_path($slug);
             if (!$page) continue;
             $already = get_post_meta($page->ID, '_elementor_edit_mode', true) === 'builder';
-            $home_migration = (!$force && $slug === 'home' && $previous_seed !== self::SEED_VERSION && get_post_meta($page->ID, '_bluevpn_home_v2_migrated', true) !== '1');
+            $home_seed = (string)get_post_meta($page->ID, '_bluevpn_home_seed_version', true);
+            $elementor_data = (string)get_post_meta($page->ID, '_elementor_data', true);
+            $looks_bluevpn_seeded = $slug === 'home' && (
+                strpos($elementor_data, 'bluevpn-home-v2') !== false ||
+                strpos($elementor_data, 'bluevpn-hero') !== false ||
+                strpos($elementor_data, 'bluevpn-features') !== false
+            );
+            $home_migration = (!$force && $slug === 'home' && $previous_seed !== self::SEED_VERSION && $home_seed !== self::SEED_VERSION && (!$already || $looks_bluevpn_seeded));
             if (!$force && $already && !$home_migration) continue;
             update_post_meta($page->ID, '_wp_page_template', 'default');
             self::write_elementor_document((int)$page->ID, self::page_data($cfg['widgets']), 'wp-page');
-            if ($slug === 'home') update_post_meta($page->ID, '_bluevpn_home_v2_migrated', '1');
+            if ($slug === 'home') {
+                update_post_meta($page->ID, '_bluevpn_home_v2_migrated', '1');
+                update_post_meta($page->ID, '_bluevpn_home_seed_version', self::SEED_VERSION);
+            }
         }
         $header_id = self::ensure_library_template('BlueVPN Header', 'bluevpn-site-header', ['bluevpn-header'], (int)get_option(self::HEADER_OPTION,0), $force);
         $footer_id = self::ensure_library_template('BlueVPN Footer', 'bluevpn-site-footer', ['bluevpn-footer'], (int)get_option(self::FOOTER_OPTION,0), $force);

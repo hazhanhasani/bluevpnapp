@@ -1,0 +1,5 @@
+BlueVPN Site 1.3.11
+- Fixes only the Locations showcase on tablet/mobile.
+- Text is full-width RTL and cannot collapse/clip.
+- Image is placed directly below copy with natural height.
+- No global card/grid/proportion changes.

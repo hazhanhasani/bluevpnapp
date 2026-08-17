@@ -5,12 +5,16 @@ import android.app.Dialog
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.SurfaceTexture
+import android.media.MediaPlayer
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.os.CountDownTimer
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.Surface
+import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import android.view.Window
@@ -20,10 +24,11 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.VideoView
 import com.v2ray.ang.BuildConfig
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
@@ -68,7 +73,11 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
     private val main = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private var dialog: Dialog? = null
-    private var videoView: VideoView? = null
+    private var mediaPlayer: MediaPlayer? = null
+    private var videoTexture: TextureView? = null
+    private var videoSurface: Surface? = null
+    private var tempVideoFile: File? = null
+    private var firstFrameTimeout: Runnable? = null
     private var imageTimer: CountDownTimer? = null
     private var videoProgress: Runnable? = null
     private var loadTimeout: Runnable? = null
@@ -108,9 +117,14 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
                     else showImageStory(item, bitmap)
                 }
             } else {
+                val localVideo = downloadVideo(item.mediaUrl)
                 main.post {
-                    if (!active) return@post
-                    showVideoStory(item)
+                    if (!active) {
+                        localVideo?.delete()
+                        return@post
+                    }
+                    if (localVideo == null) finish(Outcome.UNAVAILABLE)
+                    else showVideoStory(item, localVideo)
                 }
             }
         }
@@ -213,6 +227,50 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
         }
     }.getOrNull()
 
+    private fun downloadVideo(url: String): File? = runCatching {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        try {
+            connection.instanceFollowRedirects = true
+            connection.connectTimeout = loadTimeoutMs.toInt().coerceAtLeast(3_000)
+            connection.readTimeout = max(loadTimeoutMs.toInt(), 12_000)
+            connection.useCaches = true
+            connection.setRequestProperty("Accept", "video/mp4,video/webm,video/*")
+            connection.setRequestProperty("Accept-Encoding", "identity")
+            connection.setRequestProperty("User-Agent", "BlueVPN/${BuildConfig.VERSION_NAME}")
+            val code = connection.responseCode
+            if (code !in 200..299) error("HTTP $code")
+            val advertised = connection.contentLengthLong
+            val maxBytes = 24L * 1024L * 1024L
+            if (advertised > maxBytes) error("story video too large")
+            val mime = connection.contentType.orEmpty().substringBefore(';').trim().lowercase()
+            val suffix = if (mime == "video/webm" || url.substringBefore('?').endsWith(".webm", true)) ".webm" else ".mp4"
+            val file = File.createTempFile("bluevpn-story-", suffix, activity.cacheDir)
+            try {
+                FileOutputStream(file).use { output ->
+                    connection.inputStream.use { input ->
+                        val buffer = ByteArray(32 * 1024)
+                        var total = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read <= 0) break
+                            total += read
+                            if (total > maxBytes) error("story video too large")
+                            output.write(buffer, 0, read)
+                        }
+                        output.fd.sync()
+                    }
+                }
+                if (file.length() <= 0L) error("empty story video")
+                file
+            } catch (t: Throwable) {
+                file.delete()
+                throw t
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }.getOrNull()
+
     private fun showImageStory(item: StoryItem, bitmap: android.graphics.Bitmap) {
         val image = ImageView(activity).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
@@ -236,12 +294,14 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
         }.start()
     }
 
-    private fun showVideoStory(item: StoryItem) {
-        val video = VideoView(activity).apply {
+    private fun showVideoStory(item: StoryItem, file: File) {
+        tempVideoFile = file
+        val texture = TextureView(activity).apply {
             setBackgroundColor(Color.BLACK)
+            isOpaque = true
         }
-        videoView = video
-        val root = storyRoot(item, video)
+        videoTexture = texture
+        val root = storyRoot(item, texture)
         val progress = root.findViewWithTag<ProgressBar>("story-progress")
         showDialog(root)
 
@@ -251,40 +311,83 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
         loadTimeout = timeout
         main.postDelayed(timeout, loadTimeoutMs)
 
-        video.setOnPreparedListener { player ->
-            if (!active) return@setOnPreparedListener
-            mediaStarted = true
-            loadTimeout?.let { main.removeCallbacks(it) }
-            player.isLooping = false
-            player.setVolume(1f, 1f)
-            video.start()
-            val reported = player.duration.toLong().takeIf { it > 0L } ?: maxVideoMs
-            val effectiveDuration = reported.coerceAtMost(maxVideoMs).coerceAtLeast(1_000L)
-            val ticker = object : Runnable {
-                override fun run() {
-                    if (!active || videoView !== video) return
-                    val pos = video.currentPosition.toLong().coerceAtLeast(0L)
-                    progress?.progress = ((pos.toDouble() / effectiveDuration) * 1000).toInt().coerceIn(0, 1000)
-                    if (pos >= effectiveDuration) {
-                        finish(Outcome.COMPLETED)
+        fun attach(surfaceTexture: SurfaceTexture) {
+            if (!active || videoTexture !== texture) return
+            val surface = Surface(surfaceTexture)
+            videoSurface?.release()
+            videoSurface = surface
+            val player = MediaPlayer()
+            mediaPlayer = player
+            runCatching {
+                player.setSurface(surface)
+                player.setDataSource(file.absolutePath)
+                player.setOnInfoListener { _, what, _ ->
+                    if (what == MediaPlayer.MEDIA_INFO_VIDEO_RENDERING_START) {
+                        mediaStarted = true
+                        loadTimeout?.let { main.removeCallbacks(it) }
+                        loadTimeout = null
+                        firstFrameTimeout?.let { main.removeCallbacks(it) }
+                        firstFrameTimeout = null
+                    }
+                    false
+                }
+                player.setOnPreparedListener { prepared ->
+                    if (!active || mediaPlayer !== prepared) return@setOnPreparedListener
+                    prepared.isLooping = false
+                    prepared.setVolume(1f, 1f)
+                    prepared.start()
+                    val frameTimeout = Runnable {
+                        if (active && !mediaStarted && mediaPlayer === prepared) {
+                            finish(Outcome.UNAVAILABLE)
+                        }
+                    }
+                    firstFrameTimeout = frameTimeout
+                    main.postDelayed(frameTimeout, 4_000L.coerceAtMost(loadTimeoutMs))
+                    val reported = prepared.duration.toLong().takeIf { it > 0L } ?: maxVideoMs
+                    val effectiveDuration = reported.coerceAtMost(maxVideoMs).coerceAtLeast(1_000L)
+                    val ticker = object : Runnable {
+                        override fun run() {
+                            if (!active || mediaPlayer !== prepared) return
+                            val pos = runCatching { prepared.currentPosition.toLong() }.getOrDefault(0L).coerceAtLeast(0L)
+                            if (mediaStarted) {
+                                progress?.progress = ((pos.toDouble() / effectiveDuration) * 1000).toInt().coerceIn(0, 1000)
+                                if (pos >= effectiveDuration) {
+                                    finish(Outcome.COMPLETED)
+                                    return
+                                }
+                            }
+                            main.postDelayed(this, 80L)
+                        }
+                    }
+                    videoProgress = ticker
+                    main.post(ticker)
+                }
+                player.setOnCompletionListener {
+                    if (!mediaStarted) {
+                        finish(Outcome.UNAVAILABLE)
                     } else {
-                        main.postDelayed(this, 80L)
+                        progress?.progress = 1000
+                        finish(Outcome.COMPLETED)
                     }
                 }
+                player.setOnErrorListener { _, _, _ ->
+                    finish(Outcome.UNAVAILABLE)
+                    true
+                }
+                player.prepareAsync()
+            }.onFailure { finish(Outcome.UNAVAILABLE) }
+        }
+
+        texture.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) = attach(surface)
+            override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) = Unit
+            override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
+            override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                if (active && videoTexture === texture) finish(Outcome.UNAVAILABLE)
+                return true
             }
-            videoProgress = ticker
-            main.post(ticker)
         }
-        video.setOnCompletionListener {
-            progress?.progress = 1000
-            finish(Outcome.COMPLETED)
-        }
-        video.setOnErrorListener { _, _, _ ->
-            finish(Outcome.UNAVAILABLE)
-            true
-        }
-        runCatching { video.setVideoPath(item.mediaUrl) }
-            .onFailure { finish(Outcome.UNAVAILABLE) }
+        texture.surfaceTexture?.takeIf { texture.isAvailable }?.let(::attach)
     }
 
     private fun storyRoot(item: StoryItem, media: View): FrameLayout {
@@ -459,8 +562,17 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
         videoProgress = null
         loadTimeout?.let { main.removeCallbacks(it) }
         loadTimeout = null
-        runCatching { videoView?.stopPlayback() }
-        videoView = null
+        firstFrameTimeout?.let { main.removeCallbacks(it) }
+        firstFrameTimeout = null
+        runCatching { mediaPlayer?.stop() }
+        runCatching { mediaPlayer?.reset() }
+        runCatching { mediaPlayer?.release() }
+        mediaPlayer = null
+        runCatching { videoSurface?.release() }
+        videoSurface = null
+        videoTexture = null
+        tempVideoFile?.let { runCatching { it.delete() } }
+        tempVideoFile = null
         runCatching { dialog?.dismiss() }
         dialog = null
         mediaStarted = false

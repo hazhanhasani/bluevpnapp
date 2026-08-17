@@ -13,7 +13,7 @@
   <div class="bv-announcement">
     <div class="bv-shell bv-announcement-inner">
       <span><i></i> BlueVPN برای Android</span>
-      <a href="<?php echo esc_url(home_url('/download/')); ?>">دریافت آخرین نسخه <b>←</b></a>
+      <span class="bv-announcement-note">اتصال ساده، انتخاب هوشمند و پشتیبانی یک‌جا</span>
     </div>
   </div>
   <header class="bv-header" data-bv-header>
@@ -26,9 +26,9 @@
         <a href="<?php echo esc_url(home_url('/#network')); ?>">شبکه</a>
         <a href="<?php echo esc_url(home_url('/plans/')); ?>">پلن‌ها</a>
         <a href="<?php echo esc_url(home_url('/support/')); ?>">پشتیبانی</a>
+        <a class="bv-menu-download" href="<?php echo esc_url(home_url('/download/')); ?>">دریافت اپ</a>
       </nav>
       <div class="bv-nav-actions">
-        <a class="bv-nav-link" href="<?php echo esc_url(home_url('/download/')); ?>">دانلود</a>
         <a class="bv-nav-account" href="<?php echo esc_url(home_url('/account/')); ?>"><span>حساب من</span><i>←</i></a>
       </div>
     </div>

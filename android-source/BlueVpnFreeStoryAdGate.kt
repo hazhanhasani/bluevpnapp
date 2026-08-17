@@ -36,16 +36,12 @@ import kotlin.math.max
 import kotlin.random.Random
 
 /**
- * Mandatory first-party story ad gate for the Free plan.
+ * First-party post-connect story ad for the Free plan.
  *
- * Xray may already be RUNNING when this gate opens, but BlueVPN deliberately
- * keeps the connection in a pending state: no connected timestamp, no Free
- * session timer and no CONNECTED UI are committed until the media completes.
- * The host Activity stops the VPN if the user backgrounds the mandatory story,
- * preventing Home/Back from becoming an ad bypass.
- *
- * Media/config failures are fail-open so a broken campaign or temporary cPanel
- * outage can never disable Free VPN for every user.
+ * The VPN session is already verified and committed before this UI opens.
+ * Advertising is strictly presentation-only: media/config/lifecycle failures,
+ * backgrounding, CTA navigation, or player errors must never stop/restart VPN,
+ * clear the connected timestamp, or alter connection verification.
  */
 class BlueVpnFreeStoryAdGate(private val activity: Activity) {
 
@@ -488,7 +484,7 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
         }
 
         bottom.addView(text(
-            if (required) "اتصال بعد از پایان این تبلیغ فعال می‌شود" else "در حال آماده‌سازی اتصال رایگان",
+            "اتصال امن برقرار است",
             12f,
             Typeface.NORMAL,
             Color.argb(205, 255, 255, 255),
@@ -512,9 +508,7 @@ class BlueVpnFreeStoryAdGate(private val activity: Activity) {
         )
         if (!destination.isActionable()) return
 
-        // A CTA intentionally leaves the mandatory Free gate. Do not count it
-        // as a completed impression: the host stops the pending Free VPN first,
-        // then navigation continues to auth/plans/account without an ad bypass.
+        // CTA navigation is presentation-only and must never own VPN lifecycle.
         finish(Outcome.ACTION_OPENED)
         main.post {
             BlueVpnAdActionRouter.open(

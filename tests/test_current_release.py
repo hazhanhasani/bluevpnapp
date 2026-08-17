@@ -925,32 +925,43 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("'random' => true", ads)
         self.assertIn("'every_connection' => true", ads)
 
-    def test_88_free_story_gate_finalizes_timer_only_after_completion(self):
+    def test_88_free_story_is_post_connect_and_never_owns_connection_state(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
-        gate = text("android-source/BlueVpnFreeStoryAdGate.kt")
-        complete = block(home, "private fun completeFailover", "private fun refreshVerifiedExitLocation")
-        self.assertIn("beginFreeStoryGate", complete)
-        self.assertIn("BlueVpnAccountManager.startFreeSession(this)", complete)
-        self.assertGreater(complete.index("beginFreeStoryGate"), -1)
-        self.assertIn("Outcome.COMPLETED", complete)
-        self.assertIn("storyAdShown = true", complete)
-        self.assertIn("weightedRandom(items)", gate)
+        fn = home.split("private fun beginFreeStoryGate(", 1)[1].split(
+            "private fun maybePromptBackgroundReliability()", 1
+        )[0]
+        self.assertLess(
+            fn.index("finalizeSuccessfulConnection("),
+            fn.index("val gate = BlueVpnFreeStoryAdGate(this)"),
+        )
+        self.assertNotIn("connectionVerified = false", fn)
+        self.assertNotIn("BlueVpnPreferences.clearConnected(this)", fn)
 
-    def test_89_mandatory_story_cannot_be_bypassed_by_backgrounding(self):
+    def test_89_story_background_abort_does_not_stop_vpn(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
-        on_stop = block(home, "override fun onStop()", "override fun onTrimMemory")
+        on_stop = home.split("override fun onStop()", 1)[1].split(
+            "override fun onTrimMemory", 1
+        )[0]
         self.assertIn("freeStoryGate?.abort()", on_stop)
-        gate = text("android-source/BlueVpnFreeStoryAdGate.kt")
-        self.assertIn("Outcome.ABORTED", gate)
-        self.assertIn("setCancelable(!required)", gate)
+        fn = home.split("private fun beginFreeStoryGate(", 1)[1].split(
+            "private fun maybePromptBackgroundReliability()", 1
+        )[0]
+        aborted = fn.split("Outcome.ABORTED", 1)[1].split(
+            "Outcome.ACTION_OPENED", 1
+        )[0]
+        self.assertNotIn("stopConnectionImmediately()", aborted)
 
-    def test_90_story_media_failure_is_fail_open_and_does_not_stack_tapsell(self):
+    def test_90_story_media_failure_is_fail_open_and_tapsell_is_nonblocking_fallback(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
-        complete = block(home, "private fun completeFailover", "private fun refreshVerifiedExitLocation")
-        self.assertIn("Outcome.UNAVAILABLE", complete)
-        self.assertIn("storyAdShown = false", complete)
-        self.assertIn("!storyAdShown", complete)
-        self.assertIn("BlueVpnTapsellManager.onVerifiedConnection", complete)
+        fn = home.split("private fun beginFreeStoryGate(", 1)[1].split(
+            "private fun maybePromptBackgroundReliability()", 1
+        )[0]
+        unavailable = fn.split("Outcome.UNAVAILABLE", 1)[1].split(
+            "Outcome.ABORTED", 1
+        )[0]
+        self.assertIn("BlueVpnTapsellManager.onVerifiedConnection", unavailable)
+        self.assertNotIn("stopConnectionImmediately()", unavailable)
+        self.assertIn("!freeStoryGateActive", home)
 
     def test_91_wordpress_convergence_accepts_newer_manager_and_schema(self):
         workflow = text(".github/workflows/build-apk.yml")

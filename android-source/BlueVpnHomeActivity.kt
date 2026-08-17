@@ -2030,24 +2030,13 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             }
 
             if (freeStoryGateActive) {
-                if (active) {
-                    connectionVerified = false
-                    connectButton.isEnabled = false
-                    updateConnectLabel("در حال فعال‌سازی")
-                    statusText.text = "اتصال آماده است"
-                    statusCaption.visibility = View.VISIBLE
-                    statusCaption.text = "برای فعال‌شدن پلن رایگان، تبلیغ را تا پایان مشاهده کنید"
-                    return@observe
+                // Advertising is presentation-only. Never downgrade/clear a
+                // verified VPN session while a story is visible.
+                if (!active) {
+                    freeStoryGate?.release()
+                    freeStoryGate = null
+                    freeStoryGateActive = false
                 }
-
-                freeStoryGate?.release()
-                freeStoryGate = null
-                freeStoryGateActive = false
-                connectionVerified = false
-                BlueVpnPreferences.clearConnected(this)
-                BlueVpnRuntimeGate.endConnection(this)
-                renderConnectionState(false)
-                return@observe
             }
 
             when {
@@ -2221,9 +2210,8 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
     override fun onStop() {
         if (freeStoryGateActive && !isChangingConfigurations && !isFinishing) {
-            // A mandatory Free story must not be bypassable with Home/Recent Apps.
-            // Leaving the foreground aborts this pending connection; the next
-            // explicit Connect attempt can select/show a story again.
+            // The ad may be dismissed when Home/Recent Apps is used, but the
+            // already-verified VPN session must stay connected.
             freeStoryGate?.abort()
         }
         handler.removeCallbacks(delayedAdsStart)
@@ -4784,20 +4772,25 @@ private fun dpHome(value: Int): Int =
             return
         }
 
+        // The VPN connection is finalized before any advertising work starts.
+        // Ads are UI-only and are never allowed to own or mutate connection state.
         freeStoryGate?.release()
         freeStoryGateActive = true
-        connectionVerified = false
-        BlueVpnPreferences.clearConnected(this)
-        showConnectingOverlay(
-            title = "اتصال آماده است",
-            caption = "تبلیغ اتصال رایگان را تا پایان مشاهده کنید",
-            location = connectingLocation.text.toString().ifBlank { "انتخاب هوشمند" },
+        finalizeSuccessfulConnection(
+            verifiedDelay,
+            completedLiveSwitch,
+            completedTargetTitle,
+            storyAdShown = false,
         )
-        updateConnectLabel("در حال فعال‌سازی")
-        connectButton.isEnabled = false
-        statusText.text = "فعال‌سازی اتصال رایگان"
-        statusCaption.visibility = View.VISIBLE
-        statusCaption.text = "تایمر رایگان بعد از پایان تبلیغ شروع می‌شود"
+
+        if (
+            userDisconnecting ||
+            mainViewModel.isRunning.value != true ||
+            !connectionVerified
+        ) {
+            freeStoryGateActive = false
+            return
+        }
 
         val gate = BlueVpnFreeStoryAdGate(this)
         freeStoryGate = gate
@@ -4808,47 +4801,29 @@ private fun dpHome(value: Int): Int =
 
             when (outcome) {
                 BlueVpnFreeStoryAdGate.Outcome.COMPLETED -> {
-                    if (mainViewModel.isRunning.value == true && !userDisconnecting) {
-                        finalizeSuccessfulConnection(
-                            verifiedDelay,
-                            completedLiveSwitch,
-                            completedTargetTitle,
-                            storyAdShown = true,
-                        )
-                    } else {
-                        renderConnectionState(false)
+                    if (mainViewModel.isRunning.value == true && connectionVerified) {
+                        statusCaption.visibility = View.VISIBLE
+                        statusCaption.text = "تبلیغ کامل شد؛ اتصال امن برقرار است"
                     }
                 }
 
                 BlueVpnFreeStoryAdGate.Outcome.UNAVAILABLE -> {
-                    // Infrastructure/media failure is fail-open. A broken ad
-                    // campaign must never disable the entire Free service.
-                    if (mainViewModel.isRunning.value == true && !userDisconnecting) {
-                        finalizeSuccessfulConnection(
-                            verifiedDelay,
-                            completedLiveSwitch,
-                            completedTargetTitle,
-                            storyAdShown = false,
+                    // First-party media/config failure is fail-open. Tapsell may
+                    // be attempted as a separate non-blocking fallback.
+                    if (mainViewModel.isRunning.value == true && connectionVerified) {
+                        BlueVpnTapsellManager.onVerifiedConnection(
+                            this,
+                            BlueVpnPreferences.connectedAt(this),
                         )
-                    } else {
-                        renderConnectionState(false)
                     }
                 }
 
                 BlueVpnFreeStoryAdGate.Outcome.ABORTED -> {
-                    Toast.makeText(
-                        this,
-                        "تبلیغ کامل مشاهده نشد؛ اتصال رایگان متوقف شد",
-                        Toast.LENGTH_LONG,
-                    ).show()
-                    stopConnectionImmediately()
+                    // User left/dismissed the ad. Keep the VPN untouched.
                 }
 
                 BlueVpnFreeStoryAdGate.Outcome.ACTION_OPENED -> {
-                    // The user intentionally followed the ad CTA. The pending
-                    // Free tunnel must stop before auth/plans navigation opens,
-                    // otherwise tapping an ad could bypass the mandatory gate.
-                    stopConnectionImmediately()
+                    // CTA navigation is independent from the VPN lifecycle.
                 }
             }
         }
@@ -4920,7 +4895,12 @@ private fun dpHome(value: Int): Int =
         // First-party story and Tapsell must never stack on the same successful
         // Free connection. Tapsell remains the fallback when no story could be
         // served or the story feature is disabled in the panel.
-        if (!completedLiveSwitch && !storyAdShown && BlueVpnEntitlement.resolveUi(this).isFree) {
+        if (
+            !completedLiveSwitch &&
+            !storyAdShown &&
+            !freeStoryGateActive &&
+            BlueVpnEntitlement.resolveUi(this).isFree
+        ) {
             BlueVpnTapsellManager.onVerifiedConnection(
                 this,
                 BlueVpnPreferences.connectedAt(this),

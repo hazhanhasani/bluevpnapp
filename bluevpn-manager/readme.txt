@@ -1,8 +1,14 @@
 === BlueVPN Manager ===
-Version: 4.14.2
-Stable tag: 4.14.2
+Version: 4.14.3
+Stable tag: 4.14.3
 Requires PHP: 8.0
 
+
+== 4.14.3 ==
+- Free connection is finalized before first-party story advertising starts.
+- Ad abort, media failure, CTA navigation and Activity backgrounding can no longer stop/restart VPN.
+- Tapsell remains a non-blocking fallback when first-party story media is unavailable.
+- Advertising no longer clears connected state or downgrades connection verification.
 
 == 4.14.2 ==
 - Stops location-list rebuilds when list/test broadcasts do not change location membership.

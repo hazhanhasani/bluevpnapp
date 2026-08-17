@@ -903,6 +903,7 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
     private static function deploy_zip_to_github(string $zipPath, array $s): array {
         $extractRoot = self::extract_zip_safely($zipPath, $s);
         $root = self::resolve_project_root($extractRoot);
+        self::stamp_tapsell_build_config($root);
         $managerIncluded = is_file($root . '/bluevpn-manager/bluevpn-manager.php');
         $expectedRelease = self::expected_release_from_tree($root);
         try {
@@ -1410,6 +1411,41 @@ BLUEVPN_ASKPASS_CHECK;
         $root = $base;
         if (count($items) === 1 && is_dir($base . '/' . $items[0])) $root = $base . '/' . $items[0];
         return $root;
+    }
+
+    private static function stamp_tapsell_build_config(string $root): void {
+        if (!self::is_full_platform_root($root)) return;
+
+        $settings = BlueVPN_DB::settings();
+        $appId = trim((string)($settings['tapsell_app_id'] ?? ''));
+        if ($appId === '') {
+            $legacy = trim((string)($settings['tapsell_app_key'] ?? ''));
+            if (preg_match('/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', $legacy)) {
+                $appId = $legacy;
+            }
+        }
+        if ($appId === '') return;
+
+        if (!preg_match('/^[A-Za-z0-9._:-]{8,200}$/', $appId)) {
+            throw new RuntimeException('Tapsell Mediation App ID معتبر نیست.');
+        }
+
+        $path = $root . '/branding/app.json';
+        $raw = json_decode((string)file_get_contents($path), true);
+        if (!is_array($raw)) {
+            throw new RuntimeException('branding/app.json برای ثبت Tapsell قابل خواندن نیست.');
+        }
+
+        $raw['tapsell_app_id'] = $appId;
+        $raw['tapsell_mediation_version'] = '1.4.0-alpha03';
+
+        $encoded = wp_json_encode(
+            $raw,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+        );
+        if (!is_string($encoded) || file_put_contents($path, $encoded . "\n") === false) {
+            throw new RuntimeException('ثبت Tapsell App ID در پروژه ناموفق بود.');
+        }
     }
 
     private static function is_full_platform_root(string $root): bool {

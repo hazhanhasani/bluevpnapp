@@ -91,6 +91,35 @@ class TestCrossComponentReleaseAudit(unittest.TestCase):
 
 
 class CurrentReleaseTests(unittest.TestCase):
+    def test_00_tapsell_mediation_migration_contract(self):
+        manager = text("android-source/BlueVpnTapsellManager.kt")
+        prepare = text("scripts/prepare_android.py")
+        ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
+        bot = text("bluevpn-manager/includes/class-bluevpn-telegram-bot.php")
+
+        self.assertIn("import ir.tapsell.mediation.Tapsell", manager)
+        self.assertIn("Tapsell.requestInterstitialAd(", manager)
+        self.assertIn("Tapsell.showInterstitialAd(", manager)
+        self.assertIn("BuildConfig.BLUEVPN_TAPSELL_APP_ID", manager)
+        self.assertNotIn("Class.forName(", manager)
+        self.assertNotIn("TapsellPlus", manager)
+
+        self.assertIn("https://maven.tapsell.ir", prepare)
+        self.assertIn("ir.tapsell:tapsell:", prepare)
+        self.assertIn("ir.tapsell.mediation.adapter:legacy:", prepare)
+        self.assertNotIn("ir.tapsell.plus:tapsell-plus-sdk-android:2.3.3", prepare)
+        self.assertIn('implementation("androidx.work:work-runtime:2.10.0")', prepare)
+        self.assertIn('implementation("com.google.guava:guava:33.6.0-android")', prepare)
+        self.assertIn("TapsellMediationAppKey", prepare)
+        self.assertIn("com.google.android.gms.permission.AD_ID", prepare)
+        self.assertIn("ir.tapsell.mediation.AUTO_INIT", prepare)
+
+        self.assertIn("'sdk' => 'mediation'", ads)
+        self.assertIn("'app_id' => $appId", ads)
+        self.assertIn("tapsell_app_id", ads)
+        self.assertIn("stamp_tapsell_build_config", bot)
+        self.assertIn("$raw['tapsell_app_id'] = $appId;", bot)
+
     def test_00_public_profile_names_never_expose_provider_remarks(self):
         helper = text("android-source/BlueVpnPublicProfileName.kt")
         self.assertIn('private const val BRAND = "BlueVPN"', helper)

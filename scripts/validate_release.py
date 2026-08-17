@@ -47,6 +47,8 @@ def main() -> None:
     api = read("bluevpn-manager/includes/class-bluevpn-api.php")
     ads = read("bluevpn-manager/includes/class-bluevpn-ads.php")
     carousel = read("android-source/BlueVpnAdsCarouselView.kt")
+    tapsell = read("android-source/BlueVpnTapsellManager.kt")
+    prepare_android = read("scripts/prepare_android.py")
     update_manager = read("android-source/BlueVpnUpdateManager.kt")
 
     version = str(app.get("version_name", "")).strip()
@@ -76,6 +78,24 @@ def main() -> None:
     require("'advertising'=>$advertising" in api, "mobile config canonical advertising key missing")
     require("'ads'=>$advertising" in api, "mobile config ads compatibility alias missing")
     require("'tapsell'=>$tapsell" in api, "mobile config tapsell key missing")
+    require("'sdk' => 'mediation'" in ads, "Tapsell payload is not Mediation")
+    require("'app_id' => $appId" in ads, "Tapsell Mediation app_id missing from payload")
+    require("ir.tapsell:tapsell:" in prepare_android, "Tapsell Mediation core dependency missing")
+    require("ir.tapsell.mediation.adapter:legacy:" in prepare_android, "Tapsell legacy adapter missing")
+    require("ir.tapsell.plus:tapsell-plus-sdk-android:2.3.3" not in prepare_android,
+            "Deprecated Tapsell Plus dependency remains")
+    require("TapsellMediationAppKey" in prepare_android,
+            "Tapsell Mediation manifest placeholder missing")
+    require("com.google.android.gms.permission.AD_ID" in prepare_android,
+            "Tapsell AD_ID permission missing")
+    require("ir.tapsell.mediation.AUTO_INIT" in prepare_android,
+            "Tapsell controlled initialization metadata missing")
+    require("import ir.tapsell.mediation.Tapsell" in tapsell,
+            "Android Tapsell Mediation import missing")
+    require("Tapsell.requestInterstitialAd" in tapsell and "Tapsell.showInterstitialAd" in tapsell,
+            "Android Tapsell interstitial API missing")
+    require("Class.forName(" not in tapsell and "TapsellPlus" not in tapsell,
+            "Reflection/deprecated Tapsell Plus runtime remains")
     require('root.optJSONObject("advertising") ?: root.optJSONObject("ads")' in carousel, "Android banner parser lacks advertising/ads compatibility fallback")
     require("public static function public_config" in ads and "public static function free_public_config" in ads,
             "BlueVPN_Ads compatibility aliases missing")

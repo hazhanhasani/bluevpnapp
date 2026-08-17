@@ -405,20 +405,43 @@ final class BlueVPN_Ads {
         ];
     }
 
+    private static function tapsell_mediation_app_id(array $settings): string {
+        $appId = trim((string)($settings['tapsell_app_id'] ?? ''));
+        if ($appId !== '') return $appId;
+
+        // A previous field may already contain a Mediation UUID. Migrate only
+        // that shape; a legacy Tapsell Plus long App Key is a different value.
+        $legacy = trim((string)($settings['tapsell_app_key'] ?? ''));
+        if (preg_match('/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', $legacy)) {
+            return $legacy;
+        }
+        return '';
+    }
+
     public static function tapsell_payload(array $settings): array {
-        $appKey = trim((string)($settings['tapsell_app_key'] ?? ''));
+        $appId = self::tapsell_mediation_app_id($settings);
+        $legacyAppKey = trim((string)($settings['tapsell_app_key'] ?? ''));
         $zone = trim((string)($settings['tapsell_interstitial_zone_id'] ?? ''));
         $requested = !empty($settings['tapsell_enabled']);
-        $enabled = $requested && $appKey !== '' && $zone !== '';
+
+        // Keep app_key during migration so already-installed old APKs do not
+        // break before users update. Current APKs consume app_id.
+        $hasAnyCredential = $appId !== '' || $legacyAppKey !== '';
+        $enabled = $requested && $hasAnyCredential && $zone !== '';
+
         return [
             'enabled' => $enabled,
-            'app_key' => $enabled ? $appKey : '',
+            'sdk' => 'mediation',
+            'sdk_version' => '1.4.0-alpha03',
+            'app_id' => $appId,
+            'app_key' => $legacyAppKey,
             'interstitial_zone_id' => $enabled ? $zone : '',
             'show_after_connect' => !array_key_exists('tapsell_show_after_connect', $settings) || !empty($settings['tapsell_show_after_connect']),
             'free_only' => true,
             'min_interval_seconds' => max(0, min(86400, (int)($settings['tapsell_min_interval_seconds'] ?? 0))),
             'daily_cap' => max(0, min(1000, (int)($settings['tapsell_daily_cap'] ?? 0))),
-            'disabled_reason' => $enabled ? '' : ($requested ? 'missing_credentials' : 'disabled'),
+            'build_embed_required' => true,
+            'disabled_reason' => $enabled ? '' : ($requested ? 'missing_mediation_app_id_or_zone' : 'disabled'),
         ];
     }
 
@@ -722,7 +745,7 @@ final class BlueVPN_Ads {
         $s['ads_interval_seconds'] = max(3, min(30, (int)($_POST['ads_interval_seconds'] ?? 6)));
         $s['ads_height_dp'] = max(116, min(160, (int)($_POST['ads_height_dp'] ?? 146)));
         $s['tapsell_enabled'] = isset($_POST['tapsell_enabled']);
-        $s['tapsell_app_key'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_app_key'] ?? '')), 0, 500);
+        $s['tapsell_app_id'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_app_id'] ?? '')), 0, 200);
         $s['tapsell_interstitial_zone_id'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_interstitial_zone_id'] ?? '')), 0, 300);
         $s['tapsell_show_after_connect'] = isset($_POST['tapsell_show_after_connect']);
         $s['tapsell_min_interval_seconds'] = max(0, min(86400, (int)($_POST['tapsell_min_interval_seconds'] ?? 0)));
@@ -1052,8 +1075,8 @@ final class BlueVPN_Ads {
         echo '<div class="bvc-card"><h2>تنظیمات نمایش و Tapsell</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_ads_save'); echo '<input type="hidden" name="action" value="bluevpn_ads_save"><div class="bvc-form-grid">';
         self::checkbox('ads_enabled', 'نمایش بنرهای داخل اپ', !empty($s['ads_enabled'])); self::checkbox('ads_autoplay', 'تعویض خودکار', !empty($s['ads_autoplay'])); self::checkbox('ads_loop', 'تکرار اسلایدها', !empty($s['ads_loop']));
         self::number('ads_interval_seconds', 'فاصله اسلاید (ثانیه)', (int)($s['ads_interval_seconds'] ?? 6), 3, 30); self::number('ads_height_dp', 'ارتفاع بنر (dp)', (int)($s['ads_height_dp'] ?? 146), 116, 160);
-        self::checkbox('tapsell_enabled', 'فعال‌سازی Tapsell', !empty($s['tapsell_enabled'])); self::text('tapsell_app_key', 'Tapsell App Key', (string)($s['tapsell_app_key'] ?? '')); self::text('tapsell_interstitial_zone_id', 'Interstitial Zone ID', (string)($s['tapsell_interstitial_zone_id'] ?? '')); self::checkbox('tapsell_show_after_connect', 'نمایش بعد از اتصال موفق', !array_key_exists('tapsell_show_after_connect', $s) || !empty($s['tapsell_show_after_connect'])); self::number('tapsell_min_interval_seconds', 'حداقل فاصله Tapsell', (int)($s['tapsell_min_interval_seconds'] ?? 0), 0, 86400); self::number('tapsell_daily_cap', 'سقف روزانه (۰=نامحدود)', (int)($s['tapsell_daily_cap'] ?? 0), 0, 1000);
-        echo '</div><div style="margin-top:14px">'; submit_button('ذخیره تنظیمات تبلیغات', 'primary', 'submit', false); echo '</div></form></div>';
+        self::checkbox('tapsell_enabled', 'فعال‌سازی Tapsell Mediation', !empty($s['tapsell_enabled'])); self::text('tapsell_app_id', 'Tapsell Mediation App ID', self::tapsell_mediation_app_id($s)); self::text('tapsell_interstitial_zone_id', 'Interstitial Zone ID', (string)($s['tapsell_interstitial_zone_id'] ?? '')); self::checkbox('tapsell_show_after_connect', 'نمایش بعد از اتصال موفق', !array_key_exists('tapsell_show_after_connect', $s) || !empty($s['tapsell_show_after_connect'])); self::number('tapsell_min_interval_seconds', 'حداقل فاصله Tapsell', (int)($s['tapsell_min_interval_seconds'] ?? 0), 0, 86400); self::number('tapsell_daily_cap', 'سقف روزانه (۰=نامحدود)', (int)($s['tapsell_daily_cap'] ?? 0), 0, 1000);
+        echo '</div><div class="bvc-note" style="margin-top:12px">BlueVPN اکنون از Tapsell Mediation استفاده می‌کند. مقدار Mediation App ID با App Key قدیمی Tapsell Plus یکی نیست. پس از ذخیره App ID، پروژه کامل را یک‌بار با ربات BlueVPN Deploy کنید تا شناسه داخل APK بعدی قرار بگیرد.</div><div style="margin-top:14px">'; submit_button('ذخیره تنظیمات تبلیغات', 'primary', 'submit', false); echo '</div></form></div>';
 
         $storyItems = self::story_items($s);
         $storyPayload = self::free_story_payload($s);

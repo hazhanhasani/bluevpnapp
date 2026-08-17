@@ -1,8 +1,15 @@
 === BlueVPN Manager ===
-Version: 4.14.5
-Stable tag: 4.14.5
+Version: 4.14.6
+Stable tag: 4.14.6
 Requires PHP: 8.0
 
+
+== 4.14.6 ==
+- Migrates Android advertising from deprecated Tapsell Plus to native Tapsell Mediation 1.4.0-alpha03.
+- Uses native requestInterstitialAd/showInterstitialAd callbacks without reflection.
+- Adds Mediation App ID to BlueVPN Manager and stamps it into full GitHub Android builds.
+- Advertising stays Free-only, fail-open and independent from VPN connection state.
+- Adds runtime diagnostics for initialization, request, no-fill and show errors.
 
 == 4.14.5 ==
 - All customer-facing active profile names use BlueVPN branding for both Free and Premium.

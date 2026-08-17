@@ -5,10 +5,13 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.v2ray.ang.BuildConfig
+import ir.tapsell.mediation.Tapsell
+import ir.tapsell.mediation.ad.AdStateListener
+import ir.tapsell.mediation.ad.request.RequestResultListener
+import ir.tapsell.mediation.ad.show.AdShowCompletionState
 import org.json.JSONObject
 import java.lang.ref.WeakReference
-import java.lang.reflect.Method
-import java.lang.reflect.Proxy
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -16,15 +19,13 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Free-plan interstitial controller.
+ * Free-plan Tapsell Mediation interstitial controller.
  *
- * Design rules:
- * - Premium/Unavailable users never request or see an ad.
- * - The VPN connection is never blocked by the ad SDK.
- * - One verified VPN session can show at most one ad.
- * - A live server switch does not count as a new session.
- * - Tapsell is accessed defensively so a vendor API/runtime failure cannot
- *   crash the VPN app or break connection state.
+ * Advertising is strictly presentation-only:
+ * - VPN/session state is finalized before this manager runs.
+ * - SDK/config/no-fill/show failures never stop or restart VPN.
+ * - Premium users never request/show the Free placement.
+ * - One verified VPN session records at most one impression.
  */
 object BlueVpnTapsellManager {
     private const val TAG = "BlueVpnTapsell"
@@ -33,18 +34,23 @@ object BlueVpnTapsellManager {
     private const val KEY_LAST_SHOWN_AT = "last_shown_at"
     private const val KEY_DAY = "shown_day"
     private const val KEY_DAY_COUNT = "shown_day_count"
+    private const val KEY_STATUS = "status"
+    private const val KEY_LAST_ERROR = "last_error"
     private const val CONFIG_CACHE_MS = 60_000L
 
     private data class Config(
         val enabled: Boolean,
-        val appKey: String,
+        val appId: String,
         val zoneId: String,
         val showAfterConnect: Boolean,
         val minIntervalSeconds: Int,
         val dailyCap: Int,
     ) {
         val valid: Boolean
-            get() = enabled && showAfterConnect && appKey.isNotBlank() && zoneId.isNotBlank()
+            get() = enabled &&
+                showAfterConnect &&
+                appId.isNotBlank() &&
+                zoneId.isNotBlank()
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -56,9 +62,9 @@ object BlueVpnTapsellManager {
 
     @Volatile private var config: Config? = null
     @Volatile private var configLoadedAt = 0L
-    @Volatile private var initializedKey = ""
+    @Volatile private var initialized = false
     @Volatile private var initializing = false
-    @Volatile private var readyResponseId = ""
+    @Volatile private var readyAdId = ""
     @Volatile private var pendingSessionId = 0L
     @Volatile private var pendingActivity: WeakReference<Activity>? = null
 
@@ -68,45 +74,82 @@ object BlueVpnTapsellManager {
             cancelPending()
             return
         }
+
         loadConfig(app, force = false) { loaded ->
-            if (loaded.valid && BlueVpnEntitlement.resolveUi(app).isFree) {
-                ensureInitialized(app, loaded)
-            }
+            if (!loaded.valid) return@loadConfig
+            if (!BlueVpnEntitlement.resolveUi(app).isFree) return@loadConfig
+            if (!buildAppIdMatches(app, loaded)) return@loadConfig
+            ensureInitialized(app, loaded)
         }
     }
 
     fun onVerifiedConnection(activity: Activity, sessionId: Long) {
         if (activity.isFinishing || activity.isDestroyed || sessionId <= 0L) return
+
         val app = activity.applicationContext
         if (!BlueVpnEntitlement.resolveUi(app).isFree) {
             cancelPending()
             return
         }
+
         pendingSessionId = sessionId
         pendingActivity = WeakReference(activity)
+
         loadConfig(app, force = false) { loaded ->
-            if (!loaded.valid || !BlueVpnEntitlement.resolveUi(app).isFree) {
+            if (
+                !loaded.valid ||
+                !BlueVpnEntitlement.resolveUi(app).isFree ||
+                !buildAppIdMatches(app, loaded)
+            ) {
                 cancelPending()
                 return@loadConfig
             }
+
             main.post {
                 val target = pendingActivity?.get()
                 if (target == null || target.isFinishing || target.isDestroyed) {
                     cancelPending()
                     return@post
                 }
-                if (readyResponseId.isNotBlank()) {
+
+                if (readyAdId.isNotBlank()) {
                     showReadyAd(target, loaded)
-                } else {
-                    ensureInitialized(app, loaded)
-                    requestInterstitial(app, loaded)
+                    return@post
+                }
+
+                ensureInitialized(app, loaded) {
+                    val current = pendingActivity?.get()
+                    if (
+                        current != null &&
+                        !current.isFinishing &&
+                        !current.isDestroyed
+                    ) {
+                        requestInterstitial(current, loaded)
+                    }
                 }
             }
         }
     }
 
     fun onEntitlementChanged(context: Context) {
-        if (!BlueVpnEntitlement.resolveUi(context).isFree) cancelPending()
+        if (!BlueVpnEntitlement.resolveUi(context).isFree) {
+            cancelPending()
+        }
+    }
+
+    fun diagnostics(context: Context): JSONObject {
+        val storage = context.applicationContext
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return JSONObject()
+            .put("sdk", "mediation")
+            .put("build_app_id_present", BuildConfig.BLUEVPN_TAPSELL_APP_ID.isNotBlank())
+            .put("build_uses_test_fallback", BuildConfig.BLUEVPN_TAPSELL_TEST_FALLBACK)
+            .put("initialized", initialized)
+            .put("initializing", initializing)
+            .put("requesting", adRequesting.get())
+            .put("ready", readyAdId.isNotBlank())
+            .put("status", storage.getString(KEY_STATUS, "idle").orEmpty())
+            .put("last_error", storage.getString(KEY_LAST_ERROR, "").orEmpty())
     }
 
     private fun loadConfig(
@@ -120,18 +163,22 @@ object BlueVpnTapsellManager {
             callback(cached)
             return
         }
+
         if (!configLoading.compareAndSet(false, true)) {
             main.postDelayed({ loadConfig(context, false, callback) }, 250L)
             return
         }
+
         io.execute {
             val loaded = runCatching {
                 val root = BlueVpnAccountManager.mobileConfig(context, force).getOrThrow()
                 parseConfig(root.optJSONObject("tapsell") ?: JSONObject())
             }.getOrElse {
+                recordStatus(context, "config_error", it.message.orEmpty())
                 Log.w(TAG, "Could not load Tapsell config", it)
                 Config(false, "", "", true, 0, 0)
             }
+
             config = loaded
             configLoadedAt = android.os.SystemClock.elapsedRealtime()
             configLoading.set(false)
@@ -141,181 +188,280 @@ object BlueVpnTapsellManager {
 
     private fun parseConfig(value: JSONObject): Config = Config(
         enabled = value.optBoolean("enabled", false),
-        appKey = value.optString("app_key", "").trim(),
+        appId = value.optString(
+            "app_id",
+            value.optString("app_key", ""),
+        ).trim(),
         zoneId = value.optString("interstitial_zone_id", "").trim(),
         showAfterConnect = value.optBoolean("show_after_connect", true),
-        minIntervalSeconds = value.optInt("min_interval_seconds", 0).coerceIn(0, 86_400),
-        dailyCap = value.optInt("daily_cap", 0).coerceIn(0, 1_000),
+        minIntervalSeconds = value
+            .optInt("min_interval_seconds", 0)
+            .coerceIn(0, 86_400),
+        dailyCap = value
+            .optInt("daily_cap", 0)
+            .coerceIn(0, 1_000),
     )
 
-    private fun ensureInitialized(context: Context, loaded: Config) {
+    /**
+     * Tapsell Mediation App ID is part of the Android manifest at build time.
+     * Refuse a request when WordPress and the installed APK disagree; otherwise
+     * an apparently-correct dashboard setting silently targets another app.
+     */
+    private fun buildAppIdMatches(
+        context: Context,
+        loaded: Config,
+    ): Boolean {
+        val embedded = BuildConfig.BLUEVPN_TAPSELL_APP_ID.trim()
+        val matches =
+            embedded.isNotBlank() &&
+            loaded.appId.isNotBlank() &&
+            embedded == loaded.appId &&
+            !BuildConfig.BLUEVPN_TAPSELL_TEST_FALLBACK
+
+        if (!matches) {
+            val reason = when {
+                BuildConfig.BLUEVPN_TAPSELL_TEST_FALLBACK ->
+                    "Tapsell Mediation App ID has not been embedded in this APK yet."
+                embedded.isBlank() ->
+                    "Tapsell Mediation App ID is missing from this APK."
+                loaded.appId.isBlank() ->
+                    "Tapsell Mediation App ID is missing from BlueVPN Manager."
+                else ->
+                    "Tapsell Mediation App ID in APK does not match BlueVPN Manager."
+            }
+            recordStatus(context, "app_id_mismatch", reason)
+            Log.w(TAG, reason)
+        }
+
+        return matches
+    }
+
+    private fun ensureInitialized(
+        context: Context,
+        loaded: Config,
+        after: (() -> Unit)? = null,
+    ) {
         if (!loaded.valid || !BlueVpnEntitlement.resolveUi(context).isFree) return
-        if (initializedKey == loaded.appKey && !initializing) {
-            requestInterstitial(context, loaded)
+        if (!buildAppIdMatches(context, loaded)) return
+
+        if (initialized) {
+            after?.invoke()
             return
         }
-        if (initializing && initializedKey == loaded.appKey) return
-        initializedKey = loaded.appKey
+
+        if (initializing) {
+            if (after != null) {
+                main.postDelayed({
+                    if (initialized) {
+                        after()
+                    } else if (!initializing) {
+                        ensureInitialized(context, loaded, after)
+                    }
+                }, 350L)
+            }
+            return
+        }
+
         initializing = true
-        readyResponseId = ""
+        recordStatus(context, "initializing")
 
         runCatching {
-            val sdk = Class.forName("ir.tapsell.plus.TapsellPlus")
-            val method = sdk.methods.firstOrNull {
-                it.name == "initialize" && it.parameterTypes.size in 2..3
-            } ?: error("TapsellPlus.initialize not found")
-            val args = mutableListOf<Any?>(context, loaded.appKey)
-            if (method.parameterTypes.size == 3) {
-                args += callbackProxy(method.parameterTypes[2]) { name, callbackArgs ->
-                    if (isFailureCallback(name)) {
-                        initializing = false
-                        Log.w(TAG, "Tapsell initialization failed: ${describeArgs(callbackArgs)}")
-                    } else if (isSuccessCallback(name)) {
-                        initializing = false
-                        requestInterstitial(context, loaded)
-                    }
+            Tapsell.setInitializationListener {
+                main.post {
+                    initialized = true
+                    initializing = false
+                    recordStatus(context, "initialized")
+                    after?.invoke()
                 }
             }
-            method.invoke(null, *args.toTypedArray())
-            if (method.parameterTypes.size == 2) {
-                initializing = false
-                requestInterstitial(context, loaded)
-            } else {
-                // Some SDK/network combinations do not invoke the aggregate
-                // callback quickly. A guarded retry is safe and non-blocking.
-                main.postDelayed({
-                    if (initializing && initializedKey == loaded.appKey) {
-                        initializing = false
-                        requestInterstitial(context, loaded)
-                    }
-                }, 2_500L)
-            }
+            Tapsell.initialize(context.applicationContext)
         }.onFailure {
             initializing = false
-            Log.w(TAG, "Tapsell initialization unavailable", it)
+            recordStatus(context, "init_error", it.message.orEmpty())
+            Log.w(TAG, "Tapsell Mediation initialization failed", it)
         }
     }
 
-    private fun requestInterstitial(context: Context, loaded: Config) {
-        if (!loaded.valid || readyResponseId.isNotBlank()) return
-        if (!BlueVpnEntitlement.resolveUi(context).isFree) return
+    private fun requestInterstitial(
+        activity: Activity,
+        loaded: Config,
+    ) {
+        if (activity.isFinishing || activity.isDestroyed) return
+        if (!loaded.valid || readyAdId.isNotBlank()) return
+        if (!BlueVpnEntitlement.resolveUi(activity).isFree) return
+        if (!buildAppIdMatches(activity, loaded)) return
         if (!adRequesting.compareAndSet(false, true)) return
 
+        recordStatus(activity, "requesting")
+
         runCatching {
-            val sdk = Class.forName("ir.tapsell.plus.TapsellPlus")
-            val method = sdk.methods.firstOrNull {
-                it.name == "requestInterstitialAd" && it.parameterTypes.size >= 3
-            } ?: error("TapsellPlus.requestInterstitialAd not found")
-            val listenerType = method.parameterTypes.last()
-            val listener = callbackProxy(listenerType) { name, callbackArgs ->
-                if (isFailureCallback(name)) {
-                    adRequesting.set(false)
-                    Log.w(TAG, "Interstitial request failed: ${describeArgs(callbackArgs)}")
-                    return@callbackProxy
-                }
-                val response = extractResponseId(callbackArgs)
-                if (response.isNotBlank()) {
-                    readyResponseId = response
-                    adRequesting.set(false)
-                    val target = pendingActivity?.get()
-                    if (target != null && !target.isFinishing && !target.isDestroyed) {
-                        showReadyAd(target, loaded)
+            // Activity overload supports mediated networks that need Activity
+            // context during load, while still working for Tapsell's own network.
+            Tapsell.requestInterstitialAd(
+                loaded.zoneId,
+                activity,
+                object : RequestResultListener {
+                    override fun onSuccess(adId: String) {
+                        main.post {
+                            adRequesting.set(false)
+                            readyAdId = adId.trim()
+                            if (readyAdId.isBlank()) {
+                                recordStatus(activity, "request_empty_ad_id")
+                                return@post
+                            }
+
+                            recordStatus(activity, "ready")
+                            val target = pendingActivity?.get()
+                            if (
+                                target != null &&
+                                !target.isFinishing &&
+                                !target.isDestroyed
+                            ) {
+                                showReadyAd(target, loaded)
+                            }
+                        }
                     }
-                }
-            }
-            val args = buildInvocationArgs(
-                method = method,
-                context = context,
-                stringValues = listOf(loaded.zoneId),
-                listener = listener,
+
+                    override fun onFailure(message: String) {
+                        main.post {
+                            adRequesting.set(false)
+                            recordStatus(
+                                activity,
+                                "no_fill_or_request_error",
+                                message,
+                            )
+                            Log.w(TAG, "Interstitial request failed: $message")
+                            pendingSessionId = 0L
+                            pendingActivity = null
+                        }
+                    }
+                },
             )
-            method.invoke(null, *args)
         }.onFailure {
             adRequesting.set(false)
-            Log.w(TAG, "Interstitial request unavailable", it)
+            recordStatus(activity, "request_exception", it.message.orEmpty())
+            Log.w(TAG, "Interstitial request exception", it)
+            pendingSessionId = 0L
+            pendingActivity = null
         }
     }
 
-    private fun showReadyAd(activity: Activity, loaded: Config) {
+    private fun showReadyAd(
+        activity: Activity,
+        loaded: Config,
+    ) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             main.post { showReadyAd(activity, loaded) }
             return
         }
-        val responseId = readyResponseId
+
+        val adId = readyAdId
         val sessionId = pendingSessionId
-        if (responseId.isBlank() || sessionId <= 0L) return
+
+        if (adId.isBlank() || sessionId <= 0L) return
+        if (activity.isFinishing || activity.isDestroyed) return
+
         if (!BlueVpnEntitlement.resolveUi(activity).isFree) {
             cancelPending()
             return
         }
+
         if (!eligibleForSession(activity, loaded, sessionId)) {
             pendingSessionId = 0L
             pendingActivity = null
             return
         }
 
+        val impressionRecorded = AtomicBoolean(false)
+
         runCatching {
-            val sdk = Class.forName("ir.tapsell.plus.TapsellPlus")
-            val method = sdk.methods.firstOrNull {
-                it.name == "showInterstitialAd" && it.parameterTypes.size >= 3
-            } ?: error("TapsellPlus.showInterstitialAd not found")
-            val listener = callbackProxy(method.parameterTypes.last()) { name, callbackArgs ->
-                when {
-                    name.contains("close", true) || name.contains("dismiss", true) -> {
-                        readyResponseId = ""
-                        requestInterstitial(activity.applicationContext, loaded)
+            Tapsell.showInterstitialAd(
+                adId,
+                activity,
+                object : AdStateListener.Interstitial {
+                    override fun onAdImpression() {
+                        if (impressionRecorded.compareAndSet(false, true)) {
+                            markShown(activity, sessionId)
+                        }
+                        recordStatus(activity, "shown")
                     }
-                    isFailureCallback(name) -> {
-                        readyResponseId = ""
-                        Log.w(TAG, "Interstitial show failed: ${describeArgs(callbackArgs)}")
-                        requestInterstitial(activity.applicationContext, loaded)
+
+                    override fun onAdClicked() {
+                        recordStatus(activity, "clicked")
                     }
-                }
-            }
-            val args = buildInvocationArgs(
-                method = method,
-                context = activity,
-                stringValues = listOf(responseId),
-                listener = listener,
+
+                    override fun onAdClosed(
+                        adShowCompletionState: AdShowCompletionState,
+                    ) {
+                        readyAdId = ""
+                        recordStatus(
+                            activity,
+                            "closed_${adShowCompletionState.name.lowercase(Locale.US)}",
+                        )
+                    }
+
+                    override fun onAdFailed(message: String) {
+                        readyAdId = ""
+                        recordStatus(activity, "show_error", message)
+                        Log.w(TAG, "Interstitial show failed: $message")
+                    }
+                },
             )
-            method.invoke(null, *args)
-            markShown(activity, sessionId)
-            readyResponseId = ""
+
+            // Showing an ad is not a VPN state transition.
+            readyAdId = ""
             pendingSessionId = 0L
             pendingActivity = null
         }.onFailure {
-            Log.w(TAG, "Interstitial show unavailable", it)
-            // Keep VPN connected and retry only on the next connection.
-            readyResponseId = ""
+            readyAdId = ""
             pendingSessionId = 0L
             pendingActivity = null
+            recordStatus(activity, "show_exception", it.message.orEmpty())
+            Log.w(TAG, "Interstitial show exception", it)
         }
     }
 
-    private fun eligibleForSession(context: Context, loaded: Config, sessionId: Long): Boolean {
-        // Do not show a late-loaded ad after the user has already disconnected
-        // or a newer VPN session has replaced the pending one.
+    private fun eligibleForSession(
+        context: Context,
+        loaded: Config,
+        sessionId: Long,
+    ): Boolean {
         if (BlueVpnPreferences.connectedAt(context) != sessionId) return false
+
         val storage = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         if (storage.getLong(KEY_LAST_SESSION, 0L) == sessionId) return false
+
         val now = System.currentTimeMillis()
         val last = storage.getLong(KEY_LAST_SHOWN_AT, 0L)
-        if (loaded.minIntervalSeconds > 0 && now - last < loaded.minIntervalSeconds * 1_000L) {
+        if (
+            loaded.minIntervalSeconds > 0 &&
+            now - last < loaded.minIntervalSeconds * 1_000L
+        ) {
             return false
         }
+
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
         val count = if (storage.getString(KEY_DAY, "") == today) {
             storage.getInt(KEY_DAY_COUNT, 0)
-        } else 0
+        } else {
+            0
+        }
+
         return loaded.dailyCap <= 0 || count < loaded.dailyCap
     }
 
-    private fun markShown(context: Context, sessionId: Long) {
+    private fun markShown(
+        context: Context,
+        sessionId: Long,
+    ) {
         val storage = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
         val oldCount = if (storage.getString(KEY_DAY, "") == today) {
             storage.getInt(KEY_DAY_COUNT, 0)
-        } else 0
+        } else {
+            0
+        }
+
         storage.edit()
             .putLong(KEY_LAST_SESSION, sessionId)
             .putLong(KEY_LAST_SHOWN_AT, System.currentTimeMillis())
@@ -324,80 +470,23 @@ object BlueVpnTapsellManager {
             .apply()
     }
 
+    private fun recordStatus(
+        context: Context,
+        status: String,
+        error: String = "",
+    ) {
+        context.applicationContext
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_STATUS, status.take(80))
+            .putString(KEY_LAST_ERROR, error.take(500))
+            .apply()
+    }
+
     private fun cancelPending() {
         pendingSessionId = 0L
         pendingActivity = null
-        readyResponseId = ""
+        readyAdId = ""
         adRequesting.set(false)
-    }
-
-    private fun callbackProxy(
-        listenerType: Class<*>,
-        callback: (String, Array<out Any?>?) -> Unit,
-    ): Any {
-        require(listenerType.isInterface) { "Listener type is not an interface" }
-        return Proxy.newProxyInstance(
-            listenerType.classLoader,
-            arrayOf(listenerType),
-        ) { _, method, args ->
-            callback(method.name, args)
-            defaultValue(method.returnType)
-        }
-    }
-
-    private fun buildInvocationArgs(
-        method: Method,
-        context: Context,
-        stringValues: List<String>,
-        listener: Any,
-    ): Array<Any?> {
-        var stringIndex = 0
-        return method.parameterTypes.map { type ->
-            when {
-                Context::class.java.isAssignableFrom(type) -> context
-                type == String::class.java -> stringValues.getOrElse(stringIndex++) { "" }
-                type.isInterface -> listener
-                type == Boolean::class.javaPrimitiveType || type == Boolean::class.java -> false
-                type == Int::class.javaPrimitiveType || type == Int::class.java -> 0
-                else -> null
-            }
-        }.toTypedArray()
-    }
-
-    private fun extractResponseId(args: Array<out Any?>?): String {
-        args.orEmpty().forEach { value ->
-            if (value is String && value.isNotBlank()) return value
-            if (value != null) {
-                val getter = value.javaClass.methods.firstOrNull {
-                    it.parameterCount == 0 && it.name.lowercase() in setOf(
-                        "getresponseid", "getresponse_id", "getid"
-                    )
-                }
-                val extracted = runCatching { getter?.invoke(value) as? String }.getOrNull().orEmpty()
-                if (extracted.isNotBlank()) return extracted
-            }
-        }
-        return ""
-    }
-
-    private fun isFailureCallback(name: String): Boolean =
-        name.contains("error", true) || name.contains("fail", true)
-
-    private fun isSuccessCallback(name: String): Boolean =
-        name.contains("success", true) || name.contains("initialize", true) || name.contains("response", true)
-
-    private fun describeArgs(args: Array<out Any?>?): String =
-        args.orEmpty().joinToString(" | ") { it?.toString().orEmpty().take(180) }
-
-    private fun defaultValue(type: Class<*>): Any? = when (type) {
-        Boolean::class.javaPrimitiveType -> false
-        Byte::class.javaPrimitiveType -> 0.toByte()
-        Short::class.javaPrimitiveType -> 0.toShort()
-        Int::class.javaPrimitiveType -> 0
-        Long::class.javaPrimitiveType -> 0L
-        Float::class.javaPrimitiveType -> 0f
-        Double::class.javaPrimitiveType -> 0.0
-        Char::class.javaPrimitiveType -> '\u0000'
-        else -> null
     }
 }

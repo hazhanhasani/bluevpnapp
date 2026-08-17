@@ -18,6 +18,11 @@ CONFIG = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
 ANDROID = ROOT / "upstream" / "V2rayNG"
 APP = ANDROID / "app"
 
+TAPSELL_MEDIATION_VERSION = "1.4.0-alpha03"
+# Official sample App ID: build-safe fallback only. Runtime refuses
+# production requests while BLUEVPN_TAPSELL_TEST_FALLBACK is true.
+TAPSELL_TEST_APP_ID = "76798342-99a7-4a5f-bf5a-60a088d5dcfb"
+
 # Files below are the upstream runtime compatibility boundary. BlueVPN may call
 # these APIs, but prepare_android.py must never rewrite them. This turns the
 # architectural rule "v2rayNG owns the runtime" into a build-time invariant.
@@ -70,32 +75,120 @@ BLUEVPN_FADE_IN_B64 = "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPGFsc
 BLUEVPN_FADE_OUT_B64 = "PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiPz4KPGFscGhhIHhtbG5zOmFuZHJvaWQ9Imh0dHA6Ly9zY2hlbWFzLmFuZHJvaWQuY29tL2Fway9yZXMvYW5kcm9pZCIKICAgIGFuZHJvaWQ6ZHVyYXRpb249IjEzMCIKICAgIGFuZHJvaWQ6ZnJvbUFscGhhPSIxLjAiCiAgICBhbmRyb2lkOmludGVycG9sYXRvcj0iQGFuZHJvaWQ6aW50ZXJwb2xhdG9yL2Zhc3Rfb3V0X2xpbmVhcl9pbiIKICAgIGFuZHJvaWQ6dG9BbHBoYT0iMC4wIiAvPgo="
 
 
+def patch_tapsell_repository() -> None:
+    candidates = (
+        ANDROID / "settings.gradle.kts",
+        ANDROID / "settings.gradle",
+    )
+    path = next((candidate for candidate in candidates if candidate.exists()), None)
+    if path is None:
+        raise RuntimeError("Gradle settings file not found for Tapsell Mediation")
+
+    text = path.read_text(encoding="utf-8")
+    if "https://maven.tapsell.ir" in text:
+        return
+
+    dependency_block = text.find("dependencyResolutionManagement")
+    if dependency_block < 0:
+        raise RuntimeError(
+            "dependencyResolutionManagement block not found for Tapsell repository"
+        )
+    repositories_block = text.find("repositories {", dependency_block)
+    if repositories_block < 0:
+        raise RuntimeError(
+            "dependencyResolutionManagement.repositories block not found"
+        )
+
+    insertion = repositories_block + len("repositories {")
+    if path.suffix == ".kts":
+        repo_line = '\n        maven("https://maven.tapsell.ir")'
+    else:
+        repo_line = '\n        maven { url "https://maven.tapsell.ir" }'
+
+    text = text[:insertion] + repo_line + text[insertion:]
+    path.write_text(text, encoding="utf-8")
+
+
 def patch_build_gradle() -> None:
     path = APP / "build.gradle.kts"
     text = path.read_text(encoding="utf-8")
-    text = re.sub(r'applicationId\s*=\s*"[^"]+"', f'applicationId = "{CONFIG["application_id"]}"', text, count=1)
-    text = re.sub(r'versionCode\s*=\s*\d+', f'versionCode = {int(CONFIG["version_code"])}', text, count=1)
-    text = re.sub(r'versionName\s*=\s*"[^"]+"', f'versionName = "{CONFIG["version_name"]}"', text, count=1)
-    text = text.replace('v2rayNG_${variant.versionName}', 'BlueVPN_${variant.versionName}')
+
+    text = re.sub(
+        r'applicationId\s*=\s*"[^"]+"',
+        f'applicationId = "{CONFIG["application_id"]}"',
+        text,
+        count=1,
+    )
+    text = re.sub(
+        r'versionCode\s*=\s*\d+',
+        f'versionCode = {int(CONFIG["version_code"])}',
+        text,
+        count=1,
+    )
+    text = re.sub(
+        r'versionName\s*=\s*"[^"]+"',
+        f'versionName = "{CONFIG["version_name"]}"',
+        text,
+        count=1,
+    )
+    text = text.replace(
+        'v2rayNG_${variant.versionName}',
+        'BlueVPN_${variant.versionName}',
+    )
+
     api_value = CONFIG.get("api_base_url", "").rstrip("/")
+    configured_tapsell_app_id = str(CONFIG.get("tapsell_app_id", "")).strip()
+    tapsell_app_id = configured_tapsell_app_id or TAPSELL_TEST_APP_ID
+    tapsell_test_fallback = configured_tapsell_app_id == ""
+
     marker = f'applicationId = "{CONFIG["application_id"]}"'
-    field = '\n        buildConfigField("String", "BLUEVPN_API_BASE_URL", "\\"' + api_value + '\\"")'
-    if "BLUEVPN_API_BASE_URL" not in text:
-        text = text.replace(marker, marker + field, 1)
+    if marker not in text:
+        raise RuntimeError("Android applicationId marker not found")
+
+    fields = (
+        (
+            "BLUEVPN_API_BASE_URL",
+            '\n        buildConfigField("String", "BLUEVPN_API_BASE_URL", "\\"'
+            + api_value + '\\"")',
+        ),
+        (
+            "BLUEVPN_TAPSELL_APP_ID",
+            '\n        buildConfigField("String", "BLUEVPN_TAPSELL_APP_ID", "\\"'
+            + tapsell_app_id + '\\"")',
+        ),
+        (
+            "BLUEVPN_TAPSELL_TEST_FALLBACK",
+            '\n        buildConfigField("boolean", "BLUEVPN_TAPSELL_TEST_FALLBACK", "'
+            + ("true" if tapsell_test_fallback else "false") + '")',
+        ),
+        (
+            "TapsellMediationAppKey",
+            '\n        manifestPlaceholders["TapsellMediationAppKey"] = "'
+            + tapsell_app_id + '"',
+        ),
+    )
+    for token, field in fields:
+        if token not in text:
+            text = text.replace(marker, marker + field, 1)
+
     dependencies_marker = "dependencies {"
     if dependencies_marker not in text:
         raise RuntimeError("Gradle dependencies block not found")
 
-    # Tapsell Plus adds a sizeable dependency graph. In the generated v2rayNG 2.2.6
-    # app this can leave WorkManager's RemoteWorkManager API visible while the
-    # com.google.common.util.concurrent.ListenableFuture class is absent from the
-    # Kotlin compile classpath. RemoteWorkManager exposes ListenableFuture directly
-    # in cancel/enqueue signatures, so keep the Android Guava artifact explicit.
-    # Using full Guava is intentional: forcing listenablefuture:1.0 can conflict with
-    # Guava's 9999.0 empty compatibility artifact when another SDK brings Guava.
+    # Remove the deprecated Plus SDK if a previous overlay touched the checkout.
+    text = re.sub(
+        r'\s*implementation\("ir\.tapsell\.plus:tapsell-plus-sdk-android:[^"]+"\)\s*',
+        "\n",
+        text,
+    )
+
+    # Keep the existing BlueVPN compatibility dependencies. WorkManager is used
+    # by support/background tasks; explicit Android Guava keeps its public
+    # ListenableFuture API resolvable across the v2rayNG/Tapsell dependency graph.
     required_dependencies = (
         'implementation("com.google.guava:guava:33.6.0-android")',
-        'implementation("ir.tapsell.plus:tapsell-plus-sdk-android:2.3.3")',
+        f'implementation("ir.tapsell:tapsell:{TAPSELL_MEDIATION_VERSION}")',
+        f'implementation("ir.tapsell.mediation.adapter:legacy:{TAPSELL_MEDIATION_VERSION}")',
         'implementation("com.google.android.gms:play-services-auth-api-phone:18.3.1")',
         'implementation("androidx.work:work-runtime:2.10.0")',
     )
@@ -106,25 +199,39 @@ def patch_build_gradle() -> None:
                 dependencies_marker + "\n    " + dependency,
                 1,
             )
+
     # Aether is packaged as a native executable named like a shared library.
-    # Legacy JNI packaging guarantees a real executable file exists under
-    # ApplicationInfo.nativeLibraryDir instead of only being mmap'd from APK.
     if "useLegacyPackaging = true" not in text:
         android_marker = "android {"
-        packaging_block = "\n    packaging {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n"
+        packaging_block = (
+            "\n    packaging {\n"
+            "        jniLibs {\n"
+            "            useLegacyPackaging = true\n"
+            "        }\n"
+            "    }\n"
+        )
         if android_marker not in text:
             raise RuntimeError("Gradle android block not found")
-        text = text.replace(android_marker, android_marker + packaging_block, 1)
+        text = text.replace(
+            android_marker,
+            android_marker + packaging_block,
+            1,
+        )
 
     path.write_text(text, encoding="utf-8")
 
-    # The integration uses a defensive reflection boundary so vendor SDK
-    # failures cannot crash VPN runtime. Keep Tapsell entry points under R8.
     rules_path = APP / "proguard-rules.pro"
     rules = rules_path.read_text(encoding="utf-8") if rules_path.exists() else ""
-    tapsell_rules = "\n# BlueVPN Tapsell Plus integration\n-keep class ir.tapsell.** { *; }\n-dontwarn ir.tapsell.**\n"
+    tapsell_rules = (
+        "\n# BlueVPN Tapsell Mediation integration\n"
+        "-keep class ir.tapsell.** { *; }\n"
+        "-dontwarn ir.tapsell.**\n"
+    )
     if "-keep class ir.tapsell.**" not in rules:
-        rules_path.write_text(rules.rstrip() + tapsell_rules, encoding="utf-8")
+        rules_path.write_text(
+            rules.rstrip() + tapsell_rules,
+            encoding="utf-8",
+        )
 
 
 def _upsert_android_string(xml_text: str, name: str, value: str) -> str:
@@ -375,6 +482,22 @@ def patch_manifest() -> None:
         text,
         "android.permission.POST_NOTIFICATIONS",
     )
+    text = _ensure_manifest_permission(
+        text,
+        "com.google.android.gms.permission.AD_ID",
+    )
+
+    if 'android:name="ir.tapsell.mediation.AUTO_INIT"' not in text:
+        tapsell_auto_init = (
+            '\n        <meta-data\n'
+            '            android:name="ir.tapsell.mediation.AUTO_INIT"\n'
+            '            android:value="false" />\n'
+        )
+        text = text.replace(
+            "</application>",
+            tapsell_auto_init + "    </application>",
+            1,
+        )
 
     text = text.replace(
         'android:name="androidx.core.content.FileProvider"',
@@ -698,6 +821,16 @@ def inject_bluevpn_home() -> None:
             "Fast-connect completion task was not generated correctly"
         )
 
+    tapsell_source = (bluevpn_dir / "BlueVpnTapsellManager.kt").read_text(
+        encoding="utf-8",
+    )
+    if "ir.tapsell.plus" in tapsell_source or "TapsellPlus" in tapsell_source:
+        raise RuntimeError("Deprecated Tapsell Plus runtime leaked into Android overlay")
+    if "import ir.tapsell.mediation.Tapsell" not in tapsell_source:
+        raise RuntimeError("Tapsell Mediation native SDK import is missing")
+    if "BuildConfig.BLUEVPN_TAPSELL_APP_ID" not in tapsell_source:
+        raise RuntimeError("Tapsell APK/runtime App ID guard is missing")
+
     ads_source = (bluevpn_dir / "BlueVpnAdsCarouselView.kt").read_text(encoding="utf-8")
     if 'optJSONObject("advertising")' not in ads_source or "slideRunnable" not in ads_source:
         raise RuntimeError("Advertising carousel source was not generated correctly")
@@ -757,6 +890,7 @@ def main() -> None:
     if not APP.exists():
         raise RuntimeError("Upstream project not found at upstream/V2rayNG")
     runtime_snapshot = snapshot_upstream_runtime()
+    patch_tapsell_repository()
     patch_build_gradle()
     patch_strings()
     patch_manifest()

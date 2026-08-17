@@ -922,6 +922,7 @@ final class BlueVPN_DB {
             'ads_height_dp' => 146,
             'ads_items' => [],
             'tapsell_enabled' => false,
+            'tapsell_app_id' => '',
             'tapsell_app_key' => '',
             'tapsell_interstitial_zone_id' => '',
             'tapsell_show_after_connect' => true,

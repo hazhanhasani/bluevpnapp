@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 680" role="img" aria-labelledby="t d">
+<title id="t">BlueVPN secure global connection</title><desc id="d">Abstract BlueVPN phone, shield and global network illustration.</desc>
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#0d3ed8"/><stop offset="1" stop-color="#0ad6e8"/></linearGradient>
+ <linearGradient id="phone" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#102e73"/><stop offset="1" stop-color="#07152f"/></linearGradient>
+ <radialGradient id="glow"><stop stop-color="#63f3ff" stop-opacity=".9"/><stop offset="1" stop-color="#63f3ff" stop-opacity="0"/></radialGradient>
+ <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="24" stdDeviation="24" flood-color="#031430" flood-opacity=".28"/></filter>
+</defs>
+<g opacity=".9"><circle cx="484" cy="330" r="267" fill="none" stroke="#7bd7ff" stroke-opacity=".24" stroke-width="2"/><circle cx="484" cy="330" r="218" fill="none" stroke="#fff" stroke-opacity=".16" stroke-dasharray="10 16"/><ellipse cx="484" cy="330" rx="342" ry="135" fill="none" stroke="#65ecff" stroke-opacity=".34" stroke-width="3" transform="rotate(-12 484 330)"/></g>
+<g fill="#2dd5ff"><circle cx="159" cy="281" r="9"/><circle cx="755" cy="216" r="9"/><circle cx="723" cy="473" r="7"/><circle cx="282" cy="528" r="7"/></g>
+<g filter="url(#shadow)" transform="translate(188 80)">
+ <rect x="0" y="0" width="374" height="548" rx="58" fill="url(#phone)" transform="rotate(-7 187 274)"/>
+ <rect x="23" y="26" width="328" height="496" rx="43" fill="#f7fbff" transform="rotate(-7 187 274)"/>
+ <g transform="translate(11 9) rotate(-7 187 274)"><rect x="132" y="39" width="110" height="24" rx="12" fill="#07152f"/><circle cx="187" cy="210" r="92" fill="url(#bg)" opacity=".12"/><circle cx="187" cy="210" r="62" fill="url(#bg)"/><path d="M187 174v46m-31-17a42 42 0 1 0 62 0" fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round"/><rect x="72" y="315" width="230" height="58" rx="22" fill="#e9f3ff"/><circle cx="104" cy="344" r="13" fill="#37d9a0"/><path d="M128 334h98M128 353h67" stroke="#5b7394" stroke-width="9" stroke-linecap="round" opacity=".7"/><rect x="72" y="396" width="230" height="76" rx="22" fill="#fff" stroke="#dbe9fb" stroke-width="3"/><path d="M106 437h48m42 0h52" stroke="#2d74f2" stroke-width="11" stroke-linecap="round" opacity=".55"/></g>
+</g>
+<g transform="translate(570 355)" filter="url(#shadow)"><path d="M96 0c36 31 69 38 96 43v74c0 77-46 126-96 153C46 243 0 194 0 117V43C27 38 60 31 96 0Z" fill="url(#bg)"/><path d="M96 47a39 39 0 0 0-39 39v22h-12v66h102v-66h-12V86a39 39 0 0 0-39-39Zm0 22a17 17 0 0 1 17 17v22H79V86a17 17 0 0 1 17-17Z" fill="#fff"/></g>
+<circle cx="705" cy="117" r="92" fill="url(#glow)" opacity=".45"/><g stroke="#7cefff" stroke-width="3" fill="none" stroke-linecap="round"><path d="M64 435C180 378 238 387 318 447"/><path d="M596 102c74 29 120 72 171 139"/></g>
+</svg>

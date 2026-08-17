@@ -181,3 +181,26 @@
 body.elementor-page .elementor{overflow:visible}
 body.elementor-editor-active .bv-header{position:relative}
 body.elementor-editor-active [data-bv-reveal]{opacity:1!important;transform:none!important}
+
+/* BlueVPN 1.0.10 — lightweight SVG art system + Elementor editor hardening */
+.bv-hero { position: relative; overflow: hidden; }
+.bv-hero-art { position:absolute; inset:auto -3vw -6vw auto; width:min(52vw,760px); pointer-events:none; opacity:.96; z-index:0; filter:drop-shadow(0 28px 54px rgba(0,45,130,.18)); }
+.bv-hero-art img { display:block; width:100%; height:auto; }
+.bv-hero > .bv-shell, .bv-hero > [class*="bv-hero-"]:not(.bv-hero-art):not(.bv-hero-gridfx) { position:relative; z-index:1; }
+.bv-network-visual-pro { overflow:hidden; isolation:isolate; }
+.bv-network-art { position:absolute; width:82%; max-width:650px; inset:50% auto auto 50%; transform:translate(-50%,-50%); opacity:.2; z-index:-1; pointer-events:none; }
+.bv-premium-visual { position:relative; min-height:310px; }
+.bv-premium-art { position:absolute; width:min(520px,145%); inset:50% auto auto 50%; transform:translate(-50%,-50%); opacity:.92; pointer-events:none; }
+.bv-premium-visual .bv-pcard { position:relative; z-index:2; }
+.bv-download-visual-wrap { position:relative; min-height:460px; display:grid; place-items:center; }
+.bv-speed-art { position:absolute; width:min(620px,135%); max-width:none; inset:50% auto auto 50%; transform:translate(-50%,-50%); opacity:.34; pointer-events:none; }
+.bv-download-device { position:relative; z-index:2; }
+.elementor-editor-active .bv-hero-art, .elementor-editor-active .bv-network-art, .elementor-editor-active .bv-premium-art, .elementor-editor-active .bv-speed-art { pointer-events:none; }
+@media (max-width: 900px) {
+  .bv-hero-art { width:78vw; right:-22vw; bottom:-4vw; opacity:.58; }
+  .bv-premium-art { width:120%; opacity:.68; }
+  .bv-download-visual-wrap { min-height:390px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bv-hero-art, .bv-network-art, .bv-premium-art, .bv-speed-art { animation:none!important; transform-origin:center; }
+}

@@ -2,7 +2,7 @@
 if (!defined('ABSPATH')) exit;
 
 final class BlueVPN_Elementor_Integration {
-    private const SEED_VERSION = '1';
+    private const SEED_VERSION = '2';
     private const HEADER_OPTION = 'bluevpn_elementor_header_template_id';
     private const FOOTER_OPTION = 'bluevpn_elementor_footer_template_id';
     private const SEED_OPTION = 'bluevpn_elementor_seed_version';
@@ -25,9 +25,20 @@ final class BlueVPN_Elementor_Integration {
     }
 
     public static function register_widgets($widgets_manager): void {
-        require_once BLUEVPN_SITE_DIR . '/inc/elementor/widgets.php';
-        foreach (bluevpn_elementor_widget_instances() as $widget) {
-            $widgets_manager->register($widget);
+        if (!is_object($widgets_manager) || !method_exists($widgets_manager, 'register')) return;
+        if (!class_exists('\Elementor\Widget_Base') || !class_exists('\Elementor\Controls_Manager')) return;
+
+        try {
+            require_once BLUEVPN_SITE_DIR . '/inc/elementor/widgets.php';
+            if (!function_exists('bluevpn_elementor_widget_instances')) return;
+            foreach (bluevpn_elementor_widget_instances() as $widget) {
+                if ($widget instanceof \Elementor\Widget_Base) {
+                    $widgets_manager->register($widget);
+                }
+            }
+        } catch (Throwable $e) {
+            // Never take the Elementor editor down because a BlueVPN widget failed to boot.
+            error_log('BlueVPN Elementor widget registration failed: '.$e->getMessage());
         }
     }
 
@@ -98,6 +109,47 @@ final class BlueVPN_Elementor_Integration {
         self::seed(false);
     }
 
+
+    /**
+     * Elementor preview/editor requests must be rendered through WordPress' normal
+     * the_content pipeline. Calling get_builder_content_for_display() recursively
+     * from the active page template can trigger a fatal/500 inside the editor iframe.
+     */
+    private static function is_editor_request(): bool {
+        if (isset($_GET['elementor-preview']) || (isset($_GET['action']) && $_GET['action'] === 'elementor')) return true;
+        if (!class_exists('\Elementor\Plugin')) return false;
+        try {
+            $plugin = \Elementor\Plugin::instance();
+            if (isset($plugin->editor) && is_object($plugin->editor) && method_exists($plugin->editor, 'is_edit_mode') && $plugin->editor->is_edit_mode()) return true;
+            if (isset($plugin->preview) && is_object($plugin->preview) && method_exists($plugin->preview, 'is_preview_mode') && $plugin->preview->is_preview_mode()) return true;
+        } catch (Throwable $e) {
+            error_log('BlueVPN Elementor editor detection failed: '.$e->getMessage());
+        }
+        return false;
+    }
+
+    private static function render_editor_page(): bool {
+        get_header();
+        if (have_posts()) {
+            while (have_posts()) {
+                the_post();
+                the_content();
+            }
+        } else {
+            $post_id = (int)get_queried_object_id();
+            if ($post_id > 0) {
+                $post = get_post($post_id);
+                if ($post) {
+                    setup_postdata($post);
+                    echo apply_filters('the_content', $post->post_content); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+                    wp_reset_postdata();
+                }
+            }
+        }
+        get_footer();
+        return true;
+    }
+
     public static function page_ready(int $post_id = 0): bool {
         $post_id = $post_id ?: (int)get_queried_object_id();
         return $post_id > 0
@@ -114,6 +166,10 @@ final class BlueVPN_Elementor_Integration {
     public static function render_page(int $post_id = 0): bool {
         $post_id = $post_id ?: (int)get_queried_object_id();
         if (!self::page_ready($post_id)) return false;
+
+        if (self::is_editor_request()) {
+            return self::render_editor_page();
+        }
 
         try {
             $html = \Elementor\Plugin::instance()->frontend->get_builder_content_for_display($post_id, true);
@@ -133,6 +189,9 @@ final class BlueVPN_Elementor_Integration {
     }
 
     public static function render_location(string $location): bool {
+        // Keep the editor iframe deterministic and avoid nested template rendering.
+        if (self::is_editor_request()) return false;
+
         if (function_exists('elementor_theme_do_location')) {
             ob_start();
             $handled = false;

@@ -18,6 +18,7 @@
     "test_current_release.py",
     "test_deploy_bot_commit_version_gate_4108.py",
     "test_deploy_bot_project_root_4109.py",
+    "test_elementor_svg_ui_4124.py",
     "test_fast_ci_4710.py",
     "test_guardcore_api_013_4111.py",
     "test_kotlin_build_blockers_4119.py",

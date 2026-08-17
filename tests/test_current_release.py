@@ -596,8 +596,8 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         functions = text("bluevpn-site/functions.php")
         style = text("bluevpn-site/style.css")
         self.assertIn("class-bluevpn-seo.php", functions)
-        self.assertIn("BLUEVPN_SITE_VERSION', '1.0.9", functions)
-        self.assertRegex(style, r"(?m)^Version:\s*1\.0\.9\s*$")
+        self.assertIn("BLUEVPN_SITE_VERSION', '1.0.10", functions)
+        self.assertRegex(style, r"(?m)^Version:\s*1\.0\.10\s*$")
 
     def test_private_account_is_noindex_and_excluded_from_sitemaps(self):
         seo = text("bluevpn-site/inc/class-bluevpn-seo.php")

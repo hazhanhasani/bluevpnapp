@@ -1,10 +1,16 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-define('BLUEVPN_SITE_VERSION', '1.0.9');
+define('BLUEVPN_SITE_VERSION', '1.0.10');
 
 define('BLUEVPN_SITE_DIR', get_template_directory());
 define('BLUEVPN_SITE_URL', get_template_directory_uri());
+
+
+function bluevpn_site_visual_url(string $file): string {
+    $safe = preg_replace('/[^a-z0-9._-]/i', '', $file);
+    return BLUEVPN_SITE_URL . '/assets/images/illustrations/' . $safe;
+}
 
 require_once BLUEVPN_SITE_DIR . '/inc/helpers.php';
 require_once BLUEVPN_SITE_DIR . '/inc/class-bluevpn-site-updater.php';

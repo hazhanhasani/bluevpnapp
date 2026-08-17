@@ -22,11 +22,13 @@ object BlueVpnNetworkRecoveryManager {
 
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                BlueVpnRuntimeAudit.record(
-                    context.applicationContext,
-                    BlueVpnRuntimeAudit.Event.NETWORK_CHANGE,
-                    "available"
-                )
+                runCatching {
+                    BlueVpnRuntimeAudit.record(
+                        context.applicationContext,
+                        BlueVpnRuntimeAudit.Event.NETWORK_CHANGE,
+                        "available"
+                    )
+                }
                 // Do not restart the VPN from a ConnectivityManager callback.
                 // onAvailable is also fired for the initial/default network and
                 // during noisy handovers; restarting here created connect loops and
@@ -35,16 +37,24 @@ object BlueVpnNetworkRecoveryManager {
             }
 
             override fun onLost(network: Network) {
-                BlueVpnRuntimeAudit.record(
-                    context.applicationContext,
-                    BlueVpnRuntimeAudit.Event.NETWORK_CHANGE,
-                    "lost"
-                )
+                runCatching {
+                    BlueVpnRuntimeAudit.record(
+                        context.applicationContext,
+                        BlueVpnRuntimeAudit.Event.NETWORK_CHANGE,
+                        "lost"
+                    )
+                }
             }
         }
 
-        cm.registerDefaultNetworkCallback(cb)
-        callback = cb
+        try {
+            cm.registerDefaultNetworkCallback(cb)
+            callback = cb
+        } catch (_: Throwable) {
+            // Network observation is optional telemetry/recovery input. A vendor
+            // ROM/security exception must never crash the BlueVPN process.
+            callback = null
+        }
     }
 
     @Synchronized

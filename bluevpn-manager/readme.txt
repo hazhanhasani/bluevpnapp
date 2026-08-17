@@ -1,8 +1,20 @@
 === BlueVPN Manager ===
-Version: 4.14.3
-Stable tag: 4.14.3
+Version: 4.14.5
+Stable tag: 4.14.5
 Requires PHP: 8.0
 
+
+== 4.14.5 ==
+- All customer-facing active profile names use BlueVPN branding for both Free and Premium.
+- Android VPN notification no longer exposes Telegram channel, bot, provider or imported config remarks.
+- Public labels use BlueVPN + plan tier + detected country while raw remarks stay internal for routing/location detection.
+- Notification patch now hard-fails the Android preparation step if a future v2rayNG source change could reintroduce raw-name leakage.
+
+== 4.14.4 ==
+- Fixes the remaining one-second Locations redraw at the source: candidate reload no longer renders before comparing structural membership.
+- Runtime ping/test state is excluded from the structural fingerprint, so Premium and Free lists stay stable while health changes.
+- Noisy list broadcasts use a quiet-window debounce and ping broadcasts never invalidate the location pool.
+- Cancels stale chunk-render jobs to prevent UI allocation buildup and hardens vendor network callbacks against process crashes.
 
 == 4.14.3 ==
 - Free connection is finalized before first-party story advertising starts.

@@ -91,6 +91,65 @@ class TestCrossComponentReleaseAudit(unittest.TestCase):
 
 
 class CurrentReleaseTests(unittest.TestCase):
+    def test_00_public_profile_names_never_expose_provider_remarks(self):
+        helper = text("android-source/BlueVpnPublicProfileName.kt")
+        self.assertIn('private const val BRAND = "BlueVPN"', helper)
+        self.assertIn('"ویژه"', helper)
+        self.assertIn('"رایگان"', helper)
+        self.assertIn('"اتصال هوشمند"', helper)
+        self.assertIn("BlueVpnLocationUtil.detect(", helper)
+        self.assertNotIn("return profile.remarks", helper)
+
+        prepare = text("scripts/prepare_android.py")
+        self.assertIn(
+            'bluevpn_dir / "BlueVpnPublicProfileName.kt": ROOT / "android-source/BlueVpnPublicProfileName.kt"',
+            prepare,
+        )
+        self.assertIn(
+            ".setContentTitle(BlueVpnPublicProfileName.forProfile(service, currentConfig))",
+            prepare,
+        )
+        self.assertIn("Unsupported v2rayNG NotificationManager title contract", prepare)
+        self.assertIn(
+            r"\.setContentTitle\(\s*currentConfig\?\.remarks\s*\)",
+            prepare,
+        )
+
+    def test_00_locations_never_structurally_redraw_on_runtime_broadcasts(self):
+        source = text("android-source/BlueVpnServersActivity.kt")
+
+        list_observer = source.split(
+            "mainViewModel.updateListAction.observe(this)", 1
+        )[1].split("mainViewModel.updateTestResultAction.observe(this)", 1)[0]
+        self.assertIn("delayMs = 2_000L", list_observer)
+        self.assertNotIn("renderLocations()", list_observer)
+
+        test_observer = source.split(
+            "mainViewModel.updateTestResultAction.observe(this)", 1
+        )[1].split("renderLocations()", 1)[0]
+        self.assertNotIn("invalidateResolvedCache()", test_observer)
+
+        load = source.split("private fun loadCandidates(", 1)[1].split(
+            "private fun createScreen()", 1
+        )[0]
+        self.assertIn("if (listContainer.childCount == 0", load)
+
+        fingerprint = source.split(
+            "private fun locationStructureFingerprint(", 1
+        )[1].split("private fun renderLocations()", 1)[0]
+        self.assertNotIn("isSessionInactive", fingerprint)
+        self.assertNotIn("getSelectServer", fingerprint)
+        self.assertNotIn("preferredLocation", fingerprint)
+
+        self.assertIn("appendChunkRunnable?.let { renderHandler.removeCallbacks(it) }", source)
+
+    def test_00_network_observer_is_crash_safe(self):
+        source = text("android-source/BlueVpnNetworkRecoveryManager.kt")
+        self.assertIn("try {", source)
+        self.assertIn("cm.registerDefaultNetworkCallback(cb)", source)
+        self.assertIn("catch (_: Throwable)", source)
+        self.assertGreaterEqual(source.count("runCatching {"), 2)
+
     def test_00_location_scroll_and_network_recovery_regressions(self):
         servers = text("android-source/BlueVpnServersActivity.kt")
         self.assertIn("lastRenderedStructureFingerprint", servers)

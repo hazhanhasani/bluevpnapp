@@ -483,34 +483,75 @@ def patch_manifest() -> None:
     url_scheme_path.write_text(url_scheme_text, encoding="utf-8")
 
 def patch_system_notification() -> None:
+    # Public system UI uses BlueVPN branding; raw provider remarks stay internal.
     path = APP / "src/main/java/com/v2ray/ang/handler/NotificationManager.kt"
     text = path.read_text(encoding="utf-8")
+
+    # v2rayNG moved MainActivity between packages across releases. Support both
+    # layouts and always route notification taps into BlueVPN Home.
     text = text.replace(
         "import com.v2ray.ang.ui.MainActivity",
-        "import com.v2ray.ang.ui.BlueVpnHomeActivity\nimport com.v2ray.ang.bluevpn.BlueVpnSystemActionReceiver\nimport com.v2ray.ang.bluevpn.BlueVpnSystemController",
+        "import com.v2ray.ang.ui.BlueVpnHomeActivity",
+    )
+    text = text.replace(
+        "import com.v2ray.ang.ui.main.MainActivity",
+        "import com.v2ray.ang.ui.BlueVpnHomeActivity",
     )
     text = text.replace(
         "Intent(service, MainActivity::class.java)",
         "Intent(service, BlueVpnHomeActivity::class.java)",
     )
-    # Public system UI uses BlueVPN branding. Transport/provider details remain
-    # available only in diagnostics/admin tooling.
-    text = text.replace(
-        ".setContentTitle(currentConfig?.remarks ?: service.getString(R.string.app_name))",
-        ".setContentTitle(if (currentConfig?.remarks?.startsWith(\"BlueVPN Free\") == true) \"BlueVPN Free\" else (currentConfig?.remarks ?: service.getString(R.string.app_name)))",
+
+    required_imports = (
+        "import com.v2ray.ang.bluevpn.BlueVpnPublicProfileName",
+        "import com.v2ray.ang.bluevpn.BlueVpnSystemActionReceiver",
+        "import com.v2ray.ang.bluevpn.BlueVpnSystemController",
     )
-    # BlueVPN keeps lightweight 3-second traffic stats visible in the persistent VPN notification.
+    import_anchor = "import com.v2ray.ang.R"
+    if import_anchor not in text:
+        raise RuntimeError("NotificationManager R import not found")
+    for required_import in required_imports:
+        if required_import not in text:
+            text = text.replace(
+                import_anchor,
+                import_anchor + "\n" + required_import,
+                1,
+            )
+
+    # Never expose upstream/provider/channel remarks in Android system UI.
+    # v2rayNG 2.2.6 uses `.setContentTitle(currentConfig?.remarks)`, while
+    # older builds used a fallback expression. Match both forms explicitly.
+    title_patterns = (
+        r'\.setContentTitle\(\s*currentConfig\?\.remarks\s*\)',
+        r'\.setContentTitle\(\s*currentConfig\?\.remarks\s*\?:\s*service\.getString\(R\.string\.app_name\)\s*\)',
+    )
+    title_replacement = ".setContentTitle(BlueVpnPublicProfileName.forProfile(service, currentConfig))"
+    patched_title = False
+    for pattern in title_patterns:
+        text, count = re.subn(pattern, title_replacement, text, count=1)
+        if count:
+            patched_title = True
+            break
+    if not patched_title and title_replacement not in text:
+        raise RuntimeError(
+            "Unsupported v2rayNG NotificationManager title contract: raw profile "
+            "remarks could leak into Android system UI"
+        )
+    if re.search(r'\.setContentTitle\(\s*currentConfig\?\.remarks', text):
+        raise RuntimeError("Raw v2rayNG profile remarks still leak into notification title")
+
+    # BlueVPN keeps lightweight traffic stats visible in the persistent VPN notification.
     text = text.replace(
         "        if (MmkvManager.decodeSettingsBool(AppConfig.PREF_SPEED_ENABLED) != true) return\n",
         "",
     )
     text = text.replace(
-        "val stopV2RayIntent = Intent(AppConfig.BROADCAST_ACTION_SERVICE)\n        stopV2RayIntent.`package` = AppConfig.ANG_PACKAGE\n        stopV2RayIntent.putExtra(\"key\", AppConfig.MSG_STATE_STOP)",
-        "val stopV2RayIntent = Intent(service, BlueVpnSystemActionReceiver::class.java)\n            .setAction(BlueVpnSystemController.ACTION_STOP)",
+        'val stopV2RayIntent = Intent(AppConfig.BROADCAST_ACTION_SERVICE)\n        stopV2RayIntent.`package` = AppConfig.ANG_PACKAGE\n        stopV2RayIntent.putExtra("key", AppConfig.MSG_STATE_STOP)',
+        'val stopV2RayIntent = Intent(service, BlueVpnSystemActionReceiver::class.java)\n            .setAction(BlueVpnSystemController.ACTION_STOP)',
     )
     text = text.replace(
-        "val restartV2RayIntent = Intent(AppConfig.BROADCAST_ACTION_SERVICE)\n        restartV2RayIntent.`package` = AppConfig.ANG_PACKAGE\n        restartV2RayIntent.putExtra(\"key\", AppConfig.MSG_STATE_RESTART)",
-        "val restartV2RayIntent = Intent(service, BlueVpnSystemActionReceiver::class.java)\n            .setAction(BlueVpnSystemController.ACTION_RESTART)",
+        'val restartV2RayIntent = Intent(AppConfig.BROADCAST_ACTION_SERVICE)\n        restartV2RayIntent.`package` = AppConfig.ANG_PACKAGE\n        restartV2RayIntent.putExtra("key", AppConfig.MSG_STATE_RESTART)',
+        'val restartV2RayIntent = Intent(service, BlueVpnSystemActionReceiver::class.java)\n            .setAction(BlueVpnSystemController.ACTION_RESTART)',
     )
     path.write_text(text, encoding="utf-8")
 
@@ -597,6 +638,7 @@ def inject_bluevpn_home() -> None:
         java_dir / "BlueVpnUpdateInstallActivity.kt": ROOT / "android-source/BlueVpnUpdateInstallActivity.kt",
         bluevpn_dir / "BlueVpnUpdateFileProvider.kt": ROOT / "android-source/BlueVpnUpdateFileProvider.kt",
         bluevpn_dir / "BlueVpnLocationUtil.kt": ROOT / "android-source/BlueVpnLocationUtil.kt",
+        bluevpn_dir / "BlueVpnPublicProfileName.kt": ROOT / "android-source/BlueVpnPublicProfileName.kt",
         bluevpn_dir / "BlueVpnExperience.kt": ROOT / "android-source/BlueVpnExperience.kt",
         bluevpn_dir / "BlueVpnTheme.kt": ROOT / "android-source/BlueVpnTheme.kt",
         bluevpn_dir / "BlueVpnAi.kt": ROOT / "android-source/BlueVpnAi.kt",

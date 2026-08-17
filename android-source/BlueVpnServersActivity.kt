@@ -96,6 +96,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private val renderRunnable = Runnable {
         renderLocationsNow(renderGeneration)
     }
+    private var appendChunkRunnable: Runnable? = null
     private val refreshTimeoutRunnable = Runnable { stopRefreshing() }
     private val candidateReloadRunnable = Runnable {
         val force = candidateReloadPending
@@ -116,20 +117,17 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
         mainViewModel.startListenBroadcast()
         mainViewModel.updateListAction.observe(this) {
-            // v2rayNG can publish list notifications in bursts while tests/import
-            // state changes. Treat the broadcast only as cache invalidation. The
-            // candidate loader below compares a structural fingerprint and redraws
-            // only when the actual location membership/order changed.
+            // v2rayNG can emit this broadcast repeatedly while ping/import/runtime
+            // metadata changes. Never redraw immediately. Invalidate the decoded
+            // snapshot and wait for a quiet window before checking whether the
+            // actual location membership changed.
             BlueVpnLocationUtil.invalidateResolvedCache()
             stopRefreshing()
-            scheduleCandidateReload(force = false)
+            scheduleCandidateReload(force = false, delayMs = 2_000L)
         }
         mainViewModel.updateTestResultAction.observe(this) {
-            // Ping/test-result broadcasts can arrive every second. Rebuilding the
-            // whole LinearLayout here made every location disappear/reappear and
-            // made manual selection practically impossible. Keep the row tree
-            // stable and update only the visible health/status TextViews.
-            BlueVpnLocationUtil.invalidateResolvedCache()
+            // Ping/test-result broadcasts are presentation-only. They must never
+            // invalidate/redecode the location pool or trigger a structural redraw.
             stopRefreshing()
             renderHandler.removeCallbacks(healthRefreshRunnable)
             renderHandler.postDelayed(healthRefreshRunnable, 180L)
@@ -162,6 +160,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     override fun onPause() {
         renderGeneration++
         searchHandler.removeCallbacks(searchRunnable)
+        appendChunkRunnable?.let { renderHandler.removeCallbacks(it) }
+        appendChunkRunnable = null
         renderHandler.removeCallbacksAndMessages(null)
         super.onPause()
     }
@@ -173,10 +173,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         super.onDestroy()
     }
 
-    private fun scheduleCandidateReload(force: Boolean) {
+    private fun scheduleCandidateReload(
+        force: Boolean,
+        delayMs: Long = 350L,
+    ) {
         candidateReloadPending = candidateReloadPending || force
         renderHandler.removeCallbacks(candidateReloadRunnable)
-        renderHandler.postDelayed(candidateReloadRunnable, 350L)
+        renderHandler.postDelayed(candidateReloadRunnable, delayMs.coerceAtLeast(250L))
     }
 
     private fun loadCandidates(
@@ -194,7 +197,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val requestIdentity = BlueVpnAccountManager.entitlementIdentityFingerprint(this)
         val requestedForce = force || candidateReloadPending
         candidateReloadPending = false
-        renderLocations()
+
+        // Keep the existing rows completely untouched while a background snapshot
+        // is being checked. Only an initially empty screen may render its loading
+        // placeholder.
+        if (listContainer.childCount == 0 && BlueVpnLocationUtil.cachedCandidates(this).isEmpty()) {
+            renderLocations()
+        }
 
         lifecycleScope.launch(Dispatchers.Default) {
             val result = runCatching {
@@ -560,24 +569,24 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private fun locationStructureFingerprint(
         candidates: List<BlueVpnLocationUtil.Candidate>,
     ): String {
-        val automatic = BlueVpnPreferences.smartBalance(this)
-        val preferred = BlueVpnPreferences.preferredLocation(this)
-        val selected = MmkvManager.getSelectServer()
-        val entitlement = BlueVpnEntitlement.resolveUi(this)
+        val entitlementIdentity =
+            BlueVpnAccountManager.entitlementIdentityFingerprint(this)
+        val uiEntitlement = BlueVpnEntitlement.resolveUi(this)
         val payload = buildString {
+            append(entitlementIdentity).append('|')
+            append(uiEntitlement.tier.name).append('|')
+            append(uiEntitlement.manualSelectionAllowed).append('|')
             append(selectedTab.name).append('|')
             append(query).append('|')
-            append(automatic).append('|')
-            append(preferred).append('|')
-            append(selected).append('|')
-            append(entitlement.manualSelectionAllowed).append('|')
+
+            // Structural identity only. Ping, health, selected GUID, preferred
+            // location and quarantine flags are deliberately excluded because they
+            // are volatile runtime state and must not recreate the row tree.
             candidates
-                .sortedBy { it.guid }
+                .map { "${it.location.key}:${it.guid}" }
+                .sorted()
                 .forEach {
-                    append(it.guid).append(':')
-                    append(it.location.key).append(':')
-                    append(BlueVpnPreferences.isSessionInactive(this@BlueVpnServersActivity, it.guid))
-                    append(';')
+                    append(it).append(';')
                 }
         }
         return payload.hashCode().toString()
@@ -587,6 +596,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         if (!::listContainer.isInitialized || isFinishing || isDestroyed) return
         renderGeneration++
         renderHandler.removeCallbacks(renderRunnable)
+        appendChunkRunnable?.let { renderHandler.removeCallbacks(it) }
+        appendChunkRunnable = null
         renderHandler.postDelayed(
             renderRunnable,
             BlueVpnPerformance.uiRenderDelayMs(this),
@@ -697,7 +708,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     isFinishing ||
                     isDestroyed ||
                     !::listContainer.isInitialized
-                ) return
+                ) {
+                    if (appendChunkRunnable === this) appendChunkRunnable = null
+                    return
+                }
                 val end = (groupIndex + chunkSize).coerceAtMost(groups.size)
                 while (groupIndex < end) {
                     val group = groups[groupIndex++]
@@ -714,9 +728,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 }
                 if (groupIndex < groups.size) {
                     renderHandler.post(this)
+                } else if (appendChunkRunnable === this) {
+                    appendChunkRunnable = null
                 }
             }
         }
+        appendChunkRunnable = appendChunk
         lastRenderedStructureFingerprint = locationStructureFingerprint(candidates)
         renderHandler.post(appendChunk)
         if (::locationsScrollView.isInitialized && preservedScrollY > 0) {

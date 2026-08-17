@@ -31,6 +31,7 @@ class SingleNotificationBranding493(unittest.TestCase):
     def test_upstream_core_notification_is_rebranded(self):
         s=self.text("scripts/prepare_android.py")
         self.assertIn("Public system UI uses BlueVPN branding", s)
-        self.assertIn('startsWith(\\"BlueVPN Free\\")', s)
+        self.assertIn("BlueVpnPublicProfileName.forProfile(service, currentConfig)", s)
+        self.assertIn("Raw v2rayNG profile remarks still leak into notification title", s)
 
 if __name__=="__main__": unittest.main()

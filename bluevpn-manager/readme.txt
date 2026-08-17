@@ -1,8 +1,12 @@
 === BlueVPN Manager ===
-Version: 4.13.3
-Stable tag: 4.13.3
+Version: 4.13.4
+Stable tag: 4.13.4
 Requires PHP: 8.0
 
+
+== 4.13.4 ==
+- Removes stale hardcoded 4.12.8 Fast CI release expectations.
+- Fast CI now validates current branding/release synchronization dynamically.
 
 == 4.13.3 ==
 - Removes stale hardcoded 4.12.8 expectations from the Elementor regression test.

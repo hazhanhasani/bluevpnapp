@@ -1,8 +1,13 @@
 === BlueVPN Manager ===
-Version: 4.12.10
-Stable tag: 4.12.10
+Version: 4.13.0
+Stable tag: 4.13.0
 Requires PHP: 8.0
 
+
+== 4.13.0 ==
+- Telegram ZIP downloads now use direct streaming with byte-length verification.
+- Detects truncated Telegram/CDN responses before ZipArchive parsing.
+- Five bounded retries and cURL-first transport for cPanel/PHP hosts.
 
 == 4.12.10 ==
 - GitHub delta-only deployment to reduce Git Data API traffic.

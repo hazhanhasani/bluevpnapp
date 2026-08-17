@@ -509,66 +509,172 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
 
     private static function download_telegram_zip(string $fileId, string $name, array $s): string {
         if (!class_exists('ZipArchive')) throw new RuntimeException('PHP ZipArchive روی سرور فعال نیست.');
-        if (!function_exists('download_url')) require_once ABSPATH . 'wp-admin/includes/file.php';
+        if (!function_exists('wp_tempnam')) require_once ABSPATH . 'wp-admin/includes/file.php';
 
         $lastError = '';
-        for ($attempt = 1; $attempt <= 3; $attempt++) {
-            // Ask Telegram for file_path again on every attempt. A freshly uploaded
-            // document can briefly point at a CDN object that is not fully readable yet.
+        $maxAttempts = 5;
+
+        for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+            // Telegram may hand out a valid file_path while the CDN object is still being
+            // propagated. Resolve it again for every attempt and verify byte length before
+            // asking ZipArchive to parse it.
             $file = self::api('getFile', ['file_id' => $fileId], $s);
             if (is_wp_error($file)) {
                 $lastError = $file->get_error_message();
-                if ($attempt < 3) { sleep($attempt); continue; }
+                if ($attempt < $maxAttempts) { sleep(min(8, $attempt * 2)); continue; }
                 throw new RuntimeException($lastError);
             }
+
             $path = (string)($file['file_path'] ?? '');
+            $expectedSize = (int)($file['file_size'] ?? 0);
             if ($path === '') throw new RuntimeException('Telegram file_path را برنگرداند.');
 
-            $token = self::bot_token($s);
-            $url = 'https://api.telegram.org/file/bot' . rawurlencode($token) . '/' . str_replace('%2F', '/', rawurlencode($path));
-            $tmp = download_url($url, 300);
-            if (is_wp_error($tmp)) {
-                $lastError = $tmp->get_error_message();
-                if ($attempt < 3) { sleep($attempt); continue; }
-                throw new RuntimeException($lastError);
+            if ($expectedSize > 0 && $expectedSize > (int)$s['max_zip_mb'] * 1024 * 1024) {
+                throw new RuntimeException('ZIP از محدودیت حجم بیشتر است.');
             }
 
+            $token = self::bot_token($s);
+            $url = 'https://api.telegram.org/file/bot' . $token . '/' .
+                implode('/', array_map('rawurlencode', explode('/', $path)));
+
+            $tmp = wp_tempnam($name !== '' ? $name : 'bluevpn-telegram.zip');
+            if (!$tmp) throw new RuntimeException('ساخت فایل موقت برای دریافت ZIP ناموفق بود.');
+
+            try {
+                self::download_telegram_file_streaming($url, $tmp);
+            } catch (Throwable $e) {
+                $lastError = $e->getMessage();
+                @unlink($tmp);
+                if ($attempt < $maxAttempts) { sleep(min(10, $attempt * 2)); continue; }
+                break;
+            }
+
+            clearstatcache(true, $tmp);
             $size = (int)(@filesize($tmp) ?: 0);
+
             if ($size > (int)$s['max_zip_mb'] * 1024 * 1024) {
                 @unlink($tmp);
                 throw new RuntimeException('ZIP از محدودیت حجم بیشتر است.');
             }
+
+            // getFile normally returns the authoritative Telegram-side byte length.
+            // A mismatch means the HTTP body was truncated even if it starts with "PK".
+            if ($expectedSize > 0 && $size !== $expectedSize) {
+                $lastError = 'دانلود Telegram ناقص بود: expected=' . $expectedSize .
+                    ', received=' . $size . ' bytes.';
+                @unlink($tmp);
+                if ($attempt < $maxAttempts) { sleep(min(10, $attempt * 2)); continue; }
+                break;
+            }
+
             if ($size < 22) {
                 $lastError = 'فایل دریافتی از Telegram ناقص است (' . $size . ' bytes).';
                 @unlink($tmp);
-                if ($attempt < 3) { sleep($attempt); continue; }
+                if ($attempt < $maxAttempts) { sleep(min(10, $attempt * 2)); continue; }
                 break;
             }
 
             $head = (string)@file_get_contents($tmp, false, null, 0, 4);
-            // ZIP may begin with a local file header, an empty archive header, or a
-            // spanned archive marker. Reject HTML/JSON/error bodies early.
             if (!in_array($head, ["PK\x03\x04", "PK\x05\x06", "PK\x07\x08"], true)) {
                 $lastError = 'پاسخ Telegram ZIP نیست؛ امضای فایل معتبر دریافت نشد.';
                 @unlink($tmp);
-                if ($attempt < 3) { sleep($attempt); continue; }
+                if ($attempt < $maxAttempts) { sleep(min(10, $attempt * 2)); continue; }
                 break;
             }
 
             $zip = new ZipArchive();
             $open = $zip->open($tmp, ZipArchive::RDONLY);
             if ($open === true) {
+                // Force ZipArchive to inspect the central directory and every entry.
+                $valid = true;
+                for ($i = 0; $i < $zip->numFiles; $i++) {
+                    $stat = $zip->statIndex($i);
+                    if ($stat === false) { $valid = false; break; }
+                }
                 $zip->close();
-                return $tmp;
+                if ($valid) return $tmp;
+                $lastError = 'ساختار Central Directory فایل ZIP ناقص است.';
+            } else {
+                $lastError = 'ZipArchive نتوانست فایل دانلودشده را باز کند (code=' .
+                    (string)$open . ', expected=' . $expectedSize . ', received=' . $size . ').';
             }
-            $lastError = 'ZipArchive نتوانست فایل دانلودشده را باز کند (code=' . (string)$open . ', size=' . $size . ').';
+
             @unlink($tmp);
-            if ($attempt < 3) sleep($attempt);
+            if ($attempt < $maxAttempts) sleep(min(10, $attempt * 2));
         }
 
-        throw new RuntimeException('ZIP دانلودشده از Telegram معتبر/کامل نیست. سه بار دریافت مجدد انجام شد. ' . $lastError);
+        throw new RuntimeException(
+            'ZIP دانلودشده از Telegram معتبر/کامل نیست. ' . $maxAttempts .
+            ' بار دریافت مجدد انجام شد. ' . $lastError
+        );
     }
 
+    private static function download_telegram_file_streaming(string $url, string $target): void {
+        // Prefer native cURL on cPanel/PHP. WordPress download_url() can pass through
+        // hosting/proxy layers that have produced repeatable ~2 MB truncation for larger
+        // Telegram documents. cURL writes directly to disk and lets us verify HTTP status.
+        if (function_exists('curl_init')) {
+            $fh = @fopen($target, 'wb');
+            if (!$fh) throw new RuntimeException('فایل موقت برای نوشتن باز نشد.');
+
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_FILE => $fh,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS => 5,
+                CURLOPT_CONNECTTIMEOUT => 30,
+                CURLOPT_TIMEOUT => 600,
+                CURLOPT_LOW_SPEED_LIMIT => 128,
+                CURLOPT_LOW_SPEED_TIME => 30,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+                CURLOPT_USERAGENT => 'BlueVPN-Manager/' . BLUEVPN_MANAGER_VERSION,
+                CURLOPT_HTTPHEADER => [
+                    'Accept: application/octet-stream',
+                    'Accept-Encoding: identity',
+                    'Connection: close',
+                ],
+            ]);
+
+            $ok = curl_exec($ch);
+            $errno = curl_errno($ch);
+            $error = curl_error($ch);
+            $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            curl_close($ch);
+            fclose($fh);
+
+            if ($ok !== true || $errno !== 0) {
+                throw new RuntimeException(
+                    'خطای دریافت مستقیم Telegram/cURL' .
+                    ($errno ? ' #' . $errno : '') .
+                    ($error !== '' ? ': ' . $error : '')
+                );
+            }
+            if ($status < 200 || $status >= 300) {
+                throw new RuntimeException('Telegram file HTTP ' . $status);
+            }
+            return;
+        }
+
+        // Portable fallback when cURL is unavailable.
+        $args = [
+            'timeout' => 600,
+            'redirection' => 5,
+            'stream' => true,
+            'filename' => $target,
+            'headers' => [
+                'Accept' => 'application/octet-stream',
+                'Accept-Encoding' => 'identity',
+                'Connection' => 'close',
+            ],
+        ];
+        $res = wp_safe_remote_get($url, $args);
+        if (is_wp_error($res)) throw new RuntimeException($res->get_error_message());
+        $status = (int)wp_remote_retrieve_response_code($res);
+        if ($status < 200 || $status >= 300) {
+            throw new RuntimeException('Telegram file HTTP ' . $status);
+        }
+    }
     private static function resolve_project_root(string $extractedRoot): string {
         $extractedRoot=rtrim($extractedRoot,'/\\');
         $fullRequired=['branding/app.json','release.json','bluevpn-manager/bluevpn-manager.php'];
@@ -1177,8 +1283,7 @@ BLUEVPN_ASKPASS_CHECK;
         $newSha = (string)($newCommit['sha'] ?? '');
         if ($newSha === '') throw new RuntimeException('Commit GitHub ساخته نشد.');
 
-        $updatedRef = self::gh(
-            'PATCH',
+        $updatedRef = self::gh('PATCH',
             self::repo_path($s) . '/git/refs/heads/' . rawurlencode((string)$s['git_branch']),
             ['sha' => $newSha, 'force' => false],
             $s

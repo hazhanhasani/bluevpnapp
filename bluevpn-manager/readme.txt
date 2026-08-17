@@ -1,8 +1,12 @@
 === BlueVPN Manager ===
-Version: 4.14.0
-Stable tag: 4.14.0
+Version: 4.14.1
+Stable tag: 4.14.1
 Requires PHP: 8.0
 
+
+== 4.14.1 ==
+- Fixes GitHub Actions repository-hygiene regression gate when CI creates runtime reports/logs after checkout.
+- Hygiene gate now validates .gitignore tracking policy instead of rejecting legitimate CI artifact directories.
 
 == 4.14.0 ==
 - Full platform deploys keep GitHub as an authoritative clean mirror.

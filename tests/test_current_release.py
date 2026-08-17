@@ -99,10 +99,23 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("!isset($authoritative[$remotePath])", bot)
         root_names = {p.name for p in ROOT.iterdir()}
         self.assertIn("README.md", root_names)
-        self.assertNotIn(".pytest_cache", root_names)
-        self.assertNotIn("reports", root_names)
         self.assertFalse(any(name.startswith("BUILD-AND-TEST-") for name in root_names))
         self.assertFalse(any(name.startswith("CHANGED-FILES-") for name in root_names))
+
+        # GitHub Actions legitimately creates reports/, *.log and cache folders
+        # after checkout. Repository hygiene is a tracking policy, not a ban on
+        # runtime CI artifacts, so assert the ignore contract instead.
+        gitignore = text(".gitignore")
+        for ignored in (
+            "reports/",
+            ".pytest_cache/",
+            "**/__pycache__/",
+            "*.log",
+            "BUILD-AND-TEST-*.md",
+            "CHANGED-FILES-*.md",
+            "ROOT-CAUSE-*.md",
+        ):
+            self.assertIn(ignored, gitignore)
 
     def test_00_locations_ping_updates_do_not_rebuild_list(self):
         source = text("android-source/BlueVpnServersActivity.kt")

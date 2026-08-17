@@ -66,6 +66,7 @@ import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnIntelligenceCore
 import com.v2ray.ang.bluevpn.BlueVpnFreeStoryAdGate
 import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
+import com.v2ray.ang.bluevpn.BlueVpnNetworkRecoveryManager
 import com.v2ray.ang.bluevpn.BlueVpnLiveReporter
 import com.v2ray.ang.bluevpn.BlueVpnUpdateManager
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard

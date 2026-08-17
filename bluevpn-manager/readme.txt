@@ -1,8 +1,12 @@
 === BlueVPN Manager ===
-Version: 4.13.5
-Stable tag: 4.13.5
+Version: 4.13.6
+Stable tag: 4.13.6
 Requires PHP: 8.0
 
+
+== 4.13.6 ==
+- Fixes Android compile failure: BlueVpnNetworkRecoveryManager is now imported by BlueVpnHomeActivity.
+- prepare_android.py now copies BlueVpnNetworkRecoveryManager.kt into the pinned v2rayNG source tree.
 
 == 4.13.5 ==
 - Removes all remaining hardcoded 4.12.8/41208 release pins from shipped regression tests.

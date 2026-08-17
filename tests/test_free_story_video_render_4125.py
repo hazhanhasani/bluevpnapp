@@ -7,8 +7,8 @@ class FreeStoryVideoRender4125(unittest.TestCase):
     def test_release_version(self):
         app=json.loads((ROOT/'branding/app.json').read_text())
         rel=json.loads((ROOT/'release.json').read_text())
-        self.assertEqual((app['version_name'],app['version_code']),('4.12.8',41208))
-        self.assertEqual((rel['version'],rel['version_code']),('4.12.8',41208))
+        self.assertEqual((app['version_name'],app['version_code']),(rel['version'],rel['version_code']))
+        self.assertEqual((rel['version'],rel['version_code']),(app['version_name'],app['version_code']))
 
     def test_android_waits_for_real_video_frame(self):
         s=(ROOT/'android-source/BlueVpnFreeStoryAdGate.kt').read_text()

@@ -8,8 +8,8 @@ class PreGradleStageHardening4122(unittest.TestCase):
     def test_release_version(self):
         app=json.loads((ROOT/'branding/app.json').read_text())
         rel=json.loads((ROOT/'release.json').read_text())
-        self.assertEqual((app['version_name'],app['version_code']),('4.12.8',41208))
-        self.assertEqual((rel['version'],rel['version_code']),('4.12.8',41208))
+        self.assertEqual((app['version_name'],app['version_code']),(rel['version'],rel['version_code']))
+        self.assertEqual((rel['version'],rel['version_code']),(app['version_name'],app['version_code']))
 
     def test_pre_gradle_steps_are_logged(self):
         wf=(ROOT/'.github/workflows/build-apk.yml').read_text()

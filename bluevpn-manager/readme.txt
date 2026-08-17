@@ -1,8 +1,18 @@
 === BlueVPN Manager ===
-Version: 4.13.6
-Stable tag: 4.13.6
+Version: 4.13.8
+Stable tag: 4.13.8
 Requires PHP: 8.0
 
+
+== 4.13.8 ==
+- Full cross-component release audit for Android, BlueVPN Manager and BlueVPN Site.
+- Adds aggregate guards for Android overlay completeness, RuntimeAudit enum references and network-recovery API wiring.
+- Adds release metadata synchronization and site version consistency gates.
+
+== 4.13.7 ==
+- Fixes BlueVpnNetworkRecoveryManager enum/API compile errors.
+- Uses the existing NETWORK_CHANGE audit event with lost/available details.
+- Adds debounced requestNetworkRecovery() to the WARP keepalive service.
 
 == 4.13.6 ==
 - Fixes Android compile failure: BlueVpnNetworkRecoveryManager is now imported by BlueVpnHomeActivity.

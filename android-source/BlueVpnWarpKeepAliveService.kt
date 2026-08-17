@@ -49,6 +49,32 @@ class BlueVpnWarpKeepAliveService : Service() {
                 app.startService(Intent(app, BlueVpnWarpKeepAliveService::class.java).setAction(ACTION_STOP))
             }
         }
+
+        @Volatile
+        private var lastRecoveryRequestElapsed = 0L
+
+        /**
+         * Recover a live Free/WARP session after the default Android network changes.
+         * Debounced to avoid restart storms while Wi-Fi/mobile handover produces
+         * multiple ConnectivityManager callbacks.
+         */
+        fun requestNetworkRecovery(context: Context) {
+            val app = context.applicationContext
+            if (!BlueVpnWarpEngine.isRunning()) return
+
+            val now = SystemClock.elapsedRealtime()
+            synchronized(BlueVpnWarpKeepAliveService::class.java) {
+                if (now - lastRecoveryRequestElapsed < 2_500L) return
+                lastRecoveryRequestElapsed = now
+            }
+
+            BlueVpnRuntimeAudit.record(
+                app,
+                BlueVpnRuntimeAudit.Event.NETWORK_CHANGE,
+                "recovery-request"
+            )
+            BlueVpnSystemController.restart(app)
+        }
     }
 
     private val handler = Handler(Looper.getMainLooper())

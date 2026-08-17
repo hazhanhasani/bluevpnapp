@@ -24,7 +24,8 @@ object BlueVpnNetworkRecoveryManager {
             override fun onAvailable(network: Network) {
                 BlueVpnRuntimeAudit.record(
                     context.applicationContext,
-                    BlueVpnRuntimeAudit.Event.NETWORK_CHANGED
+                    BlueVpnRuntimeAudit.Event.NETWORK_CHANGE,
+                    "available"
                 )
                 // Give the active engine a chance to restore transport without
                 // destroying user state.
@@ -40,7 +41,8 @@ object BlueVpnNetworkRecoveryManager {
             override fun onLost(network: Network) {
                 BlueVpnRuntimeAudit.record(
                     context.applicationContext,
-                    BlueVpnRuntimeAudit.Event.NETWORK_LOST
+                    BlueVpnRuntimeAudit.Event.NETWORK_CHANGE,
+                    "lost"
                 )
             }
         }

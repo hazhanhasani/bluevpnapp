@@ -16,6 +16,80 @@ def block(source: str, start: str, end: str) -> str:
     return source[i:j]
 
 
+
+class TestCrossComponentReleaseAudit(unittest.TestCase):
+    """Cross-component guards for app + Manager + site release integrity."""
+
+    def test_android_overlay_is_complete(self):
+        root = ROOT
+        prepare = (root / "scripts/prepare_android.py").read_text(encoding="utf-8")
+        missing = []
+        for source in sorted((root / "android-source").glob("*.kt")):
+            if source.name not in prepare:
+                missing.append(source.name)
+        self.assertEqual(missing, [], f"Android overlay files not copied by prepare_android.py: {missing}")
+
+    def test_runtime_audit_event_references_exist(self):
+        root = ROOT
+        audit = (root / "android-source/BlueVpnRuntimeAudit.kt").read_text(encoding="utf-8")
+        enum_match = re.search(r"enum class Event\s*\{(.*?)\n\s*\}", audit, re.S)
+        self.assertIsNotNone(enum_match, "BlueVpnRuntimeAudit.Event enum not found")
+        enum_names = set(re.findall(r"\b([A-Z][A-Z0-9_]+)\s*,?", enum_match.group(1)))
+        used = set()
+        for source in (root / "android-source").glob("*.kt"):
+            text = source.read_text(encoding="utf-8")
+            used.update(re.findall(r"BlueVpnRuntimeAudit\.Event\.([A-Z][A-Z0-9_]+)", text))
+        unknown = sorted(used - enum_names)
+        self.assertEqual(unknown, [], f"Unknown BlueVpnRuntimeAudit.Event references: {unknown}")
+
+    def test_network_recovery_api_contract_is_complete(self):
+        root = ROOT
+        manager = (root / "android-source/BlueVpnNetworkRecoveryManager.kt").read_text(encoding="utf-8")
+        keepalive = (root / "android-source/BlueVpnWarpKeepAliveService.kt").read_text(encoding="utf-8")
+        home = (root / "android-source/BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
+        prepare = (root / "scripts/prepare_android.py").read_text(encoding="utf-8")
+
+        if "BlueVpnWarpKeepAliveService.requestNetworkRecovery(" in manager:
+            self.assertIn("fun requestNetworkRecovery(context: Context)", keepalive)
+
+        self.assertIn(
+            "import com.v2ray.ang.bluevpn.BlueVpnNetworkRecoveryManager",
+            home,
+        )
+        self.assertIn(
+            'BlueVpnNetworkRecoveryManager.kt": ROOT / "android-source/BlueVpnNetworkRecoveryManager.kt"',
+            prepare,
+        )
+
+    def test_release_metadata_is_current_and_synchronized(self):
+        root = ROOT
+        app = json.loads((root / "branding/app.json").read_text(encoding="utf-8"))
+        release = json.loads((root / "release.json").read_text(encoding="utf-8"))
+        manager_php = (root / "bluevpn-manager/bluevpn-manager.php").read_text(encoding="utf-8")
+        manager_readme = (root / "bluevpn-manager/readme.txt").read_text(encoding="utf-8")
+
+        self.assertEqual(app["version_name"], release["version"])
+        self.assertEqual(app["version_code"], release["version_code"])
+        self.assertEqual(app.get("version_source"), "source_declared_release_version")
+        self.assertEqual(release.get("version_source"), "source_declared_release_version")
+
+        parts = [int(x) for x in app["version_name"].split(".")]
+        self.assertEqual(app["version_code"], parts[0] * 10000 + parts[1] * 100 + parts[2])
+        self.assertIn(f"Version: {app['version_name']}", manager_php)
+        self.assertIn(f"Version: {app['version_name']}", manager_readme)
+        self.assertIn(f"Stable tag: {app['version_name']}", manager_readme)
+
+    def test_site_version_header_and_runtime_constant_match(self):
+        root = ROOT
+        style = (root / "bluevpn-site/style.css").read_text(encoding="utf-8")
+        functions = (root / "bluevpn-site/functions.php").read_text(encoding="utf-8")
+        header = re.search(r"(?mi)^Version:\s*([0-9.]+)\s*$", style)
+        runtime = re.search(r"BLUEVPN_SITE_VERSION'\s*,\s*'([0-9.]+)'", functions)
+        self.assertIsNotNone(header)
+        self.assertIsNotNone(runtime)
+        self.assertEqual(header.group(1), runtime.group(1))
+
+
 class CurrentReleaseTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

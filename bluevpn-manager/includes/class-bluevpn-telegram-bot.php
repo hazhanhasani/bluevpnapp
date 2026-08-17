@@ -676,61 +676,104 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
         }
     }
     private static function resolve_project_root(string $extractedRoot): string {
-        $extractedRoot=rtrim($extractedRoot,'/\\');
-        $fullRequired=['branding/app.json','release.json','bluevpn-manager/bluevpn-manager.php'];
-        $matchesFull=static function(string $base) use ($fullRequired): bool {
-            foreach($fullRequired as $rel){ if(!is_file($base . '/' . $rel))return false; }
+        $extractedRoot = rtrim($extractedRoot, '/\\');
+        $fullRequired = ['branding/app.json', 'release.json', 'bluevpn-manager/bluevpn-manager.php'];
+
+        $matchesFull = static function (string $base) use ($fullRequired): bool {
+            foreach ($fullRequired as $rel) {
+                if (!is_file($base . '/' . $rel)) return false;
+            }
             return true;
         };
-        $matchesManagerOnly=static function(string $base): bool {
+
+        $matchesManagerParent = static function (string $base): bool {
             return is_file($base . '/bluevpn-manager/bluevpn-manager.php');
         };
-        if($matchesFull($extractedRoot))return $extractedRoot;
 
-        $fullCandidates=[];$managerCandidates=[];
-        $scan=new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($extractedRoot,FilesystemIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::SELF_FIRST
+        // extract_zip_safely() collapses a ZIP that contains exactly one top-level
+        // directory. For a manager-only ZIP that directory is commonly
+        // "bluevpn-manager", so $extractedRoot itself becomes the plugin directory.
+        // In that case the deploy root must be its parent, otherwise files would be
+        // copied into repository root and the manager sentinel would not be found.
+        $isManagerDir = static function (string $base): bool {
+            return basename(str_replace('\\', '/', $base)) === 'bluevpn-manager'
+                && is_file($base . '/bluevpn-manager.php');
+        };
+
+        if ($matchesFull($extractedRoot)) return $extractedRoot;
+        if ($matchesManagerParent($extractedRoot)) return $extractedRoot;
+        if ($isManagerDir($extractedRoot)) return dirname($extractedRoot);
+
+        // Do not depend on directory nesting depth. Search for the actual sentinel
+        // files and derive candidate roots from them. This supports Telegram ZIPs
+        // wrapped in one or more folders as well as manager-only packages.
+        $fullCandidates = [];
+        $managerCandidates = [];
+
+        $scan = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($extractedRoot, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::LEAVES_ONLY
         );
-        foreach($scan as $item){
-            if(!$item->isDir())continue;
-            $path=$item->getPathname();
-            $relative=ltrim(str_replace('\\','/',substr($path,strlen($extractedRoot))),'/');
-            if($relative==='')continue;
-            if(substr_count($relative,'/')>6)continue;
-            if($matchesFull($path))$fullCandidates[]=$path;
-            elseif($matchesManagerOnly($path))$managerCandidates[]=$path;
+
+        foreach ($scan as $item) {
+            if (!$item->isFile()) continue;
+
+            $name = str_replace('\\', '/', $item->getPathname());
+            if (basename($name) !== 'bluevpn-manager.php') continue;
+
+            $pluginDir = dirname($name);
+            if (basename(str_replace('\\', '/', $pluginDir)) !== 'bluevpn-manager') continue;
+
+            $candidate = dirname($pluginDir);
+            if ($matchesFull($candidate)) {
+                $fullCandidates[$candidate] = true;
+            } elseif ($matchesManagerParent($candidate)) {
+                $managerCandidates[$candidate] = true;
+            }
         }
-        if($fullCandidates){$candidates=$fullCandidates;}
-        elseif($matchesManagerOnly($extractedRoot)){return $extractedRoot;}
-        elseif($managerCandidates){$candidates=$managerCandidates;}
-        else{
+
+        $fullCandidates = array_keys($fullCandidates);
+        $managerCandidates = array_keys($managerCandidates);
+
+        if ($fullCandidates) {
+            $candidates = $fullCandidates;
+        } elseif ($managerCandidates) {
+            $candidates = $managerCandidates;
+        } else {
             throw new RuntimeException(
                 'DEPLOY_PROJECT_ROOT_NOT_FOUND: ریشه معتبر BlueVPN داخل ZIP پیدا نشد. ' .
                 'پروژه کامل باید branding/app.json + release.json + bluevpn-manager/bluevpn-manager.php داشته باشد؛ ' .
                 'برای بروزرسانی فقط Manager وجود bluevpn-manager/bluevpn-manager.php کافی است.'
             );
         }
-        usort($candidates,static function(string $a,string $b) use ($extractedRoot): int {
-            $ra=ltrim(str_replace('\\','/',substr($a,strlen($extractedRoot))),'/');
-            $rb=ltrim(str_replace('\\','/',substr($b,strlen($extractedRoot))),'/');
-            $da=$ra===''?0:substr_count($ra,'/')+1;$db=$rb===''?0:substr_count($rb,'/')+1;
-            if($da!==$db)return $da<=>$db; return strlen($a)<=>strlen($b);
+
+        usort($candidates, static function (string $a, string $b) use ($extractedRoot): int {
+            $ra = ltrim(str_replace('\\', '/', substr($a, strlen($extractedRoot))), '/');
+            $rb = ltrim(str_replace('\\', '/', substr($b, strlen($extractedRoot))), '/');
+            $da = $ra === '' ? 0 : substr_count($ra, '/') + 1;
+            $db = $rb === '' ? 0 : substr_count($rb, '/') + 1;
+            if ($da !== $db) return $da <=> $db;
+            return strlen($a) <=> strlen($b);
         });
-        $best=(string)$candidates[0];
-        if(count($candidates)>1){
-            $firstRel=ltrim(str_replace('\\','/',substr($best,strlen($extractedRoot))),'/');
-            $firstDepth=$firstRel===''?0:substr_count($firstRel,'/')+1;
-            foreach(array_slice($candidates,1) as $candidate){
-                $rel=ltrim(str_replace('\\','/',substr($candidate,strlen($extractedRoot))),'/');
-                $depth=$rel===''?0:substr_count($rel,'/')+1;
-                if($depth===$firstDepth)throw new RuntimeException('DEPLOY_PROJECT_ROOT_AMBIGUOUS: بیش از یک ریشه معتبر BlueVPN داخل ZIP پیدا شد.');
+
+        $best = (string)$candidates[0];
+        if (count($candidates) > 1) {
+            $firstRel = ltrim(str_replace('\\', '/', substr($best, strlen($extractedRoot))), '/');
+            $firstDepth = $firstRel === '' ? 0 : substr_count($firstRel, '/') + 1;
+            foreach (array_slice($candidates, 1) as $candidate) {
+                $rel = ltrim(str_replace('\\', '/', substr($candidate, strlen($extractedRoot))), '/');
+                $depth = $rel === '' ? 0 : substr_count($rel, '/') + 1;
+                if ($depth === $firstDepth) {
+                    throw new RuntimeException(
+                        'DEPLOY_PROJECT_ROOT_AMBIGUOUS: بیش از یک ریشه معتبر BlueVPN داخل ZIP پیدا شد.'
+                    );
+                }
                 break;
             }
         }
+
         return $best;
     }
-
     private static function expected_release_from_tree(string $root): array {
         $brandingPath=$root . '/branding/app.json';
         $releasePath=$root . '/release.json';
@@ -1264,7 +1307,8 @@ BLUEVPN_ASKPASS_CHECK;
         }
         $flush();
 
-        if ($treeSha === $baseTree) {
+        if($treeSha===$baseTree) {
+            // Commit خالی ساخته نشد؛ هیچ تغییر واقعی برای ثبت وجود ندارد.
             return [
                 'commit' => $parent,
                 'files' => count($entries),

@@ -1,8 +1,13 @@
 === BlueVPN Manager ===
-Version: 4.13.0
-Stable tag: 4.13.0
+Version: 4.13.1
+Stable tag: 4.13.1
 Requires PHP: 8.0
 
+
+== 4.13.1 ==
+- Fix manager-only ZIP root detection after single-directory extraction collapse.
+- Resolve BlueVPN roots from sentinel files instead of a fixed nesting-depth scan.
+- Preserve bluevpn-manager/ path when deploying manager-only packages.
 
 == 4.13.0 ==
 - Telegram ZIP downloads now use direct streaming with byte-length verification.

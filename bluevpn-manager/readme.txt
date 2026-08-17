@@ -1,8 +1,13 @@
 === BlueVPN Manager ===
-Version: 4.12.8
-Stable tag: 4.12.8
+Version: 4.12.10
+Stable tag: 4.12.10
 Requires PHP: 8.0
 
+
+== 4.12.10 ==
+- GitHub delta-only deployment to reduce Git Data API traffic.
+- Shared transient retry handling for GitHub blobs/trees/commits/refs.
+- Readme and plugin release metadata synchronized for GitHub Actions.
 
 == 4.12.8 ==
 * ویدئوی استوری اتصال رایگان در اندروید دیگر صرفاً با آماده‌شدن صدا Ready محسوب نمی‌شود؛ اولین فریم واقعی ویدئو باید Render شود.

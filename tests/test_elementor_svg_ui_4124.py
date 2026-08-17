@@ -9,8 +9,14 @@ class ElementorSvgUi4124Tests(unittest.TestCase):
     def test_release_version(self):
         app=json.loads((ROOT/'branding/app.json').read_text())
         rel=json.loads((ROOT/'release.json').read_text())
-        self.assertEqual((app['version_name'], app['version_code']), ('4.12.8', 41208))
-        self.assertEqual((rel['version'], rel['version_code']), ('4.12.8', 41208))
+        self.assertEqual(
+            (rel['version'], rel['version_code']),
+            (app['version_name'], app['version_code']),
+            'release.json and branding/app.json must stay synchronized',
+        )
+        parts=[int(x) for x in str(app['version_name']).split('.')]
+        self.assertEqual(len(parts), 3)
+        self.assertEqual(app['version_code'], parts[0]*10000 + parts[1]*100 + parts[2])
 
     def test_editor_recursion_guard(self):
         src=(ROOT/'bluevpn-site/inc/class-bluevpn-elementor.php').read_text()

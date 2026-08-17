@@ -1,8 +1,12 @@
 === BlueVPN Manager ===
-Version: 4.13.2
-Stable tag: 4.13.2
+Version: 4.13.3
+Stable tag: 4.13.3
 Requires PHP: 8.0
 
+
+== 4.13.3 ==
+- Removes stale hardcoded 4.12.8 expectations from the Elementor regression test.
+- Regression now checks release/branding synchronization and deterministic version_code.
 
 == 4.13.2 ==
 - Restores the exact flat-ZIP resolver compatibility path expected by the regression gate.

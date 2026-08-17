@@ -1,11 +1,11 @@
 {
-  "version": "4.13.8",
-  "version_code": 41308,
+  "version": "4.13.9",
+  "version_code": 41309,
   "channel": "beta",
-  "build_id": "20260817-v4.13.8-full-cross-component-audit",
-  "built_at": "2026-08-17T19:45:00Z",
-  "android_version": "4.13.8",
-  "android_version_code": 41308,
+  "build_id": "20260817-v4.13.9-home-refresh-retry-loop-fix",
+  "built_at": "2026-08-17T20:10:00Z",
+  "android_version": "4.13.9",
+  "android_version_code": 41309,
   "description": "BlueVPN 4.13.8 is a cross-component hardening release covering the Android overlay, WordPress Manager, BlueVPN Site and CI release metadata. It adds regression guards for missing Android overlay files, invalid RuntimeAudit events, incomplete network recovery wiring and version synchronization.",
   "features": [
     "site-version-consistency-gate",

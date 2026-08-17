@@ -225,6 +225,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var lastThroughputLearningAt = 0L
     private var smoothedUploadBps = 0.0
     private var lastTrafficSampleElapsed = 0L
+    private var lastRenderedFreeTimerText = ""
     private var lastNonZeroDownloadElapsed = 0L
     private var lastNonZeroUploadElapsed = 0L
     private var pendingConnectionRequest = false
@@ -373,10 +374,10 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private val statsTicker = object : Runnable {
         override fun run() {
             updateLiveStats()
-            handler.postDelayed(
-                this,
-                BlueVpnPerformance.statsIntervalMs(this@BlueVpnHomeActivity),
-            )
+            val connected = mainViewModel.isRunning.value == true &&
+                !failoverActive &&
+                connectionVerified
+            handler.postDelayed(this, if (connected) 1_000L else 3_000L)
         }
     }
 
@@ -452,8 +453,18 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                     Toast.LENGTH_LONG,
                 ).show()
             }
-            updateFreeTimerBadge()
-            handler.postDelayed(this, 1_000L)
+
+            val entitlement = BlueVpnEntitlement.resolveUi(this@BlueVpnHomeActivity)
+            val activeTimedFree = entitlement.isFree &&
+                entitlement.timeLimited &&
+                (
+                    connectionVerified ||
+                    mainViewModel.isRunning.value == true ||
+                    failoverActive
+                )
+
+            if (activeTimedFree) updateFreeTimerBadge()
+            handler.postDelayed(this, if (activeTimedFree) 1_000L else 15_000L)
         }
     }
 
@@ -3025,24 +3036,36 @@ private fun dpHome(value: Int): Int =
         val remaining = BlueVpnAccountManager.freeSessionRemainingMillis(this)
         if (!active || !entitlement.timeLimited || remaining <= 0L) {
             val configuredMinutes = entitlement.sessionMinutes.coerceAtLeast(0)
-            freeTimerBadge.text = if (configuredMinutes > 0) {
+            val nextText = if (configuredMinutes > 0) {
                 String.format(Locale.US, "%02d:00", configuredMinutes)
             } else {
                 "—"
             }
-            freeTimerBadge.visibility = View.VISIBLE
+            if (lastRenderedFreeTimerText != nextText) {
+                lastRenderedFreeTimerText = nextText
+                freeTimerBadge.text = nextText
+            }
+            if (freeTimerBadge.visibility != View.VISIBLE) {
+                freeTimerBadge.visibility = View.VISIBLE
+            }
             return
         }
         val totalSeconds = (remaining + 999L) / 1_000L
         val hours = totalSeconds / 3_600L
         val minutes = (totalSeconds % 3_600L) / 60L
         val seconds = totalSeconds % 60L
-        freeTimerBadge.text = if (hours > 0L) {
+        val nextText = if (hours > 0L) {
             String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
         } else {
             String.format(Locale.US, "%02d:%02d", minutes, seconds)
         }
-        freeTimerBadge.visibility = View.VISIBLE
+        if (lastRenderedFreeTimerText != nextText) {
+            lastRenderedFreeTimerText = nextText
+            freeTimerBadge.text = nextText
+        }
+        if (freeTimerBadge.visibility != View.VISIBLE) {
+            freeTimerBadge.visibility = View.VISIBLE
+        }
     }
 
 

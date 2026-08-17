@@ -61,6 +61,7 @@ class BlueVpnWarpKeepAliveService : Service() {
         fun requestNetworkRecovery(context: Context) {
             val app = context.applicationContext
             if (!BlueVpnWarpEngine.isRunning()) return
+            if (BlueVpnPreferences.connectedAt(app) <= 0L) return
 
             val now = SystemClock.elapsedRealtime()
             synchronized(BlueVpnWarpKeepAliveService::class.java) {

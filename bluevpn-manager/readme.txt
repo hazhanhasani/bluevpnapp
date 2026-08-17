@@ -1,8 +1,13 @@
 === BlueVPN Manager ===
-Version: 4.13.8
-Stable tag: 4.13.8
+Version: 4.13.9
+Stable tag: 4.13.9
 Requires PHP: 8.0
 
+
+== 4.13.9 ==
+- Home idle/error refresh throttled; no constant one-second redraw loop.
+- Free countdown updates every second only while a timed Free session is active.
+- Network recovery no longer restarts failed/unverified WARP sessions.
 
 == 4.13.8 ==
 - Full cross-component release audit for Android, BlueVPN Manager and BlueVPN Site.

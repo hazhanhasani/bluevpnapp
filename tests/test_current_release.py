@@ -91,6 +91,34 @@ class TestCrossComponentReleaseAudit(unittest.TestCase):
 
 
 class CurrentReleaseTests(unittest.TestCase):
+    def test_00_tapsell_all_surfaces_are_free_only(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        manager = text("android-source/BlueVpnTapsellManager.kt")
+        hub = text("android-source/BlueVpnTapsellFreeHub.kt")
+        account = text("android-source/BlueVpnAccountManager.kt")
+        prepare = text("scripts/prepare_android.py")
+        ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
+
+        self.assertIn("BlueVpnTapsellFreeHub.show", home)
+        self.assertIn("tapsellHubButton.visibility = if (entitlement.isFree)", home)
+        self.assertIn("if (!BlueVpnEntitlement.resolveUi(activity).isFree) return", hub)
+        self.assertIn("Premium contract:", hub)
+
+        self.assertIn("fun showRewarded(", manager)
+        self.assertIn("fun attachStandardBanner(", manager)
+        self.assertIn("fun showReflectiveFormat(", manager)
+        self.assertIn("requestPostConnectWaterfall", manager)
+        self.assertIn('loaded.zones["interstitial_video"]', manager)
+        self.assertIn('loaded.zones["interstitial_banner"]', manager)
+
+        self.assertIn("grantRewardedBonusMinutes", account)
+        self.assertIn("pending_reward_bonus_minutes", account)
+        self.assertIn("rewarded_bonus_minutes", ads)
+
+        self.assertIn('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha02"', prepare)
+        self.assertIn("legacy-ima-extension", prepare)
+        self.assertNotIn('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha03"', prepare)
+
     def test_00_tapsell_has_all_seven_independent_zone_slots(self):
         ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
         db = text("bluevpn-manager/includes/class-bluevpn-db.php")
@@ -145,7 +173,7 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("continueOnce()", manager)
         self.assertIn("onUnavailable?.invoke()", manager)
         self.assertIn(
-            "requestInterstitial(current, loaded, onUnavailable)",
+            "requestPostConnectWaterfall(current, loaded, onUnavailable = onUnavailable)",
             manager,
         )
 

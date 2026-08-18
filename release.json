@@ -1,13 +1,21 @@
 {
-  "version": "4.14.8",
-  "version_code": 41408,
+  "version": "4.14.9",
+  "version_code": 41409,
   "channel": "beta",
-  "build_id": "20260818-v4.14.8-tapsell-all-placement-zones",
-  "built_at": "2026-08-18T03:55:00+03:30",
-  "android_version": "4.14.8",
-  "android_version_code": 41408,
-  "description": "Adds independent Tapsell Zone ID configuration for all seven placement types shown in the Tapsell dashboard, exposes them through Mobile Config, and keeps the Free post-connect full-screen path compatible.",
+  "build_id": "20260818-v4.14.9-tapsell-free-surfaces",
+  "built_at": "2026-08-18T04:25:00+03:30",
+  "android_version": "4.14.9",
+  "android_version_code": 41409,
+  "description": "Free-only Tapsell in-app surfaces with a hard no-Tapsell Premium boundary.",
   "features": [
+    "tapsell-mediation-1.4.0-alpha02",
+    "tapsell-interstitial-waterfall",
+    "tapsell-preroll-surface",
+    "tapsell-native-video-surface",
+    "tapsell-native-banner-surface",
+    "tapsell-standard-banner-surface",
+    "tapsell-rewarded-free-bonus",
+    "tapsell-free-only-hard-gate",
     "tapsell-interstitial-banner-fallback",
     "tapsell-interstitial-video-primary",
     "tapsell-zones-mobile-config",
@@ -18,7 +26,6 @@
     "tapsell-runtime-diagnostics",
     "tapsell-app-id-build-stamping",
     "tapsell-native-interstitial-api",
-    "tapsell-mediation-1.4.0-alpha03",
     "free-premium-branded-profile-labels",
     "notification-provider-name-redaction",
     "public-profile-name-boundary",
@@ -379,5 +386,6 @@
     "gradle-build-cache-and-parallel",
     "signed-apk-upload-before-production-barriers"
   ],
-  "version_source": "source_declared_release_version"
+  "version_source": "source_declared_release_version",
+  "tapsell_mediation_version": "1.4.0-alpha02"
 }

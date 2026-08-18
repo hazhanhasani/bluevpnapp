@@ -1580,6 +1580,38 @@ object BlueVpnAccountManager {
         !entitlementReconcilePending(appContext)
     }
 
+    fun grantRewardedBonusMinutes(
+        c: Context,
+        minutes: Int,
+    ): Boolean {
+        val appContext = c.applicationContext
+        if (!isFreeMode(appContext)) return false
+        val bonus = minutes.coerceIn(1, 60)
+        val storage = freePrefs(appContext)
+        val now = System.currentTimeMillis()
+        val active = storage.getBoolean("session_active", false)
+        val currentEnd = storage.getLong("session_ends_at", 0L)
+
+        return if (active && currentEnd > now) {
+            val newEnd = currentEnd + bonus * 60_000L
+            val committed = storage.edit()
+                .putLong("session_ends_at", newEnd)
+                .commit()
+            if (committed) scheduleFreeAlarm(appContext, newEnd)
+            committed
+        } else {
+            val pending = storage
+                .getInt("pending_reward_bonus_minutes", 0)
+                .coerceIn(0, 120)
+            storage.edit()
+                .putInt(
+                    "pending_reward_bonus_minutes",
+                    (pending + bonus).coerceAtMost(120),
+                )
+                .commit()
+        }
+    }
+
     fun startFreeSession(c: Context) {
         val appContext = c.applicationContext
         if (!isFreeMode(appContext)) {
@@ -1589,12 +1621,21 @@ object BlueVpnAccountManager {
         val storage = freePrefs(appContext)
         val currentEnd = storage.getLong("session_ends_at", 0L)
         val now = System.currentTimeMillis()
-        val end = if (currentEnd > now) currentEnd else
+        val pendingRewardMinutes = storage
+            .getInt("pending_reward_bonus_minutes", 0)
+            .coerceIn(0, 120)
+        val baseEnd = if (currentEnd > now) currentEnd else
             now + freeAccessSnapshot(appContext).sessionMinutes * 60_000L
+        val end = if (currentEnd > now) {
+            baseEnd
+        } else {
+            baseEnd + pendingRewardMinutes * 60_000L
+        }
         storage.edit()
             .putLong("session_started_at", if (currentEnd > now) storage.getLong("session_started_at", now) else now)
             .putLong("session_ends_at", end)
             .putBoolean("session_active", true)
+            .remove("pending_reward_bonus_minutes")
             .remove("expired_notice")
             .commit()
         scheduleFreeAlarm(appContext, end)

@@ -936,6 +936,7 @@ final class BlueVPN_DB {
             'tapsell_show_after_connect' => true,
             'tapsell_min_interval_seconds' => 0,
             'tapsell_daily_cap' => 0,
+            'tapsell_rewarded_bonus_minutes' => 15,
             'free_story_ads_enabled' => false,
             'free_story_ads_required' => true,
             'free_story_ads_image_seconds' => 6,

@@ -500,7 +500,7 @@ final class BlueVPN_Ads {
         return [
             'enabled' => $enabled,
             'sdk' => 'mediation',
-            'sdk_version' => '1.4.0-alpha03',
+            'sdk_version' => '1.4.0-alpha02',
             'app_id' => $appId,
             'app_key' => $legacyAppKey,
             'zones' => $zones,
@@ -515,6 +515,7 @@ final class BlueVPN_Ads {
             'free_only' => true,
             'min_interval_seconds' => max(0, min(86400, (int)($settings['tapsell_min_interval_seconds'] ?? 0))),
             'daily_cap' => max(0, min(1000, (int)($settings['tapsell_daily_cap'] ?? 0))),
+            'rewarded_bonus_minutes' => max(1, min(60, (int)($settings['tapsell_rewarded_bonus_minutes'] ?? 15))),
             'build_embed_required' => true,
             'disabled_reason' => $enabled
                 ? ''
@@ -837,6 +838,7 @@ final class BlueVPN_Ads {
         $s['tapsell_show_after_connect'] = isset($_POST['tapsell_show_after_connect']);
         $s['tapsell_min_interval_seconds'] = max(0, min(86400, (int)($_POST['tapsell_min_interval_seconds'] ?? 0)));
         $s['tapsell_daily_cap'] = max(0, min(1000, (int)($_POST['tapsell_daily_cap'] ?? 0)));
+        $s['tapsell_rewarded_bonus_minutes'] = max(1, min(60, (int)($_POST['tapsell_rewarded_bonus_minutes'] ?? 15)));
         BlueVPN_DB::save_settings($s);
         self::redirect('ads', 'تنظیمات تبلیغات ذخیره شد.');
     }
@@ -1167,6 +1169,7 @@ final class BlueVPN_Ads {
         self::checkbox('tapsell_show_after_connect', 'نمایش تبلیغ تمام‌صفحه بعد از اتصال موفق', !array_key_exists('tapsell_show_after_connect', $s) || !empty($s['tapsell_show_after_connect']));
         self::number('tapsell_min_interval_seconds', 'حداقل فاصله Tapsell', (int)($s['tapsell_min_interval_seconds'] ?? 0), 0, 86400);
         self::number('tapsell_daily_cap', 'سقف روزانه (۰=نامحدود)', (int)($s['tapsell_daily_cap'] ?? 0), 0, 1000);
+        self::number('tapsell_rewarded_bonus_minutes', 'هدیه ویدئوی جایزه‌ای (دقیقه)', (int)($s['tapsell_rewarded_bonus_minutes'] ?? 15), 1, 60);
         echo '</div>';
 
         echo '<div class="bvc-note" style="margin-top:12px">هر نوع تبلیغ در پنل Tapsell یک Zone ID مستقل دارد. Zone هر تبلیغ را دقیقاً در جایگاه متناظر زیر وارد کنید. برای تبلیغ بعد از اتصال رایگان، BlueVPN ابتدا «آنی ویدئو» و در صورت خالی‌بودن آن «بنر آنی» را استفاده می‌کند.</div>';

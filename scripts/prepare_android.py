@@ -18,7 +18,7 @@ CONFIG = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
 ANDROID = ROOT / "upstream" / "V2rayNG"
 APP = ANDROID / "app"
 
-TAPSELL_MEDIATION_VERSION = "1.4.0-alpha02"
+TAPSELL_MEDIATION_VERSION = "1.4.0-alpha03"
 # Official sample App ID: build-safe fallback only. Runtime refuses
 # production requests while BLUEVPN_TAPSELL_TEST_FALLBACK is true.
 TAPSELL_TEST_APP_ID = "76798342-99a7-4a5f-bf5a-60a088d5dcfb"

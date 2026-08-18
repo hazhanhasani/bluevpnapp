@@ -91,6 +91,14 @@ class TestCrossComponentReleaseAudit(unittest.TestCase):
 
 
 class CurrentReleaseTests(unittest.TestCase):
+    def test_00_tapsell_manual_initialize_matches_alpha03(self):
+        manager = text("android-source/BlueVpnTapsellManager.kt")
+        prepare = text("scripts/prepare_android.py")
+        self.assertIn("Tapsell.initialize(context.applicationContext)", manager)
+        self.assertIn('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha03"', prepare)
+        self.assertIn("ir.tapsell.mediation.AUTO_INIT", prepare)
+        self.assertNotIn('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha02"', prepare)
+
     def test_00_tapsell_all_surfaces_are_free_only(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
         manager = text("android-source/BlueVpnTapsellManager.kt")
@@ -115,9 +123,9 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("pending_reward_bonus_minutes", account)
         self.assertIn("rewarded_bonus_minutes", ads)
 
-        self.assertIn('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha02"', prepare)
+        self.assertIn('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha03"', prepare)
         self.assertIn("legacy-ima-extension", prepare)
-        self.assertNotIn('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha03"', prepare)
+        self.assertNotIn('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha02"', prepare)
 
     def test_00_tapsell_has_all_seven_independent_zone_slots(self):
         ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")

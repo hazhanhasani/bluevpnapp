@@ -1,15 +1,20 @@
 === BlueVPN Manager ===
-Version: 4.14.9
-Stable tag: 4.14.9
+Version: 4.14.10
+Stable tag: 4.14.10
 Requires PHP: 8.0
 
+
+== 4.14.10 ==
+- Fixes Android compile error: unresolved Tapsell.initialize caused by pinning 1.4.0-alpha02 while using manual initialization.
+- Pins Tapsell Mediation core, legacy and legacy-ima-extension to 1.4.0-alpha03 where manual initialize(Context) and AUTO_INIT opt-out are supported.
+- Keeps all 4.14.9 Free-only ad surfaces and Premium no-Tapsell isolation unchanged.
 
 == 4.14.9 ==
 - Adds Free-only in-app Tapsell surfaces for Rewarded Video, Standard Banner, Native Banner, Native Video and PreRoll.
 - Interstitial Video and Interstitial Banner are a Free post-connect waterfall before BlueVPN Story fallback.
 - Premium hard gate: no Tapsell request/show/preload/surface; Premium keeps only BlueVPN first-party campaign banners.
 - Rewarded Video can grant configurable extra Free-session minutes (default 15).
-- Pins Tapsell Mediation to published 1.4.0-alpha02 and adds legacy-ima-extension for PreRoll support.
+- Pins Tapsell Mediation to published 1.4.0-alpha03 and adds legacy-ima-extension for PreRoll support.
 
 == 4.14.8 ==
 - Adds seven independent Tapsell placement Zone IDs: Rewarded Video, Interstitial Video, Pre-roll Video, Native Video, Standard Banner, Interstitial Banner and Native Banner.
@@ -24,7 +29,7 @@ Requires PHP: 8.0
 - No-fill/init/request/show errors fall back to the first-party story while VPN remains connected.
 
 == 4.14.6 ==
-- Migrates Android advertising from deprecated Tapsell Plus to native Tapsell Mediation 1.4.0-alpha02.
+- Migrates Android advertising from deprecated Tapsell Plus to native Tapsell Mediation 1.4.0-alpha03.
 - Uses native requestInterstitialAd/showInterstitialAd callbacks without reflection.
 - Adds Mediation App ID to BlueVPN Manager and stamps it into full GitHub Android builds.
 - Advertising stays Free-only, fail-open and independent from VPN connection state.

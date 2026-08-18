@@ -500,7 +500,7 @@ final class BlueVPN_Ads {
         return [
             'enabled' => $enabled,
             'sdk' => 'mediation',
-            'sdk_version' => '1.4.0-alpha02',
+            'sdk_version' => '1.4.0-alpha03',
             'app_id' => $appId,
             'app_key' => $legacyAppKey,
             'zones' => $zones,

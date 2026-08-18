@@ -1,14 +1,15 @@
 {
-  "version": "4.14.9",
-  "version_code": 41409,
+  "version": "4.14.10",
+  "version_code": 41410,
   "channel": "beta",
-  "build_id": "20260818-v4.14.9-tapsell-free-surfaces",
-  "built_at": "2026-08-18T04:25:00+03:30",
-  "android_version": "4.14.9",
-  "android_version_code": 41409,
-  "description": "Free-only Tapsell in-app surfaces with a hard no-Tapsell Premium boundary.",
+  "build_id": "20260818-v4.14.10-tapsell-init-compile-fix",
+  "built_at": "2026-08-18T04:38:00+03:30",
+  "android_version": "4.14.10",
+  "android_version_code": 41410,
+  "description": "Fixes Android compilation by aligning Tapsell Mediation manual initialization and AUTO_INIT opt-out with SDK 1.4.0-alpha03.",
   "features": [
-    "tapsell-mediation-1.4.0-alpha02",
+    "tapsell-manual-init-alpha03-contract",
+    "tapsell-mediation-1.4.0-alpha03",
     "tapsell-interstitial-waterfall",
     "tapsell-preroll-surface",
     "tapsell-native-video-surface",
@@ -387,5 +388,5 @@
     "signed-apk-upload-before-production-barriers"
   ],
   "version_source": "source_declared_release_version",
-  "tapsell_mediation_version": "1.4.0-alpha02"
+  "tapsell_mediation_version": "1.4.0-alpha03"
 }

@@ -90,6 +90,10 @@ def main() -> None:
             "Tapsell AD_ID permission missing")
     require("ir.tapsell.mediation.AUTO_INIT" in prepare_android,
             "Tapsell controlled initialization metadata missing")
+    require('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha03"' in prepare_android,
+            "manual Tapsell.initialize requires alpha03")
+    require("Tapsell.initialize(context.applicationContext)" in tapsell,
+            "Tapsell manual initialize call missing")
     require("import ir.tapsell.mediation.Tapsell" in tapsell,
             "Android Tapsell Mediation import missing")
     require("Tapsell.requestInterstitialAd" in tapsell and "Tapsell.showInterstitialAd" in tapsell,

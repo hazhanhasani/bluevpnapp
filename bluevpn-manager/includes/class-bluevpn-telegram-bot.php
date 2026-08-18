@@ -1437,7 +1437,7 @@ BLUEVPN_ASKPASS_CHECK;
         }
 
         $raw['tapsell_app_id'] = $appId;
-        $raw['tapsell_mediation_version'] = '1.4.0-alpha02';
+        $raw['tapsell_mediation_version'] = '1.4.0-alpha03';
 
         $encoded = wp_json_encode(
             $raw,

@@ -10,8 +10,16 @@ public sealed class AppSettings
     [JsonPropertyName("version")] public string Version { get; set; } = "";
     [JsonPropertyName("api_base_url")] public string ApiBaseUrl { get; set; } = "";
     [JsonPropertyName("free_subscription_path")] public string FreeSubscriptionPath { get; set; } = "/wp-json/bluevpn/v1/free/curated?limit=100";
+    [JsonPropertyName("mobile_config_path")] public string MobileConfigPath { get; set; } = "/wp-json/bluevpn/v1/mobile/config";
     [JsonPropertyName("probe_url")] public string ProbeUrl { get; set; } = "https://www.cloudflare.com/cdn-cgi/trace";
-    [JsonPropertyName("xray_version")] public string XrayVersion { get; set; } = "";
+    [JsonPropertyName("v2rayn_version")] public string V2RayNVersion { get; set; } = "7.24.4";
+    [JsonPropertyName("v2rayn_repository")] public string V2RayNRepository { get; set; } = "2dust/v2rayN";
+    [JsonPropertyName("windows_update_repository")] public string WindowsUpdateRepository { get; set; } = "hazhanhasani/bluevpnapp";
+    [JsonPropertyName("windows_release_prefix")] public string WindowsReleasePrefix { get; set; } = "bluevpn-windows-v";
+    [JsonPropertyName("auto_update")] public bool AutoUpdate { get; set; } = true;
+    [JsonPropertyName("auto_update_runtime")] public bool AutoUpdateRuntime { get; set; } = true;
+    [JsonPropertyName("windows_channel")] public string WindowsChannel { get; set; } = "beta";
+    [JsonPropertyName("warp")] public WarpSettings Warp { get; set; } = new();
     [JsonPropertyName("tun")] public TunSettings Tun { get; set; } = new();
 
     public static AppSettings Load()
@@ -27,6 +35,14 @@ public sealed class AppSettings
         PropertyNameCaseInsensitive = true,
         WriteIndented = true
     };
+}
+
+public sealed class WarpSettings
+{
+    [JsonPropertyName("enabled")] public bool Enabled { get; set; } = true;
+    [JsonPropertyName("reject_ir_exit")] public bool RejectIrExit { get; set; } = true;
+    [JsonPropertyName("fallback_to_free_pool")] public bool FallbackToFreePool { get; set; } = true;
+    [JsonPropertyName("socks_port")] public int SocksPort { get; set; } = 1819;
 }
 
 public sealed class TunSettings

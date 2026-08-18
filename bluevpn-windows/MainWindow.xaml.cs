@@ -1,5 +1,10 @@
+using System.Diagnostics;
+using System.Net.NetworkInformation;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using BlueVPN.Windows.Models;
 using BlueVPN.Windows.Services;
 
@@ -10,8 +15,19 @@ public partial class MainWindow : Window
     private readonly BlueVpnApiClient _api;
     private readonly ConnectionOrchestrator _connection;
     private readonly AppSettings _settings;
+    private readonly AdvertisementService _ads;
+    private readonly AppUpdateService _appUpdater;
+    private readonly RuntimeUpdateService _runtimeUpdater;
     private Account? _account;
     private CancellationTokenSource? _connectCts;
+    private readonly DispatcherTimer _metricsTimer = new();
+    private readonly DispatcherTimer _adTimer = new();
+    private readonly DispatcherTimer _maintenanceTimer = new();
+    private bool _maintenanceRunning;
+    private DateTimeOffset? _connectedAt;
+    private long _lastBytes;
+    private DateTimeOffset _lastByteSample = DateTimeOffset.UtcNow;
+    private int _adIndex;
 
     public MainWindow()
     {
@@ -20,189 +36,292 @@ public partial class MainWindow : Window
         _settings = AppServices.Settings;
         _api = AppServices.Api!;
         _connection = AppServices.Connection!;
+        _ads = AppServices.Advertisements!;
+        _appUpdater = AppServices.AppUpdater!;
+        _runtimeUpdater = AppServices.RuntimeUpdater!;
         VersionText.Text = $"v{_settings.Version}";
-        CoreVersionText.Text = $"Xray {_settings.XrayVersion}";
+        CoreVersionText.Text = $"v2rayN {_settings.V2RayNVersion}";
         TechnicalText.Text = _connection.RuntimeStatus;
-        Loaded += async (_, _) => await RefreshPlansSafeAsync();
+
+        _metricsTimer.Interval = TimeSpan.FromSeconds(1);
+        _metricsTimer.Tick += (_, _) => RefreshMetrics();
+        _metricsTimer.Start();
+        _adTimer.Tick += (_, _) => AdvanceAd();
+        _maintenanceTimer.Interval = TimeSpan.FromHours(4);
+        _maintenanceTimer.Tick += MaintenanceTimer_Tick;
+
+        Loaded += MainWindow_Loaded;
+        Closing += (_, _) => _connection.Disconnect();
     }
 
-    private async void Login_Click(object sender, RoutedEventArgs e)
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        await BusyAsync("در حال ورود…", async ct =>
-        {
-            var result = await _api.LoginAsync(EmailBox.Text.Trim(), PasswordBox.Password, ct);
-            _account = result.Account ?? await _api.GetAccountAsync(ct);
-            ApplyAccount();
-            await RefreshPlansSafeAsync();
-        });
+        await RefreshPlansSafeAsync();
+        await LoadAdsAsync();
+        await RefreshPublicIpAsync();
+        _ = CheckRuntimeUpdateSafeAsync();
+        if (_settings.AutoUpdate) _ = CheckAppUpdateSafeAsync(silentWhenCurrent: true);
+        _maintenanceTimer.Start();
     }
 
-    private async void Register_Click(object sender, RoutedEventArgs e)
+    private async void MaintenanceTimer_Tick(object? sender, EventArgs e)
     {
-        await BusyAsync("در حال ساخت حساب…", async ct =>
+        if (_maintenanceRunning) return;
+        _maintenanceRunning = true;
+        try
         {
-            var result = await _api.RegisterAsync(EmailBox.Text.Trim(), PasswordBox.Password, ct);
-            _account = result.Account ?? await _api.GetAccountAsync(ct);
-            ApplyAccount();
-            await RefreshPlansSafeAsync();
-        });
+            if (!_connection.IsConnected)
+                await CheckRuntimeUpdateSafeAsync();
+            if (_settings.AutoUpdate)
+                await CheckAppUpdateSafeAsync(silentWhenCurrent: true);
+        }
+        finally { _maintenanceRunning = false; }
     }
 
-    private async void RequestOtp_Click(object sender, RoutedEventArgs e)
+    private async Task LoadAdsAsync()
     {
-        await BusyAsync("ارسال کد پیامک…", async ct =>
+        await _ads.RefreshAsync();
+        _adIndex = 0;
+        ShowCurrentAd();
+        var items = _ads.BannerItems;
+        if (items.Count > 1)
         {
-            await _api.RequestOtpAsync(PhoneBox.Text.Trim(), ct);
-            FooterStatus.Text = "کد پیامک ارسال شد.";
-        });
+            _adTimer.Interval = TimeSpan.FromMilliseconds(_ads.BannerIntervalMs);
+            _adTimer.Start();
+        }
     }
 
-    private async void VerifyOtp_Click(object sender, RoutedEventArgs e)
+    private void AdvanceAd()
     {
-        await BusyAsync("تأیید کد…", async ct =>
-        {
-            var result = await _api.VerifyOtpAsync(PhoneBox.Text.Trim(), OtpBox.Text.Trim(), ct);
-            _account = result.Account ?? await _api.GetAccountAsync(ct);
-            ApplyAccount();
-            await RefreshPlansSafeAsync();
-        });
+        var items = _ads.BannerItems;
+        if (items.Count == 0) return;
+        _adIndex = (_adIndex + 1) % items.Count;
+        ShowCurrentAd();
     }
 
-    private async void RefreshAccount_Click(object sender, RoutedEventArgs e)
+    private void ShowCurrentAd()
     {
-        await BusyAsync("بروزرسانی حساب…", async ct =>
+        var items = _ads.BannerItems;
+        if (items.Count == 0) { AdCard.Visibility = Visibility.Collapsed; return; }
+        var item = items[Math.Clamp(_adIndex, 0, items.Count - 1)];
+        AdTitle.Text = item.Title;
+        AdSubtitle.Text = item.Subtitle;
+        AdActionText.Text = string.IsNullOrWhiteSpace(item.ButtonText) ? "مشاهده ←" : item.ButtonText + " ←";
+        AdImage.Source = null;
+        if (Uri.TryCreate(item.ImageUrl, UriKind.Absolute, out var uri))
         {
-            _account = await _api.GetAccountAsync(ct);
-            ApplyAccount();
-            await RefreshPlansSafeAsync();
-        });
+            try
+            {
+                var bmp = new BitmapImage();
+                bmp.BeginInit(); bmp.UriSource = uri; bmp.CacheOption = BitmapCacheOption.OnLoad; bmp.EndInit();
+                AdImage.Source = bmp;
+            }
+            catch { }
+        }
+        AdCard.Tag = item;
+        AdCard.Visibility = Visibility.Visible;
     }
+
+    private void AdCard_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (AdCard.Tag is not AdvertisementItem item) return;
+        var target = !string.IsNullOrWhiteSpace(item.TargetUrl) ? item.TargetUrl : item.DeepLink;
+        if (target.Length == 0) return;
+        try { Process.Start(new ProcessStartInfo(target) { UseShellExecute = true }); } catch { }
+    }
+
+    private async void Login_Click(object sender, RoutedEventArgs e) => await BusyAsync("در حال ورود…", async ct =>
+    {
+        var result = await _api.LoginAsync(EmailBox.Text.Trim(), PasswordBox.Password, ct);
+        _account = result.Account ?? await _api.GetAccountAsync(ct);
+        ApplyAccount(); await RefreshPlansSafeAsync();
+    });
+
+    private async void Register_Click(object sender, RoutedEventArgs e) => await BusyAsync("در حال ساخت حساب…", async ct =>
+    {
+        var result = await _api.RegisterAsync(EmailBox.Text.Trim(), PasswordBox.Password, ct);
+        _account = result.Account ?? await _api.GetAccountAsync(ct);
+        ApplyAccount(); await RefreshPlansSafeAsync();
+    });
+
+    private async void RequestOtp_Click(object sender, RoutedEventArgs e) => await BusyAsync("ارسال کد پیامک…", async ct =>
+    {
+        await _api.RequestOtpAsync(PhoneBox.Text.Trim(), ct); FooterStatus.Text = "کد پیامک ارسال شد.";
+    });
+
+    private async void VerifyOtp_Click(object sender, RoutedEventArgs e) => await BusyAsync("تأیید کد…", async ct =>
+    {
+        var result = await _api.VerifyOtpAsync(PhoneBox.Text.Trim(), OtpBox.Text.Trim(), ct);
+        _account = result.Account ?? await _api.GetAccountAsync(ct);
+        ApplyAccount(); await RefreshPlansSafeAsync();
+    });
+
+    private async void RefreshAccount_Click(object sender, RoutedEventArgs e) => await BusyAsync("بروزرسانی حساب…", async ct =>
+    {
+        _account = await _api.GetAccountAsync(ct); ApplyAccount(); await RefreshPlansSafeAsync();
+    });
 
     private void Logout_Click(object sender, RoutedEventArgs e)
     {
-        _connection.Disconnect();
-        _api.Logout();
-        _account = null;
-        LoginPanel.Visibility = Visibility.Visible;
-        AccountPanel.Visibility = Visibility.Collapsed;
-        PlansList.ItemsSource = null;
-        SetDisconnectedUi();
-        TierText.Text = "پلن رایگان";
-        FooterStatus.Text = "از حساب خارج شدید.";
+        _connection.Disconnect(); _api.Logout(); _account = null;
+        LoginPanel.Visibility = Visibility.Visible; AccountPanel.Visibility = Visibility.Collapsed;
+        PlansList.ItemsSource = null; SetDisconnectedUi(); TierText.Text = "رایگان"; FooterStatus.Text = "از حساب خارج شدید.";
     }
 
     private async void Connect_Click(object sender, RoutedEventArgs e)
     {
         if (_connection.IsConnected)
         {
-            _connectCts?.Cancel();
-            _connection.Disconnect();
-            SetDisconnectedUi();
-            FooterStatus.Text = "اتصال قطع شد.";
-            return;
+            _connectCts?.Cancel(); _connection.Disconnect(); SetDisconnectedUi(); FooterStatus.Text = "اتصال قطع شد."; return;
         }
 
-        _connectCts?.Cancel();
-        _connectCts = new CancellationTokenSource();
-        var progress = new Progress<string>(message =>
-        {
-            ConnectionStatusText.Text = message;
-            FooterStatus.Text = message;
-        });
-
-        ConnectButton.IsEnabled = false;
-        OrbText.Text = "اتصال…";
-        StatusOrb.Background = new SolidColorBrush(Color.FromRgb(18, 48, 74));
+        _connectCts?.Cancel(); _connectCts = new CancellationTokenSource();
+        var progress = new Progress<string>(message => { ConnectionStatusText.Text = message; FooterStatus.Text = message; });
+        SetConnectingUi();
         try
         {
             var result = await _connection.ConnectAsync(_account, progress, _connectCts.Token);
-            OrbText.Text = "متصل";
-            StatusOrb.Background = new SolidColorBrush(Color.FromRgb(21, 128, 61));
-            ConnectionStatusText.Text = result.Premium ? "اتصال ویژه برقرار شد" : "اتصال رایگان برقرار شد";
-            EndpointText.Text = $"{result.Endpoint.DisplayName} • {FormatLatency(result.Endpoint.ProbeLatencyMs)}";
-            TierText.Text = result.Premium ? "Premium" : "Free";
-            ConnectButton.Content = "قطع اتصال";
-            TechnicalText.Text = $"TUN: {_settings.Tun.Name} • Xray {_settings.XrayVersion} • Wintun";
-            FooterStatus.Text = "اینترنت از تونل BlueVPN تأیید شد.";
+            _connectedAt = DateTimeOffset.UtcNow;
+            StatusText.Text = "متصل"; OrbText.Text = "اتصال برقرار است";
+            StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnGreen"); OrbHalo.Background = new SolidColorBrush(Color.FromArgb(35, 46, 207, 145));
+            ConnectionStatusText.Text = result.Premium ? "اتصال ویژه برقرار شد" : (result.Engine == "WARP" ? "اتصال رایگان WARP برقرار شد" : "اتصال رایگان برقرار شد");
+            EndpointText.Text = result.Endpoint.DisplayName; EngineText.Text = result.Engine;
+            TierText.Text = result.Premium ? "Premium" : "Free"; ConnectButton.Content = "⏻";
+            IpValue.Text = result.Verification.PublicIp.Length > 0 ? result.Verification.PublicIp : "—";
+            PingValue.Text = FormatLatency(result.Endpoint.ProbeLatencyMs);
+            LocationBadge.Text = result.Verification.Country.Length > 0 ? result.Verification.Country : "VPN";
+            TechnicalText.Text = $"VPN سراسری تأیید شد • {result.Engine} • {result.Verification.Detail}";
+            FooterStatus.Text = "IP و مسیر سیستم از داخل BlueVPN تأیید شد.";
+            if (!result.Premium) ShowFreeStoryAdSafe();
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) { SetDisconnectedUi(); FooterStatus.Text = "اتصال لغو شد."; }
+        catch (Exception ex)
         {
-            SetDisconnectedUi();
-            FooterStatus.Text = "اتصال لغو شد.";
+            _connection.Disconnect(); SetDisconnectedUi();
+            MessageBox.Show(ex.Message, "BlueVPN", MessageBoxButton.OK, MessageBoxImage.Warning); FooterStatus.Text = ex.Message;
+        }
+        finally { ConnectButton.IsEnabled = true; }
+    }
+
+    private void ShowFreeStoryAdSafe()
+    {
+        try
+        {
+            var item = _ads.PickFreeStory(); if (item is null) return;
+            var window = new StoryAdWindow(item, _ads.StoryDurationSeconds(item)) { Owner = this };
+            window.Show(); // fail-open: ad never owns or blocks the VPN lifecycle
+        }
+        catch { }
+    }
+
+    private async void Update_Click(object sender, RoutedEventArgs e) => await CheckAppUpdateSafeAsync(silentWhenCurrent: false);
+
+    private async Task CheckAppUpdateSafeAsync(bool silentWhenCurrent)
+    {
+        try
+        {
+            FooterStatus.Text = "بررسی بروزرسانی BlueVPN…";
+            var candidate = await _appUpdater.CheckAsync();
+            if (candidate is null)
+            {
+                if (!silentWhenCurrent) MessageBox.Show("BlueVPN به‌روز است.", "BlueVPN", MessageBoxButton.OK, MessageBoxImage.Information);
+                FooterStatus.Text = "آماده"; return;
+            }
+            FooterStatus.Text = $"دریافت نسخه {candidate.Version}…";
+            var installer = await _appUpdater.DownloadAsync(candidate);
+            FooterStatus.Text = "بروزرسانی آماده نصب است.";
+            if (_settings.AutoUpdate || MessageBox.Show($"نسخه {candidate.Version} آماده است. نصب شود؟", "BlueVPN", MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
+            {
+                _connection.Disconnect();
+                if (AppUpdateService.LaunchInstaller(installer)) Application.Current.Shutdown();
+            }
         }
         catch (Exception ex)
         {
-            _connection.Disconnect();
-            SetDisconnectedUi();
-            MessageBox.Show(ex.Message, "BlueVPN", MessageBoxButton.OK, MessageBoxImage.Warning);
-            FooterStatus.Text = ex.Message;
+            FooterStatus.Text = "بررسی بروزرسانی انجام نشد";
+            if (!silentWhenCurrent) MessageBox.Show(ex.Message, "BlueVPN Update", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
-        finally
+    }
+
+    private async Task CheckRuntimeUpdateSafeAsync()
+    {
+        try
         {
-            ConnectButton.IsEnabled = true;
+            var version = await _runtimeUpdater.CheckAndUpdateAsync(_connection.IsConnected);
+            if (version.Length > 0)
+            {
+                CoreVersionText.Text = $"v2rayN {version}";
+                TechnicalText.Text = $"هسته v2rayN {version} دریافت شد؛ در اتصال بعدی استفاده می‌شود.";
+            }
         }
+        catch { }
     }
 
     private void ApplyAccount()
     {
         if (_account is null) return;
-        LoginPanel.Visibility = Visibility.Collapsed;
-        AccountPanel.Visibility = Visibility.Visible;
+        LoginPanel.Visibility = Visibility.Collapsed; AccountPanel.Visibility = Visibility.Visible;
         IdentityText.Text = string.IsNullOrWhiteSpace(_account.DisplayIdentity) ? "حساب BlueVPN" : _account.DisplayIdentity;
-        PlanText.Text = _account.Subscription.Active
-            ? $"پلن: {(_account.PlanTitle.Length > 0 ? _account.PlanTitle : "ویژه")}" 
-            : "اشتراک ویژه فعال نیست — اتصال رایگان در دسترس است";
-        ExpiryText.Text = _account.Subscription.Active
-            ? $"اعتبار تا: {_account.Subscription.ExpireFa}"
-            : "";
-        TrafficText.Text = FormatTraffic(_account.Subscription);
-        TierText.Text = _account.Subscription.Active ? "Premium" : "Free";
+        PlanText.Text = _account.Subscription.Active ? $"پلن: {(_account.PlanTitle.Length > 0 ? _account.PlanTitle : "ویژه")}" : "اشتراک ویژه فعال نیست";
+        ExpiryText.Text = _account.Subscription.Active ? $"اعتبار تا: {_account.Subscription.ExpireFa}" : "اتصال رایگان در دسترس است";
+        TrafficText.Text = FormatTraffic(_account.Subscription); TierText.Text = _account.Subscription.Active ? "Premium" : "Free";
     }
 
-    private async Task RefreshPlansSafeAsync()
-    {
-        try
-        {
-            PlansList.ItemsSource = await _api.GetPlansAsync();
-        }
-        catch
-        {
-            PlansList.ItemsSource = null;
-        }
-    }
+    private async Task RefreshPlansSafeAsync() { try { PlansList.ItemsSource = await _api.GetPlansAsync(); } catch { PlansList.ItemsSource = null; } }
+    private async Task RefreshPublicIpAsync() { try { var s = await ConnectivityProbe.SnapshotAsync(_settings.ProbeUrl); if (!_connection.IsConnected && s.Reachable) IpValue.Text = s.PublicIp; } catch { } }
 
     private async Task BusyAsync(string status, Func<CancellationToken, Task> action)
     {
-        FooterStatus.Text = status;
-        IsEnabled = false;
-        try
-        {
-            await action(CancellationToken.None);
-            FooterStatus.Text = "آماده";
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show(ex.Message, "BlueVPN", MessageBoxButton.OK, MessageBoxImage.Warning);
-            FooterStatus.Text = ex.Message;
-        }
-        finally
-        {
-            IsEnabled = true;
-        }
+        FooterStatus.Text = status; IsEnabled = false;
+        try { await action(CancellationToken.None); FooterStatus.Text = "آماده"; }
+        catch (Exception ex) { MessageBox.Show(ex.Message, "BlueVPN", MessageBoxButton.OK, MessageBoxImage.Warning); FooterStatus.Text = ex.Message; }
+        finally { IsEnabled = true; }
+    }
+
+    private void SetConnectingUi()
+    {
+        ConnectButton.IsEnabled = false; StatusText.Text = "در حال اتصال"; OrbText.Text = "لطفاً صبر کنید";
+        StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnBlue2"); OrbHalo.Background = new SolidColorBrush(Color.FromArgb(36, 110, 145, 255));
     }
 
     private void SetDisconnectedUi()
     {
-        OrbText.Text = "آماده";
-        StatusOrb.Background = new SolidColorBrush(Color.FromRgb(18, 48, 74));
-        ConnectionStatusText.Text = "برای اتصال دکمه زیر را بزنید";
-        EndpointText.Text = "";
-        ConnectButton.Content = "اتصال";
+        _connectedAt = null; StatusText.Text = "آماده اتصال"; OrbText.Text = "برای اتصال کلیک کنید";
+        StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnBlue"); OrbHalo.Background = new SolidColorBrush(Color.FromArgb(24, 57, 120, 255));
+        ConnectionStatusText.Text = "بهترین اتصال به‌صورت خودکار انتخاب می‌شود"; EndpointText.Text = "انتخاب خودکار بهترین مسیر";
+        EngineText.Text = "WARP رایگان • v2rayN برای سرویس‌ها"; ConnectButton.Content = "⏻"; ConnectButton.IsEnabled = true;
+        PingValue.Text = "—"; DurationValue.Text = "00:00:00"; SpeedValue.Text = "0 KB/s"; LocationBadge.Text = "AUTO";
         TechnicalText.Text = _connection.RuntimeStatus;
+        _ = RefreshPublicIpAsync();
     }
 
-    private static string FormatLatency(int ms) => ms == int.MaxValue ? "بدون Ping" : $"{ms} ms";
+    private void RefreshMetrics()
+    {
+        if (_connectedAt is not null) DurationValue.Text = (DateTimeOffset.UtcNow - _connectedAt.Value).ToString(@"hh\:mm\:ss");
+        var bytes = TotalNetworkBytes(); var now = DateTimeOffset.UtcNow; var elapsed = Math.Max(0.25, (now - _lastByteSample).TotalSeconds);
+        if (_lastBytes > 0 && bytes >= _lastBytes)
+        {
+            var rate = (bytes - _lastBytes) / elapsed; SpeedValue.Text = rate >= 1024 * 1024 ? $"{rate / 1024 / 1024:0.0} MB/s" : $"{rate / 1024:0} KB/s";
+        }
+        _lastBytes = bytes; _lastByteSample = now;
+    }
 
+    private static long TotalNetworkBytes()
+    {
+        long total = 0;
+        try
+        {
+            foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback || nic.OperationalStatus != OperationalStatus.Up) continue;
+                var s = nic.GetIPv4Statistics(); total += s.BytesReceived + s.BytesSent;
+            }
+        }
+        catch { }
+        return total;
+    }
+
+    private static string FormatLatency(int ms) => ms == int.MaxValue ? "—" : $"{ms} ms";
     private static string FormatTraffic(SubscriptionInfo info)
     {
         if (info.DataLimitBytes <= 0) return "حجم: نامحدود";

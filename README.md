@@ -5,21 +5,21 @@ BlueVPN is the source repository for the BlueVPN Android client and its WordPres
 ## Architecture
 
 - **Android client:** BlueVPN UI on the pinned v2rayNG/Xray runtime.
-- **Windows client (Phase 1):** .NET 10 WPF + Xray/Wintun TUN, using the same BlueVPN account/plan control plane.
+- **Windows client:** installed .NET 10 WPF BlueVPN UI with a verified official v2rayN runtime bundle, Xray/sing-box TUN routing, automatic app/runtime updates, and Aether/WARP on Windows x64.
 - **Premium:** managed subscription routes provisioned by BlueVPN Manager.
 - **Free:** Aether/WARP loopback transport with policy-controlled fallback.
 - **Free/Premium isolation:** free and paid pools, entitlement state, route identity and runtime selection are kept separate.
 - **Control plane:** WordPress + MySQL via `bluevpn-manager`.
 - **Website:** `bluevpn-site`.
 - **Hidden location architecture:** internal routes stay hidden from the public UI; users select a location while BlueVPN chooses the best eligible internal route.
-- **CI/CD:** GitHub Actions validates release metadata, prepares the Android overlay, builds the app and publishes artifacts.
+- **CI/CD:** GitHub Actions validates release metadata, prepares the Android overlay, builds Android, compiles/publishes Windows x64+ARM64, validates v2rayN TUN configs, creates Inno Setup installers and publishes release assets.
 
 ## Repository layout
 
 ```text
 .github/workflows/   GitHub Actions
 android-source/      Canonical Android overlay
-bluevpn-windows/     Windows WPF client (Phase 1)
+bluevpn-windows/     Windows WPF client + v2rayN/WARP runtime integration + installer
 branding/            App branding/version metadata
 bluevpn-manager/     WordPress control-plane plugin
 bluevpn-site/        WordPress theme

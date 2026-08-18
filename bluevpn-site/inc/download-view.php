@@ -30,7 +30,7 @@ $windowsVersion = $windowsAvailable ? trim((string)($windows['version'] ?? '')) 
           <a class="bv-btn bv-btn-light bv-btn-xl" href="<?php echo esc_url($apk); ?>" rel="nofollow">دانلود Android <span>↓</span></a>
         <?php endif; ?>
         <?php if ($windowsAvailable): ?>
-          <a class="bv-btn bv-btn-light bv-btn-xl" href="<?php echo esc_url($windows['x64_url']); ?>" rel="nofollow">دانلود Windows <span>↓</span></a>
+          <a class="bv-btn bv-btn-light bv-btn-xl" href="<?php echo esc_url($windows['x64_url']); ?>" rel="nofollow">نصب BlueVPN برای Windows <span>↓</span></a>
         <?php endif; ?>
       </div>
       <?php if (!$windowsAvailable): ?>
@@ -58,13 +58,13 @@ $windowsVersion = $windowsAvailable ? trim((string)($windows['version'] ?? '')) 
         <div><span class="bv-kicker">WINDOWS</span><h2>BlueVPN for Windows</h2><p>BlueVPN برای کامپیوتر و لپ‌تاپ‌های ویندوزی.</p></div>
         <?php if ($windowsAvailable): ?>
           <div class="bv-download-facts">
-            <div><span>سیستم‌عامل</span><b>Windows</b></div><div><span>نسخه</span><b><?php echo esc_html($windowsVersion !== '' ? $windowsVersion : '—'); ?></b></div><div><span>دانلود</span><b>مستقیم</b></div>
+            <div><span>سیستم‌عامل</span><b>Windows</b></div><div><span>نسخه</span><b><?php echo esc_html($windowsVersion !== '' ? $windowsVersion : '—'); ?></b></div><div><span>فرمت</span><b><?php echo (($windows['artifact_kind'] ?? '') === 'installer') ? 'Setup' : 'Portable'; ?></b></div>
           </div>
           <div class="bv-windows-download-buttons">
-            <a class="bv-btn bv-btn-primary" href="<?php echo esc_url($windows['x64_url']); ?>" rel="nofollow">دانلود برای Windows</a>
-            <a class="bv-btn bv-btn-secondary" href="<?php echo esc_url($windows['arm64_url']); ?>" rel="nofollow">نسخه Windows ARM</a>
+            <a class="bv-btn bv-btn-primary" href="<?php echo esc_url($windows['x64_url']); ?>" rel="nofollow">نصب برای Windows</a>
+            <a class="bv-btn bv-btn-secondary" href="<?php echo esc_url($windows['arm64_url']); ?>" rel="nofollow">نصب Windows ARM</a>
           </div>
-          <p class="bv-download-simple-note">برای بیشتر کامپیوترها دکمه «دانلود برای Windows» مناسب است.</p>
+          <p class="bv-download-simple-note">برای بیشتر کامپیوترها نسخه Windows x64 مناسب است؛ فایل Setup برنامه را روی سیستم نصب و بروزرسانی‌های بعدی را دریافت می‌کند.</p>
         <?php else: ?>
           <div class="bv-download-coming-soon"><b>نسخه Windows به‌زودی منتشر می‌شود.</b><span>پس از انتشار، لینک دانلود به‌صورت خودکار همین‌جا قرار می‌گیرد.</span></div>
         <?php endif; ?>

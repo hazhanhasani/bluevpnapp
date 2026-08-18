@@ -13,7 +13,7 @@ class WindowsSitePlatform4160Tests(unittest.TestCase):
         windows = release.get('windows') or {}
         self.assertEqual(windows.get('status'), 'beta')
         self.assertEqual(windows.get('channel'), 'beta')
-        self.assertEqual(windows.get('stage'), 'phase1')
+        self.assertEqual(windows.get('stage'), 'v2rayn-warp-installer')
         self.assertEqual(windows.get('website_distribution'), 'github_release')
 
     def test_theme_discovers_actual_windows_release(self):
@@ -33,8 +33,8 @@ class WindowsSitePlatform4160Tests(unittest.TestCase):
         self.assertIn(shared, widget)
         self.assertIn(shared, page)
         self.assertIn('BlueVPN for Windows', view)
-        self.assertIn('دانلود برای Windows', view)
-        self.assertIn('نسخه Windows ARM', view)
+        self.assertIn('نصب برای Windows', view)
+        self.assertIn('نصب Windows ARM', view)
         self.assertNotIn('وضعیت نامشخص', view)
         self.assertNotIn('جزئیات انتشار و SHA256', view)
         self.assertNotIn('کانال انتشار', view)
@@ -43,8 +43,8 @@ class WindowsSitePlatform4160Tests(unittest.TestCase):
     def test_windows_workflow_marks_beta_release_and_embeds_channel_marker(self):
         workflow = text('.github/workflows/build-windows.yml')
         self.assertIn('BlueVPN-Windows-Channel: ${WINDOWS_CHANNEL}', workflow)
-        self.assertIn('CREATE_ARGS+=(--prerelease)', workflow)
-        self.assertIn('PRERELEASE_JSON=true', workflow)
+        self.assertIn('ARGS+=(--prerelease)', workflow)
+        self.assertIn('if [ "$WINDOWS_CHANNEL" = beta ]; then PRE=true; else PRE=false; fi', workflow)
         self.assertIn('releases/tags/${TAG}', workflow)
 
     def test_download_seo_covers_windows(self):

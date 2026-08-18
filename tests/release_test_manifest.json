@@ -67,6 +67,7 @@
     "test_warp_iran_identity_recovery_482.py",
     "test_warp_off_smart_pool_4117.py",
     "test_windows_client_4157.py",
-    "test_windows_site_platform_4160.py"
+    "test_windows_site_platform_4160.py",
+    "test_windows_v2rayn_warp_installer_4162.py"
   ]
 }

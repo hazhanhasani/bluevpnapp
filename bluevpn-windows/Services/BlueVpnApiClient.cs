@@ -112,6 +112,12 @@ public sealed class BlueVpnApiClient : IDisposable
     public Task<string> GetFreeSubscriptionAsync(CancellationToken ct = default) =>
         GetRawAsync(_settings.FreeSubscriptionPath, ct);
 
+    public async Task<MobileConfigResponse> GetMobileConfigAsync(CancellationToken ct = default)
+    {
+        var path = _settings.MobileConfigPath.TrimStart('/');
+        return await GetAsync<MobileConfigResponse>(path, ct);
+    }
+
     public void Logout()
     {
         _token = "";

@@ -40,6 +40,7 @@ function bluevpn_site_windows_empty_release(): array {
         'release_url' => '',
         'x64_url' => '',
         'arm64_url' => '',
+        'artifact_kind' => '',
         'published_at' => '',
     ];
 }
@@ -94,13 +95,24 @@ function bluevpn_site_windows_downloads(?string $version = null, bool $force = f
 
         $x64 = '';
         $arm64 = '';
+        $zipX64 = '';
+        $zipArm64 = '';
         foreach ((array)($release['assets'] ?? []) as $asset) {
             if (!is_array($asset)) continue;
             $name = (string)($asset['name'] ?? '');
             $url = (string)($asset['browser_download_url'] ?? '');
             if ($url === '' || !wp_http_validate_url($url)) continue;
-            if ($name === 'BlueVPN-Windows-' . $releaseVersion . '-win-x64.zip') $x64 = $url;
-            if ($name === 'BlueVPN-Windows-' . $releaseVersion . '-win-arm64.zip') $arm64 = $url;
+            if ($name === 'BlueVPN-Setup-' . $releaseVersion . '-win-x64.exe') $x64 = $url;
+            if ($name === 'BlueVPN-Setup-' . $releaseVersion . '-win-arm64.exe') $arm64 = $url;
+            if ($name === 'BlueVPN-Windows-' . $releaseVersion . '-win-x64.zip') $zipX64 = $url;
+            if ($name === 'BlueVPN-Windows-' . $releaseVersion . '-win-arm64.zip') $zipArm64 = $url;
+        }
+        $artifactKind = 'installer';
+        if ($x64 === '' || $arm64 === '') {
+            // Compatibility for older releases created before BlueVPN had a real installer.
+            $x64 = $zipX64;
+            $arm64 = $zipArm64;
+            $artifactKind = 'portable';
         }
         if ($x64 === '' || $arm64 === '') continue;
 
@@ -123,6 +135,7 @@ function bluevpn_site_windows_downloads(?string $version = null, bool $force = f
             'release_url' => esc_url_raw((string)($release['html_url'] ?? '')),
             'x64_url' => esc_url_raw($x64),
             'arm64_url' => esc_url_raw($arm64),
+            'artifact_kind' => $artifactKind,
             'published_at' => sanitize_text_field((string)($release['published_at'] ?? '')),
         ];
         set_transient($cacheKey, $result, 15 * MINUTE_IN_SECONDS);

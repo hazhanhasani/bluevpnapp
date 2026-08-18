@@ -79,11 +79,11 @@ class ManualCustomersCRM4151Tests(unittest.TestCase):
         plugin = text("bluevpn-manager/bluevpn-manager.php")
         release = json.loads(text("release.json"))
         branding = json.loads(text("branding/app.json"))
-        self.assertIn("Version: 4.16.1", plugin)
+        self.assertIn("Version: 4.16.2", plugin)
         self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.22.0'", plugin)
-        self.assertEqual(release["version"], "4.16.1")
-        self.assertEqual(branding["version_name"], "4.16.1")
-        self.assertEqual(branding["version_code"], 41601)
+        self.assertEqual(release["version"], "4.16.2")
+        self.assertEqual(branding["version_name"], "4.16.2")
+        self.assertEqual(branding["version_code"], 41602)
 
 if __name__ == "__main__":
     unittest.main()

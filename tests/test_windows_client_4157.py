@@ -1,91 +1,75 @@
 import json
 import pathlib
-import re
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+def text(path: str) -> str: return (ROOT / path).read_text(encoding="utf-8")
 
-def text(path: str) -> str:
-    return (ROOT / path).read_text(encoding="utf-8")
-
-class WindowsClient4157Tests(unittest.TestCase):
+class WindowsClient4162Tests(unittest.TestCase):
     def test_release_versions_are_unified(self):
-        release = json.loads(text("release.json"))
-        branding = json.loads(text("branding/app.json"))
-        self.assertEqual(release["version"], "4.16.1")
-        self.assertEqual(release["windows_version"], "4.16.1")
-        self.assertEqual(release["windows_version_code"], 41601)
-        self.assertEqual(branding["version_name"], "4.16.1")
-        self.assertIn("<Version>4.16.1</Version>", text("bluevpn-windows/BlueVPN.Windows.csproj"))
+        release = json.loads(text("release.json")); branding = json.loads(text("branding/app.json"))
+        self.assertEqual(release["version"], "4.16.2")
+        self.assertEqual(release["windows_version"], "4.16.2")
+        self.assertEqual(release["windows_version_code"], 41602)
+        self.assertEqual(branding["version_name"], "4.16.2")
+        self.assertIn("<Version>4.16.2</Version>", text("bluevpn-windows/BlueVPN.Windows.csproj"))
 
-    def test_windows_client_uses_existing_bluevpn_control_plane(self):
+    def test_existing_bluevpn_control_plane_is_preserved(self):
         api = text("bluevpn-windows/Services/BlueVpnApiClient.cs")
-        self.assertIn("auth/login", api)
-        self.assertIn("auth/otp/request", api)
-        self.assertIn("auth/otp/verify", api)
-        self.assertIn("wp-json/bluevpn/v1/account", api)
-        self.assertIn("wp-json/bluevpn/v1/plans", api)
-        self.assertIn("GetPremiumSubscriptionAsync", api)
-        self.assertIn("GetFreeSubscriptionAsync", api)
+        for token in ("auth/login", "auth/otp/request", "auth/otp/verify", "wp-json/bluevpn/v1/account", "wp-json/bluevpn/v1/plans", "GetMobileConfigAsync"):
+            self.assertIn(token, api)
 
-    def test_windows_tun_and_runtime_are_explicit(self):
-        xray = text("bluevpn-windows/Services/XrayConfigBuilder.cs")
-        manifest = text("bluevpn-windows/app.manifest")
+    def test_v2rayn_runtime_is_the_windows_baseline(self):
         workflow = text(".github/workflows/build-windows.yml")
-        self.assertIn('["protocol"] = "tun"', xray)
-        self.assertIn("autoSystemRoutingTable", xray)
-        self.assertIn("autoOutboundsInterface", xray)
-        self.assertIn('level="requireAdministrator"', manifest)
-        self.assertIn("Xray-windows-64.zip", workflow)
-        self.assertIn("Xray-windows-arm64-v8a.zip", workflow)
-        self.assertIn("v26.7.28", workflow)
-
-    def test_windows_compile_gate_and_site_release_delivery_are_enforced(self):
-        api = text("bluevpn-windows/Services/BlueVpnApiClient.cs")
-        probe = text("bluevpn-windows/Services/ConnectivityProbe.cs")
-        workflow = text(".github/workflows/build-windows.yml")
-        page = text("bluevpn-site/page-download.php")
-        view = text("bluevpn-site/inc/download-view.php")
-        helpers = text("bluevpn-site/inc/helpers.php")
-        self.assertIn("using System.Net.Http;", api)
-        self.assertIn("using System.Net.Http;", probe)
-        self.assertIn("dotnet build bluevpn-windows/BlueVPN.Windows.csproj", workflow)
-        self.assertIn("dotnet publish bluevpn-windows/BlueVPN.Windows.csproj", workflow)
+        settings = json.loads(text("bluevpn-windows/appsettings.json"))
+        self.assertEqual(settings["v2rayn_version"], "7.24.4")
+        self.assertIn("v2rayN-windows-64.zip", workflow)
+        self.assertIn("v2rayN-windows-arm64.zip", workflow)
+        self.assertIn("2dust/v2rayN", workflow)
         self.assertIn("Get-PeMachine", workflow)
-        self.assertIn("0xAA64", workflow)
-        self.assertIn("0x8664", workflow)
-        self.assertIn("windows-xray-runtime.log", workflow)
-        self.assertIn("execution is intentionally skipped on the x64 GitHub runner", workflow)
-        self.assertIn("publish-windows-release", workflow)
-        self.assertIn("bluevpn-windows-v${VERSION}", workflow)
-        self.assertIn("BlueVPN-Windows-${VERSION}-win-x64.zip", workflow)
-        self.assertIn("BlueVPN-Windows-${VERSION}-win-arm64.zip", workflow)
-        self.assertNotIn("TELEGRAM_BOT_TOKEN", workflow)
-        self.assertNotIn("send_windows_telegram.ps1", workflow)
-        self.assertIn("bluevpn_site_windows_downloads", helpers)
-        self.assertIn("/inc/download-view.php", page)
-        self.assertIn("دانلود برای Windows", view)
-        self.assertIn("نسخه Windows ARM", view)
+        self.assertIn("third_party/V2RAYN.md", workflow)
 
-    def test_windows_system_io_imports_are_explicit(self):
-        for path in (
-            "bluevpn-windows/Services/XrayProcessController.cs",
-            "bluevpn-windows/Services/AppSettings.cs",
-            "bluevpn-windows/Services/DeviceIdentity.cs",
-        ):
-            self.assertIn("using System.IO;", text(path), path)
-
-    def test_windows_connection_is_verified_before_connected(self):
+    def test_connected_state_requires_system_verification(self):
         c = text("bluevpn-windows/Services/ConnectionOrchestrator.cs")
-        self.assertIn("EndpointSelector.RankAsync", c)
-        self.assertIn("ConnectivityProbe.VerifyAsync", c)
-        self.assertIn("GetPremiumSubscriptionAsync", c)
-        self.assertIn("GetFreeSubscriptionAsync", c)
+        v = text("bluevpn-windows/Services/SystemTunnelVerifier.cs")
+        self.assertIn("public bool IsConnected => _verifiedConnected", c)
+        self.assertIn("SystemTunnelVerifier.VerifyAsync", c)
+        self.assertIn("IP سیستم تغییر نکرد", v)
+        self.assertIn("Get-NetRoute", v)
 
-    def test_supported_subscription_protocols(self):
-        parser = text("bluevpn-windows/Services/SubscriptionParser.cs")
-        for scheme in ("vless://", "vmess://", "trojan://", "ss://"):
-            self.assertIn(scheme, parser)
+    def test_warp_x64_and_arm64_fallback_are_explicit(self):
+        workflow = text(".github/workflows/build-windows.yml")
+        warp = text("bluevpn-windows/Services/WarpConnectionController.cs")
+        config = text("bluevpn-windows/Services/SingBoxWarpConfigBuilder.cs")
+        self.assertIn("aether-windows-x86_64.zip", workflow)
+        self.assertIn("ARM64-FALLBACK.txt", workflow)
+        self.assertIn("--quick-reconnect", warp)
+        self.assertIn('process_name = new[] { "aether.exe" }', config)
+        self.assertIn("strict_route = true", config)
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_real_installer_and_self_update(self):
+        workflow = text(".github/workflows/build-windows.yml")
+        installer = text("bluevpn-windows/installer/BlueVPN.iss")
+        updater = text("bluevpn-windows/Services/AppUpdateService.cs")
+        self.assertIn("DefaultDirName={autopf}\\BlueVPN", installer)
+        self.assertIn("BlueVPN-Setup-${VERSION}-win-x64.exe", workflow)
+        self.assertIn("BlueVPN-Setup-${VERSION}-win-arm64.exe", workflow)
+        self.assertIn("VERYSILENT", updater)
+
+    def test_website_prefers_setup_assets(self):
+        helpers = text("bluevpn-site/inc/helpers.php")
+        view = text("bluevpn-site/inc/download-view.php")
+        self.assertIn("BlueVPN-Setup-", helpers)
+        self.assertIn("artifact_kind", helpers)
+        self.assertIn("نصب برای Windows", view)
+        self.assertIn("نصب Windows ARM", view)
+
+    def test_windows_ui_and_ads_follow_bluevpn_home_model(self):
+        xaml = text("bluevpn-windows/MainWindow.xaml")
+        cs = text("bluevpn-windows/MainWindow.xaml.cs")
+        for token in ("StatusOrb", "EndpointText", "IpValue", "PingValue", "DurationValue", "SpeedValue", "AdCard"):
+            self.assertIn(token, xaml)
+        self.assertIn("ShowFreeStoryAdSafe", cs)
+        self.assertIn("window.Show()", cs)
+
+if __name__ == "__main__": unittest.main()

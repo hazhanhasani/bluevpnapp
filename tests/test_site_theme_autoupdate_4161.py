@@ -10,7 +10,7 @@ class SiteThemeAutoUpdate4161Tests(unittest.TestCase):
     def test_public_download_copy_hides_internal_release_diagnostics(self):
         view = text("bluevpn-site/inc/download-view.php")
         self.assertIn("BlueVPN for Windows", view)
-        self.assertIn("دانلود برای Windows", view)
+        self.assertIn("نصب برای Windows", view)
         self.assertIn("نسخه Windows به‌زودی منتشر می‌شود", view)
         for internal in ("وضعیت نامشخص", "جزئیات انتشار و SHA256", "کانال انتشار", "Windows یک انتشار مستقل"):
             self.assertNotIn(internal, view)

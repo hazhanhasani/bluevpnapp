@@ -1,83 +1,34 @@
 using System.IO;
-using System.Diagnostics;
 
 namespace BlueVPN.Windows.Services;
 
 public sealed class XrayProcessController : IDisposable
 {
-    private Process? _process;
-    private readonly string _runtimeDir;
+    private readonly ManagedCoreProcess _process = new("xray");
+    private readonly RuntimeLocator _runtime;
     private readonly string _stateDir;
 
-    public XrayProcessController()
+    public XrayProcessController(RuntimeLocator runtime)
     {
-        _runtimeDir = Path.Combine(AppContext.BaseDirectory, "runtime");
-        _stateDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BlueVPN", "runtime");
+        _runtime = runtime;
+        _stateDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BlueVPN", "runtime-state");
         Directory.CreateDirectory(_stateDir);
     }
 
-    public bool IsRunning => _process is { HasExited: false };
-    public string XrayPath => Path.Combine(_runtimeDir, "xray.exe");
-    public string WintunPath => Path.Combine(_runtimeDir, "wintun.dll");
-
-    public string RuntimeStatus()
-    {
-        if (!File.Exists(XrayPath)) return "xray.exe موجود نیست";
-        if (!File.Exists(WintunPath)) return "wintun.dll موجود نیست";
-        return "Xray + Wintun آماده";
-    }
+    public bool IsRunning => _process.IsRunning;
+    public string RuntimeStatus() => _runtime.RuntimeStatus();
 
     public async Task StartAsync(string configJson, CancellationToken ct = default)
     {
         Stop();
-        if (!File.Exists(XrayPath) || !File.Exists(WintunPath))
-            throw new FileNotFoundException("Runtime ویندوز BlueVPN ناقص است. Build رسمی GitHub را نصب کنید.");
-
-        var configPath = Path.Combine(_stateDir, "config.json");
+        var xray = _runtime.ResolveXray();
+        _ = _runtime.ResolveWintun();
+        var configPath = Path.Combine(_stateDir, "xray-config.json");
         await File.WriteAllTextAsync(configPath, configJson, ct);
-
-        var start = new ProcessStartInfo
-        {
-            FileName = XrayPath,
-            WorkingDirectory = _runtimeDir,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-        start.ArgumentList.Add("run");
-        start.ArgumentList.Add("-c");
-        start.ArgumentList.Add(configPath);
-
-        _process = new Process { StartInfo = start, EnableRaisingEvents = true };
-        _process.Start();
-        await Task.Delay(1200, ct);
-        if (_process.HasExited)
-        {
-            var error = await _process.StandardError.ReadToEndAsync(ct);
-            throw new InvalidOperationException(string.IsNullOrWhiteSpace(error) ? "Xray بلافاصله متوقف شد." : error.Trim());
-        }
+        await _process.StartAsync(xray, ["run", "-c", configPath], Path.GetDirectoryName(xray), ct);
+        await Task.Delay(850, ct);
     }
 
-    public void Stop()
-    {
-        var process = _process;
-        _process = null;
-        if (process is null) return;
-        try
-        {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-                process.WaitForExit(2500);
-            }
-        }
-        catch { }
-        finally
-        {
-            process.Dispose();
-        }
-    }
-
-    public void Dispose() => Stop();
+    public void Stop() => _process.Stop();
+    public void Dispose() => _process.Dispose();
 }

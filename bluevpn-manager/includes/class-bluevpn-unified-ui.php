@@ -31,7 +31,6 @@ final class BlueVPN_Unified_UI {
             'منوی اصلی' => [
                 ['bluevpn-manager', 'داشبورد', 'dashboard'],
                 ['bluevpn-customers', 'کاربران', 'users'],
-                ['bluevpn-manual-customers', 'مشتریان دستی', 'manual'],
                 ['bluevpn-plans', 'پلن‌ها', 'plans'],
                 ['bluevpn-orders', 'پرداخت‌ها', 'orders'],
                 ['bluevpn-blueai', 'BlueAI', 'ai'],
@@ -54,6 +53,7 @@ final class BlueVPN_Unified_UI {
                 ['bluevpn-payments', 'پرداخت / بلوپال', 'wallet'],
                 ['bluevpn-support', 'پشتیبانی آنلاین', 'support'],
                 ['bluevpn-telegram-bot', 'ربات تلگرام', 'bot'],
+                ['bluevpn-manual-customers', 'مشتریان دستی', 'manual'],
                 ['bluevpn-manual', 'فعال‌سازی دستی', 'manual'],
             ],
             'مدیریت' => [

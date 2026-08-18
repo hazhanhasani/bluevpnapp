@@ -1,8 +1,13 @@
 === BlueVPN Manager ===
-Version: 4.15.1
-Stable tag: 4.15.1
+Version: 4.15.2
+Stable tag: 4.15.2
 Requires PHP: 8.0
 
+
+== 4.15.2 ==
+- Moves «مشتریان دستی» into the visible Services group beside «فعال‌سازی دستی».
+- Adds a direct «بازکردن مشتریان دستی» button on the Manual Activation page.
+- CRM/SMS behavior and VPN-entitlement isolation remain unchanged.
 
 == 4.15.1 ==
 - Adds «مشتریان دستی» as a CRM-only section independent from BlueVPN app users/providers/entitlements.

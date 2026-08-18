@@ -26,6 +26,7 @@
     "test_kotlin_build_blockers_4119.py",
     "test_live_support_4103.py",
     "test_manual_customers_crm_4151.py",
+    "test_manual_customers_nav_4152.py",
     "test_native_network_adaptation_no_mahsa_499.py",
     "test_overlay_retired_core_cleanup_4101.py",
     "test_panel_tehran_datetime_4116.py",

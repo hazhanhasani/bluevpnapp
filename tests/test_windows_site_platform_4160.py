@@ -33,8 +33,11 @@ class WindowsSitePlatform4160Tests(unittest.TestCase):
         self.assertIn(shared, widget)
         self.assertIn(shared, page)
         self.assertIn('BlueVPN for Windows', view)
-        self.assertIn('Windows x64', view)
-        self.assertIn('Windows ARM64', view)
+        self.assertIn('دانلود برای Windows', view)
+        self.assertIn('نسخه Windows ARM', view)
+        self.assertNotIn('وضعیت نامشخص', view)
+        self.assertNotIn('جزئیات انتشار و SHA256', view)
+        self.assertNotIn('کانال انتشار', view)
         self.assertIn("bluevpn_site_windows_downloads()", view)
 
     def test_windows_workflow_marks_beta_release_and_embeds_channel_marker(self):

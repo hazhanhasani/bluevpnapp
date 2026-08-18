@@ -1376,7 +1376,7 @@ html,body,.bv-site-frame,.bv-home-v5{max-width:100%;overflow-x:hidden}
 }
 
 
-/* BlueVPN Site 4.16.0 — restore discoverable single Download entry.
+/* BlueVPN Site 4.16.1 — restore discoverable single Download entry.
    The download link lives only in the main navigation and points to /download/. */
 .bv-menu .bv-menu-download{
   color:#fff;
@@ -1399,8 +1399,9 @@ html,body,.bv-site-frame,.bv-home-v5{max-width:100%;overflow-x:hidden}
   }
 }
 
-/* BlueVPN 4.16.0 — unified Android + Windows downloads. */
+/* BlueVPN 4.16.1 — unified Android + Windows downloads. */
 .bv-download-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.bv-download-hint{max-width:680px;margin:16px 0 0;color:#91a4bd;font-size:11px;line-height:1.9}.bv-download-hint b{color:#fff}.bv-platform-download-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.bv-platform-download-card{display:flex;flex-direction:column;gap:22px;padding:30px;border-radius:28px;background:#fff;border:1px solid #dfe7f1;box-shadow:var(--shadow-soft);min-width:0}.bv-platform-download-card h2{font-size:28px;margin:5px 0 7px}.bv-platform-download-card p{margin:0;color:#718197;line-height:1.9}.bv-platform-download-card .bv-download-facts{grid-template-columns:repeat(3,minmax(0,1fr));max-width:none;margin:0}.bv-windows-download-buttons{display:flex;gap:10px;flex-wrap:wrap}.bv-release-link{display:inline-flex;align-items:center;width:max-content;max-width:100%;font-size:11px;font-weight:800;color:#4d6e9f;text-decoration:none}.bv-release-link:hover{color:#2456d8}.bv-platform-download-card-windows{background:linear-gradient(145deg,#fff,#f5f8ff)}
 @media(max-width:900px){.bv-platform-download-grid{grid-template-columns:1fr}.bv-download-actions{justify-content:center}.bv-download-hint{margin-inline:auto;text-align:center}}
 @media(max-width:680px){.bv-download-actions .bv-btn{width:100%;justify-content:center}.bv-platform-download-card{padding:23px;border-radius:22px}.bv-platform-download-card .bv-download-facts{grid-template-columns:1fr}.bv-windows-download-buttons{flex-direction:column}.bv-windows-download-buttons .bv-btn{width:100%;justify-content:center}}
 .bv-btn-secondary{color:#26466f!important;background:#eef3fb;border:1px solid #d6e0ee;box-shadow:none}.bv-btn-secondary:hover{background:#e6edf8;border-color:#c6d4e7}
+.bv-download-simple-note{font-size:12px!important;color:#7c8ba0!important;line-height:1.8!important}.bv-download-coming-soon{display:flex;flex-direction:column;gap:6px;padding:18px 20px;border-radius:18px;background:#f5f8ff;border:1px solid #e0e9f7;color:#1d2a3d}.bv-download-coming-soon b{font-size:14px}.bv-download-coming-soon span{font-size:12px;color:#74839a;line-height:1.8}

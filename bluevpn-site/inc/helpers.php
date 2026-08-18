@@ -50,7 +50,7 @@ function bluevpn_site_windows_empty_release(): array {
  * Important: Windows has its own release/version/channel lifecycle. The theme
  * version is never used as the Windows package version. A release is considered
  * channel-defined only when the workflow writes BlueVPN-Windows-Channel into
- * its release notes. This keeps pre-4.16.0 releases from being mislabeled as
+ * its release notes. This keeps pre-4.16.1 releases from being mislabeled as
  * Stable just because GitHub's prerelease flag was not used yet.
  */
 function bluevpn_site_windows_downloads(?string $version = null, bool $force = false): array {

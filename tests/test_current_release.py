@@ -705,7 +705,7 @@ class CurrentReleaseTests(unittest.TestCase):
 
     def test_44_site_theme_background_auto_update_is_enabled(self):
         updater = text("bluevpn-site/inc/class-bluevpn-site-updater.php")
-        self.assertIn("bluevpn_ten_minutes", updater)
+        self.assertIn("bluevpn_two_minutes", updater)
         self.assertIn("background_update_check", updater)
         self.assertIn("maybe_kick_background_check", updater)
         self.assertIn("auto_update_theme", updater)
@@ -953,8 +953,8 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         functions = text("bluevpn-site/functions.php")
         style = text("bluevpn-site/style.css")
         self.assertIn("class-bluevpn-seo.php", functions)
-        self.assertIn("BLUEVPN_SITE_VERSION', '4.16.0", functions)
-        self.assertRegex(style, r"(?m)^Version:\s*4\.16\.0\s*$")
+        self.assertIn("BLUEVPN_SITE_VERSION', '4.16.1", functions)
+        self.assertRegex(style, r"(?m)^Version:\s*4\.16\.1\s*$")
 
     def test_private_account_is_noindex_and_excluded_from_sitemaps(self):
         seo = text("bluevpn-site/inc/class-bluevpn-seo.php")

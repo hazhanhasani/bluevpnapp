@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 $bv_download_title = isset($bv_download_title) && is_string($bv_download_title) && $bv_download_title !== ''
     ? $bv_download_title : 'آخرین نسخه، مستقیم و آماده نصب.';
 $bv_download_description = isset($bv_download_description) && is_string($bv_download_description) && $bv_download_description !== ''
-    ? $bv_download_description : 'نسخه مناسب BlueVPN را برای Android یا Windows از همین صفحه دریافت کن.';
+    ? $bv_download_description : 'BlueVPN را برای موبایل یا کامپیوتر از همین صفحه دریافت کن.';
 $bv_download_shot = isset($bv_download_shot) && is_string($bv_download_shot)
     ? $bv_download_shot : bluevpn_site_app_screenshot_url();
 
@@ -13,8 +13,7 @@ $apk = trim((string)($cfg['apk_url'] ?? ''));
 $androidVersion = trim((string)($cfg['latest_version'] ?? ''));
 $windows = bluevpn_site_windows_downloads();
 $windowsAvailable = !empty($windows['available']);
-$windowsVersion = $windowsAvailable ? (string)$windows['version'] : '—';
-$windowsChannel = $windowsAvailable ? (string)$windows['channel_label'] : 'هنوز انتشار عمومی ثبت نشده';
+$windowsVersion = $windowsAvailable ? trim((string)($windows['version'] ?? '')) : '';
 ?>
 <section class="bv-subhero bv-download-hero">
   <div class="bv-shell bv-subhero-grid">
@@ -24,21 +23,18 @@ $windowsChannel = $windowsAvailable ? (string)$windows['channel_label'] : 'هن�
       <p><?php echo esc_html($bv_download_description); ?></p>
       <div class="bv-download-meta">
         <?php if ($androidVersion !== ''): ?><span><i></i> Android <?php echo esc_html($androidVersion); ?></span><?php else: ?><span>Android</span><?php endif; ?>
-        <?php if ($windowsAvailable): ?><span>Windows <?php echo esc_html($windowsVersion); ?></span><span><?php echo esc_html($windowsChannel); ?></span><?php else: ?><span>Windows</span><?php endif; ?>
+        <?php if ($windowsAvailable && $windowsVersion !== ''): ?><span>Windows <?php echo esc_html($windowsVersion); ?></span><?php else: ?><span>Windows</span><?php endif; ?>
       </div>
       <div class="bv-subhero-actions bv-download-actions">
         <?php if ($apk !== '' && wp_http_validate_url($apk)): ?>
-          <a class="bv-btn bv-btn-light bv-btn-xl" href="<?php echo esc_url($apk); ?>" rel="nofollow">دانلود Android APK <span>↓</span></a>
+          <a class="bv-btn bv-btn-light bv-btn-xl" href="<?php echo esc_url($apk); ?>" rel="nofollow">دانلود Android <span>↓</span></a>
         <?php endif; ?>
         <?php if ($windowsAvailable): ?>
-          <a class="bv-btn bv-btn-light bv-btn-xl" href="<?php echo esc_url($windows['x64_url']); ?>" rel="nofollow">دانلود Windows x64 <span>↓</span></a>
-          <a class="bv-btn bv-btn-ghost bv-btn-xl" href="<?php echo esc_url($windows['arm64_url']); ?>" rel="nofollow">Windows ARM64 <span>↓</span></a>
+          <a class="bv-btn bv-btn-light bv-btn-xl" href="<?php echo esc_url($windows['x64_url']); ?>" rel="nofollow">دانلود Windows <span>↓</span></a>
         <?php endif; ?>
       </div>
-      <?php if ($windowsAvailable): ?>
-        <p class="bv-download-hint">Windows یک انتشار مستقل با وضعیت <b><?php echo esc_html($windowsChannel); ?></b> است. برای بیشتر دستگاه‌های Intel/AMD گزینه <b>x64</b> مناسب است؛ ARM64 مخصوص Windows on ARM است.</p>
-      <?php else: ?>
-        <p class="bv-download-hint">پلتفرم <b>Windows</b> در قالب تعریف شده است؛ به‌محض انتشار کامل x64 و ARM64 در Release رسمی، لینک‌ها خودکار همین‌جا ظاهر می‌شوند.</p>
+      <?php if (!$windowsAvailable): ?>
+        <p class="bv-download-hint">نسخه Windows به‌زودی از همین صفحه در دسترس قرار می‌گیرد.</p>
       <?php endif; ?>
     </div>
     <?php if ($bv_download_shot !== ''): ?>
@@ -51,34 +47,34 @@ $windowsChannel = $windowsAvailable ? (string)$windows['channel_label'] : 'هن�
   <div class="bv-shell">
     <div class="bv-platform-download-grid">
       <article class="bv-platform-download-card" data-bv-reveal>
-        <div><span class="bv-kicker">ANDROID</span><h2>BlueVPN for Android</h2><p>نسخه موبایل BlueVPN با نصب مستقیم APK.</p></div>
+        <div><span class="bv-kicker">ANDROID</span><h2>BlueVPN for Android</h2><p>نسخه موبایل BlueVPN؛ آماده نصب روی گوشی و تبلت Android.</p></div>
         <div class="bv-download-facts">
           <div><span>سیستم‌عامل</span><b>Android</b></div><div><span>فرمت</span><b>APK</b></div><div><span>نسخه</span><b><?php echo esc_html($androidVersion !== '' ? $androidVersion : '—'); ?></b></div>
         </div>
-        <?php if ($apk !== '' && wp_http_validate_url($apk)): ?><a class="bv-btn bv-btn-primary" href="<?php echo esc_url($apk); ?>" rel="nofollow">دانلود APK</a><?php else: ?><span class="bv-btn bv-btn-disabled">لینک Android هنوز منتشر نشده</span><?php endif; ?>
+        <?php if ($apk !== '' && wp_http_validate_url($apk)): ?><a class="bv-btn bv-btn-primary" href="<?php echo esc_url($apk); ?>" rel="nofollow">دانلود Android</a><?php else: ?><span class="bv-btn bv-btn-disabled">لینک دانلود به‌زودی فعال می‌شود</span><?php endif; ?>
       </article>
 
       <article class="bv-platform-download-card bv-platform-download-card-windows" data-bv-reveal>
-        <div><span class="bv-kicker">WINDOWS</span><h2>BlueVPN for Windows</h2><p>نسخه Windows به‌صورت مستقل از Android منتشر می‌شود و کانال انتشار خودش را دارد.</p></div>
-        <div class="bv-download-facts">
-          <div><span>نسخه</span><b><?php echo esc_html($windowsVersion); ?></b></div><div><span>وضعیت</span><b><?php echo esc_html($windowsChannel); ?></b></div><div><span>پردازنده</span><b>x64 / ARM64</b></div>
-        </div>
+        <div><span class="bv-kicker">WINDOWS</span><h2>BlueVPN for Windows</h2><p>BlueVPN برای کامپیوتر و لپ‌تاپ‌های ویندوزی.</p></div>
         <?php if ($windowsAvailable): ?>
-          <div class="bv-windows-download-buttons">
-            <a class="bv-btn bv-btn-primary" href="<?php echo esc_url($windows['x64_url']); ?>" rel="nofollow">Windows x64</a>
-            <a class="bv-btn bv-btn-secondary" href="<?php echo esc_url($windows['arm64_url']); ?>" rel="nofollow">Windows ARM64</a>
+          <div class="bv-download-facts">
+            <div><span>سیستم‌عامل</span><b>Windows</b></div><div><span>نسخه</span><b><?php echo esc_html($windowsVersion !== '' ? $windowsVersion : '—'); ?></b></div><div><span>دانلود</span><b>مستقیم</b></div>
           </div>
-          <?php if (!empty($windows['release_url'])): ?><a class="bv-release-link" href="<?php echo esc_url($windows['release_url']); ?>" rel="nofollow">جزئیات انتشار و SHA256 ↗</a><?php endif; ?>
+          <div class="bv-windows-download-buttons">
+            <a class="bv-btn bv-btn-primary" href="<?php echo esc_url($windows['x64_url']); ?>" rel="nofollow">دانلود برای Windows</a>
+            <a class="bv-btn bv-btn-secondary" href="<?php echo esc_url($windows['arm64_url']); ?>" rel="nofollow">نسخه Windows ARM</a>
+          </div>
+          <p class="bv-download-simple-note">برای بیشتر کامپیوترها دکمه «دانلود برای Windows» مناسب است.</p>
         <?php else: ?>
-          <span class="bv-btn bv-btn-disabled">در انتظار اولین Release کامل Windows</span>
+          <div class="bv-download-coming-soon"><b>نسخه Windows به‌زودی منتشر می‌شود.</b><span>پس از انتشار، لینک دانلود به‌صورت خودکار همین‌جا قرار می‌گیرد.</span></div>
         <?php endif; ?>
       </article>
     </div>
 
     <div class="bv-install-steps">
-      <article data-bv-reveal><span>01</span><h3>دانلود</h3><p>نسخه مناسب دستگاهت را از همین صفحه دریافت کن.</p></article>
-      <article data-bv-reveal><span>02</span><h3>اجرا</h3><p>Android را نصب کن؛ در Windows فایل ZIP را استخراج و BlueVPN.exe را اجرا کن.</p></article>
-      <article data-bv-reveal><span>03</span><h3>ورود و اتصال</h3><p>با حساب BlueVPN وارد شو، لوکیشن را انتخاب کن و متصل شو.</p></article>
+      <article data-bv-reveal><span>01</span><h3>دانلود</h3><p>نسخه مناسب دستگاهت را دریافت کن.</p></article>
+      <article data-bv-reveal><span>02</span><h3>نصب</h3><p>فایل را باز کن و مراحل نصب را ادامه بده.</p></article>
+      <article data-bv-reveal><span>03</span><h3>اتصال</h3><p>وارد BlueVPN شو، لوکیشن را انتخاب کن و متصل شو.</p></article>
     </div>
   </div>
 </section>

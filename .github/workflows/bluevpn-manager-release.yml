@@ -216,7 +216,7 @@ jobs:
           echo "Verified WordPress updater contract: $TAG / bluevpn-manager.zip / version=$REMOTE_VERSION"
 
       - name: Upload BlueVPN Manager build artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: BlueVPN-Manager-${{ steps.version.outputs.version }}
           path: |

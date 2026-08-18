@@ -1,7 +1,13 @@
 === BlueVPN Manager ===
-Version: 4.16.9
-Stable tag: 4.16.9
+Version: 4.16.10
+Stable tag: 4.16.10
 Requires PHP: 8.0
+
+== 4.16.10 ==
+- Fixes Windows Setup artifact path flattening so the publish job receives x64/ARM64 installers at the expected root.
+- Adds defensive normalization for older/nested Windows artifacts before SHA256 validation and GitHub Release upload.
+- Upgrades actions/cache to v5, upload-artifact to v7 and download-artifact to v8 for Node.js 24 runners.
+- Android, Manager, Theme and Windows source metadata are synchronized on 4.16.10.
 
 == 4.16.9 ==
 - Fixes the Windows RuntimeLocator architecture-name collision that caused CS1061 on both x64 and ARM64 builds.

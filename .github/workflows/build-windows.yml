@@ -250,26 +250,32 @@ jobs:
           New-Item -ItemType Directory -Force dist/installers | Out-Null
           & $iscc "/DMyVersion=$version" "/DMyRid=$env:RID" "/DPublishDir=$publish" bluevpn-windows/installer/BlueVPN.iss
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with $LASTEXITCODE" }
-          $setup = "dist/installers/BlueVPN-Setup-$version-$env:RID.exe"
-          if (-not (Test-Path $setup)) { throw "Installer not created: $setup" }
+          $generatedSetup = "dist/installers/BlueVPN-Setup-$version-$env:RID.exe"
+          if (-not (Test-Path $generatedSetup)) { throw "Installer not created: $generatedSetup" }
+
+          # Keep every release asset at the same artifact root. upload-artifact preserves
+          # hierarchy below the common ancestor; leaving Setup under dist/installers/
+          # makes the publish job receive windows-release/installers/... and miss it.
+          $setup = "dist/BlueVPN-Setup-$version-$env:RID.exe"
+          Move-Item $generatedSetup $setup -Force
           $hash = Get-FileHash $setup -Algorithm SHA256
           "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($setup))" | Set-Content "$setup.sha256"
 
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: BlueVPN-Windows-${{ matrix.rid }}
           path: |
             dist/BlueVPN-Windows-*.zip
             dist/BlueVPN-Windows-*.zip.sha256
-            dist/installers/BlueVPN-Setup-*.exe
-            dist/installers/BlueVPN-Setup-*.exe.sha256
+            dist/BlueVPN-Setup-*.exe
+            dist/BlueVPN-Setup-*.exe.sha256
           if-no-files-found: error
           retention-days: 14
 
       - name: Upload Windows diagnostics on failure
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: BlueVPN-Windows-${{ matrix.rid }}-diagnostics
           path: |
@@ -291,11 +297,38 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Download Windows build artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: BlueVPN-Windows-win-*
           path: windows-release
           merge-multiple: true
+
+      - name: Normalize Windows release payload layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(python -c 'import json; print(json.load(open("release.json", encoding="utf-8"))["version"])')"
+          for RID in win-x64 win-arm64; do
+            for NAME in \
+              "BlueVPN-Windows-${VERSION}-${RID}.zip" \
+              "BlueVPN-Windows-${VERSION}-${RID}.zip.sha256" \
+              "BlueVPN-Setup-${VERSION}-${RID}.exe" \
+              "BlueVPN-Setup-${VERSION}-${RID}.exe.sha256"; do
+              TARGET="windows-release/${NAME}"
+              if [ -s "$TARGET" ]; then
+                continue
+              fi
+              mapfile -t MATCHES < <(find windows-release -type f -name "$NAME" -print)
+              if [ "${#MATCHES[@]}" -ne 1 ]; then
+                echo "::error::Expected exactly one artifact named $NAME, found ${#MATCHES[@]}"
+                printf '%s\n' "${MATCHES[@]:-}"
+                exit 1
+              fi
+              cp "${MATCHES[0]}" "$TARGET"
+            done
+          done
+          echo "Normalized Windows release payload:"
+          find windows-release -maxdepth 1 -type f -printf '%f\n' | sort
 
       - name: Validate Windows release payload
         shell: bash

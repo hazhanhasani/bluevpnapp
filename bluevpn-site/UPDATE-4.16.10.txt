@@ -1,0 +1,5 @@
+BlueVPN Site 4.16.10
+
+- Synchronizes the site/theme release with BlueVPN 4.16.10.
+- Windows public download publishing now receives root-level Setup assets reliably from CI.
+- CI cache/artifact actions are upgraded to Node.js 24 generations to remove deprecation warnings.

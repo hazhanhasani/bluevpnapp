@@ -31,8 +31,8 @@ class RuntimeThemeGithubFix4169(unittest.TestCase):
         s = text(".github/workflows/build-windows.yml")
         self.assertNotIn("actions/upload-artifact@v4", s)
         self.assertNotIn("actions/download-artifact@v4", s)
-        self.assertIn("actions/upload-artifact@v6", s)
-        self.assertIn("actions/download-artifact@v6", s)
+        self.assertIn("actions/upload-artifact@v7", s)
+        self.assertIn("actions/download-artifact@v8", s)
 
 if __name__ == '__main__':
     unittest.main()

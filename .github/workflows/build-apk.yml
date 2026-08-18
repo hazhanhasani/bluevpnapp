@@ -343,7 +343,7 @@ jobs:
 
       - name: Restore libhevtun cache
         id: hevtun-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: upstream/libs
           key: bluevpn-hevtun-${{ runner.os }}-${{ steps.config.outputs.upstream_ref }}-ndk29-${{ hashFiles('upstream/compile-hevtun.sh') }}
@@ -420,7 +420,7 @@ jobs:
       - name: Restore libv2ray AAR cache
         id: libv2ray-cache
         continue-on-error: true
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: upstream/V2rayNG/app/libs/libv2ray.aar
           key: bluevpn-libv2ray-${{ runner.os }}-${{ steps.xray.outputs.tag }}
@@ -558,7 +558,7 @@ jobs:
       - name: Restore pinned Aether runtime cache
         id: aether-cache
         continue-on-error: true
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             upstream/V2rayNG/app/src/main/jniLibs/arm64-v8a/libbluevpn_aether.so
@@ -710,7 +710,7 @@ jobs:
 
       - name: Upload failed Android source preparation log
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: BlueVPN-prepare-android-log
           path: |
@@ -849,7 +849,7 @@ jobs:
 
       - name: Upload failed Android build log
         if: ${{ failure() && env.BUILD_STAGE == 'gradle-compile' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: BlueVPN-android-build-log
           path: android-build.log
@@ -970,7 +970,7 @@ jobs:
             | tee reports/APK-RUNTIME-CONTRACT.txt
 
       - name: Upload APK runtime validation report
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: BlueVPN-${{ steps.config.outputs.version }}-runtime-validation
           path: |
@@ -982,7 +982,7 @@ jobs:
 
       - name: Upload fast signed APK artifact
         if: ${{ env.BLUEVPN_BUILD_MODE == 'fast' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: BlueVPN-${{ steps.config.outputs.version }}-FAST-signed
           path: dist/*.apk
@@ -1320,7 +1320,7 @@ jobs:
 
       - name: Upload signed BlueVPN APK artifact
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: BlueVPN-${{ steps.config.outputs.version }}-signed
           path: |

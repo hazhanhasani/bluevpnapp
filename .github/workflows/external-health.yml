@@ -34,7 +34,7 @@ jobs:
           failures=[]
           for name,url,expect_json in checks:
               try:
-                  req=urllib.request.Request(url,headers={'User-Agent':'BlueVPN-External-Health/4.16.9','Cache-Control':'no-cache'})
+                  req=urllib.request.Request(url,headers={'User-Agent':'BlueVPN-External-Health/4.16.10','Cache-Control':'no-cache'})
                   with urllib.request.urlopen(req,timeout=20) as r:
                       status=r.status; body=r.read(256*1024)
                   if status < 200 or status >= 400: raise RuntimeError(f'HTTP {status}')

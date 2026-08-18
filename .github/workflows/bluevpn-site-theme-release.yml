@@ -240,7 +240,7 @@ jobs:
           echo "Verified theme updater contract: $TAG / $ASSET / version=$REMOTE_VERSION"
 
       - name: Upload theme build artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: BlueVPN-Site-${{ steps.version.outputs.version }}
           path: |

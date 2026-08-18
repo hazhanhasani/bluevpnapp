@@ -1,0 +1,5 @@
+BlueVPN Manager 4.16.10
+
+- Synchronizes BlueVPN release metadata with the Windows artifact-layout hotfix.
+- GitHub cache/artifact workflows now use Node.js 24 generation actions.
+- Windows release publishing validates normalized root-level installer/checksum assets before release promotion.

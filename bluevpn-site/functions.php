@@ -1,10 +1,17 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-define('BLUEVPN_SITE_VERSION', '4.16.3');
+define('BLUEVPN_SITE_VERSION', '4.16.7');
 
 define('BLUEVPN_SITE_DIR', get_template_directory());
 define('BLUEVPN_SITE_URL', get_template_directory_uri());
+
+function bluevpn_site_error_log(string $message): void {
+    error_log($message);
+    if (class_exists('BlueVPN_Error_Monitor')) {
+        BlueVPN_Error_Monitor::report('theme', 'site', 'error', 'THEME_RUNTIME_LOG', $message, []);
+    }
+}
 
 
 function bluevpn_site_visual_url(string $file): string {
@@ -83,6 +90,8 @@ function bluevpn_site_assets(): void {
         'loginUrl' => home_url('/account/'),
         'nonce' => wp_create_nonce('wp_rest'),
         'siteName' => get_bloginfo('name') ?: 'BlueVPN',
+        'monitorEndpoint' => rest_url('bluevpn-system/v1/monitor/client-error'),
+        'monitorToken' => class_exists('BlueVPN_Error_Monitor') ? BlueVPN_Error_Monitor::client_token() : '',
     ]);
 }
 add_action('wp_enqueue_scripts', 'bluevpn_site_assets');
@@ -131,5 +140,5 @@ add_action('admin_notices', 'bluevpn_site_admin_notice');
 
 
 
-// BlueVPN Site 4.16.3 cache/debug marker.
+// BlueVPN Site 4.16.7 cache/debug marker.
 add_filter('body_class', static function($classes){ $classes[] = 'bluevpn-site-v4-16-2'; return $classes; });

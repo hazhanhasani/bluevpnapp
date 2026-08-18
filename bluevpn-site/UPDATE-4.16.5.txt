@@ -1,0 +1,4 @@
+BlueVPN Site 4.16.5
+
+- Keeps theme/browser Sentinel reporting compatible with the 4.16.5 Iran-time/actionable health format.
+- Version synchronized with BlueVPN Manager/Android/Windows source metadata.

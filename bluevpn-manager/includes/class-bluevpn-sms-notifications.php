@@ -491,7 +491,7 @@ final class BlueVPN_SMS_Notifications {
     public static function shutdown_flush(): void {
         if (function_exists('fastcgi_finish_request')) @fastcgi_finish_request();
         @ignore_user_abort(true);
-        try { self::process(12); } catch (Throwable $e) { error_log('BlueVPN SMS shutdown flush: '.$e->getMessage()); }
+        try { self::process(12); } catch (Throwable $e) { BlueVPN_Error_Monitor::legacy_error_log('BlueVPN SMS shutdown flush: '.$e->getMessage()); }
     }
 
     /** Wake the worker after a caller commits a DB transaction containing outbox rows. */
@@ -519,7 +519,7 @@ final class BlueVPN_SMS_Notifications {
         ]);
         if ($ok === false) {
             // Duplicate deliveries are intentionally ignored; other DB errors are logged.
-            if (stripos((string)$wpdb->last_error,'duplicate') === false) error_log('BlueVPN SMS queue DB error: '.$wpdb->last_error);
+            if (stripos((string)$wpdb->last_error,'duplicate') === false) BlueVPN_Error_Monitor::legacy_error_log('BlueVPN SMS queue DB error: '.$wpdb->last_error);
             return null;
         }
         if ($kick) self::kick_queue();
@@ -708,7 +708,7 @@ final class BlueVPN_SMS_Notifications {
             }
             self::scan_order_notifications();
             self::process(60);
-        } catch (Throwable $e) { error_log('BlueVPN SMS cron: '.$e->getMessage()); }
+        } catch (Throwable $e) { BlueVPN_Error_Monitor::legacy_error_log('BlueVPN SMS cron: '.$e->getMessage()); }
     }
 
     /**

@@ -1,0 +1,6 @@
+BlueVPN Site 4.16.4
+
+- Theme runtime/Elementor failures are bridged into BlueVPN Sentinel when BlueVPN Manager is active.
+- Theme errors continue to WordPress error_log while also being deduplicated and sent to Telegram.
+- Version synchronized with BlueVPN Manager/Android/Windows source metadata.
+- Browser-side JavaScript errors and unhandled Promise rejections from BlueVPN theme assets are reported through the signed/rate-limited client Sentinel endpoint.

@@ -6,13 +6,130 @@ final class BlueVPN_Production {
     private const BACKUP_RETENTION = 7;
     private const BACKUP_OPTION = 'bluevpn_manager_last_backup';
     private const RESTORE_OPTION = 'bluevpn_manager_last_restore';
+    private const CONTROL_PLANE_OPTION = 'bluevpn_manager_control_plane_mode';
+    private const NATIVE_CONTROL_PLANE = 'wordpress_mysql_native';
+    private const NATIVE_RECONCILE_OPTION = 'bluevpn_manager_native_reconcile_4166';
+    private const NATIVE_RECONCILE_HOOK = 'bluevpn_native_cutover_reconcile';
+    private const NATIVE_CUTOVER_REVISION_OPTION = 'bluevpn_manager_native_cutover_revision';
+    private const NATIVE_CUTOVER_REVISION = 41607;
 
     public static function init(): void {
         add_action(self::BACKUP_HOOK, [self::class, 'cron_backup']);
+        add_action(self::NATIVE_RECONCILE_HOOK, [self::class, 'reconcile_legacy_paid_orders_once']);
+        self::ensure_native_control_plane();
         self::ensure_schedule();
     }
 
-    public static function activate(): void { self::ensure_schedule(); }
+    public static function activate(): void {
+        self::ensure_native_control_plane();
+        self::ensure_schedule();
+    }
+
+    public static function native_control_plane(): bool {
+        return (string)get_option(self::CONTROL_PLANE_OPTION, '') === self::NATIVE_CONTROL_PLANE
+            && get_option('bluevpn_manager_legacy_bridge_disabled','0') === '1';
+    }
+
+    /**
+     * 4.16.6 is the irreversible WordPress/MySQL-native cutover. The legacy
+     * migration source is no longer part of runtime operation. We keep the old
+     * migration code only as dormant recovery tooling for old backups; all
+     * schedules, source URL and tokens are retired here.
+     */
+    public static function ensure_native_control_plane(): void {
+        try {
+            $db = BlueVPN_DB::status();
+            if (empty($db['ready'])) return;
+
+            $cutoverRevision = (int)get_option(self::NATIVE_CUTOVER_REVISION_OPTION, 0);
+            $needsRetirementPass = $cutoverRevision < self::NATIVE_CUTOVER_REVISION;
+
+            update_option(self::CONTROL_PLANE_OPTION, self::NATIVE_CONTROL_PLANE, false);
+            update_option('bluevpn_manager_cutover_ready', '1', false);
+            update_option('bluevpn_manager_app_cutover_enabled', '1', false);
+            update_option('bluevpn_manager_legacy_bridge_disabled', '1', false);
+            if ((string)get_option('bluevpn_manager_production_finalized_at','') === '') {
+                update_option('bluevpn_manager_production_finalized_at', BlueVPN_Utils::iso_now(), false);
+            }
+
+            if ($needsRetirementPass && class_exists('BlueVPN_Migration')) {
+                BlueVPN_Migration::sync_cron_schedule(false);
+                BlueVPN_Migration::sync_auto_schedule(false);
+                $cfg = BlueVPN_Migration::settings();
+                $cfg['source_url'] = '';
+                $cfg['token_enc'] = '';
+                $cfg['auto_migrate'] = false;
+                $cfg['auto_sync'] = false;
+                update_option(BlueVPN_Migration::SETTINGS_OPTION, $cfg, false);
+                delete_transient(BlueVPN_Migration::AUTO_LOCK);
+
+                $state = BlueVPN_Migration::state();
+                $state['phase'] = 'retired_native';
+                $state['current_table'] = '';
+                $state['last_error'] = '';
+                $state['auto_last_message'] = 'مهاجرت Legacy بازنشسته شد؛ WordPress/MySQL تنها Control Plane فعال BlueVPN است.';
+                $state['auto_completed_at'] = $state['auto_completed_at'] ?: BlueVPN_Utils::iso_now();
+                update_option(BlueVPN_Migration::STATE_OPTION, $state, false);
+                update_option(self::NATIVE_CUTOVER_REVISION_OPTION, self::NATIVE_CUTOVER_REVISION, false);
+            }
+
+            $reconcile = get_option(self::NATIVE_RECONCILE_OPTION, []);
+            $completed = is_array($reconcile) && !empty($reconcile['completed']);
+            $attempts = is_array($reconcile) ? (int)($reconcile['attempts'] ?? 0) : 0;
+            if (!$completed && $attempts < 3 && !wp_next_scheduled(self::NATIVE_RECONCILE_HOOK)) {
+                wp_schedule_single_event(time() + 15, self::NATIVE_RECONCILE_HOOK);
+                BlueVPN_Utils::kick_wp_cron();
+            }
+            if (class_exists('BlueVPN_Error_Monitor')) {
+                BlueVPN_Error_Monitor::resolve_matching('migration', 'native_cutover', 'NATIVE_CUTOVER_FINALIZE_FAILED');
+            }
+        } catch (Throwable $e) {
+            if (class_exists('BlueVPN_Error_Monitor')) {
+                BlueVPN_Error_Monitor::report('migration','native_cutover','error','NATIVE_CUTOVER_FINALIZE_FAILED',$e->getMessage(),[]);
+            }
+        }
+    }
+
+    public static function reconcile_legacy_paid_orders_once(): void {
+        $state=get_option(self::NATIVE_RECONCILE_OPTION,[]);if(!is_array($state))$state=[];
+        if(!empty($state['completed']))return;
+        $attemptNo=max(0,(int)($state['attempts']??0))+1;
+        if($attemptNo>3)return;
+        global $wpdb;
+        $orders = BlueVPN_DB::table('orders');
+        $attempts = BlueVPN_DB::table('provisioning_attempts');
+        $rows = $wpdb->get_results("SELECT * FROM {$orders} WHERE status IN ('paid_needs_sync','partial_needs_sync') AND customer_id IS NOT NULL AND plan_id IS NOT NULL ORDER BY created_at ASC LIMIT 20", ARRAY_A);
+        $summary = ['checked'=>0,'activated'=>0,'partial'=>0,'failed'=>0,'attempt'=>$attemptNo,'orders'=>[]];
+        foreach ((array)$rows as $order) {
+            $summary['checked']++;
+            $orderId=(string)$order['id'];$customerId=(int)$order['customer_id'];$planId=(int)$order['plan_id'];
+            $provisionAttempt=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*)+1 FROM {$attempts} WHERE order_id=%s",$orderId));
+            $wpdb->insert($attempts,['order_id'=>$orderId,'customer_id'=>$customerId,'plan_id'=>$planId,'trigger_source'=>'native_cutover_reconcile','attempt_no'=>$provisionAttempt,'status'=>'started','started_at'=>BlueVPN_Utils::now_mysql(),'created_at'=>BlueVPN_Utils::now_mysql()]);
+            $attemptId=(int)$wpdb->insert_id;
+            try {
+                $r=BlueVPN_Providers::provision_customer($customerId,$planId);
+                $status=!empty($r['ok'])?'activated':(!empty($r['partial'])?'partial_needs_sync':'paid_needs_sync');
+                $err=!empty($r['ok'])?'':mb_substr((string)($r['message']??'Provision ناقص'),0,2000);
+                $wpdb->update($orders,['status'=>$status,'activated_at'=>$status==='activated'?BlueVPN_Utils::now_mysql():$order['activated_at'],'activation_error'=>$err],['id'=>$orderId]);
+                $wpdb->update($attempts,['status'=>$status==='activated'?'success':($status==='partial_needs_sync'?'partial':'failed'),'result_json'=>BlueVPN_Utils::json_encode($r),'error_message'=>$err,'finished_at'=>BlueVPN_Utils::now_mysql()],['id'=>$attemptId]);
+                $bucket=$status==='activated'?'activated':($status==='partial_needs_sync'?'partial':'failed');$summary[$bucket]++;
+                $summary['orders'][]=['order_code'=>(string)($order['order_code']?:$orderId),'status'=>$status,'message'=>(string)($r['message']??'')];
+            } catch (Throwable $e) {
+                $summary['failed']++;
+                $wpdb->update($attempts,['status'=>'failed','error_message'=>mb_substr($e->getMessage(),0,2000),'finished_at'=>BlueVPN_Utils::now_mysql()],['id'=>$attemptId]);
+                $summary['orders'][]=['order_code'=>(string)($order['order_code']?:$orderId),'status'=>'failed','message'=>$e->getMessage()];
+            }
+        }
+        $remaining=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$orders} WHERE status IN ('paid_needs_sync','partial_needs_sync') AND customer_id IS NOT NULL AND plan_id IS NOT NULL");
+        $completed=$remaining===0 || $summary['checked']===0;
+        update_option(self::NATIVE_RECONCILE_OPTION,['completed'=>$completed,'attempts'=>$attemptNo,'remaining'=>$remaining,'last_at'=>BlueVPN_Utils::iso_now(),'summary'=>$summary],false);
+        if ($summary['checked'] > 0 && class_exists('BlueVPN_Error_Monitor')) {
+            $severity=$remaining>0?'warning':'notice';
+            BlueVPN_Error_Monitor::report('migration','order_reconcile',$severity,'NATIVE_CUTOVER_ORDER_RECONCILE',$remaining>0?'بازبینی سفارش‌های قدیمی انجام شد اما برخی هنوز نیازمند Sync هستند.':'بازبینی سفارش‌های قدیمی پس از Cutover با موفقیت کامل شد.',$summary+['remaining'=>$remaining]);
+        }
+        if(!$completed && $attemptNo<3 && !wp_next_scheduled(self::NATIVE_RECONCILE_HOOK))wp_schedule_single_event(time()+30*MINUTE_IN_SECONDS,self::NATIVE_RECONCILE_HOOK);
+    }
+
     public static function deactivate(): void { self::unschedule(); }
 
     public static function ensure_schedule(): void {
@@ -133,7 +250,7 @@ final class BlueVPN_Production {
         try { self::create_backup('scheduled'); }
         catch (Throwable $e) {
             update_option(self::BACKUP_OPTION, ['ok'=>false,'error'=>$e->getMessage(),'reason'=>'scheduled','created_at'=>BlueVPN_Utils::iso_now()], false);
-            error_log('BlueVPN scheduled backup: '.$e->getMessage());
+            BlueVPN_Error_Monitor::legacy_error_log('BlueVPN scheduled backup: '.$e->getMessage());
         }
     }
 
@@ -225,11 +342,9 @@ final class BlueVPN_Production {
             }
         }
         update_option('bluevpn_manager_schema_version', BLUEVPN_MANAGER_SCHEMA_VERSION, false);
-        // Reconcile recurring jobs with the restored settings instead of trusting
-        // stale cron rows from the host where the backup was created.
-        $migrationSettings = BlueVPN_Migration::settings();
-        BlueVPN_Migration::sync_cron_schedule(!empty($migrationSettings['auto_sync']));
-        BlueVPN_Migration::sync_auto_schedule(!empty($migrationSettings['auto_migrate']));
+        // 4.16.6+: restoring an old backup must never resurrect the retired
+        // migration bridge. Re-assert the native WordPress/MySQL control plane.
+        self::ensure_native_control_plane();
         self::ensure_schedule();
         $result = ['ok'=>true,'at'=>BlueVPN_Utils::iso_now(),'source_version'=>(string)($payload['meta']['version']??''),'source_schema'=>(string)($payload['meta']['schema_version']??''),'pre_restore_backup'=>$pre['filename']??'','restored_options'=>count((array)($payload['options']??[]))];
         update_option(self::RESTORE_OPTION, $result, false);
@@ -249,8 +364,40 @@ final class BlueVPN_Production {
 
         $orders = BlueVPN_DB::table('orders');
         $old = gmdate('Y-m-d H:i:s', time()-2*HOUR_IN_SECONDS);
+        $stuckRows = $wpdb->get_results($wpdb->prepare(
+            "SELECT id,order_code,status,created_at,activation_error FROM {$orders} WHERE status IN ('creating_invoice','paid_needs_sync','partial_needs_sync') AND created_at<%s ORDER BY created_at ASC LIMIT 10",
+            $old
+        ), ARRAY_A);
         $stuckOrders = (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$orders} WHERE status IN ('creating_invoice','paid_needs_sync','partial_needs_sync') AND created_at<%s",$old));
-        $checks['payments'] = ['ok'=>$stuckOrders===0,'message'=>$stuckOrders===0?'سفارش گیرکرده قدیمی وجود ندارد':$stuckOrders.' سفارش نیازمند رسیدگی است','stuck'=>$stuckOrders];
+        $paymentItems = [];
+        foreach ((array)$stuckRows as $row) {
+            $status = (string)($row['status'] ?? '');
+            $reason = match ($status) {
+                'creating_invoice' => 'ایجاد فاکتور بیش از ۲ ساعت تکمیل نشده است',
+                'paid_needs_sync' => 'پرداخت ثبت شده اما همگام‌سازی/فعال‌سازی کامل نشده است',
+                'partial_needs_sync' => 'پرداخت یا فعال‌سازی ناقص است و به همگام‌سازی مجدد نیاز دارد',
+                default => 'سفارش بیش از حد مجاز در وضعیت میانی مانده است',
+            };
+            $created = (string)($row['created_at'] ?? '');
+            $createdTs = $created !== '' ? strtotime($created . ' UTC') : false;
+            $paymentItems[] = [
+                'order_code' => (string)($row['order_code'] ?: $row['id']),
+                'status' => $status,
+                'age_minutes' => $createdTs ? max(0, (int)floor((time() - $createdTs) / 60)) : 0,
+                'created_at_fa' => $created !== '' ? BlueVPN_Utils::tehran_datetime_fa($created) : '',
+                'reason' => $reason,
+                'activation_error' => trim((string)($row['activation_error'] ?? '')),
+            ];
+        }
+        $checks['payments'] = [
+            'ok' => $stuckOrders === 0,
+            'severity' => 'warning',
+            'code' => 'PAYMENT_STUCK_ORDERS',
+            'message' => $stuckOrders === 0 ? 'سفارش گیرکرده قدیمی وجود ندارد' : $stuckOrders . ' سفارش بیش از ۲ ساعت در وضعیت میانی مانده است',
+            'stuck' => $stuckOrders,
+            'items' => $paymentItems,
+            'action' => 'BlueVPN Manager ← پرداخت / بلوپال: وضعیت این سفارش‌ها را بررسی و در صورت پرداخت موفق، همگام‌سازی/فعال‌سازی را دوباره اجرا کن.',
+        ];
 
         $backup = self::backup_status();
         $backupTs = !empty($backup['created_at']) ? strtotime((string)$backup['created_at']) : false;
@@ -263,7 +410,18 @@ final class BlueVPN_Production {
 
         $cut = get_option('bluevpn_manager_cutover_ready','0')==='1';
         $app = get_option('bluevpn_manager_app_cutover_enabled','0')==='1';
-        $checks['cutover'] = ['ok'=>$cut && $app,'message'=>($cut&&$app)?'WordPress مقصد نهایی اپ است':'Cutover کامل اپ هنوز تأیید نشده'];
+        $native = self::native_control_plane();
+        $checks['cutover'] = [
+            'ok' => $native && $cut && $app,
+            'severity' => $native ? 'notice' : 'error',
+            'code' => $native ? 'WORDPRESS_NATIVE_CONTROL_PLANE' : 'CONTROL_PLANE_NOT_FINALIZED',
+            'message' => $native ? 'مهاجرت پایان یافته است؛ WordPress/MySQL تنها Control Plane فعال است.' : 'Control Plane نهایی WordPress/MySQL هنوز تثبیت نشده است.',
+            'migration_cutover_ready' => $cut,
+            'app_cutover_enabled' => $app,
+            'legacy_bridge_disabled' => get_option('bluevpn_manager_legacy_bridge_disabled','0')==='1',
+            'control_plane_mode' => (string)get_option(self::CONTROL_PLANE_OPTION,''),
+            'action' => $native ? '' : 'BlueVPN Manager را به 4.16.6 یا بالاتر ارتقا بده تا Cutover نهایی WordPress/MySQL اعمال شود.',
+        ];
 
         $providers = 0; $providerBad = 0;
         foreach (['pasarguard_panels','marzban_panels','guardcore_panels'] as $logical) {
@@ -275,22 +433,12 @@ final class BlueVPN_Production {
 
         $okCount = count(array_filter($checks, static fn($x)=>!empty($x['ok'])));
         $score = (int)round($okCount * 100 / max(1,count($checks)));
-        return ['ok'=>$score===100,'score'=>$score,'checks'=>$checks,'generated_at'=>BlueVPN_Utils::iso_now()];
+        return ['ok'=>$score===100,'score'=>$score,'checks'=>$checks,'generated_at'=>BlueVPN_Utils::iso_now(),'generated_at_fa'=>BlueVPN_Utils::tehran_datetime_fa(),'timezone'=>'Asia/Tehran'];
     }
 
     public static function finalize_cutover(): array {
-        if (get_option('bluevpn_manager_cutover_ready','0') !== '1' || get_option('bluevpn_manager_app_cutover_enabled','0') !== '1') {
-            throw new RuntimeException('برای پایان‌دادن Bridge ابتدا مهاجرت و Cutover اپ باید هر دو تأیید شده باشند.');
-        }
         $backup = self::create_backup('pre-final-cutover');
-        BlueVPN_Migration::stop_auto();
-        BlueVPN_Migration::sync_cron_schedule(false);
-        BlueVPN_Migration::clear_token();
-        $cfg = BlueVPN_Migration::settings();
-        $cfg['source_url']=''; $cfg['auto_migrate']=false; $cfg['auto_sync']=false;
-        update_option(BlueVPN_Migration::SETTINGS_OPTION, $cfg, false);
-        update_option('bluevpn_manager_legacy_bridge_disabled','1',false);
-        update_option('bluevpn_manager_production_finalized_at',BlueVPN_Utils::iso_now(),false);
-        return ['ok'=>true,'backup'=>$backup['filename']??'','finalized_at'=>BlueVPN_Utils::iso_now()];
+        self::ensure_native_control_plane();
+        return ['ok'=>self::native_control_plane(),'backup'=>$backup['filename']??'','finalized_at'=>(string)get_option('bluevpn_manager_production_finalized_at',BlueVPN_Utils::iso_now())];
     }
 }

@@ -661,7 +661,7 @@ final class BlueVPN_SMS_OTP {
             if ($attempts >= $maxAttempts) $update['consumed_at'] = BlueVPN_Utils::now_mysql();
             $wpdb->update($table, $update, ['id' => $challengeId]);
             if ($attempts >= $maxAttempts && class_exists('BlueVPN_SMS_Notifications')) {
-                try { $owner=$wpdb->get_row($wpdb->prepare('SELECT id,phone FROM '.BlueVPN_DB::table('customers').' WHERE phone=%s LIMIT 1',$phone),ARRAY_A);if($owner)BlueVPN_SMS_Notifications::queue('suspicious_login',$phone,[],(int)$owner['id'],null,'otp-lock:'.$challengeId); } catch(Throwable $e) { error_log('BlueVPN suspicious login SMS: '.$e->getMessage()); }
+                try { $owner=$wpdb->get_row($wpdb->prepare('SELECT id,phone FROM '.BlueVPN_DB::table('customers').' WHERE phone=%s LIMIT 1',$phone),ARRAY_A);if($owner)BlueVPN_SMS_Notifications::queue('suspicious_login',$phone,[],(int)$owner['id'],null,'otp-lock:'.$challengeId); } catch(Throwable $e) { BlueVPN_Error_Monitor::legacy_error_log('BlueVPN suspicious login SMS: '.$e->getMessage()); }
             }
             throw new BlueVPN_Auth_Exception(401, 'INVALID_OTP', 'کد تأیید نادرست است.', ['remaining_attempts' => max(0, $maxAttempts - $attempts)]);
         }

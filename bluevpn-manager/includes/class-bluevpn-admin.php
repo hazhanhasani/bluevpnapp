@@ -12,17 +12,6 @@ final class BlueVPN_Admin {
         add_action('admin_post_bluevpn_check_github_update',[self::class,'check_github_update']);
         add_action('admin_post_bluevpn_test_app_connection',[self::class,'test_app_connection']);
         add_action('admin_post_bluevpn_enable_app_cutover',[self::class,'enable_app_cutover']);
-        add_action('admin_post_bluevpn_migration_save',[self::class,'migration_save']);
-        add_action('admin_post_bluevpn_migration_generate_token',[self::class,'migration_generate_token']);
-        add_action('admin_post_bluevpn_migration_test',[self::class,'migration_test']);
-        add_action('admin_post_bluevpn_migration_manifest',[self::class,'migration_manifest']);
-        add_action('admin_post_bluevpn_migration_run',[self::class,'migration_run']);
-        add_action('admin_post_bluevpn_migration_resync',[self::class,'migration_resync']);
-        add_action('admin_post_bluevpn_migration_reset',[self::class,'migration_reset']);
-        add_action('admin_post_bluevpn_migration_cutover',[self::class,'migration_cutover']);
-        add_action('admin_post_bluevpn_migration_auto_start',[self::class,'migration_auto_start']);
-        add_action('admin_post_bluevpn_migration_auto_stop',[self::class,'migration_auto_stop']);
-        add_action('wp_ajax_bluevpn_migration_pump',[self::class,'migration_pump']);
     }
     private static function guard(): void { if(!current_user_can('manage_options')) wp_die('دسترسی ندارید.'); }
     public static function menu(): void {
@@ -52,7 +41,7 @@ final class BlueVPN_Admin {
         }
         add_submenu_page('bluevpn-manager','اتصال اپلیکیشن','اتصال اپلیکیشن','manage_options','bluevpn-app-connection',[self::class,'app_connection_page']);
         add_submenu_page('bluevpn-manager','تنظیمات BlueVPN','تنظیمات','manage_options','bluevpn-settings',[self::class,'settings_page']);
-        add_submenu_page('bluevpn-manager','ابزار مهاجرت','ابزار مهاجرت','manage_options','bluevpn-migration',[self::class,'migration_page']);
+        add_submenu_page('bluevpn-manager','وضعیت انتقال','وضعیت انتقال','manage_options','bluevpn-migration',[self::class,'migration_page']);
         add_submenu_page('bluevpn-manager','آپدیت افزونه','آپدیت افزونه','manage_options','bluevpn-github-updater',[self::class,'github_updater_page']);
     }
     private static function head(string $title): void { BlueVPN_Unified_UI::shell_open($title); echo '<div class="wrap" dir="rtl"><style>.bvp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;max-width:1100px}.bvp-card{background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:18px}.bvp-ok{color:#34d399;font-weight:700}.bvp-warn{color:#fbbf24;font-weight:700}.bvp-code{direction:ltr;text-align:left;background:#f6f7f7;padding:10px;border-radius:6px;overflow:auto}.bvp-table{background:#fff;max-width:1200px}.bvp-table th,.bvp-table td{text-align:right}</style>'; }
@@ -64,11 +53,7 @@ final class BlueVPN_Admin {
         $cutover = get_option('bluevpn_manager_cutover_ready','0') === '1';
         $appUrl = admin_url('admin.php?page=bluevpn-app-connection');
         self::head('BlueVPN Manager');
-        if ($cutover) {
-            echo '<div class="notice notice-success"><p><strong>مهاجرت داده‌ها تکمیل شده است.</strong> مرحله بعد، تست و اتصال APK به WordPress است. <a href="'.esc_url($appUrl).'">بازکردن اتصال اپلیکیشن</a></p></div>';
-        } else {
-            echo '<div class="notice notice-warning"><p><strong>مهاجرت هنوز در حال انجام است.</strong> Railway را خاموش نکنید و APK را هنوز به WordPress منتقل نکنید.</p></div>';
-        }
+        echo '<div class="notice notice-success"><p><strong>✅ انتقال کامل است.</strong> WordPress/MySQL تنها Control Plane فعال BlueVPN است. <a href="'.esc_url($appUrl).'">بررسی اتصال اپلیکیشن</a></p></div>';
         echo '<div class="bvp-grid">';
         echo '<div class="bvp-card"><h3>MySQL</h3><p class="'.($s['ready']?'bvp-ok':'bvp-warn').'">'.($s['ready']?'آماده':'نیاز به تعمیر').'</p><small>Schema '.esc_html($s['schema_version']).'</small></div>';
         echo '<div class="bvp-card"><h3>جداول BlueVPN</h3><p><strong>'.count(array_filter($counts,fn($v)=>$v>=0)).' / '.count(BlueVPN_DB::table_names()).'</strong></p></div>';
@@ -98,8 +83,7 @@ final class BlueVPN_Admin {
         echo '<style>.bvp-endpoint{font-family:monospace;direction:ltr;text-align:left;background:#f6f7f7;border:1px solid #dcdcde;border-radius:8px;padding:11px;word-break:break-all}.bvp-check{margin:8px 0;padding:10px;border-radius:8px;background:#f6f7f7}.bvp-check.ok{background:#edfaef;color:#135e24}.bvp-check.bad{background:#fcf0f1;color:#8a2424}</style>';
         if(isset($_GET['msg']))echo '<div class="notice notice-success"><p>'.esc_html(sanitize_text_field(wp_unslash($_GET['msg']))).'</p></div>';
         if(isset($_GET['error']))echo '<div class="notice notice-error"><p>'.esc_html(sanitize_text_field(wp_unslash($_GET['error']))).'</p></div>';
-        if($cutover)echo '<div class="notice notice-success"><p><strong>✅ دیتابیس آماده Cutover است.</strong> حالا می‌توانی API وردپرس را تست و APK جدید را روی این Backend بسازی.</p></div>';
-        else echo '<div class="notice notice-warning"><p><strong>⏳ مهاجرت هنوز آماده Cutover نیست.</strong> این صفحه برای تست API قابل استفاده است، ولی APK اصلی را هنوز منتقل نکن.</p></div>';
+        echo '<div class="notice notice-success"><p><strong>✅ WordPress/MySQL مقصد نهایی فعال است.</strong> مسیر Legacy از Runtime خارج شده و این API مرجع Android و Windows است.</p></div>';
         echo '<div class="bvp-grid">';
         echo '<div class="bvp-card"><h3>API Base URL برای Android</h3><div class="bvp-endpoint">'.esc_html($site).'</div><p class="description">همین مقدار باید در <code>branding/app.json → api_base_url</code> قرار بگیرد. اپ خودش <code>/api/v1/...</code> را اضافه می‌کند.</p></div>';
         echo '<div class="bvp-card"><h3>وضعیت اتصال اپ</h3><p class="'.($enabled?'bvp-ok':'bvp-warn').'">'.($enabled?'فعال روی WordPress':'هنوز Cutover اپ تأیید نشده').'</p><small>نسخه افزونه '.esc_html(BLUEVPN_MANAGER_VERSION).'</small></div>';
@@ -123,9 +107,8 @@ final class BlueVPN_Admin {
         }
         echo '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px">';
         echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_test_app_connection');echo '<input type="hidden" name="action" value="bluevpn_test_app_connection">';submit_button('تست کامل API وردپرس','secondary','submit',false);echo '</form>';
-        if($cutover&&!$enabled){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_enable_app_cutover');echo '<input type="hidden" name="action" value="bluevpn_enable_app_cutover">';submit_button('تأیید آماده‌بودن اتصال اپ','primary','submit',false);echo '</form>';}
         echo '</div>';
-        echo '<div class="bvp-card" style="max-width:900px;margin-top:18px"><h2>مقدار موردنیاز Build بعدی</h2><pre class="bvp-endpoint">"api_base_url": "'.esc_html($site).'"</pre><p>بعد از اینکه تست‌های بالا سبز شدند، Build جدید BlueVPN باید با همین Base URL ساخته شود. Railway را تا پایان تست APK جدید نگه دار.</p></div>';
+        echo '<div class="bvp-card" style="max-width:900px;margin-top:18px"><h2>Control Plane فعال</h2><pre class="bvp-endpoint">"api_base_url": "'.esc_html($site).'"</pre><p>این Endpoint تنها مرجع فعال BlueVPN است؛ Migration Bridge بازنشسته شده است.</p></div>';
         self::foot();
     }
     public static function test_app_connection(): void {
@@ -199,134 +182,26 @@ final class BlueVPN_Admin {
         self::guard();$id=(int)($_GET['id']??0);check_admin_referer('bluevpn_toggle_customer_'.$id);global $wpdb;$t=BlueVPN_DB::table('customers');
         $c=$wpdb->get_row($wpdb->prepare("SELECT id,phone,active FROM {$t} WHERE id=%d",$id),ARRAY_A);if(!$c){wp_safe_redirect(admin_url('admin.php?page=bluevpn-customers'));exit;}
         $new=(int)$c['active']?0:1;$wpdb->update($t,['active'=>$new],['id'=>$id]);
-        if(!empty($c['phone'])&&class_exists('BlueVPN_SMS_Notifications')){try{BlueVPN_SMS_Notifications::queue($new?'account_unblocked':'account_temporarily_blocked',(string)$c['phone'],[],$id,null,'account-status:'.$id.':'.$new.':'.gmdate('YmdHi'));}catch(Throwable $e){error_log('BlueVPN account status SMS: '.$e->getMessage());}}
+        if(!empty($c['phone'])&&class_exists('BlueVPN_SMS_Notifications')){try{BlueVPN_SMS_Notifications::queue($new?'account_unblocked':'account_temporarily_blocked',(string)$c['phone'],[],$id,null,'account-status:'.$id.':'.$new.':'.gmdate('YmdHi'));}catch(Throwable $e){BlueVPN_Error_Monitor::legacy_error_log('BlueVPN account status SMS: '.$e->getMessage());}}
         wp_safe_redirect(admin_url('admin.php?page=bluevpn-customers'));exit;
     }
     public static function migration_page(): void {
         self::guard();
-        $cfg = BlueVPN_Migration::settings();
-        $status = BlueVPN_Migration::dashboard_status(true);
-        $readiness = $status['readiness'];
-        $state = BlueVPN_Migration::state();
-        $comparison = $readiness['comparison'];
-        $cutover = !empty($readiness['ready']);
-        $phase = (string)$status['phase'];
-        $autoActive = !empty($cfg['auto_migrate']) && !$cutover && $phase !== 'paused';
-
-        self::head('مهاجرت Railway → WordPress');
-        echo '<style>
-        .bvp-mig-shell{max-width:1180px}.bvp-mig-hero{background:linear-gradient(135deg,#0f172a,#172554);color:#fff;border-radius:18px;padding:22px;margin:14px 0 18px;box-shadow:0 10px 30px rgba(15,23,42,.12)}
-        .bvp-mig-hero h2{color:#fff;margin:0 0 8px}.bvp-mig-hero p{margin:5px 0;color:#dbeafe}.bvp-mig-progress{height:14px;background:rgba(255,255,255,.16);border-radius:999px;overflow:hidden;margin:18px 0 8px}.bvp-mig-progress>span{display:block;height:100%;background:linear-gradient(90deg,#38bdf8,#22c55e);transition:width .35s ease}
-        .bvp-mig-stepper{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:16px 0 20px}.bvp-mig-step{border:1px solid #dcdcde;background:#fff;border-radius:14px;padding:12px;text-align:center;min-height:72px}.bvp-mig-step strong{display:block;margin-bottom:5px}.bvp-mig-step.done{border-color:#86efac;background:#f0fdf4}.bvp-mig-step.active{border-color:#60a5fa;background:#eff6ff;box-shadow:0 0 0 2px rgba(59,130,246,.08)}
-        .bvp-mig-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:12px 0}.bvp-mig-metric{background:#fff;border:1px solid #dcdcde;border-radius:14px;padding:15px}.bvp-mig-metric small{display:block;color:#646970}.bvp-mig-metric strong{font-size:20px;display:block;margin-top:5px;word-break:break-word}
-        .bvp-mig-live{border:1px solid #bfdbfe;background:#eff6ff;border-radius:14px;padding:16px;margin:14px 0}.bvp-mig-live.error{border-color:#fecaca;background:#fef2f2}.bvp-mig-live.warn{border-color:#fde68a;background:#fffbeb}.bvp-mig-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.bvp-mig-actions form{margin:0}.bvp-mig-table-wrap{overflow:auto;background:#fff;border:1px solid #dcdcde;border-radius:14px}.bvp-mig-table-wrap table{border:0;margin:0}.bvp-mig-pill{display:inline-block;border-radius:999px;padding:3px 9px;font-size:12px;font-weight:600}.bvp-mig-pill.ok{background:#dcfce7;color:#166534}.bvp-mig-pill.wait{background:#fef3c7;color:#92400e}.bvp-mig-pill.err{background:#fee2e2;color:#991b1b}.bvp-mig-pill.info{background:#dbeafe;color:#1e40af}
-        @media(max-width:900px){.bvp-mig-stepper{grid-template-columns:repeat(2,minmax(0,1fr))}.bvp-mig-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){.bvp-mig-stepper,.bvp-mig-metrics{grid-template-columns:1fr}.bvp-mig-hero{padding:16px}.bvp-mig-actions .button{width:100%;text-align:center}}
-        </style>';
-        echo '<div class="bvp-mig-shell">';
-
-        if (isset($_GET['msg'])) echo '<div class="notice notice-info"><p>'.esc_html(sanitize_text_field(wp_unslash($_GET['msg']))).'</p></div>';
-        if (isset($_GET['error'])) echo '<div class="notice notice-error"><p>'.esc_html(sanitize_text_field(wp_unslash($_GET['error']))).'</p></div>';
-        echo '<div class="notice notice-warning"><p><strong>Railway را هنوز خاموش نکن.</strong> Cutover فقط وقتی امن است که مرحله ۶ سبز شود و اپ روی WordPress/MySQL تست شود.</p></div>';
-
-        $generatedToken = get_transient('bluevpn_migration_token_once_'.get_current_user_id());
-        if (is_string($generatedToken) && $generatedToken !== '') {
-            delete_transient('bluevpn_migration_token_once_'.get_current_user_id());
-            echo '<div class="notice notice-success"><p><strong>Migration Token ساخته شد.</strong> این مقدار را با نام <code>WORDPRESS_MIGRATION_TOKEN</code> در Railway ذخیره کن.</p><p><input dir="ltr" readonly onclick="this.select()" style="width:100%;max-width:760px;font-family:monospace" value="'.esc_attr($generatedToken).'"></p></div>';
-        }
-
-        $dataPercent = (int)$status['data_percent'];
-        echo '<div class="bvp-mig-hero">';
-        echo '<h2 id="bvp-mig-stage">مرحله '.($status['step'] ?: '—').' از ۶ — '.esc_html((string)$status['step_label']).'</h2>';
-        echo '<p id="bvp-mig-stage-desc">'.esc_html((string)$status['step_description']).'</p>';
-        echo '<div class="bvp-mig-progress"><span id="bvp-mig-progress-bar" style="width:'.$dataPercent.'%"></span></div>';
-        echo '<p><strong id="bvp-mig-progress-text">پوشش داده‌ها: '.$dataPercent.'٪ · '.number_format_i18n((int)$status['covered_total']).' / '.number_format_i18n((int)$status['source_total']).' رکورد</strong></p>';
+        if (class_exists('BlueVPN_Production')) BlueVPN_Production::ensure_native_control_plane();
+        $db=BlueVPN_DB::status();$counts=BlueVPN_DB::counts();
+        $finalized=(string)get_option('bluevpn_manager_production_finalized_at','');
+        self::head('وضعیت انتقال BlueVPN');
+        echo '<div class="notice notice-success"><p><strong>✅ مهاجرت نهایی شده است.</strong> بک‌اند Legacy از Runtime حذف شده و WordPress/MySQL تنها Control Plane فعال BlueVPN است.</p></div>';
+        echo '<div class="bvp-grid">';
+        echo '<div class="bvp-card"><h3>Control Plane</h3><p class="bvp-ok">WordPress / MySQL</p><small>حالت Native و دائمی</small></div>';
+        echo '<div class="bvp-card"><h3>Legacy Bridge</h3><p class="bvp-ok">خاموش و بازنشسته</p><small>Migration Cron، Source URL و Token فعال نیست</small></div>';
+        echo '<div class="bvp-card"><h3>Schema</h3><p class="'.(!empty($db['ready'])?'bvp-ok':'bvp-warn').'">'.(!empty($db['ready'])?'آماده':'نیازمند بررسی').'</p><small>'.esc_html((string)($db['schema_version']??'')).'</small></div>';
+        echo '<div class="bvp-card"><h3>نهایی‌سازی</h3><p>'.esc_html($finalized!==''?BlueVPN_Utils::tehran_datetime_fa($finalized):'در حال ثبت').'</p></div>';
         echo '</div>';
-
-        $steps = ['اسکن مبدا','انتقال اولیه','بررسی اولیه','Resync / ترمیم','بررسی نهایی','آماده Cutover'];
-        echo '<div class="bvp-mig-stepper">';
-        foreach ($steps as $i => $label) {
-            $n = $i + 1;
-            $class = $cutover || ($status['step'] > $n) ? 'done' : (($status['step'] === $n) ? 'active' : '');
-            $icon = $cutover || ($status['step'] > $n) ? '✅' : (($status['step'] === $n) ? '🔵' : '⚪');
-            echo '<div class="bvp-mig-step '.$class.'"><strong>'.$icon.' '.$n.'</strong><span>'.esc_html($label).'</span></div>';
-        }
-        echo '</div>';
-
-        $etaText = '—';
-        if ($status['eta_seconds'] !== null) {
-            $sec = max(0,(int)$status['eta_seconds']);
-            $etaText = $sec < 60 ? $sec.' ثانیه' : ($sec < 3600 ? ceil($sec/60).' دقیقه' : round($sec/3600,1).' ساعت');
-        }
-        echo '<div class="bvp-mig-metrics">';
-        echo '<div class="bvp-mig-metric"><small>جدول‌های همگام</small><strong id="bvp-mig-table-count">'.(int)$status['tables_synced'].' از '.(int)$status['tables_total'].'</strong></div>';
-        echo '<div class="bvp-mig-metric"><small>کسری واقعی</small><strong id="bvp-mig-missing">'.number_format_i18n((int)$status['missing_rows']).' رکورد</strong></div>';
-        echo '<div class="bvp-mig-metric"><small>جدول جاری</small><strong id="bvp-mig-current">'.esc_html($status['current_table'] ?: '—').'</strong></div>';
-        echo '<div class="bvp-mig-metric"><small>سرعت / ETA</small><strong id="bvp-mig-speed">'.($status['rows_per_second']>0?esc_html((string)$status['rows_per_second']).' ردیف/ث · ':'').esc_html($etaText).'</strong></div>';
-        echo '</div>';
-
-        $liveClass = !empty($status['last_error']) ? ' error' : (!empty($status['stalled']) ? ' warn' : '');
-        echo '<div id="bvp-mig-live-box" class="bvp-mig-live'.$liveClass.'">';
-        $needsAttention = in_array((string)($status['phase'] ?? ''), ['needs_attention','verification_failed','error'], true);
-        echo '<strong id="bvp-mig-live-title">'.($cutover?'✅ انتقال تکمیل شده':($needsAttention?'🟠 نیاز به ترمیم دقیق':($autoActive?'🟢 Runner هوشمند فعال':'⏸ Runner متوقف/آماده'))).'</strong>';
-        echo '<p id="bluevpn-migration-live">'.esc_html((string)($status['message'] ?: 'در انتظار شروع انتقال')).'</p>';
-        if (!empty($status['stalled'])) echo '<p id="bvp-mig-stall"><strong>⚠️ بیش از ۳ دقیقه Progress جدید ثبت نشده.</strong> ادامه امن را بزن؛ Cursorها پاک نمی‌شوند.</p>'; else echo '<p id="bvp-mig-stall" style="display:none"></p>';
-        if (!empty($status['last_error'])) echo '<p id="bvp-mig-error"><code>'.esc_html((string)$status['last_error']).'</code></p>'; else echo '<p id="bvp-mig-error" style="display:none"></p>';
-        echo '<small>آخرین Progress: <span id="bvp-mig-last-progress">'.esc_html((string)($status['last_progress_at'] ?: '—')).'</span> · آخرین Verify: <span id="bvp-mig-last-verify">'.esc_html((string)($status['last_verified_at'] ?: '—')).'</span></small>';
-        if (!empty($status['exact_repair_last_message'])) echo '<p style="margin-bottom:0"><small>🔎 '.esc_html((string)$status['exact_repair_last_message']).'</small></p>';
-        echo '</div>';
-
-        echo '<div class="bvp-mig-actions">';
-        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'; wp_nonce_field('bluevpn_migration_auto_start'); echo '<input type="hidden" name="action" value="bluevpn_migration_auto_start">'; submit_button($cutover?'بررسی مجدد وضعیت':'▶ شروع / ادامه هوشمند','primary','submit',false); echo '</form>';
-        if ($autoActive) { echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'; wp_nonce_field('bluevpn_migration_auto_stop'); echo '<input type="hidden" name="action" value="bluevpn_migration_auto_stop">'; submit_button('⏸ توقف موقت','secondary','submit',false); echo '</form>'; }
-        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'; wp_nonce_field('bluevpn_migration_test'); echo '<input type="hidden" name="action" value="bluevpn_migration_test">'; submit_button('تست اتصال Railway','secondary','submit',false); echo '</form>';
-        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'; wp_nonce_field('bluevpn_migration_resync'); echo '<input type="hidden" name="action" value="bluevpn_migration_resync">'; submit_button('ترمیم فقط اختلاف‌ها','secondary','submit',false); echo '</form>';
-        echo '</div>';
-
-        if ($autoActive && !$cutover) {
-            $pumpNonce = wp_create_nonce('bluevpn_migration_pump');
-            $ajaxUrl = admin_url('admin-ajax.php');
-            echo '<script>(function(){const url='.wp_json_encode($ajaxUrl).';const nonce='.wp_json_encode($pumpNonce).';let stopped=false,failures=0;function t(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}function render(d){t("bvp-mig-stage","مرحله "+(d.step||"—")+" از ۶ — "+(d.step_label||d.phase||""));t("bvp-mig-stage-desc",d.step_description||"");const bar=document.getElementById("bvp-mig-progress-bar");if(bar)bar.style.width=(d.data_percent||0)+"%";t("bvp-mig-progress-text","پوشش داده‌ها: "+(d.data_percent||0)+"٪ · "+(d.covered_total||0)+" / "+(d.source_total||0)+" رکورد");t("bvp-mig-table-count",(d.tables_synced||0)+" از "+(d.tables_total||0));t("bvp-mig-missing",(d.missing_rows||0)+" رکورد");t("bvp-mig-current",d.current_table||"—");let speed=d.rows_per_second>0?(d.rows_per_second+" ردیف/ث · "):"";let eta="—";if(d.eta_seconds!==null&&d.eta_seconds!==undefined){eta=d.eta_seconds<60?d.eta_seconds+" ثانیه":(d.eta_seconds<3600?Math.ceil(d.eta_seconds/60)+" دقیقه":(d.eta_seconds/3600).toFixed(1)+" ساعت");}t("bvp-mig-speed",speed+eta);t("bluevpn-migration-live",d.message||"در حال انتقال");t("bvp-mig-last-progress",d.last_progress_at||"—");t("bvp-mig-last-verify",d.last_verified_at||"—");const box=document.getElementById("bvp-mig-live-box");if(box)box.className="bvp-mig-live"+(d.last_error?" error":(d.stalled?" warn":""));const er=document.getElementById("bvp-mig-error");if(er){er.style.display=d.last_error?"block":"none";er.textContent=d.last_error||"";}const st=document.getElementById("bvp-mig-stall");if(st){st.style.display=d.stalled?"block":"none";st.textContent=d.stalled?"⚠️ بیش از ۳ دقیقه Progress جدید ثبت نشده؛ ادامه امن را بزن.":"";}if(d.tables){Object.keys(d.tables).forEach(function(name){const tr=document.querySelector("tr[data-mig-table=\""+CSS.escape(name)+"\"]");if(!tr)return;const x=d.tables[name]||{};const c=tr.querySelectorAll("[data-col]");c.forEach(function(el){const k=el.getAttribute("data-col");if(k==="source")el.textContent=x.source===null?"—":x.source;if(k==="local")el.textContent=x.local===null?"—":x.local;if(k==="missing")el.textContent=x.missing===null?"—":x.missing;if(k==="status")el.textContent=x.status==="synced"?"✅ همگام":(x.status==="error"?"❌ خطا":(x.status==="checking"?"⏳ بررسی":"⏳ نیاز به Sync"));if(k==="updated")el.textContent=x.updated_at||"—";if(k==="error")el.textContent=x.error||"";});});}}
-            async function pump(){if(stopped)return;try{const body=new URLSearchParams();body.set("action","bluevpn_migration_pump");body.set("_ajax_nonce",nonce);const r=await fetch(url,{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/x-www-form-urlencoded; charset=UTF-8"},body:body.toString()});const j=await r.json();if(!j||!j.success)throw new Error((j&&j.data&&j.data.message)||"پاسخ نامعتبر Runner");failures=0;const d=j.data||{};render(d);if(d.complete||d.stopped){stopped=true;if(d.complete)setTimeout(()=>location.reload(),1200);return;}setTimeout(pump,2500);}catch(e){failures++;t("bluevpn-migration-live","Runner مرورگر: "+e.message+" — تلاش مجدد "+failures);if(failures<12)setTimeout(pump,Math.min(15000,2000*failures));}}setTimeout(pump,900);})();</script>';
-        }
-
-        echo '<h2 style="margin-top:26px">وضعیت واقعی جدول‌ها</h2>';
-        echo '<p class="description">این جدول فقط شمار واقعی مبدا/مقصد را نشان می‌دهد؛ شمارنده تکراری Resync دیگر به‌عنوان Progress نمایش داده نمی‌شود.</p>';
-        echo '<div class="bvp-mig-table-wrap"><table class="widefat striped"><thead><tr><th>جدول</th><th>Railway</th><th>MySQL</th><th>کسری</th><th>وضعیت</th><th>آخرین تغییر</th><th>خطا</th></tr></thead><tbody>';
-        foreach (BlueVPN_Migration::table_order() as $name) {
-            $x = $status['tables'][$name];
-            $label = $x['status']==='synced'?'✅ همگام':($x['status']==='error'?'❌ خطا':($x['status']==='checking'?'⏳ بررسی':'⏳ نیاز به Sync'));
-            echo '<tr data-mig-table="'.esc_attr($name).'"><td><code>'.esc_html($name).'</code></td><td data-col="source">'.esc_html($x['source']===null?'—':(string)$x['source']).'</td><td data-col="local">'.esc_html($x['local']===null?'—':(string)$x['local']).'</td><td data-col="missing">'.esc_html($x['missing']===null?'—':(string)$x['missing']).'</td><td data-col="status">'.esc_html($label).'</td><td data-col="updated">'.esc_html(!empty($x['updated_at'])?BlueVPN_Utils::tehran_datetime_fa($x['updated_at']):'—').'</td><td data-col="error">'.esc_html($x['error']).'</td></tr>';
-        }
-        echo '</tbody></table></div>';
-
-        echo '<div class="bvp-card" style="max-width:1180px;margin-top:18px"><h2>مرحله نهایی و Cutover</h2>';
-        if ($cutover) {
-            echo '<div class="notice notice-success inline"><p><strong>✅ مهاجرت آماده Cutover است.</strong> یک Resync ایمنی و Verify نهایی انجام شده و جدول‌ها Railway را پوشش می‌دهند. Railway خودکار خاموش نمی‌شود.</p><p><a class="button button-primary" href="'.esc_url(admin_url('admin.php?page=bluevpn-app-connection')).'">مرحله بعد: اتصال اپلیکیشن</a></p></div>';
-        } else {
-            $missing = array_keys((array)($readiness['mismatches']??[]));
-            $errors = array_keys((array)($readiness['table_errors']??[]));
-            $why = $errors ? 'جدول‌های دارای خطا: '.implode(', ',$errors) : ($missing ? 'جدول‌های دارای کسری: '.implode(', ',$missing) : 'فرایند هنوز به Verify نهایی نرسیده است.');
-            echo '<div class="notice notice-warning inline"><p><strong>⏳ هنوز Cutover نکن.</strong> '.esc_html($why).'</p></div>';
-        }
-        echo '<p>بعد از سبزشدن این بخش: اپ را با Endpoint وردپرس تست کن، سپس Railway را از مدار اصلی خارج کن. حذف Railway بخشی از این ابزار نیست.</p>';
-        echo '</div>';
-
-        echo '<details class="bvp-card" style="max-width:1180px;margin-top:16px"><summary style="cursor:pointer;font-weight:700;font-size:16px">تنظیمات اتصال و ابزارهای پیشرفته</summary><div style="padding-top:14px">';
-        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'; wp_nonce_field('bluevpn_migration_save');
-        echo '<input type="hidden" name="action" value="bluevpn_migration_save"><table class="form-table">';
-        echo '<tr><th>Railway Backend URL</th><td><input class="regular-text" dir="ltr" name="source_url" placeholder="https://bluevpnapp-production.up.railway.app" value="'.esc_attr($cfg['source_url']).'"></td></tr>';
-        echo '<tr><th>Migration Token</th><td><input class="regular-text" dir="ltr" type="password" name="token" value="" placeholder="'.(BlueVPN_Migration::has_token()?'ذخیره شده؛ برای تغییر مقدار جدید وارد کن':'Token را وارد کن').'"></td></tr>';
-        echo '<tr><th>Batch Size</th><td><input type="number" min="100" max="5000" name="batch_size" value="'.(int)$cfg['batch_size'].'"><p class="description">برای جدول AI تا ۵۰۰۰ رکورد در هر درخواست استفاده می‌شود.</p></td></tr>';
-        echo '<tr><th>SSL Verify</th><td><label><input type="checkbox" name="verify_tls" value="1" '.checked(!empty($cfg['verify_tls']),true,false).'> بررسی TLS</label></td></tr>';
-        echo '<tr><th>انتقال خودکار</th><td><label><input type="checkbox" name="auto_migrate" value="1" '.checked(!empty($cfg['auto_migrate']),true,false).'> Runner و Retry خودکار فعال باشد</label></td></tr>';
-        echo '<tr><th>Dual Sync</th><td><label><input type="checkbox" name="auto_sync" value="1" '.checked(!empty($cfg['auto_sync']),true,false).'> بعد از آمادگی Cutover، تغییرات جدید Railway هر ۵ دقیقه Sync شوند</label></td></tr>';
-        echo '</table>'; submit_button('ذخیره تنظیمات Bridge'); echo '</form>';
-        echo '<div class="bvp-mig-actions">';
-        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'; wp_nonce_field('bluevpn_migration_generate_token'); echo '<input type="hidden" name="action" value="bluevpn_migration_generate_token">'; submit_button('ساخت Migration Token','secondary','submit',false); echo '</form>';
-        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'; wp_nonce_field('bluevpn_migration_manifest'); echo '<input type="hidden" name="action" value="bluevpn_migration_manifest">'; submit_button('بازخوانی Manifest','secondary','submit',false); echo '</form>';
-        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" onsubmit="return confirm(\'Progress و Cursorها از ابتدا شوند؟ داده‌های MySQL حذف نمی‌شوند.\')">'; wp_nonce_field('bluevpn_migration_reset'); echo '<input type="hidden" name="action" value="bluevpn_migration_reset">'; submit_button('ریست Progress (اضطراری)','delete','submit',false); echo '</form>';
-        echo '</div></div></details>';
-        echo '</div>';
+        echo '<h2>Endpoint فعال</h2><div class="bvp-code">'.esc_html(untrailingslashit(home_url('/'))).'</div>';
+        echo '<h2>داده‌های محلی</h2><table class="widefat striped bvp-table"><thead><tr><th>جدول</th><th>رکورد</th></tr></thead><tbody>';
+        foreach($counts as $name=>$count) echo '<tr><td><code>'.esc_html($name).'</code></td><td>'.number_format_i18n((int)$count).'</td></tr>';
+        echo '</tbody></table>';
         self::foot();
     }
 

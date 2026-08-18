@@ -16,7 +16,7 @@ final class BlueVPN_DB {
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
             'payment_events', 'provisioning_attempts', 'webhook_deliveries',
-            'free_config_sources', 'free_configs', 'free_config_reports', 'free_reward_claims', 'bot_settings', 'bot_jobs', 'ai_connection_events', 'ai_live_connections',
+            'free_config_sources', 'free_configs', 'free_config_reports', 'free_reward_claims', 'bot_settings', 'bot_jobs', 'error_events', 'ai_connection_events', 'ai_live_connections',
             'ai_route_aggregates', 'ai_feedback', 'ai_incidents', 'ai_reconciliation_runs',
             'support_departments', 'support_topics', 'support_operators', 'support_conversations',
             'support_messages', 'support_events', 'support_attachments', 'support_notes',
@@ -31,7 +31,11 @@ final class BlueVPN_DB {
         self::enforce_six_digit_otp();
         self::repair_client_types();
         update_option('bluevpn_manager_schema_version', BLUEVPN_MANAGER_SCHEMA_VERSION, false);
-        update_option('bluevpn_manager_cutover_ready', '0', false);
+        // 4.16.6+: WordPress/MySQL is the permanent control plane. Never reopen the retired migration on activation.
+        update_option('bluevpn_manager_cutover_ready', '1', false);
+        update_option('bluevpn_manager_app_cutover_enabled', '1', false);
+        update_option('bluevpn_manager_legacy_bridge_disabled', '1', false);
+        update_option('bluevpn_manager_control_plane_mode', 'wordpress_mysql_native', false);
     }
 
     public static function maybe_upgrade(): void {
@@ -678,6 +682,30 @@ final class BlueVPN_DB {
             KEY ix_bot_job_chat_status (chat_id, status),
             KEY ix_bot_job_status_created (status, created_at),
             KEY ix_bot_job_run (run_id)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('error_events')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            fingerprint char(64) NOT NULL DEFAULT '',
+            source varchar(40) NOT NULL DEFAULT 'runtime',
+            component varchar(80) NOT NULL DEFAULT 'unknown',
+            severity varchar(20) NOT NULL DEFAULT 'error',
+            code varchar(100) NOT NULL DEFAULT 'UNKNOWN',
+            message longtext NULL,
+            context_json longtext NULL,
+            occurrences bigint unsigned NOT NULL DEFAULT 1,
+            status varchar(20) NOT NULL DEFAULT 'open',
+            first_seen_at datetime NULL,
+            last_seen_at datetime NULL,
+            last_notified_at datetime NULL,
+            resolved_at datetime NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id),
+            KEY ix_error_fingerprint_status (fingerprint, status),
+            KEY ix_error_severity_seen (severity, last_seen_at),
+            KEY ix_error_component_seen (component, last_seen_at),
+            KEY ix_error_status_seen (status, last_seen_at)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('ai_connection_events')} (

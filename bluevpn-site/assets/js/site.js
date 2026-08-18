@@ -4,6 +4,15 @@ const motionRoot=document.documentElement;
 motionRoot.classList.add('bv-motion');
 const motionFailSafe=window.setTimeout(()=>motionRoot.classList.remove('bv-motion'),2500);
 const cfg=window.BlueVPNSite||{};
+const bvMonitorSeen=new Map();
+function bvReportClientError(kind,message,file='',line=0,column=0,stack=''){
+  if(!cfg.monitorEndpoint||!cfg.monitorToken)return;
+  const key=[kind,message,file,line,column].join('|');const now=Date.now();
+  if(now-(bvMonitorSeen.get(key)||0)<120000)return;bvMonitorSeen.set(key,now);
+  fetch(cfg.monitorEndpoint,{method:'POST',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({token:cfg.monitorToken,kind,message:String(message||'JavaScript runtime error').slice(0,1200),file:String(file||'').slice(0,900),line:Number(line||0),column:Number(column||0),stack:String(stack||'').slice(0,1800),page:location.href.split('#')[0]})}).catch(()=>{});
+}
+window.addEventListener('error',e=>bvReportClientError('js_error',e.message,e.filename,e.lineno,e.colno,e.error?.stack||''));
+window.addEventListener('unhandledrejection',e=>{const r=e.reason;bvReportClientError('unhandledrejection',r?.message||String(r||'Unhandled promise rejection'),'',0,0,r?.stack||'')});
 const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const storage={get(k){try{return localStorage.getItem(k)||''}catch{return''}},set(k,v){try{localStorage.setItem(k,v)}catch{}},del(k){try{localStorage.removeItem(k)}catch{}}};
 const TOKEN='bluevpn_web_token', REFRESH='bluevpn_web_refresh', DEVICE='bluevpn_web_device';

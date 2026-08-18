@@ -12,7 +12,7 @@ BlueVPN is the source repository for the BlueVPN Android client and its WordPres
 - **Control plane:** WordPress + MySQL via `bluevpn-manager`.
 - **Website:** `bluevpn-site`.
 - **Hidden location architecture:** internal routes stay hidden from the public UI; users select a location while BlueVPN chooses the best eligible internal route.
-- **CI/CD:** GitHub Actions validates release metadata, prepares the Android overlay, builds Android, compiles/publishes Windows x64+ARM64, validates v2rayN TUN configs, creates Inno Setup installers and publishes release assets.
+- **CI/CD:** GitHub Actions validates release metadata, prepares/builds Android, compiles/publishes Windows x64+ARM64, validates v2rayN TUN configs, creates installers, and feeds every workflow result into the independent BlueVPN Sentinel. A full-project syntax/regression gate and a scheduled external WordPress/MySQL health probe provide additional coverage.
 
 ## Repository layout
 

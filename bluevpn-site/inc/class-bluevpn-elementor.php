@@ -38,7 +38,7 @@ final class BlueVPN_Elementor_Integration {
             }
         } catch (Throwable $e) {
             // Never take the Elementor editor down because a BlueVPN widget failed to boot.
-            error_log('BlueVPN Elementor widget registration failed: '.$e->getMessage());
+            bluevpn_site_error_log('BlueVPN Elementor widget registration failed: '.$e->getMessage());
         }
     }
 
@@ -123,7 +123,7 @@ final class BlueVPN_Elementor_Integration {
             if (isset($plugin->editor) && is_object($plugin->editor) && method_exists($plugin->editor, 'is_edit_mode') && $plugin->editor->is_edit_mode()) return true;
             if (isset($plugin->preview) && is_object($plugin->preview) && method_exists($plugin->preview, 'is_preview_mode') && $plugin->preview->is_preview_mode()) return true;
         } catch (Throwable $e) {
-            error_log('BlueVPN Elementor editor detection failed: '.$e->getMessage());
+            bluevpn_site_error_log('BlueVPN Elementor editor detection failed: '.$e->getMessage());
         }
         return false;
     }
@@ -174,7 +174,7 @@ final class BlueVPN_Elementor_Integration {
         try {
             $html = \Elementor\Plugin::instance()->frontend->get_builder_content_for_display($post_id, true);
             if (!self::has_meaningful_output($html)) {
-                error_log('BlueVPN Elementor page fallback: empty output for post '.$post_id);
+                bluevpn_site_error_log('BlueVPN Elementor page fallback: empty output for post '.$post_id);
                 return false;
             }
 
@@ -183,7 +183,7 @@ final class BlueVPN_Elementor_Integration {
             get_footer();
             return true;
         } catch (Throwable $e) {
-            error_log('BlueVPN Elementor page render failed: '.$e->getMessage());
+            bluevpn_site_error_log('BlueVPN Elementor page render failed: '.$e->getMessage());
             return false;
         }
     }
@@ -198,7 +198,7 @@ final class BlueVPN_Elementor_Integration {
             try {
                 $handled = (bool)elementor_theme_do_location($location);
             } catch (Throwable $e) {
-                error_log('BlueVPN Elementor theme location failed: '.$e->getMessage());
+                bluevpn_site_error_log('BlueVPN Elementor theme location failed: '.$e->getMessage());
             }
             $location_html = (string)ob_get_clean();
             if ($handled && self::has_meaningful_output($location_html)) {
@@ -217,9 +217,9 @@ final class BlueVPN_Elementor_Integration {
                 echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
                 return true;
             }
-            error_log('BlueVPN Elementor '.$location.' fallback: template '.$id.' returned empty output');
+            bluevpn_site_error_log('BlueVPN Elementor '.$location.' fallback: template '.$id.' returned empty output');
         } catch (Throwable $e) {
-            error_log('BlueVPN Elementor render failed: '.$e->getMessage());
+            bluevpn_site_error_log('BlueVPN Elementor render failed: '.$e->getMessage());
         }
         return false;
     }

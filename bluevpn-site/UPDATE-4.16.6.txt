@@ -1,0 +1,4 @@
+BlueVPN Site 4.16.6
+
+- Keeps the site aligned with the final WordPress/MySQL-native control plane.
+- Legacy migration/cutover state is no longer surfaced as an active runtime requirement.

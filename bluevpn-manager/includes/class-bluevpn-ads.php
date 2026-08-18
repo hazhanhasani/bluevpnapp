@@ -305,17 +305,6 @@ final class BlueVPN_Ads {
         $version = self::client_version($request);
         $supported = $version === '' || self::version_key($version) >= self::version_key('3.0.48');
         $enabled = $configured && $supported;
-        if (class_exists('BlueVPN_Free_Sources')) {
-            $curatedCount=count(BlueVPN_Free_Sources::curated(300));
-            if($curatedCount>0){
-                $public[]=[
-                    'id'=>'telegram-curated','name'=>'Pool هوشمند رایگان','subscription_url'=>$base.'/api/v1/free/curated','priority'=>5,
-                ];
-                $legacyPoolEnabled = $mode !== 'warp_only' && !empty($settings['free_access_enabled']);
-                $fallbackEnabled = $mode === 'warp_fallback_pool' && $legacyPoolEnabled && (!array_key_exists('free_warp_fallback_enabled', $settings) || !empty($settings['free_warp_fallback_enabled']));
-                $enabled = $warpEnabled || $legacyPoolEnabled;
-            }
-        }
         return [
             'enabled' => $enabled,
             'autoplay' => !empty($settings['ads_autoplay']),

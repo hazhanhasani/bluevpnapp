@@ -236,7 +236,7 @@ final class BlueVPN_Telegram_Bot {
         try {
             self::handle_update($body, $s);
         } catch (Throwable $e) {
-            error_log('BlueVPN Telegram webhook: ' . self::redact($e->getMessage(), $s));
+            BlueVPN_Error_Monitor::legacy_error_log('BlueVPN Telegram webhook: ' . self::redact($e->getMessage(), $s));
         }
         return new WP_REST_Response(['ok' => true]);
     }
@@ -425,8 +425,7 @@ final class BlueVPN_Telegram_Bot {
     }
 
     private static function spawn_cron(): void {
-        $cronUrl = site_url('/wp-cron.php?doing_wp_cron=' . rawurlencode(sprintf('%.22F', microtime(true))));
-        wp_remote_post($cronUrl, ['timeout' => 0.01, 'blocking' => false, 'sslverify' => apply_filters('https_local_ssl_verify', false)]);
+        BlueVPN_Utils::kick_wp_cron();
     }
 
     private static function chat_has_active_job(string $chatId): bool {

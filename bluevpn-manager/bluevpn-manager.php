@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BlueVPN Manager
  * Description: هسته حساب کاربری، اشتراک، پرداخت، پشتیبانی آنلاین و API سرویس BlueVPN.
- * Version: 4.16.3
+ * Version: 4.16.7
  * Author: BlueVPN
  * Requires at least: 6.2
  * Requires PHP: 8.0
@@ -14,8 +14,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('BLUEVPN_MANAGER_VERSION', '4.16.3');
-define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.23.0');
+define('BLUEVPN_MANAGER_VERSION', '4.16.7');
+define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.24.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
 define('BLUEVPN_MANAGER_URL', plugin_dir_url(__FILE__));
@@ -43,9 +43,13 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-app-release-manager.p
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-windows-release-manager.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-github-updater.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-telegram-bot.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-error-monitor.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-support.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-migration.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-production.php';
+
+// Install the PHP/shutdown sentinels before WordPress starts invoking BlueVPN hooks.
+BlueVPN_Error_Monitor::bootstrap();
 
 register_activation_hook(__FILE__, function () {
     BlueVPN_DB::activate();
@@ -54,12 +58,11 @@ register_activation_hook(__FILE__, function () {
     BlueVPN_Cron::schedule();
     BlueVPN_SMS_Notifications::seed_templates();
     BlueVPN_SMS_Notifications::schedule();
-    BlueVPN_Migration::sync_cron_schedule(!empty(BlueVPN_Migration::settings()['auto_sync']));
-    BlueVPN_Migration::sync_auto_schedule(!empty(BlueVPN_Migration::settings()['auto_migrate']));
     BlueVPN_App_Release_Manager::ensure_schedule();
     BlueVPN_Windows_Release_Manager::ensure_schedule();
     BlueVPN_GitHub_Updater::ensure_schedule();
     BlueVPN_Telegram_Bot::activate();
+    BlueVPN_Error_Monitor::activate();
     BlueVPN_Support::activate();
     BlueVPN_Production::activate();
     BlueVPN_Free_Sources::seed();
@@ -74,6 +77,7 @@ register_deactivation_hook(__FILE__, function () {
     BlueVPN_Windows_Release_Manager::unschedule();
     BlueVPN_GitHub_Updater::unschedule();
     BlueVPN_Telegram_Bot::deactivate();
+    BlueVPN_Error_Monitor::deactivate();
     BlueVPN_Production::deactivate();
     wp_clear_scheduled_hook('bluevpn_ai_ops_tick');
     flush_rewrite_rules(false);
@@ -112,7 +116,7 @@ add_action('plugins_loaded', function () {
     BlueVPN_Windows_Release_Manager::init();
     BlueVPN_GitHub_Updater::init();
     BlueVPN_Telegram_Bot::init();
+    BlueVPN_Error_Monitor::init();
     BlueVPN_Support::init();
-    BlueVPN_Migration::init();
     BlueVPN_Production::init();
 });

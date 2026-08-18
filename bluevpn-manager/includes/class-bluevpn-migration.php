@@ -1118,7 +1118,7 @@ final class BlueVPN_Migration {
         $state['auto_last_message'] = 'Runner هوشمند فعال است؛ انتقال از آخرین نقطه معتبر ادامه پیدا می‌کند.';
         self::save_state($state);
         self::sync_auto_schedule(true);
-        if (function_exists('spawn_cron')) spawn_cron(time());
+        BlueVPN_Utils::kick_wp_cron();
     }
 
     public static function stop_auto(): void {

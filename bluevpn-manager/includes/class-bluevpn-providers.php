@@ -492,7 +492,9 @@ final class BlueVPN_Providers {
         if($provider==='pasarguard'){
             $headers=self::pg_headers($p,$timeout);$base=(string)$p['base_url'];$ssl=(bool)$p['verify_tls'];$last='';
             foreach(['/api/groups','/api/groups/simple'] as $path){
-                $r=self::req('GET',self::join_url($base,$path),$headers,null,$ssl,[],$timeout);
+                $url=self::join_url($base,$path);
+                if($path==='/api/groups' && class_exists('BlueVPN_Error_Monitor')) BlueVPN_Error_Monitor::expect_http_status_once($url,[403,404]);
+                $r=self::req('GET',$url,$headers,null,$ssl,[],$timeout);
                 if($r['code']>=400){$last='HTTP '.$r['code'];continue;}
                 $rows=self::provider_list_rows($r['json'],['groups']);$items=[];
                 foreach($rows as $row){
@@ -541,7 +543,9 @@ final class BlueVPN_Providers {
         $fallback=array_values(array_unique(array_filter(array_map('intval',$fallback),static fn($id)=>$id>0)));
         $headers=self::pg_headers($p,$timeout);$base=(string)$p['base_url'];$ssl=(bool)$p['verify_tls'];$last='';
         foreach(['/api/groups','/api/groups/simple'] as $path){
-            try{$r=self::req('GET',self::join_url($base,$path),$headers,null,$ssl,[],$timeout);}catch(Throwable $e){$last=$e->getMessage();continue;}
+            $url=self::join_url($base,$path);
+            if($path==='/api/groups' && class_exists('BlueVPN_Error_Monitor')) BlueVPN_Error_Monitor::expect_http_status_once($url,[403,404]);
+            try{$r=self::req('GET',$url,$headers,null,$ssl,[],$timeout);}catch(Throwable $e){$last=$e->getMessage();continue;}
             if($r['code']>=400){$last='HTTP '.$r['code'].' '.mb_substr($r['body'],0,180);continue;}
             $rows=self::provider_list_rows($r['json'],['groups']);$ids=[];
             foreach($rows as $row){
@@ -853,7 +857,7 @@ final class BlueVPN_Providers {
         if($customerId<=0)return false;
         if(wp_next_scheduled('bluevpn_sync_customer_async',[$customerId]))return false;
         $ok=wp_schedule_single_event(time()+2,'bluevpn_sync_customer_async',[$customerId]);
-        if($ok!==false&&function_exists('spawn_cron'))spawn_cron(time());
+        if($ok!==false)BlueVPN_Utils::kick_wp_cron();
         return $ok!==false;
     }
     public static function async_sync_customer(int $customerId): void {
@@ -1040,7 +1044,7 @@ final class BlueVPN_Providers {
         if($customerId<=0)return false;
         if(wp_next_scheduled('bluevpn_refresh_subscription_snapshot',[$customerId]))return false;
         $ok=wp_schedule_single_event(time()+2,'bluevpn_refresh_subscription_snapshot',[$customerId]);
-        if($ok!==false&&function_exists('spawn_cron'))spawn_cron(time());
+        if($ok!==false)BlueVPN_Utils::kick_wp_cron();
         return $ok!==false;
     }
     public static function serve_subscription(): void {

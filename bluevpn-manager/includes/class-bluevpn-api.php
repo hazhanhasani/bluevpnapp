@@ -56,7 +56,7 @@ final class BlueVPN_API {
     private static function fail(BlueVPN_Auth_Exception $e): WP_REST_Response { return self::ok(['detail'=>array_merge(['code'=>$e->error_code,'message'=>$e->getMessage()],$e->extra)],$e->http_status); }
     private static function unexpected(Throwable $e,string $scope): WP_REST_Response {
         $trace=substr(hash('sha256',$scope.'|'.microtime(true).'|'.wp_rand()),0,12);
-        error_log('BlueVPN '.$scope.' ['.$trace.']: '.$e->getMessage().' @ '.$e->getFile().':'.$e->getLine());
+        BlueVPN_Error_Monitor::legacy_error_log('BlueVPN '.$scope.' ['.$trace.']: '.$e->getMessage().' @ '.$e->getFile().':'.$e->getLine());
         return self::ok(['detail'=>['code'=>'SERVER_INTERNAL_ERROR','message'=>'خطای داخلی سرور هنگام پردازش درخواست رخ داد.','trace_id'=>$trace]],500);
     }
     private static function body(WP_REST_Request $r): array { $b=$r->get_json_params(); return is_array($b)?$b:[]; }
@@ -126,7 +126,7 @@ final class BlueVPN_API {
         if (class_exists('BlueVPN_App_Release_Manager')) {
             try { BlueVPN_App_Release_Manager::maybe_kick($forced); }
             catch (Throwable $e) {
-                error_log('BlueVPN mobile_config release refresh queue: '.$e->getMessage());
+                BlueVPN_Error_Monitor::legacy_error_log('BlueVPN mobile_config release refresh queue: '.$e->getMessage());
             }
         }
 
@@ -154,7 +154,7 @@ final class BlueVPN_API {
                 // Release-channel state is an enhancement, not a single point of
                 // failure for /mobile/config. Fall back to the last Stable values
                 // already stored in app_settings and keep the client update path alive.
-                error_log('BlueVPN mobile_config release selection fallback: '.$e->getMessage());
+                BlueVPN_Error_Monitor::legacy_error_log('BlueVPN mobile_config release selection fallback: '.$e->getMessage());
             }
         }
         $release = is_array($selection['release'] ?? null) ? $selection['release'] : [];
@@ -252,7 +252,7 @@ final class BlueVPN_API {
     }
     public static function windows_update(WP_REST_Request $r): WP_REST_Response {
         if (class_exists('BlueVPN_Windows_Release_Manager')) {
-            try { BlueVPN_Windows_Release_Manager::maybe_kick(false); } catch (Throwable $e) { error_log('BlueVPN windows release refresh queue: '.$e->getMessage()); }
+            try { BlueVPN_Windows_Release_Manager::maybe_kick(false); } catch (Throwable $e) { BlueVPN_Error_Monitor::legacy_error_log('BlueVPN windows release refresh queue: '.$e->getMessage()); }
         }
         $customer=null;$authState='anonymous';$authError='';$authHeader=trim((string)$r->get_header('authorization'));
         if($authHeader!==''){
@@ -262,7 +262,7 @@ final class BlueVPN_API {
         $selection=['release'=>null,'channel'=>'stable','beta_tester'=>false];
         if(class_exists('BlueVPN_Windows_Release_Manager')){
             try{$selection=BlueVPN_Windows_Release_Manager::release_for_customer($customer);}
-            catch(Throwable $e){error_log('BlueVPN windows release selection: '.$e->getMessage());}
+            catch(Throwable $e){BlueVPN_Error_Monitor::legacy_error_log('BlueVPN windows release selection: '.$e->getMessage());}
         }
         $release=is_array($selection['release']??null)?$selection['release']:[];
         $channel=(string)($selection['channel']??'stable');

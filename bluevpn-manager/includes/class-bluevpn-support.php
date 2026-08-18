@@ -821,7 +821,7 @@ final class BlueVPN_Support {
     }
     private static function server_fail(Throwable $e,string $scope): WP_REST_Response {
         $trace=substr(hash('sha256',$scope.'|'.microtime(true).'|'.wp_rand()),0,12);
-        error_log("BlueVPN Support {$scope} [{$trace}]: ".$e->getMessage());
+        BlueVPN_Error_Monitor::legacy_error_log("BlueVPN Support {$scope} [{$trace}]: ".$e->getMessage());
         return new WP_REST_Response(['detail'=>['code'=>'SUPPORT_INTERNAL','message'=>'خطای داخلی پشتیبانی','trace_id'=>$trace]],500);
     }
     private static function conversation_row(int $id): array {

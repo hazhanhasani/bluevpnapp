@@ -14,6 +14,7 @@
     "includes/class-bluevpn-control-center.php",
     "includes/class-bluevpn-cron.php",
     "includes/class-bluevpn-db.php",
+    "includes/class-bluevpn-error-monitor.php",
     "includes/class-bluevpn-free-sources.php",
     "includes/class-bluevpn-frontend.php",
     "includes/class-bluevpn-github-updater.php",
@@ -27,7 +28,7 @@
     "includes/class-bluevpn-support.php",
     "includes/class-bluevpn-telegram-bot.php",
     "includes/class-bluevpn-unified-ui.php",
-    "includes/class-bluevpn-windows-release-manager.php",
-    "includes/class-bluevpn-utils.php"
+    "includes/class-bluevpn-utils.php",
+    "includes/class-bluevpn-windows-release-manager.php"
   ]
 }

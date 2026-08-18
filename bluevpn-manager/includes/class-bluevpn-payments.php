@@ -117,7 +117,7 @@ final class BlueVPN_Payments {
             try {
                 $order = self::callback_refresh_order($order);
             } catch (Throwable $e) {
-                error_log('BlueVPN BluPal callback verify: ' . $e->getMessage());
+                BlueVPN_Error_Monitor::legacy_error_log('BlueVPN BluPal callback verify: ' . $e->getMessage());
             }
             $status = (string)($order['status'] ?? 'pending');
             if ($status === 'activated') {
@@ -375,7 +375,7 @@ final class BlueVPN_Payments {
                             'amount'=>(int)$order['amount_toman'],'invoice_id'=>mb_substr((string)$order['order_code'],0,40)
                         ],(int)$customer['id'],(string)$order['id'],'payment-success:'.$order['id']];
                     }
-                } catch (Throwable $e) { error_log('BlueVPN SMS activation preparation: '.$e->getMessage()); }
+                } catch (Throwable $e) { BlueVPN_Error_Monitor::legacy_error_log('BlueVPN SMS activation preparation: '.$e->getMessage()); }
             }
 
             $wakeSms=false;
@@ -386,7 +386,7 @@ final class BlueVPN_Payments {
                 foreach($smsJobs as $job){
                     try{
                         if(BlueVPN_SMS_Notifications::queue($job[0],$job[1],$job[2],$job[3],$job[4],$job[5],false,false)!==null)$wakeSms=true;
-                    }catch(Throwable $smsError){error_log('BlueVPN transactional activation SMS: '.$smsError->getMessage());}
+                    }catch(Throwable $smsError){BlueVPN_Error_Monitor::legacy_error_log('BlueVPN transactional activation SMS: '.$smsError->getMessage());}
                 }
                 $wpdb->query('COMMIT');
             } catch(Throwable $e) {

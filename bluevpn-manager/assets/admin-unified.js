@@ -1,5 +1,13 @@
 (function(){
 'use strict';
+const bvMon=window.BlueVPNAdmin||{},bvMonSeen=new Map();
+function bvAdminReport(kind,message,file='',line=0,column=0,stack=''){
+  if(!bvMon.monitorEndpoint||!bvMon.monitorToken)return;const key=[kind,message,file,line,column].join('|'),now=Date.now();
+  if(now-(bvMonSeen.get(key)||0)<120000)return;bvMonSeen.set(key,now);
+  fetch(bvMon.monitorEndpoint,{method:'POST',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({token:bvMon.monitorToken,kind,message:String(message||'Admin JavaScript error').slice(0,1200),file:String(file||'').slice(0,900),line:Number(line||0),column:Number(column||0),stack:String(stack||'').slice(0,1800),page:location.href.split('#')[0]})}).catch(()=>{});
+}
+window.addEventListener('error',e=>bvAdminReport('js_error',e.message,e.filename,e.lineno,e.colno,e.error?.stack||''));
+window.addEventListener('unhandledrejection',e=>{const r=e.reason;bvAdminReport('unhandledrejection',r?.message||String(r||'Unhandled promise rejection'),'',0,0,r?.stack||'')});
 document.documentElement.classList.add('bluevpn-standalone-html');
 const q=(s)=>document.querySelector(s);
 const sidebar=q('#bluevpnSidebar'), overlay=q('#bluevpnSidebarOverlay');
@@ -9,6 +17,10 @@ function setOpen(v){
   overlay?.classList.toggle('is-open',v);
   document.documentElement.classList.toggle('bluevpn-menu-open',v);
 }
+// Never restore a stale open drawer from browser back/forward cache on mobile.
+if(window.matchMedia?.('(max-width: 782px)').matches)setOpen(false);
+window.addEventListener('pageshow',()=>{if(window.matchMedia?.('(max-width: 782px)').matches)setOpen(false)});
+window.addEventListener('resize',()=>{if(window.innerWidth>782)setOpen(false)});
 q('#bluevpnMenuToggle')?.addEventListener('click',()=>setOpen(true));
 q('#bluevpnSidebarClose')?.addEventListener('click',()=>setOpen(false));
 overlay?.addEventListener('click',()=>setOpen(false));

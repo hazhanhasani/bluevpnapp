@@ -34,6 +34,36 @@ final class BlueVPN_Utils {
         return rtrim(strtr(base64_encode(random_bytes($bytes)), '+/', '-_'), '=');
     }
 
+    /**
+     * Nudge WordPress cron without calling Core spawn_cron() directly.
+     *
+     * Some cPanel/WordPress execution paths load wp-cron.php helpers before
+     * WP_CRON_LOCK_TIMEOUT is defined. Calling spawn_cron() directly from a
+     * plugin can therefore crash with an undefined-constant error. BlueVPN
+     * only schedules events through the public scheduling API and, when an
+     * immediate nudge is useful, performs the same non-blocking loopback at
+     * the HTTP boundary instead of entering Core cron internals.
+     */
+    public static function kick_wp_cron(): bool {
+        if (defined('DISABLE_WP_CRON') && DISABLE_WP_CRON) return false;
+        if (function_exists('wp_doing_cron') && wp_doing_cron()) return false;
+        if (!function_exists('wp_remote_post') || !function_exists('site_url')) return false;
+
+        $doing = sprintf('%.22F', microtime(true));
+        $url = site_url('/wp-cron.php?doing_wp_cron=' . rawurlencode($doing));
+        $response = wp_remote_post($url, [
+            'timeout' => 0.5,
+            'blocking' => false,
+            'redirection' => 0,
+            'sslverify' => apply_filters('https_local_ssl_verify', false),
+            'headers' => [
+                'Cache-Control' => 'no-cache',
+                'X-BlueVPN-Internal-Cron' => '1',
+            ],
+        ]);
+        return !is_wp_error($response);
+    }
+
     public static function random_uuid4(): string {
         $data = random_bytes(16);
         $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);

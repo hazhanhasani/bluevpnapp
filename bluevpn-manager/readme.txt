@@ -1,7 +1,36 @@
 === BlueVPN Manager ===
-Version: 4.16.3
-Stable tag: 4.16.3
+Version: 4.16.7
+Stable tag: 4.16.7
 Requires PHP: 8.0
+
+== 4.16.7 ==
+- Removes every direct plugin call into WordPress Core `spawn_cron()` and replaces it with BlueVPN's safe non-blocking loopback cron nudge, preventing `WP_CRON_LOCK_TIMEOUT` crashes on cPanel execution paths.
+- Makes native WordPress/MySQL cutover finalization revision-idempotent and automatically resolves the historical `NATIVE_CUTOVER_FINALIZE_FAILED` incident after a successful pass.
+- Rebuilds the Sentinel admin screen for mobile: responsive KPI cards, toggle controls, stacked actions and event-card rendering instead of a crushed desktop table.
+- Prevents a stale mobile navigation drawer from reopening after browser back/forward cache restoration.
+- Android, Manager, Theme and Windows source metadata are synchronized on 4.16.7.
+
+== 4.16.6 ==
+- WordPress/MySQL is the permanent BlueVPN control plane; legacy migration schedules, source URL and token are retired automatically.
+- Old paid_needs_sync/partial_needs_sync orders are reconciled asynchronously with a bounded three-attempt repair flow.
+- Expected PasarGuard /api/groups 403/404 capability fallbacks no longer create false Sentinel alerts; final fallback failures remain visible.
+- Fixes PHP E_WARNING notices for undefined $base, $mode and $warpEnabled in the advertising payload.
+- Android, Manager, Theme and Windows source metadata are synchronized on 4.16.6.
+
+== 4.16.5 ==
+- Sentinel Telegram timestamps are rendered in Asia/Tehran with the Persian/Jalali date instead of raw UTC.
+- Health warnings are classified separately from runtime failures; recovered health incidents are automatically resolved.
+- Payment health alerts list the affected order code/status/age/reason and direct the admin to the Payments screen.
+- Cutover health reports the exact migration/app flags and a concrete action instead of a generic warning.
+- Android, Manager, Theme and Windows source metadata are synchronized on 4.16.5.
+
+== 4.16.4 ==
+- Adds BlueVPN Sentinel: centralized runtime monitoring for PHP, MySQL, REST, HTTP, cron, provider panels, provisioning, SMS, payments, plugin/theme and update errors.
+- Adds a persistent deduplicated incident store and a BlueVPN Manager monitoring dashboard with Telegram test, health scan and retention controls.
+- Adds an independent GitHub workflow_run sentinel that reports failed jobs/steps/annotations/log excerpts even when the original workflow dies before its own notification step.
+- Adds full-project syntax/regression CI and five-minute external WordPress/control-plane health probes.
+- Android, Manager, Theme and Windows source metadata are synchronized on 4.16.4.
+
 
 == 4.16.3 ==
 - Adds first-class Windows Stable/Beta release channels managed from BlueVPN Manager.

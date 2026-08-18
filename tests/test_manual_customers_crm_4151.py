@@ -16,7 +16,8 @@ class ManualCustomersCRM4151Tests(unittest.TestCase):
         self.assertIn("service_name varchar(180)", block)
         self.assertIn("expire_at datetime", block)
         self.assertIn("sms_enabled tinyint(1)", block)
-        self.assertNotIn("plan_id", block)
+        self.assertIn("catalog_plan_id", block)
+        self.assertNotIn("\n            plan_id bigint", block)
         self.assertNotIn("panel_id", block)
         self.assertNotIn("subscription_url", block)
         self.assertNotIn("entitlement", block)
@@ -46,21 +47,25 @@ class ManualCustomersCRM4151Tests(unittest.TestCase):
         self.assertIn("fgetcsv", crm)
         self.assertIn("sms_customer_id", crm)
         self.assertIn("'today'=>'تا ۲۴ ساعت آینده'", crm)
-        self.assertIn("manual_subscription_renewed", crm)
-        self.assertIn("manual_subscription_reminder", crm)
-        self.assertIn("manual_subscription_expired", crm)
+        self.assertIn("subscription_renewed", crm)
+        self.assertIn("subscription_reminder", crm)
+        self.assertIn("subscription_expired", crm)
 
     def test_sms_events_and_cron_are_wired(self):
         sms = text("bluevpn-manager/includes/class-bluevpn-sms-notifications.php")
         for event in (
-            "manual_subscription_activated",
-            "manual_subscription_renewed",
-            "manual_subscription_reminder",
-            "manual_subscription_expired",
+            "admin_subscription_activated",
+            "subscription_renewed",
+            "subscription_reminder",
+            "subscription_expired",
         ):
             self.assertIn("'" + event + "'", sms)
+        self.assertNotIn("'manual_subscription_activated'=>", sms)
+        self.assertNotIn("'manual_subscription_renewed'=>", sms)
+        self.assertNotIn("'manual_subscription_reminder'=>", sms)
+        self.assertNotIn("'manual_subscription_expired'=>", sms)
         self.assertIn("BlueVPN_Manual_Customers::scan_notifications()", sms)
-        self.assertIn("2026-08-18-4.15.1-manual-customers", sms)
+        self.assertIn("2026-08-18-4.15.4-manual-reuse-live-subscription-messages", sms)
 
     def test_dates_are_jalali_in_admin_and_utc_in_db(self):
         utils = text("bluevpn-manager/includes/class-bluevpn-utils.php")
@@ -74,11 +79,11 @@ class ManualCustomersCRM4151Tests(unittest.TestCase):
         plugin = text("bluevpn-manager/bluevpn-manager.php")
         release = json.loads(text("release.json"))
         branding = json.loads(text("branding/app.json"))
-        self.assertIn("Version: 4.15.3", plugin)
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.21.0'", plugin)
-        self.assertEqual(release["version"], "4.15.3")
-        self.assertEqual(branding["version_name"], "4.15.3")
-        self.assertEqual(branding["version_code"], 41503)
+        self.assertIn("Version: 4.15.4", plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.22.0'", plugin)
+        self.assertEqual(release["version"], "4.15.4")
+        self.assertEqual(branding["version_name"], "4.15.4")
+        self.assertEqual(branding["version_code"], 41504)
 
 if __name__ == "__main__":
     unittest.main()

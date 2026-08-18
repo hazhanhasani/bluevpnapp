@@ -1,8 +1,16 @@
 === BlueVPN Manager ===
-Version: 4.15.3
-Stable tag: 4.15.3
+Version: 4.15.4
+Stable tag: 4.15.4
 Requires PHP: 8.0
 
+
+== 4.15.4 ==
+- Manual customers now select directly from the current BlueVPN plans; no separate manual plan name/duration.
+- New manual customers automatically use the existing «فعال‌سازی دستی توسط مدیریت» SMS message/pattern.
+- Renewals use the existing «تمدید اشتراک» message and the selected plan's exact duration_days.
+- Expiry reminders and expiry notices reuse the existing subscription_reminder/subscription_expired messages and the same reminder-days settings.
+- Removes duplicate manual-only SMS templates and keeps CRM fully isolated from VPN provisioning/entitlements.
+- Android, Manager and Site theme stay synchronized on 4.15.4.
 
 == 4.15.3 ==
 - پوسته، افزونه و اپ هر سه دقیقاً روی نسخه 4.15.3 قفل و همگام شدند.

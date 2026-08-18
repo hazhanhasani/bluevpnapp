@@ -1,13 +1,18 @@
 {
-  "version": "4.15.3",
-  "version_code": 41503,
+  "version": "4.15.4",
+  "version_code": 41504,
   "channel": "beta",
-  "build_id": "20260818-v4.15.3-unified-component-versions",
-  "built_at": "2026-08-18T18:36:00+03:30",
-  "android_version": "4.15.3",
-  "android_version_code": 41503,
-  "description": "Unifies Android, BlueVPN Manager and BlueVPN Site theme under one release version. Deploy/build/update gates now reject a full project when any component version differs.",
+  "build_id": "20260818-v4.15.4-manual-live-plans-sms",
+  "built_at": "2026-08-18T18:58:00+03:30",
+  "android_version": "4.15.4",
+  "android_version_code": 41504,
+  "description": "Manual customers now use the exact existing BlueVPN plan catalog and canonical subscription SMS templates. Registration, renewal, reminders and expiry messages are automatic while the CRM remains isolated from VPN provisioning/entitlements.",
   "features": [
+    "manual-sms-template-deduplication",
+    "manual-customers-plan-duration-renewal",
+    "manual-customers-automatic-sms-lifecycle",
+    "manual-customers-canonical-subscription-sms",
+    "manual-customers-live-plan-catalog",
     "release-validator-cross-component-version-gate",
     "telegram-deploy-theme-version-gate",
     "theme-version-global-release-gate",
@@ -411,7 +416,7 @@
   ],
   "version_source": "source_declared_release_version",
   "tapsell_mediation_version": "1.4.0-alpha03",
-  "manager_version": "4.15.3",
-  "site_version": "4.15.3",
-  "theme_version": "4.15.3"
+  "manager_version": "4.15.4",
+  "site_version": "4.15.4",
+  "theme_version": "4.15.4"
 }

@@ -70,14 +70,82 @@ final class BlueVPN_Manual_Customers {
         return ['active', 'فعال', 'bvc-ok'];
     }
 
-    private static function sms_params(array $row, int $daysLeft = 0): array {
-        return [
-            'name' => mb_substr(trim((string)($row['full_name'] ?? 'کاربر گرامی')) ?: 'کاربر گرامی', 0, 30),
-            'service' => mb_substr(trim((string)($row['service_name'] ?? 'سرویس')) ?: 'سرویس', 0, 40),
-            'days_left' => max(0, min(99, $daysLeft)),
-            'expire_date' => BlueVPN_SMS_Notifications::jalali_date((string)($row['expire_at'] ?? '')),
-        ];
+    private static function sms_params(
+        array $row,
+        string $event,
+        int $daysLeft = 0
+    ): array {
+        $plan = mb_substr(
+            trim((string)($row['service_name'] ?? '')) ?: 'اشتراک',
+            0,
+            40
+        );
+        $expireDate = BlueVPN_SMS_Notifications::jalali_date(
+            (string)($row['expire_at'] ?? '')
+        );
+
+        return match ($event) {
+            'admin_subscription_activated',
+            'subscription_renewed',
+            'subscription_plan_changed' => [
+                'plan' => $plan,
+                'expire_date' => $expireDate,
+            ],
+            'subscription_reminder' => [
+                'days_left' => max(0, min(99, $daysLeft)),
+            ],
+            'subscription_expired' => [],
+            default => [],
+        };
     }
+
+    private static function current_plans(bool $activeOnly = false): array {
+        global $wpdb;
+        $table = BlueVPN_DB::table('plans');
+        $where = $activeOnly ? 'WHERE active=1 AND deleted=0' : 'WHERE deleted=0';
+        return $wpdb->get_results(
+            "SELECT id,title,duration_days,price_toman,active,deleted
+             FROM {$table} {$where}
+             ORDER BY active DESC,sort_order,price_toman,id",
+            ARRAY_A
+        ) ?: [];
+    }
+
+    private static function plan_by_id(int $planId, bool $mustBeActive = false): ?array {
+        if ($planId <= 0) return null;
+        global $wpdb;
+        $table = BlueVPN_DB::table('plans');
+        $sql = "SELECT id,title,duration_days,price_toman,active,deleted
+                FROM {$table} WHERE id=%d AND deleted=0";
+        if ($mustBeActive) $sql .= " AND active=1";
+        $row = $wpdb->get_row($wpdb->prepare($sql, $planId), ARRAY_A);
+        return is_array($row) ? $row : null;
+    }
+
+    private static function resolve_existing_plan(array $row): ?array {
+        $planId = (int)($row['catalog_plan_id'] ?? 0);
+        if ($planId > 0) {
+            $plan = self::plan_by_id($planId, false);
+            if ($plan) return $plan;
+        }
+
+        $title = trim((string)($row['service_name'] ?? ''));
+        if ($title === '') return null;
+        global $wpdb;
+        $table = BlueVPN_DB::table('plans');
+        $plan = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT id,title,duration_days,price_toman,active,deleted
+                 FROM {$table}
+                 WHERE deleted=0 AND title=%s
+                 ORDER BY active DESC,id ASC LIMIT 1",
+                $title
+            ),
+            ARRAY_A
+        );
+        return is_array($plan) ? $plan : null;
+    }
+
 
     private static function queue_customer_event(
         array $row,
@@ -90,7 +158,7 @@ final class BlueVPN_Manual_Customers {
         return BlueVPN_SMS_Notifications::queue(
             $event,
             (string)$row['phone'],
-            self::sms_params($row, $daysLeft),
+            self::sms_params($row, $event, $daysLeft),
             null,
             null,
             'manual-customer:' . (int)$row['id'] . ':' . $dedupe,
@@ -109,6 +177,13 @@ final class BlueVPN_Manual_Customers {
         $edit = $editId > 0
             ? $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%d", $editId), ARRAY_A)
             : null;
+
+        $plans = self::current_plans(false);
+        $selectedPlanId = $edit ? (int)($edit['catalog_plan_id'] ?? 0) : 0;
+        if ($edit && $selectedPlanId <= 0) {
+            $legacyPlan = self::resolve_existing_plan($edit);
+            if ($legacyPlan) $selectedPlanId = (int)$legacyPlan['id'];
+        }
 
         $total = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$table}");
         $active = (int)$wpdb->get_var("SELECT COUNT(*) FROM {$table} WHERE active=1");
@@ -145,7 +220,7 @@ final class BlueVPN_Manual_Customers {
         echo '</div>';
 
         echo '<div class="bvc-card"><h2>'.($edit ? 'ویرایش مشتری دستی' : 'ثبت مشتری دستی').'</h2>';
-        echo '<div class="bvc-note">این بخش فقط CRM و پیامک است. ثبت این مشتری <strong>هیچ حساب BlueVPN، entitlement، سرویس Provider یا دسترسی VPN</strong> ایجاد نمی‌کند.</div>';
+        echo '<div class="bvc-note"><strong>پلن و پیامک جداگانه‌ای برای مشتری دستی ساخته نمی‌شود.</strong> پلن از همان پلن‌های فعلی BlueVPN انتخاب می‌شود و پیامک‌ها دقیقاً از پیام‌های فعلی «فعال‌سازی دستی توسط مدیریت»، «تمدید اشتراک»، «یادآوری پایان اشتراک» و «پایان اشتراک» استفاده می‌کنند. ثبت این مشتری هیچ entitlement یا سرویس VPN جدیدی نمی‌سازد.</div>';
         echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
         wp_nonce_field('bluevpn_manual_customer_save');
         echo '<input type="hidden" name="action" value="bluevpn_manual_customer_save">';
@@ -153,26 +228,35 @@ final class BlueVPN_Manual_Customers {
         echo '<div class="bvc-form-grid">';
         self::field('full_name', 'نام مشتری', (string)($edit['full_name'] ?? ''));
         self::field('phone', 'شماره موبایل', BlueVPN_Utils::local_phone((string)($edit['phone'] ?? '')), true);
-        self::field('service_name', 'نام سرویس', (string)($edit['service_name'] ?? ''), true);
+        echo '<label>پلن فعلی BlueVPN<select name="catalog_plan_id" required>';
+        echo '<option value="">انتخاب پلن…</option>';
+        foreach ($plans as $plan) {
+            $planId = (int)$plan['id'];
+            $days = (int)$plan['duration_days'];
+            $suffix = $days > 0 ? ' — '.$days.' روز' : ' — بدون محدودیت زمانی';
+            if (empty($plan['active'])) $suffix .= ' — غیرفعال';
+            echo '<option value="'.$planId.'" '.selected($selectedPlanId,$planId,false).'>'.esc_html((string)$plan['title'].$suffix).'</option>';
+        }
+        echo '</select><small style="display:block;margin-top:4px">تمدید بعدی دقیقاً با مدت همین پلن انجام می‌شود.</small></label>';
         self::field('app_name', 'اپ / بستر سرویس', (string)($edit['app_name'] ?? ''));
         self::field('start_date', 'تاریخ شروع شمسی', self::date_input($edit['start_at'] ?? null), false, 'مثال: 1405/05/27');
         self::field('expire_date', 'تاریخ انقضا شمسی', self::date_input($edit['expire_at'] ?? null), true, 'مثال: 1405/06/27');
         echo '<label style="grid-column:1/-1">یادداشت<textarea name="notes" rows="3">'.esc_textarea((string)($edit['notes'] ?? '')).'</textarea></label>';
         echo '<label><input type="checkbox" name="active" value="1" '.checked(!isset($edit['active']) || (int)$edit['active'] === 1, true, false).'> مشتری فعال باشد</label>';
         echo '<label><input type="checkbox" name="sms_enabled" value="1" '.checked(!isset($edit['sms_enabled']) || (int)$edit['sms_enabled'] === 1, true, false).'> یادآوری SMS فعال باشد</label>';
-        echo '<label><input type="checkbox" name="send_activation_sms" value="1"> بعد از ذخیره پیامک ثبت/فعال‌سازی ارسال شود</label>';
+        echo '<div class="bvc-note">ارسال‌ها خودکار است: ثبت مشتری جدید → «فعال‌سازی دستی توسط مدیریت»، تمدید → «تمدید اشتراک»، روزهای یادآوری → «یادآوری پایان اشتراک»، پایان اعتبار → «پایان اشتراک».</div>';
         echo '</div><p>';
         submit_button($edit ? 'ذخیره تغییرات' : 'ثبت مشتری', 'primary', 'submit', false);
         if ($edit) echo ' <a class="button" href="'.esc_url(self::url()).'">انصراف</a>';
         echo '</p></form></div>';
 
         echo '<div class="bvc-card"><h2>ورود گروهی CSV</h2>';
-        echo '<div class="bvc-note">ستون‌های قابل قبول: <code>phone</code>، <code>name</code>، <code>service</code>، <code>app</code>، <code>start_date</code>، <code>expire_date</code>، <code>note</code>، <code>sms_enabled</code>. تاریخ‌ها می‌توانند شمسی مثل 1405/06/27 باشند.</div>';
+        echo '<div class="bvc-note">ستون‌های قابل قبول: <code>phone</code>، <code>name</code>، <code>plan_id</code> یا <code>plan</code> (عنوان دقیق یکی از پلن‌های فعلی)، <code>app</code>، <code>start_date</code>، <code>expire_date</code>، <code>note</code>، <code>sms_enabled</code>. تاریخ‌ها می‌توانند شمسی مثل 1405/06/27 باشند.</div>';
         echo '<form method="post" enctype="multipart/form-data" action="'.esc_url(admin_url('admin-post.php')).'">';
         wp_nonce_field('bluevpn_manual_customer_import_csv');
         echo '<input type="hidden" name="action" value="bluevpn_manual_customer_import_csv">';
         echo '<input type="file" name="csv_file" accept=".csv,text/csv" required> ';
-        echo '<label><input type="checkbox" name="send_activation_sms" value="1"> برای ردیف‌های جدید پیامک ثبت ارسال شود</label> ';
+        echo '<span class="bvc-note">برای ردیف جدید با SMS فعال، پیام فعال‌سازی فعلی به‌صورت خودکار صف می‌شود.</span> ';
         submit_button('ورود CSV', 'secondary', 'submit', false);
         echo '</form></div>';
 
@@ -226,7 +310,7 @@ final class BlueVPN_Manual_Customers {
             echo '<p class="bvc-note">موردی با این فیلتر پیدا نشد.</p></div>';
             return;
         }
-        echo '<table class="widefat striped bvc-table"><tr><th>مشتری</th><th>سرویس</th><th>اعتبار</th><th>SMS</th><th>عملیات</th></tr>';
+        echo '<table class="widefat striped bvc-table"><tr><th>مشتری</th><th>پلن فعلی</th><th>اعتبار</th><th>SMS</th><th>عملیات</th></tr>';
         foreach ($rows as $row) {
             [$statusKey,$statusLabel,$statusClass] = self::status_of($row);
             $id = (int)$row['id'];
@@ -250,8 +334,11 @@ final class BlueVPN_Manual_Customers {
             echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
             wp_nonce_field('bluevpn_manual_customer_renew_'.$id);
             echo '<input type="hidden" name="action" value="bluevpn_manual_customer_renew"><input type="hidden" name="customer_id" value="'.$id.'">';
-            echo '<input type="number" name="days" value="30" min="1" max="3650" style="width:72px" title="روز">';
-            echo '<button class="button button-primary">تمدید</button></form>';
+            $rowPlan = self::resolve_existing_plan($row);
+            $renewLabel = $rowPlan
+                ? ('تمدید '.$rowPlan['duration_days'].' روزه')
+                : 'انتخاب پلن برای تمدید';
+            echo '<button class="button button-primary">'.esc_html($renewLabel).'</button></form>';
 
             echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
             wp_nonce_field('bluevpn_manual_customer_send_sms_'.$id);
@@ -346,8 +433,10 @@ final class BlueVPN_Manual_Customers {
             $id = max(0, (int)($_POST['customer_id'] ?? 0));
             $phone = self::safe_phone((string)($_POST['phone'] ?? ''));
             $name = self::safe_name((string)($_POST['full_name'] ?? ''));
-            $service = self::safe_name((string)($_POST['service_name'] ?? ''));
-            if ($service === '') throw new RuntimeException('نام سرویس لازم است.');
+            $planId = max(0, (int)($_POST['catalog_plan_id'] ?? 0));
+            $plan = self::plan_by_id($planId, false);
+            if (!$plan) throw new RuntimeException('یکی از پلن‌های فعلی BlueVPN را انتخاب کنید.');
+            $service = self::safe_name((string)$plan['title']);
 
             $startAt = self::parse_date((string)($_POST['start_date'] ?? ''), false);
             $expireAt = self::parse_date((string)($_POST['expire_date'] ?? ''), true);
@@ -358,6 +447,7 @@ final class BlueVPN_Manual_Customers {
                 'full_name' => $name,
                 'phone' => $phone,
                 'service_name' => $service,
+                'catalog_plan_id' => $planId,
                 'app_name' => self::safe_name((string)($_POST['app_name'] ?? '')),
                 'start_at' => $startAt,
                 'expire_at' => $expireAt,
@@ -368,6 +458,9 @@ final class BlueVPN_Manual_Customers {
             ];
 
             $table = self::table();
+            $before = $id > 0
+                ? $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%d", $id), ARRAY_A)
+                : null;
             if ($id > 0) {
                 $exists = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$table} WHERE id=%d", $id));
                 if (!$exists) throw new RuntimeException('مشتری دستی پیدا نشد.');
@@ -383,17 +476,36 @@ final class BlueVPN_Manual_Customers {
             }
 
             $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%d", $id), ARRAY_A);
-            if ($row && isset($_POST['send_activation_sms'])) {
-                self::queue_customer_event(
-                    $row,
-                    'manual_subscription_activated',
-                    'activated:' . gmdate('YmdHi', strtotime((string)$row['expire_at'] . ' UTC')),
-                    0,
-                    true
-                );
+            if ($row && !empty($row['sms_enabled'])) {
+                $seed = gmdate('YmdHi', strtotime((string)$row['expire_at'] . ' UTC'));
+                if (!$before) {
+                    self::queue_customer_event(
+                        $row,
+                        'admin_subscription_activated',
+                        'activated:' . $seed,
+                        0,
+                        false
+                    );
+                } elseif ((int)($before['catalog_plan_id'] ?? 0) !== $planId) {
+                    self::queue_customer_event(
+                        $row,
+                        'subscription_plan_changed',
+                        'plan-changed:' . $planId . ':' . $seed,
+                        0,
+                        false
+                    );
+                } elseif ((string)($before['expire_at'] ?? '') !== (string)$row['expire_at']) {
+                    self::queue_customer_event(
+                        $row,
+                        'subscription_renewed',
+                        'expiry-edited:' . $seed,
+                        0,
+                        false
+                    );
+                }
             }
 
-            self::redirect('مشتری دستی ذخیره شد.', false);
+            self::redirect('مشتری دستی ذخیره شد. پیام‌های اشتراک از همان تنظیمات فعلی SMS استفاده می‌کنند.', false);
         } catch (Throwable $e) {
             self::redirect($e->getMessage(), true);
         }
@@ -406,38 +518,63 @@ final class BlueVPN_Manual_Customers {
         check_admin_referer('bluevpn_manual_customer_renew_' . $id);
 
         try {
-            $days = max(1, min(3650, (int)($_POST['days'] ?? 30)));
             $table = self::table();
-            $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%d", $id), ARRAY_A);
+            $row = $wpdb->get_row(
+                $wpdb->prepare("SELECT * FROM {$table} WHERE id=%d", $id),
+                ARRAY_A
+            );
             if (!$row) throw new RuntimeException('مشتری دستی پیدا نشد.');
 
-            $currentTs = !empty($row['expire_at']) ? (strtotime((string)$row['expire_at'] . ' UTC') ?: 0) : 0;
+            $plan = self::resolve_existing_plan($row);
+            if (!$plan) {
+                throw new RuntimeException('برای این مشتری ابتدا یکی از پلن‌های فعلی BlueVPN را انتخاب و ذخیره کنید.');
+            }
+            if (empty($plan['active'])) {
+                throw new RuntimeException('پلن انتخاب‌شده در حال حاضر غیرفعال است. ابتدا پلن مشتری را تغییر دهید.');
+            }
+
+            $days = (int)($plan['duration_days'] ?? 0);
+            if ($days <= 0) {
+                throw new RuntimeException('این پلن مدت روزانه مشخص ندارد و تمدید خودکار زمانی برای آن قابل محاسبه نیست.');
+            }
+
+            $currentTs = !empty($row['expire_at'])
+                ? (strtotime((string)$row['expire_at'] . ' UTC') ?: 0)
+                : 0;
             $base = max(time(), $currentTs);
             $newExpiry = gmdate('Y-m-d H:i:s', $base + $days * DAY_IN_SECONDS);
 
             $ok = $wpdb->update(
                 $table,
                 [
-                    'expire_at'=>$newExpiry,
-                    'active'=>1,
-                    'last_renewed_at'=>BlueVPN_Utils::now_mysql(),
-                    'updated_at'=>BlueVPN_Utils::now_mysql(),
+                    'catalog_plan_id' => (int)$plan['id'],
+                    'service_name' => (string)$plan['title'],
+                    'expire_at' => $newExpiry,
+                    'active' => 1,
+                    'last_renewed_at' => BlueVPN_Utils::now_mysql(),
+                    'updated_at' => BlueVPN_Utils::now_mysql(),
                 ],
-                ['id'=>$id]
+                ['id' => $id]
             );
             if ($ok === false) throw new RuntimeException('تمدید مشتری ناموفق بود.');
 
+            $row['catalog_plan_id'] = (int)$plan['id'];
+            $row['service_name'] = (string)$plan['title'];
             $row['expire_at'] = $newExpiry;
             $row['active'] = 1;
+
             self::queue_customer_event(
                 $row,
-                'manual_subscription_renewed',
-                'renewed:' . gmdate('YmdHi', strtotime($newExpiry . ' UTC')),
+                'subscription_renewed',
+                'renewed:' . (int)$plan['id'] . ':' . gmdate('YmdHi', strtotime($newExpiry . ' UTC')),
                 0,
-                true
+                false
             );
 
-            self::redirect($days . ' روز به اعتبار مشتری اضافه شد و پیامک تمدید در صف قرار گرفت.');
+            self::redirect(
+                'اشتراک با پلن «' . (string)$plan['title'] . '» برای ' .
+                $days . ' روز تمدید شد و پیام «تمدید اشتراک» فعلی در صف قرار گرفت.'
+            );
         } catch (Throwable $e) {
             self::redirect($e->getMessage(), true);
         }
@@ -476,7 +613,7 @@ final class BlueVPN_Manual_Customers {
 
             $expiryTs = !empty($row['expire_at']) ? (strtotime((string)$row['expire_at'] . ' UTC') ?: 0) : 0;
             $daysLeft = $expiryTs > time() ? (int)ceil(($expiryTs - time()) / DAY_IN_SECONDS) : 0;
-            $event = $daysLeft > 0 ? 'manual_subscription_reminder' : 'manual_subscription_expired';
+            $event = $daysLeft > 0 ? 'subscription_reminder' : 'subscription_expired';
             $idQueued = self::queue_customer_event(
                 $row,
                 $event,
@@ -496,7 +633,8 @@ final class BlueVPN_Manual_Customers {
         $map = [
             'شماره'=>'phone','شماره موبایل'=>'phone','موبایل'=>'phone','mobile'=>'phone',
             'نام'=>'name','نام مشتری'=>'name','full_name'=>'name',
-            'سرویس'=>'service','نام سرویس'=>'service','service_name'=>'service',
+            'پلن'=>'plan','نام پلن'=>'plan','plan_title'=>'plan','service'=>'plan','service_name'=>'plan',
+            'شناسه پلن'=>'plan_id','planid'=>'plan_id',
             'اپ'=>'app','برنامه'=>'app','app_name'=>'app',
             'شروع'=>'start_date','تاریخ شروع'=>'start_date','start'=>'start_date',
             'انقضا'=>'expire_date','تاریخ انقضا'=>'expire_date','expire'=>'expire_date','expiry'=>'expire_date',
@@ -528,9 +666,13 @@ final class BlueVPN_Manual_Customers {
                 throw new RuntimeException('CSV خالی است.');
             }
             $header = array_map([self::class, 'normalize_csv_header'], $header);
-            if (!in_array('phone', $header, true) || !in_array('expire_date', $header, true)) {
+            if (
+                !in_array('phone', $header, true) ||
+                !in_array('expire_date', $header, true) ||
+                (!in_array('plan_id', $header, true) && !in_array('plan', $header, true))
+            ) {
                 fclose($fh);
-                throw new RuntimeException('CSV باید حداقل ستون phone و expire_date داشته باشد.');
+                throw new RuntimeException('CSV باید phone و expire_date و یکی از plan_id یا plan را داشته باشد.');
             }
 
             $created = 0;
@@ -551,16 +693,37 @@ final class BlueVPN_Manual_Customers {
                     if (!$expireAt) throw new RuntimeException('تاریخ انقضا نامعتبر');
                     $startAt = BlueVPN_Utils::mysql_from_tehran_date((string)($row['start_date'] ?? ''), false)
                         ?: BlueVPN_Utils::now_mysql();
-                    $service = self::safe_name((string)($row['service'] ?? ''));
-                    if ($service === '') $service = 'سرویس دستی';
+                    $plan = null;
+                    $csvPlanId = max(0, (int)($row['plan_id'] ?? 0));
+                    if ($csvPlanId > 0) {
+                        $plan = self::plan_by_id($csvPlanId, false);
+                    }
+                    if (!$plan) {
+                        $planTitle = self::safe_name((string)($row['plan'] ?? ''));
+                        if ($planTitle !== '') {
+                            $planTable = BlueVPN_DB::table('plans');
+                            $plan = $wpdb->get_row(
+                                $wpdb->prepare(
+                                    "SELECT id,title,duration_days,price_toman,active,deleted
+                                     FROM {$planTable}
+                                     WHERE deleted=0 AND title=%s
+                                     ORDER BY active DESC,id ASC LIMIT 1",
+                                    $planTitle
+                                ),
+                                ARRAY_A
+                            );
+                        }
+                    }
+                    if (!$plan) throw new RuntimeException('پلن فعلی BlueVPN پیدا نشد');
+                    $service = self::safe_name((string)$plan['title']);
 
                     // Avoid accidental duplicate import of the exact same
-                    // phone/service/expiry tuple.
+                    // phone/plan/expiry tuple.
                     $duplicate = $wpdb->get_var(
                         $wpdb->prepare(
-                            "SELECT id FROM {$table} WHERE phone=%s AND service_name=%s AND expire_at=%s LIMIT 1",
+                            "SELECT id FROM {$table} WHERE phone=%s AND catalog_plan_id=%d AND expire_at=%s LIMIT 1",
                             $phone,
-                            $service,
+                            (int)$plan['id'],
                             $expireAt
                         )
                     );
@@ -576,6 +739,7 @@ final class BlueVPN_Manual_Customers {
                         'full_name'=>self::safe_name((string)($row['name'] ?? '')),
                         'phone'=>$phone,
                         'service_name'=>$service,
+                        'catalog_plan_id'=>(int)$plan['id'],
                         'app_name'=>self::safe_name((string)($row['app'] ?? '')),
                         'start_at'=>$startAt,
                         'expire_at'=>$expireAt,
@@ -588,16 +752,21 @@ final class BlueVPN_Manual_Customers {
                     if ($ok === false) throw new RuntimeException('DB insert failed');
                     $created++;
 
-                    if (isset($_POST['send_activation_sms']) && $smsEnabled) {
+                    if ($smsEnabled) {
                         $id = (int)$wpdb->insert_id;
-                        $saved = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%d", $id), ARRAY_A);
-                        if ($saved) self::queue_customer_event(
-                            $saved,
-                            'manual_subscription_activated',
-                            'import-activated:' . gmdate('YmdHi', strtotime($expireAt . ' UTC')),
-                            0,
-                            false
+                        $saved = $wpdb->get_row(
+                            $wpdb->prepare("SELECT * FROM {$table} WHERE id=%d", $id),
+                            ARRAY_A
                         );
+                        if ($saved) {
+                            self::queue_customer_event(
+                                $saved,
+                                'admin_subscription_activated',
+                                'import-activated:' . gmdate('YmdHi', strtotime($expireAt . ' UTC')),
+                                0,
+                                false
+                            );
+                        }
                     }
                 } catch (Throwable $rowError) {
                     $errors++;
@@ -649,7 +818,7 @@ final class BlueVPN_Manual_Customers {
             if (in_array($daysLeft, $days, true)) {
                 $queued += self::queue_customer_event(
                     $row,
-                    'manual_subscription_reminder',
+                    'subscription_reminder',
                     'expiry:' . $seed . ':day:' . $daysLeft,
                     $daysLeft
                 ) ? 1 : 0;
@@ -657,7 +826,7 @@ final class BlueVPN_Manual_Customers {
             if ($seconds <= 0) {
                 $queued += self::queue_customer_event(
                     $row,
-                    'manual_subscription_expired',
+                    'subscription_expired',
                     'expired:' . $seed,
                     0
                 ) ? 1 : 0;

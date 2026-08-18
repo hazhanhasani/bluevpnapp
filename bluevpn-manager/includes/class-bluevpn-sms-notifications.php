@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_SMS_Notifications {
     public const HOOK_PROCESS = 'bluevpn_sms_process_queue';
     private const RETRY_DELAYS = [60, 300, 900, 1800];
-    private const CATALOG_VERSION = '2026-08-18-4.15.1-manual-customers';
+    private const CATALOG_VERSION = '2026-08-18-4.15.4-manual-reuse-live-subscription-messages';
     private static bool $shutdownRegistered = false;
 
     /**
@@ -28,10 +28,6 @@ final class BlueVPN_SMS_Notifications {
             'invoice_expired'=>['title'=>'لغو یا انقضای فاکتور','category'=>'پرداخت','body'=>"مهلت پرداخت فاکتور %invoice_id% به پایان رسید و فاکتور لغو شد.\nبلوپنل",'vars'=>[$v('invoice_id','متنی',40)]],
             'refund_success'=>['title'=>'بازگشت وجه','category'=>'پرداخت','body'=>"مبلغ %amount% تومان بابت فاکتور %invoice_id% بازگشت داده شد.\nبلوپنل",'vars'=>[$v('amount','عددی',12),$v('invoice_id','متنی',40)]],
             'subscription_reminder'=>['title'=>'یادآوری پایان اشتراک','category'=>'اشتراک','body'=>"تنها %days_left% روز از اعتبار اشتراک شما باقی مانده است.\nبلوپنل",'vars'=>[$v('days_left','عددی',2)]],
-            'manual_subscription_activated'=>['title'=>'ثبت سرویس مشتری دستی','category'=>'مشتریان دستی','body'=>"%name% عزیز، سرویس %service% برای شما ثبت شد.\nاعتبار تا: %expire_date%",'vars'=>[$v('name','متنی',30),$v('service','متنی',40),$v('expire_date','متنی',10)]],
-            'manual_subscription_renewed'=>['title'=>'تمدید سرویس مشتری دستی','category'=>'مشتریان دستی','body'=>"%name% عزیز، سرویس %service% تمدید شد.\nاعتبار جدید تا: %expire_date%",'vars'=>[$v('name','متنی',30),$v('service','متنی',40),$v('expire_date','متنی',10)]],
-            'manual_subscription_reminder'=>['title'=>'یادآوری تمدید مشتری دستی','category'=>'مشتریان دستی','body'=>"%name% عزیز، %days_left% روز تا پایان سرویس %service% باقی مانده است.\nاعتبار تا: %expire_date%",'vars'=>[$v('name','متنی',30),$v('days_left','عددی',2),$v('service','متنی',40),$v('expire_date','متنی',10)]],
-            'manual_subscription_expired'=>['title'=>'پایان سرویس مشتری دستی','category'=>'مشتریان دستی','body'=>"%name% عزیز، اعتبار سرویس %service% به پایان رسیده است.\nبرای تمدید با ما در تماس باشید.",'vars'=>[$v('name','متنی',30),$v('service','متنی',40)]],
             'subscription_expired'=>['title'=>'پایان اشتراک','category'=>'اشتراک','body'=>"اشتراک شما در بلوپنل به پایان رسید.\nبرای فعال‌سازی مجدد، اشتراک خود را تمدید کنید."],
             'low_remaining_volume'=>['title'=>'هشدار کاهش حجم','category'=>'اشتراک','body'=>"حجم باقی‌مانده اشتراک شما کمتر از %remaining_volume% گیگابایت است.\nبلوپنل",'vars'=>[$v('remaining_volume','عددی',4)]],
             'volume_expired'=>['title'=>'پایان حجم اشتراک','category'=>'اشتراک','body'=>"حجم اشتراک شما به پایان رسید.\nبرای ادامه استفاده، اشتراک خود را تمدید کنید."],
@@ -74,8 +70,7 @@ final class BlueVPN_SMS_Notifications {
             'invoice_created','invoice_expired','refund_success','subscription_reminder','subscription_expired',
             'low_remaining_volume','volume_expired','new_device_login','phone_changed','phone_change_otp',
             'account_temporarily_blocked','account_unblocked','account_status_changed','service_disruption','service_restored',
-            'scheduled_maintenance','new_version','required_update','admin_announcement','device_removed',
-            'manual_subscription_activated','manual_subscription_renewed','manual_subscription_reminder','manual_subscription_expired'
+            'scheduled_maintenance','new_version','required_update','admin_announcement','device_removed'
         ];
     }
 
@@ -120,6 +115,20 @@ final class BlueVPN_SMS_Notifications {
                 $wpdb->insert($table, $base);
             }
         }
+        // 4.15.4: Manual CRM now reuses the canonical subscription templates
+        // exactly, so remove the old duplicate manual-only template rows.
+        $legacyManualKeys = [
+            'manual_subscription_activated',
+            'manual_subscription_renewed',
+            'manual_subscription_reminder',
+            'manual_subscription_expired',
+        ];
+        $placeholders = implode(',', array_fill(0, count($legacyManualKeys), '%s'));
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$table} WHERE `key` IN ({$placeholders})",
+            ...$legacyManualKeys
+        ));
+
         // Keep legacy OTP settings and the auth template mirrored both ways.
         $s = self::settings();
         if ($s) {

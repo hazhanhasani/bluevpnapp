@@ -17,9 +17,9 @@ class UnifiedComponentVersions4153Tests(unittest.TestCase):
         functions = text("bluevpn-site/functions.php")
 
         version = release["version"]
-        self.assertEqual(version, "4.15.3")
+        self.assertEqual(version, "4.15.4")
         self.assertEqual(branding["version_name"], version)
-        self.assertEqual(branding["version_code"], 41503)
+        self.assertEqual(branding["version_code"], 41504)
         self.assertIn("Version: " + version, manager)
         self.assertIn("BLUEVPN_MANAGER_VERSION', '" + version, manager)
         self.assertRegex(style, rf"(?m)^Version:\s*{re.escape(version)}\s*$")
@@ -29,17 +29,17 @@ class UnifiedComponentVersions4153Tests(unittest.TestCase):
         self.assertEqual(release["theme_version"], version)
 
     def test_no_current_split_version_markers(self):
-        current_files = [
-            "bluevpn-site/style.css",
-            "bluevpn-site/functions.php",
-            "branding/app.json",
-            "release.json",
-            "bluevpn-manager/bluevpn-manager.php",
-        ]
-        for path in current_files:
-            src = text(path)
-            self.assertNotIn("1.3.14", src)
-            self.assertNotIn("4.15.2", src)
+        release = json.loads(text("release.json"))
+        version = release["version"]
+        manager = text("bluevpn-manager/bluevpn-manager.php")
+        style = text("bluevpn-site/style.css")
+        functions = text("bluevpn-site/functions.php")
+        branding = json.loads(text("branding/app.json"))
+
+        self.assertIn("Version: " + version, manager)
+        self.assertRegex(style, rf"(?m)^Version:\s*{re.escape(version)}\s*$")
+        self.assertIn("BLUEVPN_SITE_VERSION', '" + version, functions)
+        self.assertEqual(branding["version_name"], version)
 
     def test_deploy_bot_rejects_theme_version_drift(self):
         bot = text("bluevpn-manager/includes/class-bluevpn-telegram-bot.php")

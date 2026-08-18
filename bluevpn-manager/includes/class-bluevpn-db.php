@@ -276,6 +276,7 @@ final class BlueVPN_DB {
             full_name varchar(180) NOT NULL DEFAULT '',
             phone varchar(20) NOT NULL DEFAULT '',
             service_name varchar(180) NOT NULL DEFAULT '',
+            catalog_plan_id bigint unsigned NULL,
             app_name varchar(180) NOT NULL DEFAULT '',
             start_at datetime NULL,
             expire_at datetime NULL,
@@ -290,7 +291,8 @@ final class BlueVPN_DB {
             KEY ix_manual_customer_phone (phone),
             KEY ix_manual_customer_expire (active, sms_enabled, expire_at),
             KEY ix_manual_customer_link (linked_customer_id),
-            KEY ix_manual_customer_service (service_name)
+            KEY ix_manual_customer_service (service_name),
+            KEY ix_manual_customer_plan (catalog_plan_id)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('otp_challenges')} (

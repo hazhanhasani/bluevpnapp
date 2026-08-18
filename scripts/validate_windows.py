@@ -40,7 +40,7 @@ def main() -> None:
 
     version = str(release.get("version", "")).strip()
     require(re.fullmatch(r"\d+\.\d+\.\d+", version) is not None, "invalid release version")
-    require(version == "4.17.0", "this Windows migration must be release 4.17.0")
+    require(version == "4.17.1", "this Windows migration must be release 4.17.1")
     require(str(branding.get("version_name", "")) == version, "branding version drift")
     require(str(release.get("windows_version", "")) == version, "release windows_version mismatch")
     require(str(settings.get("version", "")) == version, "Windows appsettings version mismatch")
@@ -114,7 +114,7 @@ def main() -> None:
     require("GetPremiumSubscriptionAsync" in connection and "GetFreeSubscriptionAsync" in connection, "Free/Premium isolation missing")
     require("EndpointSelector.RankAsync" in connection, "endpoint ranking missing")
 
-    # 4.17.0 CI/release hardening: installers must be root-level artifacts and
+    # 4.17.1 CI/release hardening: installers must be root-level artifacts and
     # Node.js 20-generation cache/artifact actions must not remain.
     require('dist/BlueVPN-Setup-*.exe' in workflow, "Windows Setup must upload from dist root")
     require('Normalize Windows release payload layout' in workflow, "Windows publish job must normalize artifact layout")

@@ -389,3 +389,40 @@ jobs:
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "BlueVPN-Setup-${VERSION}-win-*.exe" --dir verify-windows-release --clobber
           test -s "verify-windows-release/BlueVPN-Setup-${VERSION}-win-x64.exe"
           test -s "verify-windows-release/BlueVPN-Setup-${VERSION}-win-arm64.exe"
+
+
+      - name: Sync Windows release metadata to WordPress
+        shell: bash
+        run: |
+          set -euo pipefail
+          API_BASE_URL="$(python - <<'PY2'
+          import json
+          from pathlib import Path
+          print(json.loads(Path("branding/app.json").read_text(encoding="utf-8")).get("api_base_url", "").rstrip("/"))
+          PY2
+          )"
+          if [ -z "$API_BASE_URL" ]; then
+            echo "::warning::api_base_url is empty; Windows WordPress release sync skipped."
+            exit 0
+          fi
+          SYNC_URL="${API_BASE_URL}/api/v1/windows/update?refresh=true&arch=win-x64&current_version=0.0.0"
+          echo "Refreshing WordPress Windows release metadata: ${SYNC_URL}"
+          if ! curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --max-time 35 "$SYNC_URL" -o "$RUNNER_TEMP/bluevpn-wordpress-windows-update.json"; then
+            echo "::warning::WordPress Windows release-sync kick failed; background polling will retry automatically."
+            exit 0
+          fi
+          sleep 5
+          curl --fail --silent --show-error --location --retry 2 --retry-delay 2 --max-time 35 \
+            "$SYNC_URL" -o "$RUNNER_TEMP/bluevpn-wordpress-windows-update-after-sync.json" || true
+          python - <<'PY2'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ["RUNNER_TEMP"])
+          path=root / "bluevpn-wordpress-windows-update-after-sync.json"
+          if not path.exists():
+              path=root / "bluevpn-wordpress-windows-update.json"
+          data=json.loads(path.read_text(encoding="utf-8"))
+          print("WordPress Windows latest_version:", data.get("latest_version"))
+          print("WordPress Windows release_channel:", data.get("release_channel"))
+          print("WordPress Windows refresh_mode:", data.get("release_refresh_mode"))
+          PY2

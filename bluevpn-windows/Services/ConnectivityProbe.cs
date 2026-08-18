@@ -14,7 +14,7 @@ public static class ConnectivityProbe
             UseProxy = false
         };
         using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Probe/4.17.0");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Probe/4.17.1");
         try
         {
             using var response = await http.GetAsync(url, HttpCompletionOption.ResponseContentRead, ct);

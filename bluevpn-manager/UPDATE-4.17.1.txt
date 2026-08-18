@@ -1,4 +1,4 @@
-BlueVPN Manager 4.17.0
+BlueVPN Manager 4.17.1
 
 - Deploy Bot installs the exact Manager bundled in a validated uploaded project before depending on a GitHub Manager Release.
 - Missing/delayed Manager Release no longer fails a full deploy when the local source install succeeded.

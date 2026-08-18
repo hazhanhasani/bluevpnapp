@@ -1,15 +1,15 @@
 === BlueVPN Manager ===
-Version: 4.17.0
-Stable tag: 4.17.0
+Version: 4.17.1
+Stable tag: 4.17.1
 Requires PHP: 8.0
 
-== 4.17.0 ==
+== 4.17.1 ==
 - Deploy Bot installs the exact BlueVPN Manager bundled in the validated uploaded ZIP before depending on a dedicated GitHub Manager Release.
 - A delayed/missing Manager Release no longer fails a full deploy when the local source installation succeeded; Release publication remains a background/update channel.
 - Adds exact-tag GitHub Release retry for eventual consistency when the Release path is used as fallback.
 - Hardens project-root detection for nested wrapper directories and one unambiguous versioned Manager folder.
 - Sentinel reports failed Deploy Bot jobs immediately and no longer re-counts an unchanged failed row every minute.
-- Android, Manager, Theme and Windows source metadata are synchronized on 4.17.0.
+- Android, Manager, Theme and Windows source metadata are synchronized on 4.17.1.
 
 == 4.16.9 ==
 - Fixes the Windows RuntimeLocator architecture-name collision that caused CS1061 on both x64 and ARM64 builds.

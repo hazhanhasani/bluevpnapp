@@ -683,7 +683,10 @@ final class BlueVPN_Control_Center {
                 $label=['stable'=>'🟢 Stable / رسمی','beta'=>'🟡 Beta / آزمایشی','stopped'=>'⛔ Beta متوقف','archived'=>'⚪ آرشیو'][$state]??$state;
                 echo '<tr><td><strong>'.self::esc($r['version']).'</strong><br><small>Code '.(int)$r['version_code'].'</small></td><td>'.self::esc($label).'</td><td>#'.(int)$r['build_number'].'<br><code>'.self::esc(substr((string)$r['commit_sha'],0,12)?:'—').'</code></td><td>'.(!empty($r['force_update'])?'<span class="bvc-bad">اجباری</span>':'اختیاری').'</td><td>'.self::dt($r['release_published_at']).'</td><td><div class="bvc-actions">';
                 if(!empty($r['release_url']))echo '<a class="button" target="_blank" rel="noopener" href="'.esc_url($r['release_url']).'">GitHub</a>';
-                if($state!=='stable'){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_release_promote_'.(int)$r['id']);echo '<input type="hidden" name="action" value="bluevpn_cc_release_promote"><input type="hidden" name="release_id" value="'.(int)$r['id'].'"><button class="button button-primary">انتشار رسمی</button></form>';}
+                if($state!=='stable'){
+                    echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_release_promote_'.(int)$r['id']);echo '<input type="hidden" name="action" value="bluevpn_cc_release_promote"><input type="hidden" name="release_id" value="'.(int)$r['id'].'"><input type="hidden" name="scope" value="all"><button class="button button-primary">انتشار رسمی Android + Windows</button></form>';
+                    echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_release_promote_'.(int)$r['id']);echo '<input type="hidden" name="action" value="bluevpn_cc_release_promote"><input type="hidden" name="release_id" value="'.(int)$r['id'].'"><input type="hidden" name="scope" value="android_only"><button class="button">فقط Android</button></form>';
+                }
                 if($state==='beta'){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_release_stop_'.(int)$r['id']);echo '<input type="hidden" name="action" value="bluevpn_cc_release_stop"><input type="hidden" name="release_id" value="'.(int)$r['id'].'"><button class="button">توقف Beta</button></form>';}
                 elseif(in_array($state,['stopped','archived'],true)){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_release_resume_'.(int)$r['id']);echo '<input type="hidden" name="action" value="bluevpn_cc_release_resume"><input type="hidden" name="release_id" value="'.(int)$r['id'].'"><button class="button">فعال‌سازی Beta</button></form>';}
                 if(in_array($state,['stable','beta'],true)){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_release_force_'.(int)$r['id']);echo '<input type="hidden" name="action" value="bluevpn_cc_release_force"><input type="hidden" name="release_id" value="'.(int)$r['id'].'"><button class="button">'.(!empty($r['force_update'])?'لغو اجبار':'اجباری‌کردن').'</button></form>';}
@@ -702,7 +705,7 @@ final class BlueVPN_Control_Center {
         echo '<label><input type="checkbox" name="maintenance" value="1" '.checked(!empty($s['maintenance']),true,false).'> حالت تعمیرات</label>';
         echo '</div>';submit_button('ذخیره سیاست بروزرسانی','primary','submit',false);echo '</form></div>';
 
-        echo '<div class="bvc-card"><h2>اتوماسیون انتشار</h2><div class="bvc-grid"><div><strong>① Build</strong><p>Deploy Bot/GitHub APK را می‌سازد.</p></div><div><strong>② Beta</strong><p>WordPress نسخه جدید را خودکار Beta ثبت می‌کند؛ فقط Beta Testerها می‌بینند.</p></div><div><strong>③ Stable</strong><p>با دکمه «انتشار رسمی» همان APK بدون Build مجدد برای همه منتشر می‌شود.</p></div></div>';
+        echo '<div class="bvc-card"><h2>اتوماسیون انتشار</h2><div class="bvc-grid"><div><strong>① Build</strong><p>Deploy Bot/GitHub APK را می‌سازد.</p></div><div><strong>② Beta</strong><p>WordPress نسخه جدید را خودکار Beta ثبت می‌کند؛ فقط Beta Testerها می‌بینند.</p></div><div><strong>③ Stable</strong><p>دکمه اصلی «انتشار رسمی Android + Windows» نسخه هم‌نام را روی هر دو پلتفرم Stable می‌کند؛ گزینه «فقط Android» برای انتشار مستقل باقی مانده است.</p></div></div>';
         echo '<p><strong>API:</strong></p><div class="bvc-code">'.self::esc(untrailingslashit(home_url('/')).'/api/v1/mobile/config').'</div>';
         echo '<div class="bvc-actions" style="margin-top:12px"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_sync_app_release');echo '<input type="hidden" name="action" value="bluevpn_cc_sync_app_release">';submit_button('همگام‌سازی همین حالا','secondary','submit',false);echo '</form><a class="button" href="'.esc_url(self::url('customers')).'">مدیریت Beta Testerها</a></div></div>';
         echo '<div class="bvc-note"><strong>نکته راه‌اندازی اولیه:</strong> نسخه‌های قبل از 4.3.1 هنگام درخواست تنظیمات، توکن حساب را ارسال نمی‌کنند. بنابراین اولین Beta Testerها باید APK 4.3.1 را یک‌بار دستی نصب کنند؛ از 4.3.1 به بعد دریافت Beta کاملاً خودکار و بر اساس حساب پنل است.</div>';
@@ -1108,7 +1111,23 @@ final class BlueVPN_Control_Center {
         self::redirect('app','سیاست بروزرسانی اپ ذخیره شد.');
     }
     public static function release_promote(): void {
-        self::guard();$id=(int)($_POST['release_id']??0);check_admin_referer('bluevpn_cc_release_promote_'.$id);$r=BlueVPN_App_Release_Manager::promote_to_stable($id);self::redirect('app',(string)$r['message'],empty($r['ok']));
+        self::guard();
+        $id=(int)($_POST['release_id']??0);
+        check_admin_referer('bluevpn_cc_release_promote_'.$id);
+        $scope=sanitize_key((string)($_POST['scope']??'all'));
+        $appRelease=BlueVPN_App_Release_Manager::release_by_id($id);
+        if(!$appRelease){self::redirect('app','نسخه Android پیدا نشد.',true);}
+        $appResult=BlueVPN_App_Release_Manager::promote_to_stable($id);
+        if(empty($appResult['ok'])){self::redirect('app',(string)$appResult['message'],true);}
+        if($scope==='android_only'){
+            self::redirect('app',(string)$appResult['message'].' Windows بدون تغییر باقی ماند.',false);
+        }
+        $version=(string)($appRelease['version']??'');
+        $windowsResult=BlueVPN_Windows_Release_Manager::promote_version_to_stable($version,true);
+        if(empty($windowsResult['ok'])){
+            self::redirect('app','Android '.$version.' رسمی شد، اما Windows رسمی نشد: '.(string)($windowsResult['message']??'خطای نامشخص').' از بخش Windows بعد از همگام‌سازی دوباره انتشار رسمی را بزن.',true);
+        }
+        self::redirect('app','نسخه '.$version.' برای Android و Windows با موفقیت Stable/رسمی شد.',false);
     }
     public static function release_stop(): void {
         self::guard();$id=(int)($_POST['release_id']??0);check_admin_referer('bluevpn_cc_release_stop_'.$id);$r=BlueVPN_App_Release_Manager::stop_beta($id);self::redirect('app',(string)$r['message'],empty($r['ok']));

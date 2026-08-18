@@ -290,6 +290,29 @@ final class BlueVPN_Windows_Release_Manager {
     }
     public static function stable_release(): ?array { return self::latest_by_state('stable'); }
     public static function beta_release(): ?array { return self::latest_by_state('beta'); }
+    public static function release_by_version(string $version): ?array {
+        $version=trim($version);
+        if(!preg_match('/^\d+\.\d+\.\d+$/',$version)) return null;
+        global $wpdb; $table=BlueVPN_DB::table('windows_releases');
+        $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE version=%s ORDER BY id DESC LIMIT 1",$version),ARRAY_A);
+        return $row?self::hydrate_release($row):null;
+    }
+    public static function promote_version_to_stable(string $version,bool $syncIfMissing=true): array {
+        $version=trim($version);
+        if(!preg_match('/^\d+\.\d+\.\d+$/',$version)) return ['ok'=>false,'message'=>'نسخه Windows معتبر نیست.'];
+        $release=self::release_by_version($version);
+        if(!$release && $syncIfMissing){
+            $sync=self::sync_now(true,'coordinated_stable_publish');
+            $release=self::release_by_version($version);
+            if(!$release && empty($sync['ok'])) return ['ok'=>false,'message'=>'همگام‌سازی Windows ناموفق بود: '.(string)($sync['message']??'خطای نامشخص')];
+        }
+        if(!$release) return ['ok'=>false,'message'=>'Build کامل Windows '.$version.' هنوز در کانال Windows ثبت نشده است.'];
+        if(empty($release['installer_x64_url'])||empty($release['installer_arm64_url'])) return ['ok'=>false,'message'=>'Installerهای x64 و ARM64 برای Windows '.$version.' کامل نیستند.'];
+        if((string)($release['state']??'')==='stable') return ['ok'=>true,'message'=>'Windows '.$version.' از قبل Stable است.','release'=>$release];
+        $result=self::promote_to_stable((int)$release['id']);
+        if(!empty($result['ok'])) $result['release']=self::release_by_version($version);
+        return $result;
+    }
     private static function latest_by_state(string $state): ?array {
         global $wpdb; $table=BlueVPN_DB::table('windows_releases');
         $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE state=%s ORDER BY version_code DESC,id DESC LIMIT 1",$state),ARRAY_A);

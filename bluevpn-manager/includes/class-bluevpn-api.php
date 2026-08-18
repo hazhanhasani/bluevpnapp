@@ -251,8 +251,9 @@ final class BlueVPN_API {
         ]);
     }
     public static function windows_update(WP_REST_Request $r): WP_REST_Response {
+        $forced = rest_sanitize_boolean($r->get_param('refresh'));
         if (class_exists('BlueVPN_Windows_Release_Manager')) {
-            try { BlueVPN_Windows_Release_Manager::maybe_kick(false); } catch (Throwable $e) { BlueVPN_Error_Monitor::legacy_error_log('BlueVPN windows release refresh queue: '.$e->getMessage()); }
+            try { BlueVPN_Windows_Release_Manager::maybe_kick($forced); } catch (Throwable $e) { BlueVPN_Error_Monitor::legacy_error_log('BlueVPN windows release refresh queue: '.$e->getMessage()); }
         }
         $customer=null;$authState='anonymous';$authError='';$authHeader=trim((string)$r->get_header('authorization'));
         if($authHeader!==''){
@@ -288,6 +289,8 @@ final class BlueVPN_API {
             'architecture'=>(string)($asset['architecture']??$arch),'download_url'=>(string)($asset['url']??''),
             'filename'=>(string)($asset['filename']??''),'sha256'=>(string)($asset['sha256']??''),'size'=>(int)($asset['size']??0),
             'auth_state'=>$authState,'auth_error'=>$authError,'source'=>'wordpress_windows_release_channels',
+            'release_refresh_mode'=>$forced?'queued_force_refresh':'cache_first_background',
+            'release_last_sync'=>class_exists('BlueVPN_Windows_Release_Manager')?BlueVPN_Windows_Release_Manager::last_sync():0,
         ]);
     }
 

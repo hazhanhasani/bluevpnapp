@@ -4,7 +4,7 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_SMS_Notifications {
     public const HOOK_PROCESS = 'bluevpn_sms_process_queue';
     private const RETRY_DELAYS = [60, 300, 900, 1800];
-    private const CATALOG_VERSION = '2026-08-18-4.15.4-manual-reuse-live-subscription-messages';
+    private const CATALOG_VERSION = '2026-08-18-4.15.5-manual-app-identical-activation';
     private static bool $shutdownRegistered = false;
 
     /**
@@ -533,6 +533,135 @@ final class BlueVPN_SMS_Notifications {
         // scalar. Preserve it as the provider reference when present.
         if (array_key_exists('data',$response) && is_scalar($response['data'])) return mb_substr((string)$response['data'],0,180);
         return '';
+    }
+
+    /**
+     * Attempt one exact queued delivery immediately.
+     *
+     * Used by foreground admin actions where the operator expects the same
+     * subscription SMS to be attempted as soon as the plan is assigned.
+     * Retry state remains durable in sms_deliveries if the provider fails.
+     */
+    public static function dispatch_now(string $deliveryId): array {
+        global $wpdb;
+        $deliveryId = trim($deliveryId);
+        if ($deliveryId === '') {
+            return ['ok'=>false,'status'=>'missing','sent'=>false,'message'=>'شناسه پیامک خالی است.'];
+        }
+
+        $table = BlueVPN_DB::table('sms_deliveries');
+        $lockName = 'bluevpn_sms_' . substr(hash('sha256', $deliveryId), 0, 32);
+        if ((int)$wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s,0)', $lockName)) !== 1) {
+            self::wake_queue();
+            return ['ok'=>true,'status'=>'queued','sent'=>false,'message'=>'پیامک در صف ارسال قرار دارد.'];
+        }
+
+        try {
+            $fresh = $wpdb->get_row(
+                $wpdb->prepare("SELECT * FROM {$table} WHERE id=%s LIMIT 1", $deliveryId),
+                ARRAY_A
+            );
+            if (!$fresh) {
+                return ['ok'=>false,'status'=>'missing','sent'=>false,'message'=>'پیامک در صف پیدا نشد.'];
+            }
+
+            $status = (string)($fresh['status'] ?? '');
+            if ($status === 'sent') {
+                return ['ok'=>true,'status'=>'sent','sent'=>true,'message'=>'پیامک ارسال شده است.'];
+            }
+            if (!in_array($status, ['pending','retry'], true)) {
+                return [
+                    'ok'=>$status !== 'failed',
+                    'status'=>$status,
+                    'sent'=>false,
+                    'message'=>(string)($fresh['last_error'] ?? 'پیامک در وضعیت قابل ارسال نیست.'),
+                ];
+            }
+
+            $template = $wpdb->get_row(
+                $wpdb->prepare(
+                    'SELECT * FROM '.BlueVPN_DB::table('sms_templates').' WHERE `key`=%s LIMIT 1',
+                    (string)$fresh['event_key']
+                ),
+                ARRAY_A
+            );
+            $spec = self::spec((string)$fresh['event_key']);
+            if (!$template || !$spec || empty($template['enabled']) || trim((string)$template['pattern_code']) === '') {
+                $message = 'پترن غیرفعال یا بدون کد پترن است.';
+                $wpdb->update(
+                    $table,
+                    ['status'=>'skipped','last_error'=>$message,'next_attempt_at'=>null],
+                    ['id'=>$deliveryId]
+                );
+                return ['ok'=>false,'status'=>'skipped','sent'=>false,'message'=>$message];
+            }
+
+            $attempts = (int)$fresh['attempts'] + 1;
+            $wpdb->update(
+                $table,
+                [
+                    'status'=>'sending',
+                    'attempts'=>$attempts,
+                    'sending_started_at'=>BlueVPN_Utils::now_mysql(),
+                ],
+                ['id'=>$deliveryId]
+            );
+
+            try {
+                $params = BlueVPN_Utils::json_decode_array((string)$fresh['params_json'], []);
+                $response = self::send_pattern(
+                    (string)$fresh['phone'],
+                    (string)$template['pattern_code'],
+                    self::clean_params($spec, $params)
+                );
+                $wpdb->update(
+                    $table,
+                    [
+                        'status'=>'sent',
+                        'sent_at'=>BlueVPN_Utils::now_mysql(),
+                        'provider_message_id'=>self::provider_id($response),
+                        'provider_delivery_status'=>'provider_accepted',
+                        'provider_delivery_at'=>BlueVPN_Utils::now_mysql(),
+                        'response_json'=>mb_substr(BlueVPN_Utils::json_encode($response),0,8000),
+                        'last_error'=>'',
+                        'next_attempt_at'=>null,
+                        'sending_started_at'=>null,
+                    ],
+                    ['id'=>$deliveryId]
+                );
+                return ['ok'=>true,'status'=>'sent','sent'=>true,'message'=>'پیامک ارسال شد.'];
+            } catch (Throwable $e) {
+                $max = max(1, (int)$fresh['max_attempts']);
+                if ($attempts >= $max) {
+                    $retryStatus = 'failed';
+                    $next = null;
+                } else {
+                    $retryStatus = 'retry';
+                    $delay = self::RETRY_DELAYS[min($attempts - 1, count(self::RETRY_DELAYS) - 1)];
+                    $next = gmdate('Y-m-d H:i:s', time() + $delay);
+                }
+                $message = mb_substr($e->getMessage(), 0, 2000);
+                $wpdb->update(
+                    $table,
+                    [
+                        'status'=>$retryStatus,
+                        'last_error'=>$message,
+                        'next_attempt_at'=>$next,
+                        'sending_started_at'=>null,
+                    ],
+                    ['id'=>$deliveryId]
+                );
+                if ($retryStatus === 'retry') self::wake_queue();
+                return [
+                    'ok'=>false,
+                    'status'=>$retryStatus,
+                    'sent'=>false,
+                    'message'=>$message,
+                ];
+            }
+        } finally {
+            $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lockName));
+        }
     }
 
     public static function process(int $limit = 50): array {

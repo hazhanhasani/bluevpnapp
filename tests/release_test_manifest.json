@@ -25,6 +25,7 @@
     "test_instant_ai_fastest_route_4127.py",
     "test_kotlin_build_blockers_4119.py",
     "test_live_support_4103.py",
+    "test_manual_activation_sms_immediate_4155.py",
     "test_manual_customers_crm_4151.py",
     "test_manual_customers_live_plans_sms_4154.py",
     "test_manual_customers_nav_4152.py",

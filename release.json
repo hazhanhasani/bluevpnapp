@@ -1,13 +1,17 @@
 {
-  "version": "4.15.4",
-  "version_code": 41504,
+  "version": "4.15.5",
+  "version_code": 41505,
   "channel": "beta",
-  "build_id": "20260818-v4.15.4-manual-live-plans-sms",
-  "built_at": "2026-08-18T18:58:00+03:30",
-  "android_version": "4.15.4",
-  "android_version_code": 41504,
-  "description": "Manual customers now use the exact existing BlueVPN plan catalog and canonical subscription SMS templates. Registration, renewal, reminders and expiry messages are automatic while the CRM remains isolated from VPN provisioning/entitlements.",
+  "build_id": "20260818-v4.15.5-manual-activation-sms-immediate",
+  "built_at": "2026-08-18T19:07:00+03:30",
+  "android_version": "4.15.5",
+  "android_version_code": 41505,
+  "description": "Manual customers now use the exact app subscription_activated message on first plan assignment and attempt foreground immediate SMS delivery. Renewal/plan-change foreground messages are also dispatched immediately while durable retry remains intact.",
   "features": [
+    "manual-plan-change-immediate-sms",
+    "manual-renewal-immediate-sms",
+    "manual-foreground-sms-dispatch-now",
+    "manual-first-plan-subscription-activated",
     "manual-sms-template-deduplication",
     "manual-customers-plan-duration-renewal",
     "manual-customers-automatic-sms-lifecycle",
@@ -416,7 +420,7 @@
   ],
   "version_source": "source_declared_release_version",
   "tapsell_mediation_version": "1.4.0-alpha03",
-  "manager_version": "4.15.4",
-  "site_version": "4.15.4",
-  "theme_version": "4.15.4"
+  "manager_version": "4.15.5",
+  "site_version": "4.15.5",
+  "theme_version": "4.15.5"
 }

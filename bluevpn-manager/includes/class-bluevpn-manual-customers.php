@@ -85,7 +85,7 @@ final class BlueVPN_Manual_Customers {
         );
 
         return match ($event) {
-            'admin_subscription_activated',
+            'subscription_activated',
             'subscription_renewed',
             'subscription_plan_changed' => [
                 'plan' => $plan,
@@ -166,6 +166,38 @@ final class BlueVPN_Manual_Customers {
         );
     }
 
+    private static function queue_and_dispatch_customer_event(
+        array $row,
+        string $event,
+        string $dedupe,
+        int $daysLeft = 0
+    ): array {
+        $deliveryId = self::queue_customer_event(
+            $row,
+            $event,
+            $dedupe,
+            $daysLeft,
+            false
+        );
+        if (!$deliveryId) {
+            return [
+                'queued'=>false,
+                'sent'=>false,
+                'status'=>'not_queued',
+                'message'=>'پیام فعلی در SMS Manager غیرفعال است یا کد پترن ندارد.',
+            ];
+        }
+
+        $result = BlueVPN_SMS_Notifications::dispatch_now($deliveryId);
+        return [
+            'queued'=>true,
+            'sent'=>!empty($result['sent']),
+            'status'=>(string)($result['status'] ?? 'queued'),
+            'message'=>(string)($result['message'] ?? ''),
+            'delivery_id'=>$deliveryId,
+        ];
+    }
+
     public static function render(): void {
         self::guard();
         global $wpdb;
@@ -220,7 +252,7 @@ final class BlueVPN_Manual_Customers {
         echo '</div>';
 
         echo '<div class="bvc-card"><h2>'.($edit ? 'ویرایش مشتری دستی' : 'ثبت مشتری دستی').'</h2>';
-        echo '<div class="bvc-note"><strong>پلن و پیامک جداگانه‌ای برای مشتری دستی ساخته نمی‌شود.</strong> پلن از همان پلن‌های فعلی BlueVPN انتخاب می‌شود و پیامک‌ها دقیقاً از پیام‌های فعلی «فعال‌سازی دستی توسط مدیریت»، «تمدید اشتراک»، «یادآوری پایان اشتراک» و «پایان اشتراک» استفاده می‌کنند. ثبت این مشتری هیچ entitlement یا سرویس VPN جدیدی نمی‌سازد.</div>';
+        echo '<div class="bvc-note"><strong>دقیقاً مثل کاربر اپ:</strong> برای مشتری جدید، بعد از انتخاب پلن و ثبت فرم همان پیام فعلی «فعال‌شدن اشتراک» (<code>subscription_activated</code>) همان لحظه ارسال می‌شود. تمدید، یادآوری و پایان اشتراک هم از همان پیام‌ها و پترن‌های کاربران اپ استفاده می‌کنند. هیچ entitlement یا سرویس VPN جدیدی برای این مشتری ساخته نمی‌شود.</div>';
         echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
         wp_nonce_field('bluevpn_manual_customer_save');
         echo '<input type="hidden" name="action" value="bluevpn_manual_customer_save">';
@@ -244,7 +276,7 @@ final class BlueVPN_Manual_Customers {
         echo '<label style="grid-column:1/-1">یادداشت<textarea name="notes" rows="3">'.esc_textarea((string)($edit['notes'] ?? '')).'</textarea></label>';
         echo '<label><input type="checkbox" name="active" value="1" '.checked(!isset($edit['active']) || (int)$edit['active'] === 1, true, false).'> مشتری فعال باشد</label>';
         echo '<label><input type="checkbox" name="sms_enabled" value="1" '.checked(!isset($edit['sms_enabled']) || (int)$edit['sms_enabled'] === 1, true, false).'> یادآوری SMS فعال باشد</label>';
-        echo '<div class="bvc-note">ارسال‌ها خودکار است: ثبت مشتری جدید → «فعال‌سازی دستی توسط مدیریت»، تمدید → «تمدید اشتراک»، روزهای یادآوری → «یادآوری پایان اشتراک»، پایان اعتبار → «پایان اشتراک».</div>';
+        echo '<div class="bvc-note">ارسال‌ها خودکار است: انتخاب پلن + ثبت مشتری جدید → همان «فعال‌شدن اشتراک» کاربران اپ و ارسال فوری؛ تمدید → «تمدید اشتراک» و ارسال فوری؛ روزهای یادآوری → «یادآوری پایان اشتراک»؛ پایان اعتبار → «پایان اشتراک».</div>';
         echo '</div><p>';
         submit_button($edit ? 'ذخیره تغییرات' : 'ثبت مشتری', 'primary', 'submit', false);
         if ($edit) echo ' <a class="button" href="'.esc_url(self::url()).'">انصراف</a>';
@@ -476,36 +508,55 @@ final class BlueVPN_Manual_Customers {
             }
 
             $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE id=%d", $id), ARRAY_A);
+            $smsResult = null;
+            $smsEventTitle = '';
             if ($row && !empty($row['sms_enabled'])) {
                 $seed = gmdate('YmdHi', strtotime((string)$row['expire_at'] . ' UTC'));
                 if (!$before) {
-                    self::queue_customer_event(
+                    $smsEventTitle = 'فعال‌شدن اشتراک';
+                    $smsResult = self::queue_and_dispatch_customer_event(
                         $row,
-                        'admin_subscription_activated',
-                        'activated:' . $seed,
-                        0,
-                        false
+                        'subscription_activated',
+                        'activated:' . $planId . ':' . $seed,
+                        0
                     );
                 } elseif ((int)($before['catalog_plan_id'] ?? 0) !== $planId) {
-                    self::queue_customer_event(
+                    $smsEventTitle = 'تغییر پلن اشتراک';
+                    $smsResult = self::queue_and_dispatch_customer_event(
                         $row,
                         'subscription_plan_changed',
                         'plan-changed:' . $planId . ':' . $seed,
-                        0,
-                        false
+                        0
                     );
                 } elseif ((string)($before['expire_at'] ?? '') !== (string)$row['expire_at']) {
-                    self::queue_customer_event(
+                    $smsEventTitle = 'تمدید اشتراک';
+                    $smsResult = self::queue_and_dispatch_customer_event(
                         $row,
                         'subscription_renewed',
-                        'expiry-edited:' . $seed,
-                        0,
-                        false
+                        'expiry-edited:' . $planId . ':' . $seed,
+                        0
                     );
                 }
             }
 
-            self::redirect('مشتری دستی ذخیره شد. پیام‌های اشتراک از همان تنظیمات فعلی SMS استفاده می‌کنند.', false);
+            $message = 'مشتری دستی ذخیره شد.';
+            $error = false;
+            if (is_array($smsResult)) {
+                if (!empty($smsResult['sent'])) {
+                    $message .= ' پیام «' . $smsEventTitle . '» همان لحظه ارسال شد.';
+                } elseif (!empty($smsResult['queued'])) {
+                    $message .= ' پیام «' . $smsEventTitle . '» ارسال فوری نشد و برای Retry در صف باقی ماند: ' .
+                        (string)($smsResult['message'] ?? '');
+                } else {
+                    $message .= ' پیام «' . $smsEventTitle . '» ارسال نشد: ' .
+                        (string)($smsResult['message'] ?? '');
+                    $error = true;
+                }
+            } elseif ($row && empty($row['sms_enabled'])) {
+                $message .= ' SMS این مشتری خاموش است.';
+            }
+
+            self::redirect($message, $error);
         } catch (Throwable $e) {
             self::redirect($e->getMessage(), true);
         }
@@ -563,18 +614,27 @@ final class BlueVPN_Manual_Customers {
             $row['expire_at'] = $newExpiry;
             $row['active'] = 1;
 
-            self::queue_customer_event(
+            $smsResult = self::queue_and_dispatch_customer_event(
                 $row,
                 'subscription_renewed',
                 'renewed:' . (int)$plan['id'] . ':' . gmdate('YmdHi', strtotime($newExpiry . ' UTC')),
-                0,
-                false
+                0
             );
 
-            self::redirect(
-                'اشتراک با پلن «' . (string)$plan['title'] . '» برای ' .
-                $days . ' روز تمدید شد و پیام «تمدید اشتراک» فعلی در صف قرار گرفت.'
-            );
+            $message = 'اشتراک با پلن «' . (string)$plan['title'] . '» برای ' .
+                $days . ' روز تمدید شد.';
+            $error = false;
+            if (!empty($smsResult['sent'])) {
+                $message .= ' پیام «تمدید اشتراک» همان لحظه ارسال شد.';
+            } elseif (!empty($smsResult['queued'])) {
+                $message .= ' پیام «تمدید اشتراک» برای Retry در صف ماند: ' .
+                    (string)($smsResult['message'] ?? '');
+            } else {
+                $message .= ' پیام «تمدید اشتراک» ارسال نشد: ' .
+                    (string)($smsResult['message'] ?? '');
+                $error = true;
+            }
+            self::redirect($message, $error);
         } catch (Throwable $e) {
             self::redirect($e->getMessage(), true);
         }
@@ -761,7 +821,7 @@ final class BlueVPN_Manual_Customers {
                         if ($saved) {
                             self::queue_customer_event(
                                 $saved,
-                                'admin_subscription_activated',
+                                'subscription_activated',
                                 'import-activated:' . gmdate('YmdHi', strtotime($expireAt . ' UTC')),
                                 0,
                                 false

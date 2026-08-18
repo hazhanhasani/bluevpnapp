@@ -1,8 +1,14 @@
 === BlueVPN Manager ===
-Version: 4.15.4
-Stable tag: 4.15.4
+Version: 4.15.5
+Stable tag: 4.15.5
 Requires PHP: 8.0
 
+
+== 4.15.5 ==
+- First plan assignment for a manual customer now uses the exact existing app `subscription_activated` SMS event.
+- Activation SMS is attempted immediately in the same admin request instead of waiting only for cron/shutdown queue flush.
+- Renewal and plan-change foreground messages also attempt immediate delivery; provider failures remain durable and retry automatically.
+- Android, Manager and Site theme remain synchronized on 4.15.5.
 
 == 4.15.4 ==
 - Manual customers now select directly from the current BlueVPN plans; no separate manual plan name/duration.

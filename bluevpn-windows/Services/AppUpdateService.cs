@@ -18,7 +18,7 @@ public sealed class AppUpdateService
 
     public async Task<UpdateCandidate?> CheckAsync(CancellationToken ct = default)
     {
-        var arch = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64";
+        var arch = RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "win-arm64" : "win-x64";
         var info = await _api.GetWindowsUpdateAsync(_settings.Version, arch, ct);
         if (!info.Available || !info.UpdateAvailable) return null;
         if (string.IsNullOrWhiteSpace(info.DownloadUrl) || string.IsNullOrWhiteSpace(info.Filename))

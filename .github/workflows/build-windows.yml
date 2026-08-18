@@ -256,7 +256,7 @@ jobs:
           "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($setup))" | Set-Content "$setup.sha256"
 
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: BlueVPN-Windows-${{ matrix.rid }}
           path: |
@@ -269,7 +269,7 @@ jobs:
 
       - name: Upload Windows diagnostics on failure
         if: ${{ failure() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: BlueVPN-Windows-${{ matrix.rid }}-diagnostics
           path: |
@@ -291,7 +291,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Download Windows build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v6
         with:
           pattern: BlueVPN-Windows-win-*
           path: windows-release

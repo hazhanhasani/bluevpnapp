@@ -25,7 +25,7 @@ public sealed class RuntimeLocator
             "BlueVPN", "runtime", "v2rayn");
     }
 
-    public string Architecture => RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "arm64" : "x64";
+    public string Architecture => RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "x64";
     public string BundledRoot => _bundledRoot;
     public string OverrideRoot => _overrideRoot;
 

@@ -20,7 +20,7 @@ public sealed class WarpConnectionController : IDisposable
         Directory.CreateDirectory(_stateDir);
     }
 
-    public bool IsSupported => RuntimeInformation.ProcessArchitecture != Architecture.Arm64 && File.Exists(_runtime.ResolveAether());
+    public bool IsSupported => RuntimeInformation.ProcessArchitecture != System.Runtime.InteropServices.Architecture.Arm64 && File.Exists(_runtime.ResolveAether());
     public bool IsRunning => _aether.IsRunning && _singBox.IsRunning;
 
     public async Task StartAsync(IProgress<string>? progress, CancellationToken ct)

@@ -1,16 +1,28 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-define('BLUEVPN_SITE_VERSION', '4.16.8');
+define('BLUEVPN_SITE_VERSION', '4.16.9');
 
 define('BLUEVPN_SITE_DIR', get_template_directory());
 define('BLUEVPN_SITE_URL', get_template_directory_uri());
 
-function bluevpn_site_error_log(string $message): void {
+function bluevpn_site_log(string $message, string $severity = 'error', string $code = 'THEME_RUNTIME_LOG', array $context = []): void {
     error_log($message);
-    if (class_exists('BlueVPN_Error_Monitor')) {
-        BlueVPN_Error_Monitor::report('theme', 'site', 'error', 'THEME_RUNTIME_LOG', $message, []);
+    if (class_exists('BlueVPN_Error_Monitor') && in_array($severity, ['warning', 'error', 'critical'], true)) {
+        BlueVPN_Error_Monitor::report('theme', 'site', $severity, $code, $message, $context);
     }
+}
+
+function bluevpn_site_error_log(string $message, array $context = []): void {
+    bluevpn_site_log($message, 'error', 'THEME_RUNTIME_LOG', $context);
+}
+
+/**
+ * Successful Elementor fallbacks are diagnostics, not runtime failures.
+ * Keep them in the PHP log for troubleshooting without waking Sentinel.
+ */
+function bluevpn_site_diagnostic_log(string $message): void {
+    error_log($message);
 }
 
 
@@ -140,5 +152,5 @@ add_action('admin_notices', 'bluevpn_site_admin_notice');
 
 
 
-// BlueVPN Site 4.16.8 cache/debug marker.
-add_filter('body_class', static function($classes){ $classes[] = 'bluevpn-site-v4-16-2'; return $classes; });
+// BlueVPN Site 4.16.9 cache/debug marker.
+add_filter('body_class', static function($classes){ $classes[] = 'bluevpn-site-v4-16-9'; return $classes; });

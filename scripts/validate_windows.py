@@ -40,7 +40,7 @@ def main() -> None:
 
     version = str(release.get("version", "")).strip()
     require(re.fullmatch(r"\d+\.\d+\.\d+", version) is not None, "invalid release version")
-    require(version == "4.16.8", "this Windows migration must be release 4.16.8")
+    require(version == "4.16.9", "this Windows migration must be release 4.16.9")
     require(str(branding.get("version_name", "")) == version, "branding version drift")
     require(str(release.get("windows_version", "")) == version, "release windows_version mismatch")
     require(str(settings.get("version", "")) == version, "Windows appsettings version mismatch")

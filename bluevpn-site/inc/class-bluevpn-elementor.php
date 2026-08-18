@@ -174,7 +174,7 @@ final class BlueVPN_Elementor_Integration {
         try {
             $html = \Elementor\Plugin::instance()->frontend->get_builder_content_for_display($post_id, true);
             if (!self::has_meaningful_output($html)) {
-                bluevpn_site_error_log('BlueVPN Elementor page fallback: empty output for post '.$post_id);
+                bluevpn_site_diagnostic_log('BlueVPN Elementor page fallback: empty output for post '.$post_id);
                 return false;
             }
 
@@ -217,11 +217,41 @@ final class BlueVPN_Elementor_Integration {
                 echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
                 return true;
             }
-            bluevpn_site_error_log('BlueVPN Elementor '.$location.' fallback: template '.$id.' returned empty output');
+
+            // Only self-heal BlueVPN's own seeded template when its stored Elementor
+            // document is actually empty/corrupt. Never overwrite a user's edited
+            // Elementor template merely because the frontend renderer returned empty.
+            if (self::repair_managed_location_template($id, $location)) {
+                $html = \Elementor\Plugin::instance()->frontend->get_builder_content_for_display($id, true);
+                if (self::has_meaningful_output($html)) {
+                    echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+                    return true;
+                }
+            }
+
+            bluevpn_site_diagnostic_log('BlueVPN Elementor '.$location.' fallback: template '.$id.' returned empty output; internal theme fallback used');
         } catch (Throwable $e) {
             bluevpn_site_error_log('BlueVPN Elementor render failed: '.$e->getMessage());
         }
         return false;
+    }
+
+    private static function repair_managed_location_template(int $id, string $location): bool {
+        $expected_slug = $location === 'header' ? 'bluevpn-site-header' : ($location === 'footer' ? 'bluevpn-site-footer' : '');
+        $widget = $location === 'header' ? 'bluevpn-header' : ($location === 'footer' ? 'bluevpn-footer' : '');
+        if ($expected_slug === '' || $widget === '') return false;
+        if ((string)get_post_field('post_name', $id) !== $expected_slug) return false;
+
+        $raw = trim((string)get_post_meta($id, '_elementor_data', true));
+        $decoded = $raw !== '' ? json_decode(wp_unslash($raw), true) : null;
+        if ($raw !== '' && is_array($decoded) && !empty($decoded)) return false;
+
+        self::write_elementor_document($id, self::page_data([$widget]), 'section');
+        if (class_exists('\Elementor\Plugin')) {
+            try { \Elementor\Plugin::instance()->files_manager->clear_cache(); } catch (Throwable $ignored) {}
+        }
+        bluevpn_site_diagnostic_log('BlueVPN Elementor '.$location.' managed template self-healed: '.$id);
+        return true;
     }
 
     private static function has_meaningful_output($html): bool {

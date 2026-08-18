@@ -22,7 +22,7 @@ public sealed class RuntimeUpdateService
         using var gh = new GitHubReleaseClient($"BlueVPN-Runtime/{_settings.Version}");
         using var doc = await gh.GetReleasesAsync(_settings.V2RayNRepository, 12, ct);
         var current = ParseVersion(_runtime.CurrentRuntime().Version);
-        var archName = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "v2rayN-windows-arm64.zip" : "v2rayN-windows-64.zip";
+        var archName = RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "v2rayN-windows-arm64.zip" : "v2rayN-windows-64.zip";
 
         foreach (var release in doc.RootElement.EnumerateArray())
         {

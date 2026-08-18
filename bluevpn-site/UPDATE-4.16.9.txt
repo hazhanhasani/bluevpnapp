@@ -1,0 +1,6 @@
+BlueVPN Site 4.16.9
+
+- Elementor header/footer empty output uses the internal BlueVPN fallback without generating a Sentinel runtime error.
+- A BlueVPN-managed header/footer template is self-healed only when its stored Elementor document is actually empty/corrupt.
+- User-edited Elementor templates are never overwritten just because frontend rendering returns empty.
+- Real Elementor exceptions remain Sentinel errors.

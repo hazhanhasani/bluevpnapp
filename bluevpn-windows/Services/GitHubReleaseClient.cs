@@ -64,7 +64,7 @@ public sealed class GitHubReleaseClient : IDisposable
         return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
-    public static string ArchitectureAssetToken() => RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64";
+    public static string ArchitectureAssetToken() => RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "win-arm64" : "win-x64";
 
     public void Dispose() => _http.Dispose();
 }

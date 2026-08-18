@@ -2070,13 +2070,59 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
         global $wpdb;
         $t = self::jobs_table();
         $jobs = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$t} WHERE chat_id=%s AND status IN ('queued','downloading','deploying','dispatching','waiting_manager','building_manager','updating_manager','waiting_build','building')", (string)$chatId), ARRAY_A);
+        $cancelledRuns = 0;
+        $skippedRuns = 0;
         foreach ($jobs as $job) {
             if ((int)$job['run_id'] > 0) {
-                try { self::gh('POST', self::repo_path($s) . '/actions/runs/' . (int)$job['run_id'] . '/cancel', [], $s); } catch (Throwable $e) {}
+                $runId = (int)$job['run_id'];
+                $runPath = self::repo_path($s) . '/actions/runs/' . $runId;
+                try {
+                    $run = self::gh('GET', $runPath, null, $s);
+                    $runStatus = strtolower((string)($run['status'] ?? ''));
+                    if ($runStatus !== 'completed') {
+                        $cancelPath = $runPath . '/cancel';
+                        $cancelUrl = self::GITHUB_API . $cancelPath;
+                        if (class_exists('BlueVPN_Error_Monitor')) {
+                            // GitHub can legitimately answer 403/404/409 when a run is no
+                            // longer cancellable or the token is read-only. Prevent the
+                            // global HTTP hook from misclassifying this best-effort control
+                            // request; classify it explicitly below instead.
+                            BlueVPN_Error_Monitor::expect_http_status_once($cancelUrl, [403, 404, 409]);
+                        }
+                        try {
+                            self::gh('POST', $cancelPath, [], $s);
+                            $cancelledRuns++;
+                        } catch (Throwable $cancelError) {
+                            $msg = $cancelError->getMessage();
+                            if (str_contains($msg, 'HTTP 403')) {
+                                $skippedRuns++;
+                                if (class_exists('BlueVPN_Error_Monitor')) {
+                                    BlueVPN_Error_Monitor::report('github', 'actions_cancel', 'notice', 'GITHUB_CANCEL_NOT_PERMITTED', 'لغو GitHub Actions انجام نشد؛ Token ممکن است Actions: write نداشته باشد یا Run دیگر قابل لغو نباشد.', [
+                                        'run_id' => $runId,
+                                        'run_status' => $runStatus,
+                                    ]);
+                                }
+                            } elseif (str_contains($msg, 'HTTP 404') || str_contains($msg, 'HTTP 409')) {
+                                $skippedRuns++;
+                            } else {
+                                throw $cancelError;
+                            }
+                        }
+                    } else {
+                        $skippedRuns++;
+                    }
+                } catch (Throwable $e) {
+                    if (class_exists('BlueVPN_Error_Monitor')) {
+                        BlueVPN_Error_Monitor::report('github', 'actions_cancel', 'warning', 'GITHUB_CANCEL_CHECK_FAILED', 'بررسی/لغو Run گیت‌هاب ناموفق بود.', [
+                            'run_id' => $runId,
+                            'error' => self::redact($e->getMessage(), $s),
+                        ]);
+                    }
+                }
             }
             self::update_job((string)$job['id'], ['status' => 'cancelled', 'finished_at' => BlueVPN_Utils::now_mysql()]);
         }
-        self::send_message($chatId, '🔓 قفل عملیات آزاد شد و Build فعال در صورت امکان لغو شد.', self::keyboard(), $s);
+        self::send_message($chatId, '🔓 قفل عملیات آزاد شد.' . ($cancelledRuns ? "\nGitHub Run لغوشده: <code>{$cancelledRuns}</code>" : '') . ($skippedRuns ? "\nRunهای غیرقابل/غیرنیازمند لغو: <code>{$skippedRuns}</code>" : ''), self::keyboard(), $s);
     }
 
     private static function latest_release(array $s): ?array {

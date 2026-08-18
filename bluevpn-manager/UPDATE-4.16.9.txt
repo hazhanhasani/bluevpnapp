@@ -1,0 +1,5 @@
+BlueVPN Manager 4.16.9
+
+- GitHub Actions cancel requests are preflighted and classified correctly.
+- Expected 403/404/409 cancel responses no longer become generic HTTP warnings.
+- Permission-denied cancellation is recorded as an actionable notice.

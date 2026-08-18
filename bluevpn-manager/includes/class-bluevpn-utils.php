@@ -133,6 +133,86 @@ final class BlueVPN_Utils {
         return [$jy, $jm, $jd];
     }
 
+    public static function jalali_to_gregorian(int $jy, int $jm, int $jd): array {
+        $jy += 1595;
+        $days = -355668 + (365 * $jy) + (intdiv($jy, 33) * 8)
+            + intdiv(($jy % 33) + 3, 4) + $jd
+            + (($jm < 7) ? (($jm - 1) * 31) : ((($jm - 7) * 30) + 186));
+
+        $gy = 400 * intdiv($days, 146097);
+        $days %= 146097;
+        if ($days > 36524) {
+            $gy += 100 * intdiv(--$days, 36524);
+            $days %= 36524;
+            if ($days >= 365) $days++;
+        }
+
+        $gy += 4 * intdiv($days, 1461);
+        $days %= 1461;
+        if ($days > 365) {
+            $gy += intdiv($days - 1, 365);
+            $days = ($days - 1) % 365;
+        }
+
+        $gd = $days + 1;
+        $salA = [
+            0, 31, (($gy % 4 === 0 && $gy % 100 !== 0) || ($gy % 400 === 0)) ? 29 : 28,
+            31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+        ];
+        $gm = 1;
+        while ($gm <= 12 && $gd > $salA[$gm]) {
+            $gd -= $salA[$gm];
+            $gm++;
+        }
+        return [$gy, $gm, $gd];
+    }
+
+    /**
+     * Parse a Tehran-local panel date and return the canonical UTC MySQL value.
+     * Accepted values:
+     * - Jalali: 1405/05/27 or 1405-05-27
+     * - Gregorian: 2026-08-18
+     * - with optional HH:MM
+     */
+    public static function mysql_from_tehran_date(?string $value, bool $endOfDay = false): ?string {
+        $raw = trim(strtr((string)$value, '۰۱۲۳۴۵۶۷۸۹', '0123456789'));
+        if ($raw === '') return null;
+
+        $hour = $endOfDay ? 23 : 0;
+        $minute = $endOfDay ? 59 : 0;
+        if (preg_match('/\s+(\d{1,2}):(\d{2})$/', $raw, $timeMatch)) {
+            $hour = max(0, min(23, (int)$timeMatch[1]));
+            $minute = max(0, min(59, (int)$timeMatch[2]));
+            $raw = trim(substr($raw, 0, -strlen($timeMatch[0])));
+        }
+
+        if (!preg_match('/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/', $raw, $m)) {
+            return null;
+        }
+
+        $year = (int)$m[1];
+        $month = (int)$m[2];
+        $day = (int)$m[3];
+        if ($month < 1 || $month > 12 || $day < 1 || $day > 31) return null;
+
+        if ($year >= 1300 && $year <= 1499) {
+            [$year, $month, $day] = self::jalali_to_gregorian($year, $month, $day);
+        } elseif ($year < 2000 || $year > 2200) {
+            return null;
+        }
+
+        try {
+            $tehran = new DateTimeZone('Asia/Tehran');
+            $dt = new DateTimeImmutable(
+                sprintf('%04d-%02d-%02d %02d:%02d:00', $year, $month, $day, $hour, $minute),
+                $tehran
+            );
+            return $dt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
+        } catch (Throwable $e) {
+            return null;
+        }
+    }
+
     public static function sanitize_phone(string $value): string {
         $value = strtr(trim($value), '۰۱۲۳۴۵۶۷۸۹', '0123456789');
         $digits = preg_replace('/\D+/', '', $value) ?: '';

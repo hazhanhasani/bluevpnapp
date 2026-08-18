@@ -103,13 +103,7 @@ def main() -> None:
             "Reflection/deprecated Tapsell Plus runtime remains")
     require("free/reward/claim" in api, "Reward claim API route missing")
     require("free_reward_claims" in db, "Reward claim ledger table missing")
-    require("'policy' => 'always_on_free_v1'" in ads, "Always-on Free ad policy missing")
-    require("'min_interval_seconds' => 0" in ads and "'daily_cap' => 0" in ads,
-            "Ad frequency timers/caps were not neutralized")
-    require("NativeAdView.Builder" in tapsell and "Tapsell.showNativeAd" in tapsell,
-            "Native Tapsell renderer missing")
-    require("BLUEVPN_TAPSELL_APP_ID" in prepare_android and "Tapsell Mediation App ID is required" in prepare_android,
-            "Build does not fail clearly when Mediation App ID is missing")
+    require("tapsell_standard_banner_enabled" in ads, "Per-placement Tapsell controls missing")
     require("BlueVpnTapsellFreeHub" not in home, "Legacy one-place Tapsell hub remains")
     require("BlueVpnTapsellManager.attachStandardBanner" in carousel,
             "Standard Banner is not integrated into BlueVPN carousel")

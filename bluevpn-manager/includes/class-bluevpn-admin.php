@@ -42,6 +42,7 @@ final class BlueVPN_Admin {
             ['bluevpn-payments','پرداخت / بلوپال','blupal'],
             ['bluevpn-manual','فعال‌سازی دستی','manual'],
             ['bluevpn-customers','کاربران','customers'],
+            ['bluevpn-manual-customers','مشتریان دستی','manual-customers'],
             ['bluevpn-orders','پرداخت‌ها','orders'],
             ['bluevpn-sms','SMS / OTP','sms'],
             ['bluevpn-app-update','اپ و آپدیت','app'],

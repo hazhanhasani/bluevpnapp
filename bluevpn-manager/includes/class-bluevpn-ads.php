@@ -57,9 +57,17 @@ final class BlueVPN_Ads {
     }
 
     private static function is_current(array $item): bool {
-        // "Always-on" means an active creative is not silently hidden by a
-        // schedule window. Operators can explicitly toggle individual items.
-        return !array_key_exists('active', $item) || BlueVPN_Utils::boolish($item['active']);
+        if (array_key_exists('active', $item) && !BlueVPN_Utils::boolish($item['active'])) return false;
+        $now = time();
+        foreach (['start_at' => 'start', 'end_at' => 'end'] as $field => $kind) {
+            $raw = trim((string)($item[$field] ?? ''));
+            if ($raw === '') continue;
+            $ts = strtotime($raw);
+            if (!$ts) continue;
+            if ($kind === 'start' && $now < $ts) return false;
+            if ($kind === 'end' && $now >= $ts) return false;
+        }
+        return true;
     }
 
     private const TARGET_ACTIONS = ['none', 'auth', 'plans', 'purchase', 'account', 'renew', 'settings', 'external'];
@@ -293,18 +301,26 @@ final class BlueVPN_Ads {
                 'button_text' => $item['button_text'],
             ];
         }
-        // BlueVPN banners are always-on when at least one currently-valid item
-        // exists. Do not couple advertising availability to WARP/Free-Pool state.
-        $configured = !empty($rows);
+        $configured = !empty($settings['ads_enabled']) && !empty($rows);
         $version = self::client_version($request);
         $supported = $version === '' || self::version_key($version) >= self::version_key('3.0.48');
         $enabled = $configured && $supported;
+        if (class_exists('BlueVPN_Free_Sources')) {
+            $curatedCount=count(BlueVPN_Free_Sources::curated(300));
+            if($curatedCount>0){
+                $public[]=[
+                    'id'=>'telegram-curated','name'=>'Pool هوشمند رایگان','subscription_url'=>$base.'/api/v1/free/curated','priority'=>5,
+                ];
+                $legacyPoolEnabled = $mode !== 'warp_only' && !empty($settings['free_access_enabled']);
+                $fallbackEnabled = $mode === 'warp_fallback_pool' && $legacyPoolEnabled && (!array_key_exists('free_warp_fallback_enabled', $settings) || !empty($settings['free_warp_fallback_enabled']));
+                $enabled = $warpEnabled || $legacyPoolEnabled;
+            }
+        }
         return [
             'enabled' => $enabled,
-            'autoplay' => true,
-            'loop' => true,
-            // Rotation speed is an internal UX constant, not an ad-frequency control.
-            'interval_ms' => 6000,
+            'autoplay' => !empty($settings['ads_autoplay']),
+            'loop' => !empty($settings['ads_loop']),
+            'interval_ms' => max(3000, min(30000, (int)($settings['ads_interval_seconds'] ?? 6) * 1000)),
             'height_dp' => max(116, min(160, (int)($settings['ads_height_dp'] ?? 146))),
             'aspect_ratio' => '20:9',
             'required_client_version' => '3.0.48',
@@ -375,8 +391,7 @@ final class BlueVPN_Ads {
                 'image_duration_seconds' => $item['image_duration_seconds'],
             ];
         }
-        // A configured story is automatically active for Free sessions.
-        $enabled = !empty($rows);
+        $enabled = !empty($settings['free_story_ads_enabled']) && !empty($rows);
         return [
             'enabled' => $enabled,
             'required' => $enabled && (!array_key_exists('free_story_ads_required', $settings) || !empty($settings['free_story_ads_required'])),
@@ -501,30 +516,47 @@ final class BlueVPN_Ads {
         $appId = self::tapsell_mediation_app_id($settings);
         $legacyAppKey = trim((string)($settings['tapsell_app_key'] ?? ''));
         $zones = self::tapsell_zones($settings);
+        $masterEnabled = !empty($settings['tapsell_enabled']);
+        $hasAnyCredential = $appId !== '' || $legacyAppKey !== '';
 
-        // Simple always-on policy: a placement is active whenever the Mediation
-        // App ID and that placement's Zone ID exist. No hidden timer, cooldown,
-        // daily cap or extra enable switch is allowed to suppress it.
-        $masterEnabled = $appId !== '';
         $placements = [];
         foreach (self::tapsell_zone_fields() as $type => $meta) {
             $zoneId = (string)($zones[$type] ?? '');
+            $placementEnabled = array_key_exists($meta['enabled_setting'], $settings)
+                ? !empty($settings[$meta['enabled_setting']])
+                : true;
+            $interval = max(
+                0,
+                min(
+                    86400,
+                    (int)($settings[$meta['interval_setting']] ?? $meta['default_interval'])
+                )
+            );
+            $cap = max(
+                0,
+                min(
+                    1000,
+                    (int)($settings[$meta['cap_setting']] ?? $meta['default_cap'])
+                )
+            );
             $placements[$type] = [
-                'enabled' => $masterEnabled && $zoneId !== '',
+                'enabled' => $masterEnabled && $hasAnyCredential && $placementEnabled && $zoneId !== '',
                 'zone_id' => $zoneId,
                 'surface' => (string)$meta['surface'],
-                'min_interval_seconds' => 0,
-                'daily_cap' => 0,
+                'min_interval_seconds' => $interval,
+                'daily_cap' => $cap,
             ];
         }
 
         $postConnectType = '';
         $postConnectZone = '';
-        foreach (['interstitial_video', 'interstitial_banner'] as $candidate) {
-            if (!empty($placements[$candidate]['enabled'])) {
-                $postConnectType = $candidate;
-                $postConnectZone = (string)$placements[$candidate]['zone_id'];
-                break;
+        if (!empty($settings['tapsell_show_after_connect'])) {
+            foreach (['interstitial_video', 'interstitial_banner'] as $candidate) {
+                if (!empty($placements[$candidate]['enabled'])) {
+                    $postConnectType = $candidate;
+                    $postConnectZone = (string)$placements[$candidate]['zone_id'];
+                    break;
+                }
             }
         }
 
@@ -532,7 +564,11 @@ final class BlueVPN_Ads {
             $placements,
             static fn($row) => !empty($row['enabled'])
         );
-        $enabled = $masterEnabled && !empty($enabledPlacements);
+        $enabled = $masterEnabled && $hasAnyCredential && !empty($enabledPlacements);
+        $bannerSize = strtoupper(trim((string)($settings['tapsell_standard_banner_size'] ?? 'BANNER_320_50')));
+        if (!preg_match('/^BANNER_[A-Z0-9_]{3,32}$/', $bannerSize)) {
+            $bannerSize = 'BANNER_320_50';
+        }
 
         return [
             'enabled' => $enabled,
@@ -547,22 +583,18 @@ final class BlueVPN_Ads {
             'post_connect_type' => $postConnectType,
             'post_connect_zone_id' => $enabled ? $postConnectZone : '',
             'interstitial_zone_id' => $enabled ? $postConnectZone : '',
-            'show_after_connect' => $postConnectZone !== '',
+            'show_after_connect' => !empty($settings['tapsell_show_after_connect']),
             'free_only' => true,
-            'min_interval_seconds' => 0,
-            'daily_cap' => 0,
+            'min_interval_seconds' => max(0, min(86400, (int)($settings['tapsell_min_interval_seconds'] ?? 0))),
+            'daily_cap' => max(0, min(1000, (int)($settings['tapsell_daily_cap'] ?? 0))),
             'rewarded_bonus_minutes' => max(1, min(180, (int)($settings['tapsell_rewarded_bonus_minutes'] ?? 15))),
-            'standard_banner_size' => 'BANNER_320_50',
-            // Insert a Tapsell banner after every BlueVPN banner while the Free
-            // home carousel is visible. There is always an ad surface, but it
-            // remains non-blocking and does not add a second UI area.
-            'standard_banner_every_slides' => 1,
-            'reward_fullscreen_suppression_seconds' => 0,
+            'standard_banner_size' => $bannerSize,
+            'standard_banner_every_slides' => max(1, min(10, (int)($settings['tapsell_standard_banner_every_slides'] ?? 3))),
+            'reward_fullscreen_suppression_seconds' => max(0, min(3600, (int)($settings['tapsell_reward_fullscreen_suppression_seconds'] ?? 300))),
             'build_embed_required' => true,
-            'policy' => 'always_on_free_v1',
             'disabled_reason' => $enabled
                 ? ''
-                : ($appId === '' ? 'missing_mediation_app_id' : 'missing_zone_id'),
+                : ($masterEnabled ? 'missing_mediation_app_id_or_enabled_zone' : 'disabled'),
         ];
     }
 
@@ -860,41 +892,54 @@ final class BlueVPN_Ads {
     public static function save_settings(): void {
         self::guard('bluevpn_ads_save');
         $s = BlueVPN_DB::settings();
-
-        // Advertising is intentionally simple: configured inventory is always
-        // available. Frequency/timer/cap switches from older releases are kept
-        // only as zeroed compatibility keys so old Android builds cannot revive
-        // stale cooldown behavior from the database.
-        $s['ads_enabled'] = true;
-        $s['ads_autoplay'] = true;
-        $s['ads_loop'] = true;
-        $s['ads_interval_seconds'] = 6;
-        $s['ads_height_dp'] = 146;
+        $s['ads_enabled'] = isset($_POST['ads_enabled']);
+        $s['ads_autoplay'] = isset($_POST['ads_autoplay']);
+        $s['ads_loop'] = isset($_POST['ads_loop']);
+        $s['ads_interval_seconds'] = max(3, min(30, (int)($_POST['ads_interval_seconds'] ?? 6)));
+        $s['ads_height_dp'] = max(116, min(160, (int)($_POST['ads_height_dp'] ?? 146)));
+        $s['tapsell_enabled'] = isset($_POST['tapsell_enabled']);
         $s['tapsell_app_id'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_app_id'] ?? '')), 0, 200);
-        $s['tapsell_enabled'] = $s['tapsell_app_id'] !== '';
-
         foreach (self::tapsell_zone_fields() as $meta) {
             $setting = (string)$meta['setting'];
             $enabledSetting = (string)$meta['enabled_setting'];
             $intervalSetting = (string)$meta['interval_setting'];
             $capSetting = (string)$meta['cap_setting'];
-            $s[$setting] = mb_substr(trim((string)wp_unslash($_POST[$setting] ?? '')), 0, 300);
-            $s[$enabledSetting] = $s[$setting] !== '';
-            $s[$intervalSetting] = 0;
-            $s[$capSetting] = 0;
+            $s[$setting] = mb_substr(
+                trim((string)wp_unslash($_POST[$setting] ?? '')),
+                0,
+                300
+            );
+            $s[$enabledSetting] = isset($_POST[$enabledSetting]);
+            $s[$intervalSetting] = max(
+                0,
+                min(
+                    86400,
+                    (int)($_POST[$intervalSetting] ?? $meta['default_interval'])
+                )
+            );
+            $s[$capSetting] = max(
+                0,
+                min(
+                    1000,
+                    (int)($_POST[$capSetting] ?? $meta['default_cap'])
+                )
+            );
         }
 
-        // Backward-compatible keys for older API/client code.
+        // Keep old API setting synchronized during the migration window.
         $s['tapsell_interstitial_zone_id'] = (string)($s['tapsell_interstitial_video_zone_id'] ?? '');
-        $s['tapsell_show_after_connect'] = true;
-        $s['tapsell_min_interval_seconds'] = 0;
-        $s['tapsell_daily_cap'] = 0;
+        $s['tapsell_show_after_connect'] = isset($_POST['tapsell_show_after_connect']);
+        $s['tapsell_min_interval_seconds'] = max(0, min(86400, (int)($_POST['tapsell_min_interval_seconds'] ?? 0)));
+        $s['tapsell_daily_cap'] = max(0, min(1000, (int)($_POST['tapsell_daily_cap'] ?? 0)));
         $s['tapsell_rewarded_bonus_minutes'] = max(1, min(180, (int)($_POST['tapsell_rewarded_bonus_minutes'] ?? 15)));
-        $s['tapsell_standard_banner_size'] = 'BANNER_320_50';
-        $s['tapsell_standard_banner_every_slides'] = 1;
-        $s['tapsell_reward_fullscreen_suppression_seconds'] = 0;
+        $bannerSize = strtoupper(trim((string)wp_unslash($_POST['tapsell_standard_banner_size'] ?? 'BANNER_320_50')));
+        $s['tapsell_standard_banner_size'] = preg_match('/^BANNER_[A-Z0-9_]{3,32}$/', $bannerSize)
+            ? $bannerSize
+            : 'BANNER_320_50';
+        $s['tapsell_standard_banner_every_slides'] = max(1, min(10, (int)($_POST['tapsell_standard_banner_every_slides'] ?? 3)));
+        $s['tapsell_reward_fullscreen_suppression_seconds'] = max(0, min(3600, (int)($_POST['tapsell_reward_fullscreen_suppression_seconds'] ?? 300)));
         BlueVPN_DB::save_settings($s);
-        self::redirect('ads', 'تنظیمات ساده تبلیغات ذخیره شد؛ هر Zone واردشده خودکار و بدون محدودیت زمانی فعال است.');
+        self::redirect('ads', 'تنظیمات تبلیغات ذخیره شد.');
     }
 
     public static function create_ad(): void {
@@ -922,8 +967,8 @@ final class BlueVPN_Ads {
                 'button_text' => mb_substr(sanitize_text_field(wp_unslash($_POST['button_text'] ?? '')), 0, 40),
                 'active' => isset($_POST['active']),
                 'sort_order' => max(-10000, min(10000, (int)($_POST['sort_order'] ?? 0))),
-                'start_at' => '',
-                'end_at' => '',
+                'start_at' => self::clean_time((string)wp_unslash($_POST['start_at'] ?? '')),
+                'end_at' => self::clean_time((string)wp_unslash($_POST['end_at'] ?? '')),
             ];
             $s['ads_items'] = $items;
             BlueVPN_DB::save_settings($s);
@@ -970,8 +1015,8 @@ final class BlueVPN_Ads {
                 $item['button_text'] = mb_substr(sanitize_text_field(wp_unslash($_POST['button_text'] ?? '')), 0, 40);
                 $item['active'] = isset($_POST['active']);
                 $item['sort_order'] = max(-10000, min(10000, (int)($_POST['sort_order'] ?? 0)));
-                $item['start_at'] = '';
-                $item['end_at'] = '';
+                $item['start_at'] = self::clean_time((string)wp_unslash($_POST['start_at'] ?? ''));
+                $item['end_at'] = self::clean_time((string)wp_unslash($_POST['end_at'] ?? ''));
                 break;
             }
             unset($item);
@@ -1008,11 +1053,11 @@ final class BlueVPN_Ads {
     public static function save_story_settings(): void {
         self::guard('bluevpn_story_save');
         $s = BlueVPN_DB::settings();
-        $s['free_story_ads_enabled'] = true;
+        $s['free_story_ads_enabled'] = isset($_POST['free_story_ads_enabled']);
         $s['free_story_ads_required'] = isset($_POST['free_story_ads_required']);
-        $s['free_story_ads_image_seconds'] = 6;
-        $s['free_story_ads_load_timeout_seconds'] = 8;
-        $s['free_story_ads_max_video_seconds'] = 30;
+        $s['free_story_ads_image_seconds'] = max(3, min(30, (int)($_POST['free_story_ads_image_seconds'] ?? 6)));
+        $s['free_story_ads_load_timeout_seconds'] = max(3, min(15, (int)($_POST['free_story_ads_load_timeout_seconds'] ?? 8)));
+        $s['free_story_ads_max_video_seconds'] = max(5, min(60, (int)($_POST['free_story_ads_max_video_seconds'] ?? 30)));
         BlueVPN_DB::save_settings($s);
         self::redirect('ads', 'تنظیمات استوری تبلیغاتی اتصال رایگان ذخیره شد.');
     }
@@ -1047,9 +1092,9 @@ final class BlueVPN_Ads {
                 'button_text' => mb_substr(sanitize_text_field(wp_unslash($_POST['button_text'] ?? '')), 0, 40),
                 'active' => isset($_POST['active']),
                 'weight' => max(1, min(100, (int)($_POST['weight'] ?? 1))),
-                'image_duration_seconds' => 6,
-                'start_at' => '',
-                'end_at' => '',
+                'image_duration_seconds' => max(3, min(30, (int)($_POST['image_duration_seconds'] ?? ($s['free_story_ads_image_seconds'] ?? 6)))),
+                'start_at' => self::clean_time((string)wp_unslash($_POST['start_at'] ?? '')),
+                'end_at' => self::clean_time((string)wp_unslash($_POST['end_at'] ?? '')),
             ];
             $s['free_story_ads_items'] = $items;
             BlueVPN_DB::save_settings($s);
@@ -1097,9 +1142,9 @@ final class BlueVPN_Ads {
                 $item['button_text'] = mb_substr(sanitize_text_field(wp_unslash($_POST['button_text'] ?? '')), 0, 40);
                 $item['active'] = isset($_POST['active']);
                 $item['weight'] = max(1, min(100, (int)($_POST['weight'] ?? 1)));
-                $item['image_duration_seconds'] = 6;
-                $item['start_at'] = '';
-                $item['end_at'] = '';
+                $item['image_duration_seconds'] = max(3, min(30, (int)($_POST['image_duration_seconds'] ?? ($s['free_story_ads_image_seconds'] ?? 6))));
+                $item['start_at'] = self::clean_time((string)wp_unslash($_POST['start_at'] ?? ''));
+                $item['end_at'] = self::clean_time((string)wp_unslash($_POST['end_at'] ?? ''));
                 break;
             }
             unset($item);
@@ -1215,30 +1260,60 @@ final class BlueVPN_Ads {
         echo '<div class="bluevpn-ad-toolbar"><div><h2>مدیریت تبلیغات BlueVPN</h2><p style="margin:4px 0 0;color:#64748b">بنرهای داخل اپ، استوری اتصال رایگان، مقصدهای درون‌برنامه‌ای، زمان‌بندی نمایش و Tapsell را از همین صفحه کنترل کنید.</p></div><a class="button button-primary bluevpn-ad-add-button" href="#bluevpn-add-ad">＋ افزودن تبلیغ</a></div>';
         echo '<div class="bvc-grid"><div class="bvc-card bvc-kpi"><span>کل تبلیغات</span><strong>' . count($items) . '</strong></div><div class="bvc-card bvc-kpi"><span>تبلیغات فعال</span><strong>' . $activeCount . '</strong></div><div class="bvc-card bvc-kpi"><span>قابل نمایش در اپ</span><strong>' . count($payload['items']) . '</strong></div><div class="bvc-card bvc-kpi"><span>Assetهای MySQL</span><strong>' . self::asset_count() . '</strong></div></div>';
 
-        echo '<div class="bvc-card"><h2>تبلیغات پلن رایگان — همیشه فعال</h2>';
-        echo '<div class="bvc-note">دیگر فاصله زمانی، سقف روزانه یا کلید فعال‌سازی جداگانه نداریم. هر Zone ID که وارد شود خودکار فعال است. تبلیغ تمام‌صفحه بعد از هر اتصال رایگان موفق درخواست می‌شود، Reward فقط با لمس خود کاربر اجرا می‌شود و بنرها در صفحات رایگان به‌صورت غیرمزاحم نمایش داده می‌شوند.</div>';
-        echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_ads_save'); echo '<input type="hidden" name="action" value="bluevpn_ads_save"><div class="bvc-form-grid">';
+        echo '<div class="bvc-card"><h2>تنظیمات نمایش و Tapsell</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_ads_save'); echo '<input type="hidden" name="action" value="bluevpn_ads_save"><div class="bvc-form-grid">';
+        self::checkbox('ads_enabled', 'نمایش بنرهای داخل اپ', !empty($s['ads_enabled'])); self::checkbox('ads_autoplay', 'تعویض خودکار', !empty($s['ads_autoplay'])); self::checkbox('ads_loop', 'تکرار اسلایدها', !empty($s['ads_loop']));
+        self::number('ads_interval_seconds', 'فاصله اسلاید (ثانیه)', (int)($s['ads_interval_seconds'] ?? 6), 3, 30); self::number('ads_height_dp', 'ارتفاع بنر (dp)', (int)($s['ads_height_dp'] ?? 146), 116, 160);
+        self::checkbox('tapsell_enabled', 'فعال‌سازی Tapsell Mediation برای پلن رایگان', !empty($s['tapsell_enabled']));
         self::text('tapsell_app_id', 'Tapsell Mediation App ID', self::tapsell_mediation_app_id($s));
-        self::number('tapsell_rewarded_bonus_minutes', 'هدیه هر تبلیغ جایزه‌ای (دقیقه)', (int)($s['tapsell_rewarded_bonus_minutes'] ?? 15), 1, 180);
+        self::checkbox('tapsell_show_after_connect', 'نمایش تبلیغ تمام‌صفحه بعد از اتصال موفق رایگان', !array_key_exists('tapsell_show_after_connect', $s) || !empty($s['tapsell_show_after_connect']));
+        self::number('tapsell_rewarded_bonus_minutes', 'هدیه ویدئوی جایزه‌ای (دقیقه)', (int)($s['tapsell_rewarded_bonus_minutes'] ?? 15), 1, 180);
+        self::number('tapsell_reward_fullscreen_suppression_seconds', 'وقفه تبلیغ تمام‌صفحه بعد از Reward (ثانیه)', (int)($s['tapsell_reward_fullscreen_suppression_seconds'] ?? 300), 0, 3600);
+        self::text('tapsell_standard_banner_size', 'اندازه Standard Banner', (string)($s['tapsell_standard_banner_size'] ?? 'BANNER_320_50'));
+        self::number('tapsell_standard_banner_every_slides', 'نمایش Standard Banner بعد از چند بنر BlueVPN', (int)($s['tapsell_standard_banner_every_slides'] ?? 3), 1, 10);
         echo '</div>';
 
-        echo '<h3 style="margin:18px 0 10px">Zone IDها</h3>';
+        echo '<div class="bvc-note" style="margin-top:12px">Tapsell فقط برای پلن رایگان است. در Premium هیچ Request/Preload/Show از Tapsell انجام نمی‌شود و فقط بنرهای اختصاصی BlueVPN باقی می‌مانند. هر جایگاه را جداگانه می‌توانید خاموش کنید؛ Zone ID خاموش‌شده پاک نمی‌شود.</div>';
+        echo '<h3 style="margin:18px 0 10px">جایگاه‌های توزیع‌شده Tapsell</h3>';
+
         $tapsellZones = self::tapsell_zones($s);
         foreach (self::tapsell_zone_fields() as $type => $meta) {
-            // Pre-roll belongs before actual video content. BlueVPN support is a
-            // text guide, so exposing this field would promise a placement that
-            // cannot be rendered correctly on that screen.
-            if ($type === 'pre_roll_video') continue;
             $setting = (string)$meta['setting'];
+            $enabledSetting = (string)$meta['enabled_setting'];
+            $intervalSetting = (string)$meta['interval_setting'];
+            $capSetting = (string)$meta['cap_setting'];
+
             echo '<div style="margin:12px 0;padding:14px;border:1px solid rgba(148,163,184,.22);border-radius:14px">';
             echo '<strong>' . esc_html((string)$meta['label']) . '</strong>';
             echo '<div style="margin:5px 0 12px;color:#64748b">' . esc_html((string)$meta['surface']) . '</div>';
             echo '<div class="bvc-form-grid">';
-            self::text($setting, 'Zone ID', (string)($tapsellZones[$type] ?? ''));
+            self::checkbox(
+                $enabledSetting,
+                'فعال',
+                array_key_exists($enabledSetting, $s) ? !empty($s[$enabledSetting]) : true
+            );
+            self::text(
+                $setting,
+                'Zone ID',
+                (string)($tapsellZones[$type] ?? '')
+            );
+            self::number(
+                $intervalSetting,
+                'حداقل فاصله نمایش (ثانیه)',
+                (int)($s[$intervalSetting] ?? $meta['default_interval']),
+                0,
+                86400
+            );
+            self::number(
+                $capSetting,
+                'سقف روزانه (۰=نامحدود)',
+                (int)($s[$capSetting] ?? $meta['default_cap']),
+                0,
+                1000
+            );
             echo '</div></div>';
         }
 
-        echo '<div class="bvc-note" style="margin-top:12px"><strong>مهم:</strong> Mediation App ID باید علاوه بر وردپرس، هنگام Build داخل APK هم قرار بگیرد و دقیقاً یکی باشد. Standard Banner داخل همان فضای بنر BlueVPN استفاده می‌شود و فضای اضافه اشغال نمی‌کند. Pre-roll از صفحه راهنمای متنی حذف شده چون این فرمت فقط قبل از محتوای ویدیویی واقعی معنا دارد.</div>';
+        echo '<div class="bvc-note" style="margin-top:12px">Standard Banner فضای جدا نمی‌گیرد و داخل همان Carousel بنرهای BlueVPN نمایش داده می‌شود. تغییر Zone ID یا فعال/غیرفعال‌کردن جایگاه‌ها از Mobile Config اعمال می‌شود؛ فقط تغییر Mediation App ID نیاز به Build جدید APK دارد.</div>';
         echo '<div style="margin-top:14px">'; submit_button('ذخیره تنظیمات تبلیغات', 'primary', 'submit', false); echo '</div></form></div>';
 
         $storyItems = self::story_items($s);
@@ -1247,15 +1322,18 @@ final class BlueVPN_Ads {
         echo '<div class="bvc-card" id="bluevpn-free-story-ads"><h2>استوری تبلیغاتی اتصال رایگان</h2><div class="bvc-note">پس از آماده‌شدن اتصال رایگان، یک عکس یا ویدئو به‌صورت تصادفی تمام‌صفحه نمایش داده می‌شود. برای بیشترین سازگاری اندروید، ویدئو را با فرمت MP4 و کدک H.264/AVC + AAC آپلود کنید. تا پایان رسانه، Session رایگان نهایی و تایمر آن شروع نمی‌شود. می‌توانید برای هر استوری CTA داخلی مثل ثبت‌نام، خرید اشتراک یا تمدید تعیین کنید؛ لمس CTA اتصال رایگان درحال آماده‌سازی را متوقف کرده و کاربر را امن به مقصد می‌برد.</div>';
         echo '<div class="bvc-grid" style="margin:14px 0"><div class="bvc-card bvc-kpi"><span>استوری‌ها</span><strong>' . count($storyItems) . '</strong></div><div class="bvc-card bvc-kpi"><span>فعال</span><strong>' . $storyActive . '</strong></div><div class="bvc-card bvc-kpi"><span>قابل انتخاب</span><strong>' . count($storyPayload['items']) . '</strong></div></div>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_story_save'); echo '<input type="hidden" name="action" value="bluevpn_story_save"><div class="bvc-form-grid">';
-        self::checkbox('free_story_ads_required', 'استوری قبل از نهایی‌شدن اتصال رایگان نمایش داده شود', !array_key_exists('free_story_ads_required', $s) || !empty($s['free_story_ads_required']));
-        echo '<div class="bvc-note">با داشتن حداقل یک استوری فعال، استوری خودکار روشن است. زمان‌های فنی بارگذاری و نمایش با مقادیر امن داخلی مدیریت می‌شوند و دیگر نیاز به تنظیم دستی ندارند.</div>';
+        self::checkbox('free_story_ads_enabled', 'فعال‌سازی استوری برای پلن رایگان', !empty($s['free_story_ads_enabled']));
+        self::checkbox('free_story_ads_required', 'تماشای کامل برای نهایی‌شدن اتصال الزامی باشد', !array_key_exists('free_story_ads_required', $s) || !empty($s['free_story_ads_required']));
+        self::number('free_story_ads_image_seconds', 'مدت پیش‌فرض عکس (ثانیه)', (int)($s['free_story_ads_image_seconds'] ?? 6), 3, 30);
+        self::number('free_story_ads_load_timeout_seconds', 'مهلت بارگذاری رسانه (ثانیه)', (int)($s['free_story_ads_load_timeout_seconds'] ?? 8), 3, 15);
+        self::number('free_story_ads_max_video_seconds', 'حداکثر زمان ویدئو در اپ (ثانیه)', (int)($s['free_story_ads_max_video_seconds'] ?? 30), 5, 60);
         echo '</div><div style="margin-top:14px">'; submit_button('ذخیره تنظیمات استوری', 'primary', 'submit', false); echo '</div></form>';
 
         echo '<hr style="margin:22px 0;border:0;border-top:1px solid rgba(148,163,184,.18)"><h3>افزودن استوری جدید</h3><form method="post" enctype="multipart/form-data" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_story_create'); echo '<input type="hidden" name="action" value="bluevpn_story_create"><div class="bvc-form-grid">';
         echo '<label>نوع رسانه<select name="media_type"><option value="image">عکس</option><option value="video">ویدئو</option></select></label>';
         self::text('title', 'عنوان', ''); self::text('subtitle', 'زیرعنوان', ''); self::target_editor(); self::text('button_text', 'متن دکمه', 'مشاهده');
-        self::number('weight', 'وزن انتخاب تصادفی', 1, 1, 100);
-
+        self::number('weight', 'وزن انتخاب تصادفی', 1, 1, 100); self::number('image_duration_seconds', 'مدت عکس (ثانیه)', (int)($s['free_story_ads_image_seconds'] ?? 6), 3, 30);
+        echo '<label>شروع نمایش (اختیاری)<input type="datetime-local" name="start_at"></label><label>پایان نمایش (اختیاری)<input type="datetime-local" name="end_at"></label>';
         echo '<label class="bluevpn-file-input">آپلود رسانه<input type="file" name="media" accept="image/webp,image/jpeg,image/png,video/mp4"><span data-file-name>عکس تا ۶MB / ویدئو MP4 (H.264 + AAC) تا ۱۲MB</span></label>';
         echo '<label>یا URL مستقیم رسانه<input type="url" name="media_url" placeholder="https://..."></label><label style="display:flex;align-items:center;align-self:end;padding-bottom:8px"><input type="checkbox" name="active" value="1" checked> فعال</label>';
         echo '</div><div style="margin-top:14px">'; submit_button('افزودن استوری', 'primary', 'submit', false); echo '</div></form>';
@@ -1269,12 +1347,12 @@ final class BlueVPN_Ads {
                 if ($story['media_type'] === 'video') echo '<div style="min-height:150px;display:grid;place-items:center;background:#050914;color:#67e8f9;font-size:44px">▶</div>';
                 elseif ($src) echo '<img src="' . esc_url($src) . '" alt="">';
                 echo '<span class="bluevpn-ad-state ' . ($on ? 'is-on' : 'is-off') . '">' . ($on ? 'فعال' : 'خاموش') . '</span></div><div class="bluevpn-ad-body">';
-                echo '<h3>' . esc_html($story['title'] ?: ($story['media_type'] === 'video' ? 'ویدئوی استوری' : 'تصویر استوری')) . '</h3><p>' . esc_html($story['subtitle'] ?: 'نمایش تصادفی پس از اتصال رایگان') . '</p><div class="bluevpn-ad-meta"><span>' . esc_html($story['media_type'] === 'video' ? 'ویدئو' : 'عکس') . '</span><span>وزن ' . (int)$story['weight'] . '</span><span>مقصد: ' . esc_html(self::target_label((string)$story['target_action'], (int)$story['target_plan_id'])) . '</span></div><div class="bluevpn-ad-actions">';
+                echo '<h3>' . esc_html($story['title'] ?: ($story['media_type'] === 'video' ? 'ویدئوی استوری' : 'تصویر استوری')) . '</h3><p>' . esc_html($story['subtitle'] ?: 'نمایش تصادفی پس از اتصال رایگان') . '</p><div class="bluevpn-ad-meta"><span>' . esc_html($story['media_type'] === 'video' ? 'ویدئو' : 'عکس') . '</span><span>وزن ' . (int)$story['weight'] . '</span><span>مقصد: ' . esc_html(self::target_label((string)$story['target_action'], (int)$story['target_plan_id'])) . '</span><span>' . (int)$story['image_duration_seconds'] . ' ثانیه برای عکس</span></div><div class="bluevpn-ad-actions">';
                 self::mini_form('bluevpn_story_toggle', 'bluevpn_story_toggle', $story['id'], $on ? 'خاموش کردن' : 'فعال کردن'); self::mini_form('bluevpn_story_delete', 'bluevpn_story_delete', $story['id'], 'حذف', true); echo '</div>';
                 echo '<details class="bluevpn-inline-edit"><summary>ویرایش استوری</summary><form method="post" enctype="multipart/form-data" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_story_update'); echo '<input type="hidden" name="action" value="bluevpn_story_update"><input type="hidden" name="id" value="' . esc_attr($story['id']) . '"><div class="bvc-form-grid">';
                 echo '<label>نوع رسانه<select name="media_type"><option value="image" ' . selected($story['media_type'], 'image', false) . '>عکس</option><option value="video" ' . selected($story['media_type'], 'video', false) . '>ویدئو</option></select></label>';
                 echo '<label>عنوان<input type="text" name="title" value="' . esc_attr($story['title']) . '"></label><label>زیرعنوان<input type="text" name="subtitle" value="' . esc_attr($story['subtitle']) . '"></label>'; self::target_editor($story); echo '<label>متن دکمه<input type="text" name="button_text" value="' . esc_attr($story['button_text']) . '"></label>';
-                echo '<label>وزن<input type="number" name="weight" min="1" max="100" value="' . (int)$story['weight'] . '"></label>';
+                echo '<label>وزن<input type="number" name="weight" min="1" max="100" value="' . (int)$story['weight'] . '"></label><label>مدت عکس<input type="number" name="image_duration_seconds" min="3" max="30" value="' . (int)$story['image_duration_seconds'] . '"></label><label>شروع<input type="datetime-local" name="start_at"></label><label>پایان<input type="datetime-local" name="end_at"></label>';
                 echo '<label class="bluevpn-file-input">تعویض رسانه<input type="file" name="media" accept="image/webp,image/jpeg,image/png,video/mp4"><span data-file-name>برای حفظ رسانه فعلی خالی بگذارید</span></label><label>URL رسانه<input type="text" name="media_url" value="' . esc_attr($story['media_url']) . '"></label><label style="display:flex;align-items:center;align-self:end;padding-bottom:8px"><input type="checkbox" name="active" value="1" ' . checked($on, true, false) . '> فعال</label>';
                 echo '</div><div style="margin-top:12px">'; submit_button('ذخیره استوری', 'primary', 'submit', false); echo '</div></form></details></div></article>';
             }
@@ -1284,6 +1362,7 @@ final class BlueVPN_Ads {
 
         echo '<div class="bvc-card bluevpn-ad-editor" id="bluevpn-add-ad"><h2>افزودن تبلیغ جدید</h2><div class="bvc-note">اندازه پیشنهادی BlueVPN: 1200×540 پیکسل، نسبت 20:9، WebP یا JPG. تصویر آپلودشده مستقیماً داخل MySQL ذخیره می‌شود.</div><form method="post" enctype="multipart/form-data" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_ads_create'); echo '<input type="hidden" name="action" value="bluevpn_ads_create"><div class="bvc-form-grid">';
         self::text('title', 'عنوان تبلیغ', ''); self::text('subtitle', 'زیرعنوان', ''); self::target_editor(); self::text('button_text', 'متن دکمه', 'مشاهده'); self::number('sort_order', 'ترتیب نمایش', 0, -10000, 10000);
+        echo '<label>شروع نمایش (اختیاری)<input type="datetime-local" name="start_at"></label><label>پایان نمایش (اختیاری)<input type="datetime-local" name="end_at"></label>';
         echo '<label class="bluevpn-file-input">آپلود تصویر<input type="file" name="image" accept="image/webp,image/jpeg,image/png"><span data-file-name>هیچ فایلی انتخاب نشده</span></label>';
         echo '<label>یا URL تصویر<input type="url" name="image_url" placeholder="https://..."></label><label style="display:flex;align-items:center;align-self:end;padding-bottom:8px"><input type="checkbox" name="active" value="1" checked> فعال و قابل نمایش</label>';
         echo '</div><div style="margin-top:14px">'; submit_button('افزودن تبلیغ', 'primary', 'submit', false); echo '</div></form></div>';
@@ -1297,11 +1376,11 @@ final class BlueVPN_Ads {
                 $src = self::resolve_asset_path((string)$item['image_url']); if (str_starts_with($src, '/')) $src = home_url($src);
                 $on = !empty($item['active']);
                 echo '<article class="bvc-card bluevpn-ad-card"><div class="bluevpn-ad-preview">' . ($src ? '<img src="' . esc_url($src) . '" alt="">' : '') . '<span class="bluevpn-ad-state ' . ($on ? 'is-on' : 'is-off') . '">' . ($on ? 'فعال' : 'خاموش') . '</span></div><div class="bluevpn-ad-body">';
-                echo '<h3>' . esc_html($item['title'] ?: 'بدون عنوان') . '</h3><p>' . esc_html($item['subtitle'] ?: 'بدون زیرعنوان') . '</p><div class="bluevpn-ad-meta"><span>ترتیب ' . (int)$item['sort_order'] . '</span><span>مقصد: ' . esc_html(self::target_label((string)$item['target_action'], (int)$item['target_plan_id'])) . '</span>' . ($item['start_at'] ? '' : '') . ($item['end_at'] ? '' : '') . '</div><div class="bluevpn-ad-actions">';
+                echo '<h3>' . esc_html($item['title'] ?: 'بدون عنوان') . '</h3><p>' . esc_html($item['subtitle'] ?: 'بدون زیرعنوان') . '</p><div class="bluevpn-ad-meta"><span>ترتیب ' . (int)$item['sort_order'] . '</span><span>مقصد: ' . esc_html(self::target_label((string)$item['target_action'], (int)$item['target_plan_id'])) . '</span>' . ($item['start_at'] ? '<span>شروع ' . esc_html($item['start_at']) . '</span>' : '') . ($item['end_at'] ? '<span>پایان ' . esc_html($item['end_at']) . '</span>' : '') . '</div><div class="bluevpn-ad-actions">';
                 self::mini_form('bluevpn_ads_toggle', 'bluevpn_ads_toggle', $item['id'], $on ? 'خاموش کردن' : 'فعال کردن'); self::mini_form('bluevpn_ads_delete', 'bluevpn_ads_delete', $item['id'], 'حذف', true); echo '</div>';
                 echo '<details class="bluevpn-inline-edit"><summary>ویرایش تبلیغ</summary><form method="post" enctype="multipart/form-data" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_ads_update'); echo '<input type="hidden" name="action" value="bluevpn_ads_update"><input type="hidden" name="id" value="' . esc_attr($item['id']) . '"><div class="bvc-form-grid">';
                 echo '<label>عنوان<input type="text" name="title" value="' . esc_attr($item['title']) . '"></label><label>زیرعنوان<input type="text" name="subtitle" value="' . esc_attr($item['subtitle']) . '"></label>'; self::target_editor($item); echo '<label>متن دکمه<input type="text" name="button_text" value="' . esc_attr($item['button_text']) . '"></label><label>ترتیب<input type="number" name="sort_order" min="-10000" max="10000" value="' . (int)$item['sort_order'] . '"></label>';
-                echo '<label class="bluevpn-file-input">تعویض تصویر<input type="file" name="image" accept="image/webp,image/jpeg,image/png"><span data-file-name>برای حفظ تصویر فعلی خالی بگذارید</span></label><label>URL تصویر<input type="text" name="image_url" value="' . esc_attr($item['image_url']) . '"></label><label style="display:flex;align-items:center;align-self:end;padding-bottom:8px"><input type="checkbox" name="active" value="1" ' . checked($on, true, false) . '> فعال</label>';
+                echo '<label>شروع<input type="datetime-local" name="start_at"></label><label>پایان<input type="datetime-local" name="end_at"></label><label class="bluevpn-file-input">تعویض تصویر<input type="file" name="image" accept="image/webp,image/jpeg,image/png"><span data-file-name>برای حفظ تصویر فعلی خالی بگذارید</span></label><label>URL تصویر<input type="text" name="image_url" value="' . esc_attr($item['image_url']) . '"></label><label style="display:flex;align-items:center;align-self:end;padding-bottom:8px"><input type="checkbox" name="active" value="1" ' . checked($on, true, false) . '> فعال</label>';
                 echo '</div><div style="margin-top:12px">'; submit_button('ذخیره ویرایش', 'primary', 'submit', false); echo '</div></form></details></div></article>';
             }
             echo '</div>';

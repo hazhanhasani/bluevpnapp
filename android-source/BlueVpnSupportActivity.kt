@@ -211,11 +211,6 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
                 bottomMargin = dp(6)
             })
         }
-        createFreeAdBanner()?.let {
-            root.addView(it, LinearLayout.LayoutParams(-1, -2).apply {
-                bottomMargin = dp(6)
-            })
-        }
         root.addView(createConversationStrip(), LinearLayout.LayoutParams(-1, dp(64)))
         root.addView(createChatSurface(), LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(createComposer(), LinearLayout.LayoutParams(-1, -2))
@@ -241,36 +236,42 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
     }
 
     private fun showFreeGuideWithOptionalPreRoll() {
-        // The guide is text, not video content. Pre-roll is therefore the wrong
-        // format here. Keep the guide instant and show a non-blocking Standard
-        // Banner in the support screen instead.
-        showFreeConnectionGuide()
-    }
+        if (!BlueVpnEntitlement.resolveUi(this).isFree) {
+            showFreeConnectionGuide()
+            return
+        }
 
-    private fun createFreeAdBanner(): View? {
-        if (!BlueVpnEntitlement.resolveUi(this).isFree) return null
+        val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val dialog = android.app.Dialog(this)
         val host = FrameLayout(this).apply {
-            visibility = View.GONE
-            minimumHeight = dp(50)
+            minimumHeight = dp(220)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
         }
-        host.post {
-            if (isFinishing || isDestroyed) return@post
-            BlueVpnTapsellManager.attachStandardBanner(
-                activity = this,
-                host = host,
-                onUnavailable = { host.visibility = View.GONE },
-                onCleanup = { cleanup ->
-                    host.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                        override fun onViewAttachedToWindow(v: View) = Unit
-                        override fun onViewDetachedFromWindow(v: View) {
-                            cleanup()
-                            host.removeOnAttachStateChangeListener(this)
-                        }
-                    })
-                },
-            )
+        dialog.setContentView(host)
+        dialog.setCanceledOnTouchOutside(false)
+
+        fun finishToGuide() {
+            if (!completed.compareAndSet(false, true)) return
+            runCatching { dialog.dismiss() }
+            if (!isFinishing && !isDestroyed) showFreeConnectionGuide()
         }
-        return host
+
+        dialog.setOnCancelListener { finishToGuide() }
+        dialog.show()
+
+        // PreRoll is optional presentation. No-fill, unsupported SDK signature,
+        // timeout, dismissal or errors all continue to the local guide and never
+        // touch VPN/support state.
+        BlueVpnTapsellManager.attachPlacement(
+            activity = this,
+            host = host,
+            type = "pre_roll_video",
+            onUnavailable = { finishToGuide() },
+        )
+
+        handler.postDelayed({
+            if (!isFinishing && !isDestroyed) finishToGuide()
+        }, 8_000L)
     }
 
     private fun showFreeConnectionGuide() {

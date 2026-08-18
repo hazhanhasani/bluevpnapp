@@ -5,12 +5,11 @@ Requires PHP: 8.0
 
 
 == 4.15.1 ==
-- Simplifies Free advertising: configured Zone IDs are always active with no cooldown, per-placement timer, or daily cap controls.
-- Fixes a misplaced Free Pool/WARP block that could overwrite the advertising enabled state and suppress BlueVPN banners.
-- Replaces reflective Native rendering with Tapsell Mediation NativeAdView/NativeAdViewContainer integration for Native Banner and Native Video.
-- Removes invalid PreRoll usage from the text-only Support guide and places a non-blocking Standard Banner on Support instead.
-- Active BlueVPN banners and Free Story creatives auto-enable without a separate master switch or schedule window.
-- Production Android preparation now requires a real Tapsell Mediation App ID (branding/app.json or BLUEVPN_TAPSELL_APP_ID) instead of silently building with a test fallback.
+- Adds «مشتریان دستی» as a CRM-only section independent from BlueVPN app users/providers/entitlements.
+- Supports manual add/edit, Jalali start/expiry dates, active/SMS switches, notes and service/app labels.
+- Adds one-click N-day renewal and automatic activation/renewal/reminder/expiry SMS events.
+- Adds CSV bulk import and manual-customer SMS delivery history.
+- Reminder days reuse the existing SMS/OTP reminder-days policy; no duplicate reminder is queued for the same expiry cycle/day.
 
 == 4.15.0 ==
 - Distributes Tapsell across Free Home, Locations, Account/Plans and Support instead of one ad hub.

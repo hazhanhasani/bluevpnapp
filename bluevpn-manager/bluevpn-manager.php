@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
 }
 
 define('BLUEVPN_MANAGER_VERSION', '4.15.1');
-define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.20.0');
+define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.21.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
 define('BLUEVPN_MANAGER_URL', plugin_dir_url(__FILE__));
@@ -25,6 +25,7 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-db.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-auth.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-sms-otp.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-sms-notifications.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-manual-customers.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-ads.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-free-sources.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-ai.php';
@@ -91,6 +92,7 @@ add_action('init', function () {
 add_action('plugins_loaded', function () {
     BlueVPN_DB::maybe_upgrade();
     BlueVPN_SMS_Notifications::init();
+    BlueVPN_Manual_Customers::init();
     BlueVPN_Unified_UI::init();
     BlueVPN_Frontend::init();
     BlueVPN_Ads::init();

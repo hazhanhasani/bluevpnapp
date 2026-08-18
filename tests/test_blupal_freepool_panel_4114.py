@@ -92,6 +92,6 @@ class BluPalFreePoolPanel4114(unittest.TestCase):
         s=self.text('bluevpn-manager/bluevpn-manager.php')
         self.assertIn('class-bluevpn-free-sources.php',s)
         self.assertIn('BlueVPN_Free_Sources::init()',s)
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.20.0'",s)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.21.0'",s)
 
 if __name__=='__main__': unittest.main()

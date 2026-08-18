@@ -422,31 +422,73 @@ final class BlueVPN_Ads {
         return [
             'rewarded_video' => [
                 'setting' => 'tapsell_rewarded_video_zone_id',
+                'enabled_setting' => 'tapsell_rewarded_video_enabled',
+                'interval_setting' => 'tapsell_rewarded_video_min_interval_seconds',
+                'cap_setting' => 'tapsell_rewarded_video_daily_cap',
                 'label' => 'ویدئو جایزه‌ای (Reward based)',
+                'surface' => 'خانه ← کارت زمان باقی‌مانده',
+                'default_interval' => 300,
+                'default_cap' => 5,
             ],
             'interstitial_video' => [
                 'setting' => 'tapsell_interstitial_video_zone_id',
+                'enabled_setting' => 'tapsell_interstitial_video_enabled',
+                'interval_setting' => 'tapsell_interstitial_video_min_interval_seconds',
+                'cap_setting' => 'tapsell_interstitial_video_daily_cap',
                 'label' => 'آنی ویدئو (Interstitial video)',
+                'surface' => 'بعد از اتصال رایگانِ تأییدشده',
+                'default_interval' => 1200,
+                'default_cap' => 3,
             ],
             'pre_roll_video' => [
                 'setting' => 'tapsell_pre_roll_video_zone_id',
+                'enabled_setting' => 'tapsell_pre_roll_video_enabled',
+                'interval_setting' => 'tapsell_pre_roll_video_min_interval_seconds',
+                'cap_setting' => 'tapsell_pre_roll_video_daily_cap',
                 'label' => 'ویدئو پیش‌نمایشی (Pre-roll video)',
+                'surface' => 'پشتیبانی ← راهنمای اتصال رایگان',
+                'default_interval' => 1800,
+                'default_cap' => 2,
             ],
             'native_video' => [
                 'setting' => 'tapsell_native_video_zone_id',
+                'enabled_setting' => 'tapsell_native_video_enabled',
+                'interval_setting' => 'tapsell_native_video_min_interval_seconds',
+                'cap_setting' => 'tapsell_native_video_daily_cap',
                 'label' => 'ویدئو همسان (Native video)',
+                'surface' => 'حساب/پلن‌ها ← قبل از پیشنهادهای Premium',
+                'default_interval' => 900,
+                'default_cap' => 4,
             ],
             'standard_banner' => [
                 'setting' => 'tapsell_standard_banner_zone_id',
+                'enabled_setting' => 'tapsell_standard_banner_enabled',
+                'interval_setting' => 'tapsell_standard_banner_min_interval_seconds',
+                'cap_setting' => 'tapsell_standard_banner_daily_cap',
                 'label' => 'بنر استاندارد (Standard banner)',
+                'surface' => 'داخل همان Carousel بنرهای BlueVPN در خانه',
+                'default_interval' => 120,
+                'default_cap' => 0,
             ],
             'interstitial_banner' => [
                 'setting' => 'tapsell_interstitial_banner_zone_id',
+                'enabled_setting' => 'tapsell_interstitial_banner_enabled',
+                'interval_setting' => 'tapsell_interstitial_banner_min_interval_seconds',
+                'cap_setting' => 'tapsell_interstitial_banner_daily_cap',
                 'label' => 'بنر آنی (Interstitial banner)',
+                'surface' => 'Fallback تبلیغ آنی ویدئویی بعد از اتصال',
+                'default_interval' => 1200,
+                'default_cap' => 3,
             ],
             'native_banner' => [
                 'setting' => 'tapsell_native_banner_zone_id',
+                'enabled_setting' => 'tapsell_native_banner_enabled',
+                'interval_setting' => 'tapsell_native_banner_min_interval_seconds',
+                'cap_setting' => 'tapsell_native_banner_daily_cap',
                 'label' => 'بنر همسان (Native banner)',
+                'surface' => 'مکان‌ها ← زیر انتخاب خودکار و خارج از لیست',
+                'default_interval' => 600,
+                'default_cap' => 6,
             ],
         ];
     }
@@ -474,28 +516,59 @@ final class BlueVPN_Ads {
         $appId = self::tapsell_mediation_app_id($settings);
         $legacyAppKey = trim((string)($settings['tapsell_app_key'] ?? ''));
         $zones = self::tapsell_zones($settings);
-        $requested = !empty($settings['tapsell_enabled']);
+        $masterEnabled = !empty($settings['tapsell_enabled']);
+        $hasAnyCredential = $appId !== '' || $legacyAppKey !== '';
 
-        $configuredZones = array_values(array_filter(
-            $zones,
-            static fn($value) => trim((string)$value) !== ''
-        ));
+        $placements = [];
+        foreach (self::tapsell_zone_fields() as $type => $meta) {
+            $zoneId = (string)($zones[$type] ?? '');
+            $placementEnabled = array_key_exists($meta['enabled_setting'], $settings)
+                ? !empty($settings[$meta['enabled_setting']])
+                : true;
+            $interval = max(
+                0,
+                min(
+                    86400,
+                    (int)($settings[$meta['interval_setting']] ?? $meta['default_interval'])
+                )
+            );
+            $cap = max(
+                0,
+                min(
+                    1000,
+                    (int)($settings[$meta['cap_setting']] ?? $meta['default_cap'])
+                )
+            );
+            $placements[$type] = [
+                'enabled' => $masterEnabled && $hasAnyCredential && $placementEnabled && $zoneId !== '',
+                'zone_id' => $zoneId,
+                'surface' => (string)$meta['surface'],
+                'min_interval_seconds' => $interval,
+                'daily_cap' => $cap,
+            ];
+        }
 
-        // Current post-connect full-screen path prefers video Interstitial and
-        // then Interstitial Banner. Other placements have independent Zone IDs
-        // and are exposed to Android for their own surfaces/features.
         $postConnectType = '';
         $postConnectZone = '';
-        foreach (['interstitial_video', 'interstitial_banner'] as $candidate) {
-            if (($zones[$candidate] ?? '') !== '') {
-                $postConnectType = $candidate;
-                $postConnectZone = (string)$zones[$candidate];
-                break;
+        if (!empty($settings['tapsell_show_after_connect'])) {
+            foreach (['interstitial_video', 'interstitial_banner'] as $candidate) {
+                if (!empty($placements[$candidate]['enabled'])) {
+                    $postConnectType = $candidate;
+                    $postConnectZone = (string)$placements[$candidate]['zone_id'];
+                    break;
+                }
             }
         }
 
-        $hasAnyCredential = $appId !== '' || $legacyAppKey !== '';
-        $enabled = $requested && $hasAnyCredential && !empty($configuredZones);
+        $enabledPlacements = array_filter(
+            $placements,
+            static fn($row) => !empty($row['enabled'])
+        );
+        $enabled = $masterEnabled && $hasAnyCredential && !empty($enabledPlacements);
+        $bannerSize = strtoupper(trim((string)($settings['tapsell_standard_banner_size'] ?? 'BANNER_320_50')));
+        if (!preg_match('/^BANNER_[A-Z0-9_]{3,32}$/', $bannerSize)) {
+            $bannerSize = 'BANNER_320_50';
+        }
 
         return [
             'enabled' => $enabled,
@@ -504,22 +577,24 @@ final class BlueVPN_Ads {
             'app_id' => $appId,
             'app_key' => $legacyAppKey,
             'zones' => $zones,
-            'configured_zone_count' => count($configuredZones),
+            'placements' => $placements,
+            'configured_zone_count' => count(array_filter($zones)),
+            'enabled_placement_count' => count($enabledPlacements),
             'post_connect_type' => $postConnectType,
             'post_connect_zone_id' => $enabled ? $postConnectZone : '',
-
-            // Compatibility for 4.14.6/4.14.7 Android clients.
             'interstitial_zone_id' => $enabled ? $postConnectZone : '',
-
-            'show_after_connect' => !array_key_exists('tapsell_show_after_connect', $settings) || !empty($settings['tapsell_show_after_connect']),
+            'show_after_connect' => !empty($settings['tapsell_show_after_connect']),
             'free_only' => true,
             'min_interval_seconds' => max(0, min(86400, (int)($settings['tapsell_min_interval_seconds'] ?? 0))),
             'daily_cap' => max(0, min(1000, (int)($settings['tapsell_daily_cap'] ?? 0))),
-            'rewarded_bonus_minutes' => max(1, min(60, (int)($settings['tapsell_rewarded_bonus_minutes'] ?? 15))),
+            'rewarded_bonus_minutes' => max(1, min(180, (int)($settings['tapsell_rewarded_bonus_minutes'] ?? 15))),
+            'standard_banner_size' => $bannerSize,
+            'standard_banner_every_slides' => max(1, min(10, (int)($settings['tapsell_standard_banner_every_slides'] ?? 3))),
+            'reward_fullscreen_suppression_seconds' => max(0, min(3600, (int)($settings['tapsell_reward_fullscreen_suppression_seconds'] ?? 300))),
             'build_embed_required' => true,
             'disabled_reason' => $enabled
                 ? ''
-                : ($requested ? 'missing_mediation_app_id_or_zone' : 'disabled'),
+                : ($masterEnabled ? 'missing_mediation_app_id_or_enabled_zone' : 'disabled'),
         ];
     }
 
@@ -826,10 +901,28 @@ final class BlueVPN_Ads {
         $s['tapsell_app_id'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_app_id'] ?? '')), 0, 200);
         foreach (self::tapsell_zone_fields() as $meta) {
             $setting = (string)$meta['setting'];
+            $enabledSetting = (string)$meta['enabled_setting'];
+            $intervalSetting = (string)$meta['interval_setting'];
+            $capSetting = (string)$meta['cap_setting'];
             $s[$setting] = mb_substr(
                 trim((string)wp_unslash($_POST[$setting] ?? '')),
                 0,
                 300
+            );
+            $s[$enabledSetting] = isset($_POST[$enabledSetting]);
+            $s[$intervalSetting] = max(
+                0,
+                min(
+                    86400,
+                    (int)($_POST[$intervalSetting] ?? $meta['default_interval'])
+                )
+            );
+            $s[$capSetting] = max(
+                0,
+                min(
+                    1000,
+                    (int)($_POST[$capSetting] ?? $meta['default_cap'])
+                )
             );
         }
 
@@ -838,7 +931,13 @@ final class BlueVPN_Ads {
         $s['tapsell_show_after_connect'] = isset($_POST['tapsell_show_after_connect']);
         $s['tapsell_min_interval_seconds'] = max(0, min(86400, (int)($_POST['tapsell_min_interval_seconds'] ?? 0)));
         $s['tapsell_daily_cap'] = max(0, min(1000, (int)($_POST['tapsell_daily_cap'] ?? 0)));
-        $s['tapsell_rewarded_bonus_minutes'] = max(1, min(60, (int)($_POST['tapsell_rewarded_bonus_minutes'] ?? 15)));
+        $s['tapsell_rewarded_bonus_minutes'] = max(1, min(180, (int)($_POST['tapsell_rewarded_bonus_minutes'] ?? 15)));
+        $bannerSize = strtoupper(trim((string)wp_unslash($_POST['tapsell_standard_banner_size'] ?? 'BANNER_320_50')));
+        $s['tapsell_standard_banner_size'] = preg_match('/^BANNER_[A-Z0-9_]{3,32}$/', $bannerSize)
+            ? $bannerSize
+            : 'BANNER_320_50';
+        $s['tapsell_standard_banner_every_slides'] = max(1, min(10, (int)($_POST['tapsell_standard_banner_every_slides'] ?? 3)));
+        $s['tapsell_reward_fullscreen_suppression_seconds'] = max(0, min(3600, (int)($_POST['tapsell_reward_fullscreen_suppression_seconds'] ?? 300)));
         BlueVPN_DB::save_settings($s);
         self::redirect('ads', 'تنظیمات تبلیغات ذخیره شد.');
     }
@@ -1164,28 +1263,58 @@ final class BlueVPN_Ads {
         echo '<div class="bvc-card"><h2>تنظیمات نمایش و Tapsell</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_ads_save'); echo '<input type="hidden" name="action" value="bluevpn_ads_save"><div class="bvc-form-grid">';
         self::checkbox('ads_enabled', 'نمایش بنرهای داخل اپ', !empty($s['ads_enabled'])); self::checkbox('ads_autoplay', 'تعویض خودکار', !empty($s['ads_autoplay'])); self::checkbox('ads_loop', 'تکرار اسلایدها', !empty($s['ads_loop']));
         self::number('ads_interval_seconds', 'فاصله اسلاید (ثانیه)', (int)($s['ads_interval_seconds'] ?? 6), 3, 30); self::number('ads_height_dp', 'ارتفاع بنر (dp)', (int)($s['ads_height_dp'] ?? 146), 116, 160);
-        self::checkbox('tapsell_enabled', 'فعال‌سازی Tapsell Mediation', !empty($s['tapsell_enabled']));
+        self::checkbox('tapsell_enabled', 'فعال‌سازی Tapsell Mediation برای پلن رایگان', !empty($s['tapsell_enabled']));
         self::text('tapsell_app_id', 'Tapsell Mediation App ID', self::tapsell_mediation_app_id($s));
-        self::checkbox('tapsell_show_after_connect', 'نمایش تبلیغ تمام‌صفحه بعد از اتصال موفق', !array_key_exists('tapsell_show_after_connect', $s) || !empty($s['tapsell_show_after_connect']));
-        self::number('tapsell_min_interval_seconds', 'حداقل فاصله Tapsell', (int)($s['tapsell_min_interval_seconds'] ?? 0), 0, 86400);
-        self::number('tapsell_daily_cap', 'سقف روزانه (۰=نامحدود)', (int)($s['tapsell_daily_cap'] ?? 0), 0, 1000);
-        self::number('tapsell_rewarded_bonus_minutes', 'هدیه ویدئوی جایزه‌ای (دقیقه)', (int)($s['tapsell_rewarded_bonus_minutes'] ?? 15), 1, 60);
+        self::checkbox('tapsell_show_after_connect', 'نمایش تبلیغ تمام‌صفحه بعد از اتصال موفق رایگان', !array_key_exists('tapsell_show_after_connect', $s) || !empty($s['tapsell_show_after_connect']));
+        self::number('tapsell_rewarded_bonus_minutes', 'هدیه ویدئوی جایزه‌ای (دقیقه)', (int)($s['tapsell_rewarded_bonus_minutes'] ?? 15), 1, 180);
+        self::number('tapsell_reward_fullscreen_suppression_seconds', 'وقفه تبلیغ تمام‌صفحه بعد از Reward (ثانیه)', (int)($s['tapsell_reward_fullscreen_suppression_seconds'] ?? 300), 0, 3600);
+        self::text('tapsell_standard_banner_size', 'اندازه Standard Banner', (string)($s['tapsell_standard_banner_size'] ?? 'BANNER_320_50'));
+        self::number('tapsell_standard_banner_every_slides', 'نمایش Standard Banner بعد از چند بنر BlueVPN', (int)($s['tapsell_standard_banner_every_slides'] ?? 3), 1, 10);
         echo '</div>';
 
-        echo '<div class="bvc-note" style="margin-top:12px">هر نوع تبلیغ در پنل Tapsell یک Zone ID مستقل دارد. Zone هر تبلیغ را دقیقاً در جایگاه متناظر زیر وارد کنید. برای تبلیغ بعد از اتصال رایگان، BlueVPN ابتدا «آنی ویدئو» و در صورت خالی‌بودن آن «بنر آنی» را استفاده می‌کند.</div>';
-        echo '<h3 style="margin:18px 0 10px">جایگاه‌های مستقل Tapsell</h3><div class="bvc-form-grid">';
+        echo '<div class="bvc-note" style="margin-top:12px">Tapsell فقط برای پلن رایگان است. در Premium هیچ Request/Preload/Show از Tapsell انجام نمی‌شود و فقط بنرهای اختصاصی BlueVPN باقی می‌مانند. هر جایگاه را جداگانه می‌توانید خاموش کنید؛ Zone ID خاموش‌شده پاک نمی‌شود.</div>';
+        echo '<h3 style="margin:18px 0 10px">جایگاه‌های توزیع‌شده Tapsell</h3>';
+
         $tapsellZones = self::tapsell_zones($s);
         foreach (self::tapsell_zone_fields() as $type => $meta) {
             $setting = (string)$meta['setting'];
+            $enabledSetting = (string)$meta['enabled_setting'];
+            $intervalSetting = (string)$meta['interval_setting'];
+            $capSetting = (string)$meta['cap_setting'];
+
+            echo '<div style="margin:12px 0;padding:14px;border:1px solid rgba(148,163,184,.22);border-radius:14px">';
+            echo '<strong>' . esc_html((string)$meta['label']) . '</strong>';
+            echo '<div style="margin:5px 0 12px;color:#64748b">' . esc_html((string)$meta['surface']) . '</div>';
+            echo '<div class="bvc-form-grid">';
+            self::checkbox(
+                $enabledSetting,
+                'فعال',
+                array_key_exists($enabledSetting, $s) ? !empty($s[$enabledSetting]) : true
+            );
             self::text(
                 $setting,
-                (string)$meta['label'] . ' — Zone ID',
+                'Zone ID',
                 (string)($tapsellZones[$type] ?? '')
             );
+            self::number(
+                $intervalSetting,
+                'حداقل فاصله نمایش (ثانیه)',
+                (int)($s[$intervalSetting] ?? $meta['default_interval']),
+                0,
+                86400
+            );
+            self::number(
+                $capSetting,
+                'سقف روزانه (۰=نامحدود)',
+                (int)($s[$capSetting] ?? $meta['default_cap']),
+                0,
+                1000
+            );
+            echo '</div></div>';
         }
-        echo '</div>';
 
-        echo '<div class="bvc-note" style="margin-top:12px">Mediation App ID با App Key قدیمی Tapsell Plus یکی نیست. پس از تغییر App ID، پروژه کامل را یک‌بار با ربات BlueVPN Deploy کنید تا شناسه داخل APK بعدی Embed شود. تغییر Zone IDها نیاز به Build جدید APK ندارد و از Mobile Config دریافت می‌شود.</div><div style="margin-top:14px">'; submit_button('ذخیره تنظیمات تبلیغات', 'primary', 'submit', false); echo '</div></form></div>';
+        echo '<div class="bvc-note" style="margin-top:12px">Standard Banner فضای جدا نمی‌گیرد و داخل همان Carousel بنرهای BlueVPN نمایش داده می‌شود. تغییر Zone ID یا فعال/غیرفعال‌کردن جایگاه‌ها از Mobile Config اعمال می‌شود؛ فقط تغییر Mediation App ID نیاز به Build جدید APK دارد.</div>';
+        echo '<div style="margin-top:14px">'; submit_button('ذخیره تنظیمات تبلیغات', 'primary', 'submit', false); echo '</div></form></div>';
 
         $storyItems = self::story_items($s);
         $storyPayload = self::free_story_payload($s);

@@ -46,6 +46,7 @@ def main() -> None:
     sms_notifications = read("bluevpn-manager/includes/class-bluevpn-sms-notifications.php")
     api = read("bluevpn-manager/includes/class-bluevpn-api.php")
     ads = read("bluevpn-manager/includes/class-bluevpn-ads.php")
+    db = read("bluevpn-manager/includes/class-bluevpn-db.php")
     carousel = read("android-source/BlueVpnAdsCarouselView.kt")
     tapsell = read("android-source/BlueVpnTapsellManager.kt")
     prepare_android = read("scripts/prepare_android.py")
@@ -100,6 +101,12 @@ def main() -> None:
             "Android Tapsell interstitial API missing")
     require("Class.forName(" not in tapsell and "TapsellPlus" not in tapsell,
             "Reflection/deprecated Tapsell Plus runtime remains")
+    require("free/reward/claim" in api, "Reward claim API route missing")
+    require("free_reward_claims" in db, "Reward claim ledger table missing")
+    require("tapsell_standard_banner_enabled" in ads, "Per-placement Tapsell controls missing")
+    require("BlueVpnTapsellFreeHub" not in home, "Legacy one-place Tapsell hub remains")
+    require("BlueVpnTapsellManager.attachStandardBanner" in carousel,
+            "Standard Banner is not integrated into BlueVPN carousel")
     require('root.optJSONObject("advertising") ?: root.optJSONObject("ads")' in carousel, "Android banner parser lacks advertising/ads compatibility fallback")
     require("public static function public_config" in ads and "public static function free_public_config" in ads,
             "BlueVPN_Ads compatibility aliases missing")

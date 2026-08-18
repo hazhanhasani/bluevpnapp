@@ -35,6 +35,8 @@ import com.v2ray.ang.bluevpn.BlueVpnPersianDate
 import com.v2ray.ang.bluevpn.BlueVpnSupportNotifications
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
+import com.v2ray.ang.bluevpn.BlueVpnTapsellManager
+import com.v2ray.ang.bluevpn.BlueVpnEntitlement
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -204,11 +206,85 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
         }
 
         root.addView(createHeader())
+        createFreeGuideCard()?.let {
+            root.addView(it, LinearLayout.LayoutParams(-1, dp(54)).apply {
+                bottomMargin = dp(6)
+            })
+        }
         root.addView(createConversationStrip(), LinearLayout.LayoutParams(-1, dp(64)))
         root.addView(createChatSurface(), LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(createComposer(), LinearLayout.LayoutParams(-1, -2))
 
         return frame
+    }
+
+    private fun createFreeGuideCard(): View? {
+        if (!BlueVpnEntitlement.resolveUi(this).isFree) return null
+        return MaterialButton(this).apply {
+            text = "▶ راهنمای اتصال رایگان"
+            textSize = 12.5f
+            isAllCaps = false
+            setTextColor(palette.textPrimary)
+            backgroundTintList = ColorStateList.valueOf(palette.surfaceStrong)
+            strokeColor = ColorStateList.valueOf(palette.stroke)
+            strokeWidth = dp(1)
+            cornerRadius = dp(16)
+            BlueVpnUiGuard.bind(this, intervalMs = 900L) {
+                showFreeGuideWithOptionalPreRoll()
+            }
+        }
+    }
+
+    private fun showFreeGuideWithOptionalPreRoll() {
+        if (!BlueVpnEntitlement.resolveUi(this).isFree) {
+            showFreeConnectionGuide()
+            return
+        }
+
+        val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+        val dialog = android.app.Dialog(this)
+        val host = FrameLayout(this).apply {
+            minimumHeight = dp(220)
+            setPadding(dp(8), dp(8), dp(8), dp(8))
+        }
+        dialog.setContentView(host)
+        dialog.setCanceledOnTouchOutside(false)
+
+        fun finishToGuide() {
+            if (!completed.compareAndSet(false, true)) return
+            runCatching { dialog.dismiss() }
+            if (!isFinishing && !isDestroyed) showFreeConnectionGuide()
+        }
+
+        dialog.setOnCancelListener { finishToGuide() }
+        dialog.show()
+
+        // PreRoll is optional presentation. No-fill, unsupported SDK signature,
+        // timeout, dismissal or errors all continue to the local guide and never
+        // touch VPN/support state.
+        BlueVpnTapsellManager.attachPlacement(
+            activity = this,
+            host = host,
+            type = "pre_roll_video",
+            onUnavailable = { finishToGuide() },
+        )
+
+        handler.postDelayed({
+            if (!isFinishing && !isDestroyed) finishToGuide()
+        }, 8_000L)
+    }
+
+    private fun showFreeConnectionGuide() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("راهنمای اتصال رایگان")
+            .setMessage(
+                "۱) اینترنت دستگاه را روشن نگه دارید.\n\n" +
+                    "۲) از صفحه اصلی «اتصال» را بزنید و تا تأیید اتصال صبر کنید.\n\n" +
+                    "۳) اگر شبکه تغییر کرد، BlueVPN مسیر رایگان را بدون نیاز به انتخاب دستی بازیابی می‌کند.\n\n" +
+                    "۴) برای زمان بیشتر، روی کارت «زمان باقی‌مانده 🎁» در صفحه اصلی بزنید."
+            )
+            .setPositiveButton("متوجه شدم", null)
+            .show()
     }
 
     private fun createHeader(): View {

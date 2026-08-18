@@ -1,5 +1,6 @@
 package com.v2ray.ang.bluevpn
 
+import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -51,7 +52,14 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     private val actionView = TextView(context)
     private val dots = LinearLayout(context)
     private val badgeView = TextView(context)
+    private val tapsellHost = FrameLayout(context)
     private var items: List<AdItem> = emptyList()
+    private var tapsellStandardEnabled = false
+    private var tapsellEverySlides = 3
+    private var ownSlidesSinceTapsell = 0
+    private var tapsellShowing = false
+    private var tapsellLoading = false
+    private var tapsellCleanup: (() -> Unit)? = null
     private var currentIndex = 0
     private var intervalMs = 6_000L
     private var autoplay = true
@@ -85,12 +93,34 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     }
 
     private val slideRunnable = Runnable {
-        if (!running || !autoplay || items.size < 2) return@Runnable
+        if (!running || !autoplay) return@Runnable
+
+        val activity = context as? Activity
+        if (
+            tapsellStandardEnabled &&
+            !tapsellShowing &&
+            !tapsellLoading &&
+            ownSlidesSinceTapsell >= tapsellEverySlides &&
+            activity != null &&
+            BlueVpnEntitlement.resolveUi(context).isFree
+        ) {
+            showTapsellBanner(activity)
+            return@Runnable
+        }
+
+        if (items.isEmpty()) return@Runnable
         val next = currentIndex + 1
-        if (next >= items.size && !loop) return@Runnable
-        showItem(if (next >= items.size) 0 else next, animate = true)
+        if (next >= items.size && !loop && items.size > 1) return@Runnable
+        showItem(
+            if (items.size <= 1) currentIndex
+            else if (next >= items.size) 0
+            else next,
+            animate = items.size > 1,
+        )
+        ownSlidesSinceTapsell += 1
         scheduleNext()
     }
+
 
     init {
         visibility = View.GONE
@@ -133,6 +163,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         running = false
         handler.removeCallbacks(slideRunnable)
         handler.removeCallbacks(refreshRunnable)
+        hideTapsellBanner()
     }
 
     fun release() {
@@ -206,6 +237,21 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         dots.orientation = LinearLayout.HORIZONTAL
         dots.gravity = Gravity.CENTER
         addView(dots, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(20), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(4) })
+
+        tapsellHost.apply {
+            visibility = View.GONE
+            isClickable = true
+            isFocusable = true
+            setBackgroundColor(if (palette.dark) Color.parseColor("#12131A") else Color.WHITE)
+        }
+        addView(
+            tapsellHost,
+            LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Gravity.CENTER,
+            ),
+        )
     }
 
     private fun hydrateCachedConfig() {
@@ -238,6 +284,23 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     }
 
     private fun applyConfig(root: JSONObject, persist: Boolean) {
+        val tapsell = root.optJSONObject("tapsell")
+        val standard = tapsell?.optJSONObject("placements")
+            ?.optJSONObject("standard_banner")
+        tapsellStandardEnabled =
+            BlueVpnEntitlement.resolveUi(context).isFree &&
+            tapsell?.optBoolean("enabled", false) == true &&
+            standard?.optBoolean("enabled", false) == true
+        tapsellEverySlides = tapsell
+            ?.optInt("standard_banner_every_slides", 3)
+            ?.coerceIn(1, 10)
+            ?: 3
+
+        if (!BlueVpnEntitlement.resolveUi(context).isFree) {
+            tapsellStandardEnabled = false
+            hideTapsellBanner()
+        }
+
         if (persist) {
             cachePrefs.edit().putString("mobile_config", root.toString()).apply()
             lastFetchAt = System.currentTimeMillis()
@@ -245,8 +308,20 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         val config = root.optJSONObject("advertising") ?: root.optJSONObject("ads")
         if (config == null || !config.optBoolean("enabled", false)) {
             items = emptyList()
-            hideBanner()
-            handler.removeCallbacks(slideRunnable)
+            if (tapsellStandardEnabled) {
+                hasRenderedContent = false
+                visibility = View.GONE
+                ownSlidesSinceTapsell = tapsellEverySlides
+                val activity = context as? Activity
+                if (activity != null) {
+                    showTapsellBanner(activity)
+                } else {
+                    hideBanner()
+                }
+            } else {
+                hideBanner()
+                handler.removeCallbacks(slideRunnable)
+            }
             return
         }
         autoplay = config.optBoolean("autoplay", true)
@@ -277,7 +352,19 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         }
         items = parsed
         if (items.isEmpty()) {
-            hideBanner()
+            if (tapsellStandardEnabled) {
+                hasRenderedContent = false
+                visibility = View.GONE
+                ownSlidesSinceTapsell = tapsellEverySlides
+                val activity = context as? Activity
+                if (activity != null) {
+                    showTapsellBanner(activity)
+                } else {
+                    hideBanner()
+                }
+            } else {
+                hideBanner()
+            }
             return
         }
         currentIndex = currentIndex.coerceIn(0, items.lastIndex)
@@ -615,10 +702,71 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
 
     private fun scheduleNext() {
         handler.removeCallbacks(slideRunnable)
-        if (running && autoplay && items.size > 1) handler.postDelayed(slideRunnable, intervalMs)
+        val canRotateOwn = items.size > 1
+        val canRotateTapsell = tapsellStandardEnabled &&
+            BlueVpnEntitlement.resolveUi(context).isFree
+        if (running && autoplay && (canRotateOwn || canRotateTapsell)) {
+            handler.postDelayed(slideRunnable, intervalMs)
+        }
+    }
+
+    private fun showTapsellBanner(activity: Activity) {
+        if (
+            tapsellLoading ||
+            tapsellShowing ||
+            !tapsellStandardEnabled ||
+            !BlueVpnEntitlement.resolveUi(context).isFree
+        ) {
+            scheduleNext()
+            return
+        }
+
+        tapsellLoading = true
+        BlueVpnTapsellManager.attachStandardBanner(
+            activity = activity,
+            host = tapsellHost,
+            onShown = {
+                tapsellLoading = false
+                tapsellShowing = true
+                ownSlidesSinceTapsell = 0
+                hasRenderedContent = true
+                visibility = View.VISIBLE
+                tapsellHost.visibility = View.VISIBLE
+                requestLayout()
+                handler.removeCallbacks(slideRunnable)
+                handler.postDelayed({
+                    hideTapsellBanner()
+                    if (items.isNotEmpty()) {
+                        showItem(currentIndex, animate = false)
+                    }
+                    scheduleNext()
+                }, intervalMs)
+            },
+            onUnavailable = {
+                tapsellLoading = false
+                tapsellShowing = false
+                tapsellHost.visibility = View.GONE
+                if (items.isEmpty()) hideBanner()
+                scheduleNext()
+            },
+            onCleanup = { cleanup ->
+                tapsellCleanup?.invoke()
+                tapsellCleanup = cleanup
+            },
+        )
+    }
+
+    private fun hideTapsellBanner() {
+        tapsellCleanup?.invoke()
+        tapsellCleanup = null
+        tapsellLoading = false
+        tapsellShowing = false
+        tapsellHost.removeAllViews()
+        tapsellHost.visibility = View.GONE
     }
 
     private fun handleTouch(event: MotionEvent): Boolean {
+        if (tapsellShowing) return false
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 touchDownX = event.rawX
@@ -655,6 +803,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
 
     override fun performClick(): Boolean {
         super.performClick()
+        if (tapsellShowing) return true
         val item = items.getOrNull(currentIndex) ?: return true
         BlueVpnAdActionRouter.open(
             context = context,

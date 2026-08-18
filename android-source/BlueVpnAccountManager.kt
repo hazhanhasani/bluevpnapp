@@ -1580,13 +1580,78 @@ object BlueVpnAccountManager {
         !entitlementReconcilePending(appContext)
     }
 
+    fun claimRewardedBonus(
+        c: Context,
+        eventId: String,
+    ): Result<Int> = runCatching {
+        val appContext = c.applicationContext
+        if (!isFreeMode(appContext)) error("REWARD_FREE_ONLY")
+
+        val payload = JSONObject()
+            .put("event_id", eventId)
+            .put("device_id", deviceId(appContext))
+            .put("app_version", BuildConfig.VERSION_NAME)
+
+        val response = if (hasSession(appContext)) {
+            authenticatedRequest(
+                appContext,
+                "POST",
+                "/api/v1/free/reward/claim",
+                payload,
+            )
+        } else {
+            request(
+                appContext,
+                "POST",
+                "/api/v1/free/reward/claim",
+                payload,
+                false,
+            )
+        }
+
+        if (!response.optBoolean("applied", false)) {
+            error("REWARD_NOT_APPLIED")
+        }
+        val returnedEvent = response.optString("event_id").trim()
+        if (returnedEvent != eventId) error("REWARD_EVENT_MISMATCH")
+        val grantedMinutes = response.optInt("granted_minutes", 0).coerceIn(1, 180)
+
+        if (!applyServerRewardOnce(appContext, eventId, grantedMinutes)) {
+            return@runCatching 0
+        }
+        grantedMinutes
+    }
+
+    private fun applyServerRewardOnce(
+        c: Context,
+        eventId: String,
+        minutes: Int,
+    ): Boolean {
+        val storage = freePrefs(c.applicationContext)
+        val recent = storage.getStringSet("reward_applied_events", emptySet())
+            ?.toMutableSet()
+            ?: mutableSetOf()
+        if (eventId in recent) return false
+
+        if (!grantRewardedBonusMinutes(c, minutes)) return false
+
+        recent += eventId
+        while (recent.size > 48) {
+            recent.firstOrNull()?.let { recent.remove(it) } ?: break
+        }
+        storage.edit()
+            .putStringSet("reward_applied_events", recent)
+            .commit()
+        return true
+    }
+
     fun grantRewardedBonusMinutes(
         c: Context,
         minutes: Int,
     ): Boolean {
         val appContext = c.applicationContext
         if (!isFreeMode(appContext)) return false
-        val bonus = minutes.coerceIn(1, 60)
+        val bonus = minutes.coerceIn(1, 180)
         val storage = freePrefs(appContext)
         val now = System.currentTimeMillis()
         val active = storage.getBoolean("session_active", false)

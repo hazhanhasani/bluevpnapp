@@ -91,40 +91,92 @@ class TestCrossComponentReleaseAudit(unittest.TestCase):
 
 
 class CurrentReleaseTests(unittest.TestCase):
+    def test_00_tapsell_distributed_surfaces_and_premium_boundary(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        carousel = text("android-source/BlueVpnAdsCarouselView.kt")
+        servers = text("android-source/BlueVpnServersActivity.kt")
+        subscriptions = text("android-source/BlueVpnSubscriptionsActivity.kt")
+        support = text("android-source/BlueVpnSupportActivity.kt")
+        manager = text("android-source/BlueVpnTapsellManager.kt")
+        prepare = text("scripts/prepare_android.py")
+
+        self.assertNotIn("BlueVpnTapsellFreeHub", home)
+        self.assertNotIn("BlueVpnTapsellFreeHub.kt", prepare)
+        self.assertIn("BlueVpnTapsellManager.showRewarded(", home)
+        self.assertIn("زمان باقی‌مانده 🎁", home)
+
+        self.assertIn("tapsellHost", carousel)
+        self.assertIn("BlueVpnTapsellManager.attachStandardBanner(", carousel)
+        self.assertIn("standard_banner", carousel)
+
+        self.assertIn('type = "native_banner"', servers)
+        create_screen = servers.split("private fun createScreen()", 1)[1].split(
+            "private fun createHeader()", 1
+        )[0]
+        self.assertLess(
+            create_screen.index("nativeBannerHost"),
+            create_screen.index("listContainer ="),
+        )
+
+        self.assertIn('type="native_video"', subscriptions)
+        self.assertIn('type = "pre_roll_video"', support)
+        self.assertIn("BlueVpnEntitlement.resolveUi(this).isFree", support)
+
+        self.assertIn("fun placementEligible(", manager)
+        self.assertIn("if (!BlueVpnEntitlement.resolveUi(context).isFree) return false", manager)
+
+    def test_00_reward_claim_is_server_authoritative_and_idempotent(self):
+        api = text("bluevpn-manager/includes/class-bluevpn-api.php")
+        db = text("bluevpn-manager/includes/class-bluevpn-db.php")
+        account = text("android-source/BlueVpnAccountManager.kt")
+        manager = text("android-source/BlueVpnTapsellManager.kt")
+
+        self.assertIn("free/reward/claim", api)
+        self.assertIn("free_reward_claims", db)
+        self.assertIn("UNIQUE KEY uq_free_reward_event (event_id)", db)
+        self.assertIn("$minutes = max(1, min(180", api)
+        self.assertNotIn("$body['rewarded_bonus_minutes']", api)
+        self.assertIn("'granted_minutes' => $minutes", api)
+
+        self.assertIn("fun claimRewardedBonus(", account)
+        self.assertIn('response.optInt("granted_minutes"', account)
+        self.assertIn("reward_applied_events", account)
+        self.assertIn("UUID.randomUUID()", manager)
+        self.assertIn("claimRewardedBonus(", manager)
+        self.assertNotIn("rewardMinutes: Int", manager)
+
+    def test_00_all_tapsell_placements_have_independent_panel_switches(self):
+        ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
+        db = text("bluevpn-manager/includes/class-bluevpn-db.php")
+        for type_name in (
+            "rewarded_video",
+            "interstitial_video",
+            "pre_roll_video",
+            "native_video",
+            "standard_banner",
+            "interstitial_banner",
+            "native_banner",
+        ):
+            self.assertIn("tapsell_" + type_name + "_enabled", ads)
+            self.assertIn("tapsell_" + type_name + "_min_interval_seconds", ads)
+            self.assertIn("tapsell_" + type_name + "_daily_cap", ads)
+            self.assertIn("'tapsell_" + type_name + "_enabled' => true", db)
+
+    def test_00_standard_banner_uses_existing_bluevpn_carousel_slot(self):
+        home = text("android-source/BlueVpnHomeActivity.kt")
+        carousel = text("android-source/BlueVpnAdsCarouselView.kt")
+        self.assertEqual(home.count("BlueVpnAdsCarouselView(this)"), 1)
+        self.assertIn("private val tapsellHost = FrameLayout(context)", carousel)
+        self.assertIn("showTapsellBanner(activity)", carousel)
+        self.assertIn("hideTapsellBanner()", carousel)
+        self.assertNotIn("attachStandardBanner(", home)
+
     def test_00_tapsell_manual_initialize_matches_alpha03(self):
         manager = text("android-source/BlueVpnTapsellManager.kt")
         prepare = text("scripts/prepare_android.py")
         self.assertIn("Tapsell.initialize(context.applicationContext)", manager)
         self.assertIn('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha03"', prepare)
         self.assertIn("ir.tapsell.mediation.AUTO_INIT", prepare)
-        self.assertNotIn('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha02"', prepare)
-
-    def test_00_tapsell_all_surfaces_are_free_only(self):
-        home = text("android-source/BlueVpnHomeActivity.kt")
-        manager = text("android-source/BlueVpnTapsellManager.kt")
-        hub = text("android-source/BlueVpnTapsellFreeHub.kt")
-        account = text("android-source/BlueVpnAccountManager.kt")
-        prepare = text("scripts/prepare_android.py")
-        ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
-
-        self.assertIn("BlueVpnTapsellFreeHub.show", home)
-        self.assertIn("tapsellHubButton.visibility = if (entitlement.isFree)", home)
-        self.assertIn("if (!BlueVpnEntitlement.resolveUi(activity).isFree) return", hub)
-        self.assertIn("Premium contract:", hub)
-
-        self.assertIn("fun showRewarded(", manager)
-        self.assertIn("fun attachStandardBanner(", manager)
-        self.assertIn("fun showReflectiveFormat(", manager)
-        self.assertIn("requestPostConnectWaterfall", manager)
-        self.assertIn('loaded.zones["interstitial_video"]', manager)
-        self.assertIn('loaded.zones["interstitial_banner"]', manager)
-
-        self.assertIn("grantRewardedBonusMinutes", account)
-        self.assertIn("pending_reward_bonus_minutes", account)
-        self.assertIn("rewarded_bonus_minutes", ads)
-
-        self.assertIn('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha03"', prepare)
-        self.assertIn("legacy-ima-extension", prepare)
         self.assertNotIn('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha02"', prepare)
 
     def test_00_tapsell_has_all_seven_independent_zone_slots(self):
@@ -151,9 +203,9 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("'zones' => $zones", ads)
         self.assertIn("'post_connect_type' => $postConnectType", ads)
         self.assertIn("'post_connect_zone_id' => $enabled ? $postConnectZone", ads)
-        self.assertIn("postConnectZoneId", android)
-        self.assertIn('zones["interstitial_video"]', android)
-        self.assertIn('zones["interstitial_banner"]', android)
+        self.assertIn('placement("interstitial_video")', android)
+        self.assertIn('"interstitial_video"', android)
+        self.assertIn('"interstitial_banner"', android)
 
     def test_00_tapsell_is_primary_and_story_is_fallback(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
@@ -181,7 +233,7 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("continueOnce()", manager)
         self.assertIn("onUnavailable?.invoke()", manager)
         self.assertIn(
-            "requestPostConnectWaterfall(current, loaded, onUnavailable = onUnavailable)",
+            "requestPostConnectWaterfall(activity = current, loaded = loaded, onUnavailable = onUnavailable)",
             manager,
         )
 
@@ -1324,7 +1376,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("R.id.bluevpn_download_speed", home)
         self.assertIn("R.id.bluevpn_upload_speed", home)
         self.assertIn("R.id.bluevpn_duration_value", home)
-        self.assertIn('durationMetricLabel.text = "زمان باقی‌مانده"', home)
+        self.assertIn('durationMetricLabel.text = "زمان باقی‌مانده 🎁"', home)
         self.assertIn('durationMetricLabel.text = "مدت اتصال"', home)
         header = block(home, "private fun createHeader", "private fun createConnectingOverlay")
         self.assertNotIn('"رایگان 60:00"', header)

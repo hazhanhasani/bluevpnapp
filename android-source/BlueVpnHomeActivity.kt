@@ -81,7 +81,6 @@ import com.v2ray.ang.bluevpn.BlueVpnSelectionMode
 import com.v2ray.ang.bluevpn.BlueVpnSmartSelector
 import com.v2ray.ang.bluevpn.BlueVpnSupportNotifications
 import com.v2ray.ang.bluevpn.BlueVpnTapsellManager
-import com.v2ray.ang.bluevpn.BlueVpnTapsellFreeHub
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.handler.SubscriptionUpdater
@@ -129,7 +128,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var lastConnectionToggleAt = 0L
 
     private lateinit var adsCarousel: BlueVpnAdsCarouselView
-    private lateinit var tapsellHubButton: View
     private lateinit var connectButton: AppCompatTextView
     private lateinit var connectTrack: MaterialCardView
     private lateinit var connectHint: TextView
@@ -899,35 +897,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         // in the live metrics strip under the main connection control. Keeping
         // the header clean also prevents the countdown from competing with the
         // version badge on small displays.
-        tapsellHubButton = uiText(
-            "🎁",
-            19f,
-            palette.textPrimary,
-            bold = true,
-            gravity = Gravity.CENTER,
-        ).apply {
-            contentDescription = "تبلیغات و هدیه رایگان"
-            visibility = View.GONE
-            isClickable = true
-            isFocusable = true
-            background = roundedGradient(
-                intArrayOf(palette.surfaceStrong, palette.surface),
-                17,
-                palette.stroke,
-            )
-            elevation = dpHome(1).toFloat()
-            BlueVpnUiGuard.bind(this, intervalMs = 700L) {
-                if (BlueVpnEntitlement.resolveUi(this@BlueVpnHomeActivity).isFree) {
-                    BlueVpnTapsellFreeHub.show(this@BlueVpnHomeActivity)
-                }
-            }
-        }
-        row.addView(
-            tapsellHubButton,
-            LinearLayout.LayoutParams(dpHome(48), dpHome(48)).apply {
-                marginEnd = dpHome(8)
-            },
-        )
         row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         row.addView(
             headerIcon("account", R.id.bluevpn_action_subscription, "حساب و اشتراک"),
@@ -1499,17 +1468,45 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             ) { value, _ -> uploadSpeed = value },
             end = 3,
         )
+        val durationCard = metricCard(
+            "◷",
+            "مدت اتصال",
+            R.id.bluevpn_duration_value,
+            palette.accent,
+        ) { value, labelView ->
+            durationValue = value
+            durationMetricLabel = labelView
+            freeTimerBadge = value
+        }.apply {
+            contentDescription = "زمان باقی‌مانده؛ برای دریافت زمان هدیه لمس کنید"
+            isClickable = true
+            isFocusable = true
+            BlueVpnUiGuard.bind(this, intervalMs = 900L) {
+                if (!BlueVpnEntitlement.resolveUi(this@BlueVpnHomeActivity).isFree) {
+                    return@bind
+                }
+                BlueVpnTapsellManager.showRewarded(
+                    activity = this@BlueVpnHomeActivity,
+                    onRewarded = { grantedMinutes ->
+                        updateFreeTimerBadge()
+                        Toast.makeText(
+                            this@BlueVpnHomeActivity,
+                            "$grantedMinutes دقیقه به زمان رایگان اضافه شد",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    },
+                    onUnavailable = {
+                        Toast.makeText(
+                            this@BlueVpnHomeActivity,
+                            "فعلاً تبلیغ جایزه‌ای در دسترس نیست",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    },
+                )
+            }
+        }
         addMetric(
-            metricCard(
-                "◷",
-                "مدت اتصال",
-                R.id.bluevpn_duration_value,
-                palette.accent,
-            ) { value, labelView ->
-                durationValue = value
-                durationMetricLabel = labelView
-                freeTimerBadge = value
-            },
+            durationCard,
             start = 3,
             end = 3,
         )
@@ -3010,13 +3007,6 @@ private fun dpHome(value: Int): Int =
         if (::freeTimerBadge.isInitialized) {
             freeTimerBadge.visibility = View.VISIBLE
         }
-        if (::tapsellHubButton.isInitialized) {
-            tapsellHubButton.visibility = if (entitlement.isFree) {
-                View.VISIBLE
-            } else {
-                View.GONE
-            }
-        }
         if (!entitlement.isFree) {
             BlueVpnTapsellManager.onEntitlementChanged(this)
         }
@@ -3057,7 +3047,7 @@ private fun dpHome(value: Int): Int =
         }
 
         if (::durationMetricLabel.isInitialized) {
-            durationMetricLabel.text = "زمان باقی‌مانده"
+            durationMetricLabel.text = "زمان باقی‌مانده 🎁"
         }
         val active = connectionVerified ||
             mainViewModel.isRunning.value == true ||

@@ -16,6 +16,7 @@ final class BlueVPN_API {
             ['/free/subscription','GET','free_subscription'],
             ['/free/subscriptions/(?P<item_id>[A-Za-z0-9_-]{1,64})','GET','free_subscription'],
             ['/free/curated','GET','free_curated'], ['/free/probes','POST','free_probe'],
+            ['/free/reward/claim','POST','free_reward_claim'],
             ['/auth/register','POST','register'], ['/auth/login','POST','login'],
             ['/auth/otp/request','POST','otp_request'], ['/auth/otp/verify','POST','otp_verify'],
             ['/auth/refresh','POST','refresh'], ['/auth/logout','POST','logout'],
@@ -252,6 +253,152 @@ final class BlueVPN_API {
     public static function free_subscription(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Ads::free_subscription($r); }
     public static function free_curated(WP_REST_Request $r): WP_REST_Response { $limit=max(10,min(300,(int)($r->get_param('limit')?:80)));$text=BlueVPN_Free_Sources::subscription_text($limit);$res=new WP_REST_Response($text,200);$res->header('Content-Type','text/plain; charset=utf-8');$res->header('X-BlueVPN-Raw','1');$res->header('Cache-Control','public, max-age=60');return $res; }
     public static function free_probe(WP_REST_Request $r): WP_REST_Response { $device=(string)$r->get_header('x-device-id');$app=(string)$r->get_header('user-agent');return self::ok(['success'=>true,'result'=>BlueVPN_Free_Sources::report(self::body($r),$device,$app)]); }
+    public static function free_reward_claim(WP_REST_Request $r): WP_REST_Response {
+        try {
+            global $wpdb;
+            $body = self::body($r);
+            $eventId = strtolower(trim((string)($body['event_id'] ?? '')));
+            $deviceId = mb_substr(trim((string)($body['device_id'] ?? $r->get_header('x-device-id'))), 0, 180);
+            $appVersion = mb_substr(trim((string)($body['app_version'] ?? '')), 0, 40);
+
+            if (!preg_match('/^[a-z0-9][a-z0-9._:-]{15,63}$/', $eventId)) {
+                throw new BlueVPN_Auth_Exception(422, 'REWARD_EVENT_INVALID', 'شناسه رویداد جایزه معتبر نیست');
+            }
+            if ($deviceId === '' || mb_strlen($deviceId) < 6) {
+                throw new BlueVPN_Auth_Exception(422, 'REWARD_DEVICE_REQUIRED', 'شناسه دستگاه لازم است');
+            }
+
+            $customer = null;
+            $bearer = BlueVPN_Auth::bearer_token($r);
+            if ($bearer !== '') {
+                // An invalid bearer must never silently downgrade to guest.
+                $customer = BlueVPN_Auth::current_customer($r);
+                $account = BlueVPN_Auth::account_payload($customer);
+                if (!empty($account['subscription']['active'])) {
+                    throw new BlueVPN_Auth_Exception(409, 'REWARD_FREE_ONLY', 'جایزه تبلیغاتی فقط برای پلن رایگان است');
+                }
+            }
+
+            $settings = BlueVPN_DB::settings();
+            $tapsell = BlueVPN_Ads::tapsell_payload($settings);
+            $policy = is_array($tapsell['placements']['rewarded_video'] ?? null)
+                ? $tapsell['placements']['rewarded_video']
+                : [];
+
+            if (empty($tapsell['enabled']) || empty($policy['enabled'])) {
+                throw new BlueVPN_Auth_Exception(409, 'REWARD_DISABLED', 'ویدئوی جایزه‌ای غیرفعال است');
+            }
+
+            $minutes = max(1, min(180, (int)($tapsell['rewarded_bonus_minutes'] ?? 15)));
+            $interval = max(0, min(86400, (int)($policy['min_interval_seconds'] ?? 300)));
+            $dailyCap = max(0, min(1000, (int)($policy['daily_cap'] ?? 5)));
+            $table = BlueVPN_DB::table('free_reward_claims');
+
+            $existing = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT event_id,granted_minutes,created_at FROM {$table} WHERE event_id=%s LIMIT 1",
+                    $eventId
+                ),
+                ARRAY_A
+            );
+            if (is_array($existing)) {
+                return self::ok([
+                    'success' => true,
+                    'applied' => true,
+                    'duplicate' => true,
+                    'event_id' => $eventId,
+                    'granted_minutes' => (int)$existing['granted_minutes'],
+                    'server_time' => BlueVPN_Utils::iso_now(),
+                ]);
+            }
+
+            $customerId = $customer ? (int)$customer['id'] : 0;
+            $identitySql = $customerId > 0
+                ? $wpdb->prepare("customer_id=%d", $customerId)
+                : $wpdb->prepare("customer_id=0 AND device_id=%s", $deviceId);
+
+            if ($interval > 0) {
+                $lastAt = (string)$wpdb->get_var(
+                    "SELECT created_at FROM {$table} WHERE placement='rewarded_video' AND {$identitySql} ORDER BY created_at DESC LIMIT 1"
+                );
+                if ($lastAt !== '') {
+                    $lastTs = strtotime($lastAt . ' UTC') ?: 0;
+                    $retryAfter = max(0, $interval - (time() - $lastTs));
+                    if ($retryAfter > 0) {
+                        throw new BlueVPN_Auth_Exception(
+                            429,
+                            'REWARD_COOLDOWN',
+                            'برای دریافت جایزه بعدی کمی صبر کنید',
+                            ['retry_after_seconds' => $retryAfter]
+                        );
+                    }
+                }
+            }
+
+            if ($dailyCap > 0) {
+                $dayStart = gmdate('Y-m-d 00:00:00');
+                $todayCount = (int)$wpdb->get_var(
+                    $wpdb->prepare(
+                        "SELECT COUNT(*) FROM {$table} WHERE placement='rewarded_video' AND created_at>=%s AND {$identitySql}",
+                        $dayStart
+                    )
+                );
+                if ($todayCount >= $dailyCap) {
+                    throw new BlueVPN_Auth_Exception(429, 'REWARD_DAILY_CAP', 'سقف دریافت جایزه امروز تکمیل شده است');
+                }
+            }
+
+            $inserted = $wpdb->insert(
+                $table,
+                [
+                    'event_id' => $eventId,
+                    'customer_id' => $customerId > 0 ? $customerId : 0,
+                    'device_id' => $deviceId,
+                    'placement' => 'rewarded_video',
+                    'granted_minutes' => $minutes,
+                    'app_version' => $appVersion,
+                    'created_at' => BlueVPN_Utils::now_mysql(),
+                ],
+                ['%s','%d','%s','%s','%d','%s','%s']
+            );
+
+            if ($inserted === false) {
+                // Concurrent duplicate event: return the original grant instead
+                // of ever creating a second reward.
+                $race = $wpdb->get_row(
+                    $wpdb->prepare(
+                        "SELECT event_id,granted_minutes FROM {$table} WHERE event_id=%s LIMIT 1",
+                        $eventId
+                    ),
+                    ARRAY_A
+                );
+                if (is_array($race)) {
+                    return self::ok([
+                        'success' => true,
+                        'applied' => true,
+                        'duplicate' => true,
+                        'event_id' => $eventId,
+                        'granted_minutes' => (int)$race['granted_minutes'],
+                        'server_time' => BlueVPN_Utils::iso_now(),
+                    ]);
+                }
+                throw new RuntimeException('REWARD_LEDGER_INSERT_FAILED');
+            }
+
+            return self::ok([
+                'success' => true,
+                'applied' => true,
+                'duplicate' => false,
+                'event_id' => $eventId,
+                'granted_minutes' => $minutes,
+                'server_time' => BlueVPN_Utils::iso_now(),
+            ]);
+        } catch (BlueVPN_Auth_Exception $e) {
+            return self::fail($e);
+        } catch (Throwable $e) {
+            return self::unexpected($e, 'free_reward_claim');
+        }
+    }
 
     public static function bind_phone_otp_request(WP_REST_Request $r): WP_REST_Response {
         try { $c=BlueVPN_Auth::current_customer($r); $b=self::body($r); return self::ok(BlueVPN_SMS_OTP::request_bind($c,(string)($b['phone']??''),(string)($b['device_id']??''))); }

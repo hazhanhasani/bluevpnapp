@@ -1,8 +1,15 @@
 === BlueVPN Manager ===
-Version: 4.14.10
-Stable tag: 4.14.10
+Version: 4.15.0
+Stable tag: 4.15.0
 Requires PHP: 8.0
 
+
+== 4.15.0 ==
+- Distributes Tapsell across Free Home, Locations, Account/Plans and Support instead of one ad hub.
+- Standard Banner now shares the existing BlueVPN campaign carousel and creates no extra Home slot.
+- Adds independent enable, Zone ID, cooldown and daily cap controls for all seven Tapsell placements.
+- Rewarded Video grants the exact server-configured minutes through an idempotent /free/reward/claim ledger.
+- Premium hard boundary: no Tapsell request/preload/show; only BlueVPN first-party banners remain.
 
 == 4.14.10 ==
 - Fixes Android compile error: unresolved Tapsell.initialize caused by pinning 1.4.0-alpha02 while using manual initialization.

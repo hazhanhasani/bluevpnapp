@@ -20,6 +20,7 @@ import java.lang.ref.WeakReference
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -44,28 +45,37 @@ object BlueVpnTapsellManager {
     private const val CONFIG_CACHE_MS = 60_000L
     private const val INIT_REQUEST_FALLBACK_MS = 4_500L
 
+    data class PlacementPolicy(
+        val type: String,
+        val enabled: Boolean,
+        val zoneId: String,
+        val minIntervalSeconds: Int,
+        val dailyCap: Int,
+    )
+
     private data class Config(
         val enabled: Boolean,
         val appId: String,
-        val zones: Map<String, String>,
-        val postConnectType: String,
-        val postConnectZoneId: String,
+        val placements: Map<String, PlacementPolicy>,
         val showAfterConnect: Boolean,
-        val minIntervalSeconds: Int,
-        val dailyCap: Int,
         val rewardedBonusMinutes: Int,
+        val standardBannerSize: String,
+        val standardBannerEverySlides: Int,
+        val rewardFullscreenSuppressionSeconds: Int,
     ) {
-        val valid: Boolean
-            get() = enabled &&
-                showAfterConnect &&
-                appId.isNotBlank() &&
-                postConnectZoneId.isNotBlank()
+        fun placement(type: String): PlacementPolicy =
+            placements[type] ?: PlacementPolicy(type, false, "", 0, 0)
+
+        val hasAnyPlacement: Boolean
+            get() = enabled && placements.values.any { it.enabled }
     }
 
     data class SurfaceConfig(
         val enabled: Boolean,
-        val zones: Map<String, String>,
+        val placements: Map<String, PlacementPolicy>,
         val rewardedBonusMinutes: Int,
+        val standardBannerSize: String,
+        val standardBannerEverySlides: Int,
     )
 
     private val main = Handler(Looper.getMainLooper())
@@ -80,6 +90,7 @@ object BlueVpnTapsellManager {
     @Volatile private var initialized = false
     @Volatile private var initializing = false
     @Volatile private var readyAdId = ""
+    @Volatile private var readyPlacementType = ""
     @Volatile private var pendingSessionId = 0L
     @Volatile private var pendingActivity: WeakReference<Activity>? = null
 
@@ -91,7 +102,7 @@ object BlueVpnTapsellManager {
         }
 
         loadConfig(app, force = false) { loaded ->
-            if (!loaded.valid) return@loadConfig
+            if (!loaded.hasAnyPlacement) return@loadConfig
             if (!BlueVpnEntitlement.resolveUi(app).isFree) return@loadConfig
             if (!buildAppIdMatches(app, loaded)) return@loadConfig
             ensureInitialized(app, loaded)
@@ -118,7 +129,11 @@ object BlueVpnTapsellManager {
         pendingActivity = WeakReference(activity)
 
         loadConfig(app, force = false) { loaded ->
-            if (!loaded.valid || !BlueVpnEntitlement.resolveUi(app).isFree) {
+            val hasPostConnectPlacement = loaded.showAfterConnect && listOf(
+                loaded.placement("interstitial_video"),
+                loaded.placement("interstitial_banner"),
+            ).any { it.enabled && it.zoneId.isNotBlank() }
+            if (!hasPostConnectPlacement || !BlueVpnEntitlement.resolveUi(app).isFree) {
                 cancelPending()
                 onUnavailable?.invoke()
                 return@loadConfig
@@ -153,7 +168,7 @@ object BlueVpnTapsellManager {
                             !current.isFinishing &&
                             !current.isDestroyed
                         ) {
-                            requestPostConnectWaterfall(current, loaded, onUnavailable = onUnavailable)
+                            requestPostConnectWaterfall(activity = current, loaded = loaded, onUnavailable = onUnavailable)
                         } else {
                             cancelPending()
                             onUnavailable?.invoke()
@@ -177,19 +192,38 @@ object BlueVpnTapsellManager {
     ) {
         val app = context.applicationContext
         if (!BlueVpnEntitlement.resolveUi(app).isFree) {
-            callback(SurfaceConfig(false, emptyMap(), 15))
+            callback(
+                SurfaceConfig(
+                    false,
+                    emptyMap(),
+                    15,
+                    "BANNER_320_50",
+                    3,
+                ),
+            )
             return
         }
+
         loadConfig(app, force = false) { loaded ->
             if (!BlueVpnEntitlement.resolveUi(app).isFree) {
-                callback(SurfaceConfig(false, emptyMap(), 15))
+                callback(
+                    SurfaceConfig(
+                        false,
+                        emptyMap(),
+                        15,
+                        "BANNER_320_50",
+                        3,
+                    ),
+                )
                 return@loadConfig
             }
             callback(
                 SurfaceConfig(
                     enabled = loaded.enabled && buildAppIdMatches(app, loaded),
-                    zones = loaded.zones.toMap(),
+                    placements = loaded.placements.toMap(),
                     rewardedBonusMinutes = loaded.rewardedBonusMinutes,
+                    standardBannerSize = loaded.standardBannerSize,
+                    standardBannerEverySlides = loaded.standardBannerEverySlides,
                 ),
             )
         }
@@ -208,10 +242,14 @@ object BlueVpnTapsellManager {
             .put("ready", readyAdId.isNotBlank())
             .put("status", storage.getString(KEY_STATUS, "idle").orEmpty())
             .put("last_error", storage.getString(KEY_LAST_ERROR, "").orEmpty())
-            .put("post_connect_type", config?.postConnectType.orEmpty())
-            .put("configured_zones", JSONObject().apply {
-                config?.zones?.forEach { (type, zoneId) ->
-                    put(type, zoneId.isNotBlank())
+            .put("configured_placements", JSONObject().apply {
+                config?.placements?.forEach { (type, policy) ->
+                    put(type, JSONObject()
+                        .put("enabled", policy.enabled)
+                        .put("zone_configured", policy.zoneId.isNotBlank())
+                        .put("min_interval_seconds", policy.minIntervalSeconds)
+                        .put("daily_cap", policy.dailyCap)
+                    )
                 }
             })
     }
@@ -240,7 +278,16 @@ object BlueVpnTapsellManager {
             }.getOrElse {
                 recordStatus(context, "config_error", it.message.orEmpty())
                 Log.w(TAG, "Could not load Tapsell config", it)
-                Config(false, "", emptyMap(), "", "", true, 0, 0, 15)
+                Config(
+                    enabled = false,
+                    appId = "",
+                    placements = emptyMap(),
+                    showAfterConnect = false,
+                    rewardedBonusMinutes = 15,
+                    standardBannerSize = "BANNER_320_50",
+                    standardBannerEverySlides = 3,
+                    rewardFullscreenSuppressionSeconds = 300,
+                )
             }
 
             config = loaded
@@ -252,62 +299,90 @@ object BlueVpnTapsellManager {
 
     private fun parseConfig(value: JSONObject): Config {
         val zonesObject = value.optJSONObject("zones") ?: JSONObject()
-        val zones = linkedMapOf(
-            "rewarded_video" to zonesObject.optString("rewarded_video", "").trim(),
-            "interstitial_video" to zonesObject.optString("interstitial_video", "").trim(),
-            "pre_roll_video" to zonesObject.optString("pre_roll_video", "").trim(),
-            "native_video" to zonesObject.optString("native_video", "").trim(),
-            "standard_banner" to zonesObject.optString("standard_banner", "").trim(),
-            "interstitial_banner" to zonesObject.optString("interstitial_banner", "").trim(),
-            "native_banner" to zonesObject.optString("native_banner", "").trim(),
+        val placementsObject = value.optJSONObject("placements") ?: JSONObject()
+        val types = listOf(
+            "rewarded_video",
+            "interstitial_video",
+            "pre_roll_video",
+            "native_video",
+            "standard_banner",
+            "interstitial_banner",
+            "native_banner",
+        )
+        val fallbackDefaults = mapOf(
+            "rewarded_video" to (300 to 5),
+            "interstitial_video" to (1200 to 3),
+            "pre_roll_video" to (1800 to 2),
+            "native_video" to (900 to 4),
+            "standard_banner" to (120 to 0),
+            "interstitial_banner" to (1200 to 3),
+            "native_banner" to (600 to 6),
         )
 
-        val compatibilityInterstitial =
-            value.optString("interstitial_zone_id", "").trim()
-
-        val explicitPostConnect =
-            value.optString("post_connect_zone_id", "").trim()
-
-        val postConnectType = when {
-            value.optString("post_connect_type", "").trim().isNotBlank() ->
-                value.optString("post_connect_type", "").trim()
-            zones["interstitial_video"].orEmpty().isNotBlank() ->
-                "interstitial_video"
-            zones["interstitial_banner"].orEmpty().isNotBlank() ->
-                "interstitial_banner"
-            compatibilityInterstitial.isNotBlank() ->
-                "legacy_interstitial"
-            else -> ""
+        val masterEnabled = value.optBoolean("enabled", false)
+        val placements = linkedMapOf<String, PlacementPolicy>()
+        types.forEach { type ->
+            val row = placementsObject.optJSONObject(type)
+            val compatibilityZone = zonesObject.optString(type, "").trim()
+            val zoneId = row?.optString("zone_id", compatibilityZone)?.trim()
+                .orEmpty()
+            val defaults = fallbackDefaults[type] ?: (0 to 0)
+            val enabled = if (row != null) {
+                masterEnabled && row.optBoolean("enabled", false) && zoneId.isNotBlank()
+            } else {
+                masterEnabled && zoneId.isNotBlank()
+            }
+            placements[type] = PlacementPolicy(
+                type = type,
+                enabled = enabled,
+                zoneId = zoneId,
+                minIntervalSeconds = (
+                    row?.optInt("min_interval_seconds", defaults.first)
+                        ?: defaults.first
+                    ).coerceIn(0, 86_400),
+                dailyCap = (
+                    row?.optInt("daily_cap", defaults.second)
+                        ?: defaults.second
+                    ).coerceIn(0, 1_000),
+            )
         }
 
-        val postConnectZoneId = when {
-            explicitPostConnect.isNotBlank() -> explicitPostConnect
-            zones["interstitial_video"].orEmpty().isNotBlank() ->
-                zones["interstitial_video"].orEmpty()
-            zones["interstitial_banner"].orEmpty().isNotBlank() ->
-                zones["interstitial_banner"].orEmpty()
-            else -> compatibilityInterstitial
+        // Compatibility with early single-zone clients/config.
+        if (
+            placements["interstitial_video"]?.zoneId.isNullOrBlank() &&
+            value.optString("interstitial_zone_id", "").isNotBlank()
+        ) {
+            val old = value.optString("interstitial_zone_id", "").trim()
+            placements["interstitial_video"] = PlacementPolicy(
+                "interstitial_video",
+                masterEnabled && value.optBoolean("show_after_connect", true),
+                old,
+                value.optInt("min_interval_seconds", 1200).coerceIn(0, 86_400),
+                value.optInt("daily_cap", 3).coerceIn(0, 1_000),
+            )
         }
 
         return Config(
-            enabled = value.optBoolean("enabled", false),
+            enabled = masterEnabled,
             appId = value.optString(
                 "app_id",
                 value.optString("app_key", ""),
             ).trim(),
-            zones = zones,
-            postConnectType = postConnectType,
-            postConnectZoneId = postConnectZoneId,
+            placements = placements,
             showAfterConnect = value.optBoolean("show_after_connect", true),
-            minIntervalSeconds = value
-                .optInt("min_interval_seconds", 0)
-                .coerceIn(0, 86_400),
-            dailyCap = value
-                .optInt("daily_cap", 0)
-                .coerceIn(0, 1_000),
             rewardedBonusMinutes = value
                 .optInt("rewarded_bonus_minutes", 15)
-                .coerceIn(1, 60),
+                .coerceIn(1, 180),
+            standardBannerSize = value
+                .optString("standard_banner_size", "BANNER_320_50")
+                .trim()
+                .ifBlank { "BANNER_320_50" },
+            standardBannerEverySlides = value
+                .optInt("standard_banner_every_slides", 3)
+                .coerceIn(1, 10),
+            rewardFullscreenSuppressionSeconds = value
+                .optInt("reward_fullscreen_suppression_seconds", 300)
+                .coerceIn(0, 3600),
         )
     }
 
@@ -351,7 +426,7 @@ object BlueVpnTapsellManager {
         after: (() -> Unit)? = null,
         onUnavailable: (() -> Unit)? = null,
     ) {
-        if (!loaded.valid || !BlueVpnEntitlement.resolveUi(context).isFree) {
+        if (!loaded.hasAnyPlacement || !BlueVpnEntitlement.resolveUi(context).isFree) {
             onUnavailable?.invoke()
             return
         }
@@ -423,40 +498,73 @@ object BlueVpnTapsellManager {
 
     private fun postConnectWaterfall(
         loaded: Config,
-    ): List<Pair<String, String>> {
-        val result = mutableListOf<Pair<String, String>>()
-        val video = loaded.zones["interstitial_video"].orEmpty()
-        val banner = loaded.zones["interstitial_banner"].orEmpty()
-        if (video.isNotBlank()) result += "interstitial_video" to video
-        if (banner.isNotBlank() && banner != video) result += "interstitial_banner" to banner
-        if (result.isEmpty() && loaded.postConnectZoneId.isNotBlank()) {
-            result += loaded.postConnectType.ifBlank { "legacy_interstitial" } to loaded.postConnectZoneId
-        }
-        return result
+    ): List<PlacementPolicy> {
+        if (!loaded.showAfterConnect) return emptyList()
+
+        return listOf(
+            loaded.placement("interstitial_video"),
+            loaded.placement("interstitial_banner"),
+        ).filter { it.enabled && it.zoneId.isNotBlank() }
     }
+
 
     private fun requestPostConnectWaterfall(
         activity: Activity,
         loaded: Config,
         index: Int = 0,
+        failureDriven: Boolean = false,
         onUnavailable: (() -> Unit)? = null,
     ) {
+        val storage = activity.applicationContext
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+        // A Rewarded impression intentionally suppresses automatic fullscreen
+        // ads. Do not replace the suppressed Tapsell with a BlueVPN Story.
+        if (
+            storage.getLong("fullscreen_suppressed_until", 0L) >
+            System.currentTimeMillis()
+        ) {
+            recordStatus(activity, "post_connect_suppressed_after_reward")
+            return
+        }
+
         val waterfall = postConnectWaterfall(loaded)
-        if (index !in waterfall.indices) {
+        if (waterfall.isEmpty()) {
+            // Tapsell is not configured for post-connect: first-party Story may
+            // be used as the normal fallback.
             onUnavailable?.invoke()
             return
         }
-        val (type, zoneId) = waterfall[index]
+
+        if (index !in waterfall.indices) {
+            // Only an actual Tapsell request/show failure is allowed to cascade
+            // into the first-party Story. Cooldown/cap is a deliberate silence.
+            if (failureDriven) onUnavailable?.invoke()
+            return
+        }
+
+        val policy = waterfall[index]
+        if (!placementEligible(activity, policy)) {
+            requestPostConnectWaterfall(
+                activity = activity,
+                loaded = loaded,
+                index = index + 1,
+                failureDriven = failureDriven,
+                onUnavailable = onUnavailable,
+            )
+            return
+        }
+
         requestInterstitial(
             activity = activity,
             loaded = loaded,
-            zoneId = zoneId,
-            placementType = type,
+            policy = policy,
             onUnavailable = {
                 requestPostConnectWaterfall(
                     activity = activity,
                     loaded = loaded,
                     index = index + 1,
+                    failureDriven = true,
                     onUnavailable = onUnavailable,
                 )
             },
@@ -466,31 +574,32 @@ object BlueVpnTapsellManager {
     private fun requestInterstitial(
         activity: Activity,
         loaded: Config,
-        zoneId: String,
-        placementType: String,
+        policy: PlacementPolicy,
         onUnavailable: (() -> Unit)? = null,
     ) {
         if (activity.isFinishing || activity.isDestroyed) return
-        if (!loaded.enabled || zoneId.isBlank() || readyAdId.isNotBlank()) return
+        if (!loaded.enabled || !policy.enabled || policy.zoneId.isBlank() || readyAdId.isNotBlank()) return
         if (!BlueVpnEntitlement.resolveUi(activity).isFree) return
         if (!buildAppIdMatches(activity, loaded)) return
         if (!adRequesting.compareAndSet(false, true)) return
 
-        recordStatus(activity, "requesting_$placementType")
+        recordStatus(activity, "requesting_${policy.type}")
 
         runCatching {
             // Activity overload supports mediated networks that need Activity
             // context during load, while still working for Tapsell's own network.
             Tapsell.requestInterstitialAd(
-                zoneId,
-                activity,
+                policy.zoneId,
                 object : RequestResultListener {
                     override fun onSuccess(adId: String) {
                         main.post {
                             adRequesting.set(false)
                             readyAdId = adId.trim()
+                            readyPlacementType = policy.type
                             if (readyAdId.isBlank()) {
+                                readyPlacementType = ""
                                 recordStatus(activity, "request_empty_ad_id")
+                                onUnavailable?.invoke()
                                 return@post
                             }
 
@@ -501,7 +610,11 @@ object BlueVpnTapsellManager {
                                 !target.isFinishing &&
                                 !target.isDestroyed
                             ) {
-                                showReadyAd(target, loaded)
+                                showReadyAd(target, loaded, onUnavailable)
+                            } else {
+                                readyAdId = ""
+                                readyPlacementType = ""
+                                onUnavailable?.invoke()
                             }
                         }
                     }
@@ -553,9 +666,16 @@ object BlueVpnTapsellManager {
             return
         }
 
-        if (!eligibleForSession(activity, loaded, sessionId)) {
+        val policy = loaded.placement(readyPlacementType)
+        if (
+            !eligibleForSession(activity, sessionId) ||
+            !policy.enabled ||
+            !placementEligible(activity, policy)
+        ) {
             pendingSessionId = 0L
             pendingActivity = null
+            readyPlacementType = ""
+            onUnavailable?.invoke()
             return
         }
 
@@ -569,6 +689,7 @@ object BlueVpnTapsellManager {
                     override fun onAdImpression() {
                         if (impressionRecorded.compareAndSet(false, true)) {
                             markShown(activity, sessionId)
+                            markPlacementShown(activity, policy.type)
                         }
                         recordStatus(activity, "shown")
                     }
@@ -581,6 +702,7 @@ object BlueVpnTapsellManager {
                         adShowCompletionState: AdShowCompletionState,
                     ) {
                         readyAdId = ""
+                        readyPlacementType = ""
                         recordStatus(
                             activity,
                             "closed_${adShowCompletionState.name.lowercase(Locale.US)}",
@@ -589,6 +711,7 @@ object BlueVpnTapsellManager {
 
                     override fun onAdFailed(message: String) {
                         readyAdId = ""
+                        readyPlacementType = ""
                         recordStatus(activity, "show_error", message)
                         Log.w(TAG, "Interstitial show failed: $message")
                         onUnavailable?.invoke()
@@ -598,10 +721,12 @@ object BlueVpnTapsellManager {
 
             // Showing an ad is not a VPN state transition.
             readyAdId = ""
+            readyPlacementType = ""
             pendingSessionId = 0L
             pendingActivity = null
         }.onFailure {
             readyAdId = ""
+            readyPlacementType = ""
             pendingSessionId = 0L
             pendingActivity = null
             recordStatus(activity, "show_exception", it.message.orEmpty())
@@ -612,15 +737,12 @@ object BlueVpnTapsellManager {
 
     fun showRewarded(
         activity: Activity,
-        zoneId: String,
-        rewardMinutes: Int,
-        onRewarded: () -> Unit,
+        onRewarded: (Int) -> Unit,
         onUnavailable: (() -> Unit)? = null,
     ) {
         if (
             activity.isFinishing ||
             activity.isDestroyed ||
-            zoneId.isBlank() ||
             !BlueVpnEntitlement.resolveUi(activity).isFree
         ) {
             onUnavailable?.invoke()
@@ -628,8 +750,11 @@ object BlueVpnTapsellManager {
         }
 
         loadConfig(activity.applicationContext, force = false) { loaded ->
+            val policy = loaded.placement("rewarded_video")
             if (
                 !loaded.enabled ||
+                !policy.enabled ||
+                !placementEligible(activity, policy) ||
                 !BlueVpnEntitlement.resolveUi(activity).isFree ||
                 !buildAppIdMatches(activity, loaded)
             ) {
@@ -645,17 +770,22 @@ object BlueVpnTapsellManager {
                         onUnavailable?.invoke()
                         return@ensureInitialized
                     }
+
                     runCatching {
                         Tapsell.requestRewardedAd(
-                            zoneId,
-                            activity,
+                            policy.zoneId,
                             object : RequestResultListener {
                                 override fun onSuccess(adId: String) {
                                     main.post {
-                                        if (!BlueVpnEntitlement.resolveUi(activity).isFree) {
+                                        if (
+                                            activity.isFinishing ||
+                                            activity.isDestroyed ||
+                                            !BlueVpnEntitlement.resolveUi(activity).isFree
+                                        ) {
                                             onUnavailable?.invoke()
                                             return@post
                                         }
+
                                         val delivered = AtomicBoolean(false)
                                         Tapsell.showRewardedAd(
                                             adId,
@@ -663,10 +793,13 @@ object BlueVpnTapsellManager {
                                             object : AdStateListener.Rewarded {
                                                 override fun onAdImpression() {
                                                     recordStatus(activity, "rewarded_shown")
+                                                    markPlacementShown(activity, "rewarded_video")
                                                 }
+
                                                 override fun onAdClicked() {
                                                     recordStatus(activity, "rewarded_clicked")
                                                 }
+
                                                 override fun onAdClosed(
                                                     adShowCompletionState: AdShowCompletionState,
                                                 ) {
@@ -675,35 +808,80 @@ object BlueVpnTapsellManager {
                                                         "rewarded_closed_${adShowCompletionState.name.lowercase(Locale.US)}",
                                                     )
                                                 }
+
                                                 override fun onRewarded() {
-                                                    if (delivered.compareAndSet(false, true)) {
-                                                        if (
-                                                            BlueVpnAccountManager.grantRewardedBonusMinutes(
-                                                                activity,
-                                                                rewardMinutes.coerceIn(1, 60),
+                                                    if (!delivered.compareAndSet(false, true)) return
+                                                    val eventId = UUID.randomUUID()
+                                                        .toString()
+                                                        .lowercase(Locale.US)
+
+                                                    io.execute {
+                                                        val result = BlueVpnAccountManager
+                                                            .claimRewardedBonus(
+                                                                activity.applicationContext,
+                                                                eventId,
                                                             )
-                                                        ) {
-                                                            recordStatus(activity, "rewarded_granted")
-                                                            onRewarded()
+                                                        main.post {
+                                                            result.onSuccess { granted ->
+                                                                if (granted > 0) {
+                                                                    val suppressMs =
+                                                                        loaded.rewardFullscreenSuppressionSeconds *
+                                                                            1000L
+                                                                    activity.applicationContext
+                                                                        .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                                                        .edit()
+                                                                        .putLong(
+                                                                            "fullscreen_suppressed_until",
+                                                                            System.currentTimeMillis() + suppressMs,
+                                                                        )
+                                                                        .apply()
+                                                                    recordStatus(
+                                                                        activity,
+                                                                        "rewarded_granted_${granted}m",
+                                                                    )
+                                                                    onRewarded(granted)
+                                                                }
+                                                            }.onFailure {
+                                                                recordStatus(
+                                                                    activity,
+                                                                    "reward_claim_error",
+                                                                    it.message.orEmpty(),
+                                                                )
+                                                                onUnavailable?.invoke()
+                                                            }
                                                         }
                                                     }
                                                 }
+
                                                 override fun onAdFailed(message: String) {
-                                                    recordStatus(activity, "rewarded_show_error", message)
+                                                    recordStatus(
+                                                        activity,
+                                                        "rewarded_show_error",
+                                                        message,
+                                                    )
                                                     onUnavailable?.invoke()
                                                 }
                                             },
                                         )
                                     }
                                 }
+
                                 override fun onFailure(message: String) {
-                                    recordStatus(activity, "rewarded_request_error", message)
+                                    recordStatus(
+                                        activity,
+                                        "rewarded_request_error",
+                                        message,
+                                    )
                                     onUnavailable?.invoke()
                                 }
                             },
                         )
                     }.onFailure {
-                        recordStatus(activity, "rewarded_exception", it.message.orEmpty())
+                        recordStatus(
+                            activity,
+                            "rewarded_exception",
+                            it.message.orEmpty(),
+                        )
                         onUnavailable?.invoke()
                     }
                 },
@@ -715,26 +893,31 @@ object BlueVpnTapsellManager {
     fun attachStandardBanner(
         activity: Activity,
         host: ViewGroup,
-        zoneId: String,
+        onShown: (() -> Unit)? = null,
+        onUnavailable: (() -> Unit)? = null,
         onCleanup: ((() -> Unit) -> Unit)? = null,
     ) {
         if (
             activity.isFinishing ||
             activity.isDestroyed ||
-            zoneId.isBlank() ||
             !BlueVpnEntitlement.resolveUi(activity).isFree
         ) {
             host.visibility = View.GONE
+            onUnavailable?.invoke()
             return
         }
 
         loadConfig(activity.applicationContext, force = false) { loaded ->
+            val policy = loaded.placement("standard_banner")
             if (
                 !loaded.enabled ||
+                !policy.enabled ||
+                !placementEligible(activity, policy) ||
                 !BlueVpnEntitlement.resolveUi(activity).isFree ||
                 !buildAppIdMatches(activity, loaded)
             ) {
                 host.visibility = View.GONE
+                onUnavailable?.invoke()
                 return@loadConfig
             }
 
@@ -744,24 +927,36 @@ object BlueVpnTapsellManager {
                 after = {
                     if (!BlueVpnEntitlement.resolveUi(activity).isFree) {
                         host.visibility = View.GONE
+                        onUnavailable?.invoke()
                         return@ensureInitialized
                     }
+
                     val container = BannerContainer(activity)
                     host.removeAllViews()
                     host.addView(container)
+
                     runCatching {
+                        val bannerSize = runCatching {
+                            BannerSize.valueOf(loaded.standardBannerSize)
+                        }.getOrDefault(BannerSize.BANNER_320_50)
+
                         Tapsell.requestBannerAd(
-                            zoneId,
-                            BannerSize.BANNER_ADAPTIVE,
-                            activity,
+                            policy.zoneId,
+                            bannerSize,
                             object : RequestResultListener {
                                 override fun onSuccess(adId: String) {
                                     main.post {
-                                        if (!BlueVpnEntitlement.resolveUi(activity).isFree) {
+                                        if (
+                                            activity.isFinishing ||
+                                            activity.isDestroyed ||
+                                            !BlueVpnEntitlement.resolveUi(activity).isFree
+                                        ) {
                                             host.visibility = View.GONE
                                             runCatching { Tapsell.destroyBannerAd(adId) }
+                                            onUnavailable?.invoke()
                                             return@post
                                         }
+
                                         Tapsell.showBannerAd(
                                             adId,
                                             container,
@@ -769,11 +964,24 @@ object BlueVpnTapsellManager {
                                             object : AdStateListener.Banner {
                                                 override fun onAdImpression() {
                                                     host.visibility = View.VISIBLE
-                                                    recordStatus(activity, "standard_banner_shown")
+                                                    markPlacementShown(
+                                                        activity,
+                                                        "standard_banner",
+                                                    )
+                                                    recordStatus(
+                                                        activity,
+                                                        "standard_banner_shown",
+                                                    )
+                                                    onShown?.invoke()
                                                 }
+
                                                 override fun onAdClicked() {
-                                                    recordStatus(activity, "standard_banner_clicked")
+                                                    recordStatus(
+                                                        activity,
+                                                        "standard_banner_clicked",
+                                                    )
                                                 }
+
                                                 override fun onAdFailed(message: String) {
                                                     host.visibility = View.GONE
                                                     recordStatus(
@@ -781,14 +989,18 @@ object BlueVpnTapsellManager {
                                                         "standard_banner_show_error",
                                                         message,
                                                     )
+                                                    onUnavailable?.invoke()
                                                 }
                                             },
                                         )
                                         onCleanup?.invoke {
-                                            runCatching { Tapsell.destroyBannerAd(adId) }
+                                            runCatching {
+                                                Tapsell.destroyBannerAd(adId)
+                                            }
                                         }
                                     }
                                 }
+
                                 override fun onFailure(message: String) {
                                     host.visibility = View.GONE
                                     recordStatus(
@@ -796,14 +1008,21 @@ object BlueVpnTapsellManager {
                                         "standard_banner_request_error",
                                         message,
                                     )
+                                    onUnavailable?.invoke()
                                 }
                             },
                         )
                     }.onFailure {
                         host.visibility = View.GONE
-                        recordStatus(activity, "standard_banner_exception", it.message.orEmpty())
+                        recordStatus(
+                            activity,
+                            "standard_banner_exception",
+                            it.message.orEmpty(),
+                        )
+                        onUnavailable?.invoke()
                     }
                 },
+                onUnavailable = onUnavailable,
             )
         }
     }
@@ -813,12 +1032,58 @@ object BlueVpnTapsellManager {
      * Mediation 1.x line/adapters. This Free-only bridge discovers the current
      * SDK method at runtime and hides the slot on unsupported signatures.
      */
+    fun attachPlacement(
+        activity: Activity,
+        host: ViewGroup,
+        type: String,
+        loadingView: View? = null,
+        onUnavailable: (() -> Unit)? = null,
+    ) {
+        if (
+            activity.isFinishing ||
+            activity.isDestroyed ||
+            !BlueVpnEntitlement.resolveUi(activity).isFree
+        ) {
+            host.visibility = View.GONE
+            onUnavailable?.invoke()
+            return
+        }
+
+        loadConfig(activity.applicationContext, force = false) { loaded ->
+            val policy = loaded.placement(type)
+            if (
+                !loaded.enabled ||
+                !policy.enabled ||
+                !placementEligible(activity, policy) ||
+                !buildAppIdMatches(activity, loaded)
+            ) {
+                host.visibility = View.GONE
+                onUnavailable?.invoke()
+                return@loadConfig
+            }
+
+            showReflectiveFormat(
+                activity = activity,
+                host = host,
+                zoneId = policy.zoneId,
+                format = type,
+                loadingView = loadingView,
+                onShown = {
+                    markPlacementShown(activity, type)
+                },
+                onUnavailable = onUnavailable,
+            )
+        }
+    }
+
     fun showReflectiveFormat(
         activity: Activity,
         host: ViewGroup,
         zoneId: String,
         format: String,
         loadingView: View? = null,
+        onShown: (() -> Unit)? = null,
+        onUnavailable: (() -> Unit)? = null,
     ) {
         if (
             activity.isFinishing ||
@@ -827,6 +1092,7 @@ object BlueVpnTapsellManager {
             !BlueVpnEntitlement.resolveUi(activity).isFree
         ) {
             host.visibility = View.GONE
+            onUnavailable?.invoke()
             return
         }
 
@@ -837,6 +1103,7 @@ object BlueVpnTapsellManager {
                 !buildAppIdMatches(activity, loaded)
             ) {
                 host.visibility = View.GONE
+                onUnavailable?.invoke()
                 return@loadConfig
             }
 
@@ -851,13 +1118,17 @@ object BlueVpnTapsellManager {
                             zoneId,
                             format,
                             loadingView,
+                            onShown,
+                            onUnavailable,
                         )
                     }.getOrDefault(false)
                     if (!ok) {
                         host.visibility = View.GONE
                         recordStatus(activity, "${format}_unsupported")
+                        onUnavailable?.invoke()
                     }
                 },
+                onUnavailable = onUnavailable,
             )
         }
     }
@@ -868,6 +1139,8 @@ object BlueVpnTapsellManager {
         zoneId: String,
         format: String,
         loadingView: View?,
+        onShown: (() -> Unit)?,
+        onUnavailable: (() -> Unit)?,
     ): Boolean {
         val requestNames = when (format) {
             "native_banner" -> listOf("requestNativeBannerAd", "requestNativeAd")
@@ -905,9 +1178,12 @@ object BlueVpnTapsellManager {
                                     payload,
                                     showNames,
                                     format,
+                                    onShown,
+                                    onUnavailable,
                                 )
                             ) {
                                 host.visibility = View.GONE
+                                onUnavailable?.invoke()
                             }
                         }
                     }
@@ -921,6 +1197,7 @@ object BlueVpnTapsellManager {
                                 "${format}_request_error",
                                 args?.joinToString().orEmpty(),
                             )
+                            onUnavailable?.invoke()
                         }
                     }
                 }
@@ -948,6 +1225,8 @@ object BlueVpnTapsellManager {
         payload: Any?,
         showNames: List<String>,
         format: String,
+        onShown: (() -> Unit)?,
+        onUnavailable: (() -> Unit)?,
     ): Boolean {
         val show = Tapsell::class.java.methods.firstOrNull { it.name in showNames }
             ?: return false
@@ -958,6 +1237,7 @@ object BlueVpnTapsellManager {
                     "onadimpression", "onimpression" -> {
                         host.visibility = View.VISIBLE
                         recordStatus(activity, "${format}_shown")
+                        onShown?.invoke()
                     }
                     "onadfailed", "onfailure", "onerror" -> {
                         host.visibility = View.GONE
@@ -966,6 +1246,7 @@ object BlueVpnTapsellManager {
                             "${format}_show_error",
                             args?.joinToString().orEmpty(),
                         )
+                        onUnavailable?.invoke()
                     }
                 }
                 null
@@ -1032,50 +1313,71 @@ object BlueVpnTapsellManager {
 
     private fun eligibleForSession(
         context: Context,
-        loaded: Config,
         sessionId: Long,
     ): Boolean {
         if (BlueVpnPreferences.connectedAt(context) != sessionId) return false
-
         val storage = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (storage.getLong(KEY_LAST_SESSION, 0L) == sessionId) return false
+        return storage.getLong(KEY_LAST_SESSION, 0L) != sessionId
+    }
 
+    private fun placementEligible(
+        context: Context,
+        policy: PlacementPolicy,
+    ): Boolean {
+        if (!policy.enabled || policy.zoneId.isBlank()) return false
+        if (!BlueVpnEntitlement.resolveUi(context).isFree) return false
+
+        val storage = context.applicationContext
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
-        val last = storage.getLong(KEY_LAST_SHOWN_AT, 0L)
+        val last = storage.getLong("placement_${policy.type}_last_at", 0L)
         if (
-            loaded.minIntervalSeconds > 0 &&
-            now - last < loaded.minIntervalSeconds * 1_000L
-        ) {
-            return false
-        }
+            policy.minIntervalSeconds > 0 &&
+            now - last < policy.minIntervalSeconds * 1_000L
+        ) return false
 
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-        val count = if (storage.getString(KEY_DAY, "") == today) {
-            storage.getInt(KEY_DAY_COUNT, 0)
+        if (policy.dailyCap <= 0) return true
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(now))
+        val storedDay = storage.getString("placement_${policy.type}_day", "").orEmpty()
+        val count = if (storedDay == today) {
+            storage.getInt("placement_${policy.type}_count", 0)
         } else {
             0
         }
+        return count < policy.dailyCap
+    }
 
-        return loaded.dailyCap <= 0 || count < loaded.dailyCap
+    private fun markPlacementShown(
+        context: Context,
+        type: String,
+    ) {
+        val storage = context.applicationContext
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(now))
+        val dayKey = "placement_${type}_day"
+        val countKey = "placement_${type}_count"
+        val count = if (storage.getString(dayKey, "") == today) {
+            storage.getInt(countKey, 0)
+        } else {
+            0
+        }
+        storage.edit()
+            .putLong("placement_${type}_last_at", now)
+            .putString(dayKey, today)
+            .putInt(countKey, count + 1)
+            .apply()
     }
 
     private fun markShown(
         context: Context,
         sessionId: Long,
     ) {
-        val storage = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-        val oldCount = if (storage.getString(KEY_DAY, "") == today) {
-            storage.getInt(KEY_DAY_COUNT, 0)
-        } else {
-            0
-        }
-
-        storage.edit()
+        context.applicationContext
+            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
             .putLong(KEY_LAST_SESSION, sessionId)
             .putLong(KEY_LAST_SHOWN_AT, System.currentTimeMillis())
-            .putString(KEY_DAY, today)
-            .putInt(KEY_DAY_COUNT, oldCount + 1)
             .apply()
     }
 
@@ -1096,6 +1398,7 @@ object BlueVpnTapsellManager {
         pendingSessionId = 0L
         pendingActivity = null
         readyAdId = ""
+        readyPlacementType = ""
         adRequesting.set(false)
     }
 }

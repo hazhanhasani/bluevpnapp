@@ -190,6 +190,7 @@ def patch_build_gradle() -> None:
         f'implementation("ir.tapsell:tapsell:{TAPSELL_MEDIATION_VERSION}")',
         f'implementation("ir.tapsell.mediation.adapter:legacy:{TAPSELL_MEDIATION_VERSION}")',
         f'implementation("ir.tapsell.mediation.adapter:legacy-ima-extension:{TAPSELL_MEDIATION_VERSION}")',
+        f'implementation("ir.tapsell.mediation.adapter:legacy-taproll:{TAPSELL_MEDIATION_VERSION}")',
         'implementation("com.google.android.gms:play-services-auth-api-phone:18.3.1")',
         'implementation("androidx.work:work-runtime:2.10.0")',
     )
@@ -779,7 +780,6 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnEntitlement.kt": ROOT / "android-source/BlueVpnEntitlement.kt",
         bluevpn_dir / "BlueVpnSmartSelector.kt": ROOT / "android-source/BlueVpnSmartSelector.kt",
         bluevpn_dir / "BlueVpnTapsellManager.kt": ROOT / "android-source/BlueVpnTapsellManager.kt",
-        bluevpn_dir / "BlueVpnTapsellFreeHub.kt": ROOT / "android-source/BlueVpnTapsellFreeHub.kt",
         bluevpn_dir / "BlueVpnProfileManager.kt": ROOT / "android-source/BlueVpnProfileManager.kt",
         bluevpn_dir / "BlueVpnRouteIntelligence.kt": ROOT / "android-source/BlueVpnRouteIntelligence.kt",
         bluevpn_dir / "BlueVpnSubscriptionIntelligence.kt": ROOT / "android-source/BlueVpnSubscriptionIntelligence.kt",
@@ -832,14 +832,6 @@ def inject_bluevpn_home() -> None:
         raise RuntimeError("Tapsell Mediation native SDK import is missing")
     if "BuildConfig.BLUEVPN_TAPSELL_APP_ID" not in tapsell_source:
         raise RuntimeError("Tapsell APK/runtime App ID guard is missing")
-
-    tapsell_hub_source = (bluevpn_dir / "BlueVpnTapsellFreeHub.kt").read_text(
-        encoding="utf-8",
-    )
-    if "BlueVpnEntitlement.resolveUi(activity).isFree" not in tapsell_hub_source:
-        raise RuntimeError("Tapsell Free hub entitlement gate is missing")
-    if "showRewarded" not in tapsell_hub_source:
-        raise RuntimeError("Tapsell Rewarded surface is missing from Free hub")
 
     ads_source = (bluevpn_dir / "BlueVpnAdsCarouselView.kt").read_text(encoding="utf-8")
     if 'optJSONObject("advertising")' not in ads_source or "slideRunnable" not in ads_source:

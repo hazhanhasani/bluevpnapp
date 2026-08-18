@@ -37,6 +37,7 @@ import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
 import com.v2ray.ang.bluevpn.BlueVpnRuntimeGate
 import com.v2ray.ang.bluevpn.BlueVpnTheme
+import com.v2ray.ang.bluevpn.BlueVpnTapsellManager
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.viewmodel.MainViewModel
@@ -68,6 +69,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private lateinit var listContainer: LinearLayout
     private lateinit var locationsScrollView: ScrollView
     private lateinit var emptyText: TextView
+    private lateinit var nativeBannerHost: FrameLayout
     private lateinit var refreshButton: MaterialButton
     private lateinit var entitlementSubtitle: TextView
     private lateinit var automaticSubtitle: TextView
@@ -302,6 +304,19 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             bottomMargin = dp(9)
         })
 
+        nativeBannerHost = FrameLayout(this).apply {
+            visibility = View.GONE
+            clipChildren = true
+            clipToPadding = true
+        }
+        root.addView(
+            nativeBannerHost,
+            LinearLayout.LayoutParams(-1, -2).apply {
+                bottomMargin = dp(8)
+            },
+        )
+        attachFreeNativeBanner()
+
         emptyText = textView("مکانی برای نمایش وجود ندارد", 13f, palette.textMuted, Gravity.CENTER).apply {
             visibility = View.GONE
             setPadding(0, dp(30), 0, dp(30))
@@ -319,6 +334,24 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
         root.addView(locationsScrollView, LinearLayout.LayoutParams(-1, 0, 1f))
         return frame
+    }
+
+    private fun attachFreeNativeBanner() {
+        if (!BlueVpnEntitlement.resolveUi(this).isFree) {
+            if (::nativeBannerHost.isInitialized) nativeBannerHost.visibility = View.GONE
+            return
+        }
+        nativeBannerHost.visibility = View.GONE
+        BlueVpnTapsellManager.attachPlacement(
+            activity = this,
+            host = nativeBannerHost,
+            type = "native_banner",
+            onUnavailable = {
+                if (::nativeBannerHost.isInitialized) {
+                    nativeBannerHost.visibility = View.GONE
+                }
+            },
+        )
     }
 
     private fun createHeader(): View {

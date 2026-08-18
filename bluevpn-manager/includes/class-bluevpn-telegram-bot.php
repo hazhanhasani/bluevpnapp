@@ -782,6 +782,8 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
         $brandingPath=$root . '/branding/app.json';
         $releasePath=$root . '/release.json';
         $managerPath=$root . '/bluevpn-manager/bluevpn-manager.php';
+        $siteStylePath=$root . '/bluevpn-site/style.css';
+        $siteFunctionsPath=$root . '/bluevpn-site/functions.php';
 
         if(!is_file($brandingPath) && is_file($managerPath)){
             $manager=(string)file_get_contents($managerPath);
@@ -808,6 +810,24 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
             $manager=(string)file_get_contents($managerPath);
             if(!preg_match('/define\(\s*[\'\"]BLUEVPN_MANAGER_VERSION[\'\"]\s*,\s*[\'\"]([^\'\"]+)[\'\"]\s*\)/',$manager,$m)||trim((string)$m[1])!==$version){
                 throw new RuntimeException('DEPLOY_VERSION_MISMATCH: نسخه BlueVPN Manager با نسخه Android/Release یکسان نیست.');
+            }
+        }
+        if(is_file($siteStylePath) || is_file($siteFunctionsPath)){
+            if(!is_file($siteStylePath) || !is_file($siteFunctionsPath)){
+                throw new RuntimeException('DEPLOY_SITE_VERSION_MISSING: فایل‌های نسخه پوسته BlueVPN ناقص هستند.');
+            }
+            $style=(string)file_get_contents($siteStylePath);
+            $functions=(string)file_get_contents($siteFunctionsPath);
+            if(!preg_match('/^Version:\s*(\d+\.\d+\.\d+)\s*$/mi',$style,$sm) || trim((string)$sm[1])!==$version){
+                throw new RuntimeException('DEPLOY_VERSION_MISMATCH: نسخه style.css پوسته با نسخه Android/Manager یکسان نیست.');
+            }
+            if(!preg_match('/define\(\s*[\'\"]BLUEVPN_SITE_VERSION[\'\"]\s*,\s*[\'\"](\d+\.\d+\.\d+)[\'\"]\s*\)/',$functions,$sf) || trim((string)$sf[1])!==$version){
+                throw new RuntimeException('DEPLOY_VERSION_MISMATCH: BLUEVPN_SITE_VERSION با نسخه Android/Manager یکسان نیست.');
+            }
+        }
+        foreach(['manager_version','site_version','theme_version'] as $componentVersionKey){
+            if(isset($release[$componentVersionKey]) && trim((string)$release[$componentVersionKey])!==$version){
+                throw new RuntimeException('DEPLOY_VERSION_MISMATCH: release.json/' . $componentVersionKey . ' با نسخه اصلی یکسان نیست.');
             }
         }
         return ['version'=>$version,'version_code'=>$code,'mode'=>'full_project'];
@@ -896,6 +916,25 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
         ){
             throw new RuntimeException(
                 'DEPLOY_MANAGER_VERSION_NOT_APPLIED: نسخه Manager روی SHA مقصد با ZIP یکسان نیست.'
+            );
+        }
+
+        $siteStyle=self::github_file_at_commit('bluevpn-site/style.css',$commitSha,$s);
+        $siteFunctions=self::github_file_at_commit('bluevpn-site/functions.php',$commitSha,$s);
+        if(
+            !preg_match('/^Version:\s*(\d+\.\d+\.\d+)\s*$/mi',$siteStyle,$siteStyleMatch) ||
+            trim((string)$siteStyleMatch[1])!==(string)$expected['version']
+        ){
+            throw new RuntimeException(
+                'DEPLOY_SITE_VERSION_NOT_APPLIED: نسخه style.css پوسته روی SHA مقصد با ZIP یکسان نیست.'
+            );
+        }
+        if(
+            !preg_match('/define\(\s*[\'"]BLUEVPN_SITE_VERSION[\'"]\s*,\s*[\'"](\d+\.\d+\.\d+)[\'"]\s*\)/',$siteFunctions,$siteFnMatch) ||
+            trim((string)$siteFnMatch[1])!==(string)$expected['version']
+        ){
+            throw new RuntimeException(
+                'DEPLOY_SITE_VERSION_NOT_APPLIED: BLUEVPN_SITE_VERSION روی SHA مقصد با ZIP یکسان نیست.'
             );
         }
     }

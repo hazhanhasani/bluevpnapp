@@ -1,13 +1,17 @@
 {
-  "version": "4.15.2",
-  "version_code": 41502,
+  "version": "4.15.3",
+  "version_code": 41503,
   "channel": "beta",
-  "build_id": "20260818-v4.15.2-manual-customers-nav-fix",
-  "built_at": "2026-08-18T18:20:00+03:30",
-  "android_version": "4.15.2",
-  "android_version_code": 41502,
-  "description": "Makes Manual Customers visible beside Manual Activation in the unified sidebar and adds a direct CRM button to the Manual Activation screen.",
+  "build_id": "20260818-v4.15.3-unified-component-versions",
+  "built_at": "2026-08-18T18:36:00+03:30",
+  "android_version": "4.15.3",
+  "android_version_code": 41503,
+  "description": "Unifies Android, BlueVPN Manager and BlueVPN Site theme under one release version. Deploy/build/update gates now reject a full project when any component version differs.",
   "features": [
+    "release-validator-cross-component-version-gate",
+    "telegram-deploy-theme-version-gate",
+    "theme-version-global-release-gate",
+    "single-version-android-manager-theme",
     "manual-activation-crm-shortcut",
     "manual-customers-visible-sidebar-entry",
     "manual-customers-no-entitlement-side-effects",
@@ -95,7 +99,7 @@
     "adaptive-fast-dead-route-failover",
     "ai-real-throughput-learning-per-network",
     "instant-connect-no-blocking-network-sweep",
-    "bluevpn-site-theme-1.3.14",
+    "bluevpn-site-theme-4.15.3",
     "free-story-android-safe-mp4-upload-guidance",
     "free-story-black-screen-timeout-fail-open",
     "free-story-first-frame-readiness-gate",
@@ -406,5 +410,8 @@
     "signed-apk-upload-before-production-barriers"
   ],
   "version_source": "source_declared_release_version",
-  "tapsell_mediation_version": "1.4.0-alpha03"
+  "tapsell_mediation_version": "1.4.0-alpha03",
+  "manager_version": "4.15.3",
+  "site_version": "4.15.3",
+  "theme_version": "4.15.3"
 }

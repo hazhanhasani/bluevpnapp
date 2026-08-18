@@ -311,6 +311,22 @@ def main() -> None:
     require(readme_version is not None and readme_version.group(1) == version,
             f"plugin readme version mismatch: expected {version}")
 
+    # One BlueVPN version across Android, Manager and WordPress theme.
+    site_style = read("bluevpn-site/style.css")
+    site_functions = read("bluevpn-site/functions.php")
+    site_header = re.search(r"(?mi)^Version:\s*(\d+\.\d+\.\d+)\s*$", site_style)
+    site_constant = re.search(
+        r"define\(\s*['\"]BLUEVPN_SITE_VERSION['\"]\s*,\s*['\"](\d+\.\d+\.\d+)['\"]\s*\)\s*;",
+        site_functions,
+    )
+    require(site_header is not None and site_header.group(1) == version,
+            f"site theme header version mismatch: expected {version}")
+    require(site_constant is not None and site_constant.group(1) == version,
+            f"site theme runtime version mismatch: expected {version}")
+    for component_key in ("manager_version", "site_version", "theme_version"):
+        require(str(release.get(component_key, "")) == version,
+                f"release.json {component_key} mismatch: expected {version}")
+
     # IranPayamak pattern discovery: fetch every provider page instead of
     # silently caching only page 1, while keeping GET requests body-free on
     # WordPress/PHP 8.4.

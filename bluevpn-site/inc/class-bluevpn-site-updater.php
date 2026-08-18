@@ -10,9 +10,10 @@ if (!defined('ABSPATH')) exit;
  * - Asset: bluevpn-site-theme-v<semver>.zip
  * - ZIP root: bluevpn-site/
  *
- * The updater deliberately uses a version namespace independent from the
- * Android app and BlueVPN Manager. Theme changes therefore do not require an
- * APK release.
+ * Version contract:
+ * - BlueVPN Site uses the exact same semver as Android and BlueVPN Manager.
+ * - The theme is still published as its own installable WordPress ZIP, but a
+ *   full BlueVPN release is invalid if the three component versions differ.
  */
 final class BlueVPN_Site_Updater {
     private const SLUG = 'bluevpn-site';

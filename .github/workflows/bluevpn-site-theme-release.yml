@@ -57,7 +57,42 @@ jobs:
                   f'Theme version mismatch: style={header.group(1)} constant={const.group(1)}'
               )
 
+          # BlueVPN has one release version across Android, Manager and Site.
+          release_path = Path('release.json')
+          branding_path = Path('branding/app.json')
+          manager_path = Path('bluevpn-manager/bluevpn-manager.php')
+          if not release_path.is_file() or not branding_path.is_file() or not manager_path.is_file():
+              raise SystemExit('Global BlueVPN release metadata is incomplete')
+
+          release = __import__('json').loads(release_path.read_text(encoding='utf-8'))
+          branding = __import__('json').loads(branding_path.read_text(encoding='utf-8'))
+          manager_text = manager_path.read_text(encoding='utf-8')
+          manager_match = re.search(
+              r"define\(\s*['\"]BLUEVPN_MANAGER_VERSION['\"]\s*,\s*['\"](\d+\.\d+\.\d+)['\"]\s*\)\s*;",
+              manager_text,
+          )
+          if not manager_match:
+              raise SystemExit('BlueVPN Manager version constant not found')
+
           version = header.group(1)
+          global_versions = {
+              'theme': version,
+              'release': str(release.get('version', '')),
+              'android': str(branding.get('version_name', '')),
+              'manager': manager_match.group(1),
+          }
+          if len(set(global_versions.values())) != 1:
+              raise SystemExit(
+                  'BlueVPN component version mismatch: ' +
+                  ' '.join(f'{k}={v}' for k, v in global_versions.items())
+              )
+
+          for key in ('manager_version', 'site_version', 'theme_version'):
+              declared = str(release.get(key, version))
+              if declared != version:
+                  raise SystemExit(
+                      f'release.json {key} mismatch: expected={version} actual={declared}'
+                  )
           match = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)', version)
           if not match:
               raise SystemExit(f'Invalid BlueVPN Site version: {version}')

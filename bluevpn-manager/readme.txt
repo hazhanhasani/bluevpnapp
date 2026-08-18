@@ -1,8 +1,14 @@
 === BlueVPN Manager ===
-Version: 4.15.2
-Stable tag: 4.15.2
+Version: 4.15.3
+Stable tag: 4.15.3
 Requires PHP: 8.0
 
+
+== 4.15.3 ==
+- پوسته، افزونه و اپ هر سه دقیقاً روی نسخه 4.15.3 قفل و همگام شدند.
+- Android app, BlueVPN Manager and BlueVPN Site theme now use exactly the same release version.
+- Full-project deployment is rejected if the theme, Manager, branding or release metadata versions differ.
+- Theme GitHub release workflow validates its version against the global BlueVPN release before publishing.
 
 == 4.15.2 ==
 - Moves «مشتریان دستی» into the visible Services group beside «فعال‌سازی دستی».

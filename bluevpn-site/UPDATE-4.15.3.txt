@@ -1,4 +1,4 @@
-BlueVPN Site 1.3.14
+BlueVPN Site 4.15.3
 - Restores a clearly visible 'دریافت اپ' item in the main navigation.
 - Fixes mobile discoverability: previous download link lived in .bv-nav-actions, which mobile CSS hides.
 - Keeps one download entry point across the site: main menu -> /download/.

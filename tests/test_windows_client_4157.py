@@ -12,11 +12,11 @@ class WindowsClient4157Tests(unittest.TestCase):
     def test_release_versions_are_unified(self):
         release = json.loads(text("release.json"))
         branding = json.loads(text("branding/app.json"))
-        self.assertEqual(release["version"], "4.15.10")
-        self.assertEqual(release["windows_version"], "4.15.10")
-        self.assertEqual(release["windows_version_code"], 41510)
-        self.assertEqual(branding["version_name"], "4.15.10")
-        self.assertIn("<Version>4.15.10</Version>", text("bluevpn-windows/BlueVPN.Windows.csproj"))
+        self.assertEqual(release["version"], "4.16.0")
+        self.assertEqual(release["windows_version"], "4.16.0")
+        self.assertEqual(release["windows_version_code"], 41600)
+        self.assertEqual(branding["version_name"], "4.16.0")
+        self.assertIn("<Version>4.16.0</Version>", text("bluevpn-windows/BlueVPN.Windows.csproj"))
 
     def test_windows_client_uses_existing_bluevpn_control_plane(self):
         api = text("bluevpn-windows/Services/BlueVpnApiClient.cs")
@@ -45,6 +45,7 @@ class WindowsClient4157Tests(unittest.TestCase):
         probe = text("bluevpn-windows/Services/ConnectivityProbe.cs")
         workflow = text(".github/workflows/build-windows.yml")
         page = text("bluevpn-site/page-download.php")
+        view = text("bluevpn-site/inc/download-view.php")
         helpers = text("bluevpn-site/inc/helpers.php")
         self.assertIn("using System.Net.Http;", api)
         self.assertIn("using System.Net.Http;", probe)
@@ -62,8 +63,9 @@ class WindowsClient4157Tests(unittest.TestCase):
         self.assertNotIn("TELEGRAM_BOT_TOKEN", workflow)
         self.assertNotIn("send_windows_telegram.ps1", workflow)
         self.assertIn("bluevpn_site_windows_downloads", helpers)
-        self.assertIn("Windows x64", page)
-        self.assertIn("Windows ARM64", page)
+        self.assertIn("/inc/download-view.php", page)
+        self.assertIn("Windows x64", view)
+        self.assertIn("Windows ARM64", view)
 
     def test_windows_system_io_imports_are_explicit(self):
         for path in (

@@ -261,9 +261,23 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(python -c 'import json; print(json.load(open("release.json", encoding="utf-8"))["version"])')"
+          WINDOWS_STATUS="$(python -c 'import json; print((json.load(open("release.json", encoding="utf-8")).get("windows") or {}).get("status", "beta"))')"
+          WINDOWS_STAGE="$(python -c 'import json; print((json.load(open("release.json", encoding="utf-8")).get("windows") or {}).get("stage", ""))')"
+          if [ "$WINDOWS_STATUS" = "stable" ]; then
+            WINDOWS_CHANNEL="stable"
+            PRERELEASE_JSON=false
+          else
+            WINDOWS_CHANNEL="beta"
+            PRERELEASE_JSON=true
+          fi
+
           TAG="bluevpn-windows-v${VERSION}"
-          TITLE="BlueVPN Windows ${VERSION}"
-          NOTES="BlueVPN Windows ${VERSION} — فایل‌های رسمی x64 و ARM64 برای دانلود مستقیم از وب‌سایت BlueVPN. فایل‌های SHA256 کنار هر بسته منتشر شده‌اند."
+          if [ "$WINDOWS_CHANNEL" = "beta" ]; then
+            TITLE="BlueVPN Windows ${VERSION} Beta"
+          else
+            TITLE="BlueVPN Windows ${VERSION}"
+          fi
+          NOTES="BlueVPN Windows ${VERSION} — فایل‌های رسمی x64 و ARM64 برای دانلود مستقیم از وب‌سایت BlueVPN."$'\n\n'"BlueVPN-Windows-Channel: ${WINDOWS_CHANNEL}"$'\n'"BlueVPN-Windows-Stage: ${WINDOWS_STAGE}"$'\n\n'"فایل‌های SHA256 کنار هر بسته منتشر شده‌اند."
 
           mapfile -t ASSETS < <(find windows-release -maxdepth 1 -type f \
             \( -name "BlueVPN-Windows-${VERSION}-win-x64.zip" \
@@ -280,13 +294,22 @@ jobs:
               --title "$TITLE" \
               --notes "$NOTES" \
               --latest=false
+            RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .id)"
+            printf '{"prerelease":%s}\n' "$PRERELEASE_JSON" | \
+              gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --input - >/dev/null
           else
-            gh release create "$TAG" "${ASSETS[@]}" \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "$TITLE" \
-              --notes "$NOTES" \
+            CREATE_ARGS=(
+              "$TAG" "${ASSETS[@]}"
+              --repo "$GITHUB_REPOSITORY"
+              --target "$GITHUB_SHA"
+              --title "$TITLE"
+              --notes "$NOTES"
               --latest=false
+            )
+            if [ "$WINDOWS_CHANNEL" = "beta" ]; then
+              CREATE_ARGS+=(--prerelease)
+            fi
+            gh release create "${CREATE_ARGS[@]}"
           fi
 
       - name: Verify public website download URLs

@@ -34,7 +34,7 @@ final class BlueVPN_Elementor_Header_Widget extends BlueVPN_Elementor_Widget_Bas
         $this->end_controls_section();
     }
     protected function render() { $s=$this->get_settings_for_display(); ?>
-      <div class="bv-announcement"><div class="bv-shell bv-announcement-inner"><span><i></i> BlueVPN برای Android</span><span class="bv-announcement-note">اتصال ساده، انتخاب هوشمند و پشتیبانی یک‌جا</span></div></div>
+      <div class="bv-announcement"><div class="bv-shell bv-announcement-inner"><span><i></i> BlueVPN برای Android و Windows</span><span class="bv-announcement-note">اتصال ساده، انتخاب هوشمند و پشتیبانی یک‌جا</span></div></div>
       <header class="bv-header" data-bv-header><div class="bv-shell bv-nav"><div class="bv-brand"><?php echo bluevpn_site_brand(); // phpcs:ignore ?></div><button class="bv-menu-btn" type="button" aria-label="بازکردن منو" aria-expanded="false" data-bv-menu><span></span><span></span><span></span></button><nav class="bv-menu" data-bv-menu-panel aria-label="منوی اصلی"><a href="<?php echo esc_url(home_url('/')); ?>">خانه</a><a href="<?php echo esc_url(home_url('/#features')); ?>">امکانات</a><a href="<?php echo esc_url(home_url('/#network')); ?>">شبکه</a><a href="<?php echo esc_url(home_url('/plans/')); ?>">پلن‌ها</a><a href="<?php echo esc_url(home_url('/support/')); ?>">پشتیبانی</a><a class="bv-menu-download" href="<?php echo esc_url(home_url('/download/')); ?>"><?php echo esc_html($s['download_label']); ?></a></nav><div class="bv-nav-actions"><a class="bv-nav-account" href="<?php echo esc_url(home_url('/account/')); ?>"><span><?php echo esc_html($s['account_label']); ?></span><i>←</i></a></div></div></header>
     <?php }
 }
@@ -49,7 +49,7 @@ final class BlueVPN_Elementor_Footer_Widget extends BlueVPN_Elementor_Widget_Bas
         $this->end_controls_section();
     }
     protected function render() { $s=$this->get_settings_for_display(); ?>
-      <footer class="bv-footer"><div class="bv-shell"><div class="bv-footer-cta bv-footer-cta-static"><div><span class="bv-kicker bv-kicker-light">BLUEVPN</span><h2><?php echo esc_html($s['title']); ?></h2></div></div><div class="bv-footer-main"><div class="bv-footer-about"><div class="bv-footer-brand">BlueVPN</div><p><?php echo esc_html($s['description']); ?></p><div class="bv-footer-badges"><span>Android</span><span>اتصال سریع</span><span>پشتیبانی BlueVPN</span></div></div><div class="bv-footer-col"><h4>محصول</h4><a href="<?php echo esc_url(home_url('/')); ?>">خانه</a><a href="<?php echo esc_url(home_url('/#features')); ?>">امکانات</a><a href="<?php echo esc_url(home_url('/plans/')); ?>">پلن‌ها</a></div><div class="bv-footer-col"><h4>حساب</h4><a href="<?php echo esc_url(home_url('/account/')); ?>">ورود / ثبت‌نام</a><a href="<?php echo esc_url(home_url('/account/')); ?>">مدیریت اشتراک</a><a href="<?php echo esc_url(bluevpn_site_support_url()); ?>">پشتیبانی</a></div><div class="bv-footer-col"><h4>BlueVPN</h4><a href="<?php echo esc_url(home_url('/support/')); ?>">راهنما و پشتیبانی</a><a href="<?php echo esc_url(home_url('/account/')); ?>">حساب کاربری</a></div></div><div class="bv-footer-bottom"><span>© <?php echo esc_html(date_i18n('Y')); ?> BlueVPN</span><span>BlueVPN • اتصال ساده، تجربه یکپارچه</span></div></div></footer>
+      <footer class="bv-footer"><div class="bv-shell"><div class="bv-footer-cta bv-footer-cta-static"><div><span class="bv-kicker bv-kicker-light">BLUEVPN</span><h2><?php echo esc_html($s['title']); ?></h2></div></div><div class="bv-footer-main"><div class="bv-footer-about"><div class="bv-footer-brand">BlueVPN</div><p><?php echo esc_html($s['description']); ?></p><div class="bv-footer-badges"><span>Android + Windows</span><span>اتصال سریع</span><span>پشتیبانی BlueVPN</span></div></div><div class="bv-footer-col"><h4>محصول</h4><a href="<?php echo esc_url(home_url('/')); ?>">خانه</a><a href="<?php echo esc_url(home_url('/#features')); ?>">امکانات</a><a href="<?php echo esc_url(home_url('/plans/')); ?>">پلن‌ها</a></div><div class="bv-footer-col"><h4>حساب</h4><a href="<?php echo esc_url(home_url('/account/')); ?>">ورود / ثبت‌نام</a><a href="<?php echo esc_url(home_url('/account/')); ?>">مدیریت اشتراک</a><a href="<?php echo esc_url(bluevpn_site_support_url()); ?>">پشتیبانی</a></div><div class="bv-footer-col"><h4>BlueVPN</h4><a href="<?php echo esc_url(home_url('/support/')); ?>">راهنما و پشتیبانی</a><a href="<?php echo esc_url(home_url('/account/')); ?>">حساب کاربری</a></div></div><div class="bv-footer-bottom"><span>© <?php echo esc_html(date_i18n('Y')); ?> BlueVPN</span><span>BlueVPN • اتصال ساده، تجربه یکپارچه</span></div></div></footer>
     <?php }
 }
 
@@ -129,9 +129,21 @@ final class BlueVPN_Elementor_Plans_Widget extends BlueVPN_Elementor_Widget_Base
 
 final class BlueVPN_Elementor_Download_Widget extends BlueVPN_Elementor_Widget_Base {
     public function get_name() { return 'bluevpn-download'; }
-    public function get_title() { return 'BlueVPN • دانلود'; }
-    protected function register_controls() { $this->start_controls_section('content',['label'=>'محتوا']); $this->add_text_control('title','تیتر','آخرین نسخه، مستقیم و آماده نصب.'); $this->add_text_control('description','توضیح','همیشه آخرین نسخه BlueVPN را از همین صفحه دریافت کن؛ ساده، مستقیم و بدون سردرگمی.',true); $this->end_controls_section(); }
-    protected function render() { $s=$this->get_settings_for_display(); $cfg=bluevpn_site_mobile_config(); $apk=(string)($cfg['apk_url']??''); $latest=(string)($cfg['latest_version']??'—'); ?><section class="bv-subhero bv-download-hero"><div class="bv-shell bv-subhero-grid"><div data-bv-reveal><span class="bv-kicker bv-kicker-light">BLUEVPN FOR ANDROID</span><h1><?php echo esc_html($s['title']); ?></h1><p><?php echo esc_html($s['description']); ?></p><div class="bv-download-meta"><span><i></i> نسخه <?php echo esc_html($latest); ?></span><span>Android</span></div><div class="bv-subhero-actions"><?php if($apk&&wp_http_validate_url($apk)): ?><a class="bv-btn bv-btn-light bv-btn-xl" href="<?php echo esc_url($apk); ?>" rel="nofollow">دانلود APK <span>↓</span></a><?php else: ?><span class="bv-btn bv-btn-disabled bv-btn-xl">لینک دانلود هنوز منتشر نشده</span><?php endif; ?></div></div><?php $shot=$this->image_url($s,'app_screenshot'); ?><div class="bv-download-visual-wrap" data-bv-reveal><?php if($shot!==''): ?><figure class="bv-real-app-shot bv-real-app-shot-download"><img src="<?php echo esc_url($shot); ?>" alt="اسکرین‌شات واقعی BlueVPN" loading="lazy" decoding="async"></figure><?php endif; ?></div></div></section><section class="bv-section bv-download-info-section"><div class="bv-shell"><div class="bv-download-panel" data-bv-reveal><div><span class="bv-kicker">انتشار فعلی</span><h2>BlueVPN for Android</h2><p>نسخه <b><?php echo esc_html($latest); ?></b> آماده دانلود است.</p></div><div class="bv-download-facts"><div><span>سیستم‌عامل</span><b>Android</b></div><div><span>فرمت</span><b>APK</b></div><div><span>وضعیت</span><b>آخرین نسخه</b></div></div></div></div></section><?php }
+    public function get_title() { return 'BlueVPN • دانلود Android + Windows'; }
+    protected function register_controls() {
+        $this->start_controls_section('content',['label'=>'محتوا']);
+        $this->add_text_control('title','تیتر','آخرین نسخه، مستقیم و آماده نصب.');
+        $this->add_text_control('description','توضیح','نسخه مناسب BlueVPN را برای Android یا Windows از همین صفحه دریافت کن؛ هر پلتفرم با نسخه و وضعیت انتشار مستقل خودش.',true);
+        $this->add_control('app_screenshot',['label'=>'اسکرین‌شات واقعی اپلیکیشن','type'=>Controls_Manager::MEDIA,'description'=>'در صورت خالی بودن، تصویر واقعی انتخاب‌شده در تنظیمات قالب استفاده می‌شود.']);
+        $this->end_controls_section();
+    }
+    protected function render() {
+        $s = $this->get_settings_for_display();
+        $bv_download_title = (string)($s['title'] ?? '');
+        $bv_download_description = (string)($s['description'] ?? '');
+        $bv_download_shot = $this->image_url($s, 'app_screenshot');
+        require BLUEVPN_SITE_DIR . '/inc/download-view.php';
+    }
 }
 
 final class BlueVPN_Elementor_Account_Widget extends BlueVPN_Elementor_Widget_Base {

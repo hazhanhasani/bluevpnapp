@@ -47,8 +47,8 @@ final class BlueVPN_Site_SEO {
     private static function page_map(): array {
         return [
             'home' => [
-                'title' => 'BlueVPN | اتصال سریع و ساده VPN برای اندروید',
-                'description' => 'BlueVPN برای اندروید؛ لوکیشن را انتخاب کن و با یک تجربه ساده و یکپارچه متصل شو. دانلود اپ، مشاهده پلن‌ها و مدیریت حساب از سایت رسمی.',
+                'title' => 'BlueVPN | اتصال سریع VPN برای Android و Windows',
+                'description' => 'BlueVPN برای Android و Windows؛ لوکیشن را انتخاب کن و با یک تجربه ساده و یکپارچه متصل شو. دانلود، مشاهده پلن‌ها و مدیریت حساب از سایت رسمی.',
                 'index' => true,
             ],
             'plans' => [
@@ -57,8 +57,8 @@ final class BlueVPN_Site_SEO {
                 'index' => true,
             ],
             'download' => [
-                'title' => 'دانلود BlueVPN برای اندروید | آخرین نسخه APK',
-                'description' => 'آخرین نسخه BlueVPN برای Android را از صفحه رسمی دانلود دریافت کن. نسخه فعلی APK و اطلاعات انتشار همیشه در همین صفحه بروزرسانی می‌شود.',
+                'title' => 'دانلود BlueVPN برای Android و Windows | سایت رسمی',
+                'description' => 'BlueVPN را برای Android و Windows از صفحه رسمی دانلود کن. نسخه APK و انتشارهای Windows x64 و ARM64 با وضعیت انتشار مستقل نمایش داده می‌شوند.',
                 'index' => true,
             ],
             'support' => [
@@ -227,8 +227,8 @@ final class BlueVPN_Site_SEO {
         if (is_front_page() || self::current_slug() === 'download') {
             $software = [
                 '@type' => 'SoftwareApplication',
-                '@id' => home_url('/download/') . '#software',
-                'name' => 'BlueVPN',
+                '@id' => home_url('/download/') . '#software-android',
+                'name' => 'BlueVPN for Android',
                 'applicationCategory' => 'UtilitiesApplication',
                 'operatingSystem' => 'Android',
                 'url' => home_url('/download/'),
@@ -238,6 +238,24 @@ final class BlueVPN_Site_SEO {
             if ($version !== '' && $version !== '0.0.0') $software['softwareVersion'] = $version;
             if ($apk !== '' && wp_http_validate_url($apk)) $software['downloadUrl'] = $apk;
             $nodes[] = $software;
+
+            if (function_exists('bluevpn_site_windows_downloads')) {
+                $windows = bluevpn_site_windows_downloads();
+                if (!empty($windows['available'])) {
+                    $windowsSoftware = [
+                        '@type' => 'SoftwareApplication',
+                        '@id' => home_url('/download/') . '#software-windows',
+                        'name' => 'BlueVPN for Windows',
+                        'applicationCategory' => 'UtilitiesApplication',
+                        'operatingSystem' => 'Windows 10, Windows 11',
+                        'url' => home_url('/download/'),
+                        'softwareVersion' => (string)($windows['version'] ?? ''),
+                        'downloadUrl' => (string)($windows['x64_url'] ?? ''),
+                        'description' => 'BlueVPN برای Windows؛ نسخه‌های x64 و ARM64 با انتشار مستقل از Android.',
+                    ];
+                    $nodes[] = $windowsSoftware;
+                }
+            }
         }
 
         if (is_front_page()) {

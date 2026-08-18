@@ -1,7 +1,7 @@
 import pathlib, unittest
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-class TelegramSourceZipIntegrity41510(unittest.TestCase):
+class TelegramSourceZipIntegrity41600(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.bot = (ROOT/'bluevpn-manager/includes/class-bluevpn-telegram-bot.php').read_text()

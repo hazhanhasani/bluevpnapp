@@ -1,0 +1,6 @@
+BlueVPN Site 4.16.0
+- Defines Windows as a first-class download platform in the active Elementor download widget.
+- Uses the real GitHub Windows release version instead of the theme version.
+- Shows Windows x64 and ARM64 independently from Android APK.
+- Displays the Windows release channel/status from release metadata.
+- Unifies Elementor and page-download.php through one shared renderer so the two views cannot drift again.

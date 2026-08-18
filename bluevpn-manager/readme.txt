@@ -1,7 +1,13 @@
 === BlueVPN Manager ===
-Version: 4.16.7
-Stable tag: 4.16.7
+Version: 4.16.8
+Stable tag: 4.16.8
 Requires PHP: 8.0
+
+== 4.16.8 ==
+- Treats the optional exact GitHub theme-tag 404 as an expected lookup miss instead of a Sentinel runtime warning; 5xx, rate-limit and transport failures remain visible.
+- Full-platform packaging now includes the hidden `.github/` directory, so theme/Manager/Windows/Sentinel workflows are not silently dropped during ZIP deployment.
+- Adds a release packaging regression gate to prevent future platform ZIPs from omitting GitHub workflows.
+- Android, Manager, Theme and Windows source metadata are synchronized on 4.16.8.
 
 == 4.16.7 ==
 - Removes every direct plugin call into WordPress Core `spawn_cron()` and replaces it with BlueVPN's safe non-blocking loopback cron nudge, preventing `WP_CRON_LOCK_TIMEOUT` crashes on cPanel execution paths.

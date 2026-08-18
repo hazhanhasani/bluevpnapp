@@ -278,6 +278,14 @@ final class BlueVPN_Site_Updater {
         [$owner, $repo] = self::repository();
         $tag = self::TAG_PREFIX . $version;
         $url = 'https://api.github.com/repos/' . rawurlencode($owner) . '/' . rawurlencode($repo) . '/releases/tags/' . rawurlencode($tag);
+        // A source-declared version can land on main a few seconds before the
+        // dedicated theme-release workflow creates its GitHub Release. A 404
+        // here is therefore an expected capability/consistency miss, not a
+        // runtime outage. Sentinel suppresses only this one 404; transport,
+        // rate-limit and 5xx failures remain fully observable.
+        if (class_exists('BlueVPN_Error_Monitor') && method_exists('BlueVPN_Error_Monitor', 'expect_http_status_once')) {
+            BlueVPN_Error_Monitor::expect_http_status_once($url, [404]);
+        }
         $release = self::fetch_json($url);
         if (is_wp_error($release) || !is_array($release)) return null;
         return self::parse_release($release);

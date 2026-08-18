@@ -1,0 +1,226 @@
+name: Release BlueVPN Manager
+run-name: BlueVPN Manager • ${{ github.event.client_payload.request_id || inputs.request_id || github.run_id }}
+
+on:
+  # Used by the Deploy Bot before Android build, and can also be dispatched
+  # manually as an emergency publisher.
+  repository_dispatch:
+    types: [bluevpn_manager_release]
+  workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Exact source commit to publish (optional)
+        required: false
+        type: string
+      request_id:
+        description: Deploy Bot correlation id (optional)
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bluevpn-manager-release-main
+  cancel-in-progress: true
+
+jobs:
+  release:
+    # The bot publishes/installs this manager first, then starts Android build.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout requested manager source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.client_payload.target_sha || inputs.target_sha || 'main' }}
+          fetch-depth: 0
+
+      - name: Read and validate BlueVPN Manager version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          main = Path('bluevpn-manager/bluevpn-manager.php')
+          readme = Path('bluevpn-manager/readme.txt')
+          if not main.is_file():
+              raise SystemExit('bluevpn-manager/bluevpn-manager.php is missing')
+
+          text = main.read_text(encoding='utf-8')
+          header = re.search(r'(?mi)^\s*\*?\s*Version:\s*(\d+\.\d+\.\d+)\s*$', text)
+          const = re.search(
+              r"define\(\s*['\"]BLUEVPN_MANAGER_VERSION['\"]\s*,\s*['\"](\d+\.\d+\.\d+)['\"]\s*\)\s*;",
+              text,
+          )
+          if not header or not const:
+              raise SystemExit('Plugin Version header/constant not found')
+          if header.group(1) != const.group(1):
+              raise SystemExit(
+                  f'Plugin version mismatch: header={header.group(1)} constant={const.group(1)}'
+              )
+          version = header.group(1)
+          match = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)', version)
+          if not match:
+              raise SystemExit(f'Invalid BlueVPN Manager version: {version}')
+          if int(match.group(3)) > 10:
+              raise SystemExit(f'BlueVPN patch must stay within x.y.0..x.y.10: {version}')
+
+          if readme.is_file():
+              readme_text = readme.read_text(encoding='utf-8')
+              readme_match = re.search(r'(?mi)^Version:\s*(\d+\.\d+\.\d+)\s*$', readme_text)
+              stable_match = re.search(r'(?mi)^Stable tag:\s*(\d+\.\d+\.\d+)\s*$', readme_text)
+              if not readme_match or readme_match.group(1) != version:
+                  raise SystemExit(
+                      f'Readme version is not synchronized with plugin: {version}'
+                  )
+              if not stable_match or stable_match.group(1) != version:
+                  raise SystemExit(
+                      f'Readme stable tag is not synchronized with plugin: {version}'
+                  )
+
+          with Path(os.environ['GITHUB_OUTPUT']).open('a', encoding='utf-8') as out:
+              out.write(f'version={version}\n')
+          print(f'BlueVPN Manager release version: {version}')
+          PY
+
+      - name: Lint and build installable plugin ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          while IFS= read -r -d '' file; do
+            php -l "$file" >/dev/null
+          done < <(find bluevpn-manager -type f -name '*.php' -print0)
+
+          rm -rf "$RUNNER_TEMP/bluevpn-manager-release"
+          mkdir -p "$RUNNER_TEMP/bluevpn-manager-release/bluevpn-manager"
+          rsync -a \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='node_modules' \
+            --exclude='tests' \
+            bluevpn-manager/ \
+            "$RUNNER_TEMP/bluevpn-manager-release/bluevpn-manager/"
+
+          (
+            cd "$RUNNER_TEMP/bluevpn-manager-release"
+            zip -qr "$GITHUB_WORKSPACE/bluevpn-manager.zip" bluevpn-manager
+          )
+
+          unzip -t bluevpn-manager.zip >/dev/null
+          sha256sum bluevpn-manager.zip | tee bluevpn-manager.zip.sha256
+
+          FIRST_ENTRY="$(unzip -Z1 bluevpn-manager.zip | head -n 1)"
+          case "$FIRST_ENTRY" in
+            bluevpn-manager/*) ;;
+            *)
+              echo "::error::Plugin ZIP root must be bluevpn-manager/, got: $FIRST_ENTRY"
+              exit 1
+              ;;
+          esac
+
+      - name: Publish or refresh GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="bluevpn-manager-v${VERSION}"
+          NOTES="BlueVPN Manager ${VERSION} — بسته خودکار WordPress/MySQL از شاخه main. این Asset توسط GitHub Actions ساخته و برای آپدیت خودکار WordPress منتشر شده است."
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            rm -rf "$RUNNER_TEMP/bluevpn-manager-existing"
+            mkdir -p "$RUNNER_TEMP/bluevpn-manager-existing"
+            gh release download "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --pattern 'bluevpn-manager.zip' \
+              --dir "$RUNNER_TEMP/bluevpn-manager-existing" \
+              --clobber \
+              >/dev/null 2>&1 || true
+
+            EXISTING="$RUNNER_TEMP/bluevpn-manager-existing/bluevpn-manager.zip"
+            if [ -f "$EXISTING" ] && cmp -s "$EXISTING" bluevpn-manager.zip; then
+              echo "Existing $TAG asset is byte-identical; keeping the original asset fingerprint."
+            else
+              gh release upload "$TAG" \
+                bluevpn-manager.zip \
+                bluevpn-manager.zip.sha256 \
+                --repo "$GITHUB_REPOSITORY" \
+                --clobber
+            fi
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target main \
+              --title "BlueVPN Manager ${VERSION}" \
+              --notes "$NOTES" \
+              --latest=false
+          else
+            gh release create "$TAG" \
+              bluevpn-manager.zip \
+              bluevpn-manager.zip.sha256 \
+              --repo "$GITHUB_REPOSITORY" \
+              --target main \
+              --title "BlueVPN Manager ${VERSION}" \
+              --notes "$NOTES" \
+              --latest=false
+          fi
+
+      - name: Verify published updater contract
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="bluevpn-manager-v${VERSION}"
+
+          ASSET="$(
+            gh release view "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --json assets \
+              --jq '.assets[] | select(.name=="bluevpn-manager.zip") | .name' \
+              | head -n 1
+          )"
+          if [ "$ASSET" != "bluevpn-manager.zip" ]; then
+            echo "::error::Updater asset bluevpn-manager.zip is missing from $TAG"
+            exit 1
+          fi
+
+          rm -rf "$RUNNER_TEMP/bluevpn-manager-verify"
+          mkdir -p "$RUNNER_TEMP/bluevpn-manager-verify"
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'bluevpn-manager.zip' \
+            --dir "$RUNNER_TEMP/bluevpn-manager-verify" \
+            --clobber
+          unzip -t "$RUNNER_TEMP/bluevpn-manager-verify/bluevpn-manager.zip" >/dev/null
+
+          REMOTE_VERSION="$(
+            unzip -p "$RUNNER_TEMP/bluevpn-manager-verify/bluevpn-manager.zip" \
+              bluevpn-manager/bluevpn-manager.php \
+              | sed -nE 's/^ \* Version: ([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' \
+              | head -n 1
+          )"
+          if [ "$REMOTE_VERSION" != "$VERSION" ]; then
+            echo "::error::Published plugin version mismatch. Expected=$VERSION Remote=$REMOTE_VERSION"
+            exit 1
+          fi
+
+          echo "Verified WordPress updater contract: $TAG / bluevpn-manager.zip / version=$REMOTE_VERSION"
+
+      - name: Upload BlueVPN Manager build artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: BlueVPN-Manager-${{ steps.version.outputs.version }}
+          path: |
+            bluevpn-manager.zip
+            bluevpn-manager.zip.sha256
+          if-no-files-found: error
+          retention-days: 14

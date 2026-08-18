@@ -1,0 +1,4 @@
+BlueVPN Site 4.16.8
+- Makes exact theme-tag discovery tolerant of the expected transient/missing GitHub 404 without generating a false Sentinel warning.
+- Real GitHub transport, rate-limit and 5xx failures remain observable.
+- Synchronizes the site with the 4.16.8 platform release.

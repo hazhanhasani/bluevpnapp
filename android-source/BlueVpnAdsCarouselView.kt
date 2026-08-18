@@ -55,7 +55,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     private val tapsellHost = FrameLayout(context)
     private var items: List<AdItem> = emptyList()
     private var tapsellStandardEnabled = false
-    private var tapsellEverySlides = 3
+    private var tapsellEverySlides = 1
     private var ownSlidesSinceTapsell = 0
     private var tapsellShowing = false
     private var tapsellLoading = false
@@ -292,9 +292,9 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             tapsell?.optBoolean("enabled", false) == true &&
             standard?.optBoolean("enabled", false) == true
         tapsellEverySlides = tapsell
-            ?.optInt("standard_banner_every_slides", 3)
+            ?.optInt("standard_banner_every_slides", 1)
             ?.coerceIn(1, 10)
-            ?: 3
+            ?: 1
 
         if (!BlueVpnEntitlement.resolveUi(context).isFree) {
             tapsellStandardEnabled = false

@@ -19,9 +19,8 @@ ANDROID = ROOT / "upstream" / "V2rayNG"
 APP = ANDROID / "app"
 
 TAPSELL_MEDIATION_VERSION = "1.4.0-alpha03"
-# Official sample App ID: build-safe fallback only. Runtime refuses
-# production requests while BLUEVPN_TAPSELL_TEST_FALLBACK is true.
-TAPSELL_TEST_APP_ID = "76798342-99a7-4a5f-bf5a-60a088d5dcfb"
+# Production builds must embed the real Mediation App ID. A test fallback made
+# APKs appear healthy while every production request was rejected at runtime.
 
 # Files below are the upstream runtime compatibility boundary. BlueVPN may call
 # these APIs, but prepare_android.py must never rewrite them. This turns the
@@ -137,9 +136,17 @@ def patch_build_gradle() -> None:
     )
 
     api_value = CONFIG.get("api_base_url", "").rstrip("/")
-    configured_tapsell_app_id = str(CONFIG.get("tapsell_app_id", "")).strip()
-    tapsell_app_id = configured_tapsell_app_id or TAPSELL_TEST_APP_ID
-    tapsell_test_fallback = configured_tapsell_app_id == ""
+    configured_tapsell_app_id = (
+        os.environ.get("BLUEVPN_TAPSELL_APP_ID", "").strip()
+        or str(CONFIG.get("tapsell_app_id", "")).strip()
+    )
+    if not configured_tapsell_app_id:
+        raise RuntimeError(
+            "Tapsell Mediation App ID is required for BlueVPN Free ads. "
+            "Set BLUEVPN_TAPSELL_APP_ID in CI or branding/app.json before building."
+        )
+    tapsell_app_id = configured_tapsell_app_id
+    tapsell_test_fallback = False
 
     marker = f'applicationId = "{CONFIG["application_id"]}"'
     if marker not in text:

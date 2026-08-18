@@ -538,6 +538,8 @@ jobs:
 
       - name: Overlay BlueVPN UI and control plane on v2rayNG
         shell: bash
+        env:
+          BLUEVPN_TAPSELL_APP_ID: ${{ secrets.BLUEVPN_TAPSELL_APP_ID }}
         run: |
           set -euo pipefail
           exec > >(tee -a "$GITHUB_WORKSPACE/android-build.log") 2>&1

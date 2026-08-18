@@ -119,11 +119,12 @@ class CurrentReleaseTests(unittest.TestCase):
         )
 
         self.assertIn('type="native_video"', subscriptions)
-        self.assertIn('type = "pre_roll_video"', support)
+        self.assertNotIn('type = "pre_roll_video"', support)
+        self.assertIn('BlueVpnTapsellManager.attachStandardBanner(', support)
         self.assertIn("BlueVpnEntitlement.resolveUi(this).isFree", support)
 
         self.assertIn("fun placementEligible(", manager)
-        self.assertIn("if (!BlueVpnEntitlement.resolveUi(context).isFree) return false", manager)
+        self.assertIn("BlueVpnEntitlement.resolveUi(context).isFree", manager)
 
     def test_00_reward_claim_is_server_authoritative_and_idempotent(self):
         api = text("bluevpn-manager/includes/class-bluevpn-api.php")
@@ -145,22 +146,20 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("claimRewardedBonus(", manager)
         self.assertNotIn("rewardMinutes: Int", manager)
 
-    def test_00_all_tapsell_placements_have_independent_panel_switches(self):
+    def test_00_tapsell_panel_uses_simple_always_on_policy(self):
         ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
-        db = text("bluevpn-manager/includes/class-bluevpn-db.php")
-        for type_name in (
-            "rewarded_video",
-            "interstitial_video",
-            "pre_roll_video",
-            "native_video",
-            "standard_banner",
-            "interstitial_banner",
-            "native_banner",
-        ):
-            self.assertIn("tapsell_" + type_name + "_enabled", ads)
-            self.assertIn("tapsell_" + type_name + "_min_interval_seconds", ads)
-            self.assertIn("tapsell_" + type_name + "_daily_cap", ads)
-            self.assertIn("'tapsell_" + type_name + "_enabled' => true", db)
+        manager = text("android-source/BlueVpnTapsellManager.kt")
+        self.assertIn("'policy' => 'always_on_free_v1'", ads)
+        self.assertIn("'min_interval_seconds' => 0", ads)
+        self.assertIn("'daily_cap' => 0", ads)
+        self.assertNotIn("'حداقل فاصله نمایش (ثانیه)'", ads)
+        self.assertNotIn("'سقف روزانه (۰=نامحدود)'", ads)
+        eligible = manager.split("private fun placementEligible(", 1)[1].split(
+            "private fun markPlacementShown(", 1
+        )[0]
+        self.assertNotIn("minIntervalSeconds", eligible)
+        self.assertNotIn("dailyCap", eligible)
+
 
     def test_00_standard_banner_uses_existing_bluevpn_carousel_slot(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
@@ -179,7 +178,7 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("ir.tapsell.mediation.AUTO_INIT", prepare)
         self.assertNotIn('TAPSELL_MEDIATION_VERSION = "1.4.0-alpha02"', prepare)
 
-    def test_00_tapsell_has_all_seven_independent_zone_slots(self):
+    def test_00_tapsell_keeps_wire_compatibility_for_zone_slots(self):
         ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
         db = text("bluevpn-manager/includes/class-bluevpn-db.php")
         android = text("android-source/BlueVpnTapsellManager.kt")

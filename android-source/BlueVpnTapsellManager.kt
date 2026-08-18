@@ -5,10 +5,18 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import ir.tapsell.mediation.ad.request.BannerSize
 import ir.tapsell.mediation.ad.views.banner.BannerContainer
+import ir.tapsell.mediation.ad.views.ntv.NativeAdView
+import ir.tapsell.mediation.ad.views.ntv.NativeAdViewContainer
 import java.lang.reflect.Proxy
 import com.v2ray.ang.BuildConfig
 import ir.tapsell.mediation.Tapsell
@@ -285,8 +293,8 @@ object BlueVpnTapsellManager {
                     showAfterConnect = false,
                     rewardedBonusMinutes = 15,
                     standardBannerSize = "BANNER_320_50",
-                    standardBannerEverySlides = 3,
-                    rewardFullscreenSuppressionSeconds = 300,
+                    standardBannerEverySlides = 1,
+                    rewardFullscreenSuppressionSeconds = 0,
                 )
             }
 
@@ -309,15 +317,7 @@ object BlueVpnTapsellManager {
             "interstitial_banner",
             "native_banner",
         )
-        val fallbackDefaults = mapOf(
-            "rewarded_video" to (300 to 5),
-            "interstitial_video" to (1200 to 3),
-            "pre_roll_video" to (1800 to 2),
-            "native_video" to (900 to 4),
-            "standard_banner" to (120 to 0),
-            "interstitial_banner" to (1200 to 3),
-            "native_banner" to (600 to 6),
-        )
+        val fallbackDefaults = types.associateWith { 0 to 0 }
 
         val masterEnabled = value.optBoolean("enabled", false)
         val placements = linkedMapOf<String, PlacementPolicy>()
@@ -357,8 +357,8 @@ object BlueVpnTapsellManager {
                 "interstitial_video",
                 masterEnabled && value.optBoolean("show_after_connect", true),
                 old,
-                value.optInt("min_interval_seconds", 1200).coerceIn(0, 86_400),
-                value.optInt("daily_cap", 3).coerceIn(0, 1_000),
+                0,
+                0,
             )
         }
 
@@ -378,10 +378,10 @@ object BlueVpnTapsellManager {
                 .trim()
                 .ifBlank { "BANNER_320_50" },
             standardBannerEverySlides = value
-                .optInt("standard_banner_every_slides", 3)
+                .optInt("standard_banner_every_slides", 1)
                 .coerceIn(1, 10),
             rewardFullscreenSuppressionSeconds = value
-                .optInt("reward_fullscreen_suppression_seconds", 300)
+                .optInt("reward_fullscreen_suppression_seconds", 0)
                 .coerceIn(0, 3600),
         )
     }
@@ -1062,18 +1062,201 @@ object BlueVpnTapsellManager {
                 return@loadConfig
             }
 
-            showReflectiveFormat(
-                activity = activity,
-                host = host,
-                zoneId = policy.zoneId,
-                format = type,
-                loadingView = loadingView,
-                onShown = {
-                    markPlacementShown(activity, type)
-                },
-                onUnavailable = onUnavailable,
-            )
+            when (type) {
+                "native_banner", "native_video" -> attachNativePlacement(
+                    activity = activity,
+                    host = host,
+                    policy = policy,
+                    loadingView = loadingView,
+                    onUnavailable = onUnavailable,
+                )
+                // Pre-roll requires actual video content + VAST/Media3 playback.
+                // BlueVPN's support guide is text, so never fake this format in
+                // a generic FrameLayout. The support screen uses a banner instead.
+                "pre_roll_video" -> {
+                    host.visibility = View.GONE
+                    recordStatus(activity, "pre_roll_requires_video_content")
+                    onUnavailable?.invoke()
+                }
+                else -> {
+                    host.visibility = View.GONE
+                    onUnavailable?.invoke()
+                }
+            }
         }
+    }
+
+    private fun attachNativePlacement(
+        activity: Activity,
+        host: ViewGroup,
+        policy: PlacementPolicy,
+        loadingView: View? = null,
+        onUnavailable: (() -> Unit)? = null,
+    ) {
+        ensureInitialized(
+            context = activity.applicationContext,
+            loaded = config ?: run {
+                host.visibility = View.GONE
+                onUnavailable?.invoke()
+                return
+            },
+            after = {
+                if (
+                    activity.isFinishing ||
+                    activity.isDestroyed ||
+                    !BlueVpnEntitlement.resolveUi(activity).isFree
+                ) {
+                    host.visibility = View.GONE
+                    onUnavailable?.invoke()
+                    return@ensureInitialized
+                }
+
+                val density = activity.resources.displayMetrics.density
+                fun dp(value: Int): Int = (value * density).toInt()
+
+                val container = NativeAdViewContainer(activity)
+                val content = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    layoutDirection = View.LAYOUT_DIRECTION_RTL
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                }
+                val media = FrameLayout(activity).apply {
+                    minimumHeight = dp(if (policy.type == "native_video") 168 else 120)
+                }
+                val title = TextView(activity).apply {
+                    textSize = 15f
+                    gravity = Gravity.END
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setPadding(0, dp(8), 0, 0)
+                }
+                val description = TextView(activity).apply {
+                    textSize = 12f
+                    gravity = Gravity.END
+                    maxLines = 3
+                    setPadding(0, dp(4), 0, 0)
+                }
+                val footer = LinearLayout(activity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(8), 0, 0)
+                }
+                val logo = ImageView(activity).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                }
+                val sponsored = TextView(activity).apply {
+                    textSize = 10f
+                    gravity = Gravity.END
+                }
+                val cta = Button(activity).apply {
+                    isAllCaps = false
+                    minHeight = dp(40)
+                    minimumHeight = dp(40)
+                }
+
+                content.addView(media, LinearLayout.LayoutParams(-1, dp(if (policy.type == "native_video") 168 else 120)))
+                content.addView(title, LinearLayout.LayoutParams(-1, -2))
+                content.addView(description, LinearLayout.LayoutParams(-1, -2))
+                footer.addView(logo, LinearLayout.LayoutParams(dp(42), dp(42)))
+                footer.addView(sponsored, LinearLayout.LayoutParams(0, -2, 1f).apply {
+                    marginStart = dp(8)
+                    marginEnd = dp(8)
+                })
+                footer.addView(cta, LinearLayout.LayoutParams(-2, dp(42)))
+                content.addView(footer, LinearLayout.LayoutParams(-1, -2))
+                container.addView(content, FrameLayout.LayoutParams(-1, -2))
+                host.removeAllViews()
+                host.addView(container, ViewGroup.LayoutParams(-1, -2))
+                loadingView?.visibility = View.VISIBLE
+
+                runCatching {
+                    Tapsell.requestNativeAd(
+                        policy.zoneId,
+                        object : RequestResultListener {
+                            override fun onSuccess(adId: String) {
+                                main.post {
+                                    if (
+                                        activity.isFinishing ||
+                                        activity.isDestroyed ||
+                                        !BlueVpnEntitlement.resolveUi(activity).isFree
+                                    ) {
+                                        runCatching { Tapsell.destroyNativeAd(adId) }
+                                        host.visibility = View.GONE
+                                        onUnavailable?.invoke()
+                                        return@post
+                                    }
+
+                                    val nativeView = NativeAdView.Builder(container)
+                                        .withMedia(media)
+                                        .withTitle(title)
+                                        .withDescription(description)
+                                        .withLogo(logo)
+                                        .withCtaButton(cta)
+                                        .withSponsored(sponsored)
+                                        .build()
+
+                                    loadingView?.visibility = View.GONE
+                                    host.visibility = View.VISIBLE
+                                    Tapsell.showNativeAd(
+                                        adId,
+                                        nativeView,
+                                        activity,
+                                        object : AdStateListener.Native {
+                                            override fun onAdImpression() {
+                                                markPlacementShown(activity, policy.type)
+                                                recordStatus(activity, "${policy.type}_shown")
+                                            }
+
+                                            override fun onAdClicked() {
+                                                recordStatus(activity, "${policy.type}_clicked")
+                                            }
+
+                                            override fun onAdClosed(
+                                                completionState: AdShowCompletionState,
+                                            ) {
+                                                recordStatus(
+                                                    activity,
+                                                    "${policy.type}_closed_${completionState.name.lowercase(Locale.US)}",
+                                                )
+                                            }
+
+                                            override fun onAdFailed(message: String) {
+                                                host.visibility = View.GONE
+                                                recordStatus(activity, "${policy.type}_show_error", message)
+                                                runCatching { Tapsell.destroyNativeAd(adId) }
+                                                onUnavailable?.invoke()
+                                            }
+                                        },
+                                    )
+
+                                    host.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                                        override fun onViewAttachedToWindow(v: View) = Unit
+                                        override fun onViewDetachedFromWindow(v: View) {
+                                            runCatching { Tapsell.destroyNativeAd(adId) }
+                                            host.removeOnAttachStateChangeListener(this)
+                                        }
+                                    })
+                                }
+                            }
+
+                            override fun onFailure(message: String) {
+                                main.post {
+                                    loadingView?.visibility = View.GONE
+                                    host.visibility = View.GONE
+                                    recordStatus(activity, "${policy.type}_request_error", message)
+                                    onUnavailable?.invoke()
+                                }
+                            }
+                        },
+                    )
+                }.onFailure {
+                    loadingView?.visibility = View.GONE
+                    host.visibility = View.GONE
+                    recordStatus(activity, "${policy.type}_exception", it.message.orEmpty())
+                    onUnavailable?.invoke()
+                }
+            },
+            onUnavailable = onUnavailable,
+        )
     }
 
     fun showReflectiveFormat(
@@ -1324,27 +1507,12 @@ object BlueVpnTapsellManager {
         context: Context,
         policy: PlacementPolicy,
     ): Boolean {
-        if (!policy.enabled || policy.zoneId.isBlank()) return false
-        if (!BlueVpnEntitlement.resolveUi(context).isFree) return false
-
-        val storage = context.applicationContext
-            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        val last = storage.getLong("placement_${policy.type}_last_at", 0L)
-        if (
-            policy.minIntervalSeconds > 0 &&
-            now - last < policy.minIntervalSeconds * 1_000L
-        ) return false
-
-        if (policy.dailyCap <= 0) return true
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(now))
-        val storedDay = storage.getString("placement_${policy.type}_day", "").orEmpty()
-        val count = if (storedDay == today) {
-            storage.getInt("placement_${policy.type}_count", 0)
-        } else {
-            0
-        }
-        return count < policy.dailyCap
+        // Always-on Free ad policy: visibility is controlled only by entitlement
+        // and whether the placement has a configured Zone ID. Timer/cap values
+        // are accepted on the wire for backward compatibility but ignored.
+        return policy.enabled &&
+            policy.zoneId.isNotBlank() &&
+            BlueVpnEntitlement.resolveUi(context).isFree
     }
 
     private fun markPlacementShown(

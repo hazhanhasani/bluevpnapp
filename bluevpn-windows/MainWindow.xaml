@@ -21,7 +21,7 @@
                 <Button x:Name="UpdateButton" Content="بروزرسانی" Click="Update_Click"/>
                 <Border Background="#FF111722" CornerRadius="12" Padding="12,8" Margin="4">
                     <StackPanel>
-                        <TextBlock x:Name="VersionText" Text="v4.16.2" FontSize="11" Foreground="{StaticResource BlueVpnMuted}"/>
+                        <TextBlock x:Name="VersionText" Text="v4.16.3" FontSize="11" Foreground="{StaticResource BlueVpnMuted}"/>
                         <TextBlock x:Name="CoreVersionText" Text="v2rayN" FontSize="10" Foreground="{StaticResource BlueVpnMuted}"/>
                     </StackPanel>
                 </Border>

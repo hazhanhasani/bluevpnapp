@@ -431,6 +431,12 @@ final class BlueVPN_GitHub_Updater {
                 BlueVPN_App_Release_Manager::ingest_releases($releases, 'shared_plugin_updater_poll', false);
             }
         }
+        if (class_exists('BlueVPN_Windows_Release_Manager')) {
+            $windows_cfg = BlueVPN_Windows_Release_Manager::settings();
+            if (($windows_cfg['owner'] ?? '') === $s['owner'] && ($windows_cfg['repo'] ?? '') === $s['repo']) {
+                BlueVPN_Windows_Release_Manager::ingest_releases($releases, 'shared_plugin_updater_poll', false);
+            }
+        }
 
         $candidates = [];
         foreach ($releases as $release) {

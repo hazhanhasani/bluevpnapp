@@ -11,6 +11,7 @@ public sealed class AppSettings
     [JsonPropertyName("api_base_url")] public string ApiBaseUrl { get; set; } = "";
     [JsonPropertyName("free_subscription_path")] public string FreeSubscriptionPath { get; set; } = "/wp-json/bluevpn/v1/free/curated?limit=100";
     [JsonPropertyName("mobile_config_path")] public string MobileConfigPath { get; set; } = "/wp-json/bluevpn/v1/mobile/config";
+    [JsonPropertyName("windows_update_path")] public string WindowsUpdatePath { get; set; } = "/wp-json/bluevpn/v1/windows/update";
     [JsonPropertyName("probe_url")] public string ProbeUrl { get; set; } = "https://www.cloudflare.com/cdn-cgi/trace";
     [JsonPropertyName("v2rayn_version")] public string V2RayNVersion { get; set; } = "7.24.4";
     [JsonPropertyName("v2rayn_repository")] public string V2RayNRepository { get; set; } = "2dust/v2rayN";

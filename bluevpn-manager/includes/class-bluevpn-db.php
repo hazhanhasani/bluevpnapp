@@ -11,7 +11,7 @@ final class BlueVPN_DB {
 
     public static function table_names(): array {
         return [
-            'app_settings', 'app_releases', 'ad_assets', 'server_locations', 'pasarguard_panels',
+            'app_settings', 'app_releases', 'windows_releases', 'ad_assets', 'server_locations', 'pasarguard_panels',
             'marzban_panels', 'guardcore_panels', 'plans', 'customers', 'manual_customers',
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
@@ -102,6 +102,36 @@ final class BlueVPN_DB {
             KEY ix_app_release_state_code (state, version_code),
             KEY ix_app_release_github (github_release_id),
             KEY ix_app_release_updated (updated_at)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('windows_releases')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            github_release_id bigint unsigned NULL,
+            version varchar(32) NOT NULL DEFAULT '',
+            version_code int NOT NULL DEFAULT 0,
+            state varchar(20) NOT NULL DEFAULT 'beta',
+            force_update tinyint(1) NOT NULL DEFAULT 0,
+            title varchar(200) NOT NULL DEFAULT '',
+            message longtext NULL,
+            installer_x64_url longtext NULL,
+            installer_arm64_url longtext NULL,
+            portable_x64_url longtext NULL,
+            portable_arm64_url longtext NULL,
+            asset_meta_json longtext NULL,
+            release_url longtext NULL,
+            release_published_at varchar(64) NOT NULL DEFAULT '',
+            commit_sha varchar(80) NOT NULL DEFAULT '',
+            fingerprint varchar(64) NOT NULL DEFAULT '',
+            source varchar(80) NOT NULL DEFAULT '',
+            promoted_at datetime NULL,
+            stopped_at datetime NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY uq_windows_release_version (version),
+            KEY ix_windows_release_state_code (state, version_code),
+            KEY ix_windows_release_github (github_release_id),
+            KEY ix_windows_release_updated (updated_at)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('ad_assets')} (

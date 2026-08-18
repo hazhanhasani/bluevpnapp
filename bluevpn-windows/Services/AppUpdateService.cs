@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
-using System.Text.Json;
 using BlueVPN.Windows.Models;
 
 namespace BlueVPN.Windows.Services;
@@ -9,41 +8,35 @@ namespace BlueVPN.Windows.Services;
 public sealed class AppUpdateService
 {
     private readonly AppSettings _settings;
-    public AppUpdateService(AppSettings settings) => _settings = settings;
+    private readonly BlueVpnApiClient _api;
+
+    public AppUpdateService(AppSettings settings, BlueVpnApiClient api)
+    {
+        _settings = settings;
+        _api = api;
+    }
 
     public async Task<UpdateCandidate?> CheckAsync(CancellationToken ct = default)
     {
-        using var gh = new GitHubReleaseClient($"BlueVPN-Windows/{_settings.Version}");
-        using var doc = await gh.GetReleasesAsync(_settings.WindowsUpdateRepository, 20, ct);
-        var current = ParseVersion(_settings.Version);
         var arch = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 ? "win-arm64" : "win-x64";
-        UpdateCandidate? best = null;
-        Version bestVersion = current;
+        var info = await _api.GetWindowsUpdateAsync(_settings.Version, arch, ct);
+        if (!info.Available || !info.UpdateAvailable) return null;
+        if (string.IsNullOrWhiteSpace(info.DownloadUrl) || string.IsNullOrWhiteSpace(info.Filename))
+            throw new InvalidDataException($"فایل نصب {arch} برای نسخه {info.LatestVersion} در پنل انتشار Windows کامل نیست.");
+        if (string.IsNullOrWhiteSpace(info.Sha256) || info.Sha256.Length != 64 || info.Sha256.Any(ch => !Uri.IsHexDigit(ch)))
+            throw new InvalidDataException("SHA-256 فایل بروزرسانی Windows در پنل معتبر نیست؛ بروزرسانی برای امنیت متوقف شد.");
 
-        foreach (var release in doc.RootElement.EnumerateArray())
-        {
-            if (release.TryGetProperty("draft", out var draft) && draft.GetBoolean()) continue;
-            var prerelease = release.TryGetProperty("prerelease", out var pre) && pre.GetBoolean();
-            if (!_settings.WindowsChannel.Equals("beta", StringComparison.OrdinalIgnoreCase) && prerelease) continue;
-            var tag = release.GetProperty("tag_name").GetString() ?? "";
-            if (!tag.StartsWith(_settings.WindowsReleasePrefix, StringComparison.OrdinalIgnoreCase)) continue;
-            var versionText = tag[_settings.WindowsReleasePrefix.Length..];
-            var version = ParseVersion(versionText);
-            if (version <= bestVersion) continue;
-
-            foreach (var asset in release.GetProperty("assets").EnumerateArray())
-            {
-                var name = asset.GetProperty("name").GetString() ?? "";
-                if (!name.Equals($"BlueVPN-Setup-{versionText}-{arch}.exe", StringComparison.OrdinalIgnoreCase)) continue;
-                var url = asset.GetProperty("browser_download_url").GetString() ?? "";
-                var digest = asset.TryGetProperty("digest", out var d) ? d.GetString() ?? "" : "";
-                var html = release.TryGetProperty("html_url", out var h) ? h.GetString() ?? "" : "";
-                best = new(versionText, url, digest, name, html);
-                bestVersion = version;
-                break;
-            }
-        }
-        return best;
+        return new UpdateCandidate(
+            info.LatestVersion,
+            info.DownloadUrl,
+            "sha256:" + info.Sha256.ToLowerInvariant(),
+            info.Filename,
+            info.ReleaseUrl,
+            info.AutoUpdate,
+            info.ForceUpdate,
+            info.ReleaseChannel,
+            info.Message
+        );
     }
 
     public async Task<string> DownloadAsync(UpdateCandidate candidate, CancellationToken ct = default)
@@ -68,6 +61,4 @@ public sealed class AppUpdateService
         });
         return true;
     }
-
-    private static Version ParseVersion(string? value) => Version.TryParse(value?.TrimStart('v'), out var v) ? v : new Version(0, 0);
 }

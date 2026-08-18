@@ -62,3 +62,29 @@ public sealed class Plan
     [JsonPropertyName("data_limit_gb")] public int DataLimitGb { get; set; }
     [JsonPropertyName("device_limit")] public int DeviceLimit { get; set; }
 }
+
+
+public sealed class WindowsUpdateResponse
+{
+    [JsonPropertyName("success")] public bool Success { get; set; }
+    [JsonPropertyName("platform")] public string Platform { get; set; } = "windows";
+    [JsonPropertyName("available")] public bool Available { get; set; }
+    [JsonPropertyName("current_version")] public string CurrentVersion { get; set; } = "";
+    [JsonPropertyName("latest_version")] public string LatestVersion { get; set; } = "";
+    [JsonPropertyName("latest_version_code")] public int LatestVersionCode { get; set; }
+    [JsonPropertyName("update_available")] public bool UpdateAvailable { get; set; }
+    [JsonPropertyName("minimum_version")] public string MinimumVersion { get; set; } = "0.0.0";
+    [JsonPropertyName("below_minimum")] public bool BelowMinimum { get; set; }
+    [JsonPropertyName("force_update")] public bool ForceUpdate { get; set; }
+    [JsonPropertyName("auto_update")] public bool AutoUpdate { get; set; }
+    [JsonPropertyName("release_channel")] public string ReleaseChannel { get; set; } = "stable";
+    [JsonPropertyName("beta_tester")] public bool BetaTester { get; set; }
+    [JsonPropertyName("title")] public string Title { get; set; } = "";
+    [JsonPropertyName("message")] public string Message { get; set; } = "";
+    [JsonPropertyName("release_url")] public string ReleaseUrl { get; set; } = "";
+    [JsonPropertyName("architecture")] public string Architecture { get; set; } = "win-x64";
+    [JsonPropertyName("download_url")] public string DownloadUrl { get; set; } = "";
+    [JsonPropertyName("filename")] public string Filename { get; set; } = "";
+    [JsonPropertyName("sha256")] public string Sha256 { get; set; } = "";
+    [JsonPropertyName("size")] public long Size { get; set; }
+}

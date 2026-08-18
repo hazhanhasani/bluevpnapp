@@ -15,7 +15,7 @@ public static class AppServices
         Api ??= new BlueVpnApiClient(Settings);
         Connection ??= new ConnectionOrchestrator(Settings, Api, Runtime);
         Advertisements ??= new AdvertisementService(Api);
-        AppUpdater ??= new AppUpdateService(Settings);
+        AppUpdater ??= new AppUpdateService(Settings, Api);
         RuntimeUpdater ??= new RuntimeUpdateService(Settings, Runtime);
     }
 }

@@ -323,12 +323,14 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(python -c 'import json; print(json.load(open("release.json", encoding="utf-8"))["version"])')"
-          WINDOWS_STATUS="$(python -c 'import json; print((json.load(open("release.json", encoding="utf-8")).get("windows") or {}).get("status", "beta"))')"
           WINDOWS_STAGE="$(python -c 'import json; print((json.load(open("release.json", encoding="utf-8")).get("windows") or {}).get("stage", "v2rayn-warp-installer"))')"
-          if [ "$WINDOWS_STATUS" = "stable" ]; then WINDOWS_CHANNEL="stable"; else WINDOWS_CHANNEL="beta"; fi
+          # Every newly built Windows binary starts as Beta. WordPress/MySQL is
+          # the release-channel authority and can promote the exact same files
+          # to Stable without rebuilding them.
+          WINDOWS_CHANNEL="beta"
           TAG="bluevpn-windows-v${VERSION}"
           TITLE="BlueVPN Windows ${VERSION}$([ "$WINDOWS_CHANNEL" = beta ] && printf ' Beta')"
-          NOTES="BlueVPN Windows ${VERSION} — Installer رسمی، VPN سراسری، runtime مبتنی بر v2rayN و WARP رایگان روی x64."$'\n\n'"BlueVPN-Windows-Channel: ${WINDOWS_CHANNEL}"$'\n'"BlueVPN-Windows-Stage: ${WINDOWS_STAGE}"$'\n\n'"فایل Setup برای نصب عادی توصیه می‌شود؛ ZIP فقط برای عیب‌یابی/Portable نگه داشته شده است."
+          NOTES="BlueVPN Windows ${VERSION} — Installer رسمی، VPN سراسری، runtime مبتنی بر v2rayN و WARP رایگان روی x64."$'\n\n'"BlueVPN-Windows-Channel: beta"$'\n'"BlueVPN-Windows-Channel-Authority: wordpress-manager"$'\n'"BlueVPN-Windows-Stage: ${WINDOWS_STAGE}"$'\n\n'"هر Build جدید ابتدا Beta است. ارتقا به Stable از BlueVPN Manager انجام می‌شود و Build مجدد لازم ندارد."$'\n'"فایل Setup برای نصب عادی توصیه می‌شود؛ ZIP فقط برای عیب‌یابی/Portable نگه داشته شده است."
           mapfile -t ASSETS < <(find windows-release -maxdepth 1 -type f \( -name "BlueVPN-Windows-${VERSION}-win-*.zip" -o -name "BlueVPN-Windows-${VERSION}-win-*.zip.sha256" -o -name "BlueVPN-Setup-${VERSION}-win-*.exe" -o -name "BlueVPN-Setup-${VERSION}-win-*.exe.sha256" \) -print | sort)
           test "${#ASSETS[@]}" -eq 8 || { echo "::error::Expected eight Windows release assets, found ${#ASSETS[@]}"; printf '%s\n' "${ASSETS[@]}"; exit 1; }
 
@@ -336,11 +338,9 @@ jobs:
             gh release upload "$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes "$NOTES" --latest=false
             RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .id)"
-            if [ "$WINDOWS_CHANNEL" = beta ]; then PRE=true; else PRE=false; fi
-            printf '{"prerelease":%s}\n' "$PRE" | gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --input - >/dev/null
+            printf '{"prerelease":true}\n' | gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --input - >/dev/null
           else
-            ARGS=("$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES" --latest=false)
-            if [ "$WINDOWS_CHANNEL" = beta ]; then ARGS+=(--prerelease); fi
+            ARGS=("$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES" --latest=false --prerelease)
             gh release create "${ARGS[@]}"
           fi
 

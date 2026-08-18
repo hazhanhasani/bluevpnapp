@@ -1,8 +1,8 @@
 {
     "app_name": "BlueVPN",
     "application_id": "ir.blluepanel.bluevpn",
-    "version_name": "4.16.2",
-    "version_code": 41602,
+    "version_name": "4.16.3",
+    "version_code": 41603,
     "deep_link_scheme": "bluevpn",
     "api_base_url": "https://bot.blluepanel.ir",
     "website_url": "https://bot.blluepanel.ir",
@@ -25,5 +25,6 @@
     "windows_v2rayn_ref": "7.24.4",
     "windows_aether_ref": "v1.1.1",
     "windows_installer": "inno-setup",
-    "windows_auto_update": true
+    "windows_auto_update": true,
+    "windows_release_channels": "wordpress_managed_stable_beta"
 }

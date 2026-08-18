@@ -12,6 +12,7 @@ final class BlueVPN_API {
         register_rest_route('bluevpn-system/v1','/app-connection',['methods'=>'GET','callback'=>[self::class,'app_connection'],'permission_callback'=>'__return_true']);
         $routes = [
             ['/mobile/config','GET','mobile_config'],
+            ['/windows/update','GET','windows_update'],
             ['/ad-assets/(?P<asset_id>[A-Za-z0-9_-]{6,64})','GET','ad_asset'],
             ['/free/subscription','GET','free_subscription'],
             ['/free/subscriptions/(?P<item_id>[A-Za-z0-9_-]{1,64})','GET','free_subscription'],
@@ -249,6 +250,47 @@ final class BlueVPN_API {
             'updated_at_fa'=>BlueVPN_Utils::tehran_datetime_fa(),
         ]);
     }
+    public static function windows_update(WP_REST_Request $r): WP_REST_Response {
+        if (class_exists('BlueVPN_Windows_Release_Manager')) {
+            try { BlueVPN_Windows_Release_Manager::maybe_kick(false); } catch (Throwable $e) { error_log('BlueVPN windows release refresh queue: '.$e->getMessage()); }
+        }
+        $customer=null;$authState='anonymous';$authError='';$authHeader=trim((string)$r->get_header('authorization'));
+        if($authHeader!==''){
+            try{$customer=BlueVPN_Auth::current_customer($r);$authState='authenticated';}
+            catch(BlueVPN_Auth_Exception $e){$customer=null;$authState='invalid';$authError=sanitize_key($e->error_code);}
+        }
+        $selection=['release'=>null,'channel'=>'stable','beta_tester'=>false];
+        if(class_exists('BlueVPN_Windows_Release_Manager')){
+            try{$selection=BlueVPN_Windows_Release_Manager::release_for_customer($customer);}
+            catch(Throwable $e){error_log('BlueVPN windows release selection: '.$e->getMessage());}
+        }
+        $release=is_array($selection['release']??null)?$selection['release']:[];
+        $channel=(string)($selection['channel']??'stable');
+        $cfg=class_exists('BlueVPN_Windows_Release_Manager')?BlueVPN_Windows_Release_Manager::settings():[];
+        $arch=sanitize_key((string)($r->get_param('arch')?:'win-x64'));
+        $asset=$release&&class_exists('BlueVPN_Windows_Release_Manager')?BlueVPN_Windows_Release_Manager::installer_for_arch($release,$arch):['architecture'=>$arch,'url'=>'','filename'=>'','sha256'=>'','size'=>0];
+        $current=trim((string)($r->get_param('current_version')?:'0.0.0'));if(!preg_match('/^\d+\.\d+\.\d+$/',$current))$current='0.0.0';
+        $latest=(string)($release['version']??'');
+        $minimum=(string)($cfg[$channel==='beta'?'minimum_version_beta':'minimum_version_stable']??'0.0.0');
+        $updateAvailable=$latest!==''&&version_compare($latest,$current,'>');
+        $belowMinimum=$minimum!=='0.0.0'&&version_compare($current,$minimum,'<');
+        $force=!empty($release['force_update'])||$belowMinimum;
+        $auto=$channel==='beta'?!empty($cfg['auto_update_beta']):!empty($cfg['auto_update_stable']);
+        $published=(string)($release['release_published_at']??'');$publishedMysql=BlueVPN_Utils::mysql_from_iso($published);
+        return self::ok([
+            'platform'=>'windows','available'=>(bool)$release,'current_version'=>$current,
+            'latest_version'=>$latest,'latest_version_code'=>(int)($release['version_code']??0),'update_available'=>$updateAvailable,
+            'minimum_version'=>$minimum,'below_minimum'=>$belowMinimum,'force_update'=>$force,'auto_update'=>$auto,
+            'release_channel'=>$channel,'beta_tester'=>(bool)($selection['beta_tester']??false),
+            'title'=>(string)($release['title']??''),'message'=>(string)($release['message']??''),
+            'release_url'=>(string)($release['release_url']??''),'release_published_at'=>$published,
+            'release_published_at_fa'=>$publishedMysql?BlueVPN_Utils::tehran_datetime_fa($publishedMysql):'',
+            'architecture'=>(string)($asset['architecture']??$arch),'download_url'=>(string)($asset['url']??''),
+            'filename'=>(string)($asset['filename']??''),'sha256'=>(string)($asset['sha256']??''),'size'=>(int)($asset['size']??0),
+            'auth_state'=>$authState,'auth_error'=>$authError,'source'=>'wordpress_windows_release_channels',
+        ]);
+    }
+
     public static function ad_asset(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Ads::asset_response($r); }
     public static function free_subscription(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Ads::free_subscription($r); }
     public static function free_curated(WP_REST_Request $r): WP_REST_Response { $limit=max(10,min(300,(int)($r->get_param('limit')?:80)));$text=BlueVPN_Free_Sources::subscription_text($limit);$res=new WP_REST_Response($text,200);$res->header('Content-Type','text/plain; charset=utf-8');$res->header('X-BlueVPN-Raw','1');$res->header('Cache-Control','public, max-age=60');return $res; }

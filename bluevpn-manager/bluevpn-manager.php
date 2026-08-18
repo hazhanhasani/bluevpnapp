@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BlueVPN Manager
  * Description: هسته حساب کاربری، اشتراک، پرداخت، پشتیبانی آنلاین و API سرویس BlueVPN.
- * Version: 4.16.2
+ * Version: 4.16.3
  * Author: BlueVPN
  * Requires at least: 6.2
  * Requires PHP: 8.0
@@ -14,8 +14,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('BLUEVPN_MANAGER_VERSION', '4.16.2');
-define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.22.0');
+define('BLUEVPN_MANAGER_VERSION', '4.16.3');
+define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.23.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
 define('BLUEVPN_MANAGER_URL', plugin_dir_url(__FILE__));
@@ -40,6 +40,7 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-unified-ui.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-frontend.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-admin.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-app-release-manager.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-windows-release-manager.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-github-updater.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-telegram-bot.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-support.php';
@@ -56,6 +57,7 @@ register_activation_hook(__FILE__, function () {
     BlueVPN_Migration::sync_cron_schedule(!empty(BlueVPN_Migration::settings()['auto_sync']));
     BlueVPN_Migration::sync_auto_schedule(!empty(BlueVPN_Migration::settings()['auto_migrate']));
     BlueVPN_App_Release_Manager::ensure_schedule();
+    BlueVPN_Windows_Release_Manager::ensure_schedule();
     BlueVPN_GitHub_Updater::ensure_schedule();
     BlueVPN_Telegram_Bot::activate();
     BlueVPN_Support::activate();
@@ -69,6 +71,7 @@ register_deactivation_hook(__FILE__, function () {
     BlueVPN_Migration::sync_cron_schedule(false);
     BlueVPN_Migration::sync_auto_schedule(false);
     BlueVPN_App_Release_Manager::unschedule();
+    BlueVPN_Windows_Release_Manager::unschedule();
     BlueVPN_GitHub_Updater::unschedule();
     BlueVPN_Telegram_Bot::deactivate();
     BlueVPN_Production::deactivate();
@@ -106,6 +109,7 @@ add_action('plugins_loaded', function () {
     BlueVPN_Cron::init();
     BlueVPN_Admin::init();
     BlueVPN_App_Release_Manager::init();
+    BlueVPN_Windows_Release_Manager::init();
     BlueVPN_GitHub_Updater::init();
     BlueVPN_Telegram_Bot::init();
     BlueVPN_Support::init();

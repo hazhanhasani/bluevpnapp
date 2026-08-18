@@ -42,9 +42,11 @@ class WindowsSitePlatform4160Tests(unittest.TestCase):
 
     def test_windows_workflow_marks_beta_release_and_embeds_channel_marker(self):
         workflow = text('.github/workflows/build-windows.yml')
-        self.assertIn('BlueVPN-Windows-Channel: ${WINDOWS_CHANNEL}', workflow)
-        self.assertIn('ARGS+=(--prerelease)', workflow)
-        self.assertIn('if [ "$WINDOWS_CHANNEL" = beta ]; then PRE=true; else PRE=false; fi', workflow)
+        self.assertIn('BlueVPN-Windows-Channel: beta', workflow)
+        self.assertIn('BlueVPN-Windows-Channel-Authority: wordpress-manager', workflow)
+        self.assertIn('\"prerelease\":true', workflow)
+        self.assertIn('--prerelease)', workflow)
+        self.assertIn('WINDOWS_CHANNEL="beta"', workflow)
         self.assertIn('releases/tags/${TAG}', workflow)
 
     def test_download_seo_covers_windows(self):

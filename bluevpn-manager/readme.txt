@@ -1,14 +1,21 @@
 === BlueVPN Manager ===
-Version: 4.16.2
-Stable tag: 4.16.2
+Version: 4.16.3
+Stable tag: 4.16.3
 Requires PHP: 8.0
 
+== 4.16.3 ==
+- Adds first-class Windows Stable/Beta release channels managed from BlueVPN Manager.
+- New Windows GitHub builds are discovered as Beta; administrators can promote the same installer to Stable without rebuilding.
+- Adds independent Windows automatic-update policies, minimum versions, force-update controls, x64/ARM64 asset health and public-site channel selection.
+- Windows clients now obtain update/channel policy from WordPress instead of deciding Beta/Stable directly from GitHub.
+- Android, Manager, Theme and Windows source metadata are synchronized on 4.16.3.
 
-== 4.16.2 ==
+
+== 4.16.3 ==
 - Defines Windows download/channel metadata alongside Android without changing the public Android stable channel.
 - Windows website releases are explicitly marked beta/stable and consumed dynamically by the site theme.
 - Elementor and PHP download pages now use one Windows-aware rendering contract.
-- Android, Manager, Theme and Windows source metadata are synchronized on 4.16.2.
+- Android, Manager, Theme and Windows source metadata are synchronized on 4.16.3.
 
 == 4.15.10 ==
 - Telegram deploy ZIP intake now distinguishes transport truncation from an invalid/corrupt uploaded source archive.

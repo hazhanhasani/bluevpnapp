@@ -40,7 +40,7 @@ def main() -> None:
 
     version = str(release.get("version", "")).strip()
     require(re.fullmatch(r"\d+\.\d+\.\d+", version) is not None, "invalid release version")
-    require(version == "4.16.2", "this Windows migration must be release 4.16.2")
+    require(version == "4.16.3", "this Windows migration must be release 4.16.3")
     require(str(branding.get("version_name", "")) == version, "branding version drift")
     require(str(release.get("windows_version", "")) == version, "release windows_version mismatch")
     require(str(settings.get("version", "")) == version, "Windows appsettings version mismatch")
@@ -84,9 +84,11 @@ def main() -> None:
 
     # Updates + installer.
     require("AppUpdateService" in main_cs and "RuntimeUpdateService" in main_cs, "Windows update services not wired")
-    require("BlueVPN-Setup-" in app_update and "VERYSILENT" in app_update, "self-updater does not consume installer")
+    require("GetWindowsUpdateAsync" in app_update and "VERYSILENT" in app_update, "self-updater must consume panel-selected installer")
     require("v2rayN-windows-arm64.zip" in runtime_update and "v2rayN-windows-64.zip" in runtime_update, "v2rayN runtime updater arch selection missing")
     require(".validated" in runtime_update and "DownloadVerifiedAsync" in app_update and "DownloadVerifiedAsync" in runtime_update, "runtime/app update integrity gate missing")
+    require("/wp-json/bluevpn/v1/windows/update" in read("bluevpn-windows/appsettings.json"), "Windows control-plane update endpoint missing")
+    require("panel-managed" in read("bluevpn-windows/appsettings.json"), "Windows update channel must be panel-managed")
     github_client = read("bluevpn-windows/Services/GitHubReleaseClient.cs")
     require('digest.StartsWith("sha256:"' in github_client and "SHA256 معتبر ارائه نکرد" in github_client, "secure updater must fail closed without GitHub SHA256")
     require("TimeSpan.FromHours(4)" in main_cs and "MaintenanceTimer_Tick" in main_cs, "periodic Windows auto-update check missing")

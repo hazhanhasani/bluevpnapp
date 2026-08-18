@@ -58,6 +58,34 @@ function bluevpn_site_windows_downloads(?string $version = null, bool $force = f
     $requested = trim((string)$version);
     if ($requested !== '' && !preg_match('/^\d+\.\d+\.\d+$/', $requested)) $requested = '';
 
+    // WordPress release channels are authoritative when BlueVPN Manager is active.
+    // This lets the administrator promote Beta -> Stable without rebuilding or
+    // changing GitHub's prerelease flag. The public site follows the channel
+    // selected in BlueVPN Manager rather than guessing from GitHub metadata.
+    if (class_exists('BlueVPN_Windows_Release_Manager')) {
+        $managed = BlueVPN_Windows_Release_Manager::public_site_release();
+        if (is_array($managed) && ($requested === '' || (string)($managed['version'] ?? '') === $requested)) {
+            $meta = is_array($managed['asset_meta'] ?? null) ? $managed['asset_meta'] : [];
+            $state = (string)($managed['state'] ?? 'stable');
+            $result = bluevpn_site_windows_empty_release();
+            $result['available'] = !empty($managed['installer_x64_url']) && !empty($managed['installer_arm64_url']);
+            $result['version'] = (string)($managed['version'] ?? '');
+            $result['tag'] = $result['version'] !== '' ? 'bluevpn-windows-v' . $result['version'] : '';
+            $result['channel'] = $state === 'beta' ? 'beta' : 'stable';
+            $result['channel_label'] = $result['channel'] === 'beta' ? 'آزمایشی (Beta)' : 'پایدار';
+            $result['prerelease'] = $result['channel'] === 'beta';
+            $result['release_url'] = esc_url_raw((string)($managed['release_url'] ?? ''));
+            $result['x64_url'] = esc_url_raw((string)($managed['installer_x64_url'] ?? ''));
+            $result['arm64_url'] = esc_url_raw((string)($managed['installer_arm64_url'] ?? ''));
+            $result['artifact_kind'] = 'installer';
+            $result['published_at'] = sanitize_text_field((string)($managed['release_published_at'] ?? ''));
+            $result['source'] = 'bluevpn_manager_release_channels';
+            $result['x64_sha256'] = (string)($meta['installer_x64']['sha256'] ?? '');
+            $result['arm64_sha256'] = (string)($meta['installer_arm64']['sha256'] ?? '');
+            return $result;
+        }
+    }
+
     $repo = bluevpn_site_windows_release_repository();
     $cacheSuffix = md5($repo . '|' . ($requested ?: 'latest'));
     $cacheKey = 'bluevpn_windows_release_v3_' . $cacheSuffix;

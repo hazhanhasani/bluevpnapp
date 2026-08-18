@@ -135,6 +135,7 @@ public partial class MainWindow : Window
         var result = await _api.LoginAsync(EmailBox.Text.Trim(), PasswordBox.Password, ct);
         _account = result.Account ?? await _api.GetAccountAsync(ct);
         ApplyAccount(); await RefreshPlansSafeAsync();
+        if (_settings.AutoUpdate) _ = CheckAppUpdateSafeAsync(silentWhenCurrent: true);
     });
 
     private async void Register_Click(object sender, RoutedEventArgs e) => await BusyAsync("در حال ساخت حساب…", async ct =>
@@ -142,6 +143,7 @@ public partial class MainWindow : Window
         var result = await _api.RegisterAsync(EmailBox.Text.Trim(), PasswordBox.Password, ct);
         _account = result.Account ?? await _api.GetAccountAsync(ct);
         ApplyAccount(); await RefreshPlansSafeAsync();
+        if (_settings.AutoUpdate) _ = CheckAppUpdateSafeAsync(silentWhenCurrent: true);
     });
 
     private async void RequestOtp_Click(object sender, RoutedEventArgs e) => await BusyAsync("ارسال کد پیامک…", async ct =>
@@ -154,6 +156,7 @@ public partial class MainWindow : Window
         var result = await _api.VerifyOtpAsync(PhoneBox.Text.Trim(), OtpBox.Text.Trim(), ct);
         _account = result.Account ?? await _api.GetAccountAsync(ct);
         ApplyAccount(); await RefreshPlansSafeAsync();
+        if (_settings.AutoUpdate) _ = CheckAppUpdateSafeAsync(silentWhenCurrent: true);
     });
 
     private async void RefreshAccount_Click(object sender, RoutedEventArgs e) => await BusyAsync("بروزرسانی حساب…", async ct =>
@@ -230,7 +233,7 @@ public partial class MainWindow : Window
             FooterStatus.Text = $"دریافت نسخه {candidate.Version}…";
             var installer = await _appUpdater.DownloadAsync(candidate);
             FooterStatus.Text = "بروزرسانی آماده نصب است.";
-            if (_settings.AutoUpdate || MessageBox.Show($"نسخه {candidate.Version} آماده است. نصب شود؟", "BlueVPN", MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
+            if (candidate.AutoUpdate || candidate.ForceUpdate || MessageBox.Show($"نسخه {candidate.Version} ({(candidate.Channel == "beta" ? "Beta" : "Stable")}) آماده است. نصب شود؟", "BlueVPN", MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
             {
                 _connection.Disconnect();
                 if (AppUpdateService.LaunchInstaller(installer)) Application.Current.Shutdown();

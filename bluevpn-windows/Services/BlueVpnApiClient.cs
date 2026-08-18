@@ -118,6 +118,14 @@ public sealed class BlueVpnApiClient : IDisposable
         return await GetAsync<MobileConfigResponse>(path, ct);
     }
 
+    public async Task<WindowsUpdateResponse> GetWindowsUpdateAsync(string currentVersion, string architecture, CancellationToken ct = default)
+    {
+        var path = _settings.WindowsUpdatePath.TrimStart('/');
+        var sep = path.Contains('?') ? "&" : "?";
+        path += sep + "current_version=" + Uri.EscapeDataString(currentVersion) + "&arch=" + Uri.EscapeDataString(architecture);
+        return await GetAsync<WindowsUpdateResponse>(path, ct);
+    }
+
     public void Logout()
     {
         _token = "";

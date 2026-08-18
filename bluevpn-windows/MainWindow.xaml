@@ -1,0 +1,132 @@
+<Window x:Class="BlueVPN.Windows.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="BlueVPN" Height="760" Width="1050" MinHeight="690" MinWidth="920"
+        WindowStartupLocation="CenterScreen" FlowDirection="RightToLeft">
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="0,0,0,18">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Border Width="52" Height="52" CornerRadius="18" Background="#0E7490" Margin="0,0,12,0">
+                    <TextBlock Text="B" FontSize="28" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel>
+                    <TextBlock Text="BlueVPN" FontSize="27" FontWeight="Bold"/>
+                    <TextBlock Text="نسخه ویندوز — اتصال امن و یکپارچه با حساب BlueVPN" Foreground="{StaticResource BlueVpnMuted}" FontSize="12"/>
+                </StackPanel>
+            </StackPanel>
+            <StackPanel Grid.Column="1" HorizontalAlignment="Left">
+                <TextBlock x:Name="VersionText" Text="v4.15.7" Foreground="{StaticResource BlueVpnMuted}" HorizontalAlignment="Left"/>
+                <TextBlock x:Name="CoreVersionText" Text="Xray: آماده‌سازی نشده" Foreground="{StaticResource BlueVpnMuted}" FontSize="11" HorizontalAlignment="Left"/>
+            </StackPanel>
+        </Grid>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.05*"/>
+                <ColumnDefinition Width="1.6*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Grid.Column="0" Background="{StaticResource BlueVpnCard}" CornerRadius="22" Padding="20" Margin="0,0,10,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                        <TextBlock Text="حساب کاربری" FontSize="19" FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+                        <StackPanel x:Name="LoginPanel">
+                            <TextBlock Text="ورود با ایمیل" Foreground="{StaticResource BlueVpnMuted}"/>
+                            <TextBox x:Name="EmailBox" FlowDirection="LeftToRight" TextAlignment="Left"/>
+                            <PasswordBox x:Name="PasswordBox" FlowDirection="LeftToRight"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="ورود" Click="Login_Click"/>
+                                <Button Content="ثبت‌نام" Click="Register_Click"/>
+                            </StackPanel>
+
+                            <Separator Margin="0,14" Background="#24405D"/>
+                            <TextBlock Text="ورود با پیامک" Foreground="{StaticResource BlueVpnMuted}"/>
+                            <TextBox x:Name="PhoneBox" FlowDirection="LeftToRight" TextAlignment="Left" ToolTip="مثال: 0912..."/>
+                            <Button Content="ارسال کد" Click="RequestOtp_Click" HorizontalAlignment="Stretch"/>
+                            <TextBox x:Name="OtpBox" FlowDirection="LeftToRight" TextAlignment="Left" ToolTip="کد پیامک"/>
+                            <Button Content="تأیید کد و ورود" Click="VerifyOtp_Click" HorizontalAlignment="Stretch"/>
+                        </StackPanel>
+
+                        <StackPanel x:Name="AccountPanel" Visibility="Collapsed">
+                            <TextBlock x:Name="IdentityText" FontSize="16" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="PlanText" Margin="0,6,0,0"/>
+                            <TextBlock x:Name="ExpiryText" Foreground="{StaticResource BlueVpnMuted}" Margin="0,3,0,0"/>
+                            <TextBlock x:Name="TrafficText" Foreground="{StaticResource BlueVpnMuted}" Margin="0,3,0,14"/>
+                            <StackPanel Orientation="Horizontal">
+                                <Button Content="بروزرسانی حساب" Click="RefreshAccount_Click"/>
+                                <Button Content="خروج" Click="Logout_Click"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Separator Margin="0,18" Background="#24405D"/>
+                        <TextBlock Text="پلن‌های موجود" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                        <ItemsControl x:Name="PlansList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="{StaticResource BlueVpnCard2}" CornerRadius="12" Padding="10" Margin="0,4">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Title}" FontWeight="SemiBold"/>
+                                            <TextBlock Foreground="{StaticResource BlueVpnMuted}">
+                                                <Run Text="{Binding DurationDays}"/><Run Text=" روز — "/><Run Text="{Binding PriceToman}"/><Run Text=" تومان"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+
+            <Border Grid.Column="1" Background="{StaticResource BlueVpnCard}" CornerRadius="22" Padding="26" Margin="10,0,0,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0">
+                        <TextBlock Text="اتصال" FontSize="19" FontWeight="SemiBold"/>
+                        <TextBlock x:Name="TierText" Text="پلن رایگان" Foreground="{StaticResource BlueVpnCyan}" Margin="0,4,0,0"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center" Width="430">
+                        <Border x:Name="StatusOrb" Width="155" Height="155" CornerRadius="78" Background="#12304A" BorderBrush="#2B6D91" BorderThickness="2">
+                            <TextBlock x:Name="OrbText" Text="آماده" FontSize="22" FontWeight="Bold" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <TextBlock x:Name="ConnectionStatusText" Text="برای اتصال دکمه زیر را بزنید" HorizontalAlignment="Center" Margin="0,18,0,8" FontSize="15" TextAlignment="Center"/>
+                        <TextBlock x:Name="EndpointText" Text="" Foreground="{StaticResource BlueVpnMuted}" HorizontalAlignment="Center" TextAlignment="Center"/>
+                        <Button x:Name="ConnectButton" Content="اتصال" Click="Connect_Click" FontSize="18" FontWeight="Bold" Padding="34,15" Margin="0,24,0,0"/>
+                    </StackPanel>
+
+                    <Border Grid.Row="2" Background="#091827" CornerRadius="12" Padding="12">
+                        <StackPanel>
+                            <TextBlock Text="وضعیت فنی" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="TechnicalText" Text="Xray Runtime باید توسط GitHub Build داخل بسته قرار گیرد." Foreground="{StaticResource BlueVpnMuted}" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="2" Margin="0,16,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="FooterStatus" Text="آماده" Foreground="{StaticResource BlueVpnMuted}"/>
+            <TextBlock Grid.Column="1" Text="Premium: اشتراک حساب • Free: Pool هوشمند BlueVPN" Foreground="{StaticResource BlueVpnMuted}"/>
+        </Grid>
+    </Grid>
+</Window>

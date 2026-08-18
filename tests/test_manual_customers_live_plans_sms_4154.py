@@ -21,7 +21,7 @@ class ManualCustomersLivePlansSms4154Tests(unittest.TestCase):
         crm = text("bluevpn-manager/includes/class-bluevpn-manual-customers.php")
         sms = text("bluevpn-manager/includes/class-bluevpn-sms-notifications.php")
         for event in (
-            "subscription_activated",
+            "admin_subscription_activated",
             "subscription_renewed",
             "subscription_plan_changed",
             "subscription_reminder",
@@ -42,8 +42,8 @@ class ManualCustomersLivePlansSms4154Tests(unittest.TestCase):
         self.assertIn("BlueVPN_SMS_Notifications::settings()", crm)
         self.assertIn("reminder_days_json", crm)
         self.assertIn("scan_notifications()", crm)
-        self.assertNotIn("send_activation_sms", crm)
-        self.assertIn("subscription_activated", crm)
+        self.assertIn("public static function send_activation_sms(): void", crm)
+        self.assertIn("admin_subscription_activated", crm)
 
     def test_renewal_uses_selected_plan_duration_not_manual_days(self):
         crm = text("bluevpn-manager/includes/class-bluevpn-manual-customers.php")

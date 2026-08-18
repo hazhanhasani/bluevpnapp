@@ -11,6 +11,7 @@ final class BlueVPN_Manual_Customers {
             'bluevpn_manual_customer_toggle' => 'toggle',
             'bluevpn_manual_customer_delete' => 'delete',
             'bluevpn_manual_customer_send_sms' => 'send_sms',
+            'bluevpn_manual_customer_send_activation_sms' => 'send_activation_sms',
             'bluevpn_manual_customer_import_csv' => 'import_csv',
         ] as $action => $method) {
             add_action('admin_post_' . $action, [self::class, $method]);
@@ -85,7 +86,7 @@ final class BlueVPN_Manual_Customers {
         );
 
         return match ($event) {
-            'subscription_activated',
+            'admin_subscription_activated',
             'subscription_renewed',
             'subscription_plan_changed' => [
                 'plan' => $plan,
@@ -252,7 +253,7 @@ final class BlueVPN_Manual_Customers {
         echo '</div>';
 
         echo '<div class="bvc-card"><h2>'.($edit ? 'ویرایش مشتری دستی' : 'ثبت مشتری دستی').'</h2>';
-        echo '<div class="bvc-note"><strong>دقیقاً مثل کاربر اپ:</strong> برای مشتری جدید، بعد از انتخاب پلن و ثبت فرم همان پیام فعلی «فعال‌شدن اشتراک» (<code>subscription_activated</code>) همان لحظه ارسال می‌شود. تمدید، یادآوری و پایان اشتراک هم از همان پیام‌ها و پترن‌های کاربران اپ استفاده می‌کنند. هیچ entitlement یا سرویس VPN جدیدی برای این مشتری ساخته نمی‌شود.</div>';
+        echo '<div class="bvc-note"><strong>دقیقاً مثل کاربر اپ:</strong> برای مشتری جدید، بعد از انتخاب پلن و ثبت فرم همان پیام فعلی «فعال‌سازی دستی توسط مدیریت» (<code>admin_subscription_activated</code>) همان لحظه ارسال می‌شود. تمدید، یادآوری و پایان اشتراک هم از همان پیام‌ها و پترن‌های کاربران اپ استفاده می‌کنند. هیچ entitlement یا سرویس VPN جدیدی برای این مشتری ساخته نمی‌شود.</div>';
         echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
         wp_nonce_field('bluevpn_manual_customer_save');
         echo '<input type="hidden" name="action" value="bluevpn_manual_customer_save">';
@@ -276,7 +277,7 @@ final class BlueVPN_Manual_Customers {
         echo '<label style="grid-column:1/-1">یادداشت<textarea name="notes" rows="3">'.esc_textarea((string)($edit['notes'] ?? '')).'</textarea></label>';
         echo '<label><input type="checkbox" name="active" value="1" '.checked(!isset($edit['active']) || (int)$edit['active'] === 1, true, false).'> مشتری فعال باشد</label>';
         echo '<label><input type="checkbox" name="sms_enabled" value="1" '.checked(!isset($edit['sms_enabled']) || (int)$edit['sms_enabled'] === 1, true, false).'> یادآوری SMS فعال باشد</label>';
-        echo '<div class="bvc-note">ارسال‌ها خودکار است: انتخاب پلن + ثبت مشتری جدید → همان «فعال‌شدن اشتراک» کاربران اپ و ارسال فوری؛ تمدید → «تمدید اشتراک» و ارسال فوری؛ روزهای یادآوری → «یادآوری پایان اشتراک»؛ پایان اعتبار → «پایان اشتراک».</div>';
+        echo '<div class="bvc-note">ارسال‌ها خودکار است: انتخاب پلن + ثبت مشتری جدید → همان «فعال‌سازی دستی توسط مدیریت» و ارسال فوری؛ تمدید → «تمدید اشتراک» و ارسال فوری؛ روزهای یادآوری → «یادآوری پایان اشتراک»؛ پایان اعتبار → «پایان اشتراک».</div>';
         echo '</div><p>';
         submit_button($edit ? 'ذخیره تغییرات' : 'ثبت مشتری', 'primary', 'submit', false);
         if ($edit) echo ' <a class="button" href="'.esc_url(self::url()).'">انصراف</a>';
@@ -371,6 +372,11 @@ final class BlueVPN_Manual_Customers {
                 ? ('تمدید '.$rowPlan['duration_days'].' روزه')
                 : 'انتخاب پلن برای تمدید';
             echo '<button class="button button-primary">'.esc_html($renewLabel).'</button></form>';
+
+            echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+            wp_nonce_field('bluevpn_manual_customer_send_activation_sms_'.$id);
+            echo '<input type="hidden" name="action" value="bluevpn_manual_customer_send_activation_sms"><input type="hidden" name="customer_id" value="'.$id.'">';
+            echo '<button class="button">ارسال فعال‌سازی</button></form>';
 
             echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
             wp_nonce_field('bluevpn_manual_customer_send_sms_'.$id);
@@ -513,10 +519,10 @@ final class BlueVPN_Manual_Customers {
             if ($row && !empty($row['sms_enabled'])) {
                 $seed = gmdate('YmdHi', strtotime((string)$row['expire_at'] . ' UTC'));
                 if (!$before) {
-                    $smsEventTitle = 'فعال‌شدن اشتراک';
+                    $smsEventTitle = 'فعال‌سازی دستی توسط مدیریت';
                     $smsResult = self::queue_and_dispatch_customer_event(
                         $row,
-                        'subscription_activated',
+                        'admin_subscription_activated',
                         'activated:' . $planId . ':' . $seed,
                         0
                     );
@@ -658,6 +664,51 @@ final class BlueVPN_Manual_Customers {
         check_admin_referer('bluevpn_manual_customer_delete_' . $id);
         $wpdb->delete(self::table(), ['id'=>$id], ['%d']);
         self::redirect('مشتری دستی حذف شد. هیچ حساب یا سرویس VPN تغییر نکرد.');
+    }
+
+    public static function send_activation_sms(): void {
+        self::guard();
+        global $wpdb;
+        $id = max(0, (int)($_POST['customer_id'] ?? 0));
+        check_admin_referer('bluevpn_manual_customer_send_activation_sms_' . $id);
+
+        try {
+            $row = $wpdb->get_row(
+                $wpdb->prepare("SELECT * FROM ".self::table()." WHERE id=%d", $id),
+                ARRAY_A
+            );
+            if (!$row) throw new RuntimeException('مشتری دستی پیدا نشد.');
+            if (empty($row['sms_enabled'])) throw new RuntimeException('SMS این مشتری غیرفعال است.');
+
+            $plan = self::resolve_existing_plan($row);
+            if (!$plan) throw new RuntimeException('پلن فعلی این مشتری پیدا نشد.');
+
+            $seed = gmdate(
+                'YmdHi',
+                strtotime((string)$row['expire_at'] . ' UTC') ?: time()
+            );
+            $result = self::queue_and_dispatch_customer_event(
+                $row,
+                'admin_subscription_activated',
+                'manual-resend-activated:' . (int)$plan['id'] . ':' . $seed . ':' . gmdate('YmdHis'),
+                0
+            );
+
+            if (!empty($result['sent'])) {
+                self::redirect('پیام «فعال‌سازی دستی توسط مدیریت» همان لحظه ارسال شد.');
+            }
+            if (!empty($result['queued'])) {
+                self::redirect(
+                    'ارسال فوری انجام نشد؛ پیام برای Retry در صف باقی ماند: ' .
+                    (string)($result['message'] ?? '')
+                );
+            }
+            throw new RuntimeException(
+                'پیام فعال‌سازی ارسال نشد: ' . (string)($result['message'] ?? '')
+            );
+        } catch (Throwable $e) {
+            self::redirect($e->getMessage(), true);
+        }
     }
 
     public static function send_sms(): void {
@@ -821,7 +872,7 @@ final class BlueVPN_Manual_Customers {
                         if ($saved) {
                             self::queue_customer_event(
                                 $saved,
-                                'subscription_activated',
+                                'admin_subscription_activated',
                                 'import-activated:' . gmdate('YmdHi', strtotime($expireAt . ' UTC')),
                                 0,
                                 false

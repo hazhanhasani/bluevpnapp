@@ -7,13 +7,12 @@ def text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 class ManualActivationSmsImmediate4155Tests(unittest.TestCase):
-    def test_first_plan_assignment_uses_exact_app_activation_event(self):
+    def test_first_plan_assignment_uses_exact_manual_activation_event(self):
         crm = text("bluevpn-manager/includes/class-bluevpn-manual-customers.php")
         save = crm.split("public static function save(): void", 1)[1].split(
             "public static function renew(): void", 1
         )[0]
-        self.assertIn("'subscription_activated'", save)
-        self.assertNotIn("'admin_subscription_activated'", save)
+        self.assertIn("'admin_subscription_activated'", save)
 
     def test_activation_is_attempted_immediately_not_only_by_cron(self):
         crm = text("bluevpn-manager/includes/class-bluevpn-manual-customers.php")

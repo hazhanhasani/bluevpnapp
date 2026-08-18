@@ -68,6 +68,16 @@ def main() -> None:
             "release android_version mismatch")
     require(int(release.get("android_version_code", -1)) == expected_version_code,
             "release android_version_code mismatch")
+    require(str(release.get("windows_version", "")).strip() == version,
+            "release windows_version mismatch")
+    require(int(release.get("windows_version_code", -1)) == expected_version_code,
+            "release windows_version_code mismatch")
+    windows_settings = json.loads(read("bluevpn-windows/appsettings.json"))
+    windows_project = read("bluevpn-windows/BlueVPN.Windows.csproj")
+    require(str(windows_settings.get("version", "")).strip() == version,
+            "Windows appsettings version mismatch")
+    require(f"<Version>{version}</Version>" in windows_project,
+            "Windows project version mismatch")
 
     # /mobile/config is a critical control-plane contract: its helper names must
     # exist and Free policy changes must propagate into Android independently of

@@ -29,6 +29,7 @@
     "test_manual_customers_crm_4151.py",
     "test_manual_customers_live_plans_sms_4154.py",
     "test_manual_customers_nav_4152.py",
+    "test_manual_exact_activation_event_4156.py",
     "test_native_network_adaptation_no_mahsa_499.py",
     "test_overlay_retired_core_cleanup_4101.py",
     "test_panel_tehran_datetime_4116.py",
@@ -62,6 +63,7 @@
     "test_warp_exit_guard_469.py",
     "test_warp_exit_policy_empty_483.py",
     "test_warp_iran_identity_recovery_482.py",
-    "test_warp_off_smart_pool_4117.py"
+    "test_warp_off_smart_pool_4117.py",
+    "test_windows_client_4157.py"
   ]
 }

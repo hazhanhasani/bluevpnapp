@@ -1,0 +1,46 @@
+<Application x:Class="BlueVPN.Windows.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <SolidColorBrush x:Key="BlueVpnBg" Color="#07111F" />
+        <SolidColorBrush x:Key="BlueVpnCard" Color="#0D1B2C" />
+        <SolidColorBrush x:Key="BlueVpnCard2" Color="#102238" />
+        <SolidColorBrush x:Key="BlueVpnText" Color="#F5FAFF" />
+        <SolidColorBrush x:Key="BlueVpnMuted" Color="#93A8BF" />
+        <SolidColorBrush x:Key="BlueVpnCyan" Color="#22D3EE" />
+        <SolidColorBrush x:Key="BlueVpnGreen" Color="#22C55E" />
+        <SolidColorBrush x:Key="BlueVpnRed" Color="#F87171" />
+
+        <Style TargetType="Window">
+            <Setter Property="Background" Value="{StaticResource BlueVpnBg}" />
+            <Setter Property="Foreground" Value="{StaticResource BlueVpnText}" />
+            <Setter Property="FontFamily" Value="Segoe UI" />
+        </Style>
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource BlueVpnText}" />
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#0A1727" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderBrush" Value="#24405D" />
+            <Setter Property="Padding" Value="10" />
+            <Setter Property="Margin" Value="0,4,0,8" />
+        </Style>
+        <Style TargetType="PasswordBox">
+            <Setter Property="Background" Value="#0A1727" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderBrush" Value="#24405D" />
+            <Setter Property="Padding" Value="10" />
+            <Setter Property="Margin" Value="0,4,0,8" />
+        </Style>
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#12304A" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderBrush" Value="#2B6D91" />
+            <Setter Property="Padding" Value="16,10" />
+            <Setter Property="Margin" Value="4" />
+            <Setter Property="Cursor" Value="Hand" />
+        </Style>
+    </Application.Resources>
+</Application>

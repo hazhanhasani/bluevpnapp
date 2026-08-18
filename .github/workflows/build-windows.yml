@@ -1,0 +1,137 @@
+name: Build BlueVPN Windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'bluevpn-windows/**'
+      - 'branding/app.json'
+      - 'release.json'
+      - 'scripts/validate_windows.py'
+      - '.github/workflows/build-windows.yml'
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            rid: win-x64
+            xray_asset: Xray-windows-64.zip
+          - arch: arm64
+            rid: win-arm64
+            xray_asset: Xray-windows-arm64-v8a.zip
+
+    env:
+      XRAY_VERSION: v26.7.28
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+
+    steps:
+      - name: Checkout BlueVPN
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Validate Windows release contracts
+        shell: pwsh
+        run: python scripts/validate_windows.py
+
+      - name: Setup .NET 10 LTS
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Download pinned official Xray runtime
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          XRAY_ASSET: ${{ matrix.xray_asset }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -Recurse -Force xray-download -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory xray-download | Out-Null
+          gh release download $env:XRAY_VERSION `
+            --repo XTLS/Xray-core `
+            --pattern $env:XRAY_ASSET `
+            --dir xray-download
+          $zip = Join-Path 'xray-download' $env:XRAY_ASSET
+          Expand-Archive -Path $zip -DestinationPath xray-download/runtime -Force
+
+          $target = 'bluevpn-windows/runtime'
+          New-Item -ItemType Directory $target -Force | Out-Null
+          foreach ($name in @('xray.exe','wintun.dll','geoip.dat','geosite.dat')) {
+            $source = Get-ChildItem -Path 'xray-download/runtime' -Recurse -File -Filter $name | Select-Object -First 1
+            if (-not $source) { throw "Pinned Xray package is missing $name" }
+            Copy-Item $source.FullName (Join-Path $target $name) -Force
+          }
+
+          & (Join-Path $target 'xray.exe') version
+
+      - name: Publish self-contained Windows client
+        shell: pwsh
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = (Get-Content release.json | ConvertFrom-Json).version
+          $out = "dist/BlueVPN-Windows-$env:RID"
+          dotnet publish bluevpn-windows/BlueVPN.Windows.csproj `
+            -c Release `
+            -r $env:RID `
+            --self-contained true `
+            -p:PublishSingleFile=false `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -o $out
+
+          Copy-Item README.md $out/README-BlueVPN.txt -Force
+          Copy-Item NOTICE.md $out/NOTICE.txt -Force
+          Copy-Item bluevpn-windows/README.md $out/README-Windows.txt -Force
+          "BlueVPN $version | $env:RID | Xray $env:XRAY_VERSION" | Set-Content "$out/BUILD.txt"
+
+      - name: Verify publish payload
+        shell: pwsh
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          $out = "dist/BlueVPN-Windows-$env:RID"
+          foreach ($file in @(
+            'BlueVPN.exe',
+            'appsettings.json',
+            'runtime/xray.exe',
+            'runtime/wintun.dll',
+            'runtime/geoip.dat',
+            'runtime/geosite.dat'
+          )) {
+            if (-not (Test-Path (Join-Path $out $file))) { throw "Missing published file: $file" }
+          }
+
+      - name: Package Windows ZIP
+        shell: pwsh
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          $version = (Get-Content release.json | ConvertFrom-Json).version
+          $source = "dist/BlueVPN-Windows-$env:RID"
+          $zip = "dist/BlueVPN-Windows-$version-$env:RID.zip"
+          Compress-Archive -Path "$source/*" -DestinationPath $zip -CompressionLevel Optimal -Force
+          Get-FileHash $zip -Algorithm SHA256 | Format-List
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlueVPN-Windows-${{ matrix.rid }}
+          path: dist/BlueVPN-Windows-*.zip
+          if-no-files-found: error
+          retention-days: 14

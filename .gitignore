@@ -57,3 +57,12 @@ reports/
 README.txt
 README_FA.txt
 README_PLATFORM_FA.txt
+
+# Windows / .NET
+bluevpn-windows/bin/
+bluevpn-windows/obj/
+bluevpn-windows/runtime/xray.exe
+bluevpn-windows/runtime/wintun.dll
+bluevpn-windows/runtime/geoip.dat
+bluevpn-windows/runtime/geosite.dat
+*.pdb

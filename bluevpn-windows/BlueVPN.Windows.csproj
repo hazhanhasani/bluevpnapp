@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>BlueVPN</AssemblyName>
+    <RootNamespace>BlueVPN.Windows</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>bluevpn.ico</ApplicationIcon>
+    <Version>4.15.7</Version>
+    <AssemblyVersion>4.15.7.0</AssemblyVersion>
+    <FileVersion>4.15.7.0</FileVersion>
+    <InformationalVersion>4.15.7</InformationalVersion>
+    <Platforms>AnyCPU</Platforms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="runtime\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

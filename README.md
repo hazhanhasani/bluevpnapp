@@ -5,6 +5,7 @@ BlueVPN is the source repository for the BlueVPN Android client and its WordPres
 ## Architecture
 
 - **Android client:** BlueVPN UI on the pinned v2rayNG/Xray runtime.
+- **Windows client (Phase 1):** .NET 10 WPF + Xray/Wintun TUN, using the same BlueVPN account/plan control plane.
 - **Premium:** managed subscription routes provisioned by BlueVPN Manager.
 - **Free:** Aether/WARP loopback transport with policy-controlled fallback.
 - **Free/Premium isolation:** free and paid pools, entitlement state, route identity and runtime selection are kept separate.
@@ -18,6 +19,7 @@ BlueVPN is the source repository for the BlueVPN Android client and its WordPres
 ```text
 .github/workflows/   GitHub Actions
 android-source/      Canonical Android overlay
+bluevpn-windows/     Windows WPF client (Phase 1)
 branding/            App branding/version metadata
 bluevpn-manager/     WordPress control-plane plugin
 bluevpn-site/        WordPress theme
@@ -32,7 +34,7 @@ NOTICE.md            Required notices
 
 ## Release rules
 
-`branding/app.json`, `release.json`, and BlueVPN Manager metadata must remain synchronized.
+`branding/app.json`, `release.json`, Android, BlueVPN Manager, BlueVPN Site and BlueVPN Windows metadata must remain synchronized.
 
 Versioning:
 

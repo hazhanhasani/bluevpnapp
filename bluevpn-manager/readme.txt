@@ -1,8 +1,19 @@
 === BlueVPN Manager ===
-Version: 4.15.5
-Stable tag: 4.15.5
+Version: 4.15.7
+Stable tag: 4.15.7
 Requires PHP: 8.0
 
+
+== 4.15.7 ==
+- Adds BlueVPN Windows Phase 1 with .NET 10 WPF, the existing BlueVPN account/plan APIs, Xray/Wintun TUN and GitHub x64/arm64 builds.
+- Windows Premium uses the same account subscription URL as Android; Windows Free Phase 1 uses the existing curated Free Pool.
+- Android, Manager, Theme and Windows release metadata are synchronized on 4.15.7.
+
+== 4.15.6 ==
+- Manual CRM activation uses the exact existing `admin_subscription_activated` event used by BlueVPN Manual Activation.
+- Adds «ارسال فعال‌سازی» for existing manual customers.
+- Fixes zero-history cases caused by using `subscription_activated` while the configured current Pattern belonged to manual activation.
+- Android, Manager and Site theme remain synchronized on 4.15.6.
 
 == 4.15.5 ==
 - First plan assignment for a manual customer now uses the exact existing app `subscription_activated` SMS event.

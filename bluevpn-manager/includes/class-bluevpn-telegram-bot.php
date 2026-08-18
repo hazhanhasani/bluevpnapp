@@ -784,6 +784,8 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
         $managerPath=$root . '/bluevpn-manager/bluevpn-manager.php';
         $siteStylePath=$root . '/bluevpn-site/style.css';
         $siteFunctionsPath=$root . '/bluevpn-site/functions.php';
+        $windowsSettingsPath=$root . '/bluevpn-windows/appsettings.json';
+        $windowsProjectPath=$root . '/bluevpn-windows/BlueVPN.Windows.csproj';
 
         if(!is_file($brandingPath) && is_file($managerPath)){
             $manager=(string)file_get_contents($managerPath);
@@ -825,7 +827,20 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
                 throw new RuntimeException('DEPLOY_VERSION_MISMATCH: BLUEVPN_SITE_VERSION با نسخه Android/Manager یکسان نیست.');
             }
         }
-        foreach(['manager_version','site_version','theme_version'] as $componentVersionKey){
+        if(is_file($windowsSettingsPath) || is_file($windowsProjectPath)){
+            if(!is_file($windowsSettingsPath) || !is_file($windowsProjectPath)){
+                throw new RuntimeException('DEPLOY_WINDOWS_VERSION_MISSING: فایل‌های نسخه کلاینت Windows ناقص هستند.');
+            }
+            $windowsSettings=json_decode((string)file_get_contents($windowsSettingsPath),true);
+            $windowsProject=(string)file_get_contents($windowsProjectPath);
+            if(!is_array($windowsSettings) || trim((string)($windowsSettings['version']??''))!==$version){
+                throw new RuntimeException('DEPLOY_VERSION_MISMATCH: نسخه appsettings کلاینت Windows با نسخه اصلی یکسان نیست.');
+            }
+            if(!preg_match('/<Version>\s*(\d+\.\d+\.\d+)\s*<\/Version>/',$windowsProject,$wv) || trim((string)$wv[1])!==$version){
+                throw new RuntimeException('DEPLOY_VERSION_MISMATCH: نسخه پروژه Windows با نسخه اصلی یکسان نیست.');
+            }
+        }
+        foreach(['manager_version','site_version','theme_version','windows_version'] as $componentVersionKey){
             if(isset($release[$componentVersionKey]) && trim((string)$release[$componentVersionKey])!==$version){
                 throw new RuntimeException('DEPLOY_VERSION_MISMATCH: release.json/' . $componentVersionKey . ' با نسخه اصلی یکسان نیست.');
             }
@@ -936,6 +951,15 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
             throw new RuntimeException(
                 'DEPLOY_SITE_VERSION_NOT_APPLIED: BLUEVPN_SITE_VERSION روی SHA مقصد با ZIP یکسان نیست.'
             );
+        }
+
+        $windowsSettings=json_decode(self::github_file_at_commit('bluevpn-windows/appsettings.json',$commitSha,$s),true);
+        $windowsProject=self::github_file_at_commit('bluevpn-windows/BlueVPN.Windows.csproj',$commitSha,$s);
+        if(!is_array($windowsSettings) || trim((string)($windowsSettings['version']??''))!==(string)$expected['version']){
+            throw new RuntimeException('DEPLOY_WINDOWS_VERSION_NOT_APPLIED: نسخه appsettings کلاینت Windows روی SHA مقصد یکسان نیست.');
+        }
+        if(!preg_match('/<Version>\s*(\d+\.\d+\.\d+)\s*<\/Version>/',$windowsProject,$windowsVersionMatch) || trim((string)$windowsVersionMatch[1])!==(string)$expected['version']){
+            throw new RuntimeException('DEPLOY_WINDOWS_VERSION_NOT_APPLIED: نسخه پروژه Windows روی SHA مقصد یکسان نیست.');
         }
     }
 

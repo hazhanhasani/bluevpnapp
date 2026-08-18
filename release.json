@@ -1,13 +1,25 @@
 {
-  "version": "4.15.5",
-  "version_code": 41505,
+  "version": "4.15.7",
+  "version_code": 41507,
   "channel": "beta",
-  "build_id": "20260818-v4.15.5-manual-activation-sms-immediate",
-  "built_at": "2026-08-18T19:07:00+03:30",
-  "android_version": "4.15.5",
-  "android_version_code": 41505,
-  "description": "Manual customers now use the exact app subscription_activated message on first plan assignment and attempt foreground immediate SMS delivery. Renewal/plan-change foreground messages are also dispatched immediately while durable retry remains intact.",
+  "build_id": "20260818-v4.15.7-windows-phase1",
+  "built_at": "2026-08-18T19:29:00+03:30",
+  "android_version": "4.15.7",
+  "android_version_code": 41507,
+  "description": "Adds BlueVPN Windows Phase 1: .NET 10 WPF client, existing BlueVPN auth/account/plans, Premium subscription and Free curated pool, Xray/Wintun TUN, endpoint racing, verified connection state and GitHub win-x64/win-arm64 builds.",
   "features": [
+    "windows-post-tun-verification",
+    "windows-endpoint-racing",
+    "windows-free-curated-pool",
+    "windows-premium-existing-subscription",
+    "windows-auto-system-routing",
+    "windows-wintun-tun",
+    "windows-xray-v26.7.28",
+    "windows-github-build-x64-arm64",
+    "windows-dotnet10-wpf",
+    "windows-client-phase1",
+    "manual-crm-resend-activation-sms",
+    "manual-crm-exact-admin-subscription-activated",
     "manual-plan-change-immediate-sms",
     "manual-renewal-immediate-sms",
     "manual-foreground-sms-dispatch-now",
@@ -420,7 +432,22 @@
   ],
   "version_source": "source_declared_release_version",
   "tapsell_mediation_version": "1.4.0-alpha03",
-  "manager_version": "4.15.5",
-  "site_version": "4.15.5",
-  "theme_version": "4.15.5"
+  "manager_version": "4.15.7",
+  "site_version": "4.15.7",
+  "theme_version": "4.15.7",
+  "windows_version": "4.15.7",
+  "windows_version_code": 41507,
+  "windows": {
+    "status": "phase1",
+    "framework": "net10.0-windows",
+    "ui": "WPF",
+    "xray_version": "v26.7.28",
+    "architectures": [
+      "win-x64",
+      "win-arm64"
+    ],
+    "free_engine": "curated_xray_pool",
+    "premium_engine": "xray_tun",
+    "artifact": "portable_zip"
+  }
 }

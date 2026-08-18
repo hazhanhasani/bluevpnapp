@@ -67,6 +67,12 @@ jobs:
           release = __import__('json').loads(release_path.read_text(encoding='utf-8'))
           branding = __import__('json').loads(branding_path.read_text(encoding='utf-8'))
           manager_text = manager_path.read_text(encoding='utf-8')
+          windows_settings_path = Path('bluevpn-windows/appsettings.json')
+          if not windows_settings_path.is_file():
+              raise SystemExit('BlueVPN Windows appsettings.json is missing')
+          windows_settings = __import__('json').loads(
+              windows_settings_path.read_text(encoding='utf-8')
+          )
           manager_match = re.search(
               r"define\(\s*['\"]BLUEVPN_MANAGER_VERSION['\"]\s*,\s*['\"](\d+\.\d+\.\d+)['\"]\s*\)\s*;",
               manager_text,
@@ -80,6 +86,7 @@ jobs:
               'release': str(release.get('version', '')),
               'android': str(branding.get('version_name', '')),
               'manager': manager_match.group(1),
+              'windows': str(windows_settings.get('version', '')),
           }
           if len(set(global_versions.values())) != 1:
               raise SystemExit(
@@ -87,7 +94,7 @@ jobs:
                   ' '.join(f'{k}={v}' for k, v in global_versions.items())
               )
 
-          for key in ('manager_version', 'site_version', 'theme_version'):
+          for key in ('manager_version', 'site_version', 'theme_version', 'windows_version'):
               declared = str(release.get(key, version))
               if declared != version:
                   raise SystemExit(

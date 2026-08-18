@@ -1,8 +1,8 @@
 {
     "app_name": "BlueVPN",
     "application_id": "ir.blluepanel.bluevpn",
-    "version_name": "4.15.5",
-    "version_code": 41505,
+    "version_name": "4.15.7",
+    "version_code": 41507,
     "deep_link_scheme": "bluevpn",
     "api_base_url": "https://bot.blluepanel.ir",
     "website_url": "https://bot.blluepanel.ir",
@@ -19,5 +19,7 @@
     "free_engine": "aether-warp-primary",
     "aether_ref": "a26159b82a70048b459e0128213c71767abecb8a",
     "tapsell_app_id": "91684967-c18a-4da4-a6f5-a8b76711828a",
-    "tapsell_mediation_version": "1.4.0-alpha03"
+    "tapsell_mediation_version": "1.4.0-alpha03",
+    "windows_xray_ref": "v26.7.28",
+    "windows_target": "net10.0-windows"
 }

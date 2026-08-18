@@ -362,6 +362,31 @@ final class BlueVPN_Error_Monitor {
         ));
     }
 
+    private static function operational_row_key(string $logical, array $row, string $message = ''): string {
+        $id = (string)($row['id'] ?? '');
+        $status = (string)($row['status'] ?? '');
+        if ($message === '') $message = (string)($row['error_message'] ?? $row['last_error'] ?? '');
+        $created = (string)($row['created_at'] ?? '');
+        return 'bluevpn_opseen_' . substr(hash('sha256', implode('|', [$logical, $id, $status, self::normalize_for_fingerprint($message), $created])), 0, 36);
+    }
+
+    private static function operational_row_should_report(string $logical, array $row, string $message = ''): bool {
+        $key = self::operational_row_key($logical, $row, $message);
+        if (get_transient($key)) return false;
+        set_transient($key, '1', 2 * DAY_IN_SECONDS);
+        return true;
+    }
+
+    /** Report a failed Deploy Bot job immediately, while keeping the periodic
+     * operational scan as recovery only. The same immutable failed row will not
+     * increment Sentinel occurrences once per minute anymore. */
+    public static function report_bot_job_failure(array $job, string $message): void {
+        $job['status'] = 'failed';
+        $job['last_error'] = $message;
+        self::operational_row_should_report('bot_jobs', $job, $message);
+        self::report('runtime', 'deploy_bot', 'error', 'BOT_JOB_FAILED', $message !== '' ? $message : 'عملیات Deploy Bot ناموفق شد.', $job);
+    }
+
     private static function scan_operational_tables(): void {
         global $wpdb;
         $since = gmdate('Y-m-d H:i:s', time() - 15 * MINUTE_IN_SECONDS);
@@ -385,6 +410,7 @@ final class BlueVPN_Error_Monitor {
             if ($wpdb->last_error) { self::report_wpdb_last_error('scan_' . $logical); continue; }
             foreach ((array)$rows as $row) {
                 $msg = (string)($row['error_message'] ?? $row['last_error'] ?? 'عملیات ناموفق ثبت شده است.');
+                if (!self::operational_row_should_report($logical, $row, $msg)) continue;
                 self::report('runtime', $component, $severity, $code, $msg !== '' ? $msg : 'عملیات ناموفق ثبت شده است.', $row);
             }
         }

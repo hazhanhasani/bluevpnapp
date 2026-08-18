@@ -1,0 +1,7 @@
+BlueVPN Manager 4.17.0
+
+- Deploy Bot installs the exact Manager bundled in a validated uploaded project before depending on a GitHub Manager Release.
+- Missing/delayed Manager Release no longer fails a full deploy when the local source install succeeded.
+- Project-root discovery is resilient to wrapper directories and normalized Manager-only ZIP roots.
+- Unchanged failed bot jobs are not re-reported by Sentinel every scan.
+- Failed bot jobs are reported to Sentinel directly at failure time, with the periodic scan kept only as recovery.

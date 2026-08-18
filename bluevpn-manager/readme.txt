@@ -1,13 +1,15 @@
 === BlueVPN Manager ===
-Version: 4.16.10
-Stable tag: 4.16.10
+Version: 4.17.0
+Stable tag: 4.17.0
 Requires PHP: 8.0
 
-== 4.16.10 ==
-- Fixes Windows Setup artifact path flattening so the publish job receives x64/ARM64 installers at the expected root.
-- Adds defensive normalization for older/nested Windows artifacts before SHA256 validation and GitHub Release upload.
-- Upgrades actions/cache to v5, upload-artifact to v7 and download-artifact to v8 for Node.js 24 runners.
-- Android, Manager, Theme and Windows source metadata are synchronized on 4.16.10.
+== 4.17.0 ==
+- Deploy Bot installs the exact BlueVPN Manager bundled in the validated uploaded ZIP before depending on a dedicated GitHub Manager Release.
+- A delayed/missing Manager Release no longer fails a full deploy when the local source installation succeeded; Release publication remains a background/update channel.
+- Adds exact-tag GitHub Release retry for eventual consistency when the Release path is used as fallback.
+- Hardens project-root detection for nested wrapper directories and one unambiguous versioned Manager folder.
+- Sentinel reports failed Deploy Bot jobs immediately and no longer re-counts an unchanged failed row every minute.
+- Android, Manager, Theme and Windows source metadata are synchronized on 4.17.0.
 
 == 4.16.9 ==
 - Fixes the Windows RuntimeLocator architecture-name collision that caused CS1061 on both x64 and ARM64 builds.

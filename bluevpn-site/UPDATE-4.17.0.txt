@@ -1,0 +1,4 @@
+BlueVPN Site 4.17.0
+
+- Version synchronization with BlueVPN Platform/Manager 4.17.0.
+- No visual regression intended in this deploy-runtime hotfix.

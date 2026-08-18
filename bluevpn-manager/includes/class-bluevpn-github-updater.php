@@ -194,16 +194,17 @@ final class BlueVPN_GitHub_Updater {
      * Immediate, authenticated self-update entry point used by the Telegram
      * deploy bot after the manager release workflow has completed.
      */
-    public static function install_latest_now(): array {
+    public static function install_latest_now(string $targetVersion = ''): array {
         self::clear_cache();
         delete_site_transient('update_plugins');
         update_option(self::LAST_CHECK_OPTION, time(), false);
-        $release = self::latest_release(true);
+        $targetVersion = trim($targetVersion);
+        $release = $targetVersion !== '' ? self::release_by_version($targetVersion, 5) : self::latest_release(true);
         if (is_wp_error($release)) {
             return ['success'=>false, 'message'=>$release->get_error_message(), 'target'=>'', 'installed_version'=>self::installed_version_from_disk()];
         }
         if (!is_array($release)) {
-            return ['success'=>false, 'message'=>'Release مخصوص BlueVPN Manager پیدا نشد.', 'target'=>'', 'installed_version'=>self::installed_version_from_disk()];
+            return ['success'=>false, 'message'=>'Release مخصوص BlueVPN Manager پیدا نشد.' . ($targetVersion !== '' ? ' target=' . $targetVersion : ''), 'target'=>$targetVersion, 'installed_version'=>self::installed_version_from_disk()];
         }
         $target = self::base_version($release);
         $before = self::installed_version_from_disk();
@@ -489,6 +490,94 @@ final class BlueVPN_GitHub_Updater {
         $latest['version'] = self::effective_version($latest);
         set_site_transient(self::CACHE_KEY, $latest, self::CACHE_TTL);
         return $latest;
+    }
+
+    private static function normalize_exact_release(array $release, string $version): ?array {
+        $s = self::settings();
+        if (!empty($release['draft'])) return null;
+        $tag = (string)($release['tag_name'] ?? '');
+        $expectedTag = (string)$s['tag_prefix'] . $version;
+        if ($tag === '' || !hash_equals($expectedTag, $tag)) return null;
+
+        $assetData = null;
+        foreach ((array)($release['assets'] ?? []) as $asset) {
+            if (($asset['name'] ?? '') === $s['asset_name'] && !empty($asset['browser_download_url'])) {
+                $assetData = $asset;
+                break;
+            }
+        }
+        if (!is_array($assetData)) return null;
+
+        $assetApiUrl = esc_url_raw((string)($assetData['url'] ?? ''));
+        $browserDownloadUrl = esc_url_raw((string)$assetData['browser_download_url']);
+        $authenticatedAsset = self::github_token() !== '' && $assetApiUrl !== '';
+        $candidate = [
+            'base_version' => $version,
+            'version' => $version,
+            'tag' => $tag,
+            'package' => $authenticatedAsset ? $assetApiUrl : $browserDownloadUrl,
+            'browser_download_url' => $browserDownloadUrl,
+            'asset_api_url' => $assetApiUrl,
+            'authenticated_asset' => $authenticatedAsset,
+            'url' => esc_url_raw((string)($release['html_url'] ?? self::repository_url())),
+            'published_at' => sanitize_text_field((string)($release['published_at'] ?? '')),
+            'release_updated_at' => sanitize_text_field((string)($release['updated_at'] ?? '')),
+            'release_id' => (string)($release['id'] ?? ''),
+            'asset_id' => (string)($assetData['id'] ?? ''),
+            'asset_updated_at' => sanitize_text_field((string)($assetData['updated_at'] ?? '')),
+            'asset_size' => (string)($assetData['size'] ?? ''),
+            'body' => wp_kses_post((string)($release['body'] ?? '')),
+        ];
+        $candidate['fingerprint'] = self::release_fingerprint($candidate);
+        $candidate['version'] = self::effective_version($candidate);
+        return $candidate;
+    }
+
+    /**
+     * Resolve one exact Manager release tag. The list endpoint can lag briefly
+     * behind a just-completed release workflow, so the Deploy Bot uses this
+     * endpoint as a bounded eventual-consistency fallback.
+     *
+     * @return array|WP_Error|null
+     */
+    public static function release_by_version(string $version, int $attempts = 4) {
+        $version = trim($version);
+        if (!preg_match('/^\d+\.\d+\.\d+$/', $version)) {
+            return new WP_Error('bluevpn_manager_version_invalid', 'نسخه Manager برای Exact Release معتبر نیست.');
+        }
+        $s = self::settings();
+        $tag = (string)$s['tag_prefix'] . $version;
+        $url = 'https://api.github.com/repos/' . rawurlencode((string)$s['owner']) . '/' . rawurlencode((string)$s['repo']) . '/releases/tags/' . rawurlencode($tag);
+        $attempts = max(1, min(8, $attempts));
+        for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+            if (class_exists('BlueVPN_Error_Monitor')) {
+                BlueVPN_Error_Monitor::expect_http_status_once($url, [404]);
+            }
+            $response = wp_remote_get($url, [
+                'timeout' => 12,
+                'redirection' => 3,
+                'headers' => self::request_headers(false),
+            ]);
+            if (is_wp_error($response)) {
+                if ($attempt < $attempts) { usleep(350000 * $attempt); continue; }
+                return $response;
+            }
+            $status = (int)wp_remote_retrieve_response_code($response);
+            if ($status === 404) {
+                if ($attempt < $attempts) { usleep(500000 * $attempt); continue; }
+                return null;
+            }
+            if ($status !== 200) {
+                return new WP_Error('bluevpn_github_exact_http', 'GitHub Exact Release HTTP ' . $status . ' tag=' . $tag);
+            }
+            $payload = json_decode(wp_remote_retrieve_body($response), true);
+            if (!is_array($payload)) return new WP_Error('bluevpn_github_exact_json', 'پاسخ Exact Release گیت‌هاب معتبر نیست.');
+            $normalized = self::normalize_exact_release($payload, $version);
+            if (is_array($normalized)) return $normalized;
+            if ($attempt < $attempts) { usleep(350000 * $attempt); continue; }
+            return null;
+        }
+        return null;
     }
 
     private static function installed_release(): array {

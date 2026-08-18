@@ -490,11 +490,62 @@ final class BlueVPN_Telegram_Bot {
             }
             $needsManager = $job['kind'] === 'manager_update' || ($job['kind'] === 'deploy_zip' && !empty($deploy['manager_included']));
             if ($needsManager) {
-                self::dispatch_manager_release($commit, $jobId, $s);
+                $localManager = is_array($deploy['manager_local_install'] ?? null) ? $deploy['manager_local_install'] : [];
+                $localManagerOk = !empty($localManager['success']);
+                $releaseDispatchError = '';
+                try {
+                    // Publishing the dedicated Manager Release is still valuable for
+                    // future WordPress auto-updates, but the current deploy no longer
+                    // depends on GitHub Releases API consistency when the exact uploaded
+                    // Manager was already installed atomically from the validated ZIP.
+                    self::dispatch_manager_release($commit, $jobId, $s);
+                } catch (Throwable $releaseError) {
+                    $releaseDispatchError = self::redact($releaseError->getMessage(), $s);
+                    if (class_exists('BlueVPN_Error_Monitor')) {
+                        BlueVPN_Error_Monitor::report(
+                            'github',
+                            'manager_release',
+                            $localManagerOk ? 'notice' : 'warning',
+                            'MANAGER_RELEASE_DISPATCH_FAILED',
+                            'انتشار Release مستقل Manager شروع نشد.',
+                            ['job_id'=>$jobId, 'commit'=>substr($commit, 0, 12), 'error'=>$releaseDispatchError]
+                        );
+                    }
+                }
+
+                if ($localManagerOk) {
+                    $installedVersion = (string)($localManager['version'] ?? $deploy['expected_version'] ?? '');
+                    self::send_message(
+                        $job['chat_id'],
+                        "✅ <b>BlueVPN Manager از همان ZIP معتبر نصب شد</b>
+" .
+                        "نسخه: <code>" . esc_html($installedVersion) . "</code>
+" .
+                        "منبع نصب: <code>validated_project_zip</code>" .
+                        ($releaseDispatchError !== '' ? "
+⚠️ Release مستقل GitHub فعلاً منتشر نشد؛ Deploy متوقف نشد." : "
+🧩 Release مستقل Manager نیز در پس‌زمینه درخواست شد."),
+                        self::keyboard(),
+                        $s
+                    );
+                    if ((string)$job['kind'] === 'manager_update') {
+                        self::update_job($jobId, ['status'=>'success', 'finished_at'=>BlueVPN_Utils::now_mysql(), 'last_error'=>'']);
+                        return;
+                    }
+                    $freshJob = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%s", $jobId), ARRAY_A) ?: $job;
+                    self::start_android_build_for_job($freshJob, $commit, $s);
+                    return;
+                }
+
+                if ($releaseDispatchError !== '') {
+                    $localError = trim((string)($localManager['message'] ?? 'نصب مستقیم Manager از ZIP ناموفق بود.'));
+                    throw new RuntimeException('MANAGER_INSTALL_NO_FALLBACK: ' . $localError . ' | GitHub Release dispatch: ' . $releaseDispatchError);
+                }
+
                 self::update_job($jobId, ['status' => 'waiting_manager', 'run_id' => 0, 'run_url' => '']);
                 self::send_message($job['chat_id'], "🧩 انتشار BlueVPN Manager شروع شد.
 Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
-بعد از انتشار، ربات همان نسخه را روی WordPress نصب می‌کند.", self::keyboard(), $s);
+نصب مستقیم از ZIP ممکن نبود؛ Release GitHub به‌عنوان مسیر پشتیبان استفاده می‌شود.", self::keyboard(), $s);
                 wp_schedule_single_event(time() + 15, self::POLL_HOOK);
                 self::spawn_cron();
                 return;
@@ -802,6 +853,7 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
         // wrapped in one or more folders as well as manager-only packages.
         $fullCandidates = [];
         $managerCandidates = [];
+        $looseManagerDirs = [];
 
         $scan = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($extractedRoot, FilesystemIterator::SKIP_DOTS),
@@ -813,30 +865,74 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
 
             $name = str_replace('\\', '/', $item->getPathname());
             if (basename($name) !== 'bluevpn-manager.php') continue;
+            $pluginHead = (string)@file_get_contents($name, false, null, 0, 12288);
+            if ($pluginHead === '' || (!str_contains($pluginHead, 'Plugin Name: BlueVPN Manager') && !str_contains($pluginHead, 'BLUEVPN_MANAGER_VERSION'))) continue;
 
             $pluginDir = dirname($name);
-            if (basename(str_replace('\\', '/', $pluginDir)) !== 'bluevpn-manager') continue;
+            $cursor = dirname($pluginDir);
+            while ($cursor !== '' && str_starts_with(str_replace('\\', '/', $cursor) . '/', str_replace('\\', '/', $extractedRoot) . '/')) {
+                if ($matchesFull($cursor)) { $fullCandidates[$cursor] = true; break; }
+                if ($cursor === $extractedRoot) break;
+                $next = dirname($cursor);
+                if ($next === $cursor) break;
+                $cursor = $next;
+            }
 
-            $candidate = dirname($pluginDir);
-            if ($matchesFull($candidate)) {
-                $fullCandidates[$candidate] = true;
-            } elseif ($matchesManagerParent($candidate)) {
-                $managerCandidates[$candidate] = true;
+            if (basename(str_replace('\\', '/', $pluginDir)) === 'bluevpn-manager') {
+                $candidate = dirname($pluginDir);
+                if ($matchesManagerParent($candidate)) $managerCandidates[$candidate] = true;
+            } else {
+                // Some downloaders/repackagers rename the top-level plugin folder to
+                // bluevpn-manager-vX.Y.Z. Accept one unambiguous BlueVPN Manager tree
+                // and normalize it back to the canonical repository path. If this is
+                // part of a full platform, repair only the temporary extracted tree so
+                // branding/release metadata and every other platform file stay intact.
+                $looseManagerDirs[$pluginDir] = true;
+                $metaCursor = dirname($pluginDir);
+                while ($metaCursor !== '' && str_starts_with(str_replace('\\', '/', $metaCursor) . '/', str_replace('\\', '/', $extractedRoot) . '/')) {
+                    if (is_file($metaCursor . '/branding/app.json') && is_file($metaCursor . '/release.json')) {
+                        $canonicalManager = $metaCursor . '/bluevpn-manager';
+                        if (!is_file($canonicalManager . '/bluevpn-manager.php')) {
+                            if (is_dir($canonicalManager)) self::rrmdir($canonicalManager);
+                            self::copy_tree_atomic_source($pluginDir, $canonicalManager);
+                        }
+                        if ($matchesFull($metaCursor)) $fullCandidates[$metaCursor] = true;
+                        break;
+                    }
+                    if ($metaCursor === $extractedRoot) break;
+                    $nextMeta = dirname($metaCursor);
+                    if ($nextMeta === $metaCursor) break;
+                    $metaCursor = $nextMeta;
+                }
             }
         }
 
         $fullCandidates = array_keys($fullCandidates);
         $managerCandidates = array_keys($managerCandidates);
+        $looseManagerDirs = array_keys($looseManagerDirs);
 
         if ($fullCandidates) {
             $candidates = $fullCandidates;
         } elseif ($managerCandidates) {
             $candidates = $managerCandidates;
+        } elseif (count($looseManagerDirs) === 1) {
+            $normalizedRoot = rtrim($extractedRoot, '/\\') . '/__bluevpn_normalized_manager_root';
+            self::rrmdir($normalizedRoot);
+            wp_mkdir_p($normalizedRoot);
+            self::copy_tree_atomic_source((string)$looseManagerDirs[0], $normalizedRoot . '/bluevpn-manager');
+            if (!$matchesManagerParent($normalizedRoot)) {
+                self::rrmdir($normalizedRoot);
+                throw new RuntimeException('DEPLOY_MANAGER_NORMALIZE_FAILED: ساخت ریشه استاندارد Manager از ZIP ناموفق بود.');
+            }
+            $candidates = [$normalizedRoot];
         } else {
+            $top = array_values(array_filter(scandir($extractedRoot) ?: [], static fn($v) => !in_array($v, ['.','..','__MACOSX'], true)));
+            $hint = implode(', ', array_slice(array_map('strval', $top), 0, 12));
             throw new RuntimeException(
                 'DEPLOY_PROJECT_ROOT_NOT_FOUND: ریشه معتبر BlueVPN داخل ZIP پیدا نشد. ' .
                 'پروژه کامل باید branding/app.json + release.json + bluevpn-manager/bluevpn-manager.php داشته باشد؛ ' .
-                'برای بروزرسانی فقط Manager وجود bluevpn-manager/bluevpn-manager.php کافی است.'
+                'برای بروزرسانی فقط Manager وجود bluevpn-manager/bluevpn-manager.php کافی است.' .
+                ($hint !== '' ? ' top-level=[' . $hint . ']' : '')
             );
         }
 
@@ -1052,6 +1148,119 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
         }
     }
 
+    private static function manager_version_from_file(string $path): string {
+        if (!is_file($path)) return '';
+        $head = (string)@file_get_contents($path, false, null, 0, 16384);
+        if ($head === '') return '';
+        if (preg_match('/define\(\s*[\'\"]BLUEVPN_MANAGER_VERSION[\'\"]\s*,\s*[\'\"](\d+\.\d+\.\d+)[\'\"]\s*\)/', $head, $m)) {
+            return trim((string)$m[1]);
+        }
+        if (preg_match('/(?mi)^\s*\*?\s*Version:\s*(\d+\.\d+\.\d+)\s*$/', $head, $m)) {
+            return trim((string)$m[1]);
+        }
+        return '';
+    }
+
+    private static function copy_tree_atomic_source(string $source, string $dest): void {
+        if (!is_dir($source)) throw new RuntimeException('MANAGER_SOURCE_DIR_MISSING: پوشه Manager داخل ZIP پیدا نشد.');
+        if (!wp_mkdir_p($dest) && !is_dir($dest)) throw new RuntimeException('MANAGER_STAGE_CREATE_FAILED: ساخت staging برای Manager ناموفق بود.');
+        $it = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($source, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::SELF_FIRST
+        );
+        foreach ($it as $item) {
+            if ($item->isLink()) throw new RuntimeException('MANAGER_SOURCE_UNSAFE: symlink داخل بسته Manager مجاز نیست.');
+            $rel = str_replace('\\', '/', substr($item->getPathname(), strlen($source) + 1));
+            if ($rel === '' || preg_match('#(^|/)\.\.(/|$)#', $rel)) throw new RuntimeException('MANAGER_SOURCE_UNSAFE: مسیر ناسالم داخل Manager.');
+            $target = $dest . '/' . $rel;
+            if ($item->isDir()) {
+                if (!wp_mkdir_p($target) && !is_dir($target)) throw new RuntimeException('MANAGER_STAGE_CREATE_FAILED: ' . $rel);
+                continue;
+            }
+            wp_mkdir_p(dirname($target));
+            if (!@copy($item->getPathname(), $target)) throw new RuntimeException('MANAGER_STAGE_COPY_FAILED: ' . $rel);
+            @chmod($target, 0644);
+        }
+    }
+
+    /**
+     * Install the exact Manager bundled in the already validated deploy ZIP.
+     * GitHub Release remains a publishing/update channel, but is no longer a
+     * hard dependency for the same deploy transaction. This closes the race
+     * where the release workflow succeeds but the Releases API is briefly stale.
+     */
+    private static function install_manager_from_project_tree(string $root, string $expectedVersion): array {
+        $source = rtrim($root, '/\\') . '/bluevpn-manager';
+        $sourceMain = $source . '/bluevpn-manager.php';
+        if (!is_file($sourceMain)) return ['success'=>false, 'skipped'=>true, 'message'=>'Manager داخل ZIP وجود ندارد.', 'version'=>''];
+        if (defined('DISALLOW_FILE_MODS') && DISALLOW_FILE_MODS) {
+            return ['success'=>false, 'skipped'=>false, 'message'=>'وردپرس اجازه تغییر فایل افزونه‌ها را نمی‌دهد (DISALLOW_FILE_MODS).', 'version'=>''];
+        }
+
+        $sourceVersion = self::manager_version_from_file($sourceMain);
+        if ($sourceVersion === '') return ['success'=>false, 'skipped'=>false, 'message'=>'نسخه Manager داخل ZIP قابل تشخیص نیست.', 'version'=>''];
+        if ($expectedVersion !== '' && version_compare($sourceVersion, $expectedVersion, '!=')) {
+            return ['success'=>false, 'skipped'=>false, 'message'=>'نسخه Manager داخل ZIP با نسخه Deploy یکسان نیست. expected=' . $expectedVersion . ' source=' . $sourceVersion, 'version'=>$sourceVersion];
+        }
+
+        $target = defined('BLUEVPN_MANAGER_DIR') ? rtrim((string)BLUEVPN_MANAGER_DIR, '/\\') : rtrim((string)WP_PLUGIN_DIR, '/\\') . '/bluevpn-manager';
+        $parent = dirname($target);
+        if (!is_dir($parent) || !is_writable($parent)) {
+            return ['success'=>false, 'skipped'=>false, 'message'=>'پوشه plugins برای جایگزینی اتمیک Manager قابل نوشتن نیست.', 'version'=>$sourceVersion];
+        }
+
+        $nonce = preg_replace('/[^A-Za-z0-9]/', '', wp_generate_password(12, false, false));
+        $stage = $parent . '/.bluevpn-manager-stage-' . $nonce;
+        $backup = $parent . '/.bluevpn-manager-backup-' . $nonce;
+        self::rrmdir($stage);
+        self::rrmdir($backup);
+
+        try {
+            self::copy_tree_atomic_source($source, $stage);
+            $stageMain = $stage . '/bluevpn-manager.php';
+            $stageVersion = self::manager_version_from_file($stageMain);
+            if ($stageVersion === '' || version_compare($stageVersion, $sourceVersion, '!=')) {
+                throw new RuntimeException('MANAGER_STAGE_VERIFY_FAILED: نسخه staging قابل تأیید نیست.');
+            }
+
+            $hadTarget = is_dir($target);
+            if ($hadTarget && !@rename($target, $backup)) {
+                throw new RuntimeException('MANAGER_ATOMIC_BACKUP_FAILED: پوشه فعلی Manager قابل جابه‌جایی نیست.');
+            }
+            if (!@rename($stage, $target)) {
+                if ($hadTarget && is_dir($backup) && !is_dir($target)) @rename($backup, $target);
+                throw new RuntimeException('MANAGER_ATOMIC_SWAP_FAILED: جایگزینی Manager ناموفق بود؛ rollback انجام شد.');
+            }
+
+            $installedVersion = self::manager_version_from_file($target . '/bluevpn-manager.php');
+            if ($installedVersion === '' || version_compare($installedVersion, $sourceVersion, '!=')) {
+                self::rrmdir($target);
+                if ($hadTarget && is_dir($backup)) @rename($backup, $target);
+                throw new RuntimeException('MANAGER_ATOMIC_VERIFY_FAILED: نسخه نصب‌شده تأیید نشد؛ rollback انجام شد.');
+            }
+
+            if (function_exists('opcache_invalidate')) {
+                $php = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($target, FilesystemIterator::SKIP_DOTS));
+                foreach ($php as $file) if ($file->isFile() && str_ends_with(strtolower($file->getFilename()), '.php')) @opcache_invalidate($file->getPathname(), true);
+            }
+            clearstatcache(true);
+            if (is_dir($backup)) self::rrmdir($backup);
+            update_option('bluevpn_manager_last_source_install', [
+                'version' => $installedVersion,
+                'at' => BlueVPN_Utils::now_mysql(),
+                'source' => 'telegram_validated_project_zip',
+            ], false);
+            return ['success'=>true, 'skipped'=>false, 'message'=>'Manager مستقیماً از ZIP معتبر پروژه نصب شد.', 'version'=>$installedVersion];
+        } catch (Throwable $e) {
+            self::rrmdir($stage);
+            if (!is_dir($target) && is_dir($backup)) @rename($backup, $target);
+            return ['success'=>false, 'skipped'=>false, 'message'=>$e->getMessage(), 'version'=>$sourceVersion];
+        } finally {
+            if (is_dir($stage)) self::rrmdir($stage);
+            if (is_dir($backup) && is_dir($target)) self::rrmdir($backup);
+        }
+    }
+
     private static function deploy_zip_to_github(string $zipPath, array $s): array {
         $extractRoot = self::extract_zip_safely($zipPath, $s);
         $root = self::resolve_project_root($extractRoot);
@@ -1069,6 +1278,9 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
                     $result['expected_version_code'] = (int)$expectedRelease['version_code'];
                     $result['package_type'] = (string)($expectedRelease['mode'] ?? 'full_project');
                     self::verify_deployed_release((string)$result['commit'],$expectedRelease,$result,$s);
+                    $result['manager_local_install'] = $managerIncluded
+                        ? self::install_manager_from_project_tree($root, (string)$expectedRelease['version'])
+                        : ['success'=>false,'skipped'=>true,'message'=>'Manager داخل بسته نیست.','version'=>''];
                     return $result;
                 } catch (Throwable $e) {
                     $gitError = self::redact($e->getMessage(), $s);
@@ -1084,6 +1296,9 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
                     $result['package_type'] = (string)($expectedRelease['mode'] ?? 'full_project');
                 if ($gitError !== '') $result['git_cli_fallback_error'] = $gitError;
                 self::verify_deployed_release((string)$result['commit'],$expectedRelease,$result,$s);
+                $result['manager_local_install'] = $managerIncluded
+                    ? self::install_manager_from_project_tree($root, (string)$expectedRelease['version'])
+                    : ['success'=>false,'skipped'=>true,'message'=>'Manager داخل بسته نیست.','version'=>''];
                 return $result;
             } catch (Throwable $e) {
                 $restError = self::redact($e->getMessage(), $s);
@@ -1940,6 +2155,19 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
         self::gh('POST', self::repo_path($s) . '/actions/workflows/' . rawurlencode((string)$s['github_workflow']) . '/dispatches', ['ref' => (string)$s['git_branch']], $s);
     }
 
+    private static function manager_version_at_commit(string $commitSha, array $s): string {
+        $commitSha = trim($commitSha);
+        if ($commitSha === '') return '';
+        try {
+            $raw = self::github_file_at_commit('bluevpn-manager/bluevpn-manager.php', $commitSha, $s);
+            if (preg_match('/define\(\s*[\'\"]BLUEVPN_MANAGER_VERSION[\'\"]\s*,\s*[\'\"](\d+\.\d+\.\d+)[\'\"]\s*\)/', $raw, $m)) {
+                return trim((string)$m[1]);
+            }
+        } catch (Throwable $ignored) {
+        }
+        return '';
+    }
+
     public static function poll_builds(): void {
         global $wpdb;
         $t = self::jobs_table();
@@ -1980,7 +2208,8 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
                 if (!class_exists('BlueVPN_GitHub_Updater') || !method_exists('BlueVPN_GitHub_Updater', 'install_latest_now')) {
                     throw new RuntimeException('Updater داخلی BlueVPN Manager در دسترس نیست.');
                 }
-                $installed = BlueVPN_GitHub_Updater::install_latest_now();
+                $targetManagerVersion = self::manager_version_at_commit((string)$job['commit_sha'], $s);
+                $installed = BlueVPN_GitHub_Updater::install_latest_now($targetManagerVersion);
                 if (empty($installed['success'])) throw new RuntimeException((string)($installed['message'] ?? 'نصب Manager ناموفق بود.'));
                 $installedVersion = (string)($installed['installed_version'] ?? '');
                 $target = (string)($installed['target'] ?? '');
@@ -2042,8 +2271,14 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
 
     private static function fail_job(array $job, string $error, array $s): void {
         $error = self::redact($error, $s);
-        self::update_job((string)$job['id'], ['status' => 'failed', 'last_error' => mb_substr($error, 0, 4000), 'finished_at' => BlueVPN_Utils::now_mysql()]);
+        $now = BlueVPN_Utils::now_mysql();
+        $storedError = mb_substr($error, 0, 4000);
+        self::update_job((string)$job['id'], ['status' => 'failed', 'last_error' => $storedError, 'finished_at' => $now]);
         self::send_message($job['chat_id'], "❌ عملیات ناموفق بود.\nRuntime: <code>v" . esc_html(BLUEVPN_MANAGER_VERSION) . "</code>\n<code>" . esc_html(mb_substr($error, -3000)) . '</code>', self::keyboard(), $s);
+        if (class_exists('BlueVPN_Error_Monitor') && method_exists('BlueVPN_Error_Monitor', 'report_bot_job_failure')) {
+            $reported = array_merge($job, ['status'=>'failed', 'last_error'=>$storedError, 'finished_at'=>$now]);
+            BlueVPN_Error_Monitor::report_bot_job_failure($reported, $storedError);
+        }
     }
 
     private static function redact(string $text, array $s): string {

@@ -54,6 +54,7 @@
     "test_support_chat_ui_4106.py",
     "test_support_edittext_compile_41109.py",
     "test_support_tehran_time_41110.py",
+    "test_telegram_source_zip_integrity_41510.py",
     "test_unified_component_versions_4153.py",
     "test_warp_adaptive_469.py",
     "test_warp_background_reconnect_473.py",

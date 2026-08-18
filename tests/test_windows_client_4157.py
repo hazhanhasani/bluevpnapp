@@ -12,11 +12,11 @@ class WindowsClient4157Tests(unittest.TestCase):
     def test_release_versions_are_unified(self):
         release = json.loads(text("release.json"))
         branding = json.loads(text("branding/app.json"))
-        self.assertEqual(release["version"], "4.15.8")
-        self.assertEqual(release["windows_version"], "4.15.8")
-        self.assertEqual(release["windows_version_code"], 41508)
-        self.assertEqual(branding["version_name"], "4.15.8")
-        self.assertIn("<Version>4.15.8</Version>", text("bluevpn-windows/BlueVPN.Windows.csproj"))
+        self.assertEqual(release["version"], "4.15.10")
+        self.assertEqual(release["windows_version"], "4.15.10")
+        self.assertEqual(release["windows_version_code"], 41510)
+        self.assertEqual(branding["version_name"], "4.15.10")
+        self.assertIn("<Version>4.15.10</Version>", text("bluevpn-windows/BlueVPN.Windows.csproj"))
 
     def test_windows_client_uses_existing_bluevpn_control_plane(self):
         api = text("bluevpn-windows/Services/BlueVpnApiClient.cs")
@@ -40,11 +40,12 @@ class WindowsClient4157Tests(unittest.TestCase):
         self.assertIn("Xray-windows-arm64-v8a.zip", workflow)
         self.assertIn("v26.7.28", workflow)
 
-    def test_windows_compile_gate_and_telegram_delivery_are_enforced(self):
+    def test_windows_compile_gate_and_site_release_delivery_are_enforced(self):
         api = text("bluevpn-windows/Services/BlueVpnApiClient.cs")
         probe = text("bluevpn-windows/Services/ConnectivityProbe.cs")
         workflow = text(".github/workflows/build-windows.yml")
-        telegram = text("scripts/send_windows_telegram.ps1")
+        page = text("bluevpn-site/page-download.php")
+        helpers = text("bluevpn-site/inc/helpers.php")
         self.assertIn("using System.Net.Http;", api)
         self.assertIn("using System.Net.Http;", probe)
         self.assertIn("dotnet build bluevpn-windows/BlueVPN.Windows.csproj", workflow)
@@ -54,13 +55,15 @@ class WindowsClient4157Tests(unittest.TestCase):
         self.assertIn("0x8664", workflow)
         self.assertIn("windows-xray-runtime.log", workflow)
         self.assertIn("execution is intentionally skipped on the x64 GitHub runner", workflow)
-        self.assertIn("TELEGRAM_BOT_TOKEN", workflow)
-        self.assertIn("TELEGRAM_CHAT_ID", workflow)
-        self.assertIn("send_windows_telegram.ps1", workflow)
-        self.assertIn("sendDocument", telegram)
-        self.assertIn("TelegramDirectLimitBytes", telegram)
-        self.assertIn("SplitPartSizeBytes", telegram)
-        self.assertIn("JOIN-BLUEVPN-PARTS.cmd", telegram)
+        self.assertIn("publish-windows-release", workflow)
+        self.assertIn("bluevpn-windows-v${VERSION}", workflow)
+        self.assertIn("BlueVPN-Windows-${VERSION}-win-x64.zip", workflow)
+        self.assertIn("BlueVPN-Windows-${VERSION}-win-arm64.zip", workflow)
+        self.assertNotIn("TELEGRAM_BOT_TOKEN", workflow)
+        self.assertNotIn("send_windows_telegram.ps1", workflow)
+        self.assertIn("bluevpn_site_windows_downloads", helpers)
+        self.assertIn("Windows x64", page)
+        self.assertIn("Windows ARM64", page)
 
     def test_windows_system_io_imports_are_explicit(self):
         for path in (

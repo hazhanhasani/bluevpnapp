@@ -8,13 +8,12 @@ on:
       - 'branding/app.json'
       - 'release.json'
       - 'scripts/validate_windows.py'
-      - 'scripts/send_windows_telegram.ps1'
       - '.github/workflows/build-windows.yml'
   release:
     types: [published]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-windows:
@@ -209,68 +208,102 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Send Windows package to Telegram
-        shell: pwsh
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          RID: ${{ matrix.rid }}
-          ARCH: ${{ matrix.arch }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          "telegram-$env:RID" | Set-Content .bluevpn-windows-stage
-          $version = (Get-Content release.json | ConvertFrom-Json).version
-          $zip = Get-ChildItem -Path dist -File -Filter "BlueVPN-Windows-$version-$env:RID.zip" | Select-Object -First 1
-          if (-not $zip) { throw "Windows package not found for Telegram: $env:RID" }
-          & ./scripts/send_windows_telegram.ps1 `
-            -Package $zip.FullName `
-            -Version $version `
-            -Rid $env:RID `
-            -Architecture $env:ARCH
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Send Windows build failure to Telegram
+      - name: Upload Windows diagnostics on failure
         if: ${{ failure() }}
-        continue-on-error: true
-        shell: pwsh
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          RID: ${{ matrix.rid }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlueVPN-Windows-${{ matrix.rid }}-diagnostics
+          path: |
+            windows-build.log
+            windows-xray-runtime.log
+            windows-publish.log
+            .bluevpn-windows-stage
+          if-no-files-found: ignore
+          retention-days: 14
+
+  publish-windows-release:
+    name: Publish Windows download release
+    needs: build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release metadata
+        uses: actions/checkout@v6
+
+      - name: Download Windows build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: BlueVPN-Windows-win-*
+          path: windows-release
+          merge-multiple: true
+
+      - name: Validate Windows release payload
+        shell: bash
         run: |
-          $ErrorActionPreference = 'Continue'
-          if ([string]::IsNullOrWhiteSpace([string]$env:TELEGRAM_BOT_TOKEN) -or [string]::IsNullOrWhiteSpace([string]$env:TELEGRAM_CHAT_ID)) {
-            Write-Host 'Telegram secrets are not configured; skipping Windows failure delivery.'
-            exit 0
-          }
+          set -euo pipefail
+          VERSION="$(python -c 'import json; print(json.load(open("release.json", encoding="utf-8"))["version"])')"
+          for RID in win-x64 win-arm64; do
+            ZIP="windows-release/BlueVPN-Windows-${VERSION}-${RID}.zip"
+            SHA="${ZIP}.sha256"
+            test -s "$ZIP" || { echo "::error::Missing Windows package: $ZIP"; exit 1; }
+            test -s "$SHA" || { echo "::error::Missing Windows checksum: $SHA"; exit 1; }
+            unzip -t "$ZIP" >/dev/null
+            EXPECTED="$(awk '{print $1}' "$SHA" | tr '[:upper:]' '[:lower:]')"
+            ACTUAL="$(sha256sum "$ZIP" | awk '{print $1}')"
+            test "$EXPECTED" = "$ACTUAL" || { echo "::error::SHA256 mismatch for $ZIP"; exit 1; }
+          done
 
-          $version = try { (Get-Content release.json | ConvertFrom-Json).version } catch { 'unknown' }
-          $stage = if (Test-Path .bluevpn-windows-stage) { (Get-Content .bluevpn-windows-stage -Raw).Trim() } else { 'unknown' }
-          $runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
-          $shortSha = if ([string]::IsNullOrWhiteSpace([string]$env:GITHUB_SHA)) { 'unknown' } else { $env:GITHUB_SHA.Substring(0, [Math]::Min(8, $env:GITHUB_SHA.Length)) }
-          $message = "❌ Build ویندوز BlueVPN ناموفق بود`nنسخه: $version`nBuild: #$env:GITHUB_RUN_NUMBER`nمعماری: $env:RID`nمرحله: $stage`nCommit: $shortSha`n$runUrl"
+      - name: Publish Windows packages for website downloads
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(python -c 'import json; print(json.load(open("release.json", encoding="utf-8"))["version"])')"
+          TAG="bluevpn-windows-v${VERSION}"
+          TITLE="BlueVPN Windows ${VERSION}"
+          NOTES="BlueVPN Windows ${VERSION} — فایل‌های رسمی x64 و ARM64 برای دانلود مستقیم از وب‌سایت BlueVPN. فایل‌های SHA256 کنار هر بسته منتشر شده‌اند."
 
-          & curl.exe --fail --silent --show-error --retry 3 --connect-timeout 15 --max-time 120 `
-            --request POST "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendMessage" `
-            --data-urlencode "chat_id=$env:TELEGRAM_CHAT_ID" `
-            --data-urlencode "text=$message" `
-            --data-urlencode 'disable_web_page_preview=true'
+          mapfile -t ASSETS < <(find windows-release -maxdepth 1 -type f \
+            \( -name "BlueVPN-Windows-${VERSION}-win-x64.zip" \
+               -o -name "BlueVPN-Windows-${VERSION}-win-x64.zip.sha256" \
+               -o -name "BlueVPN-Windows-${VERSION}-win-arm64.zip" \
+               -o -name "BlueVPN-Windows-${VERSION}-win-arm64.zip.sha256" \) \
+            -print | sort)
+          test "${#ASSETS[@]}" -eq 4 || { echo "::error::Expected four Windows release assets, found ${#ASSETS[@]}"; exit 1; }
 
-          $log = if ($stage -like 'xray-runtime-*' -and (Test-Path windows-xray-runtime.log)) {
-            'windows-xray-runtime.log'
-          } elseif ($stage -like 'publish-*' -and (Test-Path windows-publish.log)) {
-            'windows-publish.log'
-          } elseif (Test-Path windows-build.log) {
-            'windows-build.log'
-          } elseif (Test-Path windows-xray-runtime.log) {
-            'windows-xray-runtime.log'
-          } else {
-            $null
-          }
-          if ($log) {
-            & curl.exe --fail --silent --show-error --retry 3 --connect-timeout 15 --max-time 180 `
-              --request POST "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendDocument" `
-              --form "chat_id=$env:TELEGRAM_CHAT_ID" `
-              --form "document=@$log" `
-              --form-string "caption=📎 لاگ Build ویندوز BlueVPN | $env:RID | Build #$env:GITHUB_RUN_NUMBER"
-          }
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              --latest=false
+          else
+            gh release create "$TAG" "${ASSETS[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              --latest=false
+          fi
+
+      - name: Verify public website download URLs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(python -c 'import json; print(json.load(open("release.json", encoding="utf-8"))["version"])')"
+          TAG="bluevpn-windows-v${VERSION}"
+          rm -rf verify-windows-release
+          mkdir -p verify-windows-release
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "BlueVPN-Windows-${VERSION}-win-*.zip" \
+            --dir verify-windows-release \
+            --clobber
+          test -s "verify-windows-release/BlueVPN-Windows-${VERSION}-win-x64.zip"
+          test -s "verify-windows-release/BlueVPN-Windows-${VERSION}-win-arm64.zip"
+          echo "Windows website release ready: https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"

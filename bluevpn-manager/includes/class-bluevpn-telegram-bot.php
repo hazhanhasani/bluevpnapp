@@ -515,9 +515,10 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
         $maxAttempts = 5;
 
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
-            // Telegram may hand out a valid file_path while the CDN object is still being
-            // propagated. Resolve it again for every attempt and verify byte length before
-            // asking ZipArchive to parse it.
+            // Resolve the Telegram object again only for transport failures. When the
+            // received byte count exactly matches getFile(file_size), a structural ZIP
+            // failure belongs to the uploaded source object and retrying the same bytes
+            // five times cannot repair it.
             $file = self::api('getFile', ['file_id' => $fileId], $s);
             if (is_wp_error($file)) {
                 $lastError = $file->get_error_message();
@@ -551,14 +552,13 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
 
             clearstatcache(true, $tmp);
             $size = (int)(@filesize($tmp) ?: 0);
+            $transportComplete = $expectedSize > 0 && $size === $expectedSize;
 
             if ($size > (int)$s['max_zip_mb'] * 1024 * 1024) {
                 @unlink($tmp);
                 throw new RuntimeException('ZIP از محدودیت حجم بیشتر است.');
             }
 
-            // getFile normally returns the authoritative Telegram-side byte length.
-            // A mismatch means the HTTP body was truncated even if it starts with "PK".
             if ($expectedSize > 0 && $size !== $expectedSize) {
                 $lastError = 'دانلود Telegram ناقص بود: expected=' . $expectedSize .
                     ', received=' . $size . ' bytes.';
@@ -570,43 +570,133 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
             if ($size < 22) {
                 $lastError = 'فایل دریافتی از Telegram ناقص است (' . $size . ' bytes).';
                 @unlink($tmp);
+                if (!$transportComplete && $attempt < $maxAttempts) { sleep(min(10, $attempt * 2)); continue; }
+                break;
+            }
+
+            $head = (string)@file_get_contents($tmp, false, null, 0, 8);
+            if (!self::telegram_zip_has_local_signature($head)) {
+                $lastError = self::telegram_zip_source_error(
+                    $tmp,
+                    'امضای ابتدایی ZIP معتبر نیست',
+                    $expectedSize,
+                    $size
+                );
+                @unlink($tmp);
+                // Exact Telegram byte parity proves this is not a truncated transfer.
+                if ($transportComplete) break;
                 if ($attempt < $maxAttempts) { sleep(min(10, $attempt * 2)); continue; }
                 break;
             }
 
-            $head = (string)@file_get_contents($tmp, false, null, 0, 4);
-            if (!in_array($head, ["PK\x03\x04", "PK\x05\x06", "PK\x07\x08"], true)) {
-                $lastError = 'پاسخ Telegram ZIP نیست؛ امضای فایل معتبر دریافت نشد.';
+            if (!self::telegram_zip_has_end_record($tmp)) {
+                $lastError = self::telegram_zip_source_error(
+                    $tmp,
+                    'رکورد انتهایی/Central Directory آرشیو پیدا نشد',
+                    $expectedSize,
+                    $size
+                );
                 @unlink($tmp);
+                if ($transportComplete) break;
                 if ($attempt < $maxAttempts) { sleep(min(10, $attempt * 2)); continue; }
                 break;
             }
 
             $zip = new ZipArchive();
-            $open = $zip->open($tmp, ZipArchive::RDONLY);
+            $flags = ZipArchive::RDONLY;
+            if (defined('ZipArchive::CHECKCONS')) $flags |= ZipArchive::CHECKCONS;
+            $open = $zip->open($tmp, $flags);
             if ($open === true) {
-                // Force ZipArchive to inspect the central directory and every entry.
-                $valid = true;
-                for ($i = 0; $i < $zip->numFiles; $i++) {
+                // Force libzip to inspect the central directory and every entry before
+                // the deploy path is allowed to touch GitHub.
+                $valid = $zip->numFiles > 0;
+                for ($i = 0; $valid && $i < $zip->numFiles; $i++) {
                     $stat = $zip->statIndex($i);
                     if ($stat === false) { $valid = false; break; }
+                    $entryName = str_replace('\\', '/', (string)($stat['name'] ?? ''));
+                    if ($entryName === '' || str_starts_with($entryName, '/') || preg_match('#(^|/)\.\.(/|$)#', $entryName)) {
+                        $valid = false; break;
+                    }
                 }
                 $zip->close();
                 if ($valid) return $tmp;
-                $lastError = 'ساختار Central Directory فایل ZIP ناقص است.';
+                $lastError = self::telegram_zip_source_error(
+                    $tmp,
+                    'Central Directory قابل خواندن است اما فهرست فایل‌ها ناسالم/ناامن است',
+                    $expectedSize,
+                    $size
+                );
             } else {
-                $lastError = 'ZipArchive نتوانست فایل دانلودشده را باز کند (code=' .
-                    (string)$open . ', expected=' . $expectedSize . ', received=' . $size . ').';
+                $lastError = self::telegram_zip_source_error(
+                    $tmp,
+                    'ZipArchive باز کردن آرشیو را رد کرد: code=' . (string)$open . '/' . self::ziparchive_error_name((int)$open),
+                    $expectedSize,
+                    $size
+                );
             }
 
             @unlink($tmp);
+            if ($transportComplete) {
+                // Telegram returned every byte it advertises. Retrying the identical
+                // object is noise and previously turned a source-archive problem into a
+                // misleading "download incomplete" report.
+                break;
+            }
             if ($attempt < $maxAttempts) sleep(min(10, $attempt * 2));
         }
 
         throw new RuntimeException(
-            'ZIP دانلودشده از Telegram معتبر/کامل نیست. ' . $maxAttempts .
-            ' بار دریافت مجدد انجام شد. ' . $lastError
+            'ZIP قابل Deploy نیست. ' . $lastError .
+            ' اگر expected و received برابرند، فایلِ آپلودشده در Telegram خودش خراب/اشتباه است؛ ' .
+            'ZIP کامل پروژه را دوباره از منبع اصلی دانلود و بدون Extract/Repack ناقص ارسال کن.'
         );
+    }
+
+    private static function telegram_zip_has_local_signature(string $head): bool {
+        if (strlen($head) < 4) return false;
+        $sig = substr($head, 0, 4);
+        return in_array($sig, ["PK\x03\x04", "PK\x05\x06", "PK\x07\x08"], true);
+    }
+
+    private static function telegram_zip_has_end_record(string $path): bool {
+        $size = (int)(@filesize($path) ?: 0);
+        if ($size < 22) return false;
+        // EOCD can be followed by a comment of up to 65535 bytes. Read a larger tail
+        // to also cover ZIP64 locator/EOCD records without loading the archive in RAM.
+        $read = min($size, 131072);
+        $fh = @fopen($path, 'rb');
+        if (!$fh) return false;
+        if ($size > $read) @fseek($fh, -$read, SEEK_END);
+        $tail = (string)@fread($fh, $read);
+        @fclose($fh);
+        return str_contains($tail, "PK\x05\x06") ||
+            str_contains($tail, "PK\x06\x06") ||
+            str_contains($tail, "PK\x06\x07");
+    }
+
+    private static function telegram_zip_source_error(string $path, string $reason, int $expected, int $received): string {
+        $sha = is_file($path) ? (string)(@hash_file('sha256', $path) ?: '') : '';
+        $tail = self::telegram_zip_has_end_record($path) ? 'yes' : 'no';
+        return 'TELEGRAM_SOURCE_ZIP_INVALID: ' . $reason .
+            '; expected=' . $expected .
+            '; received=' . $received .
+            '; eocd=' . $tail .
+            ($sha !== '' ? '; sha256=' . $sha : '') . '.';
+    }
+
+    private static function ziparchive_error_name(int $code): string {
+        $map = [
+            0 => 'ER_OK', 1 => 'ER_MULTIDISK', 2 => 'ER_RENAME', 3 => 'ER_CLOSE',
+            4 => 'ER_SEEK', 5 => 'ER_READ', 6 => 'ER_WRITE', 7 => 'ER_CRC',
+            8 => 'ER_ZIPCLOSED', 9 => 'ER_NOENT', 10 => 'ER_EXISTS', 11 => 'ER_OPEN',
+            12 => 'ER_TMPOPEN', 13 => 'ER_ZLIB', 14 => 'ER_MEMORY', 15 => 'ER_CHANGED',
+            16 => 'ER_COMPNOTSUPP', 17 => 'ER_EOF', 18 => 'ER_INVAL', 19 => 'ER_NOZIP',
+            20 => 'ER_INTERNAL', 21 => 'ER_INCONS', 22 => 'ER_REMOVE', 23 => 'ER_DELETED',
+            24 => 'ER_ENCRNOTSUPP', 25 => 'ER_RDONLY', 26 => 'ER_NOPASSWD',
+            27 => 'ER_WRONGPASSWD', 28 => 'ER_OPNOTSUPP', 29 => 'ER_INUSE',
+            30 => 'ER_TELL', 31 => 'ER_COMPRESSED_DATA', 32 => 'ER_CANCELLED',
+        ];
+        return $map[$code] ?? 'ER_UNKNOWN';
     }
 
     private static function download_telegram_file_streaming(string $url, string $target): void {

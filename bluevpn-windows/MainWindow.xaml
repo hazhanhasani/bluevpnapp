@@ -25,7 +25,7 @@
                 </StackPanel>
             </StackPanel>
             <StackPanel Grid.Column="1" HorizontalAlignment="Left">
-                <TextBlock x:Name="VersionText" Text="v4.15.8" Foreground="{StaticResource BlueVpnMuted}" HorizontalAlignment="Left"/>
+                <TextBlock x:Name="VersionText" Text="v4.15.10" Foreground="{StaticResource BlueVpnMuted}" HorizontalAlignment="Left"/>
                 <TextBlock x:Name="CoreVersionText" Text="Xray: آماده‌سازی نشده" Foreground="{StaticResource BlueVpnMuted}" FontSize="11" HorizontalAlignment="Left"/>
             </StackPanel>
         </Grid>

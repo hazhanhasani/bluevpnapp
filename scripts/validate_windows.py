@@ -34,7 +34,6 @@ def main() -> None:
     app_settings = read("bluevpn-windows/Services/AppSettings.cs")
     device_identity = read("bluevpn-windows/Services/DeviceIdentity.cs")
     connectivity_probe = read("bluevpn-windows/Services/ConnectivityProbe.cs")
-    telegram_delivery = read("scripts/send_windows_telegram.ps1")
 
     version = str(release.get("version", "")).strip()
     require(re.fullmatch(r"\d+\.\d+\.\d+", version) is not None, "invalid release version")
@@ -73,14 +72,16 @@ def main() -> None:
             "Windows ARM64 runtime gate must not execute ARM64 Xray on an x64 runner")
     require("windows-xray-runtime.log" in workflow,
             "Windows workflow must preserve stage-specific Xray runtime diagnostics")
-    require("TELEGRAM_BOT_TOKEN" in workflow and "TELEGRAM_CHAT_ID" in workflow,
-            "Windows workflow must use the existing Telegram release secrets")
-    require("send_windows_telegram.ps1" in workflow,
-            "Windows workflow is missing Telegram package delivery")
-    require("sendDocument" in telegram_delivery and "TelegramDirectLimitBytes" in telegram_delivery,
-            "Windows Telegram delivery helper is incomplete")
-    require("SplitPartSizeBytes" in telegram_delivery and "JOIN-BLUEVPN-PARTS.cmd" in telegram_delivery,
-            "Windows Telegram large-file split fallback is missing")
+    require("publish-windows-release" in workflow and "bluevpn-windows-v${VERSION}" in workflow,
+            "Windows workflow must publish a dedicated website download release")
+    require("actions/download-artifact@v4" in workflow and "merge-multiple: true" in workflow,
+            "Windows release job must merge both architecture artifacts")
+    require("BlueVPN-Windows-${VERSION}-win-x64.zip" in workflow and "BlueVPN-Windows-${VERSION}-win-arm64.zip" in workflow,
+            "Windows website release must contain x64 and ARM64 packages")
+    require("gh release create" in workflow and "gh release upload" in workflow and "--clobber" in workflow,
+            "Windows release publication/refresh contract is incomplete")
+    require("TELEGRAM_BOT_TOKEN" not in workflow and "send_windows_telegram.ps1" not in workflow,
+            "Windows package delivery must not depend on Telegram")
 
     for scheme in ("vless://", "vmess://", "trojan://", "ss://"):
         require(scheme in parser, f"Windows subscription parser missing {scheme}")

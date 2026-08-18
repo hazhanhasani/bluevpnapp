@@ -12,7 +12,7 @@
 <?php $bluevpn_elementor_header = class_exists('BlueVPN_Elementor_Integration') && BlueVPN_Elementor_Integration::render_location('header'); if (!$bluevpn_elementor_header): ?>
   <div class="bv-announcement">
     <div class="bv-shell bv-announcement-inner">
-      <span><i></i> BlueVPN برای Android</span>
+      <span><i></i> BlueVPN برای Android و Windows</span>
       <span class="bv-announcement-note">اتصال ساده، انتخاب هوشمند و پشتیبانی یک‌جا</span>
     </div>
   </div>

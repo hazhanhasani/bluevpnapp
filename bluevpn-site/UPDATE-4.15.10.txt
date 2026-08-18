@@ -1,0 +1,4 @@
+BlueVPN Site 4.15.10
+- Synchronizes Site/Theme version with Android, Manager and Windows 4.15.10.
+- Keeps direct Windows x64/ARM64 download links from the dedicated GitHub Windows release.
+- Telegram deploy ZIP integrity hardening is delivered through BlueVPN Manager 4.15.10.

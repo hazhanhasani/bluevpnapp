@@ -1,13 +1,19 @@
 === BlueVPN Manager ===
-Version: 4.15.8
-Stable tag: 4.15.8
+Version: 4.15.10
+Stable tag: 4.15.10
 Requires PHP: 8.0
 
 
-== 4.15.8 ==
+== 4.15.10 ==
+- Telegram deploy ZIP intake now distinguishes transport truncation from an invalid/corrupt uploaded source archive.
+- Exact expected/received byte parity no longer triggers five pointless re-downloads for structural ZIP failures.
+- Adds EOCD/Central Directory preflight, SHA-256 diagnostics and named ZipArchive/libzip error reporting (for example code 19 = ER_NOZIP).
+- Android, Manager, Theme and Windows release metadata are synchronized on 4.15.10.
+
+== 4.15.9 ==
 - Fixes Windows ARM64 Xray runtime validation on GitHub Actions: ARM64 binaries are PE-validated instead of executed on an x64 runner.
 - Adds stage-specific Xray runtime logs to Telegram failure diagnostics.
-- Android, Manager, Theme and Windows release metadata are synchronized on 4.15.8.
+- Android, Manager, Theme and Windows release metadata are synchronized on 4.15.9.
 
 
 == 4.15.7 ==

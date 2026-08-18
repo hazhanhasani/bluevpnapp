@@ -1,3 +1,4 @@
+using System.Net.Http;
 namespace BlueVPN.Windows.Services;
 
 public static class ConnectivityProbe

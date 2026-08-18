@@ -8,6 +8,7 @@ on:
       - 'branding/app.json'
       - 'release.json'
       - 'scripts/validate_windows.py'
+      - 'scripts/send_windows_telegram.ps1'
       - '.github/workflows/build-windows.yml'
   release:
     types: [published]
@@ -52,6 +53,21 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Compile Windows client
+        shell: pwsh
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          "compile-$env:RID" | Set-Content .bluevpn-windows-stage
+          & dotnet build bluevpn-windows/BlueVPN.Windows.csproj `
+            -c Release `
+            -p:EnableWindowsTargeting=true `
+            -p:DebugType=None `
+            -p:DebugSymbols=false 2>&1 | Tee-Object -FilePath windows-build.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) { exit $code }
+
       - name: Download pinned official Xray runtime
         shell: pwsh
         env:
@@ -59,6 +75,7 @@ jobs:
           XRAY_ASSET: ${{ matrix.xray_asset }}
         run: |
           $ErrorActionPreference = 'Stop'
+          "xray-runtime-${{ matrix.rid }}" | Set-Content .bluevpn-windows-stage
           Remove-Item -Recurse -Force xray-download -ErrorAction SilentlyContinue
           New-Item -ItemType Directory xray-download | Out-Null
           gh release download $env:XRAY_VERSION `
@@ -83,17 +100,20 @@ jobs:
         env:
           RID: ${{ matrix.rid }}
         run: |
-          $ErrorActionPreference = 'Stop'
+          $ErrorActionPreference = 'Continue'
+          "publish-$env:RID" | Set-Content .bluevpn-windows-stage
           $version = (Get-Content release.json | ConvertFrom-Json).version
           $out = "dist/BlueVPN-Windows-$env:RID"
-          dotnet publish bluevpn-windows/BlueVPN.Windows.csproj `
+          & dotnet publish bluevpn-windows/BlueVPN.Windows.csproj `
             -c Release `
             -r $env:RID `
             --self-contained true `
             -p:PublishSingleFile=false `
             -p:DebugType=None `
             -p:DebugSymbols=false `
-            -o $out
+            -o $out 2>&1 | Tee-Object -FilePath windows-publish.log
+          $code = $LASTEXITCODE
+          if ($code -ne 0) { exit $code }
 
           Copy-Item README.md $out/README-BlueVPN.txt -Force
           Copy-Item NOTICE.md $out/NOTICE.txt -Force
@@ -105,6 +125,8 @@ jobs:
         env:
           RID: ${{ matrix.rid }}
         run: |
+          $ErrorActionPreference = 'Stop'
+          "verify-$env:RID" | Set-Content .bluevpn-windows-stage
           $out = "dist/BlueVPN-Windows-$env:RID"
           foreach ($file in @(
             'BlueVPN.exe',
@@ -122,16 +144,79 @@ jobs:
         env:
           RID: ${{ matrix.rid }}
         run: |
+          $ErrorActionPreference = 'Stop'
+          "package-$env:RID" | Set-Content .bluevpn-windows-stage
           $version = (Get-Content release.json | ConvertFrom-Json).version
           $source = "dist/BlueVPN-Windows-$env:RID"
           $zip = "dist/BlueVPN-Windows-$version-$env:RID.zip"
           Compress-Archive -Path "$source/*" -DestinationPath $zip -CompressionLevel Optimal -Force
-          Get-FileHash $zip -Algorithm SHA256 | Format-List
+          $hash = Get-FileHash $zip -Algorithm SHA256
+          "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($zip))" | Set-Content "$zip.sha256"
+          Get-Item $zip | Format-List Name,Length,FullName
+          $hash | Format-List
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
           name: BlueVPN-Windows-${{ matrix.rid }}
-          path: dist/BlueVPN-Windows-*.zip
+          path: |
+            dist/BlueVPN-Windows-*.zip
+            dist/BlueVPN-Windows-*.zip.sha256
           if-no-files-found: error
           retention-days: 14
+
+      - name: Send Windows package to Telegram
+        shell: pwsh
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RID: ${{ matrix.rid }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          "telegram-$env:RID" | Set-Content .bluevpn-windows-stage
+          $version = (Get-Content release.json | ConvertFrom-Json).version
+          $zip = Get-ChildItem -Path dist -File -Filter "BlueVPN-Windows-$version-$env:RID.zip" | Select-Object -First 1
+          if (-not $zip) { throw "Windows package not found for Telegram: $env:RID" }
+          & ./scripts/send_windows_telegram.ps1 `
+            -Package $zip.FullName `
+            -Version $version `
+            -Rid $env:RID `
+            -Architecture $env:ARCH
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Send Windows build failure to Telegram
+        if: ${{ failure() }}
+        continue-on-error: true
+        shell: pwsh
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RID: ${{ matrix.rid }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          if ([string]::IsNullOrWhiteSpace([string]$env:TELEGRAM_BOT_TOKEN) -or [string]::IsNullOrWhiteSpace([string]$env:TELEGRAM_CHAT_ID)) {
+            Write-Host 'Telegram secrets are not configured; skipping Windows failure delivery.'
+            exit 0
+          }
+
+          $version = try { (Get-Content release.json | ConvertFrom-Json).version } catch { 'unknown' }
+          $stage = if (Test-Path .bluevpn-windows-stage) { (Get-Content .bluevpn-windows-stage -Raw).Trim() } else { 'unknown' }
+          $runUrl = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+          $shortSha = if ([string]::IsNullOrWhiteSpace([string]$env:GITHUB_SHA)) { 'unknown' } else { $env:GITHUB_SHA.Substring(0, [Math]::Min(8, $env:GITHUB_SHA.Length)) }
+          $message = "❌ Build ویندوز BlueVPN ناموفق بود`nنسخه: $version`nBuild: #$env:GITHUB_RUN_NUMBER`nمعماری: $env:RID`nمرحله: $stage`nCommit: $shortSha`n$runUrl"
+
+          & curl.exe --fail --silent --show-error --retry 3 --connect-timeout 15 --max-time 120 `
+            --request POST "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendMessage" `
+            --data-urlencode "chat_id=$env:TELEGRAM_CHAT_ID" `
+            --data-urlencode "text=$message" `
+            --data-urlencode 'disable_web_page_preview=true'
+
+          $log = if (Test-Path windows-publish.log) { 'windows-publish.log' } elseif (Test-Path windows-build.log) { 'windows-build.log' } else { $null }
+          if ($log) {
+            & curl.exe --fail --silent --show-error --retry 3 --connect-timeout 15 --max-time 180 `
+              --request POST "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendDocument" `
+              --form "chat_id=$env:TELEGRAM_CHAT_ID" `
+              --form "document=@$log" `
+              --form-string "caption=📎 لاگ Build ویندوز BlueVPN | $env:RID | Build #$env:GITHUB_RUN_NUMBER"
+          }

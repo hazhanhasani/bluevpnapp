@@ -16,6 +16,8 @@ Windows client for the BlueVPN control plane.
 - IPv4 + IPv6 default routing through TUN with `autoSystemRoutingTable` and `autoOutboundsInterface`.
 - Post-connect internet verification before the UI reports Connected.
 - GitHub Actions builds self-contained `win-x64` and `win-arm64` portable ZIPs and bundles the pinned official Xray Windows runtime.
+- Successful Windows builds are delivered to Telegram using the same `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` secrets as Android; oversized archives are automatically split into Telegram-safe parts with a join script.
+- The Windows workflow has a real `dotnet build` compile gate before publish, so C# compile failures cannot pass structural validation.
 
 ## Phase-1 boundary
 

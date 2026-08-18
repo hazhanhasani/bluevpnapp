@@ -40,6 +40,23 @@ class WindowsClient4157Tests(unittest.TestCase):
         self.assertIn("Xray-windows-arm64-v8a.zip", workflow)
         self.assertIn("v26.7.28", workflow)
 
+    def test_windows_compile_gate_and_telegram_delivery_are_enforced(self):
+        api = text("bluevpn-windows/Services/BlueVpnApiClient.cs")
+        probe = text("bluevpn-windows/Services/ConnectivityProbe.cs")
+        workflow = text(".github/workflows/build-windows.yml")
+        telegram = text("scripts/send_windows_telegram.ps1")
+        self.assertIn("using System.Net.Http;", api)
+        self.assertIn("using System.Net.Http;", probe)
+        self.assertIn("dotnet build bluevpn-windows/BlueVPN.Windows.csproj", workflow)
+        self.assertIn("dotnet publish bluevpn-windows/BlueVPN.Windows.csproj", workflow)
+        self.assertIn("TELEGRAM_BOT_TOKEN", workflow)
+        self.assertIn("TELEGRAM_CHAT_ID", workflow)
+        self.assertIn("send_windows_telegram.ps1", workflow)
+        self.assertIn("sendDocument", telegram)
+        self.assertIn("TelegramDirectLimitBytes", telegram)
+        self.assertIn("SplitPartSizeBytes", telegram)
+        self.assertIn("JOIN-BLUEVPN-PARTS.cmd", telegram)
+
     def test_windows_connection_is_verified_before_connected(self):
         c = text("bluevpn-windows/Services/ConnectionOrchestrator.cs")
         self.assertIn("EndpointSelector.RankAsync", c)

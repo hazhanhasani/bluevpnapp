@@ -29,6 +29,9 @@ def main() -> None:
     xray = read("bluevpn-windows/Services/XrayConfigBuilder.cs")
     connection = read("bluevpn-windows/Services/ConnectionOrchestrator.cs")
     workflow = read(".github/workflows/build-windows.yml")
+    api_client = read("bluevpn-windows/Services/BlueVpnApiClient.cs")
+    connectivity_probe = read("bluevpn-windows/Services/ConnectivityProbe.cs")
+    telegram_delivery = read("scripts/send_windows_telegram.ps1")
 
     version = str(release.get("version", "")).strip()
     require(re.fullmatch(r"\d+\.\d+\.\d+", version) is not None, "invalid release version")
@@ -49,6 +52,23 @@ def main() -> None:
             "GitHub workflow does not bundle official Windows Xray/Wintun")
     require("v26.7.28" in workflow and str(settings.get("xray_version")) == "v26.7.28",
             "Windows Xray pin mismatch")
+
+    require("using System.Net.Http;" in api_client,
+            "BlueVpnApiClient must explicitly import System.Net.Http")
+    require("using System.Net.Http;" in connectivity_probe,
+            "ConnectivityProbe must explicitly import System.Net.Http")
+    require("dotnet build bluevpn-windows/BlueVPN.Windows.csproj" in workflow,
+            "Windows workflow must perform a real compile gate before packaging")
+    require("dotnet publish bluevpn-windows/BlueVPN.Windows.csproj" in workflow,
+            "Windows workflow must perform a real publish")
+    require("TELEGRAM_BOT_TOKEN" in workflow and "TELEGRAM_CHAT_ID" in workflow,
+            "Windows workflow must use the existing Telegram release secrets")
+    require("send_windows_telegram.ps1" in workflow,
+            "Windows workflow is missing Telegram package delivery")
+    require("sendDocument" in telegram_delivery and "TelegramDirectLimitBytes" in telegram_delivery,
+            "Windows Telegram delivery helper is incomplete")
+    require("SplitPartSizeBytes" in telegram_delivery and "JOIN-BLUEVPN-PARTS.cmd" in telegram_delivery,
+            "Windows Telegram large-file split fallback is missing")
 
     for scheme in ("vless://", "vmess://", "trojan://", "ss://"):
         require(scheme in parser, f"Windows subscription parser missing {scheme}")

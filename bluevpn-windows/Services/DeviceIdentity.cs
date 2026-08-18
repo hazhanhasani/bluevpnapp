@@ -1,3 +1,4 @@
+using System.IO;
 namespace BlueVPN.Windows.Services;
 
 public static class DeviceIdentity

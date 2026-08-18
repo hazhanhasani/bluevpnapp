@@ -57,6 +57,14 @@ class WindowsClient4157Tests(unittest.TestCase):
         self.assertIn("SplitPartSizeBytes", telegram)
         self.assertIn("JOIN-BLUEVPN-PARTS.cmd", telegram)
 
+    def test_windows_system_io_imports_are_explicit(self):
+        for path in (
+            "bluevpn-windows/Services/XrayProcessController.cs",
+            "bluevpn-windows/Services/AppSettings.cs",
+            "bluevpn-windows/Services/DeviceIdentity.cs",
+        ):
+            self.assertIn("using System.IO;", text(path), path)
+
     def test_windows_connection_is_verified_before_connected(self):
         c = text("bluevpn-windows/Services/ConnectionOrchestrator.cs")
         self.assertIn("EndpointSelector.RankAsync", c)

@@ -30,6 +30,9 @@ def main() -> None:
     connection = read("bluevpn-windows/Services/ConnectionOrchestrator.cs")
     workflow = read(".github/workflows/build-windows.yml")
     api_client = read("bluevpn-windows/Services/BlueVpnApiClient.cs")
+    xray_process = read("bluevpn-windows/Services/XrayProcessController.cs")
+    app_settings = read("bluevpn-windows/Services/AppSettings.cs")
+    device_identity = read("bluevpn-windows/Services/DeviceIdentity.cs")
     connectivity_probe = read("bluevpn-windows/Services/ConnectivityProbe.cs")
     telegram_delivery = read("scripts/send_windows_telegram.ps1")
 
@@ -52,6 +55,9 @@ def main() -> None:
             "GitHub workflow does not bundle official Windows Xray/Wintun")
     require("v26.7.28" in workflow and str(settings.get("xray_version")) == "v26.7.28",
             "Windows Xray pin mismatch")
+
+    for source_name, source_text in (("XrayProcessController.cs", xray_process), ("AppSettings.cs", app_settings), ("DeviceIdentity.cs", device_identity)):
+        require("using System.IO;" in source_text, f"Windows {source_name} must explicitly import System.IO")
 
     require("using System.Net.Http;" in api_client,
             "BlueVpnApiClient must explicitly import System.Net.Http")

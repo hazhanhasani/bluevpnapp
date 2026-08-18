@@ -1,8 +1,14 @@
 === BlueVPN Manager ===
-Version: 4.14.7
-Stable tag: 4.14.7
+Version: 4.14.8
+Stable tag: 4.14.8
 Requires PHP: 8.0
 
+
+== 4.14.8 ==
+- Adds seven independent Tapsell placement Zone IDs: Rewarded Video, Interstitial Video, Pre-roll Video, Native Video, Standard Banner, Interstitial Banner and Native Banner.
+- Mobile Config publishes a typed zones map while preserving the legacy interstitial_zone_id compatibility key.
+- Post-connect Free advertising prefers Interstitial Video and falls back to Interstitial Banner when configured.
+- Zone ID changes are runtime-configurable and do not require rebuilding the APK; only Mediation App ID changes require a new Android build.
 
 == 4.14.7 ==
 - Tapsell Mediation is now the primary Free post-connect ad when enabled; BlueVPN Story is fallback only.

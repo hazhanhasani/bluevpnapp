@@ -42,7 +42,9 @@ object BlueVpnTapsellManager {
     private data class Config(
         val enabled: Boolean,
         val appId: String,
-        val zoneId: String,
+        val zones: Map<String, String>,
+        val postConnectType: String,
+        val postConnectZoneId: String,
         val showAfterConnect: Boolean,
         val minIntervalSeconds: Int,
         val dailyCap: Int,
@@ -51,7 +53,7 @@ object BlueVpnTapsellManager {
             get() = enabled &&
                 showAfterConnect &&
                 appId.isNotBlank() &&
-                zoneId.isNotBlank()
+                postConnectZoneId.isNotBlank()
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -170,6 +172,12 @@ object BlueVpnTapsellManager {
             .put("ready", readyAdId.isNotBlank())
             .put("status", storage.getString(KEY_STATUS, "idle").orEmpty())
             .put("last_error", storage.getString(KEY_LAST_ERROR, "").orEmpty())
+            .put("post_connect_type", config?.postConnectType.orEmpty())
+            .put("configured_zones", JSONObject().apply {
+                config?.zones?.forEach { (type, zoneId) ->
+                    put(type, zoneId.isNotBlank())
+                }
+            })
     }
 
     private fun loadConfig(
@@ -196,7 +204,7 @@ object BlueVpnTapsellManager {
             }.getOrElse {
                 recordStatus(context, "config_error", it.message.orEmpty())
                 Log.w(TAG, "Could not load Tapsell config", it)
-                Config(false, "", "", true, 0, 0)
+                Config(false, "", emptyMap(), "", "", true, 0, 0)
             }
 
             config = loaded
@@ -206,21 +214,63 @@ object BlueVpnTapsellManager {
         }
     }
 
-    private fun parseConfig(value: JSONObject): Config = Config(
-        enabled = value.optBoolean("enabled", false),
-        appId = value.optString(
-            "app_id",
-            value.optString("app_key", ""),
-        ).trim(),
-        zoneId = value.optString("interstitial_zone_id", "").trim(),
-        showAfterConnect = value.optBoolean("show_after_connect", true),
-        minIntervalSeconds = value
-            .optInt("min_interval_seconds", 0)
-            .coerceIn(0, 86_400),
-        dailyCap = value
-            .optInt("daily_cap", 0)
-            .coerceIn(0, 1_000),
-    )
+    private fun parseConfig(value: JSONObject): Config {
+        val zonesObject = value.optJSONObject("zones") ?: JSONObject()
+        val zones = linkedMapOf(
+            "rewarded_video" to zonesObject.optString("rewarded_video", "").trim(),
+            "interstitial_video" to zonesObject.optString("interstitial_video", "").trim(),
+            "pre_roll_video" to zonesObject.optString("pre_roll_video", "").trim(),
+            "native_video" to zonesObject.optString("native_video", "").trim(),
+            "standard_banner" to zonesObject.optString("standard_banner", "").trim(),
+            "interstitial_banner" to zonesObject.optString("interstitial_banner", "").trim(),
+            "native_banner" to zonesObject.optString("native_banner", "").trim(),
+        )
+
+        val compatibilityInterstitial =
+            value.optString("interstitial_zone_id", "").trim()
+
+        val explicitPostConnect =
+            value.optString("post_connect_zone_id", "").trim()
+
+        val postConnectType = when {
+            value.optString("post_connect_type", "").trim().isNotBlank() ->
+                value.optString("post_connect_type", "").trim()
+            zones["interstitial_video"].orEmpty().isNotBlank() ->
+                "interstitial_video"
+            zones["interstitial_banner"].orEmpty().isNotBlank() ->
+                "interstitial_banner"
+            compatibilityInterstitial.isNotBlank() ->
+                "legacy_interstitial"
+            else -> ""
+        }
+
+        val postConnectZoneId = when {
+            explicitPostConnect.isNotBlank() -> explicitPostConnect
+            zones["interstitial_video"].orEmpty().isNotBlank() ->
+                zones["interstitial_video"].orEmpty()
+            zones["interstitial_banner"].orEmpty().isNotBlank() ->
+                zones["interstitial_banner"].orEmpty()
+            else -> compatibilityInterstitial
+        }
+
+        return Config(
+            enabled = value.optBoolean("enabled", false),
+            appId = value.optString(
+                "app_id",
+                value.optString("app_key", ""),
+            ).trim(),
+            zones = zones,
+            postConnectType = postConnectType,
+            postConnectZoneId = postConnectZoneId,
+            showAfterConnect = value.optBoolean("show_after_connect", true),
+            minIntervalSeconds = value
+                .optInt("min_interval_seconds", 0)
+                .coerceIn(0, 86_400),
+            dailyCap = value
+                .optInt("daily_cap", 0)
+                .coerceIn(0, 1_000),
+        )
+    }
 
     /**
      * Tapsell Mediation App ID is part of the Android manifest at build time.
@@ -349,7 +399,7 @@ object BlueVpnTapsellManager {
             // Activity overload supports mediated networks that need Activity
             // context during load, while still working for Tapsell's own network.
             Tapsell.requestInterstitialAd(
-                loaded.zoneId,
+                loaded.postConnectZoneId,
                 activity,
                 object : RequestResultListener {
                     override fun onSuccess(adId: String) {

@@ -91,6 +91,34 @@ class TestCrossComponentReleaseAudit(unittest.TestCase):
 
 
 class CurrentReleaseTests(unittest.TestCase):
+    def test_00_tapsell_has_all_seven_independent_zone_slots(self):
+        ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
+        db = text("bluevpn-manager/includes/class-bluevpn-db.php")
+        android = text("android-source/BlueVpnTapsellManager.kt")
+
+        expected = {
+            "rewarded_video": "tapsell_rewarded_video_zone_id",
+            "interstitial_video": "tapsell_interstitial_video_zone_id",
+            "pre_roll_video": "tapsell_pre_roll_video_zone_id",
+            "native_video": "tapsell_native_video_zone_id",
+            "standard_banner": "tapsell_standard_banner_zone_id",
+            "interstitial_banner": "tapsell_interstitial_banner_zone_id",
+            "native_banner": "tapsell_native_banner_zone_id",
+        }
+
+        for api_key, setting_key in expected.items():
+            self.assertIn("'" + api_key + "'", ads)
+            self.assertIn("'" + setting_key + "'", ads)
+            self.assertIn("'" + setting_key + "' => ''", db)
+            self.assertIn('"' + api_key + '"', android)
+
+        self.assertIn("'zones' => $zones", ads)
+        self.assertIn("'post_connect_type' => $postConnectType", ads)
+        self.assertIn("'post_connect_zone_id' => $enabled ? $postConnectZone", ads)
+        self.assertIn("postConnectZoneId", android)
+        self.assertIn('zones["interstitial_video"]', android)
+        self.assertIn('zones["interstitial_banner"]', android)
+
     def test_00_tapsell_is_primary_and_story_is_fallback(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
         flow = home.split("private fun beginFreeStoryGate(", 1)[1].split(

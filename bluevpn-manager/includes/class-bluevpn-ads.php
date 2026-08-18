@@ -418,16 +418,84 @@ final class BlueVPN_Ads {
         return '';
     }
 
+    private static function tapsell_zone_fields(): array {
+        return [
+            'rewarded_video' => [
+                'setting' => 'tapsell_rewarded_video_zone_id',
+                'label' => 'ویدئو جایزه‌ای (Reward based)',
+            ],
+            'interstitial_video' => [
+                'setting' => 'tapsell_interstitial_video_zone_id',
+                'label' => 'آنی ویدئو (Interstitial video)',
+            ],
+            'pre_roll_video' => [
+                'setting' => 'tapsell_pre_roll_video_zone_id',
+                'label' => 'ویدئو پیش‌نمایشی (Pre-roll video)',
+            ],
+            'native_video' => [
+                'setting' => 'tapsell_native_video_zone_id',
+                'label' => 'ویدئو همسان (Native video)',
+            ],
+            'standard_banner' => [
+                'setting' => 'tapsell_standard_banner_zone_id',
+                'label' => 'بنر استاندارد (Standard banner)',
+            ],
+            'interstitial_banner' => [
+                'setting' => 'tapsell_interstitial_banner_zone_id',
+                'label' => 'بنر آنی (Interstitial banner)',
+            ],
+            'native_banner' => [
+                'setting' => 'tapsell_native_banner_zone_id',
+                'label' => 'بنر همسان (Native banner)',
+            ],
+        ];
+    }
+
+    private static function tapsell_zones(array $settings): array {
+        $zones = [];
+        foreach (self::tapsell_zone_fields() as $type => $meta) {
+            $value = trim((string)($settings[$meta['setting']] ?? ''));
+
+            // Migration: the old single Interstitial field becomes the video
+            // interstitial slot only when its new dedicated value is empty.
+            if (
+                $type === 'interstitial_video' &&
+                $value === ''
+            ) {
+                $value = trim((string)($settings['tapsell_interstitial_zone_id'] ?? ''));
+            }
+
+            $zones[$type] = mb_substr($value, 0, 300);
+        }
+        return $zones;
+    }
+
     public static function tapsell_payload(array $settings): array {
         $appId = self::tapsell_mediation_app_id($settings);
         $legacyAppKey = trim((string)($settings['tapsell_app_key'] ?? ''));
-        $zone = trim((string)($settings['tapsell_interstitial_zone_id'] ?? ''));
+        $zones = self::tapsell_zones($settings);
         $requested = !empty($settings['tapsell_enabled']);
 
-        // Keep app_key during migration so already-installed old APKs do not
-        // break before users update. Current APKs consume app_id.
+        $configuredZones = array_values(array_filter(
+            $zones,
+            static fn($value) => trim((string)$value) !== ''
+        ));
+
+        // Current post-connect full-screen path prefers video Interstitial and
+        // then Interstitial Banner. Other placements have independent Zone IDs
+        // and are exposed to Android for their own surfaces/features.
+        $postConnectType = '';
+        $postConnectZone = '';
+        foreach (['interstitial_video', 'interstitial_banner'] as $candidate) {
+            if (($zones[$candidate] ?? '') !== '') {
+                $postConnectType = $candidate;
+                $postConnectZone = (string)$zones[$candidate];
+                break;
+            }
+        }
+
         $hasAnyCredential = $appId !== '' || $legacyAppKey !== '';
-        $enabled = $requested && $hasAnyCredential && $zone !== '';
+        $enabled = $requested && $hasAnyCredential && !empty($configuredZones);
 
         return [
             'enabled' => $enabled,
@@ -435,13 +503,22 @@ final class BlueVPN_Ads {
             'sdk_version' => '1.4.0-alpha03',
             'app_id' => $appId,
             'app_key' => $legacyAppKey,
-            'interstitial_zone_id' => $enabled ? $zone : '',
+            'zones' => $zones,
+            'configured_zone_count' => count($configuredZones),
+            'post_connect_type' => $postConnectType,
+            'post_connect_zone_id' => $enabled ? $postConnectZone : '',
+
+            // Compatibility for 4.14.6/4.14.7 Android clients.
+            'interstitial_zone_id' => $enabled ? $postConnectZone : '',
+
             'show_after_connect' => !array_key_exists('tapsell_show_after_connect', $settings) || !empty($settings['tapsell_show_after_connect']),
             'free_only' => true,
             'min_interval_seconds' => max(0, min(86400, (int)($settings['tapsell_min_interval_seconds'] ?? 0))),
             'daily_cap' => max(0, min(1000, (int)($settings['tapsell_daily_cap'] ?? 0))),
             'build_embed_required' => true,
-            'disabled_reason' => $enabled ? '' : ($requested ? 'missing_mediation_app_id_or_zone' : 'disabled'),
+            'disabled_reason' => $enabled
+                ? ''
+                : ($requested ? 'missing_mediation_app_id_or_zone' : 'disabled'),
         ];
     }
 
@@ -746,7 +823,17 @@ final class BlueVPN_Ads {
         $s['ads_height_dp'] = max(116, min(160, (int)($_POST['ads_height_dp'] ?? 146)));
         $s['tapsell_enabled'] = isset($_POST['tapsell_enabled']);
         $s['tapsell_app_id'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_app_id'] ?? '')), 0, 200);
-        $s['tapsell_interstitial_zone_id'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_interstitial_zone_id'] ?? '')), 0, 300);
+        foreach (self::tapsell_zone_fields() as $meta) {
+            $setting = (string)$meta['setting'];
+            $s[$setting] = mb_substr(
+                trim((string)wp_unslash($_POST[$setting] ?? '')),
+                0,
+                300
+            );
+        }
+
+        // Keep old API setting synchronized during the migration window.
+        $s['tapsell_interstitial_zone_id'] = (string)($s['tapsell_interstitial_video_zone_id'] ?? '');
         $s['tapsell_show_after_connect'] = isset($_POST['tapsell_show_after_connect']);
         $s['tapsell_min_interval_seconds'] = max(0, min(86400, (int)($_POST['tapsell_min_interval_seconds'] ?? 0)));
         $s['tapsell_daily_cap'] = max(0, min(1000, (int)($_POST['tapsell_daily_cap'] ?? 0)));
@@ -1075,8 +1162,27 @@ final class BlueVPN_Ads {
         echo '<div class="bvc-card"><h2>تنظیمات نمایش و Tapsell</h2><form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_ads_save'); echo '<input type="hidden" name="action" value="bluevpn_ads_save"><div class="bvc-form-grid">';
         self::checkbox('ads_enabled', 'نمایش بنرهای داخل اپ', !empty($s['ads_enabled'])); self::checkbox('ads_autoplay', 'تعویض خودکار', !empty($s['ads_autoplay'])); self::checkbox('ads_loop', 'تکرار اسلایدها', !empty($s['ads_loop']));
         self::number('ads_interval_seconds', 'فاصله اسلاید (ثانیه)', (int)($s['ads_interval_seconds'] ?? 6), 3, 30); self::number('ads_height_dp', 'ارتفاع بنر (dp)', (int)($s['ads_height_dp'] ?? 146), 116, 160);
-        self::checkbox('tapsell_enabled', 'فعال‌سازی Tapsell Mediation', !empty($s['tapsell_enabled'])); self::text('tapsell_app_id', 'Tapsell Mediation App ID', self::tapsell_mediation_app_id($s)); self::text('tapsell_interstitial_zone_id', 'Interstitial Zone ID', (string)($s['tapsell_interstitial_zone_id'] ?? '')); self::checkbox('tapsell_show_after_connect', 'نمایش بعد از اتصال موفق', !array_key_exists('tapsell_show_after_connect', $s) || !empty($s['tapsell_show_after_connect'])); self::number('tapsell_min_interval_seconds', 'حداقل فاصله Tapsell', (int)($s['tapsell_min_interval_seconds'] ?? 0), 0, 86400); self::number('tapsell_daily_cap', 'سقف روزانه (۰=نامحدود)', (int)($s['tapsell_daily_cap'] ?? 0), 0, 1000);
-        echo '</div><div class="bvc-note" style="margin-top:12px">BlueVPN اکنون از Tapsell Mediation استفاده می‌کند. مقدار Mediation App ID با App Key قدیمی Tapsell Plus یکی نیست. پس از ذخیره App ID، پروژه کامل را یک‌بار با ربات BlueVPN Deploy کنید تا شناسه داخل APK بعدی قرار بگیرد.</div><div style="margin-top:14px">'; submit_button('ذخیره تنظیمات تبلیغات', 'primary', 'submit', false); echo '</div></form></div>';
+        self::checkbox('tapsell_enabled', 'فعال‌سازی Tapsell Mediation', !empty($s['tapsell_enabled']));
+        self::text('tapsell_app_id', 'Tapsell Mediation App ID', self::tapsell_mediation_app_id($s));
+        self::checkbox('tapsell_show_after_connect', 'نمایش تبلیغ تمام‌صفحه بعد از اتصال موفق', !array_key_exists('tapsell_show_after_connect', $s) || !empty($s['tapsell_show_after_connect']));
+        self::number('tapsell_min_interval_seconds', 'حداقل فاصله Tapsell', (int)($s['tapsell_min_interval_seconds'] ?? 0), 0, 86400);
+        self::number('tapsell_daily_cap', 'سقف روزانه (۰=نامحدود)', (int)($s['tapsell_daily_cap'] ?? 0), 0, 1000);
+        echo '</div>';
+
+        echo '<div class="bvc-note" style="margin-top:12px">هر نوع تبلیغ در پنل Tapsell یک Zone ID مستقل دارد. Zone هر تبلیغ را دقیقاً در جایگاه متناظر زیر وارد کنید. برای تبلیغ بعد از اتصال رایگان، BlueVPN ابتدا «آنی ویدئو» و در صورت خالی‌بودن آن «بنر آنی» را استفاده می‌کند.</div>';
+        echo '<h3 style="margin:18px 0 10px">جایگاه‌های مستقل Tapsell</h3><div class="bvc-form-grid">';
+        $tapsellZones = self::tapsell_zones($s);
+        foreach (self::tapsell_zone_fields() as $type => $meta) {
+            $setting = (string)$meta['setting'];
+            self::text(
+                $setting,
+                (string)$meta['label'] . ' — Zone ID',
+                (string)($tapsellZones[$type] ?? '')
+            );
+        }
+        echo '</div>';
+
+        echo '<div class="bvc-note" style="margin-top:12px">Mediation App ID با App Key قدیمی Tapsell Plus یکی نیست. پس از تغییر App ID، پروژه کامل را یک‌بار با ربات BlueVPN Deploy کنید تا شناسه داخل APK بعدی Embed شود. تغییر Zone IDها نیاز به Build جدید APK ندارد و از Mobile Config دریافت می‌شود.</div><div style="margin-top:14px">'; submit_button('ذخیره تنظیمات تبلیغات', 'primary', 'submit', false); echo '</div></form></div>';
 
         $storyItems = self::story_items($s);
         $storyPayload = self::free_story_payload($s);

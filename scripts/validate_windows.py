@@ -67,6 +67,12 @@ def main() -> None:
             "Windows workflow must perform a real compile gate before packaging")
     require("dotnet publish bluevpn-windows/BlueVPN.Windows.csproj" in workflow,
             "Windows workflow must perform a real publish")
+    require("Get-PeMachine" in workflow and "0xAA64" in workflow and "0x8664" in workflow,
+            "Windows workflow must architecture-validate Xray/Wintun PE binaries")
+    require("execution is intentionally skipped on the x64 GitHub runner" in workflow,
+            "Windows ARM64 runtime gate must not execute ARM64 Xray on an x64 runner")
+    require("windows-xray-runtime.log" in workflow,
+            "Windows workflow must preserve stage-specific Xray runtime diagnostics")
     require("TELEGRAM_BOT_TOKEN" in workflow and "TELEGRAM_CHAT_ID" in workflow,
             "Windows workflow must use the existing Telegram release secrets")
     require("send_windows_telegram.ps1" in workflow,

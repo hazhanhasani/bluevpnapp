@@ -68,32 +68,76 @@ jobs:
           $code = $LASTEXITCODE
           if ($code -ne 0) { exit $code }
 
-      - name: Download pinned official Xray runtime
+      - name: Download and validate pinned official Xray runtime
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
           XRAY_ASSET: ${{ matrix.xray_asset }}
+          RID: ${{ matrix.rid }}
         run: |
           $ErrorActionPreference = 'Stop'
-          "xray-runtime-${{ matrix.rid }}" | Set-Content .bluevpn-windows-stage
-          Remove-Item -Recurse -Force xray-download -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory xray-download | Out-Null
-          gh release download $env:XRAY_VERSION `
-            --repo XTLS/Xray-core `
-            --pattern $env:XRAY_ASSET `
-            --dir xray-download
-          $zip = Join-Path 'xray-download' $env:XRAY_ASSET
-          Expand-Archive -Path $zip -DestinationPath xray-download/runtime -Force
+          "xray-runtime-$env:RID" | Set-Content .bluevpn-windows-stage
+          Start-Transcript -Path windows-xray-runtime.log -Force | Out-Null
+          try {
+            Remove-Item -Recurse -Force xray-download -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory xray-download | Out-Null
+            Write-Host "Downloading official Xray $env:XRAY_VERSION asset $env:XRAY_ASSET for $env:RID"
+            gh release download $env:XRAY_VERSION `
+              --repo XTLS/Xray-core `
+              --pattern $env:XRAY_ASSET `
+              --dir xray-download
+            if ($LASTEXITCODE -ne 0) { throw "gh release download failed with exit code $LASTEXITCODE" }
 
-          $target = 'bluevpn-windows/runtime'
-          New-Item -ItemType Directory $target -Force | Out-Null
-          foreach ($name in @('xray.exe','wintun.dll','geoip.dat','geosite.dat')) {
-            $source = Get-ChildItem -Path 'xray-download/runtime' -Recurse -File -Filter $name | Select-Object -First 1
-            if (-not $source) { throw "Pinned Xray package is missing $name" }
-            Copy-Item $source.FullName (Join-Path $target $name) -Force
+            $zip = Join-Path 'xray-download' $env:XRAY_ASSET
+            if (-not (Test-Path $zip)) { throw "Pinned Xray asset was not downloaded: $env:XRAY_ASSET" }
+            Expand-Archive -Path $zip -DestinationPath xray-download/runtime -Force
+
+            $target = 'bluevpn-windows/runtime'
+            New-Item -ItemType Directory $target -Force | Out-Null
+            foreach ($name in @('xray.exe','wintun.dll','geoip.dat','geosite.dat')) {
+              $source = Get-ChildItem -Path 'xray-download/runtime' -Recurse -File -Filter $name | Select-Object -First 1
+              if (-not $source) { throw "Pinned Xray package is missing $name" }
+              Copy-Item $source.FullName (Join-Path $target $name) -Force
+            }
+
+            function Get-PeMachine([string]$Path) {
+              $stream = [System.IO.File]::OpenRead($Path)
+              try {
+                $reader = [System.IO.BinaryReader]::new($stream)
+                $stream.Position = 0x3C
+                $peOffset = $reader.ReadInt32()
+                $stream.Position = $peOffset
+                $signature = $reader.ReadUInt32()
+                if ($signature -ne 0x00004550) { throw "Not a valid PE binary: $Path" }
+                $machine = $reader.ReadUInt16()
+                return ('0x{0:X4}' -f $machine)
+              } finally {
+                $stream.Dispose()
+              }
+            }
+
+            $expectedMachine = if ($env:RID -eq 'win-arm64') { '0xAA64' } else { '0x8664' }
+            foreach ($binary in @('xray.exe','wintun.dll')) {
+              $binaryPath = Join-Path $target $binary
+              $actualMachine = Get-PeMachine $binaryPath
+              Write-Host "$binary PE machine: $actualMachine (expected $expectedMachine for $env:RID)"
+              if ($actualMachine -ne $expectedMachine) {
+                throw "$binary architecture mismatch: expected $expectedMachine for $env:RID, got $actualMachine"
+              }
+            }
+
+            if ($env:RID -eq 'win-x64') {
+              & (Join-Path $target 'xray.exe') version
+              if ($LASTEXITCODE -ne 0) { throw "x64 Xray runtime self-check failed with exit code $LASTEXITCODE" }
+            } else {
+              Write-Host 'ARM64 Xray runtime validated by PE machine type; execution is intentionally skipped on the x64 GitHub runner.'
+            }
+          } catch {
+            Write-Error $_
+            throw
+          } finally {
+            Stop-Transcript | Out-Null
           }
-
-          & (Join-Path $target 'xray.exe') version
 
       - name: Publish self-contained Windows client
         shell: pwsh
@@ -212,7 +256,17 @@ jobs:
             --data-urlencode "text=$message" `
             --data-urlencode 'disable_web_page_preview=true'
 
-          $log = if (Test-Path windows-publish.log) { 'windows-publish.log' } elseif (Test-Path windows-build.log) { 'windows-build.log' } else { $null }
+          $log = if ($stage -like 'xray-runtime-*' -and (Test-Path windows-xray-runtime.log)) {
+            'windows-xray-runtime.log'
+          } elseif ($stage -like 'publish-*' -and (Test-Path windows-publish.log)) {
+            'windows-publish.log'
+          } elseif (Test-Path windows-build.log) {
+            'windows-build.log'
+          } elseif (Test-Path windows-xray-runtime.log) {
+            'windows-xray-runtime.log'
+          } else {
+            $null
+          }
           if ($log) {
             & curl.exe --fail --silent --show-error --retry 3 --connect-timeout 15 --max-time 180 `
               --request POST "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendDocument" `

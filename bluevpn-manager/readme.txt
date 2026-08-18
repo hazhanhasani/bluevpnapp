@@ -1,7 +1,13 @@
 === BlueVPN Manager ===
-Version: 4.15.7
-Stable tag: 4.15.7
+Version: 4.15.8
+Stable tag: 4.15.8
 Requires PHP: 8.0
+
+
+== 4.15.8 ==
+- Fixes Windows ARM64 Xray runtime validation on GitHub Actions: ARM64 binaries are PE-validated instead of executed on an x64 runner.
+- Adds stage-specific Xray runtime logs to Telegram failure diagnostics.
+- Android, Manager, Theme and Windows release metadata are synchronized on 4.15.8.
 
 
 == 4.15.7 ==

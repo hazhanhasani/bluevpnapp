@@ -12,11 +12,11 @@ class WindowsClient4157Tests(unittest.TestCase):
     def test_release_versions_are_unified(self):
         release = json.loads(text("release.json"))
         branding = json.loads(text("branding/app.json"))
-        self.assertEqual(release["version"], "4.15.7")
-        self.assertEqual(release["windows_version"], "4.15.7")
-        self.assertEqual(release["windows_version_code"], 41507)
-        self.assertEqual(branding["version_name"], "4.15.7")
-        self.assertIn("<Version>4.15.7</Version>", text("bluevpn-windows/BlueVPN.Windows.csproj"))
+        self.assertEqual(release["version"], "4.15.8")
+        self.assertEqual(release["windows_version"], "4.15.8")
+        self.assertEqual(release["windows_version_code"], 41508)
+        self.assertEqual(branding["version_name"], "4.15.8")
+        self.assertIn("<Version>4.15.8</Version>", text("bluevpn-windows/BlueVPN.Windows.csproj"))
 
     def test_windows_client_uses_existing_bluevpn_control_plane(self):
         api = text("bluevpn-windows/Services/BlueVpnApiClient.cs")
@@ -49,6 +49,11 @@ class WindowsClient4157Tests(unittest.TestCase):
         self.assertIn("using System.Net.Http;", probe)
         self.assertIn("dotnet build bluevpn-windows/BlueVPN.Windows.csproj", workflow)
         self.assertIn("dotnet publish bluevpn-windows/BlueVPN.Windows.csproj", workflow)
+        self.assertIn("Get-PeMachine", workflow)
+        self.assertIn("0xAA64", workflow)
+        self.assertIn("0x8664", workflow)
+        self.assertIn("windows-xray-runtime.log", workflow)
+        self.assertIn("execution is intentionally skipped on the x64 GitHub runner", workflow)
         self.assertIn("TELEGRAM_BOT_TOKEN", workflow)
         self.assertIn("TELEGRAM_CHAT_ID", workflow)
         self.assertIn("send_windows_telegram.ps1", workflow)

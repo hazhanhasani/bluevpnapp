@@ -1,0 +1,4 @@
+BlueVPN Site 4.15.8
+- Synchronizes Site/Theme version with Android, Manager and Windows 4.15.8.
+- Windows CI hotfix validates ARM64 Xray runtime by PE machine type instead of executing it on an x64 runner.
+- No functional website behavior changes in this hotfix.

@@ -620,6 +620,20 @@ final class BlueVPN_Ads {
         $mode = sanitize_key((string)($settings['free_warp_mode'] ?? 'warp_fallback_pool'));
         if (!in_array($mode, ['warp_only', 'warp_fallback_pool', 'pool_only'], true)) $mode = 'warp_fallback_pool';
 
+        // Normalize optional WARP settings once. Reading a missing array key again
+        // from the true side of a ternary can emit PHP 8.x E_WARNING even when
+        // the null-coalescing fallback used for validation is valid.
+        $scanMode = sanitize_key((string)($settings['free_warp_scan_mode'] ?? 'turbo'));
+        if (!in_array($scanMode, ['turbo','balanced','thorough','stealth','ironclad'], true)) $scanMode = 'turbo';
+        $ipMode = sanitize_key((string)($settings['free_warp_ip_mode'] ?? 'auto'));
+        if (!in_array($ipMode, ['auto','v4','dual'], true)) $ipMode = 'auto';
+        $fragmentSize = (string)($settings['free_warp_fragment_size'] ?? '8-24');
+        if (!preg_match('/^\d{1,3}(?:-\d{1,3})?$/', $fragmentSize)) $fragmentSize = '8-24';
+        $fragmentDelay = (string)($settings['free_warp_fragment_delay'] ?? '5-15');
+        if (!preg_match('/^\d{1,3}(?:-\d{1,3})?$/', $fragmentDelay)) $fragmentDelay = '5-15';
+        $noizeProfile = sanitize_key((string)($settings['free_warp_noize_profile'] ?? 'firewall'));
+        if (!in_array($noizeProfile, ['off','light','balanced','aggressive','firewall','gfw'], true)) $noizeProfile = 'firewall';
+
         $warpEnabled =
             $mode !== 'pool_only' &&
             (!array_key_exists('free_warp_enabled', $settings) || !empty($settings['free_warp_enabled']));
@@ -686,18 +700,18 @@ final class BlueVPN_Ads {
                 'endpoint_probe_seconds' => max(3, min(8, (int)($settings['free_warp_endpoint_probe_seconds'] ?? 5))),
                 'quick_reconnect' => !array_key_exists('free_warp_quick_reconnect',$settings) || !empty($settings['free_warp_quick_reconnect']),
                 'allowed_transports' => array_values(array_intersect((array)($settings['free_warp_allowed_transports'] ?? ['h3','h2','h2_fragment','wireguard']), ['h3','h2','h2_fragment','wireguard','gool'])),
-                'scan_mode' => in_array(($settings['free_warp_scan_mode'] ?? 'turbo'), ['turbo','balanced','thorough','stealth','ironclad'], true) ? $settings['free_warp_scan_mode'] : 'turbo',
-                'ip_mode' => in_array(($settings['free_warp_ip_mode'] ?? 'auto'), ['auto','v4','dual'], true) ? $settings['free_warp_ip_mode'] : 'auto',
+                'scan_mode' => $scanMode,
+                'ip_mode' => $ipMode,
                 'h2_enabled' => !array_key_exists('free_warp_h2_enabled',$settings) || !empty($settings['free_warp_h2_enabled']),
                 'fragment_enabled' => !array_key_exists('free_warp_fragment_enabled',$settings) || !empty($settings['free_warp_fragment_enabled']),
-                'fragment_size' => preg_match('/^\d{1,3}(?:-\d{1,3})?$/', (string)($settings['free_warp_fragment_size'] ?? '8-24')) ? (string)$settings['free_warp_fragment_size'] : '8-24',
-                'fragment_delay' => preg_match('/^\d{1,3}(?:-\d{1,3})?$/', (string)($settings['free_warp_fragment_delay'] ?? '5-15')) ? (string)$settings['free_warp_fragment_delay'] : '5-15',
+                'fragment_size' => $fragmentSize,
+                'fragment_delay' => $fragmentDelay,
                 'wireguard_enabled' => !array_key_exists('free_warp_wireguard_enabled',$settings) || !empty($settings['free_warp_wireguard_enabled']),
                 'warp_in_warp_enabled' => !empty($settings['free_warp_gool_enabled']),
                 'warm_timeout_seconds' => max(4, min(12, (int)($settings['free_warp_warm_timeout_seconds'] ?? 8))),
                 'cold_timeout_seconds' => max(15, min(40, (int)($settings['free_warp_cold_timeout_seconds'] ?? 30))),
                 'total_timeout_seconds' => max(30, min(90, (int)($settings['free_warp_total_timeout_seconds'] ?? 75))),
-                'noize_profile' => in_array(($settings['free_warp_noize_profile'] ?? 'firewall'), ['off','light','balanced','aggressive','firewall','gfw'], true) ? $settings['free_warp_noize_profile'] : 'firewall',
+                'noize_profile' => $noizeProfile,
                 'require_exit_trace' => !array_key_exists('free_warp_require_exit_trace', $settings) || !empty($settings['free_warp_require_exit_trace']),
                 'blocked_exit_countries' => array_values(array_unique(array_filter(array_map(static function($code){ $code = strtoupper(trim((string)$code)); return preg_match('/^[A-Z]{2}$/', $code) ? $code : ''; }, (array)($settings['free_warp_blocked_exit_countries'] ?? []))))),
                 'provider' => 'Cloudflare WARP',
@@ -1200,8 +1214,10 @@ final class BlueVPN_Ads {
         $blocked = array_values(array_unique(array_filter(array_map('trim', $blocked), static fn($code) => (bool)preg_match('/^[A-Z]{2}$/', $code))));
         // Empty is authoritative: admins may intentionally allow every WARP exit country, including IR.
         $s['free_warp_blocked_exit_countries'] = $blocked;
-        $s['free_warp_scan_mode'] = in_array(sanitize_key((string)($_POST['free_warp_scan_mode'] ?? 'turbo')), ['turbo','balanced','thorough','stealth','ironclad'], true) ? sanitize_key((string)$_POST['free_warp_scan_mode']) : 'turbo';
-        $s['free_warp_ip_mode'] = in_array(sanitize_key((string)($_POST['free_warp_ip_mode'] ?? 'auto')), ['auto','v4','dual'], true) ? sanitize_key((string)$_POST['free_warp_ip_mode']) : 'auto';
+        $scanMode = sanitize_key((string)wp_unslash($_POST['free_warp_scan_mode'] ?? 'turbo'));
+        $s['free_warp_scan_mode'] = in_array($scanMode, ['turbo','balanced','thorough','stealth','ironclad'], true) ? $scanMode : 'turbo';
+        $ipMode = sanitize_key((string)wp_unslash($_POST['free_warp_ip_mode'] ?? 'auto'));
+        $s['free_warp_ip_mode'] = in_array($ipMode, ['auto','v4','dual'], true) ? $ipMode : 'auto';
         $s['free_warp_warm_timeout_seconds'] = max(4,min(12,(int)($_POST['free_warp_warm_timeout_seconds'] ?? 8)));
         $s['free_warp_cold_timeout_seconds'] = max(15,min(40,(int)($_POST['free_warp_cold_timeout_seconds'] ?? 30)));
         $s['free_warp_total_timeout_seconds'] = max(30,min(90,(int)($_POST['free_warp_total_timeout_seconds'] ?? 75)));

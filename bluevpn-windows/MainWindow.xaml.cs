@@ -251,11 +251,22 @@ public partial class MainWindow : Window
         await RefreshPlansSafeAsync();
     });
 
-    private void Logout_Click(object sender, RoutedEventArgs e)
+    private async void Logout_Click(object sender, RoutedEventArgs e)
     {
         _connectCts?.Cancel();
         _connection.Disconnect();
-        _api.Logout();
+        FooterStatus.Text = "در حال خروج از حساب…";
+        try
+        {
+            using var logoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
+            await _api.LogoutAsync(logoutCts.Token);
+        }
+        catch
+        {
+            // Logout remains locally deterministic. The backend also repairs old
+            // orphan rows on the next valid login.
+            _api.ClearLocalSession();
+        }
         _account = null;
         LoginPanel.Visibility = Visibility.Visible;
         AccountPanel.Visibility = Visibility.Collapsed;

@@ -1,7 +1,14 @@
 === BlueVPN Manager ===
-Version: 4.17.10
-Stable tag: 4.17.10
+Version: 4.18.0
+Stable tag: 4.18.0
 Requires PHP: 8.0
+
+== 4.18.0 ==
+- Logout now removes the authenticated device sessions and releases its device slot immediately.
+- Legacy orphaned app device rows left active by older logout logic are self-healed before enforcing device limits.
+- Missing Free WARP scan/IP mode form fields are handled safely without PHP 8.4 undefined-array-key warnings.
+- Windows logout now revokes the server session before clearing local authentication state.
+- Windows control-plane requests prefer a direct path and can retry through the system proxy on transport/TLS failures without bypassing certificate validation.
 
 == 4.17.10 ==
 - WordPress/MySQL `customers.subscription_expire` is now the only authoritative paid entitlement expiry.

@@ -88,6 +88,7 @@
     "test_windows_stability_4177.py",
     "test_windows_story_ad_readiness_4178.py",
     "test_windows_update_storage_4179.py",
-    "test_windows_v2rayn_warp_installer_4162.py"
+    "test_windows_v2rayn_warp_installer_4162.py",
+    "test_session_logout_php_windows_4180.py"
   ]
 }

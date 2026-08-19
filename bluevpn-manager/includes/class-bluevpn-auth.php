@@ -163,6 +163,11 @@ final class BlueVPN_Auth {
             $device_id
         ), ARRAY_A);
         $is_new_device = !$device;
+
+        // Self-heal rows left behind by older logout implementations. A device
+        // with neither a usable refresh token nor a live session must not keep
+        // consuming a VPN device slot forever.
+        self::prune_orphaned_app_devices($customer_id);
         $active_count = (int)$wpdb->get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM {$devices} WHERE customer_id=%d AND active=1 AND client_type='app'",
             $customer_id
@@ -345,32 +350,64 @@ final class BlueVPN_Auth {
     public static function logout(WP_REST_Request $request): void {
         global $wpdb;
         $raw = self::bearer_token($request);
-        if ($raw === '') {
-            return;
-        }
+        if ($raw === '') return;
+
         $sessions = BlueVPN_DB::table('customer_sessions');
         $devices = BlueVPN_DB::table('customer_devices');
         $session = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$sessions} WHERE token_hash=%s LIMIT 1",
             self::token_hash($raw)
         ), ARRAY_A);
-        if (!$session) {
-            return;
-        }
-        $wpdb->update($sessions, ['revoked_at' => BlueVPN_Utils::now_mysql()], ['id' => (int)$session['id']]);
-        $deviceId = trim((string)$request->get_header('x-device-id')) ?: (string)$session['device_id'];
-        $device = $wpdb->get_row($wpdb->prepare(
-            "SELECT id FROM {$devices} WHERE customer_id=%d AND device_id=%s LIMIT 1",
-            (int)$session['customer_id'], $deviceId
-        ), ARRAY_A);
-        if ($device) {
-            $wpdb->update($devices, [
-                'refresh_token_hash' => '',
-                'refresh_expires_at' => null,
-                'previous_refresh_token_hash' => '',
-                'previous_refresh_expires_at' => null,
-            ], ['id' => (int)$device['id']]);
-        }
+        if (!$session) return;
+
+        $customerId = (int)$session['customer_id'];
+        // Never trust a caller-supplied X-Device-Id to choose which device gets
+        // released. The authenticated session itself is the authoritative owner.
+        $deviceId = mb_substr(trim((string)$session['device_id']), 0, 180);
+        $now = BlueVPN_Utils::now_mysql();
+
+        // Explicit logout is a real device-slot release, not just token cleanup.
+        // Delete every access session for this exact app/web device so it
+        // disappears from the session list immediately and cannot remain stale.
+        $wpdb->query($wpdb->prepare(
+            "DELETE FROM {$sessions} WHERE customer_id=%d AND device_id=%s",
+            $customerId,
+            $deviceId
+        ));
+        $wpdb->update($devices, [
+            'active' => 0,
+            'refresh_token_hash' => '',
+            'refresh_expires_at' => null,
+            'previous_refresh_token_hash' => '',
+            'previous_refresh_expires_at' => null,
+            'last_seen_at' => $now,
+        ], ['customer_id' => $customerId, 'device_id' => $deviceId]);
+    }
+
+    private static function prune_orphaned_app_devices(int $customerId): void {
+        global $wpdb;
+        if ($customerId <= 0) return;
+        $devices = BlueVPN_DB::table('customer_devices');
+        $sessions = BlueVPN_DB::table('customer_sessions');
+        $now = BlueVPN_Utils::now_mysql();
+        // Compatibility repair for sessions created by <=4.17.10: logout used
+        // to clear refresh hashes while leaving customer_devices.active=1.
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$devices} d
+             SET d.active=0,
+                 d.refresh_token_hash='', d.refresh_expires_at=NULL,
+                 d.previous_refresh_token_hash='', d.previous_refresh_expires_at=NULL
+             WHERE d.customer_id=%d AND d.client_type='app' AND d.active=1
+               AND (d.refresh_token_hash='' OR d.refresh_expires_at IS NULL OR d.refresh_expires_at<=%s)
+               AND NOT EXISTS (
+                   SELECT 1 FROM {$sessions} s
+                   WHERE s.customer_id=d.customer_id AND s.device_id=d.device_id
+                     AND s.revoked_at IS NULL AND s.expires_at IS NOT NULL AND s.expires_at>%s
+               )",
+            $customerId,
+            $now,
+            $now
+        ));
     }
 
     private static function rate_limit_key(string $scope, string $identity): string {
@@ -435,8 +472,9 @@ final class BlueVPN_Auth {
         $sessions = BlueVPN_DB::table('customer_sessions');
         $devices = BlueVPN_DB::table('customer_devices');
         $count = (int)$wpdb->query($wpdb->prepare("UPDATE {$sessions} SET revoked_at=%s WHERE customer_id=%d AND revoked_at IS NULL",$now,$customerId));
-        $data = ['refresh_token_hash'=>'','refresh_expires_at'=>null,'previous_refresh_token_hash'=>'','previous_refresh_expires_at'=>null];
-        if ($disableDevices) $data['active']=0;
+        // Forced logout must release device slots too. active=0 is not a ban:
+        // issue_session() reactivates the same device on the next valid login.
+        $data = ['active'=>0,'refresh_token_hash'=>'','refresh_expires_at'=>null,'previous_refresh_token_hash'=>'','previous_refresh_expires_at'=>null];
         $wpdb->update($devices,$data,['customer_id'=>$customerId]);
         return max(0,$count);
     }

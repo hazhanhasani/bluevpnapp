@@ -1,6 +1,6 @@
-# BlueVPN for Windows — 4.17.10
+# BlueVPN for Windows — 4.18.0
 
-## 4.17.10 stability pass
+## 4.18.0 stability pass
 
 - Android home-layout parity adapted to desktop without changing the BlueVPN visual hierarchy.
 - Non-blocking metrics/ad/runtime work to reduce UI stalls.

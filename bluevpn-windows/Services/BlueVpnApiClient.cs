@@ -1,6 +1,7 @@
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
+using System.Security.Authentication;
 using System.Text;
 using System.Text.Json;
 using BlueVPN.Windows.Models;
@@ -9,7 +10,8 @@ namespace BlueVPN.Windows.Services;
 
 public sealed class BlueVpnApiClient : IDisposable
 {
-    private readonly HttpClient _http;
+    private readonly HttpClient _directHttp;
+    private readonly HttpClient _systemProxyHttp;
     private readonly AppSettings _settings;
     private string _token = "";
     private string _otpChallengeId = "";
@@ -17,18 +19,16 @@ public sealed class BlueVpnApiClient : IDisposable
     public BlueVpnApiClient(AppSettings settings)
     {
         _settings = settings;
-        _http = new HttpClient(new HttpClientHandler
-        {
-            AllowAutoRedirect = true,
-            AutomaticDecompression = System.Net.DecompressionMethods.All
-        })
-        {
-            BaseAddress = new Uri(settings.ApiBaseUrl.TrimEnd('/') + "/"),
-            Timeout = TimeSpan.FromSeconds(20)
-        };
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd($"BlueVPN-Windows/{settings.Version}");
-        _http.DefaultRequestHeaders.Add("X-BlueVPN-Platform", "windows");
-        _http.DefaultRequestHeaders.Add("X-Device-Id", DeviceIdentity.GetOrCreate());
+        var baseAddress = new Uri(settings.ApiBaseUrl.TrimEnd('/') + "/");
+
+        // A VPN client must not depend on a stale Windows system proxy. Previous
+        // v2rayN/other proxy clients can leave WinINET proxy state pointing to a
+        // local port that is no longer listening; HttpClient then surfaces this as
+        // an SSL/TLS failure while ordinary direct Internet access is healthy.
+        // Prefer a clean direct control-plane path, then retry once through the
+        // Windows proxy for networks where a legitimate system proxy is required.
+        _directHttp = CreateHttpClient(baseAddress, settings.Version, useSystemProxy: false);
+        _systemProxyHttp = CreateHttpClient(baseAddress, settings.Version, useSystemProxy: true);
     }
 
     public bool IsAuthenticated => !string.IsNullOrWhiteSpace(_token);
@@ -126,11 +126,59 @@ public sealed class BlueVpnApiClient : IDisposable
         return await GetAsync<WindowsUpdateResponse>(path, ct);
     }
 
-    public void Logout()
+    public async Task LogoutAsync(CancellationToken ct = default)
+    {
+        // Logout is server-authoritative: release the session/device slot before
+        // discarding the local bearer token. Local cleanup still happens even if
+        // the network is unavailable so the UI never stays signed in.
+        try
+        {
+            if (IsAuthenticated)
+            {
+                using var response = await SendWithTransportFallbackAsync(() =>
+                {
+                    return new HttpRequestMessage(HttpMethod.Post, "wp-json/bluevpn/v1/auth/logout")
+                    {
+                        Content = new StringContent("{}", Encoding.UTF8, "application/json")
+                    };
+                }, ct).ConfigureAwait(false);
+                _ = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            ClearLocalSession();
+        }
+    }
+
+    public void ClearLocalSession()
     {
         _token = "";
         _otpChallengeId = "";
-        _http.DefaultRequestHeaders.Authorization = null;
+        SetAuthorization(null);
+    }
+
+    private static HttpClient CreateHttpClient(Uri baseAddress, string version, bool useSystemProxy)
+    {
+        var handler = new HttpClientHandler
+        {
+            AllowAutoRedirect = true,
+            AutomaticDecompression = DecompressionMethods.All,
+            UseProxy = useSystemProxy,
+            Proxy = useSystemProxy ? WebRequest.DefaultWebProxy : null
+        };
+
+        var http = new HttpClient(handler)
+        {
+            BaseAddress = baseAddress,
+            Timeout = TimeSpan.FromSeconds(20),
+            DefaultRequestVersion = HttpVersion.Version11,
+            DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower
+        };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd($"BlueVPN-Windows/{version}");
+        http.DefaultRequestHeaders.Add("X-BlueVPN-Platform", "windows");
+        http.DefaultRequestHeaders.Add("X-Device-Id", DeviceIdentity.GetOrCreate());
+        return http;
     }
 
     private void ApplyToken(string token)
@@ -138,7 +186,13 @@ public sealed class BlueVpnApiClient : IDisposable
         _token = token?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(_token))
             throw new InvalidOperationException("توکن ورود از سرور دریافت نشد.");
-        _http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", _token);
+        SetAuthorization(new AuthenticationHeaderValue("Bearer", _token));
+    }
+
+    private void SetAuthorization(AuthenticationHeaderValue? value)
+    {
+        _directHttp.DefaultRequestHeaders.Authorization = value;
+        _systemProxyHttp.DefaultRequestHeaders.Authorization = value;
     }
 
     private void EnsureAuth()
@@ -148,19 +202,86 @@ public sealed class BlueVpnApiClient : IDisposable
 
     private async Task<T> GetAsync<T>(string path, CancellationToken ct)
     {
-        using var response = await _http.GetAsync(path, ct);
-        return await ReadJsonAsync<T>(response, ct);
+        using var response = await SendWithTransportFallbackAsync(
+            () => new HttpRequestMessage(HttpMethod.Get, path), ct).ConfigureAwait(false);
+        return await ReadJsonAsync<T>(response, ct).ConfigureAwait(false);
     }
 
     private async Task<T> PostAsync<T>(string path, object body, CancellationToken ct)
     {
-        using var response = await _http.PostAsJsonAsync(path, body, AppSettings.JsonOptions(), ct);
-        return await ReadJsonAsync<T>(response, ct);
+        var json = JsonSerializer.Serialize(body, AppSettings.JsonOptions());
+        using var response = await SendWithTransportFallbackAsync(() =>
+        {
+            var request = new HttpRequestMessage(HttpMethod.Post, path)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            return request;
+        }, ct).ConfigureAwait(false);
+        return await ReadJsonAsync<T>(response, ct).ConfigureAwait(false);
+    }
+
+    private async Task<HttpResponseMessage> SendWithTransportFallbackAsync(Func<HttpRequestMessage> requestFactory, CancellationToken ct)
+    {
+        Exception? directError = null;
+        try
+        {
+            using var request = requestFactory();
+            return await _directHttp.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (IsRetryableTransportFailure(ex))
+        {
+            directError = ex;
+        }
+
+        try
+        {
+            using var request = requestFactory();
+            return await _systemProxyHttp.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex) when (IsRetryableTransportFailure(ex))
+        {
+            throw FriendlyTransportException(directError, ex);
+        }
+    }
+
+    private static bool IsRetryableTransportFailure(Exception ex) =>
+        ex is HttpRequestException || ex is TaskCanceledException || ex is IOException || ex is AuthenticationException;
+
+    private static InvalidOperationException FriendlyTransportException(Exception? first, Exception second)
+    {
+        var tls = HasTlsFailure(first) || HasTlsFailure(second);
+        var code = tls ? "CONTROL_PLANE_TLS" : "CONTROL_PLANE_NETWORK";
+        var message = tls
+            ? "ارتباط امن با سرور BlueVPN برقرار نشد. مسیر مستقیم و تنظیمات شبکه ویندوز هر دو بررسی شدند؛ تاریخ و ساعت ویندوز و دسترسی اینترنت را بررسی کنید."
+            : "ارتباط با سرور BlueVPN برقرار نشد. مسیر مستقیم و تنظیمات شبکه ویندوز هر دو امتحان شدند.";
+        return new InvalidOperationException($"{message} (کد: {code})", new AggregateException(first ?? second, second));
+    }
+
+    private static bool HasTlsFailure(Exception? ex)
+    {
+        for (var current = ex; current is not null; current = current.InnerException)
+        {
+            if (current is AuthenticationException) return true;
+            var text = current.Message;
+            if (text.Contains("SSL", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("TLS", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("certificate", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     private async Task<T> ReadJsonAsync<T>(HttpResponseMessage response, CancellationToken ct)
     {
-        var text = await response.Content.ReadAsStringAsync(ct);
+        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException(ReadError(text, (int)response.StatusCode));
 
@@ -170,9 +291,9 @@ public sealed class BlueVpnApiClient : IDisposable
 
     private async Task<string> GetRawAsync(string pathOrUrl, CancellationToken ct)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, pathOrUrl);
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct);
-        var text = await response.Content.ReadAsStringAsync(ct);
+        using var response = await SendWithTransportFallbackAsync(
+            () => new HttpRequestMessage(HttpMethod.Get, pathOrUrl), ct).ConfigureAwait(false);
+        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException(ReadError(text, (int)response.StatusCode));
         return text;
@@ -194,5 +315,9 @@ public sealed class BlueVpnApiClient : IDisposable
         return $"خطای سرور BlueVPN (HTTP {status})";
     }
 
-    public void Dispose() => _http.Dispose();
+    public void Dispose()
+    {
+        _directHttp.Dispose();
+        _systemProxyHttp.Dispose();
+    }
 }

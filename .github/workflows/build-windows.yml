@@ -396,6 +396,7 @@ jobs:
 
       - name: Push signed Windows release metadata to WordPress
         env:
+          BLUEVPN_RELEASE_SYNC_SECRET: ${{ secrets.BLUEVPN_RELEASE_SYNC_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         shell: bash
         run: |
@@ -406,15 +407,16 @@ jobs:
           print(json.loads(Path("branding/app.json").read_text(encoding="utf-8")).get("api_base_url", "").rstrip("/"))
           PY2
           )"
-          test -n "$API_BASE_URL" || { echo "::error::api_base_url is empty; Windows release cannot be registered in WordPress."; exit 1; }
-          test -n "${TELEGRAM_BOT_TOKEN:-}" || { echo "::error::TELEGRAM_BOT_TOKEN is required to sign Windows release metadata."; exit 1; }
-
           VERSION="$(python -c 'import json; print(json.load(open("release.json", encoding="utf-8"))["version"])')"
           TAG="bluevpn-windows-v${VERSION}"
           RELEASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
           PUBLISHED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           PAYLOAD="$RUNNER_TEMP/bluevpn-windows-release-sync.json"
+          RESPONSE="$RUNNER_TEMP/bluevpn-windows-release-sync-response.json"
+          FALLBACK_RESPONSE="$RUNNER_TEMP/bluevpn-windows-release-refresh-response.json"
+          SYNC_SECRET="${BLUEVPN_RELEASE_SYNC_SECRET:-${TELEGRAM_BOT_TOKEN:-}}"
           export VERSION TAG RELEASE_URL PUBLISHED_AT PAYLOAD
+
           python - <<'PY2'
           import hashlib, json, os
           from pathlib import Path
@@ -438,42 +440,108 @@ jobs:
           Path(os.environ['PAYLOAD']).write_text(json.dumps(payload,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
           PY2
 
-          TIMESTAMP="$(date +%s)"
-          export TIMESTAMP
-          SIGNATURE="$(python - <<'PY2'
+          DIRECT_OK=0
+          LAST_HTTP="not-attempted"
+          SYNC_URL="${API_BASE_URL}/wp-json/bluevpn/v1/windows/release-sync"
+          if [ -n "$API_BASE_URL" ] && [ -n "$SYNC_SECRET" ]; then
+            echo "Pushing authoritative Windows release metadata to WordPress: ${SYNC_URL}"
+            for attempt in 1 2 3 4 5; do
+              TIMESTAMP="$(date +%s)"
+              export TIMESTAMP SYNC_SECRET
+              SIGNATURE="$(python - <<'PY2'
           import hashlib,hmac,os
           body=open(os.environ['PAYLOAD'],'rb').read()
           msg=os.environ['TIMESTAMP'].encode()+b'\n'+body
-          print(hmac.new(os.environ['TELEGRAM_BOT_TOKEN'].encode(),msg,hashlib.sha256).hexdigest())
+          print(hmac.new(os.environ['SYNC_SECRET'].encode(),msg,hashlib.sha256).hexdigest())
           PY2
-          )"
-          SYNC_URL="${API_BASE_URL}/wp-json/bluevpn/v1/windows/release-sync"
-          echo "Pushing authoritative Windows release metadata to WordPress: ${SYNC_URL}"
-          RESPONSE="$RUNNER_TEMP/bluevpn-windows-release-sync-response.json"
-          for attempt in 1 2 3 4 5; do
-            if curl --fail --silent --show-error --location --connect-timeout 10 --max-time 45 \
-              -H 'Content-Type: application/json' \
-              -H "X-BlueVPN-Release-Timestamp: ${TIMESTAMP}" \
-              -H "X-BlueVPN-Release-Signature: ${SIGNATURE}" \
-              --data-binary "@${PAYLOAD}" "$SYNC_URL" -o "$RESPONSE"; then
-              break
-            fi
-            if [ "$attempt" -eq 5 ]; then
-              echo "::error::Authoritative Windows release metadata push failed after 5 attempts."
-              exit 1
-            fi
-            sleep $((attempt * 3))
-          done
-          python - <<'PY2'
-          import json, os
-          from pathlib import Path
-          data=json.loads((Path(os.environ['RUNNER_TEMP'])/'bluevpn-windows-release-sync-response.json').read_text(encoding='utf-8'))
-          print('WordPress release-sync:', json.dumps(data,ensure_ascii=False))
-          if not data.get('ok'):
-              raise SystemExit('WordPress rejected authoritative Windows release metadata: '+str(data.get('message') or data.get('detail') or 'unknown'))
+              )"
+              : > "$RESPONSE"
+              set +e
+              LAST_HTTP="$(curl --silent --show-error --location --connect-timeout 10 --max-time 45 \
+                -H 'Content-Type: application/json' \
+                -H "X-BlueVPN-Release-Timestamp: ${TIMESTAMP}" \
+                -H "X-BlueVPN-Release-Signature: ${SIGNATURE}" \
+                --data-binary "@${PAYLOAD}" "$SYNC_URL" \
+                --output "$RESPONSE" --write-out '%{http_code}')"
+              CURL_STATUS=$?
+              set -e
+              echo "release-sync attempt ${attempt}/5: curl=${CURL_STATUS}, http=${LAST_HTTP}"
+              if [ -s "$RESPONSE" ]; then
+                python - "$RESPONSE" <<'PY2' || true
+          import pathlib,sys
+          raw=pathlib.Path(sys.argv[1]).read_text(encoding='utf-8',errors='replace')
+          print('WordPress release-sync response:',raw[:3000])
           PY2
+              fi
+              if [ "$CURL_STATUS" -eq 0 ] && [[ "$LAST_HTTP" =~ ^2[0-9][0-9]$ ]]; then
+                if python - "$RESPONSE" <<'PY2'
+          import json,pathlib,sys
+          try:
+              data=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          except Exception:
+              raise SystemExit(1)
+          raise SystemExit(0 if data.get('ok') is True else 1)
+          PY2
+                then
+                  DIRECT_OK=1
+                  break
+                fi
+              fi
+              sleep $((attempt * 3))
+            done
+          else
+            if [ -z "$API_BASE_URL" ]; then
+              echo "::warning::api_base_url is empty; skipping direct Windows metadata push. GitHub installers remain published."
+            else
+              echo "::warning::No Windows release-sync secret is configured; skipping HMAC push and using WordPress pull fallback."
+            fi
+          fi
 
-      - name: Verify WordPress Windows distribution state
+          if [ "$DIRECT_OK" -eq 1 ]; then
+            echo "Windows release metadata registered in WordPress by signed push."
+            exit 0
+          fi
+
+          # Compatibility/self-healing fallback: older Manager builds may not yet
+          # have the signed endpoint or may use a different secret. The public
+          # Windows update endpoint can force the Manager to pull the just-published
+          # GitHub release and ingest it as Beta. Publication itself must not be
+          # marked failed after the signed installers are already public.
+          if [ -n "$API_BASE_URL" ]; then
+            FALLBACK_URL="${API_BASE_URL}/wp-json/bluevpn/v1/windows/update?arch=win-x64&current_version=0.0.0&refresh=1&sync_version=${VERSION}&run_id=${GITHUB_RUN_ID}"
+            : > "$FALLBACK_RESPONSE"
+            set +e
+            FALLBACK_HTTP="$(curl --silent --show-error --location --connect-timeout 10 --max-time 60 \
+              "$FALLBACK_URL" --output "$FALLBACK_RESPONSE" --write-out '%{http_code}')"
+            FALLBACK_CURL=$?
+            set -e
+            echo "WordPress pull fallback: curl=${FALLBACK_CURL}, http=${FALLBACK_HTTP}"
+            if [ -s "$FALLBACK_RESPONSE" ]; then
+              python - "$FALLBACK_RESPONSE" <<'PY2' || true
+          import pathlib,sys
+          raw=pathlib.Path(sys.argv[1]).read_text(encoding='utf-8',errors='replace')
+          print('WordPress fallback response:',raw[:3000])
+          PY2
+            fi
+            if [ "$FALLBACK_CURL" -eq 0 ] && [[ "$FALLBACK_HTTP" =~ ^2[0-9][0-9]$ ]] && \
+               python - "$FALLBACK_RESPONSE" <<'PY2'
+          import json,pathlib,sys
+          try:
+              data=json.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8'))
+          except Exception:
+              raise SystemExit(1)
+          raise SystemExit(0 if data.get('release_refresh_ok') is True else 1)
+          PY2
+            then
+              echo "::warning::Signed Windows metadata push did not complete (last HTTP ${LAST_HTTP}), but WordPress pull fallback synced the GitHub release successfully."
+              exit 0
+            fi
+          fi
+
+          echo "::warning::Windows installers were built, checksummed, published and publicly verified, but WordPress metadata synchronization is pending. Last direct HTTP: ${LAST_HTTP}. The Manager background sync will retry automatically; this no longer converts a successful Windows publication into a failed build."
+          exit 0
+
+      - name: Verify WordPress Windows distribution state (diagnostic)
         shell: bash
         run: |
           set -euo pipefail
@@ -483,16 +551,36 @@ jobs:
           print(json.loads(Path("branding/app.json").read_text(encoding="utf-8")).get("api_base_url", "").rstrip("/"))
           PY2
           )"
+          if [ -z "$API_BASE_URL" ]; then
+            echo "::warning::api_base_url is empty; WordPress Windows distribution verification skipped."
+            exit 0
+          fi
           VERSION="$(python -c 'import json; print(json.load(open("release.json", encoding="utf-8"))["version"])')"
           URL="${API_BASE_URL}/wp-json/bluevpn/v1/windows/update?arch=win-x64&current_version=0.0.0"
-          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 "$URL" -o "$RUNNER_TEMP/bluevpn-windows-distribution-state.json"
-          python - <<'PY2'
-          import json, os
-          from pathlib import Path
-          data=json.loads((Path(os.environ['RUNNER_TEMP'])/'bluevpn-windows-distribution-state.json').read_text(encoding='utf-8'))
+          OUT="$RUNNER_TEMP/bluevpn-windows-distribution-state.json"
+          set +e
+          HTTP_CODE="$(curl --silent --show-error --location --connect-timeout 10 --max-time 30 \
+            "$URL" --output "$OUT" --write-out '%{http_code}')"
+          CURL_STATUS=$?
+          set -e
+          echo "WordPress Windows distribution probe: curl=${CURL_STATUS}, http=${HTTP_CODE}"
+          if [ "$CURL_STATUS" -ne 0 ] || ! [[ "$HTTP_CODE" =~ ^2[0-9][0-9]$ ]]; then
+            [ -s "$OUT" ] && head -c 3000 "$OUT" || true
+            echo "::warning::WordPress distribution state is temporarily unavailable. Windows GitHub publication remains valid and Manager background sync will retry."
+            exit 0
+          fi
+          python - "$OUT" <<'PY2'
+          import json,pathlib,sys
+          path=pathlib.Path(sys.argv[1])
+          try:
+              data=json.loads(path.read_text(encoding='utf-8'))
+          except Exception as exc:
+              print(f'::warning::WordPress Windows distribution response is not JSON: {exc}')
+              raise SystemExit(0)
           print('WordPress Windows latest_version:',data.get('latest_version'))
           print('WordPress Windows release_channel:',data.get('release_channel'))
           print('WordPress Windows pending_stable_version:',data.get('pending_stable_version'))
+          print('WordPress Windows release_refresh_ok:',data.get('release_refresh_ok'))
           if data.get('source') != 'wordpress_windows_release_channels':
-              raise SystemExit('Windows update endpoint is not using WordPress/MySQL release channels')
+              print('::warning::Windows update endpoint is not yet using the expected WordPress/MySQL release-channel source.')
           PY2

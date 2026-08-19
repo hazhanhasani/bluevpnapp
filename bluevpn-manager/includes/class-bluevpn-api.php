@@ -271,19 +271,26 @@ final class BlueVPN_API {
     public static function windows_release_sync(WP_REST_Request $r): WP_REST_Response {
         try {
             if (!class_exists('BlueVPN_Windows_Release_Manager') || !class_exists('BlueVPN_Telegram_Bot') || !method_exists('BlueVPN_Telegram_Bot','release_sync_secret_for_internal_requests')) {
-                return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_UNAVAILABLE','message'=>'سرویس همگام‌سازی Windows آماده نیست.']],503);
+                return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_UNAVAILABLE','message'=>'سرویس همگام‌سازی Windows آماده نیست.'],'manager_version'=>BLUEVPN_MANAGER_VERSION],503);
             }
-            $secret = trim((string)BlueVPN_Telegram_Bot::release_sync_secret_for_internal_requests());
-            if ($secret === '') return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_SECRET_MISSING','message'=>'کلید امن همگام‌سازی Windows تنظیم نشده است.']],503);
+            $secrets = method_exists('BlueVPN_Telegram_Bot','release_sync_secrets_for_internal_requests')
+                ? BlueVPN_Telegram_Bot::release_sync_secrets_for_internal_requests()
+                : [trim((string)BlueVPN_Telegram_Bot::release_sync_secret_for_internal_requests())];
+            $secrets = array_values(array_filter(array_map(static fn($v)=>trim((string)$v), $secrets), static fn($v)=>$v!==''));
+            if (!$secrets) return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_SECRET_MISSING','message'=>'کلید امن همگام‌سازی Windows تنظیم نشده است.'],'manager_version'=>BLUEVPN_MANAGER_VERSION],503);
             $timestamp = trim((string)$r->get_header('x-bluevpn-release-timestamp'));
             $signature = strtolower(trim((string)$r->get_header('x-bluevpn-release-signature')));
             if (!preg_match('/^\d{10}$/',$timestamp) || abs(time()-(int)$timestamp)>300 || !preg_match('/^[a-f0-9]{64}$/',$signature)) {
-                return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_AUTH_INVALID','message'=>'امضای همگام‌سازی Windows معتبر نیست.']],403);
+                return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_AUTH_INVALID','message'=>'امضای همگام‌سازی Windows معتبر نیست.'],'manager_version'=>BLUEVPN_MANAGER_VERSION,'server_time'=>time()],403);
             }
             $raw = (string)$r->get_body();
-            $expected = hash_hmac('sha256', $timestamp . "\n" . $raw, $secret);
-            if (!hash_equals($expected,$signature)) {
-                return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_AUTH_INVALID','message'=>'امضای همگام‌سازی Windows معتبر نیست.']],403);
+            $signatureOk = false;
+            foreach ($secrets as $secret) {
+                $expected = hash_hmac('sha256', $timestamp . "\n" . $raw, $secret);
+                if (hash_equals($expected,$signature)) { $signatureOk = true; break; }
+            }
+            if (!$signatureOk) {
+                return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_AUTH_INVALID','message'=>'امضای همگام‌سازی Windows معتبر نیست.'],'manager_version'=>BLUEVPN_MANAGER_VERSION,'server_time'=>time()],403);
             }
             $payload = json_decode($raw,true);
             if (!is_array($payload)) return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_JSON_INVALID','message'=>'Metadata نسخه Windows معتبر نیست.']],422);
@@ -297,6 +304,7 @@ final class BlueVPN_API {
                 'beta_version'=>(string)($beta['version']??''),
                 'pending_stable_version'=>BlueVPN_Windows_Release_Manager::pending_stable_version(),
                 'source'=>'github_signed_push',
+                'manager_version'=>BLUEVPN_MANAGER_VERSION,
             ], !empty($result['ok'])?200:422);
         } catch (Throwable $e) {
             return self::unexpected($e,'windows_release_sync');

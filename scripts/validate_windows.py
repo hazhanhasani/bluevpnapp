@@ -41,8 +41,11 @@ def main() -> None:
     installer = read("bluevpn-windows/installer/BlueVPN.iss")
 
     version = str(release.get("version", "")).strip()
-    require(re.fullmatch(r"\d+\.\d+\.\d+", version) is not None, "invalid release version")
-    require(version == "4.18.0", "this Windows migration must be release 4.18.0")
+    version_match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
+    require(version_match is not None, "invalid release version")
+    _, minor, patch = map(int, version_match.groups())
+    require(0 <= minor <= 10 and 0 <= patch <= 10, "BlueVPN release minor/patch must be 0..10")
+    require(version == "5.0.1", "this Windows migration must be release 5.0.1")
     require(str(branding.get("version_name", "")) == version, "branding version drift")
     require(str(release.get("windows_version", "")) == version, "release windows_version mismatch")
     require(str(settings.get("version", "")) == version, "Windows appsettings version mismatch")
@@ -129,7 +132,7 @@ def main() -> None:
     require("GetPremiumSubscriptionAsync" in connection and "GetFreeSubscriptionAsync" in connection, "Free/Premium isolation missing")
     require("EndpointSelector.RankAsync" in connection, "endpoint ranking missing")
 
-    # 4.18.0 Windows stability gates: Android UI parity, non-blocking media/metrics,
+    # 5.0.1 Windows stability gates: Android UI parity, non-blocking media/metrics,
     # panel-driven WARP, and fail-closed updater/connection state.
     media = read("bluevpn-windows/Services/MediaAssetLoader.cs")
     models = read("bluevpn-windows/Models/WindowsRuntimeModels.cs")
@@ -141,7 +144,7 @@ def main() -> None:
     require("ip_cidr = ipCidrs" in v2rayn_tun and "ResolveEndpointIpsAsync" in read("bluevpn-windows/Services/XrayProcessController.cs"), "endpoint-aware TUN loop guard missing")
     require("if (!candidate.AutoUpdate)" in main_cs and "if (userInitiated)" in main_cs and "_pendingUpdate = candidate" in main_cs, "Windows update channel semantics / deferred install missing")
 
-    # 4.18.0 CI/release hardening: installers must be root-level artifacts and
+    # 5.0.1 CI/release hardening: installers must be root-level artifacts and
     # Node.js 20-generation cache/artifact actions must not remain.
     require('dist/BlueVPN-Setup-*.exe' in workflow, "Windows Setup must upload from dist root")
     require('Normalize Windows release payload layout' in workflow, "Windows publish job must normalize artifact layout")

@@ -550,7 +550,9 @@ final class BlueVPN_Windows_Release_Manager {
 
     private static function version_code(string $version): int {
         if(!preg_match('/^(\d+)\.(\d+)\.(\d+)$/',$version,$m))return 0;
-        return ((int)$m[1]*10000)+((int)$m[2]*100)+(int)$m[3];
+        $minor=(int)$m[2];$patch=(int)$m[3];
+        if($minor<0||$minor>10||$patch<0||$patch>10)return 0;
+        return ((int)$m[1]*10000)+($minor*100)+$patch;
     }
 
     private static function download_text(string $url,int $maxBytes){

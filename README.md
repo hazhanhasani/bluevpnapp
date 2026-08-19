@@ -39,10 +39,10 @@ NOTICE.md            Required notices
 Versioning:
 
 ```text
-x.y.0 ... x.y.10
+X.Y.Z where 0 <= Y <= 10 and 0 <= Z <= 10
 ```
 
-After `x.y.10`, the next release is `x.(y+1).0`.
+After `X.Y.10`, the next release is `X.(Y+1).0`. After `X.10.10`, the next release is `(X+1).0.0`. Invalid forms such as `4.18.0` are rejected by release validation.
 
 Generated build reports, caches, temporary diagnostics and historical one-off notes are excluded from Git. CI output belongs in GitHub Actions artifacts.
 

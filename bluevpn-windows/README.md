@@ -1,6 +1,6 @@
-# BlueVPN for Windows — 4.18.0
+# BlueVPN for Windows — 5.0.1
 
-## 4.18.0 stability pass
+## 5.0.1 stability pass
 
 - Android home-layout parity adapted to desktop without changing the BlueVPN visual hierarchy.
 - Non-blocking metrics/ad/runtime work to reduce UI stalls.
@@ -58,7 +58,7 @@ The installer places BlueVPN under Program Files, creates Start Menu entries and
 
 The WPF home screen follows the current Android BlueVPN visual model: compact account area, central power control, active route/engine card, IP/ping/time/speed metrics and first-party advertising. Banner and free story ads come from the existing BlueVPN `/mobile/config` payload. Ad loading is fail-open and never owns the VPN lifecycle.
 
-### 4.18.0 Windows auth/ads hotfix
+### 5.0.1 Windows auth/ads hotfix
 
 - Unauthenticated account UI now follows the Android BlueVPN auth flow: SMS/Email mode tabs, two-step OTP, Email login/register mode, dark auth card and orange accent.
 - Account/auth failures are rendered inside BlueVPN instead of surfacing raw transport exception dialogs.

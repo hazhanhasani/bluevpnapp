@@ -156,11 +156,16 @@ jobs:
           # patch number just because the same/older GitHub tag already exists.
           # Rebuilding the same version refreshes that release; source changes
           # that need client rollout must explicitly bump branding/app.json and
-          # release.json. After x.y.10, the next source version is x.(y+1).0.
+          # release.json. After x.y.10, the next source version is x.(y+1).0; after x.10.10 use (x+1).0.0.
           resolved = project_version
 
           version = ".".join(map(str, resolved))
           major, minor, patch = resolved
+          if not (0 <= minor <= 10 and 0 <= patch <= 10):
+              raise SystemExit(
+                  f"Invalid BlueVPN source version {version}: minor and patch must both be 0..10. "
+                  "After x.10.10 use (x+1).0.0."
+              )
           version_code = major * 10000 + minor * 100 + patch
           next_patch = patch
 

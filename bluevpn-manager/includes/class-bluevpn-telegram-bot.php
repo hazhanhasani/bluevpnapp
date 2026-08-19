@@ -184,13 +184,25 @@ final class BlueVPN_Telegram_Bot {
     }
 
     /**
-     * Internal-only release-sync secret. GitHub Actions already has the same
-     * TELEGRAM_BOT_TOKEN secret, so Windows release metadata can be signed and
-     * pushed to WordPress without introducing another deployment secret.
-     * Never expose this value through REST/admin output.
+     * Internal-only release-sync secrets. A dedicated secret is preferred when
+     * configured, while the Telegram bot token remains a backwards-compatible
+     * fallback so existing installations do not require an immediate secret
+     * migration. Never expose these values through REST/admin output.
      */
+    public static function release_sync_secrets_for_internal_requests(): array {
+        $values = [];
+        if (defined('BLUEVPN_RELEASE_SYNC_SECRET')) {
+            $values[] = trim((string)constant('BLUEVPN_RELEASE_SYNC_SECRET'));
+        }
+        $env = getenv('BLUEVPN_RELEASE_SYNC_SECRET');
+        if (is_string($env)) $values[] = trim($env);
+        $values[] = trim(self::bot_token());
+        return array_values(array_unique(array_filter($values, static fn($v) => is_string($v) && $v !== '')));
+    }
+
     public static function release_sync_secret_for_internal_requests(): string {
-        return self::bot_token();
+        $values = self::release_sync_secrets_for_internal_requests();
+        return (string)($values[0] ?? '');
     }
     private static function webhook_secret_token(?array $s = null): string {
         $s = $s ?: self::settings();

@@ -8,8 +8,8 @@ def text(rel): return (ROOT/rel).read_text(encoding='utf-8')
 class WindowsDirectReleaseSync4173Tests(unittest.TestCase):
     def test_release_version(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'4.18.0')
-        self.assertEqual(r['version_code'],41800)
+        self.assertEqual(r['version'],'5.0.1')
+        self.assertEqual(r['version_code'],50001)
 
     def test_signed_direct_push_endpoint_exists(self):
         api=text('bluevpn-manager/includes/class-bluevpn-api.php')
@@ -28,7 +28,9 @@ class WindowsDirectReleaseSync4173Tests(unittest.TestCase):
         self.assertIn('/wp-json/bluevpn/v1/windows/release-sync',wf)
         self.assertIn('X-BlueVPN-Release-Signature',wf)
         self.assertIn('TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}',wf)
-        self.assertIn('Authoritative Windows release metadata push failed after 5 attempts',wf)
+        self.assertIn('WordPress pull fallback',wf)
+        self.assertIn("--write-out '%{http_code}'",wf)
+        self.assertNotIn('Authoritative Windows release metadata push failed after 5 attempts',wf)
 
     def test_publish_intent_is_saved_before_network_fallback(self):
         wm=text('bluevpn-manager/includes/class-bluevpn-windows-release-manager.php')

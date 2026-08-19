@@ -1,0 +1,4 @@
+BlueVPN Manager 5.0.0
+- Normalizes the current release to the bounded BlueVPN X.Y.Z policy: minor and patch must each be 0..10.
+- 5.0.0 supersedes the invalid 4.18.0 metadata so update detection receives a strictly newer version/version_code (50000).
+- Retains the session/logout slot release fix, PHP 8.4 Free WARP optional-field warning fix, and Windows server-authoritative logout/control-plane hardening.

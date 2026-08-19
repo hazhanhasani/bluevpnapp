@@ -1,0 +1,9 @@
+BlueVPN 5.0.1
+
+- Windows release publication no longer becomes a failed GitHub run after signed x64/ARM64 installers have already been built, checksummed, published, and publicly verified just because WordPress metadata synchronization is temporarily unavailable or version-skewed.
+- Signed release-sync now reports curl status, HTTP status, and the bounded WordPress response body for actionable Sentinel diagnostics.
+- Each retry creates a fresh timestamp/signature.
+- A forced WordPress pull fallback calls /windows/update?refresh=1 so older compatible Manager builds can ingest the newly published GitHub release as Beta without the signed push route succeeding.
+- WordPress distribution verification is diagnostic/non-fatal after successful installer publication; Manager background sync remains the eventual-consistency fallback.
+- Optional BLUEVPN_RELEASE_SYNC_SECRET is supported on both GitHub Actions and WordPress; the existing Telegram bot token remains a backwards-compatible fallback.
+- All canonical BlueVPN components are versioned 5.0.1 / version_code 50001.

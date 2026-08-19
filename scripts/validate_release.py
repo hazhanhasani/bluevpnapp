@@ -56,6 +56,8 @@ def main() -> None:
     match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
     require(match is not None, f"invalid app version_name: {version!r}")
     major, minor, patch = map(int, match.groups())
+    require(0 <= minor <= 10, f"invalid minor version {minor}: BlueVPN requires 0..10")
+    require(0 <= patch <= 10, f"invalid patch version {patch}: BlueVPN requires 0..10")
     expected_version_code = major * 10000 + minor * 100 + patch
 
     require(int(app.get("version_code", -1)) == expected_version_code,

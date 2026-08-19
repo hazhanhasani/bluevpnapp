@@ -41,6 +41,14 @@ final class BlueVPN_Production {
             $db = BlueVPN_DB::status();
             if (empty($db['ready'])) return;
 
+            // 4.17.5: first repair legacy non-grant retries/reconcile calls that
+            // older provision_customer() versions incorrectly treated as renewals,
+            // then keep the narrower duplicate-attempt repair as a second guard.
+            if (class_exists('BlueVPN_Providers')) {
+                BlueVPN_Providers::repair_legacy_non_grant_expiry_inflation();
+                BlueVPN_Providers::repair_duplicate_provision_expiry_inflation();
+            }
+
             $cutoverRevision = (int)get_option(self::NATIVE_CUTOVER_REVISION_OPTION, 0);
             $needsRetirementPass = $cutoverRevision < self::NATIVE_CUTOVER_REVISION;
 

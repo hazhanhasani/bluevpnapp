@@ -1,0 +1,4 @@
+BlueVPN Site 4.17.6
+- هماهنگ با BlueVPN Manager 4.17.6 و Entitlement canonical expiry.
+
+- Windows 4.17.6: Android UI parity + v2rayN split-core system TUN hardening.

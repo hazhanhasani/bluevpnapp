@@ -24,6 +24,7 @@ def main() -> None:
     manifest = read("bluevpn-windows/app.manifest")
     parser = read("bluevpn-windows/Services/SubscriptionParser.cs")
     xray = read("bluevpn-windows/Services/XrayConfigBuilder.cs")
+    v2rayn_tun = read("bluevpn-windows/Services/V2RayNTunConfigBuilder.cs")
     connection = read("bluevpn-windows/Services/ConnectionOrchestrator.cs")
     workflow = read(".github/workflows/build-windows.yml")
     probe = read("bluevpn-windows/Services/ConnectivityProbe.cs")
@@ -40,7 +41,7 @@ def main() -> None:
 
     version = str(release.get("version", "")).strip()
     require(re.fullmatch(r"\d+\.\d+\.\d+", version) is not None, "invalid release version")
-    require(version == "4.17.3", "this Windows migration must be release 4.17.3")
+    require(version == "4.17.6", "this Windows migration must be release 4.17.6")
     require(str(branding.get("version_name", "")) == version, "branding version drift")
     require(str(release.get("windows_version", "")) == version, "release windows_version mismatch")
     require(str(settings.get("version", "")) == version, "Windows appsettings version mismatch")
@@ -56,11 +57,13 @@ def main() -> None:
     require("2dust/v2rayN" in workflow and "asset.digest" in workflow and "Get-FileHash" in workflow, "v2rayN SHA256 gate missing")
     require("xray.exe" in runtime and "sing-box.exe" in runtime and "wintun.dll" in runtime, "runtime resolver missing v2rayN cores")
     require("Get-PeMachine" in workflow and "0xAA64" in workflow and "0x8664" in workflow, "v2rayN runtime PE architecture gate missing")
-    require("xray-tun-smoke.json" in workflow and "singbox-warp-smoke.json" in workflow and "run -test -config" in workflow and "check -c" in workflow, "runtime TUN config smoke checks missing")
-    xray_smoke = json.loads(read("bluevpn-windows/runtime-config/xray-tun-smoke.json"))
+    require("xray-local-proxy-smoke.json" in workflow and "singbox-v2rayn-tun-smoke.json" in workflow and "singbox-warp-smoke.json" in workflow and "run -test -config" in workflow and "check -c" in workflow, "runtime TUN config smoke checks missing")
+    xray_smoke = json.loads(read("bluevpn-windows/runtime-config/xray-local-proxy-smoke.json"))
+    v2rayn_smoke = json.loads(read("bluevpn-windows/runtime-config/singbox-v2rayn-tun-smoke.json"))
     sing_smoke = json.loads(read("bluevpn-windows/runtime-config/singbox-warp-smoke.json"))
-    require((xray_smoke.get("inbounds") or [{}])[0].get("protocol") == "tun", "Xray TUN smoke config invalid")
-    require((sing_smoke.get("inbounds") or [{}])[0].get("type") == "tun", "sing-box TUN smoke config invalid")
+    require((xray_smoke.get("inbounds") or [{}])[0].get("protocol") == "socks", "Xray localhost proxy smoke config invalid")
+    require((v2rayn_smoke.get("inbounds") or [{}])[0].get("type") == "tun", "v2rayN sing-box TUN smoke config invalid")
+    require((sing_smoke.get("inbounds") or [{}])[0].get("type") == "tun", "sing-box WARP TUN smoke config invalid")
     require("third_party/V2RAYN.md" in workflow, "v2rayN license notice not packaged")
 
     # System-wide connection truth, not process truth.
@@ -69,7 +72,8 @@ def main() -> None:
     require("PublicIp" in verifier and "IP سیستم تغییر نکرد" in verifier, "public-IP change gate missing")
     require("Get-NetRoute" in verifier and "NetworkInterface.GetAllNetworkInterfaces" in verifier, "Windows route/adapter evidence missing")
     require("SnapshotAsync" in probe and "UseProxy = false" in probe, "direct system-stack connectivity snapshot missing")
-    require('protocol"] = "tun"' in xray and "autoSystemRoutingTable" in xray, "premium Xray TUN missing")
+    require('protocol"] = "socks"' in xray and "LocalSocksPort = 20808" in xray, "premium Xray local proxy missing")
+    require('type = "tun"' in v2rayn_tun and "strict_route = true" in v2rayn_tun and 'process_name = new[] { "xray.exe" }' in v2rayn_tun, "premium v2rayN split-core TUN missing")
 
     # WARP path.
     require(settings.get("warp", {}).get("enabled") is True, "Windows WARP must be enabled")
@@ -115,7 +119,7 @@ def main() -> None:
     require("GetPremiumSubscriptionAsync" in connection and "GetFreeSubscriptionAsync" in connection, "Free/Premium isolation missing")
     require("EndpointSelector.RankAsync" in connection, "endpoint ranking missing")
 
-    # 4.17.3 CI/release hardening: installers must be root-level artifacts and
+    # 4.17.6 CI/release hardening: installers must be root-level artifacts and
     # Node.js 20-generation cache/artifact actions must not remain.
     require('dist/BlueVPN-Setup-*.exe' in workflow, "Windows Setup must upload from dist root")
     require('Normalize Windows release payload layout' in workflow, "Windows publish job must normalize artifact layout")

@@ -1,4 +1,4 @@
-# BlueVPN for Windows — 4.17.3
+# BlueVPN for Windows — 4.17.6
 
 BlueVPN Windows is now an installed desktop VPN client with the BlueVPN account/UI/control plane and a runtime derived from the official v2rayN Windows distribution.
 

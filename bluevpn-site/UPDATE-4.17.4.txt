@@ -1,0 +1,4 @@
+BlueVPN Site 4.17.4
+
+- Keeps the site release version aligned with Android, Manager and Windows.
+- Subscription/account dates continue to come from the canonical WordPress/MySQL entitlement.

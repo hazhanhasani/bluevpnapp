@@ -1,0 +1,6 @@
+BlueVPN Manager 4.17.4
+
+- Fixes subscription expiry inflation caused by repeated provisioning/reconcile attempts.
+- WordPress/MySQL is the sole canonical expiry authority.
+- Provider expiry drift is automatically repaired without overwriting the entitlement.
+- Includes a conservative one-time repair for provable historical duplicate plan-duration grants.

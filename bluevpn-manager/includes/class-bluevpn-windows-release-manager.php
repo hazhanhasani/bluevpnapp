@@ -186,7 +186,7 @@ final class BlueVPN_Windows_Release_Manager {
         $s = self::settings();
         $url = 'https://api.github.com/repos/' . rawurlencode($s['owner']) . '/' . rawurlencode($s['repo']) . '/releases?per_page=40';
         $headers = self::request_headers();
-        // GitHub polling is fallback-only in 4.17.3. A transport failure here
+        // GitHub polling is fallback-only in 4.17.4. A transport failure here
         // must not become a user-facing runtime incident while DB metadata is
         // already authoritative.
         $headers['X-BlueVPN-Sentinel-Ignore'] = '1';

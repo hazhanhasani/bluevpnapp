@@ -5498,10 +5498,13 @@ private fun dpHome(value: Int): Int =
                 } else {
                     formatBytes((managed.dataLimitBytes - managed.usedTrafficBytes).coerceAtLeast(0L))
                 }
-                remainingTime.text = if (managed.expire.isNullOrBlank()) {
-                    "نامحدود"
-                } else {
-                    formatAccountRemainingTime(managed.expire)
+                remainingTime.text = when {
+                    managed.remainingSeconds != null -> formatCanonicalRemainingTime(
+                        managed.remainingSeconds,
+                        managed.remainingSecondsSavedElapsed,
+                    )
+                    managed.expire.isNullOrBlank() -> "نامحدود"
+                    else -> formatAccountRemainingTime(managed.expire)
                 }
             }
             BlueVpnPlanTier.FREE -> {
@@ -5516,6 +5519,19 @@ private fun dpHome(value: Int): Int =
         // No persistence here: account transitions already invalidate the legacy
         // subscription-info cache in BlueVpnAccountManager.applyAccount/logout.
         // Clearing SharedPreferences on every UI render added avoidable disk work.
+    }
+
+    private fun formatCanonicalRemainingTime(
+        serverRemainingSeconds: Long,
+        savedElapsed: Long,
+    ): String {
+        val elapsedSeconds = if (savedElapsed > 0L) {
+            ((SystemClock.elapsedRealtime() - savedElapsed).coerceAtLeast(0L) / 1_000L)
+        } else 0L
+        val remaining = (serverRemainingSeconds - elapsedSeconds).coerceAtLeast(0L)
+        if (remaining <= 0L) return "پایان یافته"
+        val days = ceil(remaining / 86_400.0).toLong()
+        return "$days روز"
     }
 
     private fun formatAccountRemainingTime(

@@ -16,7 +16,7 @@ public sealed class ConnectionOrchestrator : IDisposable
         _settings = settings;
         _api = api;
         _runtime = runtime;
-        _xray = new XrayProcessController(runtime);
+        _xray = new XrayProcessController(runtime, settings);
         _warp = new WarpConnectionController(settings, runtime);
     }
 
@@ -95,7 +95,7 @@ public sealed class ConnectionOrchestrator : IDisposable
 
                 _verifiedConnected = true;
                 ActiveEndpoint = endpoint;
-                ActiveEngine = "v2rayN/Xray";
+                ActiveEngine = "v2rayN • Xray + sing-box TUN";
                 LastVerification = verified;
                 return new ConnectionResult(true, premium, endpoint, ActiveEngine, verified);
             }

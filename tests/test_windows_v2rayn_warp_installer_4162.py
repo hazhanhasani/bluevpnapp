@@ -8,8 +8,8 @@ def read(p): return (ROOT/p).read_text(encoding='utf-8')
 class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
     def test_release_contract(self):
         r=json.loads(read('release.json'))
-        self.assertEqual(r['version'],'4.17.3')
-        self.assertEqual(r['version_code'],41703)
+        self.assertEqual(r['version'],'4.17.6')
+        self.assertEqual(r['version_code'],41706)
         self.assertEqual(r['windows']['runtime_base'],'v2rayN')
         self.assertEqual(r['windows']['artifact'],'inno_setup_exe')
         self.assertTrue(r['windows']['warp_x64'])
@@ -23,7 +23,8 @@ class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
 
     def test_runtime_configs_are_smoke_checked_by_real_cores(self):
         wf=read('.github/workflows/build-windows.yml')
-        self.assertIn('xray-tun-smoke.json',wf)
+        self.assertIn('xray-local-proxy-smoke.json',wf)
+        self.assertIn('singbox-v2rayn-tun-smoke.json',wf)
         self.assertIn('singbox-warp-smoke.json',wf)
         self.assertIn('run -test -config',wf)
         self.assertIn('check -c',wf)

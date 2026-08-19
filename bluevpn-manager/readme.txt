@@ -1,7 +1,15 @@
 === BlueVPN Manager ===
-Version: 4.17.3
-Stable tag: 4.17.3
+Version: 4.17.6
+Stable tag: 4.17.6
 Requires PHP: 8.0
+
+== 4.17.6 ==
+- WordPress/MySQL `customers.subscription_expire` is now the only authoritative paid entitlement expiry.
+- Provider sync can no longer overwrite the canonical expiry with PasarGuard/Marzban/GuardCore dates.
+- Payment activation snapshots one target expiry per paid order; retries and Cutover reconciliation reuse it and never add plan duration twice.
+- Manual activation remains an intentional renewal path and explicitly calculates a new target expiry once.
+- One-time repair removes only provable duplicate-duration inflation from historical repeated provisioning attempts and schedules provider resync.
+- Provider expiry drift is detected, auto-healed back to the canonical WordPress expiry, and reported through Sentinel as `SUBSCRIPTION_EXPIRY_DRIFT`.
 
 == 4.17.3 ==
 - Successful Windows builds push signed release metadata directly into BlueVPN Manager/MySQL; site publication no longer depends on a live GitHub Releases API lookup.

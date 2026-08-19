@@ -5,34 +5,34 @@ namespace BlueVPN.Windows.Services;
 
 public static class XrayConfigBuilder
 {
+    public const int LocalSocksPort = 20808;
+
     public static string Build(ProxyEndpoint endpoint, AppSettings settings)
     {
+        // BlueVPN Windows follows v2rayN's split-core TUN approach: Xray handles
+        // protocol/transport and exposes localhost SOCKS; sing-box owns the TUN.
         var root = new Dictionary<string, object?>
         {
-            ["log"] = new Dictionary<string, object?>
-            {
-                ["loglevel"] = "warning"
-            },
+            ["log"] = new Dictionary<string, object?> { ["loglevel"] = "warning" },
             ["inbounds"] = new object[]
             {
                 new Dictionary<string, object?>
                 {
-                    ["tag"] = "bluevpn-tun",
-                    ["protocol"] = "tun",
+                    ["tag"] = "bluevpn-local-socks",
+                    ["listen"] = "127.0.0.1",
+                    ["port"] = LocalSocksPort,
+                    ["protocol"] = "socks",
                     ["settings"] = new Dictionary<string, object?>
                     {
-                        ["name"] = settings.Tun.Name,
-                        ["desc"] = "BlueVPN",
-                        ["MTU"] = settings.Tun.Mtu,
-                        ["gateway"] = new[] { settings.Tun.GatewayV4, settings.Tun.GatewayV6 },
-                        ["dns"] = new[] { settings.Tun.DnsV4, settings.Tun.DnsV6 },
-                        ["autoSystemRoutingTable"] = new[] { "0.0.0.0/0", "::/0" },
-                        ["autoOutboundsInterface"] = "auto"
+                        ["auth"] = "noauth",
+                        ["udp"] = true,
+                        ["ip"] = "127.0.0.1"
                     },
                     ["sniffing"] = new Dictionary<string, object?>
                     {
                         ["enabled"] = true,
-                        ["destOverride"] = new[] { "http", "tls", "quic" }
+                        ["destOverride"] = new[] { "http", "tls", "quic" },
+                        ["routeOnly"] = true
                     }
                 }
             },
@@ -41,14 +41,12 @@ public static class XrayConfigBuilder
                 BuildProxyOutbound(endpoint),
                 new Dictionary<string, object?>
                 {
-                    ["tag"] = "direct",
-                    ["protocol"] = "freedom",
+                    ["tag"] = "direct", ["protocol"] = "freedom",
                     ["settings"] = new Dictionary<string, object?>()
                 },
                 new Dictionary<string, object?>
                 {
-                    ["tag"] = "blocked",
-                    ["protocol"] = "blackhole",
+                    ["tag"] = "blocked", ["protocol"] = "blackhole",
                     ["settings"] = new Dictionary<string, object?>()
                 }
             },
@@ -59,14 +57,11 @@ public static class XrayConfigBuilder
                 {
                     new Dictionary<string, object?>
                     {
-                        ["type"] = "field",
-                        ["ip"] = new[] { "geoip:private" },
-                        ["outboundTag"] = "direct"
+                        ["type"] = "field", ["ip"] = new[] { "geoip:private" }, ["outboundTag"] = "direct"
                     }
                 }
             }
         };
-
         return JsonSerializer.Serialize(root, AppSettings.JsonOptions());
     }
 

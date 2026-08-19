@@ -5,6 +5,9 @@ final class BlueVPN_Providers {
     private const SYNC_TTL_SECONDS = 300;
     private const SNAPSHOT_FRESH_SECONDS = 300;
     private const SNAPSHOT_STALE_SECONDS = 21600;
+    private const EXPIRY_DRIFT_TOLERANCE_SECONDS = 21600;
+    private const EXPIRY_REPAIR_OPTION = 'bluevpn_expiry_inflation_repair_4174';
+    private const EXPIRY_NON_GRANT_REPAIR_OPTION = 'bluevpn_expiry_non_grant_repair_4175';
 
     public static function init(): void {
         add_action('template_redirect',[self::class,'serve_subscription'],0);
@@ -620,8 +623,147 @@ final class BlueVPN_Providers {
         $field=$prefix==='pg'?'pg_username':($prefix==='mz'?'marzban_username':'guardcore_username');if(!empty($c[$field]))return (string)$c[$field];
         $seed=(string)($c['email']?:$c['phone']?:$c['id']);return substr('bv_'.$c['id'].'_'.substr(sha1($prefix.':'.$seed),0,9),0,32);
     }
-    private static function target_expiry(array $c,array $plan): ?string {
-        $days=(int)($plan['duration_days']??0);if($days<=0)return null;$base=time();if(!empty($c['subscription_expire'])){$t=strtotime((string)$c['subscription_expire'].' UTC');if($t&&$t>$base)$base=$t;}return gmdate('Y-m-d H:i:s',$base+$days*DAY_IN_SECONDS);
+    private static function target_expiry(array $c,array $plan,bool $extend): ?string {
+        $current=self::remote_expiry($c['subscription_expire']??null);
+        if(!$extend&&$current)return $current;
+        $days=(int)($plan['duration_days']??0);if($days<=0)return $current;
+        $base=time();if($extend&&$current){$t=strtotime($current.' UTC');if($t&&$t>$base)$base=$t;}
+        return gmdate('Y-m-d H:i:s',$base+$days*DAY_IN_SECONDS);
+    }
+    /** Calculate one intentional purchase/manual-renewal entitlement extension. */
+    public static function next_entitlement_expiry(int $customerId,int $planId): ?string {
+        global $wpdb;$ct=BlueVPN_DB::table('customers');$pt=BlueVPN_DB::table('plans');
+        $c=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$ct} WHERE id=%d LIMIT 1",$customerId),ARRAY_A);
+        $plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$pt} WHERE id=%d AND deleted=0 LIMIT 1",$planId),ARRAY_A);
+        if(!$c||!$plan)return null;
+        return self::target_expiry($c,$plan,true);
+    }
+    private static function canonical_expiry(array $c,array $plan,?string $explicit=null): ?string {
+        if($explicit!==null&&trim($explicit)!=='')return self::remote_expiry($explicit);
+        $stored=self::target_expiry($c,$plan,false);
+        // First-ever activation may legitimately have no stored entitlement yet.
+        return $stored?:self::target_expiry($c,$plan,true);
+    }
+    private static function valid_provision_result(string $raw): bool {
+        $raw=trim($raw);if($raw==='')return false;$r=BlueVPN_Utils::json_decode_array($raw,[]);if(!$r)return false;
+        return !str_contains((string)($r['message']??''),'ذخیره entitlement کاربر در MySQL ناموفق بود');
+    }
+    /** Persist every canonical expiry mutation so future repair never has to guess. */
+    public static function record_entitlement_ledger(
+        int $customerId,
+        ?int $planId,
+        string $source,
+        string $sourceRef,
+        string $eventType,
+        bool $intentionalGrant,
+        int $durationDays,
+        ?string $beforeExpire,
+        ?string $targetExpire,
+        array $metadata=[]
+    ): bool {
+        if($customerId<=0)return false;
+        global $wpdb;$t=BlueVPN_DB::table('entitlement_ledger');
+        $source=substr(sanitize_key($source),0,40);$eventType=substr(sanitize_key($eventType),0,40);
+        $sourceRef=substr(sanitize_text_field($sourceRef),0,160);
+        if($source===''||$sourceRef===''||$eventType==='')return false;
+        $before=self::remote_expiry($beforeExpire);$target=self::remote_expiry($targetExpire);
+        $existing=(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$t} WHERE source=%s AND source_ref=%s AND event_type=%s LIMIT 1",$source,$sourceRef,$eventType));
+        if($existing>0)return true;
+        $ok=$wpdb->insert($t,[
+            'customer_id'=>$customerId,'plan_id'=>$planId&&$planId>0?$planId:null,'source'=>$source,'source_ref'=>$sourceRef,'event_type'=>$eventType,
+            'intentional_grant'=>$intentionalGrant?1:0,'duration_days'=>max(0,$durationDays),'before_expire'=>$before,'target_expire'=>$target,
+            'metadata_json'=>BlueVPN_Utils::json_encode($metadata),'created_at'=>BlueVPN_Utils::now_mysql(),
+        ]);
+        if($ok!==false)return true;
+        return (int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$t} WHERE source=%s AND source_ref=%s AND event_type=%s LIMIT 1",$source,$sourceRef,$eventType))>0;
+    }
+
+    /**
+     * 4.17.5 repair: old (<=4.17.3) provision_customer() extended the plan on
+     * every invocation. Retry/reconcile triggers were never entitlement grants,
+     * so each legacy successful non-grant attempt represents one provable extra
+     * duration. 4.17.4 repaired only duplicate attempts for the same order and
+     * therefore missed the first native_cutover/admin_retry inflation.
+     */
+    public static function repair_legacy_non_grant_expiry_inflation(): array {
+        $done=get_option(self::EXPIRY_NON_GRANT_REPAIR_OPTION,[]);if(is_array($done)&&!empty($done['completed']))return $done;
+        global $wpdb;$at=BlueVPN_DB::table('provisioning_attempts');$ot=BlueVPN_DB::table('orders');$pt=BlueVPN_DB::table('plans');$ct=BlueVPN_DB::table('customers');
+        $already=[];$old=get_option(self::EXPIRY_REPAIR_OPTION,[]);
+        if(is_array($old))foreach((array)($old['details']??[]) as $detail)foreach((array)($detail['evidence']??[]) as $ev){$aid=(int)($ev[1]??0);if($aid>0)$already[$aid]=true;}
+        $rows=$wpdb->get_results("SELECT a.id,a.order_id,a.customer_id,a.plan_id,a.trigger_source,a.status,a.result_json,a.created_at,p.duration_days FROM {$at} a LEFT JOIN {$ot} o ON o.id=a.order_id LEFT JOIN {$pt} p ON p.id=COALESCE(a.plan_id,o.plan_id) WHERE a.customer_id IS NOT NULL AND a.trigger_source IN ('native_cutover_reconcile','admin_retry') ORDER BY a.customer_id ASC,a.id ASC",ARRAY_A)?:[];
+        $inflation=[];$evidence=[];
+        foreach($rows as $row){
+            $aid=(int)$row['id'];if(isset($already[$aid]))continue;
+            $raw=trim((string)($row['result_json']??''));if($raw===''||!self::valid_provision_result($raw))continue;
+            $result=BlueVPN_Utils::json_decode_array($raw,[]);
+            // New safe provision results are explicitly canonical and must never
+            // be rolled back. Absence of this marker identifies legacy behavior.
+            if((string)($result['expiry_source']??'')==='wordpress_mysql_entitlement')continue;
+            $days=max(0,(int)($row['duration_days']??0));if($days<=0)continue;
+            $cid=(int)$row['customer_id'];$inflation[$cid]=($inflation[$cid]??0)+$days;
+            $evidence[$cid][]=[$aid,(string)($row['order_id']??''),(string)$row['trigger_source'],$days,(string)($result['canonical_expire']??'')];
+        }
+        $summary=['completed'=>true,'checked_customers'=>count($inflation),'repaired'=>0,'skipped'=>0,'details'=>[],'at'=>BlueVPN_Utils::iso_now()];
+        foreach($inflation as $cid=>$days){
+            $c=$wpdb->get_row($wpdb->prepare("SELECT id,plan_id,subscription_status,subscription_expire FROM {$ct} WHERE id=%d LIMIT 1",$cid),ARRAY_A);
+            if(!$c||empty($c['subscription_expire'])||$days<=0){$summary['skipped']++;continue;}
+            $current=strtotime((string)$c['subscription_expire'].' UTC');if(!$current){$summary['skipped']++;continue;}
+            $candidate=$current-$days*DAY_IN_SECONDS;
+            // Never auto-expire an account. If historical evidence would cross
+            // "now", keep the account untouched and surface it for manual review.
+            if((string)$c['subscription_status']!=='active'||$candidate<=time()){
+                $summary['skipped']++;$summary['details'][]=['customer_id'=>$cid,'removed_days_candidate'=>$days,'before'=>(string)$c['subscription_expire'],'action'=>'manual_review','evidence'=>$evidence[$cid]??[]];continue;
+            }
+            $target=gmdate('Y-m-d H:i:s',$candidate);
+            $ok=$wpdb->update($ct,['subscription_expire'=>$target,'last_sync_at'=>null],['id'=>$cid]);if($ok===false){$summary['skipped']++;continue;}
+            self::record_entitlement_ledger($cid,(int)($c['plan_id']??0),'repair','legacy_non_grant_4175_customer_'.$cid,'legacy_non_grant_repair',false,$days,(string)$c['subscription_expire'],$target,['evidence'=>$evidence[$cid]??[]]);
+            $summary['repaired']++;$summary['details'][]=['customer_id'=>$cid,'removed_days'=>$days,'before'=>(string)$c['subscription_expire'],'after'=>$target,'evidence'=>$evidence[$cid]??[]];
+            self::request_background_sync($cid);
+        }
+        update_option(self::EXPIRY_NON_GRANT_REPAIR_OPTION,$summary,false);
+        if(class_exists('BlueVPN_Error_Monitor')){
+            if($summary['repaired']>0)BlueVPN_Error_Monitor::report('entitlement','expiry_repair','notice','SUBSCRIPTION_EXPIRY_LEGACY_REPAIR_4175',$summary['repaired'].' اشتراک که توسط Retry/Reconcile قدیمی بیش از حد تمدید شده بود به تاریخ صحیح برگردانده شد.',$summary);
+            if($summary['skipped']>0)BlueVPN_Error_Monitor::report('entitlement','expiry_repair','warning','SUBSCRIPTION_EXPIRY_REPAIR_REVIEW_REQUIRED',$summary['skipped'].' اشتراک دارای شواهد تمدید اضافی است اما برای جلوگیری از کاهش اشتباه نیازمند بررسی دستی است.',$summary);
+        }
+        return $summary;
+    }
+
+    /**
+     * One-time 4.17.4 repair for the historical retry inflation bug.
+     * Every paid order may grant plan duration exactly once. Older retry/reconcile
+     * calls invoked provision_customer() again and therefore added the same plan
+     * duration repeatedly. We only subtract provable duplicate persisted attempts.
+     */
+    public static function repair_duplicate_provision_expiry_inflation(): array {
+        $done=get_option(self::EXPIRY_REPAIR_OPTION,[]);if(is_array($done)&&!empty($done['completed']))return $done;
+        global $wpdb;$at=BlueVPN_DB::table('provisioning_attempts');$ot=BlueVPN_DB::table('orders');$pt=BlueVPN_DB::table('plans');$ct=BlueVPN_DB::table('customers');
+        $rows=$wpdb->get_results("SELECT a.id,a.order_id,a.customer_id,a.plan_id,a.trigger_source,a.result_json,a.created_at,p.duration_days FROM {$at} a LEFT JOIN {$ot} o ON o.id=a.order_id LEFT JOIN {$pt} p ON p.id=COALESCE(a.plan_id,o.plan_id) WHERE a.order_id IS NOT NULL AND a.customer_id IS NOT NULL ORDER BY a.order_id ASC,a.id ASC",ARRAY_A)?:[];
+        $seen=[];$inflation=[];$evidence=[];
+        foreach($rows as $row){
+            $orderId=(string)$row['order_id'];if(!self::valid_provision_result((string)($row['result_json']??'')))continue;
+            if(empty($seen[$orderId])){$seen[$orderId]=1;continue;}
+            $days=max(0,(int)($row['duration_days']??0));if($days<=0)continue;
+            $cid=(int)$row['customer_id'];$inflation[$cid]=($inflation[$cid]??0)+$days;
+            $evidence[$cid][]=[$orderId,(int)$row['id'],(string)$row['trigger_source'],$days];
+        }
+        $summary=['completed'=>true,'checked_customers'=>count($inflation),'repaired'=>0,'skipped'=>0,'details'=>[],'at'=>BlueVPN_Utils::iso_now()];
+        foreach($inflation as $cid=>$days){
+            $c=$wpdb->get_row($wpdb->prepare("SELECT id,plan_id,subscription_status,subscription_expire FROM {$ct} WHERE id=%d LIMIT 1",$cid),ARRAY_A);
+            if(!$c||empty($c['subscription_expire'])||$days<=0){$summary['skipped']++;continue;}
+            $current=strtotime((string)$c['subscription_expire'].' UTC');if(!$current){$summary['skipped']++;continue;}
+            $candidate=$current-$days*DAY_IN_SECONDS;
+            // Automatic rollback is deliberately conservative: only a currently
+            // active entitlement that remains active after removing duplicate days.
+            if((string)$c['subscription_status']!=='active'||$candidate<=time()){$summary['skipped']++;$summary['details'][]=['customer_id'=>$cid,'days'=>$days,'action'=>'manual_review'];continue;}
+            $target=gmdate('Y-m-d H:i:s',$candidate);
+            $ok=$wpdb->update($ct,['subscription_expire'=>$target,'last_sync_at'=>null],['id'=>$cid]);
+            if($ok===false){$summary['skipped']++;continue;}
+            $summary['repaired']++;$summary['details'][]=['customer_id'=>$cid,'removed_days'=>$days,'before'=>(string)$c['subscription_expire'],'after'=>$target,'evidence'=>$evidence[$cid]??[]];
+            self::request_background_sync($cid);
+        }
+        update_option(self::EXPIRY_REPAIR_OPTION,$summary,false);
+        if($summary['repaired']>0&&class_exists('BlueVPN_Error_Monitor'))BlueVPN_Error_Monitor::report('entitlement','expiry_repair','notice','SUBSCRIPTION_EXPIRY_INFLATION_REPAIRED',$summary['repaired'].' اشتراک با تمدید تکراریِ قابل اثبات به تاریخ صحیح WordPress/MySQL برگردانده شد.',$summary);
+        return $summary;
     }
     private static function remote_sub_url(array $remote,string $base=''): string {
         $vals=[];foreach(['subscription_url','sub_url','subscriptionUrl'] as $k)if(!empty($remote[$k]))$vals[]=$remote[$k];
@@ -812,7 +954,7 @@ final class BlueVPN_Providers {
         return array_map('intval',$wpdb->get_col($sql)?:[]);
     }
 
-    public static function provision_customer(int $customerId,int $planId): array {
+    public static function provision_customer(int $customerId,int $planId,?string $canonicalExpire=null): array {
         global $wpdb;$ct=BlueVPN_DB::table('customers');$pt=BlueVPN_DB::table('plans');$c=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$ct} WHERE id=%d",$customerId),ARRAY_A);$plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$pt} WHERE id=%d AND deleted=0",$planId),ARRAY_A);
         if(!$c||!$plan)return ['ok'=>false,'message'=>'کاربر یا پلن پیدا نشد.'];
 
@@ -828,7 +970,7 @@ final class BlueVPN_Providers {
         // explicit plan service_ids and must not be guessed.
         if($gcId<=0)$gcId=(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('guardcore_panels')." WHERE active=1 AND auth_mode='manual' AND global_subscription_url IS NOT NULL AND TRIM(global_subscription_url)<>'' ORDER BY id ASC LIMIT 1");
 
-        $expire=self::target_expiry($c,$plan);$total=max(0,(int)$plan['data_limit_gb'])*1024*1024*1024;$providers=array_values(array_filter(['pg'=>$pgId>0,'mz'=>$mzId>0,'gc'=>$gcId>0]));$count=count($providers);$quota=($count>1&&($plan['multi_provider_quota_mode']??'split')==='split')?intdiv($total,max(1,$count)):$total;
+        $expire=self::canonical_expiry($c,$plan,$canonicalExpire);$total=max(0,(int)$plan['data_limit_gb'])*1024*1024*1024;$providers=array_values(array_filter(['pg'=>$pgId>0,'mz'=>$mzId>0,'gc'=>$gcId>0]));$count=count($providers);$quota=($count>1&&($plan['multi_provider_quota_mode']??'split')==='split')?intdiv($total,max(1,$count)):$total;
         $errors=[];$success=0;$update=['plan_id'=>$planId,'subscription_expire'=>$expire,'data_limit_bytes'=>$total,'device_limit'=>max(1,(int)$plan['device_limit'])];
         if($pgId>0){
             try{
@@ -851,7 +993,7 @@ final class BlueVPN_Providers {
         $update['last_sync_error']=implode(' | ',$errors);
         $saved=$wpdb->update($ct,$update,['id'=>$customerId]);if($saved===false)return ['ok'=>false,'message'=>'ذخیره entitlement کاربر در MySQL ناموفق بود.','success_count'=>$success];
         if($success>0)self::request_background_snapshot($customerId);
-        return ['ok'=>$success>0&&count($errors)===0,'partial'=>$success>0&&count($errors)>0,'message'=>$errors?implode(' | ',$errors):'فعال‌سازی Providerها انجام شد.','success_count'=>$success,'resolved_providers'=>['pasarguard'=>$pgId,'marzban'=>$mzId,'guardcore'=>$gcId]];
+        return ['ok'=>$success>0&&count($errors)===0,'partial'=>$success>0&&count($errors)>0,'message'=>$errors?implode(' | ',$errors):'فعال‌سازی Providerها انجام شد.','success_count'=>$success,'canonical_expire'=>$expire,'expiry_source'=>'wordpress_mysql_entitlement','resolved_providers'=>['pasarguard'=>$pgId,'marzban'=>$mzId,'guardcore'=>$gcId]];
     }
     public static function request_background_sync(int $customerId): bool {
         if($customerId<=0)return false;
@@ -864,6 +1006,30 @@ final class BlueVPN_Providers {
         self::sync_customer($customerId,false);
     }
 
+    private static function enforce_provider_expiry(array $c,string $provider,string $canonical): array {
+        try{
+            if($provider==='pasarguard'&&!empty($c['panel_id'])&&!empty($c['pg_username'])){
+                $p=self::panel('pasarguard',(int)$c['panel_id']);if(!$p)return ['ok'=>false,'message'=>'PasarGuard panel missing'];
+                $payload=['expire'=>gmdate('Y-m-d\TH:i:s\Z',strtotime($canonical.' UTC'))];
+                $r=self::req('PUT',self::join_url((string)$p['base_url'],'/api/user/by-username/'.rawurlencode((string)$c['pg_username'])),self::pg_headers($p,10),$payload,(bool)$p['verify_tls'],[],12);
+                if(in_array($r['code'],[404,405],true))$r=self::req('PUT',self::join_url((string)$p['base_url'],'/api/user/'.rawurlencode((string)$c['pg_username'])),self::pg_headers($p,10),$payload,(bool)$p['verify_tls'],[],12);
+                return ['ok'=>$r['code']<400,'message'=>'HTTP '.$r['code']];
+            }
+            if($provider==='marzban'&&!empty($c['marzban_panel_id'])&&!empty($c['marzban_username'])){
+                $p=self::panel('marzban',(int)$c['marzban_panel_id']);if(!$p)return ['ok'=>false,'message'=>'Marzban panel missing'];
+                $r=self::req('PUT',self::join_url((string)$p['base_url'],'/api/user/'.rawurlencode((string)$c['marzban_username'])),self::mz_headers($p,10),['expire'=>strtotime($canonical.' UTC')],(bool)$p['verify_tls'],[],12);
+                return ['ok'=>$r['code']<400,'message'=>'HTTP '.$r['code']];
+            }
+            if($provider==='guardcore'&&!empty($c['guardcore_panel_id'])&&!empty($c['guardcore_username'])){
+                $p=self::panel('guardcore',(int)$c['guardcore_panel_id']);if(!$p)return ['ok'=>false,'message'=>'GuardCore panel missing'];
+                if(($p['auth_mode']??'manual')==='manual')return ['ok'=>true,'message'=>'manual/global provider uses WordPress entitlement'];
+                $r=self::gc_request($p,'PUT','/api/subscriptions/'.rawurlencode((string)$c['guardcore_username']),['limit_expire'=>self::gc_expire_encode($p,$canonical)]);
+                return ['ok'=>$r['code']<400,'message'=>'HTTP '.$r['code']];
+            }
+            return ['ok'=>true,'message'=>'provider mapping not applicable'];
+        }catch(Throwable $e){return ['ok'=>false,'message'=>$e->getMessage()];}
+    }
+
     public static function sync_customer(int $customerId,bool $force=false): array {
         global $wpdb;
         $ct=BlueVPN_DB::table('customers');
@@ -874,22 +1040,42 @@ final class BlueVPN_Providers {
             return ['ok'=>true,'cached'=>true,'message'=>'وضعیت ذخیره‌شده WordPress معتبر است.'];
         }
 
-        $u=[];$errors=[];$active=false;$used=0;$exp=[];$responses=0;$configured=0;
+        $u=[];$errors=[];$active=false;$used=0;$providerExpiries=[];$responses=0;$configured=0;
         if(!empty($c['panel_id'])&&!empty($c['pg_username'])){
             $configured++;
-            try{$p=self::panel('pasarguard',(int)$c['panel_id']);if($p){$r=self::pg_user($p,(string)$c['pg_username']);$responses++;if($r){$active=$active||in_array(strtolower((string)($r['status']??'active')),['active','enabled'],true);$u['pasarguard_subscription_url']=self::remote_sub_url($r,(string)$p['base_url'])?:$c['pasarguard_subscription_url'];$used+=max(0,(int)($r['used_traffic']??$r['used_traffic_bytes']??0));$exp[]=self::remote_expiry($r['expire']??null);}}}catch(Throwable $e){$errors[]='PasarGuard: '.$e->getMessage();}
+            try{$p=self::panel('pasarguard',(int)$c['panel_id']);if($p){$r=self::pg_user($p,(string)$c['pg_username']);$responses++;if($r){$active=$active||in_array(strtolower((string)($r['status']??'active')),['active','enabled'],true);$u['pasarguard_subscription_url']=self::remote_sub_url($r,(string)$p['base_url'])?:$c['pasarguard_subscription_url'];$used+=max(0,(int)($r['used_traffic']??$r['used_traffic_bytes']??0));$remoteExpire=self::remote_expiry($r['expire']??null);if($remoteExpire)$providerExpiries['pasarguard']=$remoteExpire;}}}catch(Throwable $e){$errors[]='PasarGuard: '.$e->getMessage();}
         }
         if(!empty($c['marzban_panel_id'])&&!empty($c['marzban_username'])){
             $configured++;
-            try{$p=self::panel('marzban',(int)$c['marzban_panel_id']);if($p){$r=self::mz_user($p,(string)$c['marzban_username']);$responses++;if($r){$active=$active||in_array(strtolower((string)($r['status']??'active')),['active','enabled'],true);$u['marzban_subscription_url']=self::remote_sub_url($r,(string)$p['base_url'])?:$c['marzban_subscription_url'];$u['marzban_status']=(string)($r['status']??'active');$u['marzban_used_traffic_bytes']=max(0,(int)($r['used_traffic']??0));$used+=max(0,(int)($r['used_traffic']??0));$exp[]=self::remote_expiry($r['expire']??null);}}}catch(Throwable $e){$errors[]='Marzban: '.$e->getMessage();$u['marzban_last_error']=mb_substr($e->getMessage(),0,1800);}
+            try{$p=self::panel('marzban',(int)$c['marzban_panel_id']);if($p){$r=self::mz_user($p,(string)$c['marzban_username']);$responses++;if($r){$active=$active||in_array(strtolower((string)($r['status']??'active')),['active','enabled'],true);$u['marzban_subscription_url']=self::remote_sub_url($r,(string)$p['base_url'])?:$c['marzban_subscription_url'];$u['marzban_status']=(string)($r['status']??'active');$u['marzban_used_traffic_bytes']=max(0,(int)($r['used_traffic']??0));$used+=max(0,(int)($r['used_traffic']??0));$remoteExpire=self::remote_expiry($r['expire']??null);if($remoteExpire){$providerExpiries['marzban']=$remoteExpire;$u['marzban_expire']=$remoteExpire;}}}}catch(Throwable $e){$errors[]='Marzban: '.$e->getMessage();$u['marzban_last_error']=mb_substr($e->getMessage(),0,1800);}
         }
         if(!empty($c['guardcore_panel_id'])&&!empty($c['guardcore_username'])){
             $configured++;
-            try{$p=self::panel('guardcore',(int)$c['guardcore_panel_id']);if($p&&($p['auth_mode']??'manual')!=='manual'){$r=self::gc_user($p,(string)$c['guardcore_username']);$responses++;if($r){$active=$active||($r['status']==='active');$u['guardcore_subscription_id']=is_numeric($r['id']??null)?(int)$r['id']:$c['guardcore_subscription_id'];$u['guardcore_subscription_url']=(string)($r['subscription_url']?:$c['guardcore_subscription_url']);$u['guardcore_status']=(string)$r['status'];$u['guardcore_expire']=$r['expire'];$u['guardcore_data_limit_bytes']=(int)$r['data_limit'];$u['guardcore_used_traffic_bytes']=(int)$r['used_traffic'];$u['guardcore_last_error']='';$used+=max(0,(int)$r['used_traffic']);$exp[]=$r['expire'];}}elseif(!empty($c['guardcore_subscription_url'])){$responses++;$active=true;}}catch(Throwable $e){$errors[]='GuardCore: '.$e->getMessage();$u['guardcore_last_error']=mb_substr($e->getMessage(),0,1800);}
+            try{$p=self::panel('guardcore',(int)$c['guardcore_panel_id']);if($p&&($p['auth_mode']??'manual')!=='manual'){$r=self::gc_user($p,(string)$c['guardcore_username']);$responses++;if($r){$active=$active||($r['status']==='active');$u['guardcore_subscription_id']=is_numeric($r['id']??null)?(int)$r['id']:$c['guardcore_subscription_id'];$u['guardcore_subscription_url']=(string)($r['subscription_url']?:$c['guardcore_subscription_url']);$u['guardcore_status']=(string)$r['status'];$u['guardcore_expire']=$r['expire'];$u['guardcore_data_limit_bytes']=(int)$r['data_limit'];$u['guardcore_used_traffic_bytes']=(int)$r['used_traffic'];$u['guardcore_last_error']='';$used+=max(0,(int)$r['used_traffic']);$remoteExpire=self::remote_expiry($r['expire']??null);if($remoteExpire){$providerExpiries['guardcore']=$remoteExpire;$u['guardcore_expire']=$remoteExpire;}}}elseif(!empty($c['guardcore_subscription_url'])){$responses++;$active=true;}}catch(Throwable $e){$errors[]='GuardCore: '.$e->getMessage();$u['guardcore_last_error']=mb_substr($e->getMessage(),0,1800);}
         } elseif(!empty($c['guardcore_subscription_url'])){$configured++;$responses++;$active=true;}
 
-        $valid=array_values(array_filter($exp));
-        if($valid)$u['subscription_expire']=max($valid);
+        // WordPress/MySQL is the only entitlement-expiry authority. Provider
+        // expiries are observations only and must never overwrite subscription_expire.
+        $canonical=self::remote_expiry($c['subscription_expire']??null);
+        $drift=[];
+        if($canonical){
+            $canonicalTs=strtotime($canonical.' UTC')?:0;
+            foreach($providerExpiries as $provider=>$remoteExpire){
+                $remoteTs=strtotime($remoteExpire.' UTC')?:0;if(!$remoteTs||!$canonicalTs)continue;
+                $delta=$remoteTs-$canonicalTs;
+                if(abs($delta)<=self::EXPIRY_DRIFT_TOLERANCE_SECONDS)continue;
+                $repair=self::enforce_provider_expiry($c,$provider,$canonical);
+                $repaired=!empty($repair['ok']);
+                $drift[$provider]=['remote'=>$remoteExpire,'canonical'=>$canonical,'delta_seconds'=>$delta,'repaired'=>$repaired,'message'=>(string)($repair['message']??'')];
+                if($repaired){if($provider==='marzban')$u['marzban_expire']=$canonical;if($provider==='guardcore')$u['guardcore_expire']=$canonical;}
+                else $errors[]=$provider.' expiry drift: '.(string)($repair['message']??'repair failed');
+            }
+        }
+        if($drift&&class_exists('BlueVPN_Error_Monitor')){
+            BlueVPN_Error_Monitor::report('entitlement','expiry_drift','warning','SUBSCRIPTION_EXPIRY_DRIFT','تاریخ انقضای Provider با Entitlement اصلی WordPress/MySQL اختلاف داشت؛ تاریخ Provider به مقدار Canonical برگردانده شد.',['customer_id'=>(int)$c['id'],'canonical_expire'=>$canonical,'providers'=>$drift]);
+        }elseif(class_exists('BlueVPN_Error_Monitor')){
+            BlueVPN_Error_Monitor::resolve_matching('entitlement','expiry_drift','SUBSCRIPTION_EXPIRY_DRIFT');
+        }
         if($responses>0)$u['used_traffic_bytes']=$used;
         // Fail open on transport/provider errors. A timeout must never turn a
         // paid user into Free. We only write inactive when every configured
@@ -1061,6 +1247,7 @@ final class BlueVPN_Providers {
         header('profile-update-interval: 24');
         $expiry=!empty($c['subscription_expire'])?strtotime((string)$c['subscription_expire'].' UTC'):0;
         header('subscription-userinfo: upload=0; download='.(int)$c['used_traffic_bytes'].'; total='.(int)$c['data_limit_bytes'].'; expire='.(int)$expiry);
+        header('X-BlueVPN-Expiry-Source: wordpress_mysql_entitlement');
         header('X-BlueVPN-Config-Count: '.count($lines));
         header('X-BlueVPN-Snapshot-Age: '.($age===PHP_INT_MAX?0:max(0,$age)));
         echo base64_encode(implode("\n",$lines)."\n");exit;

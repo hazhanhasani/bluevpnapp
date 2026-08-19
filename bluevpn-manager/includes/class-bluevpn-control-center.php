@@ -1032,7 +1032,13 @@ final class BlueVPN_Control_Center {
 
     public static function manual_activate(): void {
         self::guard();check_admin_referer('bluevpn_cc_manual_activate');global $wpdb;
-        $customerId=(int)($_POST['customer_id']??0);$planId=(int)($_POST['plan_id']??0);$r=BlueVPN_Providers::provision_customer($customerId,$planId);
+        $customerId=(int)($_POST['customer_id']??0);$planId=(int)($_POST['plan_id']??0);
+        $before=$wpdb->get_row($wpdb->prepare('SELECT subscription_expire FROM '.BlueVPN_DB::table('customers').' WHERE id=%d LIMIT 1',$customerId),ARRAY_A);
+        $plan=$wpdb->get_row($wpdb->prepare('SELECT duration_days FROM '.BlueVPN_DB::table('plans').' WHERE id=%d LIMIT 1',$planId),ARRAY_A);
+        $targetExpiry=BlueVPN_Providers::next_entitlement_expiry($customerId,$planId);
+        $manualRef='manual-'.wp_generate_uuid4();
+        BlueVPN_Providers::record_entitlement_ledger($customerId,$planId,'admin',$manualRef,'intentional_grant',true,max(0,(int)($plan['duration_days']??0)),$before['subscription_expire']??null,$targetExpiry,['actor'=>get_current_user_id()]);
+        $r=BlueVPN_Providers::provision_customer($customerId,$planId,$targetExpiry);
         if(($r['ok']||($r['partial']??false))&&class_exists('BlueVPN_SMS_Notifications')){
             try{$c=$wpdb->get_row($wpdb->prepare('SELECT id,phone,subscription_expire FROM '.BlueVPN_DB::table('customers').' WHERE id=%d',$customerId),ARRAY_A);$p=$wpdb->get_row($wpdb->prepare('SELECT title FROM '.BlueVPN_DB::table('plans').' WHERE id=%d',$planId),ARRAY_A);if($c&&!empty($c['phone'])&&$p)BlueVPN_SMS_Notifications::queue('admin_subscription_activated',(string)$c['phone'],['plan'=>mb_substr((string)$p['title'],0,40),'expire_date'=>BlueVPN_SMS_Notifications::jalali_date((string)($c['subscription_expire']??''))],$customerId,null,'admin-subscription:'.$customerId.':'.$planId.':'.(string)($c['subscription_expire']??''));}catch(Throwable $e){BlueVPN_Error_Monitor::legacy_error_log('BlueVPN manual activation SMS: '.$e->getMessage());}
         }

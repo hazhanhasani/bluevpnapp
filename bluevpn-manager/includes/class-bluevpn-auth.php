@@ -559,6 +559,8 @@ final class BlueVPN_Auth {
                 'calendar' => 'jalali',
                 'timezone' => 'Asia/Tehran',
                 'expire_mode' => $unlimited ? 'unlimited' : ($expiry ? 'fixed' : 'none'),
+                'expire_source' => 'wordpress_mysql_entitlement',
+                'provider_expiry_authoritative' => false,
                 'unlimited' => $unlimited,
                 'clock_skew_tolerance_seconds' => 120,
                 'data_limit_bytes' => $limitBytes,

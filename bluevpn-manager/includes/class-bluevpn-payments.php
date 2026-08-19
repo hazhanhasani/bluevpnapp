@@ -312,6 +312,14 @@ final class BlueVPN_Payments {
                 return array_merge($order, $update);
             }
 
+            // A paid order grants its duration exactly once. Persist the canonical
+            // target expiry before touching any provider so retries/reconciliation
+            // can reuse the exact same entitlement instead of adding plan days again.
+            $targetExpiry=trim((string)($meta['_bluevpn_entitlement_target_expire']??''));
+            if($targetExpiry===''){
+                $targetExpiry=(string)(BlueVPN_Providers::next_entitlement_expiry((int)$order['customer_id'],(int)$order['plan_id'])??'');
+                if($targetExpiry!=='')$meta['_bluevpn_entitlement_target_expire']=$targetExpiry;
+            }
             $meta['_bluevpn_activation_payment_id'] = $paymentId;
             $meta['_bluevpn_activation_attempted_at'] = BlueVPN_Utils::iso_now();
             $wpdb->update(BlueVPN_DB::table('orders'), ['gateway_json' => BlueVPN_Utils::json_encode($meta)], ['id' => $order['id']]);
@@ -321,6 +329,13 @@ final class BlueVPN_Payments {
                 $beforeCustomer = BlueVPN_Auth::get_customer((int)$order['customer_id']);
                 if (!empty($beforeCustomer['plan_id'])) $beforePlan = $wpdb->get_row($wpdb->prepare('SELECT * FROM '.BlueVPN_DB::table('plans').' WHERE id=%d LIMIT 1',(int)$beforeCustomer['plan_id']),ARRAY_A);
             } catch (Throwable $e) { $beforeCustomer = null; }
+            $grantPlan=$wpdb->get_row($wpdb->prepare('SELECT duration_days FROM '.BlueVPN_DB::table('plans').' WHERE id=%d LIMIT 1',(int)$order['plan_id']),ARRAY_A);
+            BlueVPN_Providers::record_entitlement_ledger(
+                (int)$order['customer_id'],(int)$order['plan_id'],'payment',(string)$order['id'],'intentional_grant',true,
+                max(0,(int)($grantPlan['duration_days']??0)),
+                $beforeCustomer['subscription_expire']??null,$targetExpiry!==''?$targetExpiry:null,
+                ['payment_id'=>$paymentId,'order_code'=>(string)($order['order_code']??'')]
+            );
             $attemptNo=(int)$wpdb->get_var($wpdb->prepare('SELECT COUNT(*)+1 FROM '.BlueVPN_DB::table('provisioning_attempts').' WHERE order_id=%s',(string)$order['id']));
             $wpdb->insert(BlueVPN_DB::table('provisioning_attempts'),[
                 'order_id'=>(string)$order['id'],'customer_id'=>(int)$order['customer_id'],'plan_id'=>(int)$order['plan_id'],
@@ -328,7 +343,7 @@ final class BlueVPN_Payments {
             ]);
             $attemptId=(int)$wpdb->insert_id;
             try{
-                $result = BlueVPN_Providers::provision_customer((int)$order['customer_id'], (int)$order['plan_id']);
+                $result = BlueVPN_Providers::provision_customer((int)$order['customer_id'], (int)$order['plan_id'], $targetExpiry!==''?$targetExpiry:null);
             }catch(Throwable $provisionError){
                 $wpdb->update(BlueVPN_DB::table('provisioning_attempts'),['status'=>'failed','error_message'=>mb_substr($provisionError->getMessage(),0,2000),'finished_at'=>BlueVPN_Utils::now_mysql()],['id'=>$attemptId]);
                 throw $provisionError;

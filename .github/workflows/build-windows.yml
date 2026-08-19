@@ -121,8 +121,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw 'Bundled v2rayN sing-box self-check failed' }
 
             # Validate the actual TUN schemas BlueVPN relies on before packaging.
-            & (Join-Path $core 'xray.exe') run -test -config 'bluevpn-windows/runtime-config/xray-tun-smoke.json'
-            if ($LASTEXITCODE -ne 0) { throw 'Xray Windows TUN configuration smoke-check failed' }
+            & (Join-Path $core 'xray.exe') run -test -config 'bluevpn-windows/runtime-config/xray-local-proxy-smoke.json'
+            if ($LASTEXITCODE -ne 0) { throw 'Xray local proxy configuration smoke-check failed' }
+            & (Join-Path $core 'sing-box.exe') check -c 'bluevpn-windows/runtime-config/singbox-v2rayn-tun-smoke.json'
+            if ($LASTEXITCODE -ne 0) { throw 'sing-box v2rayN TUN configuration smoke-check failed' }
             & (Join-Path $core 'sing-box.exe') check -c 'bluevpn-windows/runtime-config/singbox-warp-smoke.json'
             if ($LASTEXITCODE -ne 0) { throw 'sing-box WARP TUN configuration smoke-check failed' }
           }

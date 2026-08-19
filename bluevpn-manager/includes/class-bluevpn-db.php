@@ -15,7 +15,7 @@ final class BlueVPN_DB {
             'marzban_panels', 'guardcore_panels', 'plans', 'customers', 'manual_customers',
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
-            'payment_events', 'provisioning_attempts', 'webhook_deliveries',
+            'payment_events', 'provisioning_attempts', 'entitlement_ledger', 'webhook_deliveries',
             'free_config_sources', 'free_configs', 'free_config_reports', 'free_reward_claims', 'bot_settings', 'bot_jobs', 'error_events', 'ai_connection_events', 'ai_live_connections',
             'ai_route_aggregates', 'ai_feedback', 'ai_incidents', 'ai_reconciliation_runs',
             'support_departments', 'support_topics', 'support_operators', 'support_conversations',
@@ -303,6 +303,25 @@ final class BlueVPN_DB {
             KEY ix_customer_pasarguard (panel_id, pg_user_id),
             KEY ix_customer_marzban (marzban_panel_id, marzban_user_id),
             KEY ix_customer_guardcore (guardcore_panel_id, guardcore_subscription_id)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('entitlement_ledger')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            customer_id bigint unsigned NOT NULL,
+            plan_id bigint unsigned NULL,
+            source varchar(40) NOT NULL DEFAULT '',
+            source_ref varchar(160) NOT NULL DEFAULT '',
+            event_type varchar(40) NOT NULL DEFAULT '',
+            intentional_grant tinyint(1) NOT NULL DEFAULT 0,
+            duration_days int NOT NULL DEFAULT 0,
+            before_expire datetime NULL,
+            target_expire datetime NULL,
+            metadata_json longtext NULL,
+            created_at datetime NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY uq_entitlement_ledger_event (source, source_ref(120), event_type),
+            KEY ix_entitlement_ledger_customer (customer_id, created_at),
+            KEY ix_entitlement_ledger_target (customer_id, target_expire)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('manual_customers')} (

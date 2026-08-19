@@ -36,6 +36,8 @@ data class BlueVpnAccountSnapshot(
     val status: String,
     val expire: String?,
     val expireFa: String?,
+    val remainingSeconds: Long?,
+    val remainingSecondsSavedElapsed: Long,
     val dataLimitBytes: Long,
     val usedTrafficBytes: Long,
     val deviceLimit: Int,
@@ -1936,6 +1938,8 @@ object BlueVpnAccountManager {
             p.getString("status", "inactive").orEmpty(),
             p.getString("expire", null),
             p.getString("expire_fa", null),
+            p.getLong("remaining_seconds", -1L).takeIf { it >= 0L },
+            p.getLong("remaining_seconds_saved_elapsed", 0L),
             p.getLong("limit", 0),
             p.getLong("used", 0),
             p.getInt("devices", 1),
@@ -2617,6 +2621,11 @@ object BlueVpnAccountManager {
             previous.subscriptionActive != effectiveActive ||
                 previous.subscriptionUrl.trim() != url.trim() ||
                 (poolIdentity.isNotBlank() && poolIdentity != previousPoolIdentity)
+        val canonicalRemainingSeconds = if (
+            subscription.has("remaining_seconds") && !subscription.isNull("remaining_seconds")
+        ) subscription.optLong("remaining_seconds", -1L).takeIf { it >= 0L } else null
+        val canonicalRemainingSavedElapsed = android.os.SystemClock.elapsedRealtime()
+
         val committed = synchronized(authStateLock) {
             if (!hasSession(c) ||
                 (expectedAuthEpoch != null && authSessionEpoch.get() != expectedAuthEpoch)
@@ -2649,6 +2658,8 @@ object BlueVpnAccountManager {
                                 it.isNotBlank() && it != "null"
                             }
                     )
+                    .putLong("remaining_seconds", canonicalRemainingSeconds ?: -1L)
+                    .putLong("remaining_seconds_saved_elapsed", canonicalRemainingSavedElapsed)
                     .putString("url", url)
                     .putString("pool_identity", poolIdentity)
                     .putLong(

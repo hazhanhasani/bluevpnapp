@@ -25,7 +25,8 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _maintenanceTimer = new();
     private bool _maintenanceRunning;
     private DateTimeOffset? _connectedAt;
-    private long _lastBytes;
+    private long _lastReceivedBytes;
+    private long _lastSentBytes;
     private DateTimeOffset _lastByteSample = DateTimeOffset.UtcNow;
     private int _adIndex;
 
@@ -39,9 +40,11 @@ public partial class MainWindow : Window
         _ads = AppServices.Advertisements!;
         _appUpdater = AppServices.AppUpdater!;
         _runtimeUpdater = AppServices.RuntimeUpdater!;
-        VersionText.Text = $"v{_settings.Version}";
+        VersionText.Text = _settings.Version;
+        MenuVersionText.Text = _settings.Version;
         CoreVersionText.Text = $"v2rayN {_settings.V2RayNVersion}";
         TechnicalText.Text = _connection.RuntimeStatus;
+        MenuTechnicalText.Text = _connection.RuntimeStatus;
 
         _metricsTimer.Interval = TimeSpan.FromSeconds(1);
         _metricsTimer.Tick += (_, _) => RefreshMetrics();
@@ -130,6 +133,26 @@ public partial class MainWindow : Window
         try { Process.Start(new ProcessStartInfo(target) { UseShellExecute = true }); } catch { }
     }
 
+    private void AccountButton_Click(object sender, RoutedEventArgs e)
+    {
+        MenuDrawer.Visibility = Visibility.Collapsed;
+        AccountDrawer.Visibility = AccountDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void MenuButton_Click(object sender, RoutedEventArgs e)
+    {
+        AccountDrawer.Visibility = Visibility.Collapsed;
+        MenuDrawer.Visibility = MenuDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+        MenuTechnicalText.Text = _connection.RuntimeStatus;
+        MenuIpText.Text = $"IP: {IpValue.Text}";
+    }
+
+    private void CloseDrawers_Click(object sender, RoutedEventArgs e)
+    {
+        AccountDrawer.Visibility = Visibility.Collapsed;
+        MenuDrawer.Visibility = Visibility.Collapsed;
+    }
+
     private async void Login_Click(object sender, RoutedEventArgs e) => await BusyAsync("در حال ورود…", async ct =>
     {
         var result = await _api.LoginAsync(EmailBox.Text.Trim(), PasswordBox.Password, ct);
@@ -185,15 +208,22 @@ public partial class MainWindow : Window
         {
             var result = await _connection.ConnectAsync(_account, progress, _connectCts.Token);
             _connectedAt = DateTimeOffset.UtcNow;
-            StatusText.Text = "متصل"; OrbText.Text = "اتصال برقرار است";
-            StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnGreen"); OrbHalo.Background = new SolidColorBrush(Color.FromArgb(35, 46, 207, 145));
+            StatusText.Text = "متصل هستید"; OrbText.Text = "قطع اتصال";
+            StatusDot.Fill = (Brush)FindResource("BlueVpnGreen");
+            StatusOrb.Background = (Brush)FindResource("BlueVpnBlue");
+            StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnBlue2");
+            OrbHalo.Background = new SolidColorBrush(Color.FromArgb(232, 235, 243, 255));
             ConnectionStatusText.Text = result.Premium ? "اتصال ویژه برقرار شد" : (result.Engine == "WARP" ? "اتصال رایگان WARP برقرار شد" : "اتصال رایگان برقرار شد");
-            EndpointText.Text = result.Endpoint.DisplayName; EngineText.Text = result.Engine;
+            EndpointText.Text = result.Endpoint.DisplayName;
+            EngineText.Text = "متصل • مسیر فعال در پس‌زمینه مدیریت می‌شود";
+            ServerStatusText.Text = $"اتصال سراسری تأیید شد • {result.Engine}";
             TierText.Text = result.Premium ? "Premium" : "Free"; ConnectButton.Content = "⏻";
             IpValue.Text = result.Verification.PublicIp.Length > 0 ? result.Verification.PublicIp : "—";
             PingValue.Text = FormatLatency(result.Endpoint.ProbeLatencyMs);
             LocationBadge.Text = result.Verification.Country.Length > 0 ? result.Verification.Country : "VPN";
             TechnicalText.Text = $"VPN سراسری تأیید شد • {result.Engine} • {result.Verification.Detail}";
+            MenuTechnicalText.Text = TechnicalText.Text;
+            MenuIpText.Text = $"IP: {IpValue.Text}";
             FooterStatus.Text = "IP و مسیر سیستم از داخل BlueVPN تأیید شد.";
             if (!result.Premium) ShowFreeStoryAdSafe();
         }
@@ -268,10 +298,15 @@ public partial class MainWindow : Window
         PlanText.Text = _account.Subscription.Active ? $"پلن: {(_account.PlanTitle.Length > 0 ? _account.PlanTitle : "ویژه")}" : "اشتراک ویژه فعال نیست";
         ExpiryText.Text = _account.Subscription.Active ? $"اعتبار تا: {_account.Subscription.ExpireFa}" : "اتصال رایگان در دسترس است";
         TrafficText.Text = FormatTraffic(_account.Subscription); TierText.Text = _account.Subscription.Active ? "Premium" : "Free";
+        SubscriptionSummaryText.Text = _account.Subscription.Active
+            ? $"فعال • {(_account.PlanTitle.Length > 0 ? _account.PlanTitle : "Premium")}"
+            : "اتصال رایگان BlueVPN";
+        RemainingVolumeValue.Text = FormatRemainingVolume(_account.Subscription);
+        RemainingTimeValue.Text = FormatRemainingTime(_account.Subscription);
     }
 
     private async Task RefreshPlansSafeAsync() { try { PlansList.ItemsSource = await _api.GetPlansAsync(); } catch { PlansList.ItemsSource = null; } }
-    private async Task RefreshPublicIpAsync() { try { var s = await ConnectivityProbe.SnapshotAsync(_settings.ProbeUrl); if (!_connection.IsConnected && s.Reachable) IpValue.Text = s.PublicIp; } catch { } }
+    private async Task RefreshPublicIpAsync() { try { var snapshot = await ConnectivityProbe.SnapshotAsync(_settings.ProbeUrl); if (!_connection.IsConnected && snapshot.Reachable) { IpValue.Text = snapshot.PublicIp; MenuIpText.Text = $"IP: {snapshot.PublicIp}"; } } catch { } }
 
     private async Task BusyAsync(string status, Func<CancellationToken, Task> action)
     {
@@ -284,44 +319,76 @@ public partial class MainWindow : Window
     private void SetConnectingUi()
     {
         ConnectButton.IsEnabled = false; StatusText.Text = "در حال اتصال"; OrbText.Text = "لطفاً صبر کنید";
-        StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnBlue2"); OrbHalo.Background = new SolidColorBrush(Color.FromArgb(36, 110, 145, 255));
+        StatusDot.Fill = (Brush)FindResource("BlueVpnBlue");
+        StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnBlue2"); OrbHalo.Background = new SolidColorBrush(Color.FromArgb(228, 235, 250, 255));
+        ServerStatusText.Text = "در حال بررسی مسیر و IP سیستم…";
     }
 
     private void SetDisconnectedUi()
     {
-        _connectedAt = null; StatusText.Text = "آماده اتصال"; OrbText.Text = "برای اتصال کلیک کنید";
-        StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnBlue"); OrbHalo.Background = new SolidColorBrush(Color.FromArgb(24, 57, 120, 255));
-        ConnectionStatusText.Text = "بهترین اتصال به‌صورت خودکار انتخاب می‌شود"; EndpointText.Text = "انتخاب خودکار بهترین مسیر";
-        EngineText.Text = "WARP رایگان • v2rayN برای سرویس‌ها"; ConnectButton.Content = "⏻"; ConnectButton.IsEnabled = true;
-        PingValue.Text = "—"; DurationValue.Text = "00:00:00"; SpeedValue.Text = "0 KB/s"; LocationBadge.Text = "AUTO";
-        TechnicalText.Text = _connection.RuntimeStatus;
+        _connectedAt = null; StatusText.Text = "آماده اتصال"; OrbText.Text = "برای اتصال لمس کنید";
+        StatusDot.Fill = (Brush)FindResource("BlueVpnMuted");
+        StatusOrb.Background = (Brush)FindResource("BlueVpnBlue");
+        StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnBlue2"); OrbHalo.Background = new SolidColorBrush(Color.FromArgb(221, 232, 248, 255));
+        ConnectionStatusText.Text = "بهترین اتصال به‌صورت خودکار انتخاب می‌شود"; EndpointText.Text = "انتخاب خودکار";
+        EngineText.Text = "بهترین مسیر همان لوکیشن به‌صورت خودکار انتخاب می‌شود"; ServerStatusText.Text = "آماده اتصال";
+        ConnectButton.Content = "⏻"; ConnectButton.IsEnabled = true;
+        PingValue.Text = "—"; DurationValue.Text = "00:00:00"; SpeedValue.Text = "0 KB/s"; UploadSpeedValue.Text = "0 KB/s"; DownloadSpeedValue.Text = "0 KB/s"; LocationBadge.Text = "AUTO";
+        TechnicalText.Text = _connection.RuntimeStatus; MenuTechnicalText.Text = TechnicalText.Text;
         _ = RefreshPublicIpAsync();
     }
 
     private void RefreshMetrics()
     {
         if (_connectedAt is not null) DurationValue.Text = (DateTimeOffset.UtcNow - _connectedAt.Value).ToString(@"hh\:mm\:ss");
-        var bytes = TotalNetworkBytes(); var now = DateTimeOffset.UtcNow; var elapsed = Math.Max(0.25, (now - _lastByteSample).TotalSeconds);
-        if (_lastBytes > 0 && bytes >= _lastBytes)
-        {
-            var rate = (bytes - _lastBytes) / elapsed; SpeedValue.Text = rate >= 1024 * 1024 ? $"{rate / 1024 / 1024:0.0} MB/s" : $"{rate / 1024:0} KB/s";
-        }
-        _lastBytes = bytes; _lastByteSample = now;
+        var (received, sent) = NetworkBytes();
+        var now = DateTimeOffset.UtcNow;
+        var elapsed = Math.Max(0.25, (now - _lastByteSample).TotalSeconds);
+        if (_lastReceivedBytes > 0 && received >= _lastReceivedBytes)
+            DownloadSpeedValue.Text = FormatRate((received - _lastReceivedBytes) / elapsed);
+        if (_lastSentBytes > 0 && sent >= _lastSentBytes)
+            UploadSpeedValue.Text = FormatRate((sent - _lastSentBytes) / elapsed);
+        SpeedValue.Text = DownloadSpeedValue.Text;
+        _lastReceivedBytes = received;
+        _lastSentBytes = sent;
+        _lastByteSample = now;
     }
 
-    private static long TotalNetworkBytes()
+    private static (long Received, long Sent) NetworkBytes()
     {
-        long total = 0;
+        long received = 0, sent = 0;
         try
         {
             foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
             {
                 if (nic.NetworkInterfaceType == NetworkInterfaceType.Loopback || nic.OperationalStatus != OperationalStatus.Up) continue;
-                var s = nic.GetIPv4Statistics(); total += s.BytesReceived + s.BytesSent;
+                var stats = nic.GetIPv4Statistics();
+                received += stats.BytesReceived;
+                sent += stats.BytesSent;
             }
         }
         catch { }
-        return total;
+        return (received, sent);
+    }
+
+    private static string FormatRate(double rate) => rate >= 1024 * 1024
+        ? $"{rate / 1024 / 1024:0.0} MB/s"
+        : $"{rate / 1024:0.0} KB/s";
+
+    private static string FormatRemainingVolume(SubscriptionInfo info)
+    {
+        if (!info.Active) return "—";
+        if (info.DataLimitBytes <= 0) return "نامحدود";
+        var remaining = info.RemainingBytes > 0 ? info.RemainingBytes : Math.Max(0, info.DataLimitBytes - info.UsedTrafficBytes);
+        return remaining >= 1024L * 1024 * 1024 ? $"{remaining / 1024d / 1024d / 1024d:0.##} GB" : $"{remaining / 1024d / 1024d:0} MB";
+    }
+
+    private static string FormatRemainingTime(SubscriptionInfo info)
+    {
+        if (!info.Active) return "—";
+        if (info.RemainingSeconds is not long seconds || seconds < 0) return info.ExpireFa.Length > 0 ? info.ExpireFa : "—";
+        var days = (long)Math.Ceiling(seconds / 86400d);
+        return days <= 0 ? "کمتر از یک روز" : $"{days} روز";
     }
 
     private static string FormatLatency(int ms) => ms == int.MaxValue ? "—" : $"{ms} ms";

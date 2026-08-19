@@ -1,0 +1,7 @@
+BlueVPN Windows 4.17.9
+
+- Preflight free-space checks before app update downloads and installation.
+- Automatic cleanup of stale update caches and poisoned partial files.
+- HTTP Range resume across transient retry attempts.
+- Disk-space guard for v2rayN runtime updates and extraction.
+- Persian low-space UI instead of raw .NET IOException dialogs.

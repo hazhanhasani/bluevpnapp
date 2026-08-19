@@ -1,6 +1,7 @@
 using System.IO;
 using System.IO.Compression;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -26,17 +27,54 @@ public sealed class GitHubReleaseClient : IDisposable
         return JsonDocument.Parse(bytes);
     }
 
-    public async Task DownloadVerifiedAsync(string url, string destination, string digest, CancellationToken ct)
+    public async Task DownloadVerifiedAsync(string url, string destination, string digest, CancellationToken ct, long expectedSize = 0, IProgress<double>? progress = null)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
         var temp = destination + ".part";
         try
         {
-            using var response = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            long existing = 0;
+            try { if (File.Exists(temp)) existing = new FileInfo(temp).Length; } catch { existing = 0; }
+            if (expectedSize > 0 && existing >= expectedSize)
+            {
+                try { File.Delete(temp); } catch { }
+                existing = 0;
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (existing > 0) request.Headers.Range = new RangeHeaderValue(existing, null);
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+
+            var append = existing > 0 && response.StatusCode == System.Net.HttpStatusCode.PartialContent;
+            if (!append && existing > 0) existing = 0; // server ignored Range; safely restart
             response.EnsureSuccessStatusCode();
+
+            var total = expectedSize > 0
+                ? expectedSize
+                : (response.Content.Headers.ContentLength.HasValue ? existing + response.Content.Headers.ContentLength.Value : 0);
+
             await using (var src = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
-            await using (var dst = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
-                await src.CopyToAsync(dst, ct).ConfigureAwait(false);
+            await using (var dst = new FileStream(temp, append ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, useAsync: true))
+            {
+                var buffer = new byte[1024 * 1024];
+                long written = existing;
+                while (true)
+                {
+                    var read = await src.ReadAsync(buffer.AsMemory(0, buffer.Length), ct).ConfigureAwait(false);
+                    if (read <= 0) break;
+                    await dst.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+                    written += read;
+                    if (total > 0) progress?.Report(Math.Clamp(written / (double)total, 0d, 1d));
+                }
+                await dst.FlushAsync(ct).ConfigureAwait(false);
+            }
+
+            if (expectedSize > 0)
+            {
+                var actualSize = new FileInfo(temp).Length;
+                if (actualSize != expectedSize)
+                    throw new InvalidDataException($"حجم فایل بروزرسانی کامل نیست (expected={expectedSize}, received={actualSize}).");
+            }
 
             if (string.IsNullOrWhiteSpace(digest) || !digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("GitHub برای فایل بروزرسانی SHA256 معتبر ارائه نکرد؛ بروزرسانی برای امنیت متوقف شد.");
@@ -50,10 +88,25 @@ public sealed class GitHubReleaseClient : IDisposable
                 throw new InvalidDataException("SHA256 فایل بروزرسانی با GitHub تطابق ندارد.");
 
             File.Move(temp, destination, true);
+            progress?.Report(1d);
         }
-        finally
+        catch (OperationCanceledException)
         {
+            // Keep a partial file for a user-requested retry/resume. Old partials are
+            // cleaned by UpdateStorageManager on a new application version.
+            throw;
+        }
+        catch (IOException)
+        {
+            // Disk errors must not leave a poisoned partial that retriggers the same
+            // failure forever. The caller converts low-space failures to Persian UI.
             try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+            throw;
+        }
+        catch
+        {
+            // Network/server failures keep the partial so the next retry can use HTTP Range.
+            throw;
         }
     }
 

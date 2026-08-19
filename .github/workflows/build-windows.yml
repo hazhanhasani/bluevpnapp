@@ -109,7 +109,8 @@ jobs:
           }
 
           $v2raynExe = Get-ChildItem $upstream -Recurse -File -Filter 'v2rayN.exe' | Select-Object -First 1
-          if ($v2raynExe) { Copy-Item $v2raynExe.FullName (Join-Path $target 'v2rayN.exe') -Force }
+          if (-not $v2raynExe) { throw 'Required v2rayN application runtime missing: v2rayN.exe' }
+          Copy-Item $v2raynExe.FullName (Join-Path $target 'v2rayN.exe') -Force
           @{
             source='2dust/v2rayN'; version=$env:V2RAYN_VERSION; asset=$env:ASSET; sha256=$actual; rid=$env:RID
           } | ConvertTo-Json | Set-Content (Join-Path $target 'runtime.json') -Encoding UTF8
@@ -191,7 +192,7 @@ jobs:
           Copy-Item bluevpn-windows/README.md $out/README-Windows.txt -Force
           Copy-Item third_party/V2RAYN.md $out/V2RAYN-LICENSE-NOTICE.txt -Force
           Copy-Item third_party/AETHER_WINDOWS.md $out/AETHER-LICENSE-NOTICE.txt -Force
-          "BlueVPN $version | $env:RID | v2rayN $env:V2RAYN_VERSION | Aether $env:AETHER_VERSION" | Set-Content "$out/BUILD.txt"
+          "BlueVPN $version | $env:RID | BlueVPN Core | Free Engine $env:AETHER_VERSION" | Set-Content "$out/BUILD.txt"
 
       - name: Verify publish payload and architecture
         shell: pwsh
@@ -204,7 +205,7 @@ jobs:
           foreach ($file in @('BlueVPN.exe','appsettings.json','runtime/v2rayn/runtime.json')) {
             if (-not (Test-Path (Join-Path $out $file))) { throw "Missing published file: $file" }
           }
-          foreach ($name in @('xray.exe','sing-box.exe','wintun.dll')) {
+          foreach ($name in @('v2rayN.exe','xray.exe','sing-box.exe','wintun.dll')) {
             if (-not (Get-ChildItem (Join-Path $out 'runtime/v2rayn') -Recurse -File -Filter $name | Select-Object -First 1)) {
               throw "Missing v2rayN runtime core: $name"
             }
@@ -365,7 +366,7 @@ jobs:
           WINDOWS_CHANNEL="beta"
           TAG="bluevpn-windows-v${VERSION}"
           TITLE="BlueVPN Windows ${VERSION}$([ "$WINDOWS_CHANNEL" = beta ] && printf ' Beta')"
-          NOTES="BlueVPN Windows ${VERSION} — Installer رسمی، VPN سراسری، runtime مبتنی بر v2rayN و WARP رایگان روی x64."$'\n\n'"BlueVPN-Windows-Channel: beta"$'\n'"BlueVPN-Windows-Channel-Authority: wordpress-manager"$'\n'"BlueVPN-Windows-Stage: ${WINDOWS_STAGE}"$'\n\n'"هر Build جدید ابتدا Beta است. ارتقا به Stable از BlueVPN Manager انجام می‌شود و Build مجدد لازم ندارد."$'\n'"فایل Setup برای نصب عادی توصیه می‌شود؛ ZIP فقط برای عیب‌یابی/Portable نگه داشته شده است."
+          NOTES="BlueVPN Windows ${VERSION} — Installer رسمی، VPN سراسری، BlueVPN Core و اتصال رایگان روی x64."$'\n\n'"BlueVPN-Windows-Channel: beta"$'\n'"BlueVPN-Windows-Channel-Authority: wordpress-manager"$'\n'"BlueVPN-Windows-Stage: ${WINDOWS_STAGE}"$'\n\n'"هر Build جدید ابتدا Beta است. ارتقا به Stable از BlueVPN Manager انجام می‌شود و Build مجدد لازم ندارد."$'\n'"فایل Setup برای نصب عادی توصیه می‌شود؛ ZIP فقط برای عیب‌یابی/Portable نگه داشته شده است."
           mapfile -t ASSETS < <(find windows-release -maxdepth 1 -type f \( -name "BlueVPN-Windows-${VERSION}-win-*.zip" -o -name "BlueVPN-Windows-${VERSION}-win-*.zip.sha256" -o -name "BlueVPN-Setup-${VERSION}-win-*.exe" -o -name "BlueVPN-Setup-${VERSION}-win-*.exe.sha256" \) -print | sort)
           test "${#ASSETS[@]}" -eq 8 || { echo "::error::Expected eight Windows release assets, found ${#ASSETS[@]}"; printf '%s\n' "${ASSETS[@]}"; exit 1; }
 

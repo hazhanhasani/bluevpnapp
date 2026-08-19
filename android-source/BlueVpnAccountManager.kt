@@ -2488,7 +2488,11 @@ object BlueVpnAccountManager {
         authenticatedRequest(
             c,
             "POST",
-            "/api/v1/server-locations/resolve",
+            // Use the canonical REST route for this relatively large JSON
+            // payload. Some cPanel/Apache rewrite stacks have been observed to
+            // transform /api/v1/* POSTs before WordPress parses the body, which
+            // surfaces as REST_INVALID_JSON even when the client payload is valid.
+            "/wp-json/bluevpn/v1/server-locations/resolve",
             JSONObject().put("keys", array),
         )
     }
@@ -2801,8 +2805,9 @@ object BlueVpnAccountManager {
             )
             connection.setRequestProperty(
                 "Content-Type",
-                "application/json"
+                "application/json; charset=utf-8"
             )
+            connection.setRequestProperty("Accept-Charset", "utf-8")
             connection.setRequestProperty(
                 "X-Device-ID",
                 deviceId(c)
@@ -2828,10 +2833,16 @@ object BlueVpnAccountManager {
             }
 
             if (body != null && method != "GET") {
+                // Write one immutable UTF-8 payload with an explicit content
+                // length. This avoids partial/default-charset JSON bodies and
+                // prevents WordPress REST from raising REST_INVALID_JSON.
+                val payload = body.toString().toByteArray(Charsets.UTF_8)
                 connection.doOutput = true
-                connection.outputStream
-                    .bufferedWriter()
-                    .use { it.write(body.toString()) }
+                connection.setFixedLengthStreamingMode(payload.size)
+                connection.outputStream.use { output ->
+                    output.write(payload)
+                    output.flush()
+                }
             }
 
             val status = connection.responseCode
@@ -2866,11 +2877,11 @@ object BlueVpnAccountManager {
 
             if (status !in 200..299) {
                 val detail = response.opt("detail")
-                val code = if (detail is JSONObject) {
-                    detail.optString("code", "HTTP_$status")
-                } else {
-                    "HTTP_$status"
-                }
+                val code = when {
+                    detail is JSONObject -> detail.optString("code", "HTTP_$status")
+                    response.optString("code").isNotBlank() -> response.optString("code")
+                    else -> "HTTP_$status"
+                }.uppercase(Locale.ROOT)
 
                 throw ApiException(
                     status,

@@ -256,7 +256,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             val reason = intent.getStringExtra("content")
                 ?.trim()
                 .orEmpty()
-                .ifBlank { "v2rayNG/Xray نتوانست این مسیر را شروع کند" }
+                .ifBlank { "هسته اتصال نتوانست این مسیر را شروع کند" }
             handler.removeCallbacks(attemptTimeout)
             failCurrentAndTryNext(reason)
         }

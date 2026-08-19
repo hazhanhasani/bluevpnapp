@@ -44,8 +44,10 @@ class BlueVpnQuickTileService : TileService() {
         val running = CoreServiceManager.isRunning()
         tile.icon = Icon.createWithResource(this, R.drawable.ic_stat_name)
         tile.state = if (running) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-        val server = CoreServiceManager.getRunningServerName().trim()
-        tile.label = if (running && server.isNotBlank()) server else getString(R.string.app_name)
+        // Never expose the upstream/provider profile remark in Android system UI.
+        // The live route name remains internal metadata; Quick Settings is a
+        // BlueVPN surface and therefore always uses BlueVPN branding.
+        tile.label = getString(R.string.app_name)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             tile.subtitle = if (running) "متصل" else "قطع"
         }

@@ -52,7 +52,7 @@ public partial class MainWindow : Window
 
         VersionText.Text = _settings.Version;
         MenuVersionText.Text = _settings.Version;
-        CoreVersionText.Text = $"v2rayN {_settings.V2RayNVersion}";
+        CoreVersionText.Text = "BlueVPN Core";
         TechnicalText.Text = _connection.RuntimeStatus;
         MenuTechnicalText.Text = _connection.RuntimeStatus;
 
@@ -310,7 +310,9 @@ public partial class MainWindow : Window
             StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnBlue2");
             OrbHalo.Background = new SolidColorBrush(Color.FromArgb(232, 235, 243, 255));
             ConnectionStatusText.Text = result.Premium ? "اتصال ویژه برقرار شد" : (result.Engine == "WARP" ? "اتصال رایگان WARP برقرار شد" : "اتصال رایگان برقرار شد");
-            EndpointText.Text = result.Endpoint.DisplayName;
+            EndpointText.Text = result.Premium
+                ? PublicRouteLabel("ویژه", result.Verification.Country)
+                : PublicRouteLabel("رایگان", result.Verification.Country);
             EngineText.Text = "متصل • مسیر فعال در پس‌زمینه مدیریت می‌شود";
             ServerStatusText.Text = $"اتصال سراسری تأیید شد • {result.Engine}";
             TierText.Text = result.Premium ? "Premium" : "Free";
@@ -318,7 +320,7 @@ public partial class MainWindow : Window
             IpValue.Text = result.Verification.PublicIp.Length > 0 ? result.Verification.PublicIp : "—";
             PingValue.Text = FormatLatency(result.Endpoint.ProbeLatencyMs);
             LocationBadge.Text = result.Verification.Country.Length > 0 ? result.Verification.Country : "VPN";
-            TechnicalText.Text = $"VPN سراسری تأیید شد • {result.Engine} • {result.Verification.Detail}";
+            TechnicalText.Text = "VPN سراسری تأیید شد • مسیر سیستم امن است";
             MenuTechnicalText.Text = TechnicalText.Text;
             MenuIpText.Text = $"IP: {IpValue.Text}";
             FooterStatus.Text = "IP و مسیر سیستم از داخل BlueVPN تأیید شد.";
@@ -422,11 +424,18 @@ public partial class MainWindow : Window
             await DownloadAndInstallUpdateAsync(candidate, forced: false);
         }
         catch (OperationCanceledException) { }
+        catch (InsufficientUpdateSpaceException ex)
+        {
+            FooterStatus.Text = "فضای کافی برای بروزرسانی وجود ندارد";
+            UpdateButton.Content = "فضا آزاد کن و دوباره بزن";
+            if (!silentWhenCurrent || userInitiated)
+                MessageBox.Show(ex.Message, "بروزرسانی BlueVPN", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
         catch (Exception ex)
         {
             FooterStatus.Text = "بررسی بروزرسانی انجام نشد";
             if (!silentWhenCurrent || userInitiated)
-                MessageBox.Show(ex.Message, "BlueVPN Update", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show(ex.Message, "بروزرسانی BlueVPN", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
         finally { _updateGate.Release(); }
     }
@@ -434,7 +443,12 @@ public partial class MainWindow : Window
     private async Task DownloadAndInstallUpdateAsync(UpdateCandidate candidate, bool forced)
     {
         FooterStatus.Text = $"دریافت نسخه {candidate.Version}…";
-        var installer = await _appUpdater.DownloadAsync(candidate, ct: _lifetimeCts.Token);
+        var progress = new Progress<double>(value =>
+        {
+            var percent = Math.Clamp((int)Math.Round(value * 100d), 0, 100);
+            FooterStatus.Text = $"دریافت نسخه {candidate.Version}… {percent}%";
+        });
+        var installer = await _appUpdater.DownloadAsync(candidate, progress, _lifetimeCts.Token);
         FooterStatus.Text = "بروزرسانی تأیید شد؛ در حال اجرای نصب…";
         _pendingUpdate = null;
         _connectCts?.Cancel();
@@ -464,8 +478,8 @@ public partial class MainWindow : Window
             var version = await _runtimeUpdater.CheckAndUpdateAsync(_connection.IsConnected, _lifetimeCts.Token);
             if (version.Length > 0)
             {
-                CoreVersionText.Text = $"v2rayN {version}";
-                TechnicalText.Text = $"هسته v2rayN {version} دریافت شد؛ در اتصال بعدی استفاده می‌شود.";
+                CoreVersionText.Text = "BlueVPN Core";
+                TechnicalText.Text = "هسته اتصال بروزرسانی شد؛ در اتصال بعدی استفاده می‌شود.";
             }
         }
         catch { }

@@ -60,7 +60,24 @@ final class BlueVPN_API {
         BlueVPN_Error_Monitor::legacy_error_log('BlueVPN '.$scope.' ['.$trace.']: '.$e->getMessage().' @ '.$e->getFile().':'.$e->getLine());
         return self::ok(['detail'=>['code'=>'SERVER_INTERNAL_ERROR','message'=>'خطای داخلی سرور هنگام پردازش درخواست رخ داد.','trace_id'=>$trace]],500);
     }
-    private static function body(WP_REST_Request $r): array { $b=$r->get_json_params(); return is_array($b)?$b:[]; }
+    private static function body(WP_REST_Request $r): array {
+        $b = $r->get_json_params();
+        if (is_array($b)) return $b;
+
+        // Compatibility fallback for hardened clients that may retry a request
+        // through an intermediary without an application/json content type.
+        // WordPress only performs strict JSON pre-parsing for JSON content types;
+        // decoding the raw body here keeps the API deterministic on cPanel/Apache
+        // rewrite stacks while still rejecting non-array payloads.
+        $raw = trim((string)$r->get_body());
+        if ($raw !== '') {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && json_last_error() === JSON_ERROR_NONE) return $decoded;
+        }
+
+        $form = $r->get_body_params();
+        return is_array($form) ? $form : [];
+    }
     public static function admin_permission(): bool { return current_user_can('manage_options'); }
     public static function health(): WP_REST_Response {
         $db = BlueVPN_DB::status();

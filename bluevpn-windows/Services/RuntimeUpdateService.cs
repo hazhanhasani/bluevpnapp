@@ -36,14 +36,15 @@ public sealed class RuntimeUpdateService
                 if (!string.Equals(asset.GetProperty("name").GetString(), archName, StringComparison.OrdinalIgnoreCase)) continue;
                 var url = asset.GetProperty("browser_download_url").GetString() ?? "";
                 var digest = asset.TryGetProperty("digest", out var d) ? d.GetString() ?? "" : "";
-                await InstallRuntimeAsync(gh, tag.TrimStart('v'), url, digest, ct).ConfigureAwait(false);
+                var size = asset.TryGetProperty("size", out var sz) && sz.TryGetInt64(out var parsedSize) ? Math.Max(0, parsedSize) : 0;
+                await InstallRuntimeAsync(gh, tag.TrimStart('v'), url, digest, size, ct).ConfigureAwait(false);
                 return tag.TrimStart('v');
             }
         }
         return "";
     }
 
-    private async Task InstallRuntimeAsync(GitHubReleaseClient gh, string version, string url, string digest, CancellationToken ct)
+    private async Task InstallRuntimeAsync(GitHubReleaseClient gh, string version, string url, string digest, long compressedBytes, CancellationToken ct)
     {
         var root = Path.Combine(_runtime.OverrideRoot, version);
         if (File.Exists(Path.Combine(root, ".validated"))) return;
@@ -51,21 +52,22 @@ public sealed class RuntimeUpdateService
         var zipPath = tempRoot + ".zip";
         try
         {
+            UpdateStorageManager.PrepareRuntimeUpdate(zipPath, compressedBytes);
             if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, true);
             Directory.CreateDirectory(tempRoot);
-            await gh.DownloadVerifiedAsync(url, zipPath, digest, ct).ConfigureAwait(false);
+            await gh.DownloadVerifiedAsync(url, zipPath, digest, ct, compressedBytes).ConfigureAwait(false);
 
             // Extraction/scanning a 100+ MB v2rayN package is CPU/disk heavy and
             // previously resumed on WPF's dispatcher, causing startup freezes.
             await Task.Run(() =>
             {
                 ZipFile.ExtractToDirectory(zipPath, tempRoot, overwriteFiles: true);
-                if (!Find(tempRoot, "xray.exe") || !Find(tempRoot, "sing-box.exe") || !Find(tempRoot, "wintun.dll"))
-                    throw new InvalidDataException("بسته v2rayN جدید Coreهای لازم BlueVPN را ندارد.");
+                if (!Find(tempRoot, "v2rayN.exe") || !Find(tempRoot, "xray.exe") || !Find(tempRoot, "sing-box.exe") || !Find(tempRoot, "wintun.dll"))
+                    throw new InvalidDataException("بسته جدید هسته اتصال کامل نیست.");
 
                 var normalized = Path.Combine(tempRoot, "bluevpn-core");
                 Directory.CreateDirectory(normalized);
-                foreach (var name in new[] { "xray.exe", "sing-box.exe", "wintun.dll", "geoip.dat", "geosite.dat" })
+                foreach (var name in new[] { "v2rayN.exe", "xray.exe", "sing-box.exe", "wintun.dll", "geoip.dat", "geosite.dat" })
                 {
                     var src = First(tempRoot, name);
                     if (src is not null) File.Copy(src, Path.Combine(normalized, name), true);

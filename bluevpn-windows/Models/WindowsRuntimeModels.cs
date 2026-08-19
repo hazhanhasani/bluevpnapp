@@ -109,4 +109,4 @@ public sealed class WarpRuntimePolicy
 
 public sealed record RuntimeVersionInfo(string Version, string Source, string RootPath);
 
-public sealed record UpdateCandidate(string Version, string DownloadUrl, string Digest, string AssetName, string ReleaseUrl, bool AutoUpdate, bool ForceUpdate, string Channel, string Message);
+public sealed record UpdateCandidate(string Version, string DownloadUrl, string Digest, string AssetName, string ReleaseUrl, long SizeBytes, bool AutoUpdate, bool ForceUpdate, string Channel, string Message);

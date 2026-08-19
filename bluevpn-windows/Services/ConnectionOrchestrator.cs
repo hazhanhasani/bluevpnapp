@@ -108,7 +108,7 @@ public sealed class ConnectionOrchestrator : IDisposable
             ct.ThrowIfCancellationRequested();
             try
             {
-                progress?.Report($"اتصال به {endpoint.DisplayName}…");
+                progress?.Report("اتصال به بهترین مسیر BlueVPN…");
                 var config = XrayConfigBuilder.Build(endpoint, _settings);
                 await _xray.StartAsync(config, endpoint, ct).ConfigureAwait(false);
                 progress?.Report("تأیید VPN سراسری…");
@@ -118,7 +118,7 @@ public sealed class ConnectionOrchestrator : IDisposable
 
                 _verifiedConnected = true;
                 ActiveEndpoint = endpoint;
-                ActiveEngine = "v2rayN • Xray + sing-box TUN";
+                ActiveEngine = "BlueVPN Core";
                 LastVerification = verified;
                 return new ConnectionResult(true, premium, endpoint, ActiveEngine, verified);
             }

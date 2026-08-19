@@ -8,8 +8,8 @@ def read(path): return (ROOT/path).read_text(encoding='utf-8')
 class WindowsAndroidUiTun4176Tests(unittest.TestCase):
     def test_release(self):
         r=json.loads(read('release.json'))
-        self.assertEqual(r['version'],'4.17.8')
-        self.assertEqual(r['version_code'],41708)
+        self.assertEqual(r['version'],'4.17.10')
+        self.assertEqual(r['version_code'],41710)
 
     def test_windows_home_matches_android_surface_order(self):
         x=read('bluevpn-windows/MainWindow.xaml')
@@ -33,7 +33,8 @@ class WindowsAndroidUiTun4176Tests(unittest.TestCase):
         self.assertIn('process_name = new[] { "xray.exe" }',tun)
         self.assertIn('final = "xray-local"',tun)
         self.assertIn('V2RayNTunConfigBuilder.Build',ctrl)
-        self.assertIn('ResolveSingBox',ctrl)
+        self.assertIn('ResolveV2RayNBundle',ctrl)
+        self.assertIn('bundle.SingBoxPath',ctrl)
 
     def test_connected_is_fail_closed_on_route_and_ip(self):
         v=read('bluevpn-windows/Services/SystemTunnelVerifier.cs')

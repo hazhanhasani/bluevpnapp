@@ -1,0 +1,6 @@
+BlueVPN Windows 4.17.10
+- Customer UI no longer exposes upstream runtime names or raw subscription remarks.
+- Premium/runtime binaries are resolved as one coherent validated official v2rayN bundle.
+- Runtime updates require the complete v2rayN application + Xray + sing-box + Wintun bundle before activation.
+- Public route labels are BlueVPN-owned; raw provider names remain internal diagnostics only.
+- BlueVPN remains the only customer-facing desktop UI; upstream legal notices remain packaged separately.

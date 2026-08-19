@@ -29,10 +29,28 @@ public sealed class RuntimeLocator
     public string BundledRoot => _bundledRoot;
     public string OverrideRoot => _overrideRoot;
 
-    public string ResolveXray() => ResolveExecutable("xray.exe");
-    public string ResolveSingBox() => ResolveExecutable("sing-box.exe");
-    public string ResolveWintun() => ResolveFile("wintun.dll");
-    public string ResolveV2rayN() => ResolveExecutable("v2rayN.exe", required: false);
+    public string ResolveXray() => ResolveV2RayNBundle().XrayPath;
+    public string ResolveSingBox() => ResolveV2RayNBundle().SingBoxPath;
+    public string ResolveWintun() => ResolveV2RayNBundle().WintunPath;
+    public string ResolveV2rayN() => ResolveV2RayNBundle().V2RayNPath;
+
+    /// <summary>
+    /// Resolve one coherent official v2rayN runtime root. BlueVPN never mixes
+    /// Xray/sing-box/Wintun files from different installs or update versions.
+    /// The upstream GUI executable is retained and validated as part of the
+    /// bundle, but customer interaction stays exclusively in BlueVPN UI.
+    /// </summary>
+    public V2RayNRuntimeBundle ResolveV2RayNBundle()
+    {
+        var root = ActiveRuntimeRoot();
+        var v2rayN = FindFirst(root, "v2rayN.exe");
+        var xray = FindFirst(root, "xray.exe");
+        var singBox = FindFirst(root, "sing-box.exe");
+        var wintun = FindFirst(root, "wintun.dll");
+        if (v2rayN is null || xray is null || singBox is null || wintun is null)
+            throw new FileNotFoundException("بسته کامل هسته اتصال BlueVPN پیدا نشد.");
+        return new V2RayNRuntimeBundle(root, v2rayN, xray, singBox, wintun);
+    }
 
     public string ResolveAether()
     {
@@ -52,14 +70,16 @@ public sealed class RuntimeLocator
 
     public string RuntimeStatus()
     {
-        var xray = TryResolve("xray.exe");
-        var sing = TryResolve("sing-box.exe");
-        var wt = TryResolve("wintun.dll");
-        if (xray.Length == 0 || sing.Length == 0 || wt.Length == 0)
+        try
+        {
+            _ = ResolveV2RayNBundle();
+            var warp = ResolveAether().Length > 0 ? "مسیر رایگان آماده" : (Architecture == "arm64" ? "مسیر رایگان جایگزین" : "مسیر رایگان موجود نیست");
+            return $"BlueVPN Core آماده • {warp}";
+        }
+        catch
+        {
             return "هسته اتصال ویندوز ناقص است";
-        var info = CurrentRuntime();
-        var warp = ResolveAether().Length > 0 ? "WARP آماده" : (Architecture == "arm64" ? "WARP: مسیر جایگزین" : "WARP موجود نیست");
-        return $"v2rayN {info.Version} • Xray + sing-box • {warp}";
+        }
     }
 
     public string ActiveRuntimeRoot()
@@ -119,3 +139,5 @@ public sealed class RuntimeLocator
         catch { return null; }
     }
 }
+
+public sealed record V2RayNRuntimeBundle(string RootPath, string V2RayNPath, string XrayPath, string SingBoxPath, string WintunPath);

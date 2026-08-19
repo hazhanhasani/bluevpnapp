@@ -13,6 +13,7 @@
     "test_blueai_control_plane_490.py",
     "test_blupal_callback_routes_4115.py",
     "test_blupal_freepool_panel_4114.py",
+    "test_brand_runtime_boundary_41710.py",
     "test_ci_node24_artifact_layout_41610.py",
     "test_connection_continuity_4112.py",
     "test_connection_stability_warp_exhaustive_498.py",
@@ -85,6 +86,7 @@
     "test_windows_site_platform_4160.py",
     "test_windows_stability_4177.py",
     "test_windows_story_ad_readiness_4178.py",
+    "test_windows_update_storage_4179.py",
     "test_windows_v2rayn_warp_installer_4162.py"
   ]
 }

@@ -15,7 +15,8 @@ class AndroidSystemIntegration478Tests(unittest.TestCase):
         self.assertIn('BlueVpnSystemController.ACTION_STOP', src)
         self.assertIn('Tile.STATE_ACTIVE', src)
         self.assertIn('CoreServiceManager.isRunning()', src)
-        self.assertIn('CoreServiceManager.getRunningServerName()', src)
+        self.assertNotIn('CoreServiceManager.getRunningServerName()', src)
+        self.assertIn('tile.label = getString(R.string.app_name)', src)
 
     def test_system_controller_cleans_free_and_premium_runtime(self):
         src = self.text('android-source/BlueVpnSystemController.kt')

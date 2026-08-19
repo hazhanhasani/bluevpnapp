@@ -32,9 +32,10 @@ public sealed class XrayProcessController : IDisposable
     public async Task StartAsync(string configJson, ProxyEndpoint endpoint, CancellationToken ct = default)
     {
         Stop();
-        var xray = _runtime.ResolveXray();
-        var singBox = _runtime.ResolveSingBox();
-        _ = _runtime.ResolveWintun();
+        var bundle = _runtime.ResolveV2RayNBundle();
+        var xray = bundle.XrayPath;
+        var singBox = bundle.SingBoxPath;
+        _ = bundle.WintunPath;
 
         var xrayConfig = Path.Combine(_stateDir, "xray-local-proxy.json");
         await File.WriteAllTextAsync(xrayConfig, configJson, ct).ConfigureAwait(false);
@@ -50,7 +51,7 @@ public sealed class XrayProcessController : IDisposable
             TimeSpan.FromSeconds(7),
             ct).ConfigureAwait(false);
         if (!proxyTrace.Reachable || string.IsNullOrWhiteSpace(proxyTrace.PublicIp))
-            throw new InvalidOperationException($"Xray این مسیر را باز کرد اما اینترنت از پروکسی عبور نکرد: {proxyTrace.Error}");
+            throw new InvalidOperationException($"هسته اتصال مسیر را باز کرد اما اینترنت از تونل عبور نکرد: {proxyTrace.Error}");
 
         var directIps = await ResolveEndpointIpsAsync(endpoint.Host, ct).ConfigureAwait(false);
         var tunConfig = Path.Combine(_stateDir, "sing-box-v2rayn-tun.json");
@@ -100,7 +101,7 @@ public sealed class XrayProcessController : IDisposable
             catch (Exception ex) { last = ex; }
             await Task.Delay(300, ct).ConfigureAwait(false);
         }
-        throw new InvalidOperationException($"Xray local SOCKS آماده نشد: {last?.Message ?? "port unavailable"}");
+        throw new InvalidOperationException($"پروکسی داخلی BlueVPN آماده نشد: {last?.Message ?? "port unavailable"}");
     }
 
     public void Dispose()

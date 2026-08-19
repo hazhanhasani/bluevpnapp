@@ -1,0 +1,3 @@
+BlueVPN Manager 4.17.10
+- Server-location resolve traffic is hardened for canonical WordPress REST JSON transport.
+- Request body parsing includes a safe raw/form compatibility fallback for non-JSON-content-type retries.

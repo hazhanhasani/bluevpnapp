@@ -429,18 +429,16 @@ def patch_manifest() -> None:
         '                <category android:name="android.intent.category.LAUNCHER" />\n'
         '                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />\n'
         '            </intent-filter>\n'
-        '            <meta-data\n'
-        '                android:name="android.app.shortcuts"\n'
-        '                android:resource="@xml/shortcuts" />\n'
-        '        </activity>\n\n'
-        '        <activity\n'
-        '            android:name=".ui.MainActivity"\n'
-        '            android:exported="true"\n'
-        '            android:launchMode="singleTask">\n'
         '            <intent-filter>\n'
         '                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />\n'
         '            </intent-filter>\n'
         '        </activity>\n\n'
+        '        <activity\n'
+        '            android:name=".ui.MainActivity"\n'
+        '            android:enabled="false"\n'
+        '            android:exported="false"\n'
+        '            android:excludeFromRecents="true"\n'
+        '            android:launchMode="singleTask" />\n\n'
         '        <activity\n'
         '            android:name=".ui.BlueVpnServersActivity"\n'
         '            android:exported="false"\n'
@@ -463,6 +461,18 @@ def patch_manifest() -> None:
         text, count = launcher_pattern.subn(launcher_replacement, text, count=1)
         if count != 1:
             raise RuntimeError("Could not replace the MainActivity launcher block")
+
+    # BlueVPN owns every customer-facing Android entry point. The upstream
+    # widget and Tasker integration are external launcher/plugin surfaces that
+    # can invoke upstream activities or expose upstream profile state. BlueVPN
+    # does not publish those surfaces, so remove them from the packaged manifest.
+    external_upstream_components = (
+        r'\s*<receiver\s+android:name="\.receiver\.WidgetProvider".*?</receiver>',
+        r'\s*<activity\s+android:name="\.ui\.TaskerActivity".*?</activity>',
+        r'\s*<receiver\s+android:name="\.receiver\.TaskerReceiver".*?</receiver>',
+    )
+    for component_pattern in external_upstream_components:
+        text = re.sub(component_pattern, "", text, flags=re.DOTALL)
 
     text = _ensure_manifest_permission(
         text,
@@ -598,6 +608,11 @@ def patch_manifest() -> None:
         raise RuntimeError(
             f"Generated AndroidManifest.xml is invalid: {exc}"
         ) from exc
+
+    # Do not publish upstream launcher shortcuts. Official v2rayNG shortcuts
+    # target ScSwitch/ScScanner/ScStart/ScStop activities, so changing only
+    # MainActivity would not close this system surface. The launcher metadata is
+    # intentionally absent from BlueVpnHomeActivity. Keep the XML file unused.
 
     url_scheme_path = APP / "src/main/java/com/v2ray/ang/ui/UrlSchemeActivity.kt"
     url_scheme_text = url_scheme_path.read_text(encoding="utf-8")

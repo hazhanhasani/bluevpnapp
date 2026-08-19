@@ -26,7 +26,11 @@ public sealed class ProxyEndpoint
     public IReadOnlyList<string> Alpn { get; init; } = [];
     public int ProbeLatencyMs { get; set; } = int.MaxValue;
 
-    public string DisplayName => string.IsNullOrWhiteSpace(Name)
+    // Raw subscription remarks are internal metadata only. Any UI/progress
+    // surface that asks for DisplayName receives a BlueVPN-owned label.
+    public string DisplayName => "BlueVPN • مسیر امن";
+
+    public string DiagnosticName => string.IsNullOrWhiteSpace(Name)
         ? $"{Protocol.ToUpperInvariant()} • {Host}:{Port}"
         : Name;
 }

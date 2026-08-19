@@ -32,6 +32,7 @@ public sealed class AppUpdateService
             "sha256:" + info.Sha256.ToLowerInvariant(),
             info.Filename,
             info.ReleaseUrl,
+            Math.Max(0, info.Size),
             info.AutoUpdate,
             info.ForceUpdate,
             info.ReleaseChannel,
@@ -41,9 +42,8 @@ public sealed class AppUpdateService
 
     public async Task<string> DownloadAsync(UpdateCandidate candidate, IProgress<double>? progress = null, CancellationToken ct = default)
     {
-        var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BlueVPN", "updates", candidate.Version);
-        Directory.CreateDirectory(root);
-        var path = Path.Combine(root, candidate.AssetName);
+        var storage = UpdateStorageManager.PrepareAppUpdate(candidate.Version, candidate.AssetName, candidate.SizeBytes);
+        var path = storage.DestinationPath;
         var expected = candidate.Digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) ? candidate.Digest[7..] : "";
 
         if (File.Exists(path) && expected.Length == 64)
@@ -65,11 +65,18 @@ public sealed class AppUpdateService
             {
                 progress?.Report((attempt - 1) / 3d);
                 using var gh = new GitHubReleaseClient($"BlueVPN-Windows/{_settings.Version}");
-                await gh.DownloadVerifiedAsync(candidate.DownloadUrl, path, candidate.Digest, ct).ConfigureAwait(false);
+                await gh.DownloadVerifiedAsync(candidate.DownloadUrl, path, candidate.Digest, ct, candidate.SizeBytes, progress).ConfigureAwait(false);
                 progress?.Report(1d);
                 return path;
             }
             catch (OperationCanceledException) { throw; }
+            catch (InsufficientUpdateSpaceException) { throw; }
+            catch (IOException ex) when (IsDiskPressure(path, candidate.SizeBytes))
+            {
+                var required = Math.Max(candidate.SizeBytes, 768L * 1024L * 1024L);
+                UpdateStorageManager.EnsureFreeSpaceForPath(path, required);
+                throw new InvalidOperationException("فضای ذخیره‌سازی هنگام دریافت بروزرسانی تمام شد. فایل نیمه‌کاره پاک شد؛ کمی فضا آزاد کن و دوباره تلاش کن.", ex);
+            }
             catch (Exception ex)
             {
                 last = ex;
@@ -78,6 +85,18 @@ public sealed class AppUpdateService
             }
         }
         throw new InvalidOperationException($"دریافت بروزرسانی Windows پس از ۳ تلاش ناموفق بود: {last?.Message}", last);
+    }
+
+    private static bool IsDiskPressure(string path, long payloadBytes)
+    {
+        try
+        {
+            var required = Math.Max(256L * 1024L * 1024L, payloadBytes / 4);
+            UpdateStorageManager.EnsureFreeSpaceForPath(path, required);
+            return false;
+        }
+        catch (InsufficientUpdateSpaceException) { return true; }
+        catch { return false; }
     }
 
     public static bool LaunchInstaller(string installerPath)

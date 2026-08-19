@@ -3,15 +3,32 @@ using System.Text.Json;
 namespace BlueVPN.Windows.Services;
 
 /// <summary>
-/// System-wide Windows TUN layer modeled after v2rayN's modern split-core design:
+/// System-wide Windows TUN layer modeled after v2rayN's split-core design:
 /// Xray owns the protocol session on localhost and sing-box owns the Windows TUN.
-/// Traffic created by xray.exe is routed directly by sing-box to avoid a TUN loop;
-/// every other non-private flow is sent to the local Xray SOCKS inbound.
+/// Remote server addresses are also routed directly so loop prevention does not
+/// depend solely on Windows process attribution.
 /// </summary>
 public static class V2RayNTunConfigBuilder
 {
-    public static string Build(AppSettings settings, int localSocksPort)
+    public static string Build(AppSettings settings, int localSocksPort, string remoteHost, IReadOnlyList<string> remoteIps)
     {
+        var rules = new List<object>();
+
+        var ipCidrs = remoteIps
+            .Where(x => System.Net.IPAddress.TryParse(x, out _))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.Contains(':') ? x + "/128" : x + "/32")
+            .ToArray();
+        if (ipCidrs.Length > 0)
+            rules.Add(new { ip_cidr = ipCidrs, action = "route", outbound = "direct" });
+
+        if (!string.IsNullOrWhiteSpace(remoteHost) && !System.Net.IPAddress.TryParse(remoteHost, out _))
+            rules.Add(new { domain = new[] { remoteHost }, action = "route", outbound = "direct" });
+
+        // Keep process-based protection as a secondary guard, not the only one.
+        rules.Add(new { process_name = new[] { "xray.exe" }, action = "route", outbound = "direct" });
+        rules.Add(new { ip_is_private = true, action = "route", outbound = "direct" });
+
         var config = new
         {
             log = new { level = "warn", timestamp = true },
@@ -38,13 +55,7 @@ public static class V2RayNTunConfigBuilder
             route = new
             {
                 auto_detect_interface = true,
-                rules = new object[]
-                {
-                    // Critical loop guard: Xray's connection to the remote VPN server
-                    // must leave on the physical NIC instead of re-entering BlueVPN TUN.
-                    new { process_name = new[] { "xray.exe" }, action = "route", outbound = "direct" },
-                    new { ip_is_private = true, action = "route", outbound = "direct" }
-                },
+                rules = rules.ToArray(),
                 final = "xray-local"
             }
         };

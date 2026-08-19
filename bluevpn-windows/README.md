@@ -1,4 +1,14 @@
-# BlueVPN for Windows — 4.17.6
+# BlueVPN for Windows — 4.17.7
+
+## 4.17.7 stability pass
+
+- Android home-layout parity adapted to desktop without changing the BlueVPN visual hierarchy.
+- Non-blocking metrics/ad/runtime work to reduce UI stalls.
+- Premium: v2rayN-sourced Xray local proxy + sing-box system TUN with endpoint loop guards.
+- WARP: panel-managed policy + SOCKS data-plane validation before system TUN.
+- Connected is fail-closed on TUN adapter, IPv4 route, IPv6 safety and a real public-IP change.
+- App update respects Stable/Beta auto-update policy and installs pending updates after disconnect.
+
 
 BlueVPN Windows is now an installed desktop VPN client with the BlueVPN account/UI/control plane and a runtime derived from the official v2rayN Windows distribution.
 

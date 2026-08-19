@@ -1,9 +1,0 @@
-BlueVPN Manager 4.17.6
-
-- ترمیم P0 تاریخ انقضای اشتراک‌های متورم‌شده توسط Retry/Reconcile قدیمی.
-- Entitlement Ledger دائمی برای ثبت هر Grant/Repair تاریخ انقضا.
-- Retry/Provider repair هرگز مدت پلن را دوباره اضافه نمی‌کند.
-- Android زمان باقی‌مانده را از remaining_seconds معتبر API با countdown محلی نمایش می‌دهد.
-- Sentinel برای Repair و Drift تاریخ انقضا گزارش قابل اقدام ثبت می‌کند.
-
-- Windows 4.17.6: Android UI parity + v2rayN split-core system TUN hardening.

@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-        <!-- Mirrors BlueVpnTheme.kt light palette. -->
+        <!-- Exact light palette shared with BlueVpnTheme.kt. -->
         <SolidColorBrush x:Key="BlueVpnBg" Color="#FFF6F8FC" />
         <SolidColorBrush x:Key="BlueVpnSurface" Color="#FFFFFFFF" />
         <SolidColorBrush x:Key="BlueVpnSurfaceStrong" Color="#FFEEF2FA" />
@@ -14,7 +14,7 @@
         <SolidColorBrush x:Key="BlueVpnMuted" Color="#FF818A9B" />
         <SolidColorBrush x:Key="BlueVpnBlue" Color="#FF356DF1" />
         <SolidColorBrush x:Key="BlueVpnBlue2" Color="#FF2455CC" />
-        <SolidColorBrush x:Key="BlueVpnGreen" Color="#FF118A67" />
+        <SolidColorBrush x:Key="BlueVpnGreen" Color="#FF2ED8A3" />
         <SolidColorBrush x:Key="BlueVpnRed" Color="#FFC43F59" />
         <SolidColorBrush x:Key="BlueVpnWarning" Color="#FFB76C10" />
         <SolidColorBrush x:Key="BlueVpnCard" Color="#FFFFFFFF" />
@@ -28,6 +28,7 @@
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{StaticResource BlueVpnText}"/>
         </Style>
+
         <Style TargetType="TextBox">
             <Setter Property="Background" Value="White"/>
             <Setter Property="Foreground" Value="{StaticResource BlueVpnText}"/>
@@ -44,6 +45,8 @@
             <Setter Property="Padding" Value="12,9"/>
             <Setter Property="Margin" Value="0,4,0,8"/>
         </Style>
+
+        <!-- Android Material-style rounded button, with no heavyweight shadow/effect. -->
         <Style TargetType="Button">
             <Setter Property="Background" Value="{StaticResource BlueVpnSurfaceStrong}"/>
             <Setter Property="Foreground" Value="{StaticResource BlueVpnText}"/>
@@ -52,6 +55,31 @@
             <Setter Property="Padding" Value="14,9"/>
             <Setter Property="Margin" Value="4"/>
             <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" CornerRadius="15" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                                Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.9"/></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Chrome" Property="Opacity" Value="0.78"/></Trigger>
+                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.45"/></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="BlueVpnMetricCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="CornerRadius" Value="18"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BlueVpnStroke}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Margin" Value="4"/>
+            <Setter Property="Padding" Value="6"/>
         </Style>
     </Application.Resources>
 </Application>

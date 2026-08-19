@@ -1,7 +1,7 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-define('BLUEVPN_SITE_VERSION', '4.17.6');
+define('BLUEVPN_SITE_VERSION', '4.17.7');
 
 define('BLUEVPN_SITE_DIR', get_template_directory());
 define('BLUEVPN_SITE_URL', get_template_directory_uri());
@@ -152,5 +152,5 @@ add_action('admin_notices', 'bluevpn_site_admin_notice');
 
 
 
-// BlueVPN Site 4.17.6 cache/debug marker.
+// BlueVPN Site 4.17.7 cache/debug marker.
 add_filter('body_class', static function($classes){ $classes[] = 'bluevpn-site-v4-16-9'; return $classes; });

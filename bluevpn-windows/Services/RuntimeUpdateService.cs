@@ -1,7 +1,6 @@
 using System.IO;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
-using System.Text.Json;
 
 namespace BlueVPN.Windows.Services;
 
@@ -20,7 +19,7 @@ public sealed class RuntimeUpdateService
     {
         if (!_settings.AutoUpdateRuntime || connected) return "";
         using var gh = new GitHubReleaseClient($"BlueVPN-Runtime/{_settings.Version}");
-        using var doc = await gh.GetReleasesAsync(_settings.V2RayNRepository, 12, ct);
+        using var doc = await gh.GetReleasesAsync(_settings.V2RayNRepository, 12, ct).ConfigureAwait(false);
         var current = ParseVersion(_runtime.CurrentRuntime().Version);
         var archName = RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "v2rayN-windows-arm64.zip" : "v2rayN-windows-64.zip";
 
@@ -37,7 +36,7 @@ public sealed class RuntimeUpdateService
                 if (!string.Equals(asset.GetProperty("name").GetString(), archName, StringComparison.OrdinalIgnoreCase)) continue;
                 var url = asset.GetProperty("browser_download_url").GetString() ?? "";
                 var digest = asset.TryGetProperty("digest", out var d) ? d.GetString() ?? "" : "";
-                await InstallRuntimeAsync(gh, tag.TrimStart('v'), url, digest, ct);
+                await InstallRuntimeAsync(gh, tag.TrimStart('v'), url, digest, ct).ConfigureAwait(false);
                 return tag.TrimStart('v');
             }
         }
@@ -54,20 +53,26 @@ public sealed class RuntimeUpdateService
         {
             if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, true);
             Directory.CreateDirectory(tempRoot);
-            await gh.DownloadVerifiedAsync(url, zipPath, digest, ct);
-            ZipFile.ExtractToDirectory(zipPath, tempRoot, overwriteFiles: true);
+            await gh.DownloadVerifiedAsync(url, zipPath, digest, ct).ConfigureAwait(false);
 
-            if (!Find(tempRoot, "xray.exe") || !Find(tempRoot, "sing-box.exe") || !Find(tempRoot, "wintun.dll"))
-                throw new InvalidDataException("بسته v2rayN جدید Coreهای لازم BlueVPN را ندارد.");
-
-            var normalized = Path.Combine(tempRoot, "bluevpn-core");
-            Directory.CreateDirectory(normalized);
-            foreach (var name in new[] { "xray.exe", "sing-box.exe", "wintun.dll", "geoip.dat", "geosite.dat" })
+            // Extraction/scanning a 100+ MB v2rayN package is CPU/disk heavy and
+            // previously resumed on WPF's dispatcher, causing startup freezes.
+            await Task.Run(() =>
             {
-                var src = First(tempRoot, name);
-                if (src is not null) File.Copy(src, Path.Combine(normalized, name), true);
-            }
-            File.WriteAllText(Path.Combine(tempRoot, ".validated"), $"v2rayN={version}\nvalidated={DateTimeOffset.UtcNow:O}\n");
+                ZipFile.ExtractToDirectory(zipPath, tempRoot, overwriteFiles: true);
+                if (!Find(tempRoot, "xray.exe") || !Find(tempRoot, "sing-box.exe") || !Find(tempRoot, "wintun.dll"))
+                    throw new InvalidDataException("بسته v2rayN جدید Coreهای لازم BlueVPN را ندارد.");
+
+                var normalized = Path.Combine(tempRoot, "bluevpn-core");
+                Directory.CreateDirectory(normalized);
+                foreach (var name in new[] { "xray.exe", "sing-box.exe", "wintun.dll", "geoip.dat", "geosite.dat" })
+                {
+                    var src = First(tempRoot, name);
+                    if (src is not null) File.Copy(src, Path.Combine(normalized, name), true);
+                }
+                File.WriteAllText(Path.Combine(tempRoot, ".validated"), $"v2rayN={version}\nvalidated={DateTimeOffset.UtcNow:O}\n");
+            }, ct).ConfigureAwait(false);
+
             if (Directory.Exists(root)) Directory.Delete(root, true);
             Directory.Move(tempRoot, root);
         }

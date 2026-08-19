@@ -29,17 +29,31 @@ public sealed class ConnectionOrchestrator : IDisposable
     public async Task<ConnectionResult> ConnectAsync(Account? account, IProgress<string>? progress = null, CancellationToken ct = default)
     {
         Disconnect();
-        var before = await ConnectivityProbe.SnapshotAsync(_settings.ProbeUrl, ct);
-        var premium = account?.Subscription.Active == true && !string.IsNullOrWhiteSpace(account.Subscription.Url);
 
-        if (!premium && _settings.Warp.Enabled && _warp.IsSupported)
+        progress?.Report("بررسی اینترنت پایه…");
+        var before = await ConnectivityProbe.CaptureBaselineAsync(_settings.ProbeUrl, ct).ConfigureAwait(false);
+        if (!before.Reachable || string.IsNullOrWhiteSpace(before.PublicIp))
+            throw new InvalidOperationException("IP اینترنت قبل از اتصال قابل تأیید نیست؛ برای جلوگیری از Connected کاذب، اتصال متوقف شد.");
+
+        var premium = account?.Subscription.Active == true && !string.IsNullOrWhiteSpace(account.Subscription.Url);
+        var mobile = await LoadMobilePolicySafeAsync(ct).ConfigureAwait(false);
+        var free = mobile.FreeAccess;
+        var warpPolicy = MergeWarpPolicy(free.Warp);
+        var engineMode = NormalizeEngineMode(free.EngineMode.Length > 0 ? free.EngineMode : warpPolicy.Mode);
+        var warpRequested = !premium && free.Enabled && engineMode != "pool_only" && warpPolicy.Enabled && _settings.Warp.Enabled;
+        var poolAllowed = !premium && (engineMode != "warp_only") && (free.LegacyPoolEnabled || warpPolicy.FallbackPoolEnabled || _settings.Warp.FallbackToFreePool);
+
+        if (warpRequested && _warp.IsSupported)
         {
             try
             {
                 progress?.Report("اتصال رایگان سریع با WARP…");
-                await _warp.StartAsync(progress, ct);
+                _ = await _warp.StartAsync(warpPolicy, progress, ct).ConfigureAwait(false);
                 progress?.Report("تأیید IP و مسیر سیستم…");
-                var verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, requireWarp: true, rejectIran: _settings.Warp.RejectIrExit, ct);
+                IReadOnlyCollection<string> blocked = warpPolicy.BlockedExitCountries.Count > 0
+                    ? warpPolicy.BlockedExitCountries
+                    : (_settings.Warp.RejectIrExit ? new[] { "IR" } : Array.Empty<string>());
+                var verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, true, blocked, ct).ConfigureAwait(false);
                 if (!verified.Success) throw new InvalidOperationException(verified.Detail);
 
                 _verifiedConnected = true;
@@ -60,22 +74,31 @@ public sealed class ConnectionOrchestrator : IDisposable
             catch (Exception ex)
             {
                 _warp.Stop();
-                if (!_settings.Warp.FallbackToFreePool) throw;
+                if (!poolAllowed) throw new InvalidOperationException($"WARP برقرار نشد و fallback از پنل مجاز نیست: {Short(ex.Message)}", ex);
                 progress?.Report($"WARP آماده نشد؛ مسیر جایگزین در حال بررسی… ({Short(ex.Message)})");
             }
         }
+        else if (!premium && engineMode == "warp_only")
+        {
+            throw new InvalidOperationException(_warp.IsSupported
+                ? "WARP از سیاست فعلی پنل غیرفعال است."
+                : "WARP روی معماری فعلی Windows در دسترس نیست و پنل fallback را غیرفعال کرده است.");
+        }
+
+        if (!premium && !poolAllowed && !warpRequested)
+            throw new InvalidOperationException("دسترسی رایگان از پنل BlueVPN غیرفعال است.");
 
         progress?.Report(premium ? "دریافت اشتراک ویژه…" : "دریافت مسیرهای رایگان…");
         var text = premium && account is not null
-            ? await _api.GetPremiumSubscriptionAsync(account, ct)
-            : await _api.GetFreeSubscriptionAsync(ct);
+            ? await _api.GetPremiumSubscriptionAsync(account, ct).ConfigureAwait(false)
+            : await _api.GetFreeSubscriptionAsync(ct).ConfigureAwait(false);
 
         var endpoints = SubscriptionParser.Parse(text);
         if (endpoints.Count == 0)
             throw new InvalidOperationException("هیچ کانفیگ قابل استفاده‌ای در اشتراک دریافت نشد.");
 
         progress?.Report($"بررسی سریع {Math.Min(endpoints.Count, 40)} مسیر…");
-        var ranked = await EndpointSelector.RankAsync(endpoints, ct);
+        var ranked = await EndpointSelector.RankAsync(endpoints, ct).ConfigureAwait(false);
         var candidates = ranked.Where(x => x.ProbeLatencyMs < int.MaxValue).Take(8).ToList();
         if (candidates.Count == 0) candidates = ranked.Take(4).ToList();
 
@@ -87,9 +110,9 @@ public sealed class ConnectionOrchestrator : IDisposable
             {
                 progress?.Report($"اتصال به {endpoint.DisplayName}…");
                 var config = XrayConfigBuilder.Build(endpoint, _settings);
-                await _xray.StartAsync(config, ct);
+                await _xray.StartAsync(config, endpoint, ct).ConfigureAwait(false);
                 progress?.Report("تأیید VPN سراسری…");
-                var verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, requireWarp: false, rejectIran: false, ct);
+                var verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, false, Array.Empty<string>(), ct).ConfigureAwait(false);
                 if (!verified.Success)
                     throw new InvalidOperationException($"تونل کامل نشد: {verified.Detail}");
 
@@ -129,7 +152,31 @@ public sealed class ConnectionOrchestrator : IDisposable
         _xray.Dispose();
     }
 
-    private static string Short(string value) => value.Length <= 80 ? value : value[..80] + "…";
+    private async Task<MobileConfigResponse> LoadMobilePolicySafeAsync(CancellationToken ct)
+    {
+        try { return await _api.GetMobileConfigAsync(ct).ConfigureAwait(false); }
+        catch { return new MobileConfigResponse(); }
+    }
+
+    private WarpRuntimePolicy MergeWarpPolicy(WarpRuntimePolicy policy)
+    {
+        // Old servers may not expose free_access.warp yet; local appsettings stay
+        // as a safe compatibility floor while panel values win when present.
+        policy ??= new WarpRuntimePolicy();
+        if (policy.BlockedExitCountries.Count == 0 && _settings.Warp.RejectIrExit)
+            policy.BlockedExitCountries = ["IR"];
+        policy.FallbackPoolEnabled = policy.FallbackPoolEnabled && _settings.Warp.FallbackToFreePool;
+        return policy;
+    }
+
+    private static string NormalizeEngineMode(string value) => value.ToLowerInvariant() switch
+    {
+        "warp_only" => "warp_only",
+        "pool_only" => "pool_only",
+        _ => "warp_fallback_pool"
+    };
+
+    private static string Short(string value) => value.Length <= 96 ? value : value[..96] + "…";
 }
 
 public sealed record ConnectionResult(bool Success, bool Premium, ProxyEndpoint Endpoint, string Engine, TunnelVerificationResult Verification);

@@ -13,30 +13,42 @@ public static class SystemTunnelVerifier
         ConnectivitySnapshot before,
         string probeUrl,
         bool requireWarp,
-        bool rejectIran,
+        IReadOnlyCollection<string> blockedCountries,
         CancellationToken ct = default)
     {
-        var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(24);
+        if (!before.Reachable || string.IsNullOrWhiteSpace(before.PublicIp))
+            return new(false, "", "", "", "", "IP پایه قبل از VPN معتبر نیست؛ Connected تأیید نشد.");
+
+        var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(30);
         ConnectivitySnapshot after = new(false, "", "", "", DateTimeOffset.UtcNow);
         RouteEvidence route = new(false, true, "", "", "no route evidence");
         string adapter = "";
         var consecutive = 0;
+        var nextRouteProbe = DateTimeOffset.MinValue;
 
         while (DateTimeOffset.UtcNow < stop)
         {
             ct.ThrowIfCancellationRequested();
-            adapter = FindTunnelAdapter();
-            route = await DefaultRouteEvidenceAsync(ct);
-            after = await ConnectivityProbe.SnapshotAsync(probeUrl, ct);
+
+            // PowerShell route inspection is intentionally throttled. Launching it
+            // every 800 ms caused visible desktop stutter on low/mid-range systems.
+            if (DateTimeOffset.UtcNow >= nextRouteProbe)
+            {
+                adapter = await Task.Run(FindTunnelAdapter, ct).ConfigureAwait(false);
+                route = await DefaultRouteEvidenceAsync(ct).ConfigureAwait(false);
+                nextRouteProbe = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(2);
+            }
+
+            after = await ConnectivityProbe.SnapshotAsync(probeUrl, ct).ConfigureAwait(false);
 
             var adapterOk = adapter.Length > 0;
             var routeOk = route.Ipv4ThroughTunnel && route.Ipv6Safe;
             var ipChanged = after.Reachable && !string.IsNullOrWhiteSpace(after.PublicIp) &&
-                (string.IsNullOrWhiteSpace(before.PublicIp) || !string.Equals(before.PublicIp, after.PublicIp, StringComparison.OrdinalIgnoreCase));
+                !string.Equals(before.PublicIp, after.PublicIp, StringComparison.OrdinalIgnoreCase);
             var warpOk = !requireWarp || after.Warp.Equals("on", StringComparison.OrdinalIgnoreCase) || after.Warp.Equals("plus", StringComparison.OrdinalIgnoreCase);
-            var countryOk = !rejectIran || !after.Country.Equals("IR", StringComparison.OrdinalIgnoreCase);
+            var countryBlocked = blockedCountries.Any(x => x.Equals(after.Country, StringComparison.OrdinalIgnoreCase));
 
-            if (adapterOk && routeOk && ipChanged && warpOk && countryOk)
+            if (adapterOk && routeOk && ipChanged && warpOk && !countryBlocked)
             {
                 consecutive++;
                 if (consecutive >= 2)
@@ -47,7 +59,7 @@ public static class SystemTunnelVerifier
             }
             else consecutive = 0;
 
-            await Task.Delay(800, ct);
+            await Task.Delay(850, ct).ConfigureAwait(false);
         }
 
         var reason = !after.Reachable ? "اینترنت از مسیر TUN پاسخ نداد"
@@ -55,8 +67,8 @@ public static class SystemTunnelVerifier
             : !route.Ipv4ThroughTunnel ? $"مسیر پیش‌فرض IPv4 هنوز زیر VPN نیست ({route.Ipv4Alias})"
             : !route.Ipv6Safe ? $"IPv6 می‌تواند VPN را دور بزند ({route.Ipv6Alias})"
             : requireWarp && !(after.Warp.Equals("on", StringComparison.OrdinalIgnoreCase) || after.Warp.Equals("plus", StringComparison.OrdinalIgnoreCase)) ? "WARP در خروجی تأیید نشد"
-            : rejectIran && after.Country.Equals("IR", StringComparison.OrdinalIgnoreCase) ? "خروجی WARP ایران است"
-            : !string.IsNullOrWhiteSpace(before.PublicIp) && string.Equals(before.PublicIp, after.PublicIp, StringComparison.OrdinalIgnoreCase) ? "IP سیستم تغییر نکرد؛ اتصال به‌عنوان VPN پذیرفته نشد"
+            : blockedCountries.Any(x => x.Equals(after.Country, StringComparison.OrdinalIgnoreCase)) ? $"خروجی VPN در کشور مسدودشده {after.Country} است"
+            : string.Equals(before.PublicIp, after.PublicIp, StringComparison.OrdinalIgnoreCase) ? "IP سیستم تغییر نکرد؛ اتصال به‌عنوان VPN پذیرفته نشد"
             : route.Detail;
         return new(false, after.PublicIp, after.Country, after.Warp, adapter, reason);
     }
@@ -119,8 +131,8 @@ $v6physical = $null -ne $v6def -and $v6def.InterfaceAlias -notmatch $pat
             psi.ArgumentList.Add(script);
             using var p = Process.Start(psi);
             if (p is null) return new(false, false, "", "", "route inspection failed");
-            var output = await p.StandardOutput.ReadToEndAsync(ct);
-            await p.WaitForExitAsync(ct);
+            var output = await p.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
+            await p.WaitForExitAsync(ct).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(output)) return new(false, false, "", "", "default route missing");
             using var doc = JsonDocument.Parse(output);
             var v4 = doc.RootElement.TryGetProperty("v4", out var v4e) ? v4e.GetString() ?? "" : "";
@@ -131,8 +143,6 @@ $v6physical = $null -ne $v6def -and $v6def.InterfaceAlias -notmatch $pat
         }
         catch (Exception ex) { return new(false, false, "", "", ex.Message); }
     }
-
-    private static bool IsTunnelAlias(string alias) => AdapterHints.Any(h => alias.Contains(h, StringComparison.OrdinalIgnoreCase));
 
     private sealed record RouteEvidence(bool Ipv4ThroughTunnel, bool Ipv6Safe, string Ipv4Alias, string Ipv6Alias, string Detail);
 }

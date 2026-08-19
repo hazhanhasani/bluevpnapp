@@ -41,7 +41,7 @@ def main() -> None:
 
     version = str(release.get("version", "")).strip()
     require(re.fullmatch(r"\d+\.\d+\.\d+", version) is not None, "invalid release version")
-    require(version == "4.17.6", "this Windows migration must be release 4.17.6")
+    require(version == "4.17.7", "this Windows migration must be release 4.17.7")
     require(str(branding.get("version_name", "")) == version, "branding version drift")
     require(str(release.get("windows_version", "")) == version, "release windows_version mismatch")
     require(str(settings.get("version", "")) == version, "Windows appsettings version mismatch")
@@ -71,7 +71,7 @@ def main() -> None:
     require("SystemTunnelVerifier.VerifyAsync" in connection, "system route verification missing")
     require("PublicIp" in verifier and "IP سیستم تغییر نکرد" in verifier, "public-IP change gate missing")
     require("Get-NetRoute" in verifier and "NetworkInterface.GetAllNetworkInterfaces" in verifier, "Windows route/adapter evidence missing")
-    require("SnapshotAsync" in probe and "UseProxy = false" in probe, "direct system-stack connectivity snapshot missing")
+    require("SnapshotAsync" in probe and "CaptureBaselineAsync" in probe and "UseProxy = proxy is not null" in probe, "direct system-stack connectivity snapshot / baseline gate missing")
     require('protocol"] = "socks"' in xray and "LocalSocksPort = 20808" in xray, "premium Xray local proxy missing")
     require('type = "tun"' in v2rayn_tun and "strict_route = true" in v2rayn_tun and 'process_name = new[] { "xray.exe" }' in v2rayn_tun, "premium v2rayN split-core TUN missing")
 
@@ -83,7 +83,7 @@ def main() -> None:
         require(flag in warp, f"Aether flag missing: {flag}")
     require('process_name = new[] { "aether.exe" }' in warp_config, "Aether process loop exclusion missing")
     require("auto_detect_interface = true" in warp_config and "strict_route = true" in warp_config and "auto_route = true" in warp_config, "sing-box WARP TUN hardening missing")
-    require("requireWarp: true" in connection and "RejectIrExit" in connection, "WARP validation / IR exit guard missing")
+    require("VerifyAsync(before, _settings.ProbeUrl, true, blocked, ct)" in connection and "BlockedExitCountries" in connection and "RejectIrExit" in connection, "WARP validation / exit guard missing")
     require("_settings.Warp.SocksPort" in warp and "SingBoxWarpConfigBuilder.Build(_settings, socksPort)" in warp, "WARP SOCKS port policy drift")
 
     # Updates + installer.
@@ -119,7 +119,19 @@ def main() -> None:
     require("GetPremiumSubscriptionAsync" in connection and "GetFreeSubscriptionAsync" in connection, "Free/Premium isolation missing")
     require("EndpointSelector.RankAsync" in connection, "endpoint ranking missing")
 
-    # 4.17.6 CI/release hardening: installers must be root-level artifacts and
+    # 4.17.7 Windows stability gates: Android UI parity, non-blocking media/metrics,
+    # panel-driven WARP, and fail-closed updater/connection state.
+    media = read("bluevpn-windows/Services/MediaAssetLoader.cs")
+    models = read("bluevpn-windows/Models/WindowsRuntimeModels.cs")
+    require("PeriodicTimer(TimeSpan.FromSeconds(1))" in main_cs and "Task.Run(NetworkBytes" in main_cs and "_metricsTimer" not in main_cs, "Windows telemetry must not block the WPF dispatcher")
+    require("MediaAssetLoader.LoadImageAsync" in main_cs and "Task.Run<BitmapSource?>" in media and "bmp.Freeze()" in media, "ad images must load/decode off the dispatcher")
+    require("ResolveUrl" in ads and "_settings.ApiBaseUrl.TrimEnd" in ads, "relative ad assets must resolve against BlueVPN API base")
+    require("free_access" in models and "blocked_exit_countries" in models and "LoadMobilePolicySafeAsync" in connection, "Windows WARP must consume panel free_access policy")
+    require("CaptureBaselineAsync" in connection and "IP اینترنت قبل از اتصال قابل تأیید نیست" in connection, "false CONNECTED baseline guard missing")
+    require("ip_cidr = ipCidrs" in v2rayn_tun and "ResolveEndpointIpsAsync" in read("bluevpn-windows/Services/XrayProcessController.cs"), "endpoint-aware TUN loop guard missing")
+    require("if (!candidate.AutoUpdate)" in main_cs and "if (userInitiated)" in main_cs and "_pendingUpdate = candidate" in main_cs, "Windows update channel semantics / deferred install missing")
+
+    # 4.17.7 CI/release hardening: installers must be root-level artifacts and
     # Node.js 20-generation cache/artifact actions must not remain.
     require('dist/BlueVPN-Setup-*.exe' in workflow, "Windows Setup must upload from dist root")
     require('Normalize Windows release payload layout' in workflow, "Windows publish job must normalize artifact layout")

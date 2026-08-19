@@ -8,8 +8,8 @@ def text(rel): return (ROOT / rel).read_text(encoding='utf-8')
 class WindowsReleaseChannels4163(unittest.TestCase):
     def test_release_and_schema_versions(self):
         release=json.loads(text('release.json'))
-        self.assertEqual(release['version'],'4.17.6')
-        self.assertEqual(release['version_code'],41706)
+        self.assertEqual(release['version'],'4.17.7')
+        self.assertEqual(release['version_code'],41707)
         self.assertEqual(release['windows']['release_authority'],'wordpress_manager')
         plugin=text('bluevpn-manager/bluevpn-manager.php')
         self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.25.0", plugin)
@@ -54,7 +54,9 @@ class WindowsReleaseChannels4163(unittest.TestCase):
         self.assertNotIn('GetReleasesAsync(_settings.WindowsUpdateRepository', updater)
         self.assertEqual(settings['windows_channel'],'panel-managed')
         self.assertEqual(settings['windows_update_path'],'/wp-json/bluevpn/v1/windows/update')
-        self.assertIn('candidate.AutoUpdate || candidate.ForceUpdate', text('bluevpn-windows/MainWindow.xaml.cs'))
+        self.assertIn('if (candidate.ForceUpdate)', text('bluevpn-windows/MainWindow.xaml.cs'))
+        self.assertIn('if (!candidate.AutoUpdate)', text('bluevpn-windows/MainWindow.xaml.cs'))
+        self.assertIn('userInitiated', text('bluevpn-windows/MainWindow.xaml.cs'))
 
     def test_new_builds_always_enter_beta_before_panel_promotion(self):
         wf=text('.github/workflows/build-windows.yml')

@@ -19,7 +19,7 @@ public sealed class AppUpdateService
     public async Task<UpdateCandidate?> CheckAsync(CancellationToken ct = default)
     {
         var arch = RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "win-arm64" : "win-x64";
-        var info = await _api.GetWindowsUpdateAsync(_settings.Version, arch, ct);
+        var info = await _api.GetWindowsUpdateAsync(_settings.Version, arch, ct).ConfigureAwait(false);
         if (!info.Available || !info.UpdateAvailable) return null;
         if (string.IsNullOrWhiteSpace(info.DownloadUrl) || string.IsNullOrWhiteSpace(info.Filename))
             throw new InvalidDataException($"فایل نصب {arch} برای نسخه {info.LatestVersion} در پنل انتشار Windows کامل نیست.");
@@ -39,14 +39,45 @@ public sealed class AppUpdateService
         );
     }
 
-    public async Task<string> DownloadAsync(UpdateCandidate candidate, CancellationToken ct = default)
+    public async Task<string> DownloadAsync(UpdateCandidate candidate, IProgress<double>? progress = null, CancellationToken ct = default)
     {
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BlueVPN", "updates", candidate.Version);
         Directory.CreateDirectory(root);
         var path = Path.Combine(root, candidate.AssetName);
-        using var gh = new GitHubReleaseClient($"BlueVPN-Windows/{_settings.Version}");
-        await gh.DownloadVerifiedAsync(candidate.DownloadUrl, path, candidate.Digest, ct);
-        return path;
+        var expected = candidate.Digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) ? candidate.Digest[7..] : "";
+
+        if (File.Exists(path) && expected.Length == 64)
+        {
+            try
+            {
+                var current = await GitHubReleaseClient.Sha256Async(path, ct).ConfigureAwait(false);
+                if (current.Equals(expected, StringComparison.OrdinalIgnoreCase)) return path;
+            }
+            catch { }
+            try { File.Delete(path); } catch { }
+        }
+
+        Exception? last = null;
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                progress?.Report((attempt - 1) / 3d);
+                using var gh = new GitHubReleaseClient($"BlueVPN-Windows/{_settings.Version}");
+                await gh.DownloadVerifiedAsync(candidate.DownloadUrl, path, candidate.Digest, ct).ConfigureAwait(false);
+                progress?.Report(1d);
+                return path;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                last = ex;
+                try { if (File.Exists(path)) File.Delete(path); } catch { }
+                if (attempt < 3) await Task.Delay(TimeSpan.FromSeconds(attempt * 2), ct).ConfigureAwait(false);
+            }
+        }
+        throw new InvalidOperationException($"دریافت بروزرسانی Windows پس از ۳ تلاش ناموفق بود: {last?.Message}", last);
     }
 
     public static bool LaunchInstaller(string installerPath)

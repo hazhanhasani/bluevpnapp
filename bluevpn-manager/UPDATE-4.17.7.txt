@@ -1,0 +1,7 @@
+BlueVPN Manager 4.17.7
+
+- هماهنگی کامل Policy اتصال رایگان/WARP با نسخه Windows.
+- تنظیمات WARP شامل engine mode، timeout، blocked exit، fallback و scan mode برای Windows نیز مصرف می‌شوند.
+- قرارداد Advertising ویندوز با Android یکسان شد؛ URLهای نسبی رسانه، autoplay، loop و story policy پشتیبانی می‌شوند.
+- کانال Stable/Beta و Auto Update ویندوز بدون تغییر در مرجع WordPress/MySQL حفظ شده است.
+- اصلاحات Entitlement Ledger و جلوگیری از تمدید تکراری نسخه‌های قبلی نیز حفظ شده‌اند.

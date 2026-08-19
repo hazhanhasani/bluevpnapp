@@ -55,5 +55,10 @@ class SessionLogoutPhpWindows4180Tests(unittest.TestCase):
         self.assertNotIn('ServerCertificateCustomValidationCallback',api)
         self.assertNotIn('DangerousAcceptAnyServerCertificateValidator',api)
 
+    def test_windows_transport_retry_uses_qualified_io_exception(self):
+        api=text('bluevpn-windows/Services/BlueVpnApiClient.cs')
+        self.assertIn('ex is System.IO.IOException', api)
+        self.assertNotIn('ex is IOException ||', api)
+
 if __name__=='__main__':
     unittest.main()

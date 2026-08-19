@@ -254,7 +254,7 @@ public sealed class BlueVpnApiClient : IDisposable
     }
 
     private static bool IsRetryableTransportFailure(Exception ex) =>
-        ex is HttpRequestException || ex is TaskCanceledException || ex is IOException || ex is AuthenticationException;
+        ex is HttpRequestException || ex is TaskCanceledException || ex is System.IO.IOException || ex is AuthenticationException;
 
     private static InvalidOperationException FriendlyTransportException(Exception? first, Exception second)
     {

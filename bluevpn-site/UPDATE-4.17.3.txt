@@ -1,0 +1,4 @@
+BlueVPN Site 4.17.3
+
+- Windows download cards prefer authoritative BlueVPN Manager release data and avoid live GitHub API dependency when Manager is active.
+- Fallback GitHub release lookup is cached/retried and never blocks an already-known Windows release.

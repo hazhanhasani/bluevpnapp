@@ -391,7 +391,9 @@ jobs:
           test -s "verify-windows-release/BlueVPN-Setup-${VERSION}-win-arm64.exe"
 
 
-      - name: Sync Windows release metadata to WordPress
+      - name: Push signed Windows release metadata to WordPress
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -401,28 +403,93 @@ jobs:
           print(json.loads(Path("branding/app.json").read_text(encoding="utf-8")).get("api_base_url", "").rstrip("/"))
           PY2
           )"
-          if [ -z "$API_BASE_URL" ]; then
-            echo "::warning::api_base_url is empty; Windows WordPress release sync skipped."
-            exit 0
-          fi
-          SYNC_URL="${API_BASE_URL}/api/v1/windows/update?refresh=true&arch=win-x64&current_version=0.0.0"
-          echo "Refreshing WordPress Windows release metadata: ${SYNC_URL}"
-          if ! curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --max-time 35 "$SYNC_URL" -o "$RUNNER_TEMP/bluevpn-wordpress-windows-update.json"; then
-            echo "::warning::WordPress Windows release-sync kick failed; background polling will retry automatically."
-            exit 0
-          fi
-          sleep 5
-          curl --fail --silent --show-error --location --retry 2 --retry-delay 2 --max-time 35 \
-            "$SYNC_URL" -o "$RUNNER_TEMP/bluevpn-wordpress-windows-update-after-sync.json" || true
+          test -n "$API_BASE_URL" || { echo "::error::api_base_url is empty; Windows release cannot be registered in WordPress."; exit 1; }
+          test -n "${TELEGRAM_BOT_TOKEN:-}" || { echo "::error::TELEGRAM_BOT_TOKEN is required to sign Windows release metadata."; exit 1; }
+
+          VERSION="$(python -c 'import json; print(json.load(open("release.json", encoding="utf-8"))["version"])')"
+          TAG="bluevpn-windows-v${VERSION}"
+          RELEASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${TAG}"
+          PUBLISHED_AT="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          PAYLOAD="$RUNNER_TEMP/bluevpn-windows-release-sync.json"
+          export VERSION TAG RELEASE_URL PUBLISHED_AT PAYLOAD
+          python - <<'PY2'
+          import hashlib, json, os
+          from pathlib import Path
+          version=os.environ['VERSION']; tag=os.environ['TAG']; release_url=os.environ['RELEASE_URL']
+          base=f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/releases/download/{tag}"
+          files=[]
+          for rid in ('win-x64','win-arm64'):
+              for prefix,ext in (("BlueVPN-Setup-",'.exe'),("BlueVPN-Windows-",'.zip')):
+                  name=f"{prefix}{version}-{rid}{ext}"
+                  path=Path('windows-release')/name
+                  if not path.is_file() or path.stat().st_size <= 0:
+                      raise SystemExit(f"missing release asset for direct sync: {path}")
+                  sha=hashlib.sha256(path.read_bytes()).hexdigest()
+                  files.append({'name':name,'url':f'{base}/{name}','sha256':sha,'size':path.stat().st_size})
+          payload={
+              'version':version,'tag':tag,'release_url':release_url,'published_at':os.environ['PUBLISHED_AT'],
+              'commit':os.environ.get('GITHUB_SHA',''),'title':f'BlueVPN Windows {version} Beta',
+              'message':'BlueVPN-Windows-Channel: beta\nBlueVPN-Windows-Channel-Authority: wordpress-manager',
+              'assets':files,
+          }
+          Path(os.environ['PAYLOAD']).write_text(json.dumps(payload,ensure_ascii=False,separators=(',',':')),encoding='utf-8')
+          PY2
+
+          TIMESTAMP="$(date +%s)"
+          export TIMESTAMP
+          SIGNATURE="$(python - <<'PY2'
+          import hashlib,hmac,os
+          body=open(os.environ['PAYLOAD'],'rb').read()
+          msg=os.environ['TIMESTAMP'].encode()+b'\n'+body
+          print(hmac.new(os.environ['TELEGRAM_BOT_TOKEN'].encode(),msg,hashlib.sha256).hexdigest())
+          PY2
+          )"
+          SYNC_URL="${API_BASE_URL}/wp-json/bluevpn/v1/windows/release-sync"
+          echo "Pushing authoritative Windows release metadata to WordPress: ${SYNC_URL}"
+          RESPONSE="$RUNNER_TEMP/bluevpn-windows-release-sync-response.json"
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent --show-error --location --connect-timeout 10 --max-time 45 \
+              -H 'Content-Type: application/json' \
+              -H "X-BlueVPN-Release-Timestamp: ${TIMESTAMP}" \
+              -H "X-BlueVPN-Release-Signature: ${SIGNATURE}" \
+              --data-binary "@${PAYLOAD}" "$SYNC_URL" -o "$RESPONSE"; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "::error::Authoritative Windows release metadata push failed after 5 attempts."
+              exit 1
+            fi
+            sleep $((attempt * 3))
+          done
           python - <<'PY2'
           import json, os
           from pathlib import Path
-          root=Path(os.environ["RUNNER_TEMP"])
-          path=root / "bluevpn-wordpress-windows-update-after-sync.json"
-          if not path.exists():
-              path=root / "bluevpn-wordpress-windows-update.json"
-          data=json.loads(path.read_text(encoding="utf-8"))
-          print("WordPress Windows latest_version:", data.get("latest_version"))
-          print("WordPress Windows release_channel:", data.get("release_channel"))
-          print("WordPress Windows refresh_mode:", data.get("release_refresh_mode"))
+          data=json.loads((Path(os.environ['RUNNER_TEMP'])/'bluevpn-windows-release-sync-response.json').read_text(encoding='utf-8'))
+          print('WordPress release-sync:', json.dumps(data,ensure_ascii=False))
+          if not data.get('ok'):
+              raise SystemExit('WordPress rejected authoritative Windows release metadata: '+str(data.get('message') or data.get('detail') or 'unknown'))
+          PY2
+
+      - name: Verify WordPress Windows distribution state
+        shell: bash
+        run: |
+          set -euo pipefail
+          API_BASE_URL="$(python - <<'PY2'
+          import json
+          from pathlib import Path
+          print(json.loads(Path("branding/app.json").read_text(encoding="utf-8")).get("api_base_url", "").rstrip("/"))
+          PY2
+          )"
+          VERSION="$(python -c 'import json; print(json.load(open("release.json", encoding="utf-8"))["version"])')"
+          URL="${API_BASE_URL}/wp-json/bluevpn/v1/windows/update?arch=win-x64&current_version=0.0.0"
+          curl --fail --silent --show-error --location --connect-timeout 10 --max-time 30 "$URL" -o "$RUNNER_TEMP/bluevpn-windows-distribution-state.json"
+          python - <<'PY2'
+          import json, os
+          from pathlib import Path
+          data=json.loads((Path(os.environ['RUNNER_TEMP'])/'bluevpn-windows-distribution-state.json').read_text(encoding='utf-8'))
+          print('WordPress Windows latest_version:',data.get('latest_version'))
+          print('WordPress Windows release_channel:',data.get('release_channel'))
+          print('WordPress Windows pending_stable_version:',data.get('pending_stable_version'))
+          if data.get('source') != 'wordpress_windows_release_channels':
+              raise SystemExit('Windows update endpoint is not using WordPress/MySQL release channels')
           PY2

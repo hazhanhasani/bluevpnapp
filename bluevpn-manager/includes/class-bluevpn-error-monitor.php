@@ -162,7 +162,12 @@ final class BlueVPN_Error_Monitor {
         $headers = $parsedArgs['headers'] ?? [];
         if (is_array($headers)) {
             foreach ($headers as $headerName => $headerValue) {
-                if (strtolower((string)$headerName) === 'x-bluevpn-internal-cron' && (string)$headerValue === '1') return;
+                $hn = strtolower((string)$headerName);
+                if ($hn === 'x-bluevpn-internal-cron' && (string)$headerValue === '1') return;
+                // Used only for non-authoritative fallback probes where failure is
+                // expected to degrade to cached/DB metadata instead of becoming a
+                // runtime incident. Authoritative/provider calls must not set it.
+                if ($hn === 'x-bluevpn-sentinel-ignore' && (string)$headerValue === '1') return;
             }
         }
         if ($host === 'api.telegram.org') return; // Prevent alert recursion if Telegram itself is unavailable.

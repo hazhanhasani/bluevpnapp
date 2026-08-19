@@ -1,7 +1,13 @@
 === BlueVPN Manager ===
-Version: 4.17.1
-Stable tag: 4.17.1
+Version: 4.17.3
+Stable tag: 4.17.3
 Requires PHP: 8.0
+
+== 4.17.3 ==
+- Successful Windows builds push signed release metadata directly into BlueVPN Manager/MySQL; site publication no longer depends on a live GitHub Releases API lookup.
+- Coordinated Stable intent is persisted before any GitHub fallback call, so a timeout cannot lose the administrator's publish request.
+- GitHub polling is retrying/cache-friendly fallback only; the public theme does not call GitHub while BlueVPN Manager is active.
+- Windows release metadata push is HMAC-authenticated and uses the existing deployment bot secret without exposing it through REST.
 
 == 4.17.1 ==
 - Deploy Bot installs the exact BlueVPN Manager bundled in the validated uploaded ZIP before depending on a dedicated GitHub Manager Release.

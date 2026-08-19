@@ -84,6 +84,12 @@ function bluevpn_site_windows_downloads(?string $version = null, bool $force = f
             $result['arm64_sha256'] = (string)($meta['installer_arm64']['sha256'] ?? '');
             return $result;
         }
+        // Manager/MySQL is authoritative. Do not make a live GitHub request from
+        // the public download page when the control plane is active: a temporary
+        // api.github.com timeout must never roll the website back or block render.
+        $empty = bluevpn_site_windows_empty_release();
+        $empty['source'] = 'bluevpn_manager_release_channels';
+        return $empty;
     }
 
     $repo = bluevpn_site_windows_release_repository();
@@ -98,11 +104,12 @@ function bluevpn_site_windows_downloads(?string $version = null, bool $force = f
 
     $api = 'https://api.github.com/repos/' . $repo . '/releases?per_page=30';
     $response = wp_remote_get($api, [
-        'timeout' => 6,
+        'timeout' => 12,
         'redirection' => 3,
         'headers' => [
             'Accept' => 'application/vnd.github+json',
             'User-Agent' => 'BlueVPN-Site/' . (defined('BLUEVPN_SITE_VERSION') ? BLUEVPN_SITE_VERSION : 'unknown'),
+            'X-BlueVPN-Sentinel-Ignore' => '1',
         ],
     ]);
 

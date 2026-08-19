@@ -1,0 +1,4 @@
+BlueVPN Manager 4.17.2
+- Durable pending Stable intent for coordinated Android + Windows publication.
+- Synchronous Windows release refresh for refresh=true.
+- Late Windows builds auto-promote when a prior coordinated Stable request exists.

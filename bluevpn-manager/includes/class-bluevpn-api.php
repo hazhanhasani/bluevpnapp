@@ -13,6 +13,7 @@ final class BlueVPN_API {
         $routes = [
             ['/mobile/config','GET','mobile_config'],
             ['/windows/update','GET','windows_update'],
+            ['/windows/release-sync','POST','windows_release_sync'],
             ['/ad-assets/(?P<asset_id>[A-Za-z0-9_-]{6,64})','GET','ad_asset'],
             ['/free/subscription','GET','free_subscription'],
             ['/free/subscriptions/(?P<item_id>[A-Za-z0-9_-]{1,64})','GET','free_subscription'],
@@ -250,10 +251,52 @@ final class BlueVPN_API {
             'updated_at_fa'=>BlueVPN_Utils::tehran_datetime_fa(),
         ]);
     }
+    public static function windows_release_sync(WP_REST_Request $r): WP_REST_Response {
+        try {
+            if (!class_exists('BlueVPN_Windows_Release_Manager') || !class_exists('BlueVPN_Telegram_Bot') || !method_exists('BlueVPN_Telegram_Bot','release_sync_secret_for_internal_requests')) {
+                return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_UNAVAILABLE','message'=>'سرویس همگام‌سازی Windows آماده نیست.']],503);
+            }
+            $secret = trim((string)BlueVPN_Telegram_Bot::release_sync_secret_for_internal_requests());
+            if ($secret === '') return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_SECRET_MISSING','message'=>'کلید امن همگام‌سازی Windows تنظیم نشده است.']],503);
+            $timestamp = trim((string)$r->get_header('x-bluevpn-release-timestamp'));
+            $signature = strtolower(trim((string)$r->get_header('x-bluevpn-release-signature')));
+            if (!preg_match('/^\d{10}$/',$timestamp) || abs(time()-(int)$timestamp)>300 || !preg_match('/^[a-f0-9]{64}$/',$signature)) {
+                return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_AUTH_INVALID','message'=>'امضای همگام‌سازی Windows معتبر نیست.']],403);
+            }
+            $raw = (string)$r->get_body();
+            $expected = hash_hmac('sha256', $timestamp . "\n" . $raw, $secret);
+            if (!hash_equals($expected,$signature)) {
+                return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_AUTH_INVALID','message'=>'امضای همگام‌سازی Windows معتبر نیست.']],403);
+            }
+            $payload = json_decode($raw,true);
+            if (!is_array($payload)) return self::ok(['ok'=>false,'detail'=>['code'=>'WINDOWS_RELEASE_SYNC_JSON_INVALID','message'=>'Metadata نسخه Windows معتبر نیست.']],422);
+            $result = BlueVPN_Windows_Release_Manager::ingest_direct_payload($payload,'github_signed_push');
+            $stable = BlueVPN_Windows_Release_Manager::stable_release();
+            $beta = BlueVPN_Windows_Release_Manager::beta_release();
+            return self::ok([
+                'ok'=>!empty($result['ok']),
+                'message'=>(string)($result['message']??''),
+                'stable_version'=>(string)($stable['version']??''),
+                'beta_version'=>(string)($beta['version']??''),
+                'pending_stable_version'=>BlueVPN_Windows_Release_Manager::pending_stable_version(),
+                'source'=>'github_signed_push',
+            ], !empty($result['ok'])?200:422);
+        } catch (Throwable $e) {
+            return self::unexpected($e,'windows_release_sync');
+        }
+    }
+
     public static function windows_update(WP_REST_Request $r): WP_REST_Response {
         $forced = rest_sanitize_boolean($r->get_param('refresh'));
+        $refreshResult = null;
         if (class_exists('BlueVPN_Windows_Release_Manager')) {
-            try { BlueVPN_Windows_Release_Manager::maybe_kick($forced); } catch (Throwable $e) { BlueVPN_Error_Monitor::legacy_error_log('BlueVPN windows release refresh queue: '.$e->getMessage()); }
+            try {
+                if ($forced) $refreshResult = BlueVPN_Windows_Release_Manager::sync_now(true, 'rest_force_refresh');
+                else BlueVPN_Windows_Release_Manager::maybe_kick(false);
+            } catch (Throwable $e) {
+                BlueVPN_Error_Monitor::legacy_error_log('BlueVPN windows release refresh: '.$e->getMessage());
+                $refreshResult = ['ok'=>false,'message'=>$e->getMessage()];
+            }
         }
         $customer=null;$authState='anonymous';$authError='';$authHeader=trim((string)$r->get_header('authorization'));
         if($authHeader!==''){
@@ -289,7 +332,10 @@ final class BlueVPN_API {
             'architecture'=>(string)($asset['architecture']??$arch),'download_url'=>(string)($asset['url']??''),
             'filename'=>(string)($asset['filename']??''),'sha256'=>(string)($asset['sha256']??''),'size'=>(int)($asset['size']??0),
             'auth_state'=>$authState,'auth_error'=>$authError,'source'=>'wordpress_windows_release_channels',
-            'release_refresh_mode'=>$forced?'queued_force_refresh':'cache_first_background',
+            'release_refresh_mode'=>$forced?'synchronous_force_refresh':'cache_first_background',
+            'release_refresh_ok'=>$refreshResult===null?null:!empty($refreshResult['ok']),
+            'release_refresh_message'=>$refreshResult===null?'':(string)($refreshResult['message']??''),
+            'pending_stable_version'=>class_exists('BlueVPN_Windows_Release_Manager')?BlueVPN_Windows_Release_Manager::pending_stable_version():'',
             'release_last_sync'=>class_exists('BlueVPN_Windows_Release_Manager')?BlueVPN_Windows_Release_Manager::last_sync():0,
         ]);
     }

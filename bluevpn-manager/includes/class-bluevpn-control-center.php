@@ -1125,7 +1125,10 @@ final class BlueVPN_Control_Center {
         $version=(string)($appRelease['version']??'');
         $windowsResult=BlueVPN_Windows_Release_Manager::promote_version_to_stable($version,true);
         if(empty($windowsResult['ok'])){
-            self::redirect('app','Android '.$version.' رسمی شد، اما Windows رسمی نشد: '.(string)($windowsResult['message']??'خطای نامشخص').' از بخش Windows بعد از همگام‌سازی دوباره انتشار رسمی را بزن.',true);
+            self::redirect('app','Android '.$version.' رسمی شد، اما ثبت انتشار Windows ناموفق بود: '.(string)($windowsResult['message']??'خطای نامشخص'),true);
+        }
+        if(!empty($windowsResult['pending'])){
+            self::redirect('app','Android '.$version.' رسمی شد. درخواست انتشار رسمی Windows نیز ثبت شد و به محض آماده‌شدن هر دو Installer خودکار Stable می‌شود.',false);
         }
         self::redirect('app','نسخه '.$version.' برای Android و Windows با موفقیت Stable/رسمی شد.',false);
     }

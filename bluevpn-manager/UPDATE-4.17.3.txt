@@ -1,0 +1,6 @@
+BlueVPN Manager 4.17.3
+
+- Windows build metadata is pushed directly and securely from GitHub Actions to WordPress/MySQL after a successful release.
+- GitHub API polling is now fallback-only and uses retry/backoff plus last-known-good cache.
+- Stable/Beta convergence no longer depends on a live GitHub releases API response.
+- Windows public-site download metadata is served from BlueVPN Manager as the authoritative source.

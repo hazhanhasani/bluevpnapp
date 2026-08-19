@@ -18,6 +18,7 @@ final class BlueVPN_Windows_Release_Manager {
     private const CRON_HOOK = 'bluevpn_windows_release_fallback_sync';
     private const KICK_LOCK = 'bluevpn_windows_release_kick_lock_v1';
     private const SYNC_LOCK = 'bluevpn_windows_release_sync_lock_v1';
+    private const PENDING_STABLE_OPTION = 'bluevpn_windows_pending_stable_version_v1';
     private const DEFAULT_OWNER = 'hazhanhasani';
     private const DEFAULT_REPO = 'bluevpnapp';
     private const VALID_STATES = ['beta','stable','stopped','archived'];
@@ -98,6 +99,42 @@ final class BlueVPN_Windows_Release_Manager {
 
     public static function last_sync(): int { return (int)get_option(self::LAST_SYNC_OPTION, 0); }
 
+    public static function pending_stable_version(): string {
+        $version = trim((string)get_option(self::PENDING_STABLE_OPTION, ''));
+        return preg_match('/^\d+\.\d+\.\d+$/', $version) ? $version : '';
+    }
+
+    public static function request_stable_when_available(string $version): array {
+        $version = trim($version);
+        if (!preg_match('/^\d+\.\d+\.\d+$/', $version)) return ['ok'=>false,'message'=>'نسخه Windows معتبر نیست.'];
+        update_option(self::PENDING_STABLE_OPTION, $version, false);
+        $release = self::release_by_version($version);
+        if ($release && !empty($release['installer_x64_url']) && !empty($release['installer_arm64_url'])) {
+            $result = self::promote_to_stable((int)$release['id']);
+            if (!empty($result['ok'])) delete_option(self::PENDING_STABLE_OPTION);
+            $result['pending'] = empty($result['ok']);
+            return $result;
+        }
+        return ['ok'=>true,'pending'=>true,'message'=>'انتشار رسمی Windows '.$version.' ثبت شد و به محض آماده‌شدن Installerهای x64/ARM64 خودکار Stable می‌شود.'];
+    }
+
+    private static function finalize_pending_stable_if_ready(): array {
+        $version = self::pending_stable_version();
+        if ($version === '') return ['ok'=>true,'pending'=>false,'message'=>''];
+        $release = self::release_by_version($version);
+        if (!$release || empty($release['installer_x64_url']) || empty($release['installer_arm64_url'])) {
+            return ['ok'=>true,'pending'=>true,'message'=>'Windows '.$version.' هنوز منتظر Installer کامل است.'];
+        }
+        if ((string)($release['state'] ?? '') === 'stable') {
+            delete_option(self::PENDING_STABLE_OPTION);
+            return ['ok'=>true,'pending'=>false,'message'=>'Windows '.$version.' از قبل Stable است.'];
+        }
+        $result = self::promote_to_stable((int)$release['id']);
+        if (!empty($result['ok'])) delete_option(self::PENDING_STABLE_OPTION);
+        $result['pending'] = empty($result['ok']);
+        return $result;
+    }
+
     public static function ensure_schedule(): void {
         add_filter('cron_schedules', [self::class, 'cron_schedules']);
         $event = function_exists('wp_get_scheduled_event') ? wp_get_scheduled_event(self::CRON_HOOK) : null;
@@ -148,19 +185,113 @@ final class BlueVPN_Windows_Release_Manager {
     private static function fetch_releases() {
         $s = self::settings();
         $url = 'https://api.github.com/repos/' . rawurlencode($s['owner']) . '/' . rawurlencode($s['repo']) . '/releases?per_page=40';
-        $response = wp_remote_get($url, ['timeout'=>12,'redirection'=>3,'headers'=>self::request_headers()]);
-        if (is_wp_error($response)) return $response;
-        $code = (int)wp_remote_retrieve_response_code($response);
-        if ($code !== 200) return new WP_Error('bluevpn_windows_release_http', 'GitHub API HTTP ' . $code);
-        $releases = json_decode(wp_remote_retrieve_body($response), true);
-        return is_array($releases) ? $releases : new WP_Error('bluevpn_windows_release_json', 'پاسخ Releaseهای Windows معتبر نیست.');
+        $headers = self::request_headers();
+        // GitHub polling is fallback-only in 4.17.3. A transport failure here
+        // must not become a user-facing runtime incident while DB metadata is
+        // already authoritative.
+        $headers['X-BlueVPN-Sentinel-Ignore'] = '1';
+        $lastError = null;
+        foreach ([8, 12, 18] as $attempt => $timeout) {
+            $response = wp_remote_get($url, ['timeout'=>$timeout,'redirection'=>3,'headers'=>$headers]);
+            if (!is_wp_error($response)) {
+                $code = (int)wp_remote_retrieve_response_code($response);
+                if ($code === 200) {
+                    $releases = json_decode(wp_remote_retrieve_body($response), true);
+                    if (is_array($releases)) return $releases;
+                    $lastError = new WP_Error('bluevpn_windows_release_json', 'پاسخ Releaseهای Windows معتبر نیست.');
+                } elseif (in_array($code, [429, 500, 502, 503, 504], true)) {
+                    $lastError = new WP_Error('bluevpn_windows_release_http', 'GitHub API HTTP ' . $code);
+                } else {
+                    return new WP_Error('bluevpn_windows_release_http', 'GitHub API HTTP ' . $code);
+                }
+            } else {
+                $lastError = $response;
+            }
+            if ($attempt < 2) usleep((int)(250000 * (2 ** $attempt)));
+        }
+        return $lastError ?: new WP_Error('bluevpn_windows_release_unavailable', 'GitHub Release API موقتاً در دسترس نیست.');
     }
 
     private static function request_headers(): array {
-        return [
+        $headers = [
             'Accept'=>'application/vnd.github+json','X-GitHub-Api-Version'=>'2022-11-28',
             'User-Agent'=>'BlueVPN-Windows-Release-Manager/' . BLUEVPN_MANAGER_VERSION . '; ' . home_url('/'),
         ];
+        if (class_exists('BlueVPN_Telegram_Bot') && method_exists('BlueVPN_Telegram_Bot', 'github_token_for_internal_requests')) {
+            $token = trim((string)BlueVPN_Telegram_Bot::github_token_for_internal_requests());
+            if ($token !== '') $headers['Authorization'] = 'Bearer ' . $token;
+        }
+        return $headers;
+    }
+
+    /**
+     * Ingest release metadata pushed directly by the successful GitHub Actions
+     * Windows publish job. This path is authoritative and does not call GitHub
+     * API again, eliminating the publication race caused by api.github.com
+     * latency/timeouts. The REST layer authenticates the payload HMAC first.
+     */
+    public static function ingest_direct_payload(array $payload, string $source = 'github_signed_push'): array {
+        $version = trim((string)($payload['version'] ?? ''));
+        if (!preg_match('/^\d+\.\d+\.\d+$/', $version)) {
+            return ['ok'=>false,'message'=>'نسخه Windows در payload معتبر نیست.'];
+        }
+        $tag = trim((string)($payload['tag'] ?? ('bluevpn-windows-v' . $version)));
+        if ($tag !== 'bluevpn-windows-v' . $version) {
+            return ['ok'=>false,'message'=>'Tag نسخه Windows با نسخه payload هماهنگ نیست.'];
+        }
+        $releaseUrl = esc_url_raw((string)($payload['release_url'] ?? ''));
+        if ($releaseUrl === '' || strtolower((string)wp_parse_url($releaseUrl, PHP_URL_HOST)) !== 'github.com') {
+            return ['ok'=>false,'message'=>'Release URL ویندوز معتبر نیست.'];
+        }
+        $assets = [];
+        foreach ((array)($payload['assets'] ?? []) as $asset) {
+            if (!is_array($asset)) continue;
+            $name = sanitize_file_name((string)($asset['name'] ?? ''));
+            $url = esc_url_raw((string)($asset['url'] ?? ''));
+            $sha = strtolower(trim((string)($asset['sha256'] ?? '')));
+            $size = max(0, (int)($asset['size'] ?? 0));
+            if ($name === '' || $url === '' || !preg_match('/^[a-f0-9]{64}$/', $sha) || $size <= 0) continue;
+            $host = strtolower((string)wp_parse_url($url, PHP_URL_HOST));
+            if (!in_array($host, ['github.com','objects.githubusercontent.com'], true)) continue;
+            $assets[] = [
+                'id'=>0,'name'=>$name,'browser_download_url'=>$url,'size'=>$size,
+                'digest'=>'sha256:' . $sha,'updated_at'=>(string)($payload['published_at'] ?? ''),
+            ];
+        }
+        $required = [
+            'BlueVPN-Setup-' . $version . '-win-x64.exe',
+            'BlueVPN-Setup-' . $version . '-win-arm64.exe',
+        ];
+        $assetNames = array_column($assets, 'name');
+        foreach ($required as $requiredName) {
+            if (!in_array($requiredName, $assetNames, true)) {
+                return ['ok'=>false,'message'=>'Installer موردنیاز در metadata وجود ندارد: ' . $requiredName];
+            }
+        }
+        $release = [
+            'id'=>max(0,(int)($payload['release_id'] ?? 0)),
+            'tag_name'=>$tag,
+            'name'=>sanitize_text_field((string)($payload['title'] ?? ('BlueVPN Windows ' . $version))),
+            'body'=>sanitize_textarea_field((string)($payload['message'] ?? 'BlueVPN-Windows-Channel: beta')),
+            'html_url'=>$releaseUrl,
+            'published_at'=>sanitize_text_field((string)($payload['published_at'] ?? gmdate('c'))),
+            'updated_at'=>sanitize_text_field((string)($payload['published_at'] ?? gmdate('c'))),
+            'target_commitish'=>preg_replace('/[^a-fA-F0-9]/','',(string)($payload['commit'] ?? '')),
+            'draft'=>false,'prerelease'=>true,'assets'=>$assets,
+        ];
+        $result = self::ingest_releases([$release], $source, true);
+        self::invalidate_public_download_cache();
+        return $result;
+    }
+
+    private static function invalidate_public_download_cache(): void {
+        global $wpdb;
+        if (isset($wpdb->options)) {
+            $like1 = $wpdb->esc_like('_transient_bluevpn_windows_release_') . '%';
+            $like2 = $wpdb->esc_like('_transient_timeout_bluevpn_windows_release_') . '%';
+            $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s", $like1, $like2));
+        }
+        do_action('bluevpn_windows_release_changed');
     }
 
     public static function ingest_releases(array $releases, string $source = 'shared_github_poll', bool $force = false): array {
@@ -218,11 +349,13 @@ final class BlueVPN_Windows_Release_Manager {
             }
             if ($top===null || version_compare($version,(string)$top['version'],'>')) $top=['version'=>$version,'version_code'=>$meta['version_code'],'release_url'=>$meta['release_url']];
         }
+        $pendingResult=self::finalize_pending_stable_if_ready();
         $message='Releaseهای Windows همگام شدند؛ جدید: '.$imported.'، بروزرسانی‌شده: '.$updated.'، بدون تغییر: '.$skipped.($failed?'، خطا: '.$failed:'').'. نسخه‌های جدید به‌صورت Beta ثبت می‌شوند.';
-        self::save_status($failed && !$imported && !$updated?'error':'synced',$message,[
+        if (!empty($pendingResult['message'])) $message .= ' ' . (string)$pendingResult['message'];
+        self::save_status(($failed && !$imported && !$updated) || empty($pendingResult['ok'])?'error':'synced',$message,[
             'version'=>(string)($top['version']??''),'version_code'=>(int)($top['version_code']??0),'release_url'=>(string)($top['release_url']??''),'source'=>$source,
         ]);
-        return ['ok'=>!($failed && !$imported && !$updated),'message'=>$message,'status'=>self::status()];
+        return ['ok'=>!($failed && !$imported && !$updated) && !empty($pendingResult['ok']),'message'=>$message,'status'=>self::status(),'pending_stable_version'=>self::pending_stable_version()];
     }
 
     private static function parse_release(array $release) {
@@ -301,13 +434,25 @@ final class BlueVPN_Windows_Release_Manager {
         $version=trim($version);
         if(!preg_match('/^\d+\.\d+\.\d+$/',$version)) return ['ok'=>false,'message'=>'نسخه Windows معتبر نیست.'];
         $release=self::release_by_version($version);
-        if(!$release && $syncIfMissing){
-            $sync=self::sync_now(true,'coordinated_stable_publish');
-            $release=self::release_by_version($version);
-            if(!$release && empty($sync['ok'])) return ['ok'=>false,'message'=>'همگام‌سازی Windows ناموفق بود: '.(string)($sync['message']??'خطای نامشخص')];
+        if(!$release){
+            // Persist admin intent BEFORE any network lookup. A GitHub timeout must
+            // never erase a coordinated Stable publication request.
+            $pending=self::request_stable_when_available($version);
+            if($syncIfMissing){
+                $sync=self::sync_now(true,'coordinated_stable_publish_fallback');
+                $release=self::release_by_version($version);
+                if($release && !empty($release['installer_x64_url']) && !empty($release['installer_arm64_url'])) {
+                    return self::promote_version_to_stable($version,false);
+                }
+                if(empty($sync['ok'])) {
+                    $pending['message'].=' GitHub موقتاً پاسخ نداد، اما درخواست Stable محفوظ ماند و با Push مستقیم Build بعدی خودکار تکمیل می‌شود.';
+                }
+            }
+            return $pending;
         }
-        if(!$release) return ['ok'=>false,'message'=>'Build کامل Windows '.$version.' هنوز در کانال Windows ثبت نشده است.'];
-        if(empty($release['installer_x64_url'])||empty($release['installer_arm64_url'])) return ['ok'=>false,'message'=>'Installerهای x64 و ARM64 برای Windows '.$version.' کامل نیستند.'];
+        if(empty($release['installer_x64_url']) || empty($release['installer_arm64_url'])) {
+            return self::request_stable_when_available($version);
+        }
         if((string)($release['state']??'')==='stable') return ['ok'=>true,'message'=>'Windows '.$version.' از قبل Stable است.','release'=>$release];
         $result=self::promote_to_stable((int)$release['id']);
         if(!empty($result['ok'])) $result['release']=self::release_by_version($version);
@@ -366,6 +511,8 @@ final class BlueVPN_Windows_Release_Manager {
             if($ok===false)throw new RuntimeException('ذخیره وضعیت Windows ناموفق بود.');
             $wpdb->query('COMMIT');
         }catch(Throwable $e){$wpdb->query('ROLLBACK');return ['ok'=>false,'message'=>$e->getMessage()];}
+        if (self::pending_stable_version() === (string)$target['version']) delete_option(self::PENDING_STABLE_OPTION);
+        self::invalidate_public_download_cache();
         return ['ok'=>true,'message'=>'نسخه Windows '.$target['version'].' بدون Build مجدد به Stable/انتشار رسمی ارتقا یافت.'];
     }
 

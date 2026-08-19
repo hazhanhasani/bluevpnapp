@@ -119,13 +119,23 @@
                     Margin="4,2,4,9" Visibility="Collapsed" MouseLeftButtonUp="AdCard_Click" Cursor="Hand"
                     ClipToBounds="True" BorderBrush="{StaticResource BlueVpnStroke}" BorderThickness="1">
                 <Grid>
+                    <Border x:Name="AdFallbackPanel" Background="#FF071328">
+                        <Grid Margin="18,14">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="86"/></Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                <TextBlock x:Name="AdTitle" Text="BlueVPN" Foreground="White" FontSize="16" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock x:Name="AdSubtitle" Text="پیشنهاد ویژه BlueVPN" Foreground="#FFD5E3FF" FontSize="10.5" Margin="0,6,0,0"
+                                           TextWrapping="Wrap" MaxHeight="34"/>
+                            </StackPanel>
+                            <Border Grid.Column="1" Background="#26356DF1" BorderBrush="#80356DF1" BorderThickness="1" CornerRadius="14" Padding="9,7" VerticalAlignment="Center">
+                                <TextBlock x:Name="AdActionText" Text="مشاهده ←" Foreground="White" FontSize="10.5" FontWeight="Bold" TextAlignment="Center"/>
+                            </Border>
+                        </Grid>
+                    </Border>
                     <Image x:Name="AdImage" Stretch="UniformToFill" RenderOptions.BitmapScalingMode="HighQuality"/>
-                    <Border Background="#26000000" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="10" CornerRadius="12" Padding="8,4">
+                    <Border Background="#36000000" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="10" CornerRadius="12" Padding="8,4">
                         <TextBlock Text="تبلیغ" Foreground="White" FontSize="9"/>
                     </Border>
-                    <StackPanel Visibility="Collapsed">
-                        <TextBlock x:Name="AdTitle"/><TextBlock x:Name="AdSubtitle"/><TextBlock x:Name="AdActionText"/>
-                    </StackPanel>
                 </Grid>
             </Border>
 
@@ -206,13 +216,82 @@
                             <Button Grid.Column="1" Content="✕" Click="CloseDrawers_Click" Width="42" Height="42" Padding="0"/>
                         </Grid>
                         <StackPanel x:Name="LoginPanel">
-                            <TextBlock Text="ایمیل" Foreground="{StaticResource BlueVpnMuted}"/><TextBox x:Name="EmailBox" FlowDirection="LeftToRight" TextAlignment="Left"/>
-                            <TextBlock Text="رمز عبور" Foreground="{StaticResource BlueVpnMuted}"/><PasswordBox x:Name="PasswordBox" FlowDirection="LeftToRight"/>
-                            <UniformGrid Columns="2"><Button Content="ورود" Click="Login_Click"/><Button Content="ثبت‌نام" Click="Register_Click"/></UniformGrid>
-                            <Separator Margin="0,14" Background="{StaticResource BlueVpnStroke}"/>
-                            <TextBlock Text="ورود با پیامک" FontWeight="SemiBold"/><TextBox x:Name="PhoneBox" FlowDirection="LeftToRight" TextAlignment="Left"/>
-                            <Button Content="ارسال کد" Click="RequestOtp_Click"/><TextBox x:Name="OtpBox" FlowDirection="LeftToRight" TextAlignment="Left"/>
-                            <Button Content="تأیید و ورود" Click="VerifyOtp_Click" Background="{StaticResource BlueVpnBlue}" Foreground="White"/>
+                            <!-- Android auth parity: dark authentication card, SMS/Email segmented mode,
+                                 OTP step and Email login/register sub-mode. -->
+                            <Border Background="#FF030405" CornerRadius="26" Padding="16" BorderBrush="#FF202126" BorderThickness="1">
+                                <StackPanel>
+                                    <TextBlock Text="ورود امن به BlueVPN" Foreground="White" FontSize="20" FontWeight="Bold" TextAlignment="Center"/>
+                                    <TextBlock x:Name="AuthHintText" Text="ورود امن با کد یک‌بارمصرف ۶ رقمی" Foreground="#FFA1A1AA" FontSize="11.5"
+                                               TextAlignment="Center" TextWrapping="Wrap" Margin="8,7,8,14"/>
+
+                                    <Grid FlowDirection="LeftToRight" Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                                        <Button Grid.Column="0" x:Name="SmsModeButton" Content="پیامک" Click="AuthSmsMode_Click" Height="42" Margin="0,0,3,0"
+                                                Background="#FF21140D" Foreground="#FFF97316" BorderBrush="#FFA9561F" FontWeight="Bold"/>
+                                        <Button Grid.Column="1" x:Name="EmailModeButton" Content="ایمیل" Click="AuthEmailMode_Click" Height="42" Margin="3,0,0,0"
+                                                Background="#FF101114" Foreground="#FF9CA3AF" BorderBrush="#FF3F3F46" FontWeight="Bold"/>
+                                    </Grid>
+
+                                    <Border Background="#FF0F1012" CornerRadius="20" BorderBrush="#FF27272A" BorderThickness="1" Padding="16">
+                                        <Grid>
+                                            <StackPanel x:Name="SmsAuthPanel">
+                                                <StackPanel x:Name="SmsPhoneStage">
+                                                    <TextBlock Text="ورود به حساب کاربری" Foreground="White" FontSize="18" FontWeight="Bold"/>
+                                                    <TextBlock Text="شماره موبایل خود را وارد کنید تا کد ورود ۶ رقمی برایتان ارسال شود."
+                                                               Foreground="#FFA1A1AA" FontSize="11.5" TextWrapping="Wrap" Margin="0,7,0,16"/>
+                                                    <TextBlock Text="شماره موبایل" Foreground="#FFD4D4D8" FontSize="11"/>
+                                                    <TextBox x:Name="PhoneBox" FlowDirection="LeftToRight" TextAlignment="Left" MaxLength="14"
+                                                             Background="#FF0B0C0E" Foreground="White" BorderBrush="#FF3F3F46" CaretBrush="#FFF97316"
+                                                             FontSize="15" Padding="13,11" Margin="0,7,0,8"/>
+                                                    <Button Content="ارسال کد ورود" Click="RequestOtp_Click" Height="50" Margin="0,10,0,0"
+                                                            Background="#FFF97316" Foreground="White" BorderBrush="#FFEA580C" FontWeight="Bold"/>
+                                                </StackPanel>
+
+                                                <StackPanel x:Name="SmsOtpStage" Visibility="Collapsed">
+                                                    <Button Content="→  تغییر شماره" Click="ChangePhone_Click" HorizontalAlignment="Left" Margin="0,0,0,8"
+                                                            Background="Transparent" Foreground="#FFF97316" BorderBrush="Transparent" Padding="4" FontWeight="Bold"/>
+                                                    <TextBlock Text="کد تأیید را وارد کنید" Foreground="White" FontSize="18" FontWeight="Bold"/>
+                                                    <TextBlock x:Name="OtpTargetText" Text="کد ۶ رقمی ارسال‌شده را وارد کنید."
+                                                               Foreground="#FFA1A1AA" FontSize="11.5" TextWrapping="Wrap" Margin="0,7,0,15"/>
+                                                    <TextBox x:Name="OtpBox" FlowDirection="LeftToRight" TextAlignment="Center" MaxLength="6"
+                                                             Background="#FF0B0C0E" Foreground="White" BorderBrush="#FF3F3F46" CaretBrush="#FFF97316"
+                                                             FontSize="25" FontWeight="Bold" CharacterCasing="Upper" Padding="13,11" Margin="0,0,0,8"/>
+                                                    <Button Content="تأیید و ورود" Click="VerifyOtp_Click" Height="50" Margin="0,10,0,0"
+                                                            Background="#FFF97316" Foreground="White" BorderBrush="#FFEA580C" FontWeight="Bold"/>
+                                                    <Button Content="کد را دریافت نکردید؟  ارسال مجدد" Click="ResendOtp_Click" Height="40" Margin="0,8,0,0"
+                                                            Background="Transparent" Foreground="#FFF97316" BorderBrush="Transparent"/>
+                                                </StackPanel>
+                                            </StackPanel>
+
+                                            <StackPanel x:Name="EmailAuthPanel" Visibility="Collapsed">
+                                                <Grid FlowDirection="LeftToRight" Margin="0,0,0,14">
+                                                    <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                                                    <Button Grid.Column="0" x:Name="EmailLoginModeButton" Content="ورود" Click="EmailLoginMode_Click" Height="38" Margin="0,0,3,0"
+                                                            Background="#FF21140D" Foreground="#FFF97316" BorderBrush="#FFA9561F" FontWeight="Bold"/>
+                                                    <Button Grid.Column="1" x:Name="EmailRegisterModeButton" Content="ثبت‌نام" Click="EmailRegisterMode_Click" Height="38" Margin="3,0,0,0"
+                                                            Background="#FF101114" Foreground="#FF9CA3AF" BorderBrush="#FF3F3F46" FontWeight="Bold"/>
+                                                </Grid>
+                                                <TextBlock x:Name="EmailTitleText" Text="ورود با ایمیل" Foreground="White" FontSize="18" FontWeight="Bold"/>
+                                                <TextBlock x:Name="EmailSubtitleText" Text="ایمیل و رمز عبور حساب BlueVPN خود را وارد کنید."
+                                                           Foreground="#FFA1A1AA" FontSize="11.5" TextWrapping="Wrap" Margin="0,7,0,15"/>
+                                                <TextBlock Text="ایمیل" Foreground="#FFD4D4D8" FontSize="11"/>
+                                                <TextBox x:Name="EmailBox" FlowDirection="LeftToRight" TextAlignment="Left"
+                                                         Background="#FF0B0C0E" Foreground="White" BorderBrush="#FF3F3F46" CaretBrush="#FFF97316"
+                                                         FontSize="14" Padding="13,11" Margin="0,7,0,10"/>
+                                                <TextBlock Text="رمز عبور" Foreground="#FFD4D4D8" FontSize="11"/>
+                                                <PasswordBox x:Name="PasswordBox" FlowDirection="LeftToRight"
+                                                             Background="#FF0B0C0E" Foreground="White" BorderBrush="#FF3F3F46" CaretBrush="#FFF97316"
+                                                             FontSize="14" Padding="13,11" Margin="0,7,0,8"/>
+                                                <Button x:Name="EmailSubmitButton" Content="ورود به BlueVPN" Click="EmailSubmit_Click" Height="50" Margin="0,10,0,0"
+                                                        Background="#FFF97316" Foreground="White" BorderBrush="#FFEA580C" FontWeight="Bold"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+
+                                    <TextBlock x:Name="AuthStatusText" Text="ورود روی همین دستگاه ذخیره می‌شود و اطلاعات اشتراک در پس‌زمینه همگام خواهد شد."
+                                               Foreground="#FF71717A" FontSize="10" TextAlignment="Center" TextWrapping="Wrap" Margin="8,13,8,0"/>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                         <StackPanel x:Name="AccountPanel" Visibility="Collapsed">
                             <Border Background="White" CornerRadius="18" BorderBrush="{StaticResource BlueVpnStroke}" BorderThickness="1" Padding="14">

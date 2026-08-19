@@ -1,41 +1,58 @@
+using System.IO;
+using System.Text.Json;
 using BlueVPN.Windows.Models;
 
 namespace BlueVPN.Windows.Services;
 
 /// <summary>
-/// Canonical Windows ad adapter. The WordPress API intentionally returns local
-/// BlueVPN ad assets as relative paths (Android resolves them against apiBaseUrl),
-/// so Windows must do the same before handing them to WPF imaging/media APIs.
+/// Canonical Windows ad adapter. It consumes the same /mobile/config contract as
+/// Android, resolves relative BlueVPN assets, and keeps a last-known-good copy so
+/// a temporary TLS/control-plane outage does not turn the ad slot into an empty box.
+/// Third-party mobile SDK payloads (for example Tapsell Mediation) are parsed for
+/// capability diagnostics, but are never impersonated by the WPF client.
 /// </summary>
 public sealed class AdvertisementService
 {
     private readonly BlueVpnApiClient _api;
     private readonly AppSettings _settings;
     private readonly Random _random = new();
+    private readonly string _cachePath;
 
     public AdvertisementService(BlueVpnApiClient api, AppSettings settings)
     {
         _api = api;
         _settings = settings;
+        var cacheRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "BlueVPN",
+            "cache");
+        _cachePath = Path.Combine(cacheRoot, "mobile-config.json");
+        Current = LoadCached();
     }
 
-    public MobileConfigResponse Current { get; private set; } = new();
+    public MobileConfigResponse Current { get; private set; }
+    public string LastRefreshError { get; private set; } = "";
 
     public async Task RefreshAsync(CancellationToken ct = default)
     {
         try
         {
             var config = await _api.GetMobileConfigAsync(ct).ConfigureAwait(false);
-            Normalize(config.Advertising.Items);
-            Normalize(config.Ads.Items);
-            Normalize(config.FreeStoryAds.Items);
+            NormalizeAll(config);
             Current = config;
+            LastRefreshError = "";
+            SaveCached(config);
         }
-        catch
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            // Ads are fail-open: a transient control-plane problem must never
-            // block the home screen or VPN lifecycle.
-            Current = new MobileConfigResponse();
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Fail-open, but keep last-known-good instead of replacing it with an
+            // empty payload. This matters on Windows Server/VPS machines whose TLS
+            // trust/proxy state can temporarily block the control plane.
+            LastRefreshError = ex.Message;
         }
     }
 
@@ -83,7 +100,6 @@ public sealed class AdvertisementService
         if (items.Count == 0) return null;
         if (!cfg.Random) return items[0];
 
-        // Match Android/control-plane weighted random behaviour.
         var total = items.Sum(x => Math.Clamp(x.Weight, 1, 100));
         var ticket = _random.Next(1, Math.Max(2, total + 1));
         foreach (var item in items)
@@ -103,6 +119,13 @@ public sealed class AdvertisementService
     public int StoryLoadTimeoutMs => Math.Clamp(Current.FreeStoryAds.LoadTimeoutMs, 3000, 15000);
     public int StoryMaxVideoSeconds => Math.Clamp(Current.FreeStoryAds.MaxVideoSeconds, 5, 60);
 
+    /// <summary>
+    /// Tapsell's current Mediation payload is a mobile-SDK contract. Windows WPF
+    /// deliberately reports that fact instead of silently pretending a zone was
+    /// shown. A separate web-publisher placement is required for a real Windows ad.
+    /// </summary>
+    public bool HasMobileOnlyThirdPartyAds => Current.Tapsell.Enabled;
+
     public string ResolveUrl(string value)
     {
         value = (value ?? "").Trim();
@@ -112,6 +135,13 @@ public sealed class AdvertisementService
         return _settings.ApiBaseUrl.TrimEnd('/') + value;
     }
 
+    private void NormalizeAll(MobileConfigResponse config)
+    {
+        Normalize(config.Advertising.Items);
+        Normalize(config.Ads.Items);
+        Normalize(config.FreeStoryAds.Items);
+    }
+
     private void Normalize(IEnumerable<AdvertisementItem> items)
     {
         foreach (var item in items)
@@ -119,11 +149,46 @@ public sealed class AdvertisementService
             item.ImageUrl = ResolveUrl(item.ImageUrl);
             item.ImagePath = ResolveUrl(item.ImagePath);
             item.MediaUrl = ResolveUrl(item.MediaUrl);
-            // target_url may deliberately be empty while deep_link is BlueVPN-internal.
             if (!string.IsNullOrWhiteSpace(item.TargetUrl)) item.TargetUrl = ResolveUrl(item.TargetUrl);
         }
     }
 
+    private MobileConfigResponse LoadCached()
+    {
+        try
+        {
+            if (!File.Exists(_cachePath)) return new MobileConfigResponse();
+            var json = File.ReadAllText(_cachePath);
+            var config = JsonSerializer.Deserialize<MobileConfigResponse>(json, AppSettings.JsonOptions()) ?? new MobileConfigResponse();
+            NormalizeAll(config);
+            return config;
+        }
+        catch
+        {
+            return new MobileConfigResponse();
+        }
+    }
+
+    private void SaveCached(MobileConfigResponse config)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(_cachePath);
+            if (!string.IsNullOrWhiteSpace(dir)) Directory.CreateDirectory(dir);
+            var temp = _cachePath + ".tmp";
+            File.WriteAllText(temp, JsonSerializer.Serialize(config, AppSettings.JsonOptions()));
+            File.Move(temp, _cachePath, true);
+        }
+        catch
+        {
+            // Cache persistence is optional and must never own the ad/UI lifecycle.
+        }
+    }
+
     private static bool IsUsable(AdvertisementItem item) =>
-        !string.IsNullOrWhiteSpace(item.ImageUrl) || !string.IsNullOrWhiteSpace(item.MediaUrl);
+        !string.IsNullOrWhiteSpace(item.ImageUrl) ||
+        !string.IsNullOrWhiteSpace(item.ImagePath) ||
+        !string.IsNullOrWhiteSpace(item.MediaUrl) ||
+        !string.IsNullOrWhiteSpace(item.Title) ||
+        !string.IsNullOrWhiteSpace(item.Subtitle);
 }

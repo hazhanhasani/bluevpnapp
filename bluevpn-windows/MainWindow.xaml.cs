@@ -38,6 +38,9 @@ public partial class MainWindow : Window
     private UpdateCandidate? _pendingUpdate;
     private long? _remainingSecondsAtSnapshot;
     private DateTimeOffset _accountSnapshotAt = DateTimeOffset.UtcNow;
+    private string _authMode = "sms";
+    private bool _emailRegisterMode;
+    private string _otpPhone = "";
 
     public MainWindow()
     {
@@ -55,6 +58,7 @@ public partial class MainWindow : Window
         CoreVersionText.Text = "BlueVPN Core";
         TechnicalText.Text = _connection.RuntimeStatus;
         MenuTechnicalText.Text = _connection.RuntimeStatus;
+        ApplyAuthModeUi();
 
         _adTimer.Tick += async (_, _) => await AdvanceAdAsync();
         _maintenanceTimer.Interval = TimeSpan.FromHours(4);
@@ -159,7 +163,9 @@ public partial class MainWindow : Window
         var token = _adImageCts.Token;
 
         AdImage.Source = null;
-        var imageUrl = !string.IsNullOrWhiteSpace(item.ImageUrl) ? item.ImageUrl : item.MediaUrl;
+        var imageUrl = !string.IsNullOrWhiteSpace(item.ImageUrl)
+            ? item.ImageUrl
+            : (!string.IsNullOrWhiteSpace(item.ImagePath) ? item.ImagePath : item.MediaUrl);
         var image = await MediaAssetLoader.LoadImageAsync(imageUrl, token);
         if (token.IsCancellationRequested || index != _adIndex) return;
         AdImage.Source = image;
@@ -167,7 +173,10 @@ public partial class MainWindow : Window
         if (items.Count > 1)
         {
             var next = items[(index + 1) % items.Count];
-            MediaAssetLoader.Preload(!string.IsNullOrWhiteSpace(next.ImageUrl) ? next.ImageUrl : next.MediaUrl);
+            var nextImage = !string.IsNullOrWhiteSpace(next.ImageUrl)
+                ? next.ImageUrl
+                : (!string.IsNullOrWhiteSpace(next.ImagePath) ? next.ImagePath : next.MediaUrl);
+            MediaAssetLoader.Preload(nextImage);
         }
         MediaAssetLoader.Trim();
     }
@@ -211,38 +220,159 @@ public partial class MainWindow : Window
         MenuDrawer.Visibility = Visibility.Collapsed;
     }
 
-    private async void Login_Click(object sender, RoutedEventArgs e) => await BusyAsync("در حال ورود…", async ct =>
+    private void AuthSmsMode_Click(object sender, RoutedEventArgs e)
     {
-        var result = await _api.LoginAsync(EmailBox.Text.Trim(), PasswordBox.Password, ct);
+        _authMode = "sms";
+        ApplyAuthModeUi();
+    }
+
+    private void AuthEmailMode_Click(object sender, RoutedEventArgs e)
+    {
+        _authMode = "email";
+        ApplyAuthModeUi();
+    }
+
+    private void EmailLoginMode_Click(object sender, RoutedEventArgs e)
+    {
+        _emailRegisterMode = false;
+        ApplyAuthModeUi();
+    }
+
+    private void EmailRegisterMode_Click(object sender, RoutedEventArgs e)
+    {
+        _emailRegisterMode = true;
+        ApplyAuthModeUi();
+    }
+
+    private void ChangePhone_Click(object sender, RoutedEventArgs e)
+    {
+        _otpPhone = "";
+        OtpBox.Text = "";
+        SmsPhoneStage.Visibility = Visibility.Visible;
+        SmsOtpStage.Visibility = Visibility.Collapsed;
+        AuthStatusText.Text = "شماره موبایل را وارد کنید تا کد ورود ارسال شود.";
+    }
+
+    private async void ResendOtp_Click(object sender, RoutedEventArgs e) => await RequestOtpCoreAsync();
+
+    private async void EmailSubmit_Click(object sender, RoutedEventArgs e)
+    {
+        if (_emailRegisterMode) await RegisterCoreAsync();
+        else await LoginCoreAsync();
+    }
+
+    // Backward-compatible handlers retained for older XAML/release patches.
+    private async void Login_Click(object sender, RoutedEventArgs e) => await LoginCoreAsync();
+    private async void Register_Click(object sender, RoutedEventArgs e) => await RegisterCoreAsync();
+
+    private Task LoginCoreAsync() => BusyAsync("در حال ورود…", async ct =>
+    {
+        var email = EmailBox.Text.Trim();
+        var password = PasswordBox.Password;
+        if (!LooksLikeEmail(email)) throw new InvalidOperationException("ایمیل معتبر وارد کنید.");
+        if (password.Length < 8) throw new InvalidOperationException("رمز عبور باید حداقل ۸ کاراکتر باشد.");
+        AuthStatusText.Text = "در حال ورود به حساب…";
+        var result = await _api.LoginAsync(email, password, ct);
         _account = result.Account ?? await _api.GetAccountAsync(ct);
+        PasswordBox.Password = "";
         ApplyAccount();
         await RefreshPlansSafeAsync();
         if (_settings.AutoUpdate) _ = CheckAppUpdateSafeAsync(silentWhenCurrent: true, userInitiated: false);
     });
 
-    private async void Register_Click(object sender, RoutedEventArgs e) => await BusyAsync("در حال ساخت حساب…", async ct =>
+    private Task RegisterCoreAsync() => BusyAsync("در حال ساخت حساب…", async ct =>
     {
-        var result = await _api.RegisterAsync(EmailBox.Text.Trim(), PasswordBox.Password, ct);
+        var email = EmailBox.Text.Trim();
+        var password = PasswordBox.Password;
+        if (!LooksLikeEmail(email)) throw new InvalidOperationException("ایمیل معتبر وارد کنید.");
+        if (password.Length < 8) throw new InvalidOperationException("رمز عبور باید حداقل ۸ کاراکتر باشد.");
+        AuthStatusText.Text = "در حال ساخت حساب…";
+        var result = await _api.RegisterAsync(email, password, ct);
         _account = result.Account ?? await _api.GetAccountAsync(ct);
+        PasswordBox.Password = "";
         ApplyAccount();
         await RefreshPlansSafeAsync();
         if (_settings.AutoUpdate) _ = CheckAppUpdateSafeAsync(silentWhenCurrent: true, userInitiated: false);
     });
 
-    private async void RequestOtp_Click(object sender, RoutedEventArgs e) => await BusyAsync("ارسال کد پیامک…", async ct =>
+    private async void RequestOtp_Click(object sender, RoutedEventArgs e) => await RequestOtpCoreAsync();
+
+    private Task RequestOtpCoreAsync() => BusyAsync("ارسال کد پیامک…", async ct =>
     {
-        await _api.RequestOtpAsync(PhoneBox.Text.Trim(), ct);
+        var phone = NormalizePhone(PhoneBox.Text);
+        if (phone.Length < 10) throw new InvalidOperationException("شماره موبایل معتبر وارد کنید.");
+        PhoneBox.Text = phone;
+        AuthStatusText.Text = "در حال ارسال کد تأیید…";
+        await _api.RequestOtpAsync(phone, ct);
+        _otpPhone = phone;
+        OtpTargetText.Text = $"کد ۶ رقمی ارسال‌شده به {PrettyPhone(phone)} را وارد کنید.";
+        SmsPhoneStage.Visibility = Visibility.Collapsed;
+        SmsOtpStage.Visibility = Visibility.Visible;
+        AuthStatusText.Text = "کد تأیید ارسال شد؛ منتظر پیامک باشید.";
+        OtpBox.Focus();
         FooterStatus.Text = "کد پیامک ارسال شد.";
     });
 
     private async void VerifyOtp_Click(object sender, RoutedEventArgs e) => await BusyAsync("تأیید کد…", async ct =>
     {
-        var result = await _api.VerifyOtpAsync(PhoneBox.Text.Trim(), OtpBox.Text.Trim(), ct);
+        var phone = string.IsNullOrWhiteSpace(_otpPhone) ? NormalizePhone(PhoneBox.Text) : _otpPhone;
+        var code = new string(OtpBox.Text.Where(char.IsDigit).Take(6).ToArray());
+        if (code.Length != 6) throw new InvalidOperationException("کد تأیید باید ۶ رقمی باشد.");
+        AuthStatusText.Text = "در حال تأیید کد…";
+        var result = await _api.VerifyOtpAsync(phone, code, ct);
         _account = result.Account ?? await _api.GetAccountAsync(ct);
+        OtpBox.Text = "";
+        _otpPhone = "";
         ApplyAccount();
         await RefreshPlansSafeAsync();
         if (_settings.AutoUpdate) _ = CheckAppUpdateSafeAsync(silentWhenCurrent: true, userInitiated: false);
     });
+
+    private void ApplyAuthModeUi()
+    {
+        var sms = _authMode == "sms";
+        SmsAuthPanel.Visibility = sms ? Visibility.Visible : Visibility.Collapsed;
+        EmailAuthPanel.Visibility = sms ? Visibility.Collapsed : Visibility.Visible;
+        AuthHintText.Text = sms ? "ورود امن با کد یک‌بارمصرف ۶ رقمی" : "ورود یا ثبت‌نام با ایمیل";
+        SetSegmentVisual(SmsModeButton, sms);
+        SetSegmentVisual(EmailModeButton, !sms);
+        SetSegmentVisual(EmailLoginModeButton, !_emailRegisterMode);
+        SetSegmentVisual(EmailRegisterModeButton, _emailRegisterMode);
+        EmailTitleText.Text = _emailRegisterMode ? "ساخت حساب کاربری" : "ورود با ایمیل";
+        EmailSubtitleText.Text = _emailRegisterMode
+            ? "ایمیل و یک رمز عبور حداقل ۸ کاراکتری تعیین کنید."
+            : "ایمیل و رمز عبور حساب BlueVPN خود را وارد کنید.";
+        EmailSubmitButton.Content = _emailRegisterMode ? "ثبت‌نام و ورود" : "ورود به BlueVPN";
+    }
+
+    private static void SetSegmentVisual(System.Windows.Controls.Button button, bool selected)
+    {
+        button.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#FF21140D" : "#FF101114"));
+        button.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#FFF97316" : "#FF9CA3AF"));
+        button.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#FFA9561F" : "#FF3F3F46"));
+    }
+
+    private static bool LooksLikeEmail(string value)
+    {
+        var at = value.IndexOf('@');
+        return at > 0 && at < value.Length - 3 && value.IndexOf('.', at + 2) > at + 1;
+    }
+
+    private static string NormalizePhone(string value)
+    {
+        var raw = (value ?? "").Trim();
+        var plus = raw.StartsWith('+');
+        var digits = new string(raw.Where(char.IsDigit).ToArray());
+        if (digits.StartsWith("0098")) return "+98" + digits[4..];
+        if (digits.StartsWith("98") && digits.Length >= 12) return "+" + digits;
+        return plus ? "+" + digits : digits;
+    }
+
+    private static string PrettyPhone(string value)
+    {
+        if (value.Length <= 7) return value;
+        return value[..Math.Min(4, value.Length)] + "•••" + value[^4..];
+    }
 
     private async void RefreshAccount_Click(object sender, RoutedEventArgs e) => await BusyAsync("بروزرسانی حساب…", async ct =>
     {
@@ -272,6 +402,13 @@ public partial class MainWindow : Window
         AccountPanel.Visibility = Visibility.Collapsed;
         PlansList.ItemsSource = null;
         _remainingSecondsAtSnapshot = null;
+        _authMode = "sms";
+        _emailRegisterMode = false;
+        _otpPhone = "";
+        SmsPhoneStage.Visibility = Visibility.Visible;
+        SmsOtpStage.Visibility = Visibility.Collapsed;
+        ApplyAuthModeUi();
+        AuthStatusText.Text = "از حساب خارج شدید؛ می‌توانید دوباره وارد شوید.";
         SetDisconnectedUi();
         TierText.Text = "رایگان";
         FooterStatus.Text = "از حساب خارج شدید.";
@@ -347,8 +484,11 @@ public partial class MainWindow : Window
         {
             _connection.Disconnect();
             SetDisconnectedUi();
-            MessageBox.Show(ex.Message, "BlueVPN", MessageBoxButton.OK, MessageBoxImage.Warning);
-            FooterStatus.Text = ex.Message;
+            var message = FriendlyUiError(ex.Message);
+            StatusText.Text = "اتصال برقرار نشد";
+            StatusDot.Fill = (Brush)FindResource("BlueVpnRed");
+            ConnectionStatusText.Text = message;
+            FooterStatus.Text = message;
         }
         finally
         {
@@ -548,10 +688,21 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            MessageBox.Show(ex.Message, "BlueVPN", MessageBoxButton.OK, MessageBoxImage.Warning);
-            FooterStatus.Text = ex.Message;
+            var message = FriendlyUiError(ex.Message);
+            AuthStatusText.Text = message;
+            FooterStatus.Text = message;
         }
         finally { _accountOperationRunning = false; }
+    }
+
+    private static string FriendlyUiError(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) return "عملیات انجام نشد؛ دوباره تلاش کنید.";
+        if (message.Contains("SSL", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("TLS", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("CONTROL_PLANE_TLS", StringComparison.OrdinalIgnoreCase))
+            return "ارتباط امن با سرور BlueVPN برقرار نشد؛ تاریخ و ساعت ویندوز و اتصال شبکه را بررسی کنید.";
+        return message.Length > 220 ? message[..220] + "…" : message;
     }
 
     private void SetConnectingUi()

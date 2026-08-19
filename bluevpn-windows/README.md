@@ -57,3 +57,10 @@ The installer places BlueVPN under Program Files, creates Start Menu entries and
 ## UI and advertising
 
 The WPF home screen follows the current Android BlueVPN visual model: compact account area, central power control, active route/engine card, IP/ping/time/speed metrics and first-party advertising. Banner and free story ads come from the existing BlueVPN `/mobile/config` payload. Ad loading is fail-open and never owns the VPN lifecycle.
+
+### 4.18.0 Windows auth/ads hotfix
+
+- Unauthenticated account UI now follows the Android BlueVPN auth flow: SMS/Email mode tabs, two-step OTP, Email login/register mode, dark auth card and orange accent.
+- Account/auth failures are rendered inside BlueVPN instead of surfacing raw transport exception dialogs.
+- First-party campaign media uses direct HTTPS, Windows system-proxy fallback and a persistent last-known-good cache. If an image cannot be decoded, the campaign title/subtitle/CTA remain visible instead of a blank dark rectangle.
+- The `/mobile/config` Tapsell payload is parsed only as a capability signal. The configured Tapsell Mediation App ID/Zone IDs are Android mobile-SDK credentials and are not impersonated as a native WPF ad implementation.

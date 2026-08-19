@@ -113,7 +113,10 @@ def main() -> None:
     require("GetMobileConfigAsync" in read("bluevpn-windows/Services/BlueVpnApiClient.cs"), "Windows must consume mobile/config")
     require("advertising" in read("bluevpn-windows/Models/WindowsRuntimeModels.cs") and "free_story_ads" in read("bluevpn-windows/Models/WindowsRuntimeModels.cs"), "ad payload models missing")
     require("ShowFreeStoryAdSafe" in main_cs and "window.Show()" in main_cs, "free story ad must be fail-open/non-blocking")
-    require("Tapsell" not in ads, "Windows ads must use first-party control plane, not Android Tapsell SDK")
+    require("ir.tapsell" not in ads and "Tapsell.initialize" not in ads and "requestInterstitialAd" not in ads,
+            "Windows must not embed or impersonate the Android Tapsell SDK")
+    require("HasMobileOnlyThirdPartyAds" in ads,
+            "Windows must explicitly classify mobile-only third-party ad payloads")
 
     require("dotnet build bluevpn-windows/BlueVPN.Windows.csproj" in workflow, "real compile gate missing")
     require("dotnet publish bluevpn-windows/BlueVPN.Windows.csproj" in workflow, "real publish gate missing")

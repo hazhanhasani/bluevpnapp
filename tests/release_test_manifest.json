@@ -53,6 +53,7 @@
     "test_runtime_theme_github_fix_4169.py",
     "test_security_4610.py",
     "test_sentinel_health_actionability_4165.py",
+    "test_session_logout_php_windows_4180.py",
     "test_single_notification_branding_493.py",
     "test_site_theme_autoupdate_4161.py",
     "test_sms_otp_autofill_477.py",
@@ -78,6 +79,7 @@
     "test_warp_iran_identity_recovery_482.py",
     "test_warp_off_smart_pool_4117.py",
     "test_windows_android_ui_tun_4176.py",
+    "test_windows_auth_ads_vps_parity_4180.py",
     "test_windows_client_4157.py",
     "test_windows_coordinated_publish_4171.py",
     "test_windows_direct_release_sync_4173.py",
@@ -88,7 +90,6 @@
     "test_windows_stability_4177.py",
     "test_windows_story_ad_readiness_4178.py",
     "test_windows_update_storage_4179.py",
-    "test_windows_v2rayn_warp_installer_4162.py",
-    "test_session_logout_php_windows_4180.py"
+    "test_windows_v2rayn_warp_installer_4162.py"
   ]
 }

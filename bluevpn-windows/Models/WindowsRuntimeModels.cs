@@ -23,6 +23,7 @@ public sealed class MobileConfigResponse
     [JsonPropertyName("advertising")] public AdvertisingConfig Advertising { get; set; } = new();
     [JsonPropertyName("ads")] public AdvertisingConfig Ads { get; set; } = new();
     [JsonPropertyName("free_story_ads")] public FreeStoryAdsConfig FreeStoryAds { get; set; } = new();
+    [JsonPropertyName("tapsell")] public TapsellConfig Tapsell { get; set; } = new();
     [JsonPropertyName("free_access")] public FreeAccessConfig FreeAccess { get; set; } = new();
 }
 
@@ -67,6 +68,28 @@ public sealed class FreeStoryAdsConfig
     [JsonPropertyName("load_timeout_ms")] public int LoadTimeoutMs { get; set; } = 5000;
     [JsonPropertyName("max_video_seconds")] public int MaxVideoSeconds { get; set; } = 15;
     [JsonPropertyName("items")] public List<AdvertisementItem> Items { get; set; } = [];
+}
+
+
+public sealed class TapsellConfig
+{
+    [JsonPropertyName("enabled")] public bool Enabled { get; set; }
+    [JsonPropertyName("sdk")] public string Sdk { get; set; } = "";
+    [JsonPropertyName("sdk_version")] public string SdkVersion { get; set; } = "";
+    [JsonPropertyName("app_id")] public string AppId { get; set; } = "";
+    [JsonPropertyName("show_after_connect")] public bool ShowAfterConnect { get; set; }
+    [JsonPropertyName("free_only")] public bool FreeOnly { get; set; } = true;
+    [JsonPropertyName("disabled_reason")] public string DisabledReason { get; set; } = "";
+    [JsonPropertyName("placements")] public Dictionary<string, TapsellPlacementConfig> Placements { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+}
+
+public sealed class TapsellPlacementConfig
+{
+    [JsonPropertyName("enabled")] public bool Enabled { get; set; }
+    [JsonPropertyName("zone_id")] public string ZoneId { get; set; } = "";
+    [JsonPropertyName("surface")] public string Surface { get; set; } = "";
+    [JsonPropertyName("min_interval_seconds")] public int MinIntervalSeconds { get; set; }
+    [JsonPropertyName("daily_cap")] public int DailyCap { get; set; }
 }
 
 public sealed class FreeAccessConfig

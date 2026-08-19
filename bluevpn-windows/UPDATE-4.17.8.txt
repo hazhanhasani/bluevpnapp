@@ -1,0 +1,6 @@
+BlueVPN Windows 4.17.8
+
+- Story advertisement media readiness is now part of the runtime decision instead of an unused flag.
+- Video story ads use the configured media-load timeout and fail open if MediaOpened never arrives.
+- The display-duration timer starts only after playable media is confirmed.
+- Removes CS0414 warning for StoryAdWindow._mediaReady without suppressing the compiler warning.

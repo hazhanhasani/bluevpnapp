@@ -10,8 +10,8 @@ def text(rel: str) -> str:
 class CronSafetySentinelUi4167Tests(unittest.TestCase):
     def test_release_is_4167(self):
         release = json.loads(text('release.json'))
-        self.assertEqual(release['version'], '4.17.7')
-        self.assertEqual(release['version_code'], 41707)
+        self.assertEqual(release['version'], '4.17.8')
+        self.assertEqual(release['version_code'], 41708)
 
     def test_bluevpn_never_calls_wordpress_core_spawn_cron_directly(self):
         for rel in [

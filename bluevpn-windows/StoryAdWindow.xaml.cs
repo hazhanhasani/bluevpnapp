@@ -41,8 +41,10 @@ public partial class StoryAdWindow : Window
             StoryVideo.Source = videoUri;
             StoryVideo.Visibility = Visibility.Visible;
             LoadingText.Visibility = Visibility.Visible;
-            _timer.Interval = TimeSpan.FromSeconds(_maxVideoSeconds);
-            _timer.Start(); // hard cap even if MediaOpened/Ended never fires
+            // Give the media only the configured load window to become playable.
+            // The content-duration timer starts only after MediaOpened, so a black/
+            // stalled video can never sit on top of the VPN for maxVideoSeconds.
+            _ = EnforceMediaLoadTimeoutAsync();
             StoryVideo.Play();
             return;
         }
@@ -62,6 +64,23 @@ public partial class StoryAdWindow : Window
             _timer.Start();
         }
         catch { Close(); }
+    }
+
+    private async Task EnforceMediaLoadTimeoutAsync()
+    {
+        try
+        {
+            await Task.Delay(_loadTimeoutMs, _lifetime.Token);
+            if (!_mediaReady && IsLoaded)
+            {
+                // Fail-open: an ad that never becomes renderable must not block the UI.
+                Close();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Window closed or media lifecycle cancelled.
+        }
     }
 
     private void StoryVideo_MediaOpened(object sender, RoutedEventArgs e)

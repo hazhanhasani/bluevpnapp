@@ -1,11 +1,11 @@
 {
-  "version": "4.17.7",
-  "version_code": 41707,
+  "version": "4.17.8",
+  "version_code": 41708,
   "channel": "beta",
-  "build_id": "20260819-v4.17.7-windows-stability-ui-performance-autoupdate-warp",
+  "build_id": "20260819-v4.17.8-windows-stability-ui-performance-autoupdate-warp",
   "built_at": "2026-08-19T11:35:00+03:30",
-  "android_version": "4.17.7",
-  "android_version_code": 41707,
+  "android_version": "4.17.8",
+  "android_version_code": 41708,
   "description": "Stabilizes BlueVPN Windows across system-wide Premium TUN, WARP/Free, automatic updates, first-party ads, Android UI parity, and desktop responsiveness. Connected is fail-closed on verified system routing and a real public-IP change; heavy media/runtime work is kept off the WPF dispatcher.",
   "features": [
     "windows-route-probe-throttling",
@@ -610,11 +610,11 @@
   ],
   "version_source": "source_declared_release_version",
   "tapsell_mediation_version": "1.4.0-alpha03",
-  "manager_version": "4.17.7",
-  "site_version": "4.17.7",
-  "theme_version": "4.17.7",
-  "windows_version": "4.17.7",
-  "windows_version_code": 41707,
+  "manager_version": "4.17.8",
+  "site_version": "4.17.8",
+  "theme_version": "4.17.8",
+  "windows_version": "4.17.8",
+  "windows_version_code": 41708,
   "windows": {
     "status": "beta",
     "framework": "net10.0-windows",
@@ -645,6 +645,6 @@
     "site_channel": "managed_by_wordpress",
     "auto_update_policy": "stable_beta_independent",
     "beta_tester_source": "customer_beta_tester",
-    "stability_pass": "4.17.7-ui-ads-autoupdate-premium-tun-warp-performance"
+    "stability_pass": "4.17.8-ui-ads-autoupdate-premium-tun-warp-performance"
   }
 }

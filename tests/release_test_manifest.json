@@ -84,6 +84,7 @@
     "test_windows_release_channels_4163.py",
     "test_windows_site_platform_4160.py",
     "test_windows_stability_4177.py",
+    "test_windows_story_ad_readiness_4178.py",
     "test_windows_v2rayn_warp_installer_4162.py"
   ]
 }

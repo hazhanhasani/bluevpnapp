@@ -26,7 +26,7 @@ public static class MediaAssetLoader
 
     static MediaAssetLoader()
     {
-        Http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Media/4.17.7");
+        Http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Media/4.17.8");
     }
 
     public static Task<BitmapSource?> LoadImageAsync(string url, CancellationToken ct = default)

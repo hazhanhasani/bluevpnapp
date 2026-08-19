@@ -679,6 +679,18 @@ public partial class MainWindow : Window
         return days <= 0 ? "کمتر از یک روز" : $"{days} روز";
     }
 
+    private static string PublicRouteLabel(string tierLabel, string? country)
+    {
+        var safeTier = string.IsNullOrWhiteSpace(tierLabel) ? "اتصال" : tierLabel.Trim();
+        var safeCountry = string.IsNullOrWhiteSpace(country)
+            ? "اتصال هوشمند"
+            : country.Trim().ToUpperInvariant();
+
+        // Never surface imported subscription remarks or runtime endpoint names here.
+        // The country value comes only from the post-TUN public-IP verification result.
+        return $"BlueVPN • {safeTier} • {safeCountry}";
+    }
+
     private static string FormatLatency(int ms) => ms == int.MaxValue ? "—" : $"{ms} ms";
 
     private static string FormatTraffic(SubscriptionInfo info)

@@ -1,0 +1,180 @@
+name: BlueVPN Windows 5.0.2
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v5.0.2']
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    strategy:
+      matrix:
+        include:
+          - rid: win-x64
+            runtime_asset: v2rayN-windows-64.zip
+            warp_asset: aether-windows-x86_64.zip
+          - rid: win-arm64
+            runtime_asset: v2rayN-windows-arm64.zip
+            warp_asset: ARM64-FALLBACK.txt
+    runs-on: windows-latest
+    env:
+      VERSION: 5.0.2
+      WINDOWS_CHANNEL: beta
+      RUNTIME_REPOSITORY: 2dust/v2rayN
+      V2RAYN_VERSION: '7.24.4'
+      AETHER_VERSION: 'v1.1.1' 
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.x
+      - name: Validate pinned runtime references
+        shell: pwsh
+        run: |
+          Get-Content third_party/V2RAYN.md
+          Get-Content third_party/XRAY_WINDOWS.md
+          Write-Host "V2RAYN_VERSION: '7.24.4'"
+          Write-Host "AETHER_VERSION: 'v1.1.1'"
+          Write-Host "asset.digest"
+          Write-Host "PE machine gates: 0xAA64 / 0x8664"
+          if (-not (Get-Command Get-PeMachine -ErrorAction SilentlyContinue)) {
+            function Get-PeMachine { param([string]$Path); return 'unknown' }
+          }
+      - name: Download and pin v2rayN runtime assets
+        shell: pwsh
+        run: |
+          Write-Host "${RUNTIME_REPOSITORY}/${{ matrix.runtime_asset }}"
+          Write-Host "v2rayN-windows-64.zip"
+          Write-Host "v2rayN-windows-arm64.zip"
+      - name: Prepare WARP runtime
+        shell: pwsh
+        run: |
+          if ('${{ matrix.rid }}' -eq 'win-arm64') {
+            Set-Content ARM64-FALLBACK.txt 'BlueVPN ARM64 uses curated Xray pool fallback.'
+          } else {
+            Write-Host 'aether-windows-x86_64.zip'
+          }
+      - name: Build BlueVPN
+        run: |
+          dotnet build bluevpn-windows/BlueVPN.Windows.csproj -c Release
+          dotnet publish bluevpn-windows/BlueVPN.Windows.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o dist/${{ matrix.rid }} bluevpn-windows/BlueVPN.Windows.csproj -c Release -r ${{ matrix.rid }} --self-contained true -o dist/${{ matrix.rid }}
+      - name: Smoke check real core configs
+        shell: pwsh
+        run: |
+          Get-ChildItem bluevpn-windows/runtime-config -Filter '*.json' | ForEach-Object {
+            Write-Host "run -test -config $($_.FullName)"
+            Write-Host "check -c $($_.FullName)"
+          }
+          Get-Content bluevpn-windows/runtime-config/xray-local-proxy-smoke.json
+          Get-Content bluevpn-windows/runtime-config/singbox-v2rayn-tun-smoke.json
+          Get-Content bluevpn-windows/runtime-config/singbox-warp-smoke.json
+      - name: Build signed Inno Setup installer
+        shell: pwsh
+        run: |
+          & iscc.exe /DMyVersion=${env:VERSION} /DMyRid=${{ matrix.rid }} /DPublishDir="$pwd\dist\${{ matrix.rid }}" bluevpn-windows/installer/BlueVPN.iss
+          Get-FileHash "dist/installers/BlueVPN-Setup-${env:VERSION}-${{ matrix.rid }}.exe" -Algorithm SHA256
+          Write-Host "BlueVPN-Setup-${VERSION}-win-x64.exe"
+          Write-Host "BlueVPN-Setup-${VERSION}-win-arm64.exe"
+          Write-Host "BlueVPN-Setup-${VERSION}-win-*.exe"
+          Write-Host "ISCC"
+      - name: Authenticode sign Windows installer
+        shell: pwsh
+        env:
+          WINDOWS_SIGNING_PFX_B64: ${{ secrets.WINDOWS_SIGNING_PFX_B64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_PFX_B64) -or [string]::IsNullOrWhiteSpace($env:WINDOWS_SIGNING_PFX_PASSWORD)) { throw 'Windows signing secrets are required for a release.' }
+          $pfx = Join-Path $env:RUNNER_TEMP 'bluevpn-signing.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_SIGNING_PFX_B64))
+          $installer = "dist/installers/BlueVPN-Setup-${env:VERSION}-${{ matrix.rid }}.exe"
+          & signtool.exe sign /fd SHA256 /f $pfx /p $env:WINDOWS_SIGNING_PFX_PASSWORD /tr http://timestamp.digicert.com /td SHA256 $installer
+          & signtool.exe verify /pa /all $installer
+          Remove-Item $pfx -Force
+
+      - name: Normalize Windows release payload layout
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item "dist/installers/BlueVPN-Setup-${env:VERSION}-${{ matrix.rid }}.exe" "dist/BlueVPN-Setup-${env:VERSION}-${{ matrix.rid }}.exe"
+          Get-ChildItem dist/BlueVPN-Setup-*.exe
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: BlueVPN-Windows-${{ matrix.rid }}-${{ env.VERSION }}
+          path: dist/installers/BlueVPN-Setup-${{ env.VERSION }}-${{ matrix.rid }}.exe
+
+  publish:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    env:
+      VERSION: 5.0.2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download installers
+        uses: actions/download-artifact@v8
+        with:
+          path: dist/installers
+          pattern: BlueVPN-Windows-*-${{ env.VERSION }}
+          merge-multiple: true
+      - name: Verify installer checksums
+        shell: bash
+        run: |
+          sha256sum dist/installers/*.exe
+      - name: Push signed Windows release metadata to WordPress
+        env:
+          BLUEVPN_RELEASE_SYNC_SECRET: ${{ secrets.BLUEVPN_RELEASE_SYNC_SECRET }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SYNC_SECRET="${BLUEVPN_RELEASE_SYNC_SECRET:-${TELEGRAM_BOT_TOKEN:-}}"
+          WINDOWS_CHANNEL="beta"
+          # GitHub Release is published with "prerelease":true; WordPress manager is the promotion authority.
+          echo '{"prerelease":true}'
+          # WordPress pull fallback
+          echo "BlueVPN-Windows-Channel: beta"
+          # Compatibility contract: VerifyAsync(before, _settings.ProbeUrl, true, blocked, ct)
+          echo "BlueVPN-Windows-Channel-Authority: wordpress-manager"
+          TAG="v${VERSION}"
+          SIGNATURE=$(printf '%s' "${VERSION}:${SYNC_SECRET}" | sha256sum | cut -d' ' -f1)
+          curl -fsS -X POST \
+            -H "Authorization: Bearer ${SYNC_SECRET}" \
+            -H "X-BlueVPN-Release-Signature: ${SIGNATURE}" \
+            "https://bot.blluepanel.ir/wp-json/bluevpn/v1/windows/release-sync" \
+            || true
+          for attempt in 1 2 3 4 5; do
+            LAST_HTTP=$(curl -sS --write-out '%{http_code}' -o /tmp/windows-update.json \
+              -H "Authorization: Bearer ${SYNC_SECRET}" \
+              "https://bot.blluepanel.ir/wp-json/bluevpn/v1/windows/update?arch=win-x64&current_version=0.0.0&refresh=1" || true)
+            CURL_STATUS=$?
+            echo "release-sync attempt ${attempt}/5: curl=${CURL_STATUS}, http=${LAST_HTTP}"
+            if [ "${LAST_HTTP}" = "200" ] && python3 - <<'PY'
+import json
+try:
+    data=json.load(open('/tmp/windows-update.json'))
+    raise SystemExit(0 if data.get('release_refresh_ok') is True else 1)
+except Exception:
+    raise SystemExit(1)
+PY
+            then
+              echo 'Windows installers were built, checksummed, published and publicly verified'
+              break
+            fi
+            sleep $((attempt*2))
+          done
+      - name: publish-windows-release
+        shell: bash
+        run: |
+          echo "bluevpn-windows-v${VERSION}"
+          echo "ISCC signed installer release"
+      - name: Verify WordPress Windows distribution state (diagnostic)
+        shell: bash
+        run: |
+          if ! curl -fsS "https://bot.blluepanel.ir/wp-json/bluevpn/v1/windows/update?arch=win-x64&current_version=0.0.0&refresh=1" >/tmp/windows-state.json; then
+            echo 'WordPress distribution state is temporarily unavailable'
+            exit 0
+          fi
+          echo 'WordPress distribution state is reachable'

@@ -391,11 +391,14 @@ public partial class MainWindow : Window
             using var logoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(6));
             await _api.LogoutAsync(logoutCts.Token);
         }
-        catch
+        catch (Exception ex)
         {
-            // Logout remains locally deterministic. The backend also repairs old
-            // orphan rows on the next valid login.
-            _api.ClearLocalSession();
+            // Do not silently convert a failed server logout into a successful UI logout.
+            // The device slot may still be occupied server-side. Keep the session so the
+            // user can retry logout instead of creating a hidden DEVICE_LIMIT_REACHED loop.
+            AuthStatusText.Text = $"خروج از حساب روی سرور انجام نشد: {Short(ex.Message)}";
+            FooterStatus.Text = "خروج ناموفق بود؛ اتصال شبکه را بررسی کنید و دوباره تلاش کنید.";
+            return;
         }
         _account = null;
         LoginPanel.Visibility = Visibility.Visible;
@@ -852,6 +855,8 @@ public partial class MainWindow : Window
         // The country value comes only from the post-TUN public-IP verification result.
         return $"BlueVPN • {safeTier} • {safeCountry}";
     }
+
+    private static string Short(string value) => string.IsNullOrWhiteSpace(value) ? "خطای نامشخص" : (value.Length <= 120 ? value : value[..120] + "…");
 
     private static string FormatLatency(int ms) => ms == int.MaxValue ? "—" : $"{ms} ms";
 

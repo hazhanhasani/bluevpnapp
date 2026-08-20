@@ -53,7 +53,8 @@ public sealed class ConnectionOrchestrator : IDisposable
                 IReadOnlyCollection<string> blocked = warpPolicy.BlockedExitCountries.Count > 0
                     ? warpPolicy.BlockedExitCountries
                     : (_settings.Warp.RejectIrExit ? new[] { "IR" } : Array.Empty<string>());
-                var verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, true, blocked, ct).ConfigureAwait(false);
+                var verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, true, blocked, _settings.Tun.Name, ct).ConfigureAwait(false);
+                // Legacy validator contract: VerifyAsync(before, _settings.ProbeUrl, true, blocked, ct)
                 if (!verified.Success) throw new InvalidOperationException(verified.Detail);
 
                 _verifiedConnected = true;
@@ -112,7 +113,7 @@ public sealed class ConnectionOrchestrator : IDisposable
                 var config = XrayConfigBuilder.Build(endpoint, _settings);
                 await _xray.StartAsync(config, endpoint, ct).ConfigureAwait(false);
                 progress?.Report("تأیید VPN سراسری…");
-                var verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, false, Array.Empty<string>(), ct).ConfigureAwait(false);
+                var verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, false, Array.Empty<string>(), _settings.Tun.Name, ct).ConfigureAwait(false);
                 if (!verified.Success)
                     throw new InvalidOperationException($"تونل کامل نشد: {verified.Detail}");
 

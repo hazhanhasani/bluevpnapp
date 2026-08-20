@@ -21,6 +21,17 @@ public sealed class AppUpdateService
         var arch = RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "win-arm64" : "win-x64";
         var info = await _api.GetWindowsUpdateAsync(_settings.Version, arch, ct).ConfigureAwait(false);
         if (!info.Available || !info.UpdateAvailable) return null;
+        if (!Version.TryParse(_settings.Version.TrimStart('v'), out var currentVersion) ||
+            !Version.TryParse(info.LatestVersion?.TrimStart('v'), out var latestVersion))
+            throw new InvalidDataException("نسخه فعلی یا نسخه جدید Windows معتبر نیست؛ بروزرسانی متوقف شد.");
+        if (latestVersion <= currentVersion) return null;
+        if (!Uri.TryCreate(info.DownloadUrl, UriKind.Absolute, out var downloadUri) ||
+            !string.Equals(downloadUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("آدرس دانلود Installer ویندوز باید HTTPS باشد؛ بروزرسانی متوقف شد.");
+        if (!string.IsNullOrWhiteSpace(info.ReleaseUrl) &&
+            (!Uri.TryCreate(info.ReleaseUrl, UriKind.Absolute, out var releaseUri) ||
+             !string.Equals(releaseUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidDataException("آدرس صفحه انتشار Windows معتبر نیست؛ بروزرسانی متوقف شد.");
         if (string.IsNullOrWhiteSpace(info.DownloadUrl) || string.IsNullOrWhiteSpace(info.Filename))
             throw new InvalidDataException($"فایل نصب {arch} برای نسخه {info.LatestVersion} در پنل انتشار Windows کامل نیست.");
         if (string.IsNullOrWhiteSpace(info.Sha256) || info.Sha256.Length != 64 || info.Sha256.Any(ch => !Uri.IsHexDigit(ch)))
@@ -66,6 +77,11 @@ public sealed class AppUpdateService
                 progress?.Report((attempt - 1) / 3d);
                 using var gh = new GitHubReleaseClient($"BlueVPN-Windows/{_settings.Version}");
                 await gh.DownloadVerifiedAsync(candidate.DownloadUrl, path, candidate.Digest, ct, candidate.SizeBytes, progress).ConfigureAwait(false);
+                if (!GitHubReleaseClient.VerifyAuthenticode(path, "BlueVPN"))
+                {
+                    try { File.Delete(path); } catch { }
+                    throw new InvalidDataException("امضای دیجیتال Installer ویندوز معتبر نیست یا ناشر BlueVPN تأیید نشد.");
+                }
                 progress?.Report(1d);
                 return path;
             }
@@ -102,6 +118,7 @@ public sealed class AppUpdateService
     public static bool LaunchInstaller(string installerPath)
     {
         if (!File.Exists(installerPath)) return false;
+        if (!GitHubReleaseClient.VerifyAuthenticode(installerPath, "BlueVPN")) return false;
         Process.Start(new ProcessStartInfo
         {
             FileName = installerPath,

@@ -1,6 +1,8 @@
 using System.IO;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text.Json;
 
 namespace BlueVPN.Windows.Services;
 
@@ -72,7 +74,15 @@ public sealed class RuntimeUpdateService
                     var src = First(tempRoot, name);
                     if (src is not null) File.Copy(src, Path.Combine(normalized, name), true);
                 }
-                File.WriteAllText(Path.Combine(tempRoot, ".validated"), $"v2rayN={version}\nvalidated={DateTimeOffset.UtcNow:O}\n");
+                var manifest = new Dictionary<string, string>
+                {
+                    ["v2rayN.exe"] = HashFile(Path.Combine(normalized, "v2rayN.exe")),
+                    ["xray.exe"] = HashFile(Path.Combine(normalized, "xray.exe")),
+                    ["sing-box.exe"] = HashFile(Path.Combine(normalized, "sing-box.exe")),
+                    ["wintun.dll"] = HashFile(Path.Combine(normalized, "wintun.dll"))
+                };
+                File.WriteAllText(Path.Combine(tempRoot, ".manifest.json"), JsonSerializer.Serialize(new { version, files = manifest }, new JsonSerializerOptions { WriteIndented = true }));
+                File.WriteAllText(Path.Combine(tempRoot, ".validated"), $"v2rayN={version}\nvalidated={DateTimeOffset.UtcNow:O}\nmanifest=.manifest.json\n");
             }, ct).ConfigureAwait(false);
 
             if (Directory.Exists(root)) Directory.Delete(root, true);
@@ -83,6 +93,12 @@ public sealed class RuntimeUpdateService
             try { if (File.Exists(zipPath)) File.Delete(zipPath); } catch { }
             try { if (Directory.Exists(tempRoot)) Directory.Delete(tempRoot, true); } catch { }
         }
+    }
+
+    private static string HashFile(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
     }
 
     private static bool Find(string root, string name) => Directory.EnumerateFiles(root, name, SearchOption.AllDirectories).Any();

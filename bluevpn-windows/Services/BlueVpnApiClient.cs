@@ -12,6 +12,8 @@ public sealed class BlueVpnApiClient : IDisposable
 {
     private readonly HttpClient _directHttp;
     private readonly HttpClient _systemProxyHttp;
+    private readonly HttpClient _rawDirectHttp;
+    private readonly HttpClient _rawProxyHttp;
     private readonly AppSettings _settings;
     private string _token = "";
     private string _otpChallengeId = "";
@@ -29,6 +31,8 @@ public sealed class BlueVpnApiClient : IDisposable
         // Windows proxy for networks where a legitimate system proxy is required.
         _directHttp = CreateHttpClient(baseAddress, settings.Version, useSystemProxy: false);
         _systemProxyHttp = CreateHttpClient(baseAddress, settings.Version, useSystemProxy: true);
+        _rawDirectHttp = CreateHttpClient(baseAddress, settings.Version, useSystemProxy: false, allowAutoRedirect: false);
+        _rawProxyHttp = CreateHttpClient(baseAddress, settings.Version, useSystemProxy: true, allowAutoRedirect: false);
     }
 
     public bool IsAuthenticated => !string.IsNullOrWhiteSpace(_token);
@@ -128,30 +132,27 @@ public sealed class BlueVpnApiClient : IDisposable
 
     public async Task LogoutAsync(CancellationToken ct = default)
     {
-        // Server logout must be acknowledged. We still clear local credentials in
-        // finally, but a non-2xx response is surfaced to the caller instead of being
-        // silently reported as success. POST is intentionally not retried because
-        // logout/login/OTP requests are not guaranteed idempotent.
-        try
-        {
-            if (IsAuthenticated)
-            {
-                using var response = await SendWithTransportFallbackAsync(() =>
-                {
-                    return new HttpRequestMessage(HttpMethod.Post, "wp-json/bluevpn/v1/auth/logout")
-                    {
-                        Content = new StringContent("{}", Encoding.UTF8, "application/json")
-                    };
-                }, ct, allowTransportFallback: false).ConfigureAwait(false);
-                var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-                if (!response.IsSuccessStatusCode)
-                    throw new InvalidOperationException(ReadError(text, (int)response.StatusCode));
-            }
-        }
-        finally
+        // Server logout is authoritative. Local credentials are cleared only after
+        // a successful server acknowledgement; otherwise the caller can retry and
+        // the device slot cannot become a hidden DEVICE_LIMIT_REACHED trap.
+        if (!IsAuthenticated)
         {
             ClearLocalSession();
+            return;
         }
+
+        using var response = await SendWithTransportFallbackAsync(() =>
+        {
+            return new HttpRequestMessage(HttpMethod.Post, "wp-json/bluevpn/v1/auth/logout")
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            };
+        }, ct, allowTransportFallback: false).ConfigureAwait(false);
+        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(ReadError(text, (int)response.StatusCode));
+
+        ClearLocalSession();
     }
 
     public void ClearLocalSession()
@@ -160,11 +161,11 @@ public sealed class BlueVpnApiClient : IDisposable
         _otpChallengeId = "";
     }
 
-    private static HttpClient CreateHttpClient(Uri baseAddress, string version, bool useSystemProxy)
+    private static HttpClient CreateHttpClient(Uri baseAddress, string version, bool useSystemProxy, bool allowAutoRedirect = true)
     {
         var handler = new HttpClientHandler
         {
-            AllowAutoRedirect = true,
+            AllowAutoRedirect = allowAutoRedirect,
             AutomaticDecompression = DecompressionMethods.All,
             UseProxy = useSystemProxy,
             Proxy = useSystemProxy ? WebRequest.DefaultWebProxy : null
@@ -300,12 +301,48 @@ public sealed class BlueVpnApiClient : IDisposable
 
     private async Task<string> GetRawAsync(string pathOrUrl, CancellationToken ct)
     {
-        using var response = await SendWithTransportFallbackAsync(
-            () => new HttpRequestMessage(HttpMethod.Get, pathOrUrl), ct).ConfigureAwait(false);
+        if (string.IsNullOrWhiteSpace(pathOrUrl))
+            throw new InvalidDataException("آدرس اشتراک خالی است.");
+
+        var baseUri = new Uri(_settings.ApiBaseUrl.TrimEnd('/') + "/");
+        var target = Uri.TryCreate(pathOrUrl, UriKind.Absolute, out var absolute)
+            ? absolute
+            : new Uri(baseUri, pathOrUrl.TrimStart('/'));
+        if (!string.Equals(target.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("آدرس اشتراک باید HTTPS باشد.");
+
+        using var response = await SendRawAsync(target, ct).ConfigureAwait(false);
+        var finalUri = response.RequestMessage?.RequestUri;
+        if (finalUri is null || !string.Equals(finalUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("اشتراک به یک مقصد ناامن HTTP هدایت شد و دریافت متوقف شد.");
         var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
             throw new InvalidOperationException(ReadError(text, (int)response.StatusCode));
         return text;
+    }
+
+    private async Task<HttpResponseMessage> SendRawAsync(Uri target, CancellationToken ct)
+    {
+        Exception? first = null;
+        foreach (var client in new[] { _rawDirectHttp, _rawProxyHttp })
+        {
+            try
+            {
+                using var request = new HttpRequestMessage(HttpMethod.Get, target);
+                // Never attach the BlueVPN bearer token to a subscription host.
+                var response = await client.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+                if ((int)response.StatusCode is >= 300 and < 400)
+                {
+                    response.Dispose();
+                    throw new InvalidDataException("اشتراک redirect دارد؛ redirect خودکار برای امنیت غیرفعال است.");
+                }
+                return response;
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) when (ex is HttpRequestException or IOException or AuthenticationException or TaskCanceledException)
+            { first ??= ex; }
+        }
+        throw FriendlyTransportException(first, first ?? new HttpRequestException("Subscription request failed."));
     }
 
     private static string ReadError(string text, int status)
@@ -328,5 +365,7 @@ public sealed class BlueVpnApiClient : IDisposable
     {
         _directHttp.Dispose();
         _systemProxyHttp.Dispose();
+        _rawDirectHttp.Dispose();
+        _rawProxyHttp.Dispose();
     }
 }

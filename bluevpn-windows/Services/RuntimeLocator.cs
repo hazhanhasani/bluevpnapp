@@ -1,5 +1,7 @@
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text.Json;
 using BlueVPN.Windows.Models;
 
 namespace BlueVPN.Windows.Services;
@@ -120,11 +122,35 @@ public sealed class RuntimeLocator
         {
             if (!Directory.Exists(_overrideRoot)) return "";
             return Directory.EnumerateDirectories(_overrideRoot)
-                .Where(dir => File.Exists(Path.Combine(dir, ".validated")))
+                .Where(IsValidatedRuntime)
                 .OrderByDescending(dir => ParseVersion(Path.GetFileName(dir)))
                 .FirstOrDefault() ?? "";
         }
         catch { return ""; }
+    }
+
+    private static bool IsValidatedRuntime(string dir)
+    {
+        try
+        {
+            if (!File.Exists(Path.Combine(dir, ".validated"))) return false;
+            var manifestPath = Path.Combine(dir, ".manifest.json");
+            if (!File.Exists(manifestPath)) return false;
+            using var doc = JsonDocument.Parse(File.ReadAllText(manifestPath));
+            if (!doc.RootElement.TryGetProperty("files", out var files) || files.ValueKind != JsonValueKind.Object) return false;
+            foreach (var name in new[] { "v2rayN.exe", "xray.exe", "sing-box.exe", "wintun.dll" })
+            {
+                if (!files.TryGetProperty(name, out var hashElement)) return false;
+                var expected = hashElement.GetString() ?? "";
+                var path = Path.Combine(dir, "bluevpn-core", name);
+                if (!File.Exists(path) || expected.Length != 64) return false;
+                using var stream = File.OpenRead(path);
+                var actual = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+                if (!actual.Equals(expected, StringComparison.OrdinalIgnoreCase)) return false;
+            }
+            return true;
+        }
+        catch { return false; }
     }
 
     private static Version ParseVersion(string? value) => Version.TryParse(value?.TrimStart('v'), out var v) ? v : new Version(0, 0);

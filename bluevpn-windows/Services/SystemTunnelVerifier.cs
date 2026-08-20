@@ -7,18 +7,18 @@ namespace BlueVPN.Windows.Services;
 
 public static class SystemTunnelVerifier
 {
-    private static readonly string[] AdapterHints = ["BlueVPN", "sing-box", "Wintun"];
-
     public static async Task<TunnelVerificationResult> VerifyAsync(
         ConnectivitySnapshot before,
         string probeUrl,
         bool requireWarp,
         IReadOnlyCollection<string> blockedCountries,
+        string expectedTunnelName = "BlueVPN",
         CancellationToken ct = default)
     {
         if (!before.Reachable || string.IsNullOrWhiteSpace(before.PublicIp))
             return new(false, "", "", "", "", "IP پایه قبل از VPN معتبر نیست؛ Connected تأیید نشد.");
 
+        var tunnelName = string.IsNullOrWhiteSpace(expectedTunnelName) ? "BlueVPN" : expectedTunnelName.Trim();
         var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(30);
         ConnectivitySnapshot after = new(false, "", "", "", DateTimeOffset.UtcNow);
         RouteEvidence route = new(false, true, "", "", "no route evidence");
@@ -29,18 +29,14 @@ public static class SystemTunnelVerifier
         while (DateTimeOffset.UtcNow < stop)
         {
             ct.ThrowIfCancellationRequested();
-
-            // PowerShell route inspection is intentionally throttled. Launching it
-            // every 800 ms caused visible desktop stutter on low/mid-range systems.
             if (DateTimeOffset.UtcNow >= nextRouteProbe)
             {
-                adapter = await Task.Run(FindTunnelAdapter, ct).ConfigureAwait(false);
-                route = await DefaultRouteEvidenceAsync(ct).ConfigureAwait(false);
+                adapter = await Task.Run(() => FindTunnelAdapter(tunnelName), ct).ConfigureAwait(false);
+                route = await DefaultRouteEvidenceAsync(tunnelName, ct).ConfigureAwait(false);
                 nextRouteProbe = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(2);
             }
 
             after = await ConnectivityProbe.SnapshotAsync(probeUrl, ct).ConfigureAwait(false);
-
             var adapterOk = adapter.Length > 0;
             var routeOk = route.Ipv4ThroughTunnel && route.Ipv6Safe;
             var ipChanged = after.Reachable && !string.IsNullOrWhiteSpace(after.PublicIp) &&
@@ -52,18 +48,15 @@ public static class SystemTunnelVerifier
             {
                 consecutive++;
                 if (consecutive >= 2)
-                {
                     return new(true, after.PublicIp, after.Country, after.Warp, adapter,
                         $"tun={adapter}; v4={route.Ipv4Alias}; v6={route.Ipv6Alias}; ip={after.PublicIp}; loc={after.Country}; warp={after.Warp}");
-                }
             }
             else consecutive = 0;
-
             await Task.Delay(850, ct).ConfigureAwait(false);
         }
 
         var reason = !after.Reachable ? "اینترنت از مسیر TUN پاسخ نداد"
-            : string.IsNullOrWhiteSpace(adapter) ? "آداپتور BlueVPN TUN بالا نیامد"
+            : string.IsNullOrWhiteSpace(adapter) ? $"آداپتور TUN اختصاصی {tunnelName} بالا نیامد"
             : !route.Ipv4ThroughTunnel ? $"مسیر پیش‌فرض IPv4 هنوز زیر VPN نیست ({route.Ipv4Alias})"
             : !route.Ipv6Safe ? $"IPv6 می‌تواند VPN را دور بزند ({route.Ipv6Alias})"
             : requireWarp && !(after.Warp.Equals("on", StringComparison.OrdinalIgnoreCase) || after.Warp.Equals("plus", StringComparison.OrdinalIgnoreCase)) ? "WARP در خروجی تأیید نشد"
@@ -73,57 +66,59 @@ public static class SystemTunnelVerifier
         return new(false, after.PublicIp, after.Country, after.Warp, adapter, reason);
     }
 
-    private static string FindTunnelAdapter()
+    private static string FindTunnelAdapter(string expectedName)
     {
         try
         {
             foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
             {
                 if (nic.OperationalStatus != OperationalStatus.Up) continue;
-                var hay = $"{nic.Name} {nic.Description}";
-                if (AdapterHints.Any(h => hay.Contains(h, StringComparison.OrdinalIgnoreCase))) return nic.Name;
+                if (string.Equals(nic.Name, expectedName, StringComparison.OrdinalIgnoreCase)) return nic.Name;
             }
         }
         catch { }
         return "";
     }
 
-    private static async Task<RouteEvidence> DefaultRouteEvidenceAsync(CancellationToken ct)
+    private static async Task<RouteEvidence> DefaultRouteEvidenceAsync(string expectedTunnelName, CancellationToken ct)
     {
         try
         {
-            var script = @"
-function Effective([object]$r,[string]$family) {
+            var escapedName = System.Text.RegularExpressions.Regex.Escape(expectedTunnelName.Replace("'", "''", StringComparison.Ordinal));
+            var script = $@"
+function Effective([object]$r,[string]$family) {{
   $i = Get-NetIPInterface -InterfaceIndex $r.InterfaceIndex -AddressFamily $family -ErrorAction SilentlyContinue | Select-Object -First 1
-  if ($i) { return ([int]$r.RouteMetric + [int]$i.InterfaceMetric) }
+  if ($i) {{ return ([int]$r.RouteMetric + [int]$i.InterfaceMetric) }}
   return [int]$r.RouteMetric
-}
-$v4all = @(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.DestinationPrefix -in @('0.0.0.0/0','0.0.0.0/1','128.0.0.0/1') })
-$v6all = @(Get-NetRoute -AddressFamily IPv6 -ErrorAction SilentlyContinue | Where-Object { $_.DestinationPrefix -in @('::/0','::/1','8000::/1') })
-$v4def = @($v4all | Where-Object DestinationPrefix -eq '0.0.0.0/0' | Sort-Object @{Expression={Effective $_ 'IPv4'}})[0]
-$v6def = @($v6all | Where-Object DestinationPrefix -eq '::/0' | Sort-Object @{Expression={Effective $_ 'IPv6'}})[0]
-$pat = 'BlueVPN|sing-box|Wintun'
-$v4full = @($v4all | Where-Object { $_.DestinationPrefix -eq '0.0.0.0/0' -and $_.InterfaceAlias -match $pat }).Count -gt 0
-$v4a = @($v4all | Where-Object { $_.DestinationPrefix -eq '0.0.0.0/1' -and $_.InterfaceAlias -match $pat }).Count -gt 0
-$v4b = @($v4all | Where-Object { $_.DestinationPrefix -eq '128.0.0.0/1' -and $_.InterfaceAlias -match $pat }).Count -gt 0
-$v6full = @($v6all | Where-Object { $_.DestinationPrefix -eq '::/0' -and $_.InterfaceAlias -match $pat }).Count -gt 0
-$v6a = @($v6all | Where-Object { $_.DestinationPrefix -eq '::/1' -and $_.InterfaceAlias -match $pat }).Count -gt 0
-$v6b = @($v6all | Where-Object { $_.DestinationPrefix -eq '8000::/1' -and $_.InterfaceAlias -match $pat }).Count -gt 0
+}}
+$pat = '^{escapedName}$'
+$v4all = @(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {{ $_.DestinationPrefix -in @('0.0.0.0/0','0.0.0.0/1','128.0.0.0/1') }})
+$v6all = @(Get-NetRoute -AddressFamily IPv6 -ErrorAction SilentlyContinue | Where-Object {{ $_.DestinationPrefix -in @('::/0','::/1','8000::/1') }})
+$v4def = @($v4all | Where-Object DestinationPrefix -eq '0.0.0.0/0' | Sort-Object @{{Expression={{Effective $_ 'IPv4'}}}})[0]
+$v6def = @($v6all | Where-Object DestinationPrefix -eq '::/0' | Sort-Object @{{Expression={{Effective $_ 'IPv6'}}}})[0]
+$v4full = @($v4all | Where-Object {{ $_.DestinationPrefix -eq '0.0.0.0/0' -and $_.InterfaceAlias -match $pat }}).Count -gt 0
+$v4a = @($v4all | Where-Object {{ $_.DestinationPrefix -eq '0.0.0.0/1' -and $_.InterfaceAlias -match $pat }}).Count -gt 0
+$v4b = @($v4all | Where-Object {{ $_.DestinationPrefix -eq '128.0.0.0/1' -and $_.InterfaceAlias -match $pat }}).Count -gt 0
+$v6full = @($v6all | Where-Object {{ $_.DestinationPrefix -eq '::/0' -and $_.InterfaceAlias -match $pat }}).Count -gt 0
+$v6a = @($v6all | Where-Object {{ $_.DestinationPrefix -eq '::/1' -and $_.InterfaceAlias -match $pat }}).Count -gt 0
+$v6b = @($v6all | Where-Object {{ $_.DestinationPrefix -eq '8000::/1' -and $_.InterfaceAlias -match $pat }}).Count -gt 0
 $v6physical = $null -ne $v6def -and $v6def.InterfaceAlias -notmatch $pat
-[pscustomobject]@{
-  v4=if($v4def){$v4def.InterfaceAlias}else{''};
-  v6=if($v6def){$v6def.InterfaceAlias}else{''};
+$v6bypass = @(Get-NetRoute -AddressFamily IPv6 -ErrorAction SilentlyContinue | Where-Object {{
+  $_.InterfaceAlias -notmatch $pat -and
+  $_.DestinationPrefix -notmatch '^(::1/128|fe80::/10|ff00::/8|fd[0-9a-f]{{2}}::/16)$' -and
+  $_.DestinationPrefix -match '/(?:[0-9]|[1-5][0-9]|6[0-4])$'
+}}).Count -gt 0
+[pscustomobject]@{{
+  v4=if($v4def){{$v4def.InterfaceAlias}}else{{''}};
+  v6=if($v6def){{$v6def.InterfaceAlias}}else{{''}};
   v4ok=($v4full -or ($v4a -and $v4b));
-  v6safe=($v6full -or ($v6a -and $v6b) -or -not $v6physical)
-} | ConvertTo-Json -Compress
+  v6safe=(($v6full -or ($v6a -and $v6b) -or -not $v6physical) -and -not $v6bypass)
+}} | ConvertTo-Json -Compress
 ";
             var psi = new ProcessStartInfo
             {
-                FileName = "powershell.exe",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
+                FileName = "powershell.exe", UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardOutput = true, RedirectStandardError = true
             };
             psi.ArgumentList.Add("-NoProfile");
             psi.ArgumentList.Add("-NonInteractive");

@@ -67,10 +67,10 @@ public static class ConnectivityProbe
             AutomaticDecompression = DecompressionMethods.All,
             UseProxy = proxy is not null,
             Proxy = proxy,
-            AllowAutoRedirect = true
+            AllowAutoRedirect = false
         };
         using var http = new HttpClient(handler) { Timeout = timeout };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Probe/5.0.1");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Probe/5.0.2");
         try
         {
             using var response = await http.GetAsync(url, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);

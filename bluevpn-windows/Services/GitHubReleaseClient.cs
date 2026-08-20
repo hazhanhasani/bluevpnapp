@@ -43,32 +43,31 @@ public sealed class GitHubReleaseClient : IDisposable
                 existing = 0;
             }
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            if (existing > 0) request.Headers.Range = new RangeHeaderValue(existing, null);
-            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-
-            var append = existing > 0 && response.StatusCode == System.Net.HttpStatusCode.PartialContent;
-            if (!append && existing > 0) existing = 0; // server ignored Range; safely restart
-            response.EnsureSuccessStatusCode();
-
-            var total = expectedSize > 0
-                ? expectedSize
-                : (response.Content.Headers.ContentLength.HasValue ? existing + response.Content.Headers.ContentLength.Value : 0);
-
-            await using (var src = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false))
-            await using (var dst = new FileStream(temp, append ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, useAsync: true))
+            HttpResponseMessage? response = null;
+            var append = false;
+            try
             {
-                var buffer = new byte[1024 * 1024];
-                long written = existing;
-                while (true)
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                if (existing > 0) request.Headers.Range = new RangeHeaderValue(existing, null);
+                response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                if (existing > 0 && response.StatusCode == System.Net.HttpStatusCode.PartialContent)
+                    append = response.Content.Headers.ContentRange?.From == existing;
+
+                if (existing > 0 && !append)
                 {
-                    var read = await src.ReadAsync(buffer.AsMemory(0, buffer.Length), ct).ConfigureAwait(false);
-                    if (read <= 0) break;
-                    await dst.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
-                    written += read;
-                    if (total > 0) progress?.Report(Math.Clamp(written / (double)total, 0d, 1d));
+                    response.Dispose();
+                    response = null;
+                    existing = 0;
+                    using var restart = new HttpRequestMessage(HttpMethod.Get, url);
+                    response = await _http.SendAsync(restart, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
                 }
-                await dst.FlushAsync(ct).ConfigureAwait(false);
+
+                response.EnsureSuccessStatusCode();
+                await WriteDownloadAsync(response, temp, append, existing, expectedSize, progress, ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                response?.Dispose();
             }
 
             if (expectedSize > 0)
@@ -94,24 +93,34 @@ public sealed class GitHubReleaseClient : IDisposable
         }
         catch (OperationCanceledException)
         {
-            // Keep a partial file for a user-requested retry/resume. Old partials are
-            // cleaned by UpdateStorageManager on a new application version.
             throw;
         }
         catch (IOException)
         {
-            // Disk errors must not leave a poisoned partial that retriggers the same
-            // failure forever. The caller converts low-space failures to Persian UI.
             try { if (File.Exists(temp)) File.Delete(temp); } catch { }
-            throw;
-        }
-        catch
-        {
-            // Network/server failures keep the partial so the next retry can use HTTP Range.
             throw;
         }
     }
 
+    private static async Task WriteDownloadAsync(HttpResponseMessage response, string temp, bool append, long existing, long expectedSize, IProgress<double>? progress, CancellationToken ct)
+    {
+        var total = expectedSize > 0
+            ? expectedSize
+            : (response.Content.Headers.ContentLength.HasValue ? existing + response.Content.Headers.ContentLength.Value : 0);
+        await using var src = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        await using var dst = new FileStream(temp, append ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, useAsync: true);
+        var buffer = new byte[1024 * 1024];
+        long written = existing;
+        while (true)
+        {
+            var read = await src.ReadAsync(buffer.AsMemory(0, buffer.Length), ct).ConfigureAwait(false);
+            if (read <= 0) break;
+            await dst.WriteAsync(buffer.AsMemory(0, read), ct).ConfigureAwait(false);
+            written += read;
+            if (total > 0) progress?.Report(Math.Clamp(written / (double)total, 0d, 1d));
+        }
+        await dst.FlushAsync(ct).ConfigureAwait(false);
+    }
 
     public static bool VerifyAuthenticode(string path, string expectedPublisher)
     {

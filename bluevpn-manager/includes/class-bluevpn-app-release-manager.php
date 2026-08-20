@@ -120,7 +120,7 @@ final class BlueVPN_App_Release_Manager {
         set_transient(self::KICK_LOCK, '1', 60);
         wp_schedule_single_event(time() + 1, self::CRON_HOOK, ['traffic-kick']);
         $cron_url = site_url('/wp-cron.php?doing_wp_cron=' . rawurlencode(sprintf('%.22F', microtime(true))));
-        wp_remote_post($cron_url, ['timeout' => 0.01, 'blocking' => false, 'sslverify' => apply_filters('https_local_ssl_verify', false)]);
+        wp_remote_post($cron_url, ['timeout' => 0.01, 'blocking' => false, 'sslverify' => apply_filters('https_local_ssl_verify', true)]);
     }
 
     public static function background_sync($reason = null): void {

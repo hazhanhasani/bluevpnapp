@@ -81,7 +81,7 @@ final class BlueVPN_GitHub_Updater {
         wp_remote_post($cronUrl, [
             'timeout' => 0.01,
             'blocking' => false,
-            'sslverify' => apply_filters('https_local_ssl_verify', false),
+            'sslverify' => apply_filters('https_local_ssl_verify', true),
         ]);
     }
 

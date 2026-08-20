@@ -570,6 +570,10 @@ final class BlueVPN_SMS_OTP {
         $deviceId = mb_substr(trim($deviceId), 0, 180);
         if ($deviceId === '') throw new BlueVPN_Auth_Exception(422, 'DEVICE_ID_REQUIRED', 'شناسه دستگاه لازم است.');
         self::rate_limit($phone, $deviceId);
+        $lockName = 'bluevpn_otp_' . substr(hash('sha256', $phone), 0, 40);
+        $lockAcquired = (int)$wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lockName));
+        if ($lockAcquired !== 1) throw new BlueVPN_Auth_Exception(503, 'OTP_BUSY', 'درخواست کد هم‌زمان دیگری در حال پردازش است؛ چند ثانیه بعد دوباره تلاش کنید.');
+        try {
         $s = self::settings();
         if (!self::is_ready()) throw new BlueVPN_Auth_Exception(503, 'SMS_NOT_CONFIGURED', 'سامانه ایران‌پیامک هنوز در پنل مدیریت تنظیم یا فعال نشده است.');
 
@@ -626,6 +630,9 @@ final class BlueVPN_SMS_OTP {
             'resend_after_seconds' => $resend,
             'message' => 'کد تأیید ۶ رقمی برای شماره شما ارسال شد.',
         ];
+        } finally {
+            $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lockName));
+        }
     }
 
     public static function verify(string $phoneRaw, string $challengeId, string $codeRaw, string $deviceId, string $deviceName = ''): array {

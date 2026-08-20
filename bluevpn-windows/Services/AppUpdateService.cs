@@ -51,7 +51,7 @@ public sealed class AppUpdateService
             try
             {
                 var current = await GitHubReleaseClient.Sha256Async(path, ct).ConfigureAwait(false);
-                if (current.Equals(expected, StringComparison.OrdinalIgnoreCase)) return path;
+                if (current.Equals(expected, StringComparison.OrdinalIgnoreCase) && GitHubReleaseClient.VerifyAuthenticode(path, "BlueVPN")) return path;
             }
             catch { }
             try { File.Delete(path); } catch { }

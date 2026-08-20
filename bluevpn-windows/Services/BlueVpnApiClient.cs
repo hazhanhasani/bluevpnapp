@@ -128,9 +128,10 @@ public sealed class BlueVpnApiClient : IDisposable
 
     public async Task LogoutAsync(CancellationToken ct = default)
     {
-        // Logout is server-authoritative: release the session/device slot before
-        // discarding the local bearer token. Local cleanup still happens even if
-        // the network is unavailable so the UI never stays signed in.
+        // Server logout must be acknowledged. We still clear local credentials in
+        // finally, but a non-2xx response is surfaced to the caller instead of being
+        // silently reported as success. POST is intentionally not retried because
+        // logout/login/OTP requests are not guaranteed idempotent.
         try
         {
             if (IsAuthenticated)
@@ -141,8 +142,10 @@ public sealed class BlueVpnApiClient : IDisposable
                     {
                         Content = new StringContent("{}", Encoding.UTF8, "application/json")
                     };
-                }, ct).ConfigureAwait(false);
-                _ = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                }, ct, allowTransportFallback: false).ConfigureAwait(false);
+                var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                    throw new InvalidOperationException(ReadError(text, (int)response.StatusCode));
             }
         }
         finally
@@ -155,7 +158,6 @@ public sealed class BlueVpnApiClient : IDisposable
     {
         _token = "";
         _otpChallengeId = "";
-        SetAuthorization(null);
     }
 
     private static HttpClient CreateHttpClient(Uri baseAddress, string version, bool useSystemProxy)
@@ -186,13 +188,15 @@ public sealed class BlueVpnApiClient : IDisposable
         _token = token?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(_token))
             throw new InvalidOperationException("توکن ورود از سرور دریافت نشد.");
-        SetAuthorization(new AuthenticationHeaderValue("Bearer", _token));
     }
 
-    private void SetAuthorization(AuthenticationHeaderValue? value)
+    private void ApplyAuthorization(HttpRequestMessage request)
     {
-        _directHttp.DefaultRequestHeaders.Authorization = value;
-        _systemProxyHttp.DefaultRequestHeaders.Authorization = value;
+        if (string.IsNullOrWhiteSpace(_token) || request.RequestUri is null) return;
+        var baseUri = new Uri(_settings.ApiBaseUrl.TrimEnd('/') + "/");
+        var target = request.RequestUri.IsAbsoluteUri ? request.RequestUri : new Uri(baseUri, request.RequestUri);
+        if (Uri.Compare(target, baseUri, UriComponents.SchemeAndServer, UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) == 0)
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
     }
 
     private void EnsureAuth()
@@ -217,16 +221,17 @@ public sealed class BlueVpnApiClient : IDisposable
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
             };
             return request;
-        }, ct).ConfigureAwait(false);
+        }, ct, allowTransportFallback: false).ConfigureAwait(false);
         return await ReadJsonAsync<T>(response, ct).ConfigureAwait(false);
     }
 
-    private async Task<HttpResponseMessage> SendWithTransportFallbackAsync(Func<HttpRequestMessage> requestFactory, CancellationToken ct)
+    private async Task<HttpResponseMessage> SendWithTransportFallbackAsync(Func<HttpRequestMessage> requestFactory, CancellationToken ct, bool allowTransportFallback = true)
     {
         Exception? directError = null;
         try
         {
             using var request = requestFactory();
+            ApplyAuthorization(request);
             return await _directHttp.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -238,9 +243,13 @@ public sealed class BlueVpnApiClient : IDisposable
             directError = ex;
         }
 
+        if (!allowTransportFallback)
+            throw FriendlyTransportException(directError, directError ?? new HttpRequestException("Control-plane request failed."));
+
         try
         {
             using var request = requestFactory();
+            ApplyAuthorization(request);
             return await _systemProxyHttp.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

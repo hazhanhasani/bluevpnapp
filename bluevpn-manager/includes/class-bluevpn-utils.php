@@ -55,7 +55,7 @@ final class BlueVPN_Utils {
             'timeout' => 0.5,
             'blocking' => false,
             'redirection' => 0,
-            'sslverify' => apply_filters('https_local_ssl_verify', false),
+            'sslverify' => apply_filters('https_local_ssl_verify', true),
             'headers' => [
                 'Cache-Control' => 'no-cache',
                 'X-BlueVPN-Internal-Cron' => '1',
@@ -244,7 +244,7 @@ final class BlueVPN_Utils {
     }
 
     public static function sanitize_phone(string $value): string {
-        $value = strtr(trim($value), '۰۱۲۳۴۵۶۷۸۹', '0123456789');
+        $value = strtr(trim($value), '۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩', '01234567890123456789');
         $digits = preg_replace('/\D+/', '', $value) ?: '';
         if (str_starts_with($digits, '0098')) {
             $digits = substr($digits, 2);

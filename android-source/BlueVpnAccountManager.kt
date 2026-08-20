@@ -2469,10 +2469,37 @@ object BlueVpnAccountManager {
         c: Context,
         payload: JSONObject,
     ): Result<JSONObject> = runCatching {
-        if (hasSession(c)) {
-            authenticatedRequest(c, "POST", "/api/v1/ai/events", payload)
-        } else {
-            request(c, "POST", "/api/v1/ai/events", payload, false)
+        // Telemetry is best-effort. Once the API asks us to back off, suppress
+        // further event traffic locally for a short window so heartbeats and
+        // disconnect/failure events cannot create a 429 feedback loop.
+        val prefs = prefs(c.applicationContext)
+        val blockedUntil = prefs.getLong("ai_events_blocked_until", 0L)
+        val now = System.currentTimeMillis()
+        if (blockedUntil > now) {
+            return@runCatching JSONObject()
+                .put("success", true)
+                .put("accepted", false)
+                .put("reason", "rate_limited")
+                .put("retry_after_seconds", ((blockedUntil - now + 999L) / 1000L))
+        }
+
+        try {
+            if (hasSession(c)) {
+                authenticatedRequest(c, "POST", "/api/v1/ai/events", payload)
+            } else {
+                request(c, "POST", "/api/v1/ai/events", payload, false)
+            }
+        } catch (error: ApiException) {
+            if (error.status == 429 || error.code == "AI_RATE_LIMIT") {
+                val retrySeconds = 60L
+                prefs.edit().putLong("ai_events_blocked_until", now + retrySeconds * 1000L).apply()
+                return@runCatching JSONObject()
+                    .put("success", true)
+                    .put("accepted", false)
+                    .put("reason", "rate_limited")
+                    .put("retry_after_seconds", retrySeconds)
+            }
+            throw error
         }
     }
 

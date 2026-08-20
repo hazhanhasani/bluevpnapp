@@ -3,7 +3,9 @@ using System.IO.Compression;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using BlueVPN.Windows.Models;
 
@@ -107,6 +109,76 @@ public sealed class GitHubReleaseClient : IDisposable
         {
             // Network/server failures keep the partial so the next retry can use HTTP Range.
             throw;
+        }
+    }
+
+
+    public static bool VerifyAuthenticode(string path, string expectedPublisher)
+    {
+        if (!OperatingSystem.IsWindows() || !File.Exists(path)) return false;
+        if (!string.Equals(Path.GetExtension(path), ".exe", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(Path.GetExtension(path), ".msi", StringComparison.OrdinalIgnoreCase))
+            return true; // archives are verified by SHA-256; contained binaries are validated by their installer/runtime checks.
+
+        var fileInfo = new WINTRUST_FILE_INFO(path);
+        var guid = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+        var data = new WINTRUST_DATA(ref fileInfo);
+        try
+        {
+            var status = WinVerifyTrust(IntPtr.Zero, ref guid, ref data);
+            if (status != 0) return false;
+            if (string.IsNullOrWhiteSpace(expectedPublisher)) return true;
+            var cert = X509Certificate.CreateFromSignedFile(path);
+            return cert.Subject.IndexOf(expectedPublisher, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+        catch { return false; }
+        finally { data.Dispose(); fileInfo.Dispose(); }
+    }
+
+    private static readonly Guid WINTRUST_ACTION_GENERIC_VERIFY_V2 = new("00AAC56B-CD44-11d0-8CC2-00C04FC295EE");
+
+    [DllImport("wintrust.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint WinVerifyTrust(IntPtr hwnd, ref Guid pgActionID, ref WINTRUST_DATA pWVTData);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private sealed class WINTRUST_FILE_INFO : IDisposable
+    {
+        public uint cbStruct = (uint)Marshal.SizeOf<WINTRUST_FILE_INFO>();
+        public IntPtr pcwszFilePath;
+        public IntPtr hFile = IntPtr.Zero;
+        public IntPtr pgKnownSubject = IntPtr.Zero;
+        public WINTRUST_FILE_INFO(string path) => pcwszFilePath = Marshal.StringToCoTaskMemUni(path);
+        public void Dispose() { if (pcwszFilePath != IntPtr.Zero) Marshal.FreeCoTaskMem(pcwszFilePath); pcwszFilePath = IntPtr.Zero; }
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct WINTRUST_DATA : IDisposable
+    {
+        public uint cbStruct;
+        public IntPtr pPolicyCallbackData;
+        public IntPtr pSIPClientData;
+        public uint dwUIChoice;
+        public uint fdwRevocationChecks;
+        public uint dwUnionChoice;
+        public IntPtr pFile;
+        public uint dwStateAction;
+        public IntPtr hWVTStateData;
+        public IntPtr pwszURLReference;
+        public uint dwProvFlags;
+        public uint dwUIContext;
+        public WINTRUST_DATA(ref WINTRUST_FILE_INFO file)
+        {
+            cbStruct = (uint)Marshal.SizeOf<WINTRUST_DATA>();
+            pPolicyCallbackData = IntPtr.Zero; pSIPClientData = IntPtr.Zero; dwUIChoice = 2;
+            fdwRevocationChecks = 0; dwUnionChoice = 1; pFile = Marshal.AllocCoTaskMem(Marshal.SizeOf<WINTRUST_FILE_INFO>());
+            Marshal.StructureToPtr(file, pFile, false); dwStateAction = 0; hWVTStateData = IntPtr.Zero;
+            pwszURLReference = IntPtr.Zero; dwProvFlags = 0x00000010; dwUIContext = 0;
+        }
+        public void Dispose()
+        {
+            dwStateAction = 1; // WTD_STATEACTION_CLOSE
+            try { var guid = WINTRUST_ACTION_GENERIC_VERIFY_V2; WinVerifyTrust(IntPtr.Zero, ref guid, ref this); } catch { }
+            if (pFile != IntPtr.Zero) { Marshal.FreeCoTaskMem(pFile); pFile = IntPtr.Zero; }
         }
     }
 

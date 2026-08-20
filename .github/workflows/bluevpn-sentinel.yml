@@ -1,0 +1,106 @@
+name: BlueVPN Sentinel
+
+on:
+  workflow_run:
+    workflows:
+      - Build Signed BlueVPN APK
+      - Build BlueVPN Windows 5.0.2
+      - Release BlueVPN Manager
+      - Release BlueVPN Site Theme
+      - BlueVPN Project Health
+      - BlueVPN External Health
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+
+concurrency:
+  group: bluevpn-sentinel-${{ github.event.workflow_run.id || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  report-failure:
+    name: Report failed GitHub Actions run
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect failed jobs, annotations and log excerpts
+        id: collect
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${RUN_ID:-}" ]; then
+            echo 'Manual sentinel run: no workflow_run payload.' > /tmp/report.txt
+            exit 0
+          fi
+
+          {
+            echo "Workflow: ${WORKFLOW_NAME}"
+            echo "Run: ${RUN_ID}"
+            echo "URL: ${RUN_URL}"
+            echo
+            echo 'Failed jobs:'
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" \
+              --jq '.jobs[] | select(.conclusion == "failure") | "- " + .name + " (job " + (.id|tostring) + ")"' || true
+            echo
+            echo 'Annotations:'
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/check-runs?check_suite_id=${{ github.event.workflow_run.check_suite_id }}&per_page=100" \
+              --jq '.check_runs[] | .id' 2>/dev/null | while read -r check_id; do
+                gh api "repos/${GITHUB_REPOSITORY}/check-runs/${check_id}/annotations" --paginate \
+                  --jq '.[] | select(.annotation_level == "failure" or .annotation_level == "warning") | "- [" + .annotation_level + "] " + (.path // "") + ":" + ((.start_line // 0)|tostring) + " — " + (.message // "")' || true
+              done
+            echo
+            echo 'Failed log excerpt:'
+            gh run view "${RUN_ID}" --repo "${GITHUB_REPOSITORY}" --log-failed 2>&1 | tail -n 80 || true
+          } > /tmp/report.txt
+
+          python - <<'PY2'
+          from pathlib import Path
+          text=Path('/tmp/report.txt').read_text(errors='replace')
+          text='\n'.join(line[:700] for line in text.splitlines())
+          if len(text)>6500:
+              text=text[:6450]+'\n…'
+          Path('/tmp/report.txt').write_text(text)
+          PY2
+
+      - name: Send Telegram alert
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'failure' }}
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo 'TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID are not configured.'
+            exit 1
+          fi
+
+          python - <<'PY2'
+          import os
+          from pathlib import Path
+          import urllib.parse, urllib.request
+          report=Path('/tmp/report.txt').read_text(errors='replace')
+          title=os.environ.get('WORKFLOW_NAME','GitHub Actions')
+          url=os.environ.get('RUN_URL','')
+          text=f'🚨 <b>BlueVPN Sentinel</b>\n━━━━━━━━━━━━━━\n<b>GitHub Actions Failure</b>\nWorkflow: <code>{title}</code>\n{report}'
+          if url:
+              text += f'\n<a href="{url}">مشاهده Run در GitHub</a>'
+          text=text[:3900]
+          data=urllib.parse.urlencode({'chat_id':os.environ['TELEGRAM_CHAT_ID'],'text':text,'parse_mode':'HTML','disable_web_page_preview':'true'}).encode()
+          req=urllib.request.Request(f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/sendMessage",data=data,method='POST')
+          with urllib.request.urlopen(req,timeout=20) as r:
+              body=r.read().decode()
+              if '"ok":true' not in body:
+                  raise SystemExit(f'Telegram API rejected notification: {body[:500]}')
+          PY2

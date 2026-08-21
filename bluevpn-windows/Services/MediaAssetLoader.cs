@@ -57,7 +57,7 @@ public static class MediaAssetLoader
             Proxy = useSystemProxy ? WebRequest.DefaultWebProxy : null
         };
         var client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(12) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Media/5.1.0");
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Media/5.1.1");
         client.DefaultRequestHeaders.Add("X-BlueVPN-Platform", "windows");
         return client;
     }

@@ -8,8 +8,8 @@ def text(p): return (ROOT/p).read_text(encoding='utf-8')
 class WindowsStability4177Tests(unittest.TestCase):
     def test_release_version(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'5.1.0')
-        self.assertEqual(r['version_code'],50100)
+        self.assertEqual(r['version'],'5.1.1')
+        self.assertEqual(r['version_code'],50101)
 
     def test_ui_is_android_order_and_non_blocking_metrics(self):
         x=text('bluevpn-windows/MainWindow.xaml')
@@ -24,6 +24,25 @@ class WindowsStability4177Tests(unittest.TestCase):
         self.assertNotIn('IsEnabled = false',cs)
         self.assertIn('ConnectingOverlay',x)
         self.assertIn('CancelConnection_Click',cs)
+
+    def test_home_layout_and_ads_do_not_flatten_or_overlap(self):
+        x=text('bluevpn-windows/MainWindow.xaml')
+        ui=text('bluevpn-windows/MainWindow.xaml.cs')
+        ads=text('bluevpn-windows/Services/AdvertisementService.cs')
+        # All seven home rows must size to their content; fixed 48/62/188/58/78/56
+        # heights caused the Persian status/brand text to paint into adjacent rows.
+        home=x[x.index('<Grid MaxWidth="680"'):x.index('<!-- Internal fields retained for diagnostics/menu only. -->')]
+        self.assertGreaterEqual(home.count('<RowDefinition Height="Auto"/>'), 10)
+        self.assertNotIn('Height="88" MaxHeight="96"', home)
+        self.assertIn('MinHeight="116" MaxHeight="280"', home)
+        self.assertIn('SizeChanged="AdCard_SizeChanged"', home)
+        self.assertIn('Stretch="Uniform"', home)
+        self.assertIn('TextWrapping="Wrap" LineHeight="17"', home)
+        self.assertNotIn('BannerHeight * 0.58', ui)
+        self.assertIn('_adImageAspectRatio', ui)
+        self.assertIn('image.PixelWidth / (double)image.PixelHeight', ui)
+        self.assertIn('AdCard.Height = Math.Clamp(ratioHeight, configuredFloor, 280)', ui)
+        self.assertIn('public double BannerAspectRatio', ads)
 
     def test_ads_resolve_relative_assets_and_do_not_decode_on_dispatcher(self):
         ads=text('bluevpn-windows/Services/AdvertisementService.cs')

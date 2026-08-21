@@ -19,17 +19,17 @@
         <ScrollViewer x:Name="HomeScrollViewer" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
         <Grid MaxWidth="680" Margin="18,8,18,14">
             <Grid.RowDefinitions>
-                <RowDefinition Height="48"/>
-                <RowDefinition Height="62"/>
-                <RowDefinition Height="188"/>
-                <RowDefinition Height="58"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="78"/>
-                <RowDefinition Height="56"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <!-- Header: account left, version centered, menu right exactly like Android. -->
-            <Grid Grid.Row="0" FlowDirection="LeftToRight">
+            <Grid Grid.Row="0" FlowDirection="LeftToRight" MinHeight="48" Margin="0,0,0,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="60"/>
                     <ColumnDefinition Width="*"/>
@@ -44,7 +44,7 @@
                         <Path Data="M4,21 C4.6,15 8,12.5 12,12.5 C16,12.5 19.4,15 20,21 Z" Stroke="{StaticResource BlueVpnTextSecondary}" StrokeThickness="1.8" Fill="Transparent" StrokeLineJoin="Round"/>
                     </Grid>
                 </Button>
-                <TextBlock Grid.Column="2" x:Name="VersionText" Text="5.1.0" FontSize="12" FontWeight="SemiBold"
+                <TextBlock Grid.Column="2" x:Name="VersionText" Text="5.1.1" FontSize="12" FontWeight="SemiBold"
                            Foreground="{StaticResource BlueVpnMuted}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                 <Button Grid.Column="3" x:Name="MenuButton" Click="MenuButton_Click"
                         Width="48" Height="48" Padding="0" Margin="0" ToolTip="منو"
@@ -58,30 +58,31 @@
             </Grid>
 
             <!-- Brand block -->
-            <StackPanel Grid.Row="1" VerticalAlignment="Center">
+            <StackPanel Grid.Row="1" VerticalAlignment="Center" Margin="0,2,0,12">
                 <TextBlock Text="BlueVPN" FontSize="38" FontStyle="Italic" FontWeight="Bold"
                            Foreground="{StaticResource BlueVpnBlue}" HorizontalAlignment="Center"/>
                 <TextBlock x:Name="SubscriptionSummaryText" Text="در حال آماده‌سازی حساب" FontSize="12.5"
                            Foreground="{StaticResource BlueVpnMuted}" HorizontalAlignment="Center"
-                           Margin="0,5,0,0" TextAlignment="Center"/>
+                           Margin="12,6,12,0" TextAlignment="Center" TextWrapping="Wrap" LineHeight="18"/>
             </StackPanel>
 
             <!-- Flexible orb stage, mirroring Android createOrbStage(). -->
-            <Grid Grid.Row="2" Margin="0,2,0,10">
+            <Grid Grid.Row="2" Margin="0,0,0,16">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="54"/>
-                    <RowDefinition Height="32"/>
-                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
-                <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" FlowDirection="RightToLeft">
+                <StackPanel Grid.Row="0" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" FlowDirection="RightToLeft" MinHeight="48">
                     <Ellipse x:Name="StatusDot" Width="11" Height="11" Fill="{StaticResource BlueVpnMuted}" Margin="0,0,10,0"/>
                     <TextBlock x:Name="StatusText" Text="آماده اتصال" FontSize="25" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </StackPanel>
                 <TextBlock Grid.Row="1" x:Name="ConnectionStatusText" Text="بهترین اتصال به‌صورت خودکار انتخاب می‌شود"
                            FontSize="12" Foreground="{StaticResource BlueVpnTextSecondary}" TextAlignment="Center"
-                           HorizontalAlignment="Center" VerticalAlignment="Top"/>
+                           HorizontalAlignment="Center" VerticalAlignment="Center" TextWrapping="Wrap" LineHeight="18"
+                           Margin="14,2,14,10"/>
 
-                <Grid Grid.Row="2" Width="330" Height="126" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <Grid Grid.Row="2" Width="350" Height="126" MaxWidth="420" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0,2,0,0">
                     <Border x:Name="OrbHalo" Height="118" CornerRadius="59" VerticalAlignment="Center"
                             BorderBrush="{StaticResource BlueVpnBlue}" BorderThickness="1.2" Background="#DDE8F8FF"/>
                     <Border Height="108" CornerRadius="54" Margin="7,5" BorderBrush="#60356DF1" BorderThickness="1" Background="#F7FFFFFF"/>
@@ -107,7 +108,7 @@
             </Grid>
 
             <!-- Live telemetry: download | duration | upload, same visual order as Android screenshot. -->
-            <UniformGrid Grid.Row="3" Columns="3" FlowDirection="LeftToRight" Margin="0,0,0,6">
+            <UniformGrid Grid.Row="3" Columns="3" FlowDirection="LeftToRight" Margin="0,0,0,14" MinHeight="62">
                 <Border Style="{StaticResource BlueVpnMetricCardStyle}">
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" FlowDirection="RightToLeft">
                         <TextBlock Text="↓  دانلود" FontSize="10.5" Foreground="{StaticResource BlueVpnMuted}"/>
@@ -130,9 +131,9 @@
             <TextBlock x:Name="SpeedValue" Text="0 KB/s" Visibility="Collapsed"/>
 
             <!-- Android-position campaign banner. Network images are loaded off the dispatcher. -->
-            <Border Grid.Row="4" x:Name="AdCard" Height="88" MaxHeight="96" Background="#FF071328" CornerRadius="20"
-                    Margin="4,2,4,9" Visibility="Collapsed" MouseLeftButtonUp="AdCard_Click" Cursor="Hand"
-                    ClipToBounds="True" BorderBrush="{StaticResource BlueVpnStroke}" BorderThickness="1">
+            <Border Grid.Row="4" x:Name="AdCard" MinHeight="116" MaxHeight="280" Background="#FF071328" CornerRadius="20"
+                    Margin="4,0,4,16" Visibility="Collapsed" MouseLeftButtonUp="AdCard_Click" Cursor="Hand"
+                    SizeChanged="AdCard_SizeChanged" ClipToBounds="True" BorderBrush="{StaticResource BlueVpnStroke}" BorderThickness="1">
                 <Grid>
                     <Border x:Name="AdFallbackPanel" Background="#FF071328">
                         <Grid Margin="18,14">
@@ -147,7 +148,8 @@
                             </Border>
                         </Grid>
                     </Border>
-                    <Image x:Name="AdImage" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
+                    <Image x:Name="AdImage" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                           RenderOptions.BitmapScalingMode="HighQuality"/>
                     <Border Background="#36000000" VerticalAlignment="Top" HorizontalAlignment="Left" Margin="10" CornerRadius="12" Padding="8,4">
                         <TextBlock Text="تبلیغ" Foreground="White" FontSize="9"/>
                     </Border>
@@ -156,7 +158,7 @@
 
             <!-- Server/location card -->
             <Border Grid.Row="5" x:Name="LocationCard" Background="White" CornerRadius="24" BorderBrush="{StaticResource BlueVpnStroke}"
-                    BorderThickness="1" Padding="14,7" Margin="4,0,4,7" Cursor="Hand"
+                    BorderThickness="1" Padding="14,11" Margin="4,0,4,12" MinHeight="88" Cursor="Hand"
                     MouseLeftButtonUp="LocationCard_Click" ToolTip="انتخاب لوکیشن">
                 <Grid FlowDirection="LeftToRight">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="38"/><ColumnDefinition Width="*"/><ColumnDefinition Width="22"/></Grid.ColumnDefinitions>
@@ -165,9 +167,11 @@
                     <StackPanel Grid.Column="1" FlowDirection="RightToLeft" VerticalAlignment="Center" Margin="8,0">
                         <TextBlock x:Name="EndpointText" Text="انتخاب خودکار" FontSize="16" FontWeight="Bold" TextTrimming="CharacterEllipsis"/>
                         <TextBlock x:Name="EngineText" Text="بهترین مسیر همان لوکیشن به‌صورت خودکار انتخاب می‌شود"
-                                   FontSize="11.5" Foreground="{StaticResource BlueVpnTextSecondary}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                                   FontSize="11.5" Foreground="{StaticResource BlueVpnTextSecondary}" Margin="0,4,0,0"
+                                   TextWrapping="Wrap" LineHeight="17"/>
                         <TextBlock x:Name="ServerStatusText" Text="آماده اتصال" FontSize="10.5"
-                                   Foreground="{StaticResource BlueVpnTextSecondary}" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
+                                   Foreground="{StaticResource BlueVpnTextSecondary}" Margin="0,4,0,0"
+                                   TextWrapping="Wrap" LineHeight="16"/>
                     </StackPanel>
                     <Ellipse Grid.Column="2" Width="12" Height="12" Fill="{StaticResource BlueVpnBlue}" VerticalAlignment="Center"/>
                 </Grid>
@@ -175,7 +179,7 @@
 
             <!-- Remaining entitlement row -->
             <Border Grid.Row="6" Background="White" CornerRadius="20" BorderBrush="{StaticResource BlueVpnStroke}"
-                    BorderThickness="1" Margin="4,0,4,0" Padding="8">
+                    BorderThickness="1" Margin="4,0,4,10" Padding="10" MinHeight="64">
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="1"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -342,7 +346,7 @@
                     </Grid>
                     <Border Background="White" CornerRadius="18" BorderBrush="{StaticResource BlueVpnStroke}" BorderThickness="1" Padding="14">
                         <StackPanel><TextBlock Text="نسخه برنامه" FontSize="11" Foreground="{StaticResource BlueVpnMuted}"/>
-                            <TextBlock x:Name="MenuVersionText" Text="5.1.0" FontSize="17" FontWeight="Bold" Margin="0,3,0,10"/>
+                            <TextBlock x:Name="MenuVersionText" Text="5.1.1" FontSize="17" FontWeight="Bold" Margin="0,3,0,10"/>
                             <TextBlock Text="هسته اتصال" FontSize="11" Foreground="{StaticResource BlueVpnMuted}"/>
                             <TextBlock x:Name="CoreVersionText" Text="BlueVPN Core" FontSize="15" FontWeight="SemiBold" Margin="0,3,0,0"/>
                         </StackPanel>

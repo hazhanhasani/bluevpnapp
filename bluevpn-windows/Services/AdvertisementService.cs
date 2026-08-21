@@ -88,6 +88,24 @@ public sealed class AdvertisementService
         116,
         160);
 
+    public double BannerAspectRatio
+    {
+        get
+        {
+            var primary = Current.Advertising.Enabled ? Current.Advertising : Current.Ads;
+            var raw = (primary.AspectRatio ?? "").Trim();
+            var parts = raw.Split(':', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length == 2 &&
+                double.TryParse(parts[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var width) &&
+                double.TryParse(parts[1], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var height) &&
+                width > 0 && height > 0)
+            {
+                return Math.Clamp(width / height, 0.75, 6.0);
+            }
+            return 20d / 9d;
+        }
+    }
+
     public int BannerIntervalMs => Math.Clamp(
         Current.Advertising.IntervalMs > 0 ? Current.Advertising.IntervalMs : Current.Ads.IntervalMs,
         3000,

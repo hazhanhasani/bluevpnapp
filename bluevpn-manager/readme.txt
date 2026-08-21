@@ -1,7 +1,10 @@
 === BlueVPN Manager ===
-Version: 5.1.0
-Stable tag: 5.1.0
+Version: 5.1.1
+Stable tag: 5.1.1
 Requires PHP: 8.0
+
+== 5.1.1 ==
+- هماهنگ‌سازی نسخه پلتفرم با اصلاح چیدمان واکنش‌گرای Windows و نسبت تصویر تبلیغات؛ قرارداد API تبلیغات بدون تغییر باقی مانده است.
 
 == 5.1.0 ==
 - Removes the Windows build dependency on GitHub REST release-metadata calls that can hit the shared runner-IP rate limit.

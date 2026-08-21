@@ -84,7 +84,7 @@ body.bluevpn-standalone-admin .bvc-table td,body.bluevpn-standalone-admin .bvc-t
   .bvem-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important}.bvem-summary .bvc-card{padding:12px!important}.bvem-summary .bvc-kpi strong{font-size:20px!important}.bvem-toggle-grid,.bvem-number-grid{grid-template-columns:1fr!important}.bvem-section-head{gap:8px}.bvem-live{align-self:flex-start}.bvem-settings,.bvem-actions-card{padding:13px!important}.bvem-actions{display:grid!important;grid-template-columns:1fr!important}.bvem-actions form,.bvem-actions .button{width:100%!important}.bvem-events .bvc-table-scroll{overflow:visible!important}.bvem-events-table.bvc-responsive-table td:nth-child(1){white-space:normal!important}.bvem-events-table.bvc-responsive-table .bvem-message{min-width:0!important}.bvem-events-table.bvc-responsive-table td{font-size:10px!important}.bvem-events-table.bvc-responsive-table td code{max-width:100%!important}.bluevpn-top-title>div{min-width:0}.bluevpn-topbar h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55vw}.bluevpn-sidebar{max-width:300px;width:82vw}}
 @media(max-width:430px){.bvem-summary{grid-template-columns:1fr 1fr!important}.bvem-section-head{flex-direction:column}.bvem-live{align-self:flex-start}.bluevpn-topbar h1{max-width:58vw}.bluevpn-sidebar{width:84vw}}
 
-/* 5.1.0 — compact responsive control center. No global forced table width. */
+/* 5.1.1 — compact responsive control center. No global forced table width. */
 body.bluevpn-standalone-admin{font-size:12px;line-height:1.6}
 .bluevpn-sidebar{width:264px}
 .bluevpn-main{margin-right:264px}

@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     private long _lastSentBytes;
     private DateTimeOffset _lastByteSample = DateTimeOffset.UtcNow;
     private int _adIndex;
+    private double _adImageAspectRatio;
     private UpdateCandidate? _pendingUpdate;
     private long? _remainingSecondsAtSnapshot;
     private DateTimeOffset _accountSnapshotAt = DateTimeOffset.UtcNow;
@@ -129,7 +130,8 @@ public partial class MainWindow : Window
     {
         await _ads.RefreshAsync(_lifetimeCts.Token);
         _adIndex = 0;
-        AdCard.Height = Math.Clamp(_ads.BannerHeight * 0.58, 76, 96);
+        _adImageAspectRatio = 0;
+        ApplyAdCardHeight();
         await ShowCurrentAdAsync();
 
         _adTimer.Stop();
@@ -161,6 +163,8 @@ public partial class MainWindow : Window
         {
             AdCard.Visibility = Visibility.Collapsed;
             AdImage.Source = null;
+            AdFallbackPanel.Visibility = Visibility.Visible;
+            _adImageAspectRatio = 0;
             return;
         }
 
@@ -171,6 +175,9 @@ public partial class MainWindow : Window
         AdActionText.Text = string.IsNullOrWhiteSpace(item.ButtonText) ? "مشاهده ←" : item.ButtonText + " ←";
         AdCard.Tag = item;
         AdCard.Visibility = Visibility.Visible;
+        AdFallbackPanel.Visibility = Visibility.Visible;
+        _adImageAspectRatio = 0;
+        ApplyAdCardHeight();
 
         _adImageCts?.Cancel();
         _adImageCts?.Dispose();
@@ -184,6 +191,17 @@ public partial class MainWindow : Window
         var image = await MediaAssetLoader.LoadImageAsync(imageUrl, token);
         if (token.IsCancellationRequested || index != _adIndex) return;
         AdImage.Source = image;
+        if (image is not null && image.PixelWidth > 0 && image.PixelHeight > 0)
+        {
+            _adImageAspectRatio = image.PixelWidth / (double)image.PixelHeight;
+            AdFallbackPanel.Visibility = Visibility.Collapsed;
+        }
+        else
+        {
+            _adImageAspectRatio = 0;
+            AdFallbackPanel.Visibility = Visibility.Visible;
+        }
+        ApplyAdCardHeight();
 
         if (items.Count > 1)
         {
@@ -194,6 +212,26 @@ public partial class MainWindow : Window
             MediaAssetLoader.Preload(nextImage);
         }
         MediaAssetLoader.Trim();
+    }
+
+
+    private void AdCard_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (AdCard.Visibility != Visibility.Visible || Math.Abs(e.NewSize.Width - e.PreviousSize.Width) < 1) return;
+        ApplyAdCardHeight();
+    }
+
+    private void ApplyAdCardHeight()
+    {
+        // Keep campaign artwork in its native proportion on wide desktop windows.
+        // The previous 0.58 multiplier flattened a 116–160dp campaign into a tiny
+        // 76–96px strip, which also pulled the rows below it into the home content.
+        var width = AdCard.ActualWidth;
+        if (width < 240) width = Math.Max(320, ActualWidth - 52);
+        var ratio = _adImageAspectRatio > 0.25 ? _adImageAspectRatio : _ads.BannerAspectRatio;
+        var configuredFloor = Math.Clamp((double)_ads.BannerHeight, 116, 160);
+        var ratioHeight = ratio > 0.25 ? width / ratio : configuredFloor;
+        AdCard.Height = Math.Clamp(ratioHeight, configuredFloor, 280);
     }
 
     private void AdCard_Click(object sender, MouseButtonEventArgs e)

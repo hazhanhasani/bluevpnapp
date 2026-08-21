@@ -1,5 +1,13 @@
-# BlueVPN for Windows — 5.1.0
+# BlueVPN for Windows — 5.1.1
 
+
+
+## 5.1.1 responsive home layout + campaign aspect-ratio fix
+
+- Replaced fixed-height home rows with natural `Auto` rows so brand, connection status, orb, metrics, ads and server text cannot overlap on 100%/125%/150% Windows scaling.
+- Restored campaign artwork proportions on wide desktop windows. Banner height now follows the configured/image aspect ratio instead of flattening the 116–160dp campaign into a 76–96px strip.
+- Advertisement images remain `Uniform` (no distortion/crop), with the textual fallback hidden only after a valid bitmap is decoded.
+- Server/status copy now wraps instead of disappearing behind neighboring rows.
 
 ## 5.1.0 GitHub runtime bootstrap hardening
 

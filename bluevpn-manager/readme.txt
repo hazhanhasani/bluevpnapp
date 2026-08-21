@@ -1,7 +1,12 @@
 === BlueVPN Manager ===
-Version: 5.0.6
-Stable tag: 5.0.6
+Version: 5.0.7
+Stable tag: 5.0.7
 Requires PHP: 8.0
+
+== 5.0.7 ==
+- Migrates Windows sing-box TUN configs to the 1.13+ route-action schema shipped with the current v2rayN runtime.
+- Removes deprecated sing-box legacy special outbounds from Windows runtime configs.
+- Makes BlueVPN Sentinel Telegram delivery HTML-safe and chunk-safe so failed-build diagnostics are delivered reliably.
 
 == 5.0.6 ==
 - Restores a compact responsive admin layout across all BlueVPN Manager pages.

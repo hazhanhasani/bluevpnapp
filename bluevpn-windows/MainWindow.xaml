@@ -44,7 +44,7 @@
                         <Path Data="M4,21 C4.6,15 8,12.5 12,12.5 C16,12.5 19.4,15 20,21 Z" Stroke="{StaticResource BlueVpnTextSecondary}" StrokeThickness="1.8" Fill="Transparent" StrokeLineJoin="Round"/>
                     </Grid>
                 </Button>
-                <TextBlock Grid.Column="2" x:Name="VersionText" Text="5.0.6" FontSize="12" FontWeight="SemiBold"
+                <TextBlock Grid.Column="2" x:Name="VersionText" Text="5.0.7" FontSize="12" FontWeight="SemiBold"
                            Foreground="{StaticResource BlueVpnMuted}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                 <Button Grid.Column="3" x:Name="MenuButton" Click="MenuButton_Click"
                         Width="48" Height="48" Padding="0" Margin="0" ToolTip="منو"
@@ -342,7 +342,7 @@
                     </Grid>
                     <Border Background="White" CornerRadius="18" BorderBrush="{StaticResource BlueVpnStroke}" BorderThickness="1" Padding="14">
                         <StackPanel><TextBlock Text="نسخه برنامه" FontSize="11" Foreground="{StaticResource BlueVpnMuted}"/>
-                            <TextBlock x:Name="MenuVersionText" Text="5.0.6" FontSize="17" FontWeight="Bold" Margin="0,3,0,10"/>
+                            <TextBlock x:Name="MenuVersionText" Text="5.0.7" FontSize="17" FontWeight="Bold" Margin="0,3,0,10"/>
                             <TextBlock Text="هسته اتصال" FontSize="11" Foreground="{StaticResource BlueVpnMuted}"/>
                             <TextBlock x:Name="CoreVersionText" Text="BlueVPN Core" FontSize="15" FontWeight="SemiBold" Margin="0,3,0,0"/>
                         </StackPanel>

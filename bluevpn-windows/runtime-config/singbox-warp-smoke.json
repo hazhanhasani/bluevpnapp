@@ -16,7 +16,6 @@
       "auto_route": true,
       "strict_route": false,
       "stack": "system",
-      "sniff": true,
       "route_exclude_address": [
         "127.0.0.0/8",
         "::1/128"
@@ -34,15 +33,17 @@
     {
       "type": "direct",
       "tag": "direct"
-    },
-    {
-      "type": "block",
-      "tag": "block"
     }
   ],
   "route": {
     "auto_detect_interface": true,
     "rules": [
+      {
+        "inbound": [
+          "bluevpn-tun"
+        ],
+        "action": "sniff"
+      },
       {
         "process_name": [
           "aether.exe"

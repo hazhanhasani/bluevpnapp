@@ -21,21 +21,21 @@ public static class SingBoxWarpConfigBuilder
                     auto_route = true,
                     strict_route = false,
                     stack = "system",
-                    sniff = true,
                     route_exclude_address = new[] { "127.0.0.0/8", "::1/128" }
                 }
             },
             outbounds = new object[]
             {
                 new { type = "socks", tag = "warp-socks", server = "127.0.0.1", server_port = socksPort, version = "5" },
-                new { type = "direct", tag = "direct" },
-                new { type = "block", tag = "block" }
+                new { type = "direct", tag = "direct" }
             },
             route = new
             {
                 auto_detect_interface = true,
                 rules = new object[]
                 {
+                    // sing-box 1.13+: legacy inbound sniff fields were removed.
+                    new { inbound = new[] { "bluevpn-tun" }, action = "sniff" },
                     new { process_name = new[] { "aether.exe" }, action = "route", outbound = "direct" },
                     new { ip_is_private = true, action = "route", outbound = "direct" }
                 },

@@ -82,16 +82,39 @@ jobs:
             exit 1
           fi
           python - <<'PY'
-          import html, os, urllib.parse, urllib.request
+          import html, os, urllib.parse, urllib.request, urllib.error, time
           from pathlib import Path
           report=Path('/tmp/report.txt').read_text(encoding='utf-8',errors='replace')
           title=html.escape(os.getenv('WORKFLOW_NAME') or 'BlueVPN workflow')
-          safe_report=html.escape(report)
           url=os.getenv('RUN_URL') or ''
           link=f'\n<a href="{html.escape(url, quote=True)}">مشاهده Run در GitHub</a>' if url else ''
-          text=(f'🚨 <b>BlueVPN Sentinel</b>\nWorkflow: <code>{title}</code>\n<pre>{safe_report}</pre>{link}')[:3900]
-          data=urllib.parse.urlencode({'chat_id':os.environ['TELEGRAM_CHAT_ID'],'text':text,'parse_mode':'HTML','disable_web_page_preview':'true'}).encode()
-          req=urllib.request.Request('https://api.telegram.org/bot'+os.environ['TELEGRAM_BOT_TOKEN']+'/sendMessage',data=data)
-          body=urllib.request.urlopen(req,timeout=30).read().decode('utf-8','replace')
-          if '"ok":true' not in body.replace(' ',''): raise SystemExit(body)
+
+          # Telegram rejects malformed HTML. Never slice after adding <pre> tags;
+          # chunk the raw report first, then escape each complete chunk.
+          max_chunk=2800
+          chunks=[report[i:i+max_chunk] for i in range(0,len(report),max_chunk)] or ['(no log excerpt)']
+          endpoint='https://api.telegram.org/bot'+os.environ['TELEGRAM_BOT_TOKEN']+'/sendMessage'
+          for index,chunk in enumerate(chunks[:3],1):
+              prefix=f'🚨 <b>BlueVPN Sentinel</b>\nWorkflow: <code>{title}</code>\n' if index==1 else f'🚨 <b>BlueVPN Sentinel</b> ({index}/{min(len(chunks),3)})\n'
+              suffix=link if index==min(len(chunks),3) else ''
+              text=prefix+'<pre>'+html.escape(chunk)+'</pre>'+suffix
+              payload={'chat_id':os.environ['TELEGRAM_CHAT_ID'],'text':text,'parse_mode':'HTML','disable_web_page_preview':'true'}
+              data=urllib.parse.urlencode(payload).encode()
+              last=None
+              for attempt in range(3):
+                  try:
+                      req=urllib.request.Request(endpoint,data=data)
+                      body=urllib.request.urlopen(req,timeout=30).read().decode('utf-8','replace')
+                      if '"ok":true' in body.replace(' ',''):
+                          last=None; break
+                      last=body
+                  except urllib.error.HTTPError as e:
+                      last=e.read().decode('utf-8','replace')
+                      # If Telegram still rejects HTML, retry once as plain text.
+                      if e.code==400:
+                          plain=(prefix.replace('<b>','').replace('</b>','').replace('<code>','').replace('</code>','')+chunk+'\n'+url)[:3800]
+                          data=urllib.parse.urlencode({'chat_id':os.environ['TELEGRAM_CHAT_ID'],'text':plain,'disable_web_page_preview':'true'}).encode()
+                  time.sleep(attempt+1)
+              if last is not None:
+                  raise SystemExit('Telegram delivery failed: '+last[:800])
           PY

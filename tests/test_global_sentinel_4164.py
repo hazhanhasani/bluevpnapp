@@ -7,8 +7,8 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 class GlobalSentinel4164(unittest.TestCase):
     def test_release_version_and_schema(self):
         release=json.loads((ROOT/'release.json').read_text())
-        self.assertEqual(release['version'],'5.0.6')
-        self.assertEqual(release['version_code'],50006)
+        self.assertEqual(release['version'],'5.0.7')
+        self.assertEqual(release['version_code'],50007)
         plugin=(ROOT/'bluevpn-manager/bluevpn-manager.php').read_text()
         self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.25.0",plugin)
         self.assertIn("class-bluevpn-error-monitor.php",plugin)
@@ -80,5 +80,14 @@ class GlobalSentinel4164(unittest.TestCase):
             self.assertIn("addEventListener('unhandledrejection'",js)
             self.assertIn('monitorEndpoint',js)
         self.assertIn('bluevpn-error-monitor',ui)
+
+    def test_sentinel_telegram_keeps_html_well_formed_and_falls_back_plain_text(self):
+        sentinel=(ROOT/'.github/workflows/bluevpn-sentinel.yml').read_text()
+        self.assertIn('max_chunk=2800', sentinel)
+        self.assertIn("chunks=[report[i:i+max_chunk]", sentinel)
+        self.assertIn("'<pre>'+html.escape(chunk)+'</pre>'", sentinel)
+        self.assertIn('if e.code==400', sentinel)
+        self.assertIn("'disable_web_page_preview':'true'", sentinel)
+        self.assertNotIn("</pre>{link}')[:3900]", sentinel)
 
 if __name__=='__main__': unittest.main()

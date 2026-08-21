@@ -8,8 +8,8 @@ def read(p): return (ROOT/p).read_text(encoding='utf-8')
 class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
     def test_release_contract(self):
         r=json.loads(read('release.json'))
-        self.assertEqual(r['version'],'5.0.6')
-        self.assertEqual(r['version_code'],50006)
+        self.assertEqual(r['version'],'5.0.7')
+        self.assertEqual(r['version_code'],50007)
         self.assertEqual(r['windows']['runtime_base'],'v2rayN')
         self.assertEqual(r['windows']['artifact'],'inno_setup_exe')
         self.assertTrue(r['windows']['warp_x64'])
@@ -73,5 +73,23 @@ class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
         self.assertIn('FallbackToSystemProxyAsync',ctrl)
         self.assertIn('ProxyEnable',proxy)
         self.assertIn('RecoverStaleState',proxy)
+
+    def test_singbox_113_configs_use_route_actions_not_legacy_inbound_fields(self):
+        for rel in [
+            'bluevpn-windows/runtime-config/singbox-v2rayn-tun-smoke.json',
+            'bluevpn-windows/runtime-config/singbox-warp-smoke.json',
+        ]:
+            cfg=json.loads(read(rel))
+            self.assertNotIn('sniff', cfg['inbounds'][0])
+            self.assertEqual(cfg['route']['rules'][0].get('action'), 'sniff')
+            self.assertFalse(any(o.get('type') == 'block' for o in cfg.get('outbounds', [])))
+        for rel in [
+            'bluevpn-windows/Services/V2RayNTunConfigBuilder.cs',
+            'bluevpn-windows/Services/SingBoxWarpConfigBuilder.cs',
+        ]:
+            code=read(rel)
+            self.assertNotIn('sniff = true', code)
+            self.assertIn('action = "sniff"', code)
+            self.assertNotIn('type = "block"', code)
 
 if __name__ == '__main__': unittest.main()

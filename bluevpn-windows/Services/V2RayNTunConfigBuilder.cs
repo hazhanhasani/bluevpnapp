@@ -13,6 +13,8 @@ public static class V2RayNTunConfigBuilder
     public static string Build(AppSettings settings, int localSocksPort, string remoteHost, IReadOnlyList<string> remoteIps)
     {
         var rules = new List<object>();
+        // sing-box 1.13 removed inbound.sniff; sniffing is now a route action.
+        rules.Add(new { inbound = new[] { "bluevpn-tun" }, action = "sniff" });
 
         var ipCidrs = remoteIps
             .Where(x => System.Net.IPAddress.TryParse(x, out _))
@@ -51,15 +53,13 @@ public static class V2RayNTunConfigBuilder
                     // network discovery cannot deadlock the tunnel during startup.
                     strict_route = false,
                     stack = "system",
-                    sniff = true,
                     route_exclude_address = routeExclusions
                 }
             },
             outbounds = new object[]
             {
                 new { type = "socks", tag = "xray-local", server = "127.0.0.1", server_port = localSocksPort, version = "5" },
-                new { type = "direct", tag = "direct" },
-                new { type = "block", tag = "block" }
+                new { type = "direct", tag = "direct" }
             },
             route = new
             {

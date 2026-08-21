@@ -1,5 +1,13 @@
-# BlueVPN for Windows — 5.1.1
+# BlueVPN for Windows — 5.1.2
 
+
+
+## 5.1.2 account/premium + diagnostics drawer readability fix
+
+- Rebuilds the Windows account drawer with a wider high-DPI-safe layout, wrapped account/subscription text and explicit spacing between authentication, entitlement and premium-plan sections.
+- Premium plan cards now expose title, description, duration, price, data limit and device limit in separate rows instead of compressing all metadata into one line.
+- Rebuilds the settings/update/technical drawer with clearer hierarchy, larger update controls, wrapped BlueAI/Core status and a separate IP row.
+- Preserves the 5.1.1 responsive home/ad aspect-ratio fix and all 5.1.0 runtime/BlueAI/fast-connect hardening.
 
 
 ## 5.1.1 responsive home layout + campaign aspect-ratio fix

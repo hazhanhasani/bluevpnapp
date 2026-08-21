@@ -8,8 +8,8 @@ def read(path): return (ROOT/path).read_text(encoding='utf-8')
 class WindowsAndroidUiTun4176Tests(unittest.TestCase):
     def test_release(self):
         r=json.loads(read('release.json'))
-        self.assertEqual(r['version'],'5.1.1')
-        self.assertEqual(r['version_code'],50101)
+        self.assertEqual(r['version'],'5.1.2')
+        self.assertEqual(r['version_code'],50102)
 
     def test_windows_home_matches_android_surface_order(self):
         x=read('bluevpn-windows/MainWindow.xaml')
@@ -21,6 +21,22 @@ class WindowsAndroidUiTun4176Tests(unittest.TestCase):
             last=pos
         self.assertIn('#FFF6F8FC',read('bluevpn-windows/App.xaml'))
         self.assertIn('#FF356DF1',read('bluevpn-windows/App.xaml'))
+
+    def test_account_premium_and_menu_drawers_are_high_dpi_safe(self):
+        x=read('bluevpn-windows/MainWindow.xaml')
+        self.assertIn('Width="440" MaxWidth="440"', x)
+        self.assertIn('Width="420" MaxWidth="420"', x)
+        for name in ['IdentityText','PlanText','ExpiryText','TrafficText','MenuTechnicalText','MenuIpText']:
+            pos=x.find(f'x:Name="{name}"')
+            self.assertGreaterEqual(pos,0,name)
+            snippet=x[pos:pos+420]
+            self.assertIn('TextWrapping="Wrap"', snippet, name)
+        self.assertIn('Text="{Binding Description}"', x)
+        self.assertIn('Text="{Binding DataLimitGb}"', x)
+        self.assertIn('Text="{Binding DeviceLimit}"', x)
+        self.assertIn('Text="پلن‌های ویژه"', x)
+        self.assertIn('Text="تنظیمات، بروزرسانی و وضعیت فنی"', x)
+        self.assertNotIn('<Run Text="{Binding DurationDays}"/><Run Text=" روز • "/><Run Text="{Binding PriceToman}"/><Run Text=" تومان"/>', x)
 
     def test_v2rayn_split_core_tun_is_real_system_path(self):
         xray=read('bluevpn-windows/Services/XrayConfigBuilder.cs')

@@ -8,8 +8,8 @@ def read(p): return (ROOT/p).read_text(encoding='utf-8')
 class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
     def test_release_contract(self):
         r=json.loads(read('release.json'))
-        self.assertEqual(r['version'],'5.0.7')
-        self.assertEqual(r['version_code'],50007)
+        self.assertEqual(r['version'],'5.0.8')
+        self.assertEqual(r['version_code'],50008)
         self.assertEqual(r['windows']['runtime_base'],'v2rayN')
         self.assertEqual(r['windows']['artifact'],'inno_setup_exe')
         self.assertTrue(r['windows']['warp_x64'])
@@ -24,16 +24,18 @@ class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
     def test_runtime_configs_are_smoke_checked_by_real_cores(self):
         wf=read('.github/workflows/build-windows.yml')
         self.assertIn('xray-local-proxy-smoke.json',wf)
-        self.assertIn('singbox-v2rayn-tun-smoke.json',wf)
-        self.assertIn('singbox-warp-smoke.json',wf)
         self.assertIn('run -test -config',wf)
+        self.assertIn('Validate generated sing-box configs from Windows builders',wf)
+        self.assertIn('SmokeConfigGenerator',wf)
+        self.assertIn('singbox-v2rayn-generated.json',wf)
+        self.assertIn('singbox-warp-generated.json',wf)
         self.assertIn('check -c',wf)
 
     def test_warp_is_full_tun_not_system_proxy_only(self):
         c=read('bluevpn-windows/Services/SingBoxWarpConfigBuilder.cs')
         self.assertIn('type = "tun"',c)
         self.assertIn('auto_route = true',c)
-        self.assertIn('strict_route = false',c)
+        self.assertIn('strict_route = true',c)
         self.assertIn('final = "warp-socks"',c)
         self.assertIn('aether.exe',c)
 

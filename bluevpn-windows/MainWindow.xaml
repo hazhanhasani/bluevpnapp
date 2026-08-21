@@ -44,7 +44,7 @@
                         <Path Data="M4,21 C4.6,15 8,12.5 12,12.5 C16,12.5 19.4,15 20,21 Z" Stroke="{StaticResource BlueVpnTextSecondary}" StrokeThickness="1.8" Fill="Transparent" StrokeLineJoin="Round"/>
                     </Grid>
                 </Button>
-                <TextBlock Grid.Column="2" x:Name="VersionText" Text="5.0.7" FontSize="12" FontWeight="SemiBold"
+                <TextBlock Grid.Column="2" x:Name="VersionText" Text="5.0.8" FontSize="12" FontWeight="SemiBold"
                            Foreground="{StaticResource BlueVpnMuted}" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                 <Button Grid.Column="3" x:Name="MenuButton" Click="MenuButton_Click"
                         Width="48" Height="48" Padding="0" Margin="0" ToolTip="منو"
@@ -224,8 +224,8 @@
 
         <!-- Account drawer -->
         <Grid x:Name="AccountDrawer" Visibility="Collapsed" Background="#66000000" Panel.ZIndex="20">
-            <Border Width="420" MaxWidth="420" HorizontalAlignment="Left" VerticalAlignment="Stretch" Background="{StaticResource BlueVpnBg}"
-                    Padding="20" BorderBrush="{StaticResource BlueVpnStroke}" BorderThickness="0,0,1,0">
+            <Border Width="400" MaxWidth="400" HorizontalAlignment="Left" VerticalAlignment="Stretch" Background="{StaticResource BlueVpnBg}"
+                    Padding="18" BorderBrush="{StaticResource BlueVpnStroke}" BorderThickness="0,0,1,0" FontFamily="Segoe UI Variable Text, Segoe UI">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
                         <Grid Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -235,48 +235,48 @@
                         <StackPanel x:Name="LoginPanel">
                             <!-- Android auth parity: dark authentication card, SMS/Email segmented mode,
                                  OTP step and Email login/register sub-mode. -->
-                            <Border Background="#FF030405" CornerRadius="26" Padding="16" BorderBrush="#FF202126" BorderThickness="1">
+                            <Border Background="White" CornerRadius="22" Padding="16" BorderBrush="#FFD9DFEC" BorderThickness="1">
                                 <StackPanel>
-                                    <TextBlock Text="ورود امن به BlueVPN" Foreground="White" FontSize="20" FontWeight="Bold" TextAlignment="Center"/>
-                                    <TextBlock x:Name="AuthHintText" Text="ورود امن با کد یک‌بارمصرف ۶ رقمی" Foreground="#FFD8DEE9" FontSize="11.5"
+                                    <TextBlock Text="ورود امن به BlueVPN" Foreground="{StaticResource BlueVpnText}" FontSize="19" FontWeight="SemiBold" TextAlignment="Center"/>
+                                    <TextBlock x:Name="AuthHintText" Text="ورود امن با کد یک‌بارمصرف ۶ رقمی" Foreground="{StaticResource BlueVpnTextSecondary}" FontSize="11.5"
                                                TextAlignment="Center" TextWrapping="Wrap" Margin="8,7,8,14"/>
 
                                     <Grid FlowDirection="LeftToRight" Margin="0,0,0,12">
                                         <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
-                                        <Button Grid.Column="0" x:Name="SmsModeButton" Content="پیامک" Click="AuthSmsMode_Click" Height="42" Margin="0,0,3,0"
-                                                Background="#FF21140D" Foreground="#FFF97316" BorderBrush="#FFA9561F" FontWeight="Bold"/>
-                                        <Button Grid.Column="1" x:Name="EmailModeButton" Content="ایمیل" Click="AuthEmailMode_Click" Height="42" Margin="3,0,0,0"
-                                                Background="#FF101114" Foreground="#FFE5E7EB" BorderBrush="#FF697386" FontWeight="Bold"/>
+                                        <Button Grid.Column="0" x:Name="SmsModeButton" Content="پیامک" Click="AuthSmsMode_Click" Height="38" Margin="0,0,3,0"
+                                                Background="#FFEAF1FF" Foreground="{StaticResource BlueVpnBlue2}" BorderBrush="#FFB9C9F4" FontWeight="Bold"/>
+                                        <Button Grid.Column="1" x:Name="EmailModeButton" Content="ایمیل" Click="AuthEmailMode_Click" Height="38" Margin="3,0,0,0"
+                                                Background="#FFF5F7FC" Foreground="{StaticResource BlueVpnTextSecondary}" BorderBrush="{StaticResource BlueVpnStroke}" FontWeight="Bold"/>
                                     </Grid>
 
-                                    <Border Background="#FF0F1012" CornerRadius="20" BorderBrush="#FF27272A" BorderThickness="1" Padding="16">
+                                    <Border Background="#FFF8FAFE" CornerRadius="18" BorderBrush="#FFDDE5F2" BorderThickness="1" Padding="14">
                                         <Grid>
                                             <StackPanel x:Name="SmsAuthPanel">
                                                 <StackPanel x:Name="SmsPhoneStage">
-                                                    <TextBlock Text="ورود به حساب کاربری" Foreground="White" FontSize="18" FontWeight="Bold"/>
+                                                    <TextBlock Text="ورود به حساب کاربری" Foreground="{StaticResource BlueVpnText}" FontSize="17" FontWeight="SemiBold"/>
                                                     <TextBlock Text="شماره موبایل خود را وارد کنید تا کد ورود ۶ رقمی برایتان ارسال شود."
-                                                               Foreground="#FFD8DEE9" FontSize="11.5" TextWrapping="Wrap" Margin="0,7,0,16"/>
-                                                    <TextBlock Text="شماره موبایل" Foreground="#FFD4D4D8" FontSize="11"/>
+                                                               Foreground="{StaticResource BlueVpnTextSecondary}" FontSize="11.5" TextWrapping="Wrap" Margin="0,7,0,16"/>
+                                                    <TextBlock Text="شماره موبایل" Foreground="{StaticResource BlueVpnMuted}" FontSize="11" FontWeight="SemiBold"/>
                                                     <TextBox x:Name="PhoneBox" FlowDirection="LeftToRight" TextAlignment="Left" MaxLength="14"
-                                                             Background="#FF111827" Foreground="White" BorderBrush="#FF697386" CaretBrush="#FFF97316"
-                                                             FontSize="15" Padding="13,11" Margin="0,7,0,8"/>
-                                                    <Button Content="ارسال کد ورود" Click="RequestOtp_Click" Height="50" Margin="0,10,0,0"
-                                                            Background="#FFFF8A1F" Foreground="#FF111827" BorderBrush="#FFEA580C" FontWeight="Bold"/>
+                                                             Background="White" Foreground="{StaticResource BlueVpnText}" BorderBrush="#FFC9D4E8" CaretBrush="{StaticResource BlueVpnBlue}"
+                                                             FontSize="14" Padding="12,9" Margin="0,7,0,8"/>
+                                                    <Button Content="ارسال کد ورود" Click="RequestOtp_Click" Height="44" Margin="0,9,0,0"
+                                                            Background="{StaticResource BlueVpnBlue}" Foreground="White" BorderBrush="{StaticResource BlueVpnBlue2}" FontWeight="SemiBold"/>
                                                 </StackPanel>
 
                                                 <StackPanel x:Name="SmsOtpStage" Visibility="Collapsed">
                                                     <Button Content="→  تغییر شماره" Click="ChangePhone_Click" HorizontalAlignment="Left" Margin="0,0,0,8"
-                                                            Background="Transparent" Foreground="#FFF97316" BorderBrush="Transparent" Padding="4" FontWeight="Bold"/>
-                                                    <TextBlock Text="کد تأیید را وارد کنید" Foreground="White" FontSize="18" FontWeight="Bold"/>
+                                                            Background="Transparent" Foreground="{StaticResource BlueVpnBlue2}" BorderBrush="Transparent" Padding="4" FontWeight="Bold"/>
+                                                    <TextBlock Text="کد تأیید را وارد کنید" Foreground="{StaticResource BlueVpnText}" FontSize="17" FontWeight="SemiBold"/>
                                                     <TextBlock x:Name="OtpTargetText" Text="کد ۶ رقمی ارسال‌شده را وارد کنید."
-                                                               Foreground="#FFD8DEE9" FontSize="11.5" TextWrapping="Wrap" Margin="0,7,0,15"/>
+                                                               Foreground="{StaticResource BlueVpnTextSecondary}" FontSize="11.5" TextWrapping="Wrap" Margin="0,7,0,15"/>
                                                     <TextBox x:Name="OtpBox" FlowDirection="LeftToRight" TextAlignment="Center" MaxLength="6"
-                                                             Background="#FF111827" Foreground="White" BorderBrush="#FF697386" CaretBrush="#FFF97316"
-                                                             FontSize="25" FontWeight="Bold" CharacterCasing="Upper" Padding="13,11" Margin="0,0,0,8"/>
-                                                    <Button Content="تأیید و ورود" Click="VerifyOtp_Click" Height="50" Margin="0,10,0,0"
-                                                            Background="#FFFF8A1F" Foreground="#FF111827" BorderBrush="#FFEA580C" FontWeight="Bold"/>
+                                                             Background="White" Foreground="{StaticResource BlueVpnText}" BorderBrush="#FFC9D4E8" CaretBrush="{StaticResource BlueVpnBlue}"
+                                                             FontSize="22" FontWeight="SemiBold" CharacterCasing="Upper" Padding="12,9" Margin="0,0,0,8"/>
+                                                    <Button Content="تأیید و ورود" Click="VerifyOtp_Click" Height="44" Margin="0,9,0,0"
+                                                            Background="{StaticResource BlueVpnBlue}" Foreground="White" BorderBrush="{StaticResource BlueVpnBlue2}" FontWeight="SemiBold"/>
                                                     <Button Content="کد را دریافت نکردید؟  ارسال مجدد" Click="ResendOtp_Click" Height="40" Margin="0,8,0,0"
-                                                            Background="Transparent" Foreground="#FFF97316" BorderBrush="Transparent"/>
+                                                            Background="Transparent" Foreground="{StaticResource BlueVpnBlue2}" BorderBrush="Transparent"/>
                                                 </StackPanel>
                                             </StackPanel>
 
@@ -284,29 +284,29 @@
                                                 <Grid FlowDirection="LeftToRight" Margin="0,0,0,14">
                                                     <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
                                                     <Button Grid.Column="0" x:Name="EmailLoginModeButton" Content="ورود" Click="EmailLoginMode_Click" Height="38" Margin="0,0,3,0"
-                                                            Background="#FF21140D" Foreground="#FFF97316" BorderBrush="#FFA9561F" FontWeight="Bold"/>
+                                                            Background="#FFEAF1FF" Foreground="{StaticResource BlueVpnBlue2}" BorderBrush="#FFB9C9F4" FontWeight="Bold"/>
                                                     <Button Grid.Column="1" x:Name="EmailRegisterModeButton" Content="ثبت‌نام" Click="EmailRegisterMode_Click" Height="38" Margin="3,0,0,0"
-                                                            Background="#FF101114" Foreground="#FFE5E7EB" BorderBrush="#FF697386" FontWeight="Bold"/>
+                                                            Background="#FFF5F7FC" Foreground="{StaticResource BlueVpnTextSecondary}" BorderBrush="{StaticResource BlueVpnStroke}" FontWeight="Bold"/>
                                                 </Grid>
-                                                <TextBlock x:Name="EmailTitleText" Text="ورود با ایمیل" Foreground="White" FontSize="18" FontWeight="Bold"/>
+                                                <TextBlock x:Name="EmailTitleText" Text="ورود با ایمیل" Foreground="{StaticResource BlueVpnText}" FontSize="17" FontWeight="SemiBold"/>
                                                 <TextBlock x:Name="EmailSubtitleText" Text="ایمیل و رمز عبور حساب BlueVPN خود را وارد کنید."
-                                                           Foreground="#FFD8DEE9" FontSize="11.5" TextWrapping="Wrap" Margin="0,7,0,15"/>
-                                                <TextBlock Text="ایمیل" Foreground="#FFD4D4D8" FontSize="11"/>
+                                                           Foreground="{StaticResource BlueVpnTextSecondary}" FontSize="11.5" TextWrapping="Wrap" Margin="0,7,0,15"/>
+                                                <TextBlock Text="ایمیل" Foreground="{StaticResource BlueVpnMuted}" FontSize="11" FontWeight="SemiBold"/>
                                                 <TextBox x:Name="EmailBox" FlowDirection="LeftToRight" TextAlignment="Left"
-                                                         Background="#FF111827" Foreground="White" BorderBrush="#FF697386" CaretBrush="#FFF97316"
-                                                         FontSize="14" Padding="13,11" Margin="0,7,0,10"/>
-                                                <TextBlock Text="رمز عبور" Foreground="#FFD4D4D8" FontSize="11"/>
+                                                         Background="White" Foreground="{StaticResource BlueVpnText}" BorderBrush="#FFC9D4E8" CaretBrush="{StaticResource BlueVpnBlue}"
+                                                         FontSize="13.5" Padding="12,9" Margin="0,7,0,10"/>
+                                                <TextBlock Text="رمز عبور" Foreground="{StaticResource BlueVpnMuted}" FontSize="11" FontWeight="SemiBold"/>
                                                 <PasswordBox x:Name="PasswordBox" FlowDirection="LeftToRight"
-                                                             Background="#FF111827" Foreground="White" BorderBrush="#FF697386" CaretBrush="#FFF97316"
-                                                             FontSize="14" Padding="13,11" Margin="0,7,0,8"/>
-                                                <Button x:Name="EmailSubmitButton" Content="ورود به BlueVPN" Click="EmailSubmit_Click" Height="50" Margin="0,10,0,0"
-                                                        Background="#FFFF8A1F" Foreground="#FF111827" BorderBrush="#FFEA580C" FontWeight="Bold"/>
+                                                             Background="White" Foreground="{StaticResource BlueVpnText}" BorderBrush="#FFC9D4E8" CaretBrush="{StaticResource BlueVpnBlue}"
+                                                             FontSize="13.5" Padding="12,9" Margin="0,7,0,8"/>
+                                                <Button x:Name="EmailSubmitButton" Content="ورود به BlueVPN" Click="EmailSubmit_Click" Height="44" Margin="0,9,0,0"
+                                                        Background="{StaticResource BlueVpnBlue}" Foreground="White" BorderBrush="{StaticResource BlueVpnBlue2}" FontWeight="SemiBold"/>
                                             </StackPanel>
                                         </Grid>
                                     </Border>
 
                                     <TextBlock x:Name="AuthStatusText" Text="ورود روی همین دستگاه ذخیره می‌شود و اطلاعات اشتراک در پس‌زمینه همگام خواهد شد."
-                                               Foreground="#FFB8C2D0" FontSize="10" TextAlignment="Center" TextWrapping="Wrap" Margin="8,13,8,0"/>
+                                               Foreground="{StaticResource BlueVpnMuted}" FontSize="10.5" TextAlignment="Center" TextWrapping="Wrap" Margin="8,13,8,0"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -342,7 +342,7 @@
                     </Grid>
                     <Border Background="White" CornerRadius="18" BorderBrush="{StaticResource BlueVpnStroke}" BorderThickness="1" Padding="14">
                         <StackPanel><TextBlock Text="نسخه برنامه" FontSize="11" Foreground="{StaticResource BlueVpnMuted}"/>
-                            <TextBlock x:Name="MenuVersionText" Text="5.0.7" FontSize="17" FontWeight="Bold" Margin="0,3,0,10"/>
+                            <TextBlock x:Name="MenuVersionText" Text="5.0.8" FontSize="17" FontWeight="Bold" Margin="0,3,0,10"/>
                             <TextBlock Text="هسته اتصال" FontSize="11" Foreground="{StaticResource BlueVpnMuted}"/>
                             <TextBlock x:Name="CoreVersionText" Text="BlueVPN Core" FontSize="15" FontWeight="SemiBold" Margin="0,3,0,0"/>
                         </StackPanel>

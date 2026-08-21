@@ -25,7 +25,28 @@ public sealed class MobileConfigResponse
     [JsonPropertyName("free_story_ads")] public FreeStoryAdsConfig FreeStoryAds { get; set; } = new();
     [JsonPropertyName("tapsell")] public TapsellConfig Tapsell { get; set; } = new();
     [JsonPropertyName("free_access")] public FreeAccessConfig FreeAccess { get; set; } = new();
+    [JsonPropertyName("blueai")] public BlueAiRuntimeConfig BlueAi { get; set; } = new();
 }
+
+public sealed class BlueAiRuntimeConfig
+{
+    [JsonPropertyName("enabled")] public bool Enabled { get; set; } = true;
+    [JsonPropertyName("free_enabled")] public bool FreeEnabled { get; set; } = true;
+    [JsonPropertyName("premium_enabled")] public bool PremiumEnabled { get; set; } = true;
+    [JsonPropertyName("collective")] public bool Collective { get; set; } = true;
+    [JsonPropertyName("auto_heal")] public bool AutoHeal { get; set; } = true;
+    [JsonPropertyName("shadow_mode")] public bool ShadowMode { get; set; } = true;
+    [JsonPropertyName("predictive_failover")] public bool PredictiveFailover { get; set; } = true;
+    [JsonPropertyName("anomaly_detection")] public bool AnomalyDetection { get; set; } = true;
+    [JsonPropertyName("engine_version")] public string EngineVersion { get; set; } = "";
+    [JsonPropertyName("schema_version")] public int SchemaVersion { get; set; }
+}
+
+public sealed record TunnelProbeMeasurement(
+    bool Success,
+    int LatencyMs,
+    ConnectivitySnapshot Snapshot,
+    string Source);
 
 public sealed class AdvertisingConfig
 {

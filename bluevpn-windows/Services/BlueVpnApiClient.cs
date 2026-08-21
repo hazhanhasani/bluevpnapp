@@ -137,6 +137,17 @@ public sealed class BlueVpnApiClient : IDisposable
         return await GetAsync<MobileConfigResponse>(path, ct);
     }
 
+    public Task<AiRecommendationsResponse> GetAiRecommendationsAsync(
+        string networkOperator, string networkType, string mode, string planTier, CancellationToken ct = default)
+    {
+        static string Q(string value) => Uri.EscapeDataString(string.IsNullOrWhiteSpace(value) ? "unknown" : value.Trim());
+        var path = $"wp-json/bluevpn/v1/ai/recommendations?operator={Q(networkOperator)}&network_type={Q(networkType)}&mode={Q(mode)}&plan_tier={Q(planTier)}";
+        return GetAsync<AiRecommendationsResponse>(path, ct);
+    }
+
+    public Task<AiEventResponse> PostAiEventAsync(object payload, CancellationToken ct = default) =>
+        PostAsync<AiEventResponse>("wp-json/bluevpn/v1/ai/events", payload, ct);
+
     public async Task<WindowsUpdateResponse> GetWindowsUpdateAsync(string currentVersion, string architecture, CancellationToken ct = default)
     {
         var path = _settings.WindowsUpdatePath.TrimStart('/');

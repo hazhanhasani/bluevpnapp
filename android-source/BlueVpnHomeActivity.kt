@@ -4440,7 +4440,7 @@ private fun dpHome(value: Int): Int =
 
                 if (
                     isExactAttemptRunning() &&
-                    round < 3
+                    round < 2
                 ) {
                     // Do not classify a v2rayNG-compatible config as dead after a
                     // single BlueVPN probe. Reality/WS/gRPC/TLS can need a longer
@@ -4452,7 +4452,7 @@ private fun dpHome(value: Int): Int =
                         )
                     } else {
                         statusText.text = "در حال تأیید اینترنت"
-                        statusCaption.text = "تست واقعی ${round + 1} از ۳"
+                        statusCaption.text = "تست واقعی ${round + 1} از ۲"
                     }
                     mainViewModel.testCurrentServerRealPing()
                     handler.postDelayed({
@@ -4477,7 +4477,7 @@ private fun dpHome(value: Int): Int =
 
     private fun waitForLocalProxyReady(
         httpPort: Int,
-        maxWaitMs: Long = 5_000L,
+        maxWaitMs: Long = 3_000L,
     ): Boolean {
         val deadline = SystemClock.elapsedRealtime() + maxWaitMs
         do {
@@ -4500,10 +4500,12 @@ private fun dpHome(value: Int): Int =
 
     private suspend fun probeInternetThroughCore(): Long? =
         withContext(Dispatchers.IO) {
-            // v2rayNG 2.2.6 maps getHttpPort() to the SOCKS port on Xray.
-            // Use the canonical SOCKS port explicitly so dynamic-port refreshes
-            // and local-proxy readiness are tied to the same runtime inbound.
-            val localPort = SettingsManager.getSocksPort()
+            // Use the upstream canonical HTTP port for HTTP probes. Keep the
+            // SOCKS port only as a short compatibility fallback; never spend a
+            // second full probe window on the same local inbound.
+            val httpPort = SettingsManager.getHttpPort()
+            val socksPort = SettingsManager.getSocksPort()
+            val localPort = httpPort
 
             if (localPort !in 1..65535) {
                 return@withContext null
@@ -4561,7 +4563,7 @@ private fun dpHome(value: Int): Int =
                     }
 
                     try {
-                        val deadline = SystemClock.elapsedRealtime() + 6_500L
+                        val deadline = SystemClock.elapsedRealtime() + if (proxyType == Proxy.Type.HTTP) 3_200L else 2_200L
                         repeat(futures.size) {
                             val remaining = (
                                 deadline - SystemClock.elapsedRealtime()
@@ -4589,7 +4591,7 @@ private fun dpHome(value: Int): Int =
                 val username = SettingsManager.getSocksUsername()
                 val password = SettingsManager.getSocksPassword()
                 if (username.isNullOrBlank() && password.isNullOrBlank()) {
-                    race(Proxy.Type.SOCKS)
+                    if (socksPort in 1..65535) race(Proxy.Type.SOCKS) else null
                 } else {
                     null
                 }
@@ -4609,8 +4611,8 @@ private fun dpHome(value: Int): Int =
                 val connection = URL("https://1.1.1.1/cdn-cgi/trace").openConnection(proxy) as HttpURLConnection
                 try {
                     connection.instanceFollowRedirects = false
-                    connection.connectTimeout = 3_000
-                    connection.readTimeout = 3_000
+                    connection.connectTimeout = 2_100
+                    connection.readTimeout = 2_100
                     connection.requestMethod = "GET"
                     connection.useCaches = false
                     connection.setRequestProperty("Connection", "close")
@@ -4653,8 +4655,8 @@ private fun dpHome(value: Int): Int =
 
             try {
                 connection.instanceFollowRedirects = false
-                connection.connectTimeout = 3_000
-                connection.readTimeout = 3_000
+                connection.connectTimeout = 2_100
+                connection.readTimeout = 2_100
                 connection.requestMethod = "GET"
                 connection.useCaches = false
                 connection.setRequestProperty("Connection", "close")

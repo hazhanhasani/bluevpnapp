@@ -94,10 +94,6 @@ jobs:
           if ($env:RID -eq 'win-x64') {
             & (Join-Path $core 'xray.exe') run -test -config 'bluevpn-windows/runtime-config/xray-local-proxy-smoke.json'
             if ($LASTEXITCODE -ne 0) { throw 'Xray local proxy smoke check failed' }
-            & (Join-Path $core 'sing-box.exe') check -c 'bluevpn-windows/runtime-config/singbox-v2rayn-tun-smoke.json'
-            if ($LASTEXITCODE -ne 0) { throw 'v2rayN TUN smoke check failed' }
-            & (Join-Path $core 'sing-box.exe') check -c 'bluevpn-windows/runtime-config/singbox-warp-smoke.json'
-            if ($LASTEXITCODE -ne 0) { throw 'WARP TUN smoke check failed' }
           }
 
       - name: Fetch official Aether WARP runtime for x64
@@ -126,6 +122,19 @@ jobs:
       - name: Compile Windows client
         shell: pwsh
         run: dotnet build bluevpn-windows/BlueVPN.Windows.csproj -c Release
+
+      - name: Validate generated sing-box configs from Windows builders
+        if: ${{ matrix.rid == 'win-x64' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'bluevpn-generated-smoke'
+          dotnet run --project bluevpn-windows/SmokeConfigGenerator/BlueVPN.Windows.SmokeConfigGenerator.csproj -c Release -- $out
+          $sing='bluevpn-windows/runtime/v2rayn/bluevpn-core/sing-box.exe'
+          & $sing check -c (Join-Path $out 'singbox-v2rayn-generated.json')
+          if($LASTEXITCODE -ne 0){throw 'Generated Xray TUN config rejected by sing-box'}
+          & $sing check -c (Join-Path $out 'singbox-warp-generated.json')
+          if($LASTEXITCODE -ne 0){throw 'Generated WARP TUN config rejected by sing-box'}
 
       - name: Publish self-contained Windows client
         shell: pwsh

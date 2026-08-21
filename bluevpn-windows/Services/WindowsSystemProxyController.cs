@@ -38,7 +38,7 @@ public sealed class WindowsSystemProxyController
             ?? throw new InvalidOperationException("تنظیمات Proxy ویندوز در دسترس نیست.");
         key.SetValue("ProxyEnable", 1, RegistryValueKind.DWord);
         key.SetValue("ProxyServer", $"http=127.0.0.1:{httpPort};https=127.0.0.1:{httpPort};socks=127.0.0.1:{socksPort}", RegistryValueKind.String);
-        key.SetValue("ProxyOverride", "localhost;127.*;10.*;172.16.*;172.17.*;172.18.*;172.19.*;172.2*;192.168.*;<local>", RegistryValueKind.String);
+        key.SetValue("ProxyOverride", PrivateBypassList(), RegistryValueKind.String);
         RefreshInternetSettings();
         IsActive = true;
     }
@@ -46,14 +46,14 @@ public sealed class WindowsSystemProxyController
     public void Restore()
     {
         if (!OperatingSystem.IsWindows()) { IsActive = false; return; }
-        RestoreFromFile(deleteAfter: true);
-        IsActive = false;
+        var restored = RestoreFromFile(deleteAfterSuccess: true);
+        IsActive = !restored && File.Exists(_statePath);
     }
 
     private void RecoverStaleState()
     {
         if (!OperatingSystem.IsWindows() || !File.Exists(_statePath)) return;
-        RestoreFromFile(deleteAfter: true);
+        _ = RestoreFromFile(deleteAfterSuccess: true);
     }
 
     private void SaveCurrentState()
@@ -66,31 +66,42 @@ public sealed class WindowsSystemProxyController
             ProxyServer = Convert.ToString(key.GetValue("ProxyServer", "")) ?? "",
             ProxyOverride = Convert.ToString(key.GetValue("ProxyOverride", "")) ?? "",
         };
-        File.WriteAllText(_statePath, JsonSerializer.Serialize(state, AppSettings.JsonOptions()));
+        var temp = _statePath + ".tmp";
+        File.WriteAllText(temp, JsonSerializer.Serialize(state, AppSettings.JsonOptions()));
+        File.Move(temp, _statePath, overwrite: true);
     }
 
-    private void RestoreFromFile(bool deleteAfter)
+    private bool RestoreFromFile(bool deleteAfterSuccess)
     {
+        var restored = false;
         try
         {
-            if (!File.Exists(_statePath)) return;
+            if (!File.Exists(_statePath)) return true;
             var state = JsonSerializer.Deserialize<ProxyState>(File.ReadAllText(_statePath), AppSettings.JsonOptions());
-            if (state is null) return;
+            if (state is null) return false;
             using var key = Registry.CurrentUser.OpenSubKey(InternetSettings, writable: true);
-            if (key is null) return;
+            if (key is null) return false;
             key.SetValue("ProxyEnable", state.ProxyEnable, RegistryValueKind.DWord);
             key.SetValue("ProxyServer", state.ProxyServer ?? "", RegistryValueKind.String);
             key.SetValue("ProxyOverride", state.ProxyOverride ?? "", RegistryValueKind.String);
             RefreshInternetSettings();
+            restored = true;
+            return true;
         }
-        catch { }
+        catch { return false; }
         finally
         {
-            if (deleteAfter)
+            if (restored && deleteAfterSuccess)
             {
                 try { if (File.Exists(_statePath)) File.Delete(_statePath); } catch { }
             }
         }
+    }
+
+    private static string PrivateBypassList()
+    {
+        var ranges = Enumerable.Range(16, 16).Select(x => $"172.{x}.*");
+        return string.Join(';', new[] { "localhost", "127.*", "10.*" }.Concat(ranges).Concat(new[] { "192.168.*", "<local>" }));
     }
 
     private static void RefreshInternetSettings()

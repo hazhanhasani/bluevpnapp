@@ -10,8 +10,8 @@ public static class EndpointSelector
         IReadOnlyList<ProxyEndpoint> endpoints,
         CancellationToken ct = default)
     {
-        var limited = endpoints.Take(20).ToList();
-        using var gate = new SemaphoreSlim(12);
+        var limited = endpoints.Take(16).ToList();
+        using var gate = new SemaphoreSlim(16);
         var tasks = limited.Select(async endpoint =>
         {
             await gate.WaitAsync(ct);
@@ -40,7 +40,7 @@ public static class EndpointSelector
         {
             using var client = new TcpClient();
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromMilliseconds(1500));
+            timeout.CancelAfter(TimeSpan.FromMilliseconds(900));
             await client.ConnectAsync(host, port, timeout.Token);
             sw.Stop();
             return (int)Math.Clamp(sw.ElapsedMilliseconds, 1, 60_000);

@@ -19,7 +19,7 @@ public static class SystemTunnelVerifier
             return new(false, "", "", "", "", "IP پایه قبل از VPN معتبر نیست؛ Connected تأیید نشد.");
 
         var tunnelName = string.IsNullOrWhiteSpace(expectedTunnelName) ? "BlueVPN" : expectedTunnelName.Trim();
-        var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(16);
+        var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(6);
         ConnectivitySnapshot after = new(false, "", "", "", DateTimeOffset.UtcNow);
         RouteEvidence route = new(false, true, "", "", "no route evidence");
         string adapter = "";
@@ -33,7 +33,7 @@ public static class SystemTunnelVerifier
             {
                 adapter = await Task.Run(() => FindTunnelAdapter(tunnelName), ct).ConfigureAwait(false);
                 route = await DefaultRouteEvidenceAsync(tunnelName, ct).ConfigureAwait(false);
-                nextRouteProbe = DateTimeOffset.UtcNow + TimeSpan.FromMilliseconds(1200);
+                nextRouteProbe = DateTimeOffset.UtcNow + TimeSpan.FromMilliseconds(700);
             }
 
             after = requireWarp
@@ -51,7 +51,7 @@ public static class SystemTunnelVerifier
             var warpOk = !requireWarp || after.Warp.Equals("on", StringComparison.OrdinalIgnoreCase) || after.Warp.Equals("plus", StringComparison.OrdinalIgnoreCase);
             var countryBlocked = blockedCountries.Any(x => x.Equals(after.Country, StringComparison.OrdinalIgnoreCase));
 
-            if (adapterOk && routeOk && ipChanged && warpOk && !countryBlocked)
+            if (adapterOk && routeOk && route.Ipv6Safe && ipChanged && warpOk && !countryBlocked)
             {
                 consecutive++;
                 if (consecutive >= 2)
@@ -59,12 +59,13 @@ public static class SystemTunnelVerifier
                         $"tun={adapter}; v4={route.Ipv4Alias}; v6={route.Ipv6Alias}; v6safe={route.Ipv6Safe}; ip={after.PublicIp}; loc={after.Country}; warp={after.Warp}");
             }
             else consecutive = 0;
-            await Task.Delay(300, ct).ConfigureAwait(false);
+            await Task.Delay(180, ct).ConfigureAwait(false);
         }
 
         var reason = !after.Reachable ? "اینترنت از مسیر TUN پاسخ نداد"
             : string.IsNullOrWhiteSpace(adapter) ? $"آداپتور TUN اختصاصی {tunnelName} بالا نیامد"
             : !route.Ipv4ThroughTunnel ? $"مسیر IPv4 هنوز از BlueVPN عبور نمی‌کند ({route.Ipv4Alias})"
+            : !route.Ipv6Safe ? $"مسیر IPv6 فیزیکی هنوز خارج از BlueVPN فعال است ({route.Ipv6Alias})"
             : requireWarp && !(after.Warp.Equals("on", StringComparison.OrdinalIgnoreCase) || after.Warp.Equals("plus", StringComparison.OrdinalIgnoreCase)) ? "WARP در خروجی تأیید نشد"
             : blockedCountries.Any(x => x.Equals(after.Country, StringComparison.OrdinalIgnoreCase)) ? $"خروجی VPN در کشور مسدودشده {after.Country} است"
             : string.Equals(before.PublicIp, after.PublicIp, StringComparison.OrdinalIgnoreCase) ? "IP سیستم تغییر نکرد؛ مسیر TUN اعمال نشده است"
@@ -92,7 +93,7 @@ public static class SystemTunnelVerifier
         {
             ct.ThrowIfCancellationRequested();
             after = await ConnectivityProbe.SnapshotViaHttpProxyAsync(
-                probeUrl, "127.0.0.1", httpPort, TimeSpan.FromSeconds(4), ct).ConfigureAwait(false);
+                probeUrl, "127.0.0.1", httpPort, TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
             if (after.Reachable && !string.IsNullOrWhiteSpace(after.PublicIp) &&
                 !string.Equals(before.PublicIp, after.PublicIp, StringComparison.OrdinalIgnoreCase))
             {

@@ -8,8 +8,8 @@ def read(path): return (ROOT/path).read_text(encoding='utf-8')
 class WindowsAndroidUiTun4176Tests(unittest.TestCase):
     def test_release(self):
         r=json.loads(read('release.json'))
-        self.assertEqual(r['version'],'5.0.7')
-        self.assertEqual(r['version_code'],50007)
+        self.assertEqual(r['version'],'5.0.8')
+        self.assertEqual(r['version_code'],50008)
 
     def test_windows_home_matches_android_surface_order(self):
         x=read('bluevpn-windows/MainWindow.xaml')
@@ -29,7 +29,7 @@ class WindowsAndroidUiTun4176Tests(unittest.TestCase):
         self.assertIn('protocol"] = "socks"',xray)
         self.assertIn('LocalSocksPort = 20808',xray)
         self.assertIn('type = "tun"',tun)
-        self.assertIn('strict_route = false',tun)
+        self.assertIn('strict_route = true',tun)
         self.assertIn('process_name = new[] { "xray.exe" }',tun)
         self.assertIn('final = "xray-local"',tun)
         self.assertIn('V2RayNTunConfigBuilder.Build',ctrl)
@@ -50,7 +50,9 @@ class WindowsAndroidUiTun4176Tests(unittest.TestCase):
     def test_ci_smoke_checks_both_core_halves(self):
         wf=read('.github/workflows/build-windows.yml')
         self.assertIn('xray-local-proxy-smoke.json',wf)
-        self.assertIn('singbox-v2rayn-tun-smoke.json',wf)
-        self.assertIn('singbox-warp-smoke.json',wf)
+        self.assertIn('Validate generated sing-box configs from Windows builders',wf)
+        self.assertIn('SmokeConfigGenerator',wf)
+        self.assertIn('singbox-v2rayn-generated.json',wf)
+        self.assertIn('singbox-warp-generated.json',wf)
 
 if __name__=='__main__': unittest.main()

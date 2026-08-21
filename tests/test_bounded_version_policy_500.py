@@ -10,17 +10,17 @@ class BoundedVersionPolicy500Tests(unittest.TestCase):
     def test_all_canonical_components_are_500(self):
         release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
         branding = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
-        self.assertEqual(release["version"], "5.0.7")
-        self.assertEqual(release["version_code"], 50007)
-        self.assertEqual(branding["version_name"], "5.0.7")
-        self.assertEqual(branding["version_code"], 50007)
-        self.assertEqual(release["android_version"], "5.0.7")
-        self.assertEqual(release["android_version_code"], 50007)
-        self.assertEqual(release["windows_version"], "5.0.7")
-        self.assertEqual(release["windows_version_code"], 50007)
-        self.assertEqual(release["manager_version"], "5.0.7")
-        self.assertEqual(release["site_version"], "5.0.7")
-        self.assertEqual(release["theme_version"], "5.0.7")
+        self.assertEqual(release["version"], "5.0.8")
+        self.assertEqual(release["version_code"], 50008)
+        self.assertEqual(branding["version_name"], "5.0.8")
+        self.assertEqual(branding["version_code"], 50008)
+        self.assertEqual(release["android_version"], "5.0.8")
+        self.assertEqual(release["android_version_code"], 50008)
+        self.assertEqual(release["windows_version"], "5.0.8")
+        self.assertEqual(release["windows_version_code"], 50008)
+        self.assertEqual(release["manager_version"], "5.0.8")
+        self.assertEqual(release["site_version"], "5.0.8")
+        self.assertEqual(release["theme_version"], "5.0.8")
 
     def test_minor_and_patch_are_bounded(self):
         version = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))["version"]

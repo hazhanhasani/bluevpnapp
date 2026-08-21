@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -44,7 +45,24 @@ public static class ConnectivityProbe
     /// so a slow/filtered Cloudflare trace no longer blocks the connect button.
     /// </summary>
     public static Task<ConnectivitySnapshot> CaptureBaselineAsync(string preferredUrl, CancellationToken ct = default) =>
-        SnapshotFirstAsync(BuildUrls(preferredUrl, includePlainIp: true), proxy: null, TimeSpan.FromSeconds(4), ct);
+        SnapshotFirstAsync(BuildUrls(preferredUrl, includePlainIp: true), proxy: null, TimeSpan.FromSeconds(3), ct);
+
+    public static async Task<TunnelProbeMeasurement> MeasureDirectAsync(string url, CancellationToken ct = default)
+    {
+        var sw = Stopwatch.StartNew();
+        var snapshot = await SnapshotFirstAsync(BuildUrls(url, includePlainIp: false), proxy: null, TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
+        sw.Stop();
+        return new(snapshot.Reachable, (int)Math.Clamp(sw.ElapsedMilliseconds, 1, 10_000), snapshot, "cloudflare-trace");
+    }
+
+    public static async Task<TunnelProbeMeasurement> MeasureViaHttpProxyAsync(string url, string host, int port, CancellationToken ct = default)
+    {
+        var sw = Stopwatch.StartNew();
+        var proxy = new WebProxy(new Uri($"http://{host}:{port}"));
+        var snapshot = await SnapshotFirstAsync(BuildUrls(url, includePlainIp: false), proxy, TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
+        sw.Stop();
+        return new(snapshot.Reachable, (int)Math.Clamp(sw.ElapsedMilliseconds, 1, 10_000), snapshot, "xray-http-probe");
+    }
 
     public static async Task<ConnectivitySnapshot> WaitForSnapshotAsync(string url, TimeSpan timeout, CancellationToken ct = default)
     {
@@ -105,7 +123,7 @@ public static class ConnectivityProbe
             AllowAutoRedirect = false
         };
         using var http = new HttpClient(handler) { Timeout = timeout };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Probe/5.0.7");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Probe/5.0.8");
         try
         {
             using var response = await http.GetAsync(url, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);

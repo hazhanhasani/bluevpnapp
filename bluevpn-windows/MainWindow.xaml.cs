@@ -60,7 +60,7 @@ public partial class MainWindow : Window
         MenuVersionText.Text = _settings.Version;
         CoreVersionText.Text = "BlueVPN Core";
         TechnicalText.Text = _connection.RuntimeStatus;
-        MenuTechnicalText.Text = _connection.RuntimeStatus;
+        MenuTechnicalText.Text = $"{_connection.RuntimeStatus} • {_connection.AiStatus}";
         ApplyAuthModeUi();
 
         // Restore the encrypted Windows session immediately so closing/reopening
@@ -225,7 +225,7 @@ public partial class MainWindow : Window
     {
         AccountDrawer.Visibility = Visibility.Collapsed;
         MenuDrawer.Visibility = MenuDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
-        MenuTechnicalText.Text = _connection.RuntimeStatus;
+        MenuTechnicalText.Text = $"{_connection.RuntimeStatus} • {_connection.AiStatus}";
         MenuIpText.Text = $"IP: {IpValue.Text}";
     }
 
@@ -362,9 +362,9 @@ public partial class MainWindow : Window
 
     private static void SetSegmentVisual(System.Windows.Controls.Button button, bool selected)
     {
-        button.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#FF21140D" : "#FF101114"));
-        button.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#FFF97316" : "#FF9CA3AF"));
-        button.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#FFA9561F" : "#FF3F3F46"));
+        button.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#FFEAF1FF" : "#FFF5F7FC"));
+        button.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#FF2455CC" : "#FF667085"));
+        button.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#FFB9C9F4" : "#FFD9DFEC"));
     }
 
     private static bool LooksLikeEmail(string value)
@@ -608,21 +608,32 @@ public partial class MainWindow : Window
             StatusOrb.Background = (Brush)FindResource("BlueVpnBlue");
             StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnBlue2");
             OrbHalo.Background = new SolidColorBrush(Color.FromArgb(232, 235, 243, 255));
-            ConnectionStatusText.Text = result.Premium ? "اتصال ویژه برقرار شد" : (result.Engine == "WARP" ? "اتصال رایگان WARP برقرار شد" : "اتصال رایگان برقرار شد");
+            var compatibilityProxy = result.Verification.AdapterName.Equals("Windows System Proxy", StringComparison.OrdinalIgnoreCase);
+            ConnectionStatusText.Text = compatibilityProxy
+                ? "مسیر سازگار ویندوز برقرار شد"
+                : result.Premium ? "اتصال ویژه برقرار شد" : (result.Engine == "WARP" ? "اتصال رایگان WARP برقرار شد" : "اتصال رایگان برقرار شد");
             EndpointText.Text = result.Premium
                 ? PublicRouteLabel("ویژه", result.Verification.Country)
                 : PublicRouteLabel("رایگان", result.Verification.Country);
-            EngineText.Text = "متصل • مسیر فعال در پس‌زمینه مدیریت می‌شود";
-            ServerStatusText.Text = $"اتصال سراسری تأیید شد • {result.Engine}";
+            EngineText.Text = compatibilityProxy
+                ? "متصل • Windows System Proxy روی BlueVPN Core"
+                : "متصل • مسیر فعال در پس‌زمینه مدیریت می‌شود";
+            ServerStatusText.Text = compatibilityProxy
+                ? $"اتصال سازگار تأیید شد • {result.Engine}"
+                : $"اتصال سراسری تأیید شد • {result.Engine}";
             TierText.Text = result.Premium ? "Premium" : "Free";
             SetPowerIconState(true);
             IpValue.Text = result.Verification.PublicIp.Length > 0 ? result.Verification.PublicIp : "—";
             PingValue.Text = FormatLatency(result.Endpoint.ProbeLatencyMs);
             LocationBadge.Text = result.Verification.Country.Length > 0 ? result.Verification.Country : "VPN";
-            TechnicalText.Text = "VPN سراسری تأیید شد • مسیر سیستم امن است";
+            TechnicalText.Text = compatibilityProxy
+                ? $"Windows System Proxy تأیید شد • {_connection.AiStatus}"
+                : $"VPN سراسری تأیید شد • {_connection.AiStatus}";
             MenuTechnicalText.Text = TechnicalText.Text;
             MenuIpText.Text = $"IP: {IpValue.Text}";
-            FooterStatus.Text = "IP و مسیر سیستم از داخل BlueVPN تأیید شد.";
+            FooterStatus.Text = compatibilityProxy
+                ? "IP خروجی BlueVPN تأیید شد؛ این دستگاه از مسیر سازگار Windows Proxy استفاده می‌کند."
+                : "IP و مسیر سیستم از داخل BlueVPN تأیید شد.";
             if (!result.Premium) ShowFreeStoryAdSafe();
         }
         catch (OperationCanceledException)
@@ -983,7 +994,7 @@ public partial class MainWindow : Window
         _lastReceivedBytes = 0;
         _lastSentBytes = 0;
         _lastByteSample = DateTimeOffset.UtcNow;
-        TechnicalText.Text = _connection.RuntimeStatus;
+        TechnicalText.Text = $"{_connection.RuntimeStatus} • {_connection.AiStatus}";
         MenuTechnicalText.Text = TechnicalText.Text;
         _ = RefreshPublicIpAsync();
     }
@@ -1018,6 +1029,7 @@ public partial class MainWindow : Window
                     if (DownloadSpeedValue.Text != downText) DownloadSpeedValue.Text = downText;
                     if (UploadSpeedValue.Text != upText) UploadSpeedValue.Text = upText;
                     SpeedValue.Text = downText;
+                    MenuTechnicalText.Text = $"{_connection.RuntimeStatus} • {_connection.AiStatus}";
                     UpdateRemainingTimeOnly();
                 }, DispatcherPriority.Background);
             }

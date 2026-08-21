@@ -64,6 +64,38 @@ public sealed class Plan
 }
 
 
+public sealed class AiRecommendationsResponse
+{
+    [JsonPropertyName("success")] public bool Success { get; set; }
+    [JsonPropertyName("enabled")] public bool Enabled { get; set; }
+    [JsonPropertyName("tier_enabled")] public bool TierEnabled { get; set; }
+    [JsonPropertyName("plan_tier")] public string PlanTier { get; set; } = "free";
+    [JsonPropertyName("engine_version")] public string EngineVersion { get; set; } = "";
+    [JsonPropertyName("schema_version")] public int SchemaVersion { get; set; }
+    [JsonPropertyName("shadow_mode")] public bool ShadowMode { get; set; } = true;
+    [JsonPropertyName("predictive_failover")] public bool PredictiveFailover { get; set; } = true;
+    [JsonPropertyName("recommendations")] public List<AiRecommendation> Recommendations { get; set; } = [];
+}
+
+public sealed class AiRecommendation
+{
+    [JsonPropertyName("config_key")] public string ConfigKey { get; set; } = "";
+    [JsonPropertyName("location_key")] public string LocationKey { get; set; } = "";
+    [JsonPropertyName("score")] public int Score { get; set; } = 50;
+    [JsonPropertyName("confidence")] public double Confidence { get; set; }
+    [JsonPropertyName("consecutive_failures")] public int ConsecutiveFailures { get; set; }
+}
+
+public sealed class AiEventResponse
+{
+    [JsonPropertyName("success")] public bool Success { get; set; }
+    [JsonPropertyName("accepted")] public bool Accepted { get; set; }
+    [JsonPropertyName("live")] public bool Live { get; set; }
+    [JsonPropertyName("verified")] public bool Verified { get; set; }
+    [JsonPropertyName("reason")] public string Reason { get; set; } = "";
+    [JsonPropertyName("route_score")] public int RouteScore { get; set; }
+}
+
 public sealed class WindowsUpdateResponse
 {
     [JsonPropertyName("success")] public bool Success { get; set; }

@@ -48,10 +48,9 @@ public static class V2RayNTunConfigBuilder
                     address = new[] { settings.Tun.GatewayV4, settings.Tun.GatewayV6 },
                     mtu = settings.Tun.Mtu,
                     auto_route = true,
-                    // Match v2rayN 7.24.4's Windows TUN defaults. auto_route owns the
-                    // default route; strict_route stays off so Windows DNS and local
-                    // network discovery cannot deadlock the tunnel during startup.
-                    strict_route = false,
+                    // auto_route owns the default route. strict_route is enabled so Windows
+                    // multi-homed DNS/IPv6 traffic cannot bypass the BlueVPN TUN.
+                    strict_route = true,
                     stack = "system",
                     route_exclude_address = routeExclusions
                 }

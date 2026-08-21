@@ -9,6 +9,7 @@ public sealed class ConnectionOrchestrator : IDisposable
     private readonly RuntimeLocator _runtime;
     private readonly XrayProcessController _xray;
     private readonly WarpConnectionController _warp;
+    private readonly WindowsBlueAiService _ai;
     private bool _verifiedConnected;
 
     public ConnectionOrchestrator(AppSettings settings, BlueVpnApiClient api, RuntimeLocator runtime)
@@ -18,10 +19,12 @@ public sealed class ConnectionOrchestrator : IDisposable
         _runtime = runtime;
         _xray = new XrayProcessController(runtime, settings);
         _warp = new WarpConnectionController(settings, runtime);
+        _ai = new WindowsBlueAiService(api, settings);
     }
 
     public bool IsConnected => _verifiedConnected;
     public string RuntimeStatus => _runtime.RuntimeStatus();
+    public string AiStatus => _ai.Status;
     public ProxyEndpoint? ActiveEndpoint { get; private set; }
     public string ActiveEngine { get; private set; } = "";
     public TunnelVerificationResult? LastVerification { get; private set; }
@@ -30,13 +33,17 @@ public sealed class ConnectionOrchestrator : IDisposable
     {
         Disconnect();
 
-        progress?.Report("بررسی اینترنت پایه…");
-        var before = await ConnectivityProbe.CaptureBaselineAsync(_settings.ProbeUrl, ct).ConfigureAwait(false);
+        progress?.Report("بررسی سریع اینترنت و سیاست اتصال…");
+        var baselineTask = ConnectivityProbe.CaptureBaselineAsync(_settings.ProbeUrl, ct);
+        var mobileTask = LoadMobilePolicySafeAsync(ct);
+        var before = await baselineTask.ConfigureAwait(false);
         if (!before.Reachable || string.IsNullOrWhiteSpace(before.PublicIp))
             throw new InvalidOperationException("IP اینترنت قبل از اتصال قابل تأیید نیست؛ برای جلوگیری از Connected کاذب، اتصال متوقف شد.");
 
         var premium = account?.Subscription.Active == true && !string.IsNullOrWhiteSpace(account.Subscription.Url);
-        var mobile = await LoadMobilePolicySafeAsync(ct).ConfigureAwait(false);
+        var mobile = await mobileTask.ConfigureAwait(false);
+        _ai.UpdatePolicy(mobile.BlueAi, premium);
+        var aiRefresh = _ai.RefreshRecommendationsAsync(premium, ct);
         var free = mobile.FreeAccess;
         var warpPolicy = MergeWarpPolicy(free.Warp);
         var engineMode = NormalizeEngineMode(free.EngineMode.Length > 0 ? free.EngineMode : warpPolicy.Mode);
@@ -70,6 +77,7 @@ public sealed class ConnectionOrchestrator : IDisposable
                     ProbeLatencyMs = int.MaxValue
                 };
                 ActiveEndpoint = warpEndpoint;
+                _ai.StartConnectedSession(warpEndpoint, verified, premium: false, warp: true);
                 return new ConnectionResult(true, false, warpEndpoint, "WARP", verified);
             }
             catch (OperationCanceledException)
@@ -115,9 +123,13 @@ public sealed class ConnectionOrchestrator : IDisposable
         if (endpoints.Count == 0)
             throw new InvalidOperationException("هیچ کانفیگ قابل استفاده‌ای در اشتراک دریافت نشد.");
 
-        progress?.Report($"بررسی سریع {Math.Min(endpoints.Count, 20)} مسیر…");
-        var ranked = await EndpointSelector.RankAsync(endpoints, ct).ConfigureAwait(false);
-        var candidates = ranked.Where(x => x.ProbeLatencyMs < int.MaxValue).Take(4).ToList();
+        var shortlist = _ai.Preselect(endpoints, 16);
+        progress?.Report($"بررسی سریع {Math.Min(shortlist.Count, 16)} مسیر…");
+        var ranked = await EndpointSelector.RankAsync(shortlist, ct).ConfigureAwait(false);
+        if (!aiRefresh.IsCompleted)
+            _ = await Task.WhenAny(aiRefresh, Task.Delay(80, ct)).ConfigureAwait(false);
+        ranked = _ai.Reorder(ranked);
+        var candidates = ranked.Where(x => x.ProbeLatencyMs < int.MaxValue).Take(3).ToList();
         if (candidates.Count == 0) candidates = ranked.Take(3).ToList();
 
         Exception? lastError = null;
@@ -152,6 +164,7 @@ public sealed class ConnectionOrchestrator : IDisposable
                 ActiveEndpoint = endpoint;
                 ActiveEngine = "BlueVPN Core";
                 LastVerification = verified;
+                _ai.StartConnectedSession(endpoint, verified, premium, warp: false);
                 return new ConnectionResult(true, premium, endpoint, ActiveEngine, verified);
             }
             catch (OperationCanceledException)
@@ -166,6 +179,7 @@ public sealed class ConnectionOrchestrator : IDisposable
             catch (Exception ex)
             {
                 lastError = ex;
+                _ai.RecordFailure(endpoint, premium, ex.Message);
                 _xray.Stop();
                 _verifiedConnected = false;
                 ActiveEndpoint = null;
@@ -181,6 +195,7 @@ public sealed class ConnectionOrchestrator : IDisposable
         ActiveEndpoint = null;
         ActiveEngine = "";
         LastVerification = null;
+        _ai.StopConnectedSession("disconnect", success: true);
         _warp.Stop();
         _xray.Stop();
     }
@@ -190,6 +205,7 @@ public sealed class ConnectionOrchestrator : IDisposable
         Disconnect();
         _warp.Dispose();
         _xray.Dispose();
+        _ai.Dispose();
     }
 
     private async Task<MobileConfigResponse> LoadMobilePolicySafeAsync(CancellationToken ct)

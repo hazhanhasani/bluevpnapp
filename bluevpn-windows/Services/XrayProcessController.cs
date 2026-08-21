@@ -45,8 +45,8 @@ public sealed class XrayProcessController : IDisposable
         var xrayConfig = Path.Combine(_stateDir, "xray-local-proxy.json");
         await File.WriteAllTextAsync(xrayConfig, configJson, ct).ConfigureAwait(false);
         await _xray.StartAsync(xray, ["run", "-c", xrayConfig], Path.GetDirectoryName(xray), ct).ConfigureAwait(false);
-        await WaitForPortAsync("127.0.0.1", XrayConfigBuilder.LocalSocksPort, TimeSpan.FromSeconds(7), ct).ConfigureAwait(false);
-        await WaitForPortAsync("127.0.0.1", XrayConfigBuilder.LocalHttpPort, TimeSpan.FromSeconds(4), ct).ConfigureAwait(false);
+        await WaitForPortAsync("127.0.0.1", XrayConfigBuilder.LocalSocksPort, TimeSpan.FromSeconds(4), ct).ConfigureAwait(false);
+        await WaitForPortAsync("127.0.0.1", XrayConfigBuilder.LocalHttpPort, TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
 
         // Validate Xray before touching the default route. Multiple Cloudflare
         // trace endpoints are raced by ConnectivityProbe, so a single filtered
@@ -55,7 +55,7 @@ public sealed class XrayProcessController : IDisposable
             _settings.ProbeUrl,
             "127.0.0.1",
             XrayConfigBuilder.LocalSocksPort,
-            TimeSpan.FromSeconds(4),
+            TimeSpan.FromSeconds(3),
             ct).ConfigureAwait(false);
         if (!proxyTrace.Reachable || string.IsNullOrWhiteSpace(proxyTrace.PublicIp))
             throw new InvalidOperationException($"هسته Xray به سرور رسید ولی اینترنت از آن عبور نکرد: {proxyTrace.Error}");
@@ -64,7 +64,7 @@ public sealed class XrayProcessController : IDisposable
         var tunConfig = Path.Combine(_stateDir, "sing-box-v2rayn-tun.json");
         await File.WriteAllTextAsync(tunConfig, V2RayNTunConfigBuilder.Build(_settings, XrayConfigBuilder.LocalSocksPort, endpoint.Host, directIps), ct).ConfigureAwait(false);
         await _singBox.StartAsync(singBox, ["run", "-c", tunConfig], Path.GetDirectoryName(singBox), ct).ConfigureAwait(false);
-        await Task.Delay(750, ct).ConfigureAwait(false);
+        await Task.Delay(350, ct).ConfigureAwait(false);
         if (!_singBox.IsRunning)
         {
             RoutingMode = "tun_unavailable";

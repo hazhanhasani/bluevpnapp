@@ -8,11 +8,11 @@ def text(path: str) -> str: return (ROOT / path).read_text(encoding="utf-8")
 class WindowsClient4162Tests(unittest.TestCase):
     def test_release_versions_are_unified(self):
         release = json.loads(text("release.json")); branding = json.loads(text("branding/app.json"))
-        self.assertEqual(release["version"], "5.0.7")
-        self.assertEqual(release["windows_version"], "5.0.7")
-        self.assertEqual(release["windows_version_code"], 50007)
-        self.assertEqual(branding["version_name"], "5.0.7")
-        self.assertIn("<Version>5.0.7</Version>", text("bluevpn-windows/BlueVPN.Windows.csproj"))
+        self.assertEqual(release["version"], "5.0.8")
+        self.assertEqual(release["windows_version"], "5.0.8")
+        self.assertEqual(release["windows_version_code"], 50008)
+        self.assertEqual(branding["version_name"], "5.0.8")
+        self.assertIn("<Version>5.0.8</Version>", text("bluevpn-windows/BlueVPN.Windows.csproj"))
 
     def test_existing_bluevpn_control_plane_is_preserved(self):
         api = text("bluevpn-windows/Services/BlueVpnApiClient.cs")
@@ -45,7 +45,7 @@ class WindowsClient4162Tests(unittest.TestCase):
         self.assertIn("ARM64-FALLBACK.txt", workflow)
         self.assertIn("--quick-reconnect", warp)
         self.assertIn('process_name = new[] { "aether.exe" }', config)
-        self.assertIn("strict_route = false", config)
+        self.assertIn("strict_route = true", config)
 
     def test_real_installer_and_self_update(self):
         workflow = text(".github/workflows/build-windows.yml")

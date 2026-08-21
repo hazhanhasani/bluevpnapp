@@ -1,9 +1,9 @@
 === BlueVPN Manager ===
-Version: 5.0.2
-Stable tag: 5.0.2
+Version: 5.0.3
+Stable tag: 5.0.3
 Requires PHP: 8.0
 
-== 5.0.2 ==
+== 5.0.3 ==
 - Logout now removes the authenticated device sessions and releases its device slot immediately.
 - Legacy orphaned app device rows left active by older logout logic are self-healed before enforcing device limits.
 - Missing Free WARP scan/IP mode form fields are handled safely without PHP 8.4 undefined-array-key warnings.

@@ -3,6 +3,7 @@ using System.Net.NetworkInformation;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Controls;
 using System.Windows.Threading;
 using BlueVPN.Windows.Models;
 using BlueVPN.Windows.Services;
@@ -41,6 +42,8 @@ public partial class MainWindow : Window
     private string _authMode = "sms";
     private bool _emailRegisterMode;
     private string _otpPhone = "";
+    private string _preferredLocationKey = "";
+    private string _preferredLocationLabel = "انتخاب خودکار";
 
     public MainWindow()
     {
@@ -114,7 +117,7 @@ public partial class MainWindow : Window
     {
         await _ads.RefreshAsync(_lifetimeCts.Token);
         _adIndex = 0;
-        AdCard.Height = Math.Clamp(_ads.BannerHeight * 0.88, 112, 140);
+        AdCard.Height = Math.Clamp(_ads.BannerHeight * 0.72, 92, 112);
         await ShowCurrentAdAsync();
 
         _adTimer.Stop();
@@ -417,6 +420,126 @@ public partial class MainWindow : Window
         FooterStatus.Text = "از حساب خارج شدید.";
     }
 
+    private async void LocationCard_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (_connectionOperationRunning)
+        {
+            FooterStatus.Text = "تا پایان عملیات اتصال، تغییر لوکیشن ممکن نیست.";
+            return;
+        }
+        if (_connection.IsConnected)
+        {
+            MessageBox.Show("برای تغییر لوکیشن ابتدا اتصال را قطع کنید.", "BlueVPN", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        try
+        {
+            FooterStatus.Text = "در حال آماده‌سازی لیست لوکیشن‌ها…";
+            var raw = _account?.Subscription.Active == true && !string.IsNullOrWhiteSpace(_account.Subscription.Url)
+                ? await _api.GetPremiumSubscriptionAsync(_account, _lifetimeCts.Token)
+                : await _api.GetFreeSubscriptionAsync(_lifetimeCts.Token);
+            var endpoints = SubscriptionParser.Parse(raw);
+            var locations = LocationCatalog.Available(endpoints);
+
+            var picker = new Window
+            {
+                Owner = this,
+                Title = "انتخاب لوکیشن BlueVPN",
+                Width = 390,
+                Height = Math.Min(560, Math.Max(380, SystemParameters.WorkArea.Height * 0.72)),
+                MinHeight = 340,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode = ResizeMode.CanResize,
+                Background = (Brush)FindResource("BlueVpnBg"),
+                FlowDirection = FlowDirection.RightToLeft,
+                ShowInTaskbar = false
+            };
+
+            var root = new DockPanel { Margin = new Thickness(16) };
+            var title = new TextBlock
+            {
+                Text = "لوکیشن موردنظر را انتخاب کنید",
+                FontSize = 20,
+                FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 0, 12)
+            };
+            DockPanel.SetDock(title, Dock.Top);
+            root.Children.Add(title);
+
+            var panel = new StackPanel();
+            var autoButton = new Button
+            {
+                Content = "🌐 انتخاب خودکار (پیشنهادی)",
+                Height = 48,
+                Margin = new Thickness(0, 0, 0, 8),
+                HorizontalContentAlignment = HorizontalAlignment.Right
+            };
+            autoButton.Click += (_, _) =>
+            {
+                _preferredLocationKey = "";
+                _preferredLocationLabel = "انتخاب خودکار";
+                picker.DialogResult = true;
+                picker.Close();
+            };
+            panel.Children.Add(autoButton);
+
+            foreach (var location in locations)
+            {
+                var button = new Button
+                {
+                    Content = location.Display,
+                    Height = 46,
+                    Margin = new Thickness(0, 0, 0, 7),
+                    Tag = location,
+                    HorizontalContentAlignment = HorizontalAlignment.Right
+                };
+                button.Click += (_, _) =>
+                {
+                    _preferredLocationKey = location.Key;
+                    _preferredLocationLabel = location.Display;
+                    picker.DialogResult = true;
+                    picker.Close();
+                };
+                panel.Children.Add(button);
+            }
+
+            if (locations.Count == 0)
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "لوکیشن مشخصی از مسیرهای فعلی شناسایی نشد؛ انتخاب خودکار همچنان قابل استفاده است.",
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(4, 8, 4, 4),
+                    Foreground = (Brush)FindResource("BlueVpnMuted")
+                });
+            }
+
+            var scroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = panel
+            };
+            root.Children.Add(scroll);
+            picker.Content = root;
+            picker.ShowDialog();
+
+            EndpointText.Text = _preferredLocationLabel;
+            EngineText.Text = string.IsNullOrWhiteSpace(_preferredLocationKey)
+                ? "بهترین مسیر همان لوکیشن به‌صورت خودکار انتخاب می‌شود"
+                : "بهترین مسیر مخفی این لوکیشن به‌صورت خودکار انتخاب می‌شود";
+            FooterStatus.Text = string.IsNullOrWhiteSpace(_preferredLocationKey)
+                ? "انتخاب خودکار فعال شد."
+                : $"لوکیشن {_preferredLocationLabel} انتخاب شد.";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            FooterStatus.Text = FriendlyUiError(ex.Message);
+        }
+    }
+
     private async void Connect_Click(object sender, RoutedEventArgs e)
     {
         if (_connectionOperationRunning)
@@ -451,7 +574,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var result = await _connection.ConnectAsync(_account, progress, _connectCts.Token);
+            var result = await _connection.ConnectAsync(_account, progress, _connectCts.Token, _preferredLocationKey);
             _connectedAt = DateTimeOffset.UtcNow;
             ConnectingOverlay.Visibility = Visibility.Collapsed;
             StatusText.Text = "متصل هستید";
@@ -568,10 +691,10 @@ public partial class MainWindow : Window
                 return;
             }
 
-            if (_connection.IsConnected)
+            if (_connectionOperationRunning || _connection.IsConnected)
             {
                 _pendingUpdate = candidate;
-                FooterStatus.Text = $"نسخه {candidate.Version} آماده است و پس از قطع اتصال نصب می‌شود.";
+                FooterStatus.Text = $"نسخه {candidate.Version} آماده است و پس از پایان اتصال نصب می‌شود.";
                 return;
             }
 
@@ -603,6 +726,14 @@ public partial class MainWindow : Window
             FooterStatus.Text = $"دریافت نسخه {candidate.Version}… {percent}%";
         });
         var installer = await _appUpdater.DownloadAsync(candidate, progress, _lifetimeCts.Token);
+        // A background update check may finish after the user has already pressed Connect.
+        // Never terminate the app or tear down a live/in-flight tunnel in that race.
+        if (_connectionOperationRunning || _connection.IsConnected)
+        {
+            _pendingUpdate = candidate;
+            FooterStatus.Text = $"نسخه {candidate.Version} دریافت شد و پس از قطع اتصال نصب می‌شود.";
+            return;
+        }
         FooterStatus.Text = "بروزرسانی تأیید شد؛ در حال اجرای نصب…";
         _pendingUpdate = null;
         _connectCts?.Cancel();
@@ -731,8 +862,10 @@ public partial class MainWindow : Window
         StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnBlue2");
         OrbHalo.Background = new SolidColorBrush(Color.FromArgb(221, 232, 248, 255));
         ConnectionStatusText.Text = "بهترین اتصال به‌صورت خودکار انتخاب می‌شود";
-        EndpointText.Text = "انتخاب خودکار";
-        EngineText.Text = "بهترین مسیر همان لوکیشن به‌صورت خودکار انتخاب می‌شود";
+        EndpointText.Text = _preferredLocationLabel;
+        EngineText.Text = string.IsNullOrWhiteSpace(_preferredLocationKey)
+            ? "بهترین مسیر همان لوکیشن به‌صورت خودکار انتخاب می‌شود"
+            : "بهترین مسیر مخفی این لوکیشن به‌صورت خودکار انتخاب می‌شود";
         ServerStatusText.Text = "آماده اتصال";
         ConnectButton.Content = "⏻";
         ConnectButton.IsEnabled = true;

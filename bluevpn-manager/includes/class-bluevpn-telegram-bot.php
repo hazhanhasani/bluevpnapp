@@ -1949,7 +1949,9 @@ BLUEVPN_ASKPASS_CHECK;
         $lastError = '';
 
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
-            $res = wp_remote_request(self::GITHUB_API . $path, $args);
+            $requestArgs = $args;
+            if ($attempt < $maxAttempts) $requestArgs['headers']['X-BlueVPN-Sentinel-Transient'] = '1';
+            $res = wp_remote_request(self::GITHUB_API . $path, $requestArgs);
 
             if (is_wp_error($res)) {
                 $lastError = $res->get_error_message();

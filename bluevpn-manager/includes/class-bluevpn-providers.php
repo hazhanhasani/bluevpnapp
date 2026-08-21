@@ -471,7 +471,9 @@ final class BlueVPN_Providers {
         $wpdb->update(BlueVPN_DB::table($map[$provider]),['last_test_ok'=>$ok?1:0,'last_test_message'=>mb_substr($msg,0,1800),'last_test_at'=>BlueVPN_Utils::now_mysql()],['id'=>$id]);
     }
     private static function pg_user(array $p,string $username,int $timeout=25): ?array {
-        $r=self::req('GET',self::join_url((string)$p['base_url'],'/api/user/by-username/'.rawurlencode($username)),self::pg_headers($p,$timeout),null,(bool)$p['verify_tls'],[],$timeout);
+        $url=self::join_url((string)$p['base_url'],'/api/user/by-username/'.rawurlencode($username));
+        if(class_exists('BlueVPN_Error_Monitor')) BlueVPN_Error_Monitor::expect_http_status_once($url,[404]);
+        $r=self::req('GET',$url,self::pg_headers($p,$timeout),null,(bool)$p['verify_tls'],[],$timeout);
         if($r['code']===404)return null;if($r['code']>=400)throw new RuntimeException('خواندن کاربر PasarGuard ناموفق: HTTP '.$r['code']);return $r['json'];
     }
     private static function mz_user(array $p,string $username,int $timeout=25): ?array {
@@ -496,8 +498,12 @@ final class BlueVPN_Providers {
             $headers=self::pg_headers($p,$timeout);$base=(string)$p['base_url'];$ssl=(bool)$p['verify_tls'];$last='';
             foreach(['/api/groups','/api/groups/simple'] as $path){
                 $url=self::join_url($base,$path);
-                if($path==='/api/groups' && class_exists('BlueVPN_Error_Monitor')) BlueVPN_Error_Monitor::expect_http_status_once($url,[403,404]);
+                if(class_exists('BlueVPN_Error_Monitor')) BlueVPN_Error_Monitor::expect_http_status_once($url,[403,404]);
                 $r=self::req('GET',$url,$headers,null,$ssl,[],$timeout);
+                if($r['code']===401){
+                    if(class_exists('BlueVPN_Error_Monitor')) BlueVPN_Error_Monitor::report('provider','pasarguard','warning','PASARGUARD_AUTH_FAILED','احراز هویت PasarGuard رد شد؛ کلید API یا مجوز پنل را بررسی کنید.',['panel_id'=>$id,'path'=>$path]);
+                    throw new RuntimeException('احراز هویت PasarGuard ناموفق است (HTTP 401). کلید API/مجوز پنل را بررسی کنید.');
+                }
                 if($r['code']>=400){$last='HTTP '.$r['code'];continue;}
                 $rows=self::provider_list_rows($r['json'],['groups']);$items=[];
                 foreach($rows as $row){
@@ -547,8 +553,12 @@ final class BlueVPN_Providers {
         $headers=self::pg_headers($p,$timeout);$base=(string)$p['base_url'];$ssl=(bool)$p['verify_tls'];$last='';
         foreach(['/api/groups','/api/groups/simple'] as $path){
             $url=self::join_url($base,$path);
-            if($path==='/api/groups' && class_exists('BlueVPN_Error_Monitor')) BlueVPN_Error_Monitor::expect_http_status_once($url,[403,404]);
+            if(class_exists('BlueVPN_Error_Monitor')) BlueVPN_Error_Monitor::expect_http_status_once($url,[403,404]);
             try{$r=self::req('GET',$url,$headers,null,$ssl,[],$timeout);}catch(Throwable $e){$last=$e->getMessage();continue;}
+            if($r['code']===401){
+                if(class_exists('BlueVPN_Error_Monitor')) BlueVPN_Error_Monitor::report('provider','pasarguard','warning','PASARGUARD_AUTH_FAILED','احراز هویت PasarGuard رد شد؛ کلید API یا مجوز پنل را بررسی کنید.',['panel_id'=>(int)($p['id']??0),'path'=>$path]);
+                throw new RuntimeException('احراز هویت PasarGuard ناموفق است (HTTP 401). کلید API/مجوز پنل را بررسی کنید.');
+            }
             if($r['code']>=400){$last='HTTP '.$r['code'].' '.mb_substr($r['body'],0,180);continue;}
             $rows=self::provider_list_rows($r['json'],['groups']);$ids=[];
             foreach($rows as $row){

@@ -160,6 +160,7 @@ final class BlueVPN_Error_Monitor {
         if ($context !== 'response' || self::$notifying) return;
         $host = strtolower((string)wp_parse_url($url, PHP_URL_HOST));
         $headers = $parsedArgs['headers'] ?? [];
+        $transientRetryAttempt = false;
         if (is_array($headers)) {
             foreach ($headers as $headerName => $headerValue) {
                 $hn = strtolower((string)$headerName);
@@ -168,6 +169,10 @@ final class BlueVPN_Error_Monitor {
                 // expected to degrade to cached/DB metadata instead of becoming a
                 // runtime incident. Authoritative/provider calls must not set it.
                 if ($hn === 'x-bluevpn-sentinel-ignore' && (string)$headerValue === '1') return;
+                // Retry-capable callers mark all non-final attempts. Sentinel keeps
+                // the final exhausted failure visible while avoiding one alert per
+                // transient 5xx/network retry.
+                if ($hn === 'x-bluevpn-sentinel-transient' && (string)$headerValue === '1') $transientRetryAttempt = true;
             }
         }
         if ($host === 'api.telegram.org') return; // Prevent alert recursion if Telegram itself is unavailable.
@@ -175,7 +180,7 @@ final class BlueVPN_Error_Monitor {
         if (empty($s['enabled'])) return;
         $component = self::http_component($host, $url);
         if (is_wp_error($response)) {
-            self::consume_expected_http_status($url, 0);
+            if (self::consume_expected_http_status($url, 0) || $transientRetryAttempt) return;
             self::report('http', $component, 'error', (string)$response->get_error_code(), $response->get_error_message(), [
                 'host' => $host, 'url' => self::safe_url($url), 'method' => strtoupper((string)($parsedArgs['method'] ?? 'GET')),
             ]);
@@ -183,6 +188,7 @@ final class BlueVPN_Error_Monitor {
         }
         $status = is_array($response) ? (int)wp_remote_retrieve_response_code($response) : 0;
         if (self::consume_expected_http_status($url, $status)) return;
+        if ($transientRetryAttempt && in_array($status, [408, 425, 429, 500, 502, 503, 504], true)) return;
         if ($status >= 500 || ($status >= 400 && !empty($s['capture_http_4xx']))) {
             self::report('http', $component, $status >= 500 ? 'error' : 'warning', 'HTTP_' . $status, 'درخواست HTTP با وضعیت ناموفق برگشت.', [
                 'host' => $host, 'url' => self::safe_url($url), 'method' => strtoupper((string)($parsedArgs['method'] ?? 'GET')),
@@ -211,6 +217,10 @@ final class BlueVPN_Error_Monitor {
                 $message = sanitize_text_field((string)($detail['message'] ?? ''));
             }
         }
+        // A verify miss means the location discovery pipeline has not learned this
+        // route yet. The client is expected to continue safely; it is not a runtime
+        // incident and can otherwise flood Sentinel while the route is being learned.
+        if ($route === '/bluevpn/v1/server-locations/verify' && $status === 404 && $code === 'server_location_not_found') return $response;
         $s = self::settings();
         if ($status >= 500 || ($status >= 400 && !empty($s['capture_rest_4xx']))) {
             self::report('rest', 'api', $status >= 500 ? 'error' : 'warning', $code !== '' ? $code : 'HTTP_' . $status, $message !== '' ? $message : 'REST API پاسخ ناموفق داد.', [
@@ -442,10 +452,10 @@ final class BlueVPN_Error_Monitor {
         if (!is_array($cron)) return;
         $now = time();
         foreach ($cron as $timestamp => $hooks) {
-            if ((int)$timestamp >= $now - 300) continue;
+            if ((int)$timestamp >= $now - 900) continue;
             foreach ((array)$hooks as $hook => $instances) {
                 if (!str_starts_with((string)$hook, 'bluevpn_')) continue;
-                self::report('cron', 'wordpress', 'warning', 'CRON_EVENT_OVERDUE', 'یک Cron مربوط به BlueVPN بیش از پنج دقیقه عقب افتاده است.', ['hook' => $hook, 'scheduled_at' => gmdate('c', (int)$timestamp), 'delay_seconds' => $now - (int)$timestamp]);
+                self::report('cron', 'wordpress', 'warning', 'CRON_EVENT_OVERDUE', 'یک Cron مربوط به BlueVPN بیش از پانزده دقیقه عقب افتاده است.', ['hook' => $hook, 'scheduled_at' => gmdate('c', (int)$timestamp), 'delay_seconds' => $now - (int)$timestamp]);
             }
         }
     }

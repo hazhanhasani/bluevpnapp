@@ -26,7 +26,7 @@ public sealed class ConnectionOrchestrator : IDisposable
     public string ActiveEngine { get; private set; } = "";
     public TunnelVerificationResult? LastVerification { get; private set; }
 
-    public async Task<ConnectionResult> ConnectAsync(Account? account, IProgress<string>? progress = null, CancellationToken ct = default)
+    public async Task<ConnectionResult> ConnectAsync(Account? account, IProgress<string>? progress = null, CancellationToken ct = default, string preferredLocationKey = "")
     {
         Disconnect();
 
@@ -40,8 +40,9 @@ public sealed class ConnectionOrchestrator : IDisposable
         var free = mobile.FreeAccess;
         var warpPolicy = MergeWarpPolicy(free.Warp);
         var engineMode = NormalizeEngineMode(free.EngineMode.Length > 0 ? free.EngineMode : warpPolicy.Mode);
-        var warpRequested = !premium && free.Enabled && engineMode != "pool_only" && warpPolicy.Enabled && _settings.Warp.Enabled;
-        var poolAllowed = !premium && (engineMode != "warp_only") && (free.LegacyPoolEnabled || warpPolicy.FallbackPoolEnabled || _settings.Warp.FallbackToFreePool);
+        var manualLocation = !string.IsNullOrWhiteSpace(preferredLocationKey);
+        var warpRequested = !manualLocation && !premium && free.Enabled && engineMode != "pool_only" && warpPolicy.Enabled && _settings.Warp.Enabled;
+        var poolAllowed = !premium && free.Enabled && (engineMode != "warp_only") && (free.LegacyPoolEnabled || warpPolicy.FallbackPoolEnabled);
 
         if (warpRequested && _warp.IsSupported)
         {
@@ -71,7 +72,15 @@ public sealed class ConnectionOrchestrator : IDisposable
                 ActiveEndpoint = warpEndpoint;
                 return new ConnectionResult(true, false, warpEndpoint, "WARP", verified);
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException)
+            {
+                _warp.Stop();
+                _verifiedConnected = false;
+                ActiveEndpoint = null;
+                ActiveEngine = "";
+                LastVerification = null;
+                throw;
+            }
             catch (Exception ex)
             {
                 _warp.Stop();
@@ -95,6 +104,14 @@ public sealed class ConnectionOrchestrator : IDisposable
             : await _api.GetFreeSubscriptionAsync(ct).ConfigureAwait(false);
 
         var endpoints = SubscriptionParser.Parse(text);
+        if (!string.IsNullOrWhiteSpace(preferredLocationKey))
+        {
+            endpoints = endpoints
+                .Where(endpoint => string.Equals(LocationCatalog.Detect(endpoint)?.Key, preferredLocationKey, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (endpoints.Count == 0)
+                throw new InvalidOperationException("برای لوکیشن انتخاب‌شده فعلاً مسیر قابل استفاده‌ای پیدا نشد؛ انتخاب خودکار را امتحان کنید.");
+        }
         if (endpoints.Count == 0)
             throw new InvalidOperationException("هیچ کانفیگ قابل استفاده‌ای در اشتراک دریافت نشد.");
 
@@ -123,7 +140,15 @@ public sealed class ConnectionOrchestrator : IDisposable
                 LastVerification = verified;
                 return new ConnectionResult(true, premium, endpoint, ActiveEngine, verified);
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException)
+            {
+                _xray.Stop();
+                _verifiedConnected = false;
+                ActiveEndpoint = null;
+                ActiveEngine = "";
+                LastVerification = null;
+                throw;
+            }
             catch (Exception ex)
             {
                 lastError = ex;
@@ -156,6 +181,7 @@ public sealed class ConnectionOrchestrator : IDisposable
     private async Task<MobileConfigResponse> LoadMobilePolicySafeAsync(CancellationToken ct)
     {
         try { return await _api.GetMobileConfigAsync(ct).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { return new MobileConfigResponse(); }
     }
 

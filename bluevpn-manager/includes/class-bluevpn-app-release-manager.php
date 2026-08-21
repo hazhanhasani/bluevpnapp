@@ -144,12 +144,24 @@ final class BlueVPN_App_Release_Manager {
     private static function fetch_releases() {
         $s = self::settings();
         $url = 'https://api.github.com/repos/' . rawurlencode($s['owner']) . '/' . rawurlencode($s['repo']) . '/releases?per_page=30';
-        $response = wp_remote_get($url, ['timeout' => 12, 'redirection' => 3, 'headers' => self::request_headers()]);
-        if (is_wp_error($response)) return $response;
-        $code = (int)wp_remote_retrieve_response_code($response);
-        if ($code !== 200) return new WP_Error('bluevpn_app_release_http', 'GitHub API HTTP ' . $code);
-        $releases = json_decode(wp_remote_retrieve_body($response), true);
-        return is_array($releases) ? $releases : new WP_Error('bluevpn_app_release_json', 'پاسخ Releaseهای GitHub معتبر نیست.');
+        $delays = [2, 5, 10];
+        for ($attempt = 0; $attempt <= count($delays); $attempt++) {
+            $headers = self::request_headers();
+            if ($attempt < count($delays)) $headers['X-BlueVPN-Sentinel-Transient'] = '1';
+            $response = wp_remote_get($url, ['timeout' => 18, 'redirection' => 3, 'headers' => $headers]);
+            if (is_wp_error($response)) {
+                if ($attempt < count($delays)) { sleep($delays[$attempt]); continue; }
+                return $response;
+            }
+            $code = (int)wp_remote_retrieve_response_code($response);
+            if ($code === 200) {
+                $releases = json_decode(wp_remote_retrieve_body($response), true);
+                return is_array($releases) ? $releases : new WP_Error('bluevpn_app_release_json', 'پاسخ Releaseهای GitHub معتبر نیست.');
+            }
+            if (in_array($code, [408,425,429,500,502,503,504], true) && $attempt < count($delays)) { sleep($delays[$attempt]); continue; }
+            return new WP_Error('bluevpn_app_release_http', 'GitHub API HTTP ' . $code);
+        }
+        return new WP_Error('bluevpn_app_release_http', 'GitHub Releases unavailable after retries');
     }
 
     private static function request_headers(): array {

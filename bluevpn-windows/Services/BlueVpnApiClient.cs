@@ -142,18 +142,27 @@ public sealed class BlueVpnApiClient : IDisposable
             return;
         }
 
-        using var response = await SendWithTransportFallbackAsync(() =>
+        var serverAcknowledged = false;
+        try
         {
-            return new HttpRequestMessage(HttpMethod.Post, "wp-json/bluevpn/v1/auth/logout")
+            using var response = await SendWithTransportFallbackAsync(() =>
             {
-                Content = new StringContent("{}", Encoding.UTF8, "application/json")
-            };
-        }, ct, allowTransportFallback: false).ConfigureAwait(false);
-        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException(ReadError(text, (int)response.StatusCode));
-
-        ClearLocalSession();
+                return new HttpRequestMessage(HttpMethod.Post, "wp-json/bluevpn/v1/auth/logout")
+                {
+                    Content = new StringContent("{}", Encoding.UTF8, "application/json")
+                };
+            }, ct, allowTransportFallback: false).ConfigureAwait(false);
+            var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(ReadError(text, (int)response.StatusCode));
+            serverAcknowledged = true;
+        }
+        finally
+        {
+            // The server owns the device slot. Never hide a failed remote logout by
+            // clearing the local token; successful acknowledgement may safely clear it.
+            if (serverAcknowledged) ClearLocalSession();
+        }
     }
 
     public void ClearLocalSession()

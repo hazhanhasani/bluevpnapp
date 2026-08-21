@@ -8,8 +8,8 @@ def text(p): return (ROOT/p).read_text(encoding='utf-8')
 class WindowsStability4177Tests(unittest.TestCase):
     def test_release_version(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'5.0.2')
-        self.assertEqual(r['version_code'],50002)
+        self.assertEqual(r['version'],'5.0.3')
+        self.assertEqual(r['version_code'],50003)
 
     def test_ui_is_android_order_and_non_blocking_metrics(self):
         x=text('bluevpn-windows/MainWindow.xaml')
@@ -79,6 +79,11 @@ class WindowsStability4177Tests(unittest.TestCase):
         self.assertIn('endpoint_probe_seconds',models)
         self.assertIn('LoadMobilePolicySafeAsync',conn)
         self.assertIn('warpPolicy',conn)
+        self.assertIn('!premium && free.Enabled && (engineMode != "warp_only")',conn)
+        self.assertNotIn('warpPolicy.FallbackPoolEnabled || _settings.Warp.FallbackToFreePool',conn)
+        self.assertIn('catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }',conn)
+        self.assertIn('_warp.Stop();',conn)
+        self.assertIn('_xray.Stop();',conn)
         self.assertIn('BuildAetherArgs(policy',warp)
         self.assertIn('SnapshotViaSocksAsync',warp)
         self.assertIn('BlockedExitCountries',warp)

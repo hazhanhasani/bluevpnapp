@@ -1,7 +1,12 @@
 === BlueVPN Manager ===
-Version: 5.0.9
-Stable tag: 5.0.9
+Version: 5.0.10
+Stable tag: 5.0.10
 Requires PHP: 8.0
+
+== 5.0.10 ==
+- Fixes the Windows BlueAI C# compile failure caused by using the reserved keyword `operator` as an anonymous-object property identifier.
+- Keeps the serialized JSON key as `operator` by using the escaped C# identifier `@operator`.
+- Adds a Windows validator and unit-test guard that rejects unescaped reserved-keyword payload assignments before GitHub build.
 
 == 5.0.9 ==
 - Fixes the Windows WPF authentication drawer compile failure caused by applying FontFamily directly to a Border.

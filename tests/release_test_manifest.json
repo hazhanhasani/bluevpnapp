@@ -82,6 +82,7 @@
     "test_windows_ai_speed_auth_508.py",
     "test_windows_android_ui_tun_4176.py",
     "test_windows_auth_ads_vps_parity_4180.py",
+    "test_windows_blueai_compile_guard_5010.py",
     "test_windows_client_4157.py",
     "test_windows_coordinated_publish_4171.py",
     "test_windows_direct_release_sync_4173.py",

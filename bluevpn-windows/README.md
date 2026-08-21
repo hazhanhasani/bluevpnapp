@@ -1,4 +1,11 @@
-# BlueVPN for Windows — 5.0.9
+# BlueVPN for Windows — 5.0.10
+
+
+## 5.0.10 BlueAI compile hardening
+
+- Escapes the reserved C# `operator` identifier in BlueAI event payloads while preserving the JSON field name expected by the WordPress control plane.
+- Adds a static C# payload guard so this compile-time failure is caught before GitHub Actions.
+- Preserves the 5.0.8/5.0.9 BlueAI live heartbeat, route ranking, fast-connect, strict TUN and authentication UI work.
 
 
 ## 5.0.9 sing-box 1.13 compatibility

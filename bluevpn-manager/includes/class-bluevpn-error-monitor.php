@@ -425,6 +425,16 @@ final class BlueVPN_Error_Monitor {
             if ($wpdb->last_error) { self::report_wpdb_last_error('scan_' . $logical); continue; }
             foreach ((array)$rows as $row) {
                 $msg = (string)($row['error_message'] ?? $row['last_error'] ?? 'عملیات ناموفق ثبت شده است.');
+                // A deploy_zip row with "Build: <conclusion>" is a downstream mirror of
+                // the GitHub Actions result. The workflow Sentinel and Telegram bot have
+                // already reported that failure with the actionable job/log URL, so a
+                // second BOT_JOB_FAILED event only creates duplicate incident noise.
+                // Other Deploy Bot failures still flow through Sentinel normally.
+                if ($logical === 'bot_jobs'
+                    && (string)($row['kind'] ?? '') === 'deploy_zip'
+                    && preg_match('/^Build:\s*(?:failure|cancelled|timed_out|action_required|startup_failure|stale)\b/i', trim($msg))) {
+                    continue;
+                }
                 if (!self::operational_row_should_report($logical, $row, $msg)) continue;
                 self::report('runtime', $component, $severity, $code, $msg !== '' ? $msg : 'عملیات ناموفق ثبت شده است.', $row);
             }

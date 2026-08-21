@@ -134,17 +134,76 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      - name: Confirm official v2rayNG checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo android-runtime-checked-out > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          test -f upstream/V2rayNG/gradlew
+          test -f upstream/compile-hevtun.sh
+          test -d upstream/AndroidLibXrayLite/.git || git -C upstream/AndroidLibXrayLite rev-parse --git-dir >/dev/null
+          echo "Official v2rayNG runtime checkout confirmed." | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Setup Android SDK 37
+        uses: android-actions/setup-android@v4
+        with:
+          log-accepted-android-sdk-licenses: false
+          cmdline-tools-version: '14742923'
+          packages: 'platforms;android-37.0 build-tools;37.0.0 platform-tools'
+
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo install-android-ndk > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER" || { echo "::error::Android sdkmanager not found: $SDKMANAGER"; exit 1; }
+          echo "y" | "$SDKMANAGER" --channel=0 --install "ndk;29.0.14206865"
+          NDK_PATH="$ANDROID_HOME/ndk/29.0.14206865"
+          test -d "$NDK_PATH" || { echo "::error::Android NDK install missing: $NDK_PATH"; exit 1; }
+          echo "NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
+          echo "Android NDK ready: $NDK_PATH" | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+          python - <<'PY_NDK'
+          from pathlib import Path
+          path = Path("upstream/V2rayNG/app/build.gradle.kts")
+          text = path.read_text(encoding="utf-8")
+          marker = "android {"
+          if 'ndkVersion = "29.0.14206865"' not in text:
+              if marker not in text:
+                  raise SystemExit("android block not found")
+              text = text.replace(marker, marker + '\n    ndkVersion = "29.0.14206865"', 1)
+              path.write_text(text, encoding="utf-8")
+          PY_NDK
+
       - name: Restore libhevtun cache
         id: hevtun-cache
         uses: actions/cache@v5
         with:
           path: upstream/libs
-          key: bluevpn-hevtun-${{ runner.os }}-${{ steps.config.outputs.upstream_ref }}-${{ hashFiles('upstream/compile-hevtun.sh') }}
+          key: bluevpn-hevtun-${{ runner.os }}-${{ steps.config.outputs.upstream_ref }}-ndk29-${{ hashFiles('upstream/compile-hevtun.sh') }}
 
       - name: Build libhevtun
         if: steps.hevtun-cache.outputs.cache-hit != 'true'
         working-directory: upstream
-        run: bash compile-hevtun.sh
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo build-libhevtun > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          : "${NDK_HOME:?NDK_HOME must be exported by the Install Android NDK step}"
+          test -d "$NDK_HOME" || { echo "::error::NDK_HOME does not exist: $NDK_HOME"; exit 1; }
+          bash compile-hevtun.sh 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Install libhevtun into Android runtime
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d libs || { echo "::error::libhevtun output directory is missing"; exit 1; }
+          mkdir -p V2rayNG/app/libs
+          cp -r libs/. V2rayNG/app/libs/
+          echo "libhevtun installed into V2rayNG/app/libs." | tee -a "$GITHUB_WORKSPACE/android-build.log"
 
       - name: Resolve official v2rayNG AndroidLibXrayLite pairing
         id: xray

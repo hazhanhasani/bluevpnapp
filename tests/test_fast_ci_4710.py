@@ -32,6 +32,23 @@ class FastCi4710Tests(unittest.TestCase):
         self.assertIn("steps.aether-cache.outputs.cache-hit != 'true'", WORKFLOW)
         self.assertIn('${{ steps.config.outputs.aether_ref }}', WORKFLOW)
 
+    def test_libhevtun_has_sdk_ndk_prerequisites_and_runtime_install(self):
+        sdk = WORKFLOW.index('- name: Setup Android SDK 37')
+        ndk = WORKFLOW.index('- name: Install Android NDK')
+        cache = WORKFLOW.index('- name: Restore libhevtun cache')
+        build = WORKFLOW.index('- name: Build libhevtun')
+        install = WORKFLOW.index('- name: Install libhevtun into Android runtime')
+        self.assertLess(sdk, ndk)
+        self.assertLess(ndk, cache)
+        self.assertLess(cache, build)
+        self.assertLess(build, install)
+        self.assertIn('ndk;29.0.14206865', WORKFLOW)
+        self.assertIn('NDK_HOME=$NDK_PATH', WORKFLOW)
+        self.assertIn('ANDROID_NDK_HOME=$NDK_PATH', WORKFLOW)
+        self.assertIn('${NDK_HOME:?NDK_HOME must be exported by the Install Android NDK step}', WORKFLOW)
+        self.assertIn('V2rayNG/app/libs', WORKFLOW)
+        self.assertIn('-ndk29-', WORKFLOW)
+
     def test_gradle_compile_and_assemble_use_one_invocation(self):
         gradle_calls = WORKFLOW.count('./gradlew')
         self.assertEqual(gradle_calls, 1)

@@ -41,6 +41,12 @@ class GlobalSentinel4164(unittest.TestCase):
         for token in ['workflow_run','annotation_level','--log-failed','TELEGRAM_BOT_TOKEN','TELEGRAM_CHAT_ID']:
             self.assertIn(token,sentinel)
 
+    def test_deploy_bot_build_failure_is_not_double_reported(self):
+        monitor=(ROOT/'bluevpn-manager/includes/class-bluevpn-error-monitor.php').read_text()
+        self.assertIn("$logical === 'bot_jobs'", monitor)
+        self.assertIn("(string)($row['kind'] ?? '') === 'deploy_zip'", monitor)
+        self.assertIn("/^Build:\\s*(?:failure|cancelled|timed_out|action_required|startup_failure|stale)\\b/i", monitor)
+
     def test_project_health_is_full_project_gate(self):
         s=(ROOT/'.github/workflows/project-health.yml').read_text()
         for token in ['Reject merge-conflict markers','PHP syntax','Python syntax','JavaScript syntax','JSON YAML XML and XAML syntax','validate_release.py','validate_windows.py','unittest discover']:

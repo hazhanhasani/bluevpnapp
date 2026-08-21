@@ -1,7 +1,12 @@
 === BlueVPN Manager ===
-Version: 5.0.8
-Stable tag: 5.0.8
+Version: 5.0.9
+Stable tag: 5.0.9
 Requires PHP: 8.0
+
+== 5.0.9 ==
+- Fixes the Windows WPF authentication drawer compile failure caused by applying FontFamily directly to a Border.
+- Moves the authentication font to the Window-level WPF control scope using the reliable Segoe UI family.
+- Adds a static Windows validator/test gate that rejects FontFamily on non-Control WPF containers before GitHub build.
 
 == 5.0.8 ==
 - Restores Windows BlueAI as an active route optimizer with cached/cloud scoring, failure learning and immediate live connection heartbeats.

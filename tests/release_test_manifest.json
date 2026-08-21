@@ -96,6 +96,7 @@
     "test_windows_story_ad_readiness_4178.py",
     "test_windows_ui_update_runtime_buildfix_503.py",
     "test_windows_update_storage_4179.py",
-    "test_windows_v2rayn_warp_installer_4162.py"
+    "test_windows_v2rayn_warp_installer_4162.py",
+    "test_windows_xaml_compile_guard_509.py"
   ]
 }

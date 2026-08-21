@@ -1,7 +1,7 @@
-# BlueVPN for Windows — 5.0.8
+# BlueVPN for Windows — 5.0.9
 
 
-## 5.0.8 sing-box 1.13 compatibility
+## 5.0.9 sing-box 1.13 compatibility
 
 - Migrates TUN sniffing from the removed inbound `sniff` field to route action `sniff`.
 - Removes the deprecated legacy `block` outbound from runtime and smoke-test configs.

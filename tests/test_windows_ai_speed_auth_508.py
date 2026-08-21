@@ -8,8 +8,8 @@ def text(path): return (ROOT/path).read_text(encoding='utf-8')
 class WindowsAiSpeedAuth508Tests(unittest.TestCase):
     def test_release_is_508(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'5.0.8')
-        self.assertEqual(r['version_code'],50008)
+        self.assertEqual(r['version'],'5.0.9')
+        self.assertEqual(r['version_code'],50009)
 
     def test_windows_blueai_is_real_closed_loop(self):
         ai=text('bluevpn-windows/Services/WindowsBlueAiService.cs')
@@ -70,7 +70,7 @@ class WindowsAiSpeedAuth508Tests(unittest.TestCase):
         xaml=text('bluevpn-windows/MainWindow.xaml')
         code=text('bluevpn-windows/MainWindow.xaml.cs')
         auth=xaml[xaml.index('<!-- Account drawer -->'):xaml.index('<!-- Settings/menu drawer -->')]
-        self.assertIn('FontFamily="Segoe UI Variable Text, Segoe UI"',auth)
+        self.assertIn('FontFamily="Segoe UI"',xaml)
         self.assertIn('Background="White" CornerRadius="22"',auth)
         self.assertIn('Background="{StaticResource BlueVpnBlue}" Foreground="White"',auth)
         self.assertNotIn('#FF030405',auth)

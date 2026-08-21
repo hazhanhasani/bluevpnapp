@@ -8,9 +8,9 @@ def text(rel):
 
 def test_release_is_502_and_codes_match():
     rel=json.loads(text('release.json')); app=json.loads(text('branding/app.json'))
-    assert rel['version']=='5.0.4' and rel['version_code']==50004
-    assert app['version_name']=='5.0.4' and app['version_code']==50004
-    assert rel['windows_version']=='5.0.4' and rel['windows_version_code']==50004
+    assert rel['version']=='5.0.5' and rel['version_code']==50005
+    assert app['version_name']=='5.0.5' and app['version_code']==50005
+    assert rel['windows_version']=='5.0.5' and rel['windows_version_code']==50005
 
 def test_subscription_is_https_and_uses_no_bearer_raw_client():
     s=text('bluevpn-windows/Services/BlueVpnApiClient.cs')
@@ -46,3 +46,19 @@ def test_logout_failure_is_not_silently_successful():
     api=text('bluevpn-windows/Services/BlueVpnApiClient.cs')
     assert 'ClearLocalSession();\n    }' in api and 'finally' not in api[api.index('public async Task LogoutAsync'):api.index('public void ClearLocalSession')]
     assert 'return;' in s[s.index('private async void Logout_Click'):s.index('private async void Logout_Click')+1800]
+
+def test_windows_login_session_survives_normal_app_restart_securely():
+    api=text('bluevpn-windows/Services/BlueVpnApiClient.cs')
+    store=text('bluevpn-windows/Services/WindowsSessionStore.cs')
+    ui=text('bluevpn-windows/MainWindow.xaml.cs')
+    assert 'WindowsSessionStore.Load()' in api
+    assert 'WindowsSessionStore.Save(_token, _cachedAccount)' in api
+    assert 'WindowsSessionStore.Delete()' in api
+    assert 'CryptProtectData' in store and 'CryptUnprotectData' in store
+    assert 'CryptProtectUiForbidden' in store
+    assert 'LocalApplicationData' in store and 'session.dat' in store
+    assert 'DeviceIdentity.GetOrCreate()' in store
+    assert '_api.CachedAccount' in ui
+    assert 'RestoreAccountSessionSafeAsync()' in ui
+    closing=ui[ui.index('private void MainWindow_Closing'):ui.index('private async void MaintenanceTimer_Tick')]
+    assert 'ClearLocalSession' not in closing

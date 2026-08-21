@@ -287,6 +287,7 @@ jobs:
         env:
           BLUEVPN_RELEASE_SYNC_SECRET: ${{ secrets.BLUEVPN_RELEASE_SYNC_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -297,10 +298,35 @@ jobs:
           if [ -z "$SYNC_SECRET" ]; then echo '::warning::No direct release sync secret; WordPress pull fallback will reconcile.'; exit 0; fi
           X64_SHA="$(awk '{print $1}' "windows-release/BlueVPN-Setup-${VERSION}-win-x64.exe.sha256")"
           ARM64_SHA="$(awk '{print $1}' "windows-release/BlueVPN-Setup-${VERSION}-win-arm64.exe.sha256")"
-          RAW="$(python - "$VERSION" "$TAG" "$X64_SHA" "$ARM64_SHA" <<'PY'
-          import json,sys
-          v,tag,x64,arm=sys.argv[1:]
-          print(json.dumps({'version':v,'channel':'beta','tag':tag,'prerelease':True,'assets':{'win-x64':{'name':f'BlueVPN-Setup-{v}-win-x64.exe','sha256':x64},'win-arm64':{'name':f'BlueVPN-Setup-{v}-win-arm64.exe','sha256':arm}}},separators=(',',':')))
+          X64_SIZE="$(stat -c %s "windows-release/BlueVPN-Setup-${VERSION}-win-x64.exe")"
+          ARM64_SIZE="$(stat -c %s "windows-release/BlueVPN-Setup-${VERSION}-win-arm64.exe")"
+          RELEASE_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")"
+          export RELEASE_JSON
+          RAW="$(python - "$VERSION" "$TAG" "$X64_SHA" "$ARM64_SHA" "$X64_SIZE" "$ARM64_SIZE" <<'PY'
+          import json,os,sys
+          v,tag,x64,arm,x64_size,arm64_size=sys.argv[1:]
+          release=json.loads(os.environ['RELEASE_JSON'])
+          assets={a.get('name',''):a for a in release.get('assets',[]) if isinstance(a,dict)}
+          def asset_payload(name, sha, size):
+              a=assets.get(name,{})
+              return {'name':name,'url':a.get('browser_download_url',''),'sha256':sha,'size':int(size)}
+          payload={
+            'version':v,
+            'channel':'beta',
+            'tag':tag,
+            'prerelease':True,
+            'release_id':int(release.get('id') or 0),
+            'release_url':release.get('html_url',''),
+            'title':release.get('name') or f'BlueVPN Windows {v} Beta',
+            'message':release.get('body') or 'BlueVPN-Windows-Channel: beta',
+            'published_at':release.get('published_at') or release.get('created_at') or '',
+            'commit':release.get('target_commitish') or '',
+            'assets':{
+              'win-x64':asset_payload(f'BlueVPN-Setup-{v}-win-x64.exe',x64,x64_size),
+              'win-arm64':asset_payload(f'BlueVPN-Setup-{v}-win-arm64.exe',arm,arm64_size),
+            },
+          }
+          print(json.dumps(payload,separators=(',',':')))
           PY
           )"
           TIMESTAMP="$(date +%s)"
@@ -311,15 +337,31 @@ jobs:
           )"
           LAST_HTTP=000; CURL_STATUS=0
           for attempt in 1 2 3 4 5; do
+            TRANSIENT_HEADER=()
+            if [ "$attempt" -lt 5 ]; then TRANSIENT_HEADER=(-H 'X-BlueVPN-Sentinel-Transient: 1'); fi
             set +e
             LAST_HTTP="$(curl --silent --show-error --output "$RUNNER_TEMP/windows-release-sync.json" --write-out '%{http_code}' --max-time 30 \
-              -X POST -H 'Content-Type: application/json' -H "X-BlueVPN-Release-Timestamp: ${TIMESTAMP}" -H "X-BlueVPN-Release-Signature: ${SIGNATURE}" \
+              -X POST -H 'Content-Type: application/json' -H "X-BlueVPN-Release-Timestamp: ${TIMESTAMP}" -H "X-BlueVPN-Release-Signature: ${SIGNATURE}" "${TRANSIENT_HEADER[@]}" \
               --data "$RAW" "${API_BASE}/wp-json/bluevpn/v1/windows/release-sync")"; CURL_STATUS=$?; set -e
             echo "release-sync attempt ${attempt}/5: curl=${CURL_STATUS}, http=${LAST_HTTP}"
             if [ "$CURL_STATUS" -eq 0 ] && [[ "$LAST_HTTP" =~ ^2 ]]; then break; fi
+            # Validation/auth 4xx is deterministic: report it once and do not spam retries.
+            if [ "$CURL_STATUS" -eq 0 ] && [[ "$LAST_HTTP" =~ ^4 ]] && [[ ! "$LAST_HTTP" =~ ^(408|425|429)$ ]]; then break; fi
             sleep $((attempt*2))
           done
           if [ "$CURL_STATUS" -ne 0 ] || ! [[ "$LAST_HTTP" =~ ^2 ]]; then
+            if [ -s "$RUNNER_TEMP/windows-release-sync.json" ]; then
+              python - <<'PY'
+              import json, os
+              from pathlib import Path
+              p=Path(os.environ['RUNNER_TEMP'])/'windows-release-sync.json'
+              try:
+                  data=json.loads(p.read_text(encoding='utf-8'))
+                  print('release-sync error detail:', data.get('message') or data.get('code') or data)
+              except Exception:
+                  print('release-sync non-json response:', p.read_text(encoding='utf-8')[:800])
+              PY
+            fi
             echo '::warning::Direct release metadata push did not converge; WordPress pull fallback will run.'
           fi
 

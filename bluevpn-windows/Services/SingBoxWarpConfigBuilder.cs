@@ -19,8 +19,10 @@ public static class SingBoxWarpConfigBuilder
                     address = new[] { settings.Tun.GatewayV4, settings.Tun.GatewayV6 },
                     mtu = settings.Tun.Mtu,
                     auto_route = true,
-                    strict_route = true,
-                    stack = "system"
+                    strict_route = false,
+                    stack = "system",
+                    sniff = true,
+                    route_exclude_address = new[] { "127.0.0.0/8", "::1/128" }
                 }
             },
             outbounds = new object[]

@@ -1,15 +1,32 @@
 {
-  "log": { "loglevel": "warning" },
+  "log": {
+    "loglevel": "warning"
+  },
   "inbounds": [
     {
       "tag": "bluevpn-local-socks",
       "listen": "127.0.0.1",
       "port": 20808,
       "protocol": "socks",
-      "settings": { "auth": "noauth", "udp": true, "ip": "127.0.0.1" }
+      "settings": {
+        "auth": "noauth",
+        "udp": true,
+        "ip": "127.0.0.1"
+      }
+    },
+    {
+      "tag": "bluevpn-local-http",
+      "listen": "127.0.0.1",
+      "port": 20809,
+      "protocol": "http",
+      "settings": {}
     }
   ],
   "outbounds": [
-    { "tag": "proxy", "protocol": "freedom", "settings": {} }
+    {
+      "tag": "proxy",
+      "protocol": "freedom",
+      "settings": {}
+    }
   ]
 }

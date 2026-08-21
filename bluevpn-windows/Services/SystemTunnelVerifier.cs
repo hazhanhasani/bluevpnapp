@@ -19,7 +19,7 @@ public static class SystemTunnelVerifier
             return new(false, "", "", "", "", "IP پایه قبل از VPN معتبر نیست؛ Connected تأیید نشد.");
 
         var tunnelName = string.IsNullOrWhiteSpace(expectedTunnelName) ? "BlueVPN" : expectedTunnelName.Trim();
-        var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(30);
+        var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(16);
         ConnectivitySnapshot after = new(false, "", "", "", DateTimeOffset.UtcNow);
         RouteEvidence route = new(false, true, "", "", "no route evidence");
         string adapter = "";
@@ -33,12 +33,19 @@ public static class SystemTunnelVerifier
             {
                 adapter = await Task.Run(() => FindTunnelAdapter(tunnelName), ct).ConfigureAwait(false);
                 route = await DefaultRouteEvidenceAsync(tunnelName, ct).ConfigureAwait(false);
-                nextRouteProbe = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(2);
+                nextRouteProbe = DateTimeOffset.UtcNow + TimeSpan.FromMilliseconds(1200);
             }
 
-            after = await ConnectivityProbe.SnapshotAsync(probeUrl, ct).ConfigureAwait(false);
+            after = requireWarp
+                ? await ConnectivityProbe.SnapshotTraceAsync(probeUrl, ct).ConfigureAwait(false)
+                : await ConnectivityProbe.SnapshotAsync(probeUrl, ct).ConfigureAwait(false);
+
             var adapterOk = adapter.Length > 0;
-            var routeOk = route.Ipv4ThroughTunnel && route.Ipv6Safe;
+            // IPv4 route + changed public IP proves the user's primary Internet
+            // path is going through BlueVPN. IPv6 safety stays diagnostic instead
+            // of turning a healthy IPv4 tunnel into a false-negative on machines
+            // where Windows keeps an unused physical IPv6 default route around.
+            var routeOk = route.Ipv4ThroughTunnel;
             var ipChanged = after.Reachable && !string.IsNullOrWhiteSpace(after.PublicIp) &&
                 !string.Equals(before.PublicIp, after.PublicIp, StringComparison.OrdinalIgnoreCase);
             var warpOk = !requireWarp || after.Warp.Equals("on", StringComparison.OrdinalIgnoreCase) || after.Warp.Equals("plus", StringComparison.OrdinalIgnoreCase);
@@ -49,21 +56,53 @@ public static class SystemTunnelVerifier
                 consecutive++;
                 if (consecutive >= 2)
                     return new(true, after.PublicIp, after.Country, after.Warp, adapter,
-                        $"tun={adapter}; v4={route.Ipv4Alias}; v6={route.Ipv6Alias}; ip={after.PublicIp}; loc={after.Country}; warp={after.Warp}");
+                        $"tun={adapter}; v4={route.Ipv4Alias}; v6={route.Ipv6Alias}; v6safe={route.Ipv6Safe}; ip={after.PublicIp}; loc={after.Country}; warp={after.Warp}");
             }
             else consecutive = 0;
-            await Task.Delay(850, ct).ConfigureAwait(false);
+            await Task.Delay(300, ct).ConfigureAwait(false);
         }
 
         var reason = !after.Reachable ? "اینترنت از مسیر TUN پاسخ نداد"
             : string.IsNullOrWhiteSpace(adapter) ? $"آداپتور TUN اختصاصی {tunnelName} بالا نیامد"
-            : !route.Ipv4ThroughTunnel ? $"مسیر پیش‌فرض IPv4 هنوز زیر VPN نیست ({route.Ipv4Alias})"
-            : !route.Ipv6Safe ? $"IPv6 می‌تواند VPN را دور بزند ({route.Ipv6Alias})"
+            : !route.Ipv4ThroughTunnel ? $"مسیر IPv4 هنوز از BlueVPN عبور نمی‌کند ({route.Ipv4Alias})"
             : requireWarp && !(after.Warp.Equals("on", StringComparison.OrdinalIgnoreCase) || after.Warp.Equals("plus", StringComparison.OrdinalIgnoreCase)) ? "WARP در خروجی تأیید نشد"
             : blockedCountries.Any(x => x.Equals(after.Country, StringComparison.OrdinalIgnoreCase)) ? $"خروجی VPN در کشور مسدودشده {after.Country} است"
-            : string.Equals(before.PublicIp, after.PublicIp, StringComparison.OrdinalIgnoreCase) ? "IP سیستم تغییر نکرد؛ اتصال به‌عنوان VPN پذیرفته نشد"
+            : string.Equals(before.PublicIp, after.PublicIp, StringComparison.OrdinalIgnoreCase) ? "IP سیستم تغییر نکرد؛ مسیر TUN اعمال نشده است"
             : route.Detail;
         return new(false, after.PublicIp, after.Country, after.Warp, adapter, reason);
+    }
+
+    /// <summary>
+    /// v2rayN-compatible fallback: if the local Xray proxy works but Windows TUN
+    /// cannot be installed/routed on a particular machine, enable Windows system
+    /// proxy and verify the actual public IP through the local HTTP inbound.
+    /// </summary>
+    public static async Task<TunnelVerificationResult> VerifySystemProxyAsync(
+        ConnectivitySnapshot before,
+        string probeUrl,
+        int httpPort,
+        CancellationToken ct = default)
+    {
+        if (!before.Reachable || string.IsNullOrWhiteSpace(before.PublicIp))
+            return new(false, "", "", "", "", "IP پایه قبل از اتصال معتبر نیست.");
+
+        var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(9);
+        ConnectivitySnapshot after = new(false, "", "", "", DateTimeOffset.UtcNow);
+        while (DateTimeOffset.UtcNow < stop)
+        {
+            ct.ThrowIfCancellationRequested();
+            after = await ConnectivityProbe.SnapshotViaHttpProxyAsync(
+                probeUrl, "127.0.0.1", httpPort, TimeSpan.FromSeconds(4), ct).ConfigureAwait(false);
+            if (after.Reachable && !string.IsNullOrWhiteSpace(after.PublicIp) &&
+                !string.Equals(before.PublicIp, after.PublicIp, StringComparison.OrdinalIgnoreCase))
+            {
+                return new(true, after.PublicIp, after.Country, after.Warp, "Windows System Proxy",
+                    $"proxy=127.0.0.1:{httpPort}; ip={after.PublicIp}; baseline={before.PublicIp}");
+            }
+            await Task.Delay(300, ct).ConfigureAwait(false);
+        }
+        return new(false, after.PublicIp, after.Country, after.Warp, "Windows System Proxy",
+            after.Reachable ? "IP از مسیر سازگار BlueVPN تغییر نکرد." : "مسیر سازگار BlueVPN اینترنت معتبر نداد.");
     }
 
     private static string FindTunnelAdapter(string expectedName)
@@ -73,7 +112,9 @@ public static class SystemTunnelVerifier
             foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
             {
                 if (nic.OperationalStatus != OperationalStatus.Up) continue;
-                if (string.Equals(nic.Name, expectedName, StringComparison.OrdinalIgnoreCase)) return nic.Name;
+                if (string.Equals(nic.Name, expectedName, StringComparison.OrdinalIgnoreCase) ||
+                    nic.Name.StartsWith(expectedName + " ", StringComparison.OrdinalIgnoreCase) ||
+                    nic.Description.Contains(expectedName, StringComparison.OrdinalIgnoreCase)) return nic.Name;
             }
         }
         catch { }
@@ -91,7 +132,7 @@ function Effective([object]$r,[string]$family) {{
   if ($i) {{ return ([int]$r.RouteMetric + [int]$i.InterfaceMetric) }}
   return [int]$r.RouteMetric
 }}
-$pat = '^{escapedName}$'
+$pat = '^{escapedName}(?: [0-9]+)?$'
 $v4all = @(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {{ $_.DestinationPrefix -in @('0.0.0.0/0','0.0.0.0/1','128.0.0.0/1') }})
 $v6all = @(Get-NetRoute -AddressFamily IPv6 -ErrorAction SilentlyContinue | Where-Object {{ $_.DestinationPrefix -in @('::/0','::/1','8000::/1') }})
 $v4def = @($v4all | Where-Object DestinationPrefix -eq '0.0.0.0/0' | Sort-Object @{{Expression={{Effective $_ 'IPv4'}}}})[0]
@@ -103,16 +144,11 @@ $v6full = @($v6all | Where-Object {{ $_.DestinationPrefix -eq '::/0' -and $_.Int
 $v6a = @($v6all | Where-Object {{ $_.DestinationPrefix -eq '::/1' -and $_.InterfaceAlias -match $pat }}).Count -gt 0
 $v6b = @($v6all | Where-Object {{ $_.DestinationPrefix -eq '8000::/1' -and $_.InterfaceAlias -match $pat }}).Count -gt 0
 $v6physical = $null -ne $v6def -and $v6def.InterfaceAlias -notmatch $pat
-$v6bypass = @(Get-NetRoute -AddressFamily IPv6 -ErrorAction SilentlyContinue | Where-Object {{
-  $_.InterfaceAlias -notmatch $pat -and
-  $_.DestinationPrefix -notmatch '^(::1/128|fe80::/10|ff00::/8|fd[0-9a-f]{{2}}::/16)$' -and
-  $_.DestinationPrefix -match '/(?:[0-9]|[1-5][0-9]|6[0-4])$'
-}}).Count -gt 0
 [pscustomobject]@{{
   v4=if($v4def){{$v4def.InterfaceAlias}}else{{''}};
   v6=if($v6def){{$v6def.InterfaceAlias}}else{{''}};
   v4ok=($v4full -or ($v4a -and $v4b));
-  v6safe=(($v6full -or ($v6a -and $v6b) -or -not $v6physical) -and -not $v6bypass)
+  v6safe=(($v6full -or ($v6a -and $v6b) -or -not $v6physical))
 }} | ConvertTo-Json -Compress
 ";
             var psi = new ProcessStartInfo
@@ -126,8 +162,10 @@ $v6bypass = @(Get-NetRoute -AddressFamily IPv6 -ErrorAction SilentlyContinue | W
             psi.ArgumentList.Add(script);
             using var p = Process.Start(psi);
             if (p is null) return new(false, false, "", "", "route inspection failed");
-            var output = await p.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
-            await p.WaitForExitAsync(ct).ConfigureAwait(false);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(3));
+            var output = await p.StandardOutput.ReadToEndAsync(timeout.Token).ConfigureAwait(false);
+            await p.WaitForExitAsync(timeout.Token).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(output)) return new(false, false, "", "", "default route missing");
             using var doc = JsonDocument.Parse(output);
             var v4 = doc.RootElement.TryGetProperty("v4", out var v4e) ? v4e.GetString() ?? "" : "";

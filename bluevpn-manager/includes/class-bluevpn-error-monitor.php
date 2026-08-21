@@ -217,6 +217,11 @@ final class BlueVPN_Error_Monitor {
                 $message = sanitize_text_field((string)($detail['message'] ?? ''));
             }
         }
+        // Signed CI callers mark non-final retries. Keep the final failure visible
+        // while suppressing duplicate transient REST incidents from earlier attempts.
+        $transientRetryAttempt = (string)$request->get_header('x-bluevpn-sentinel-transient') === '1';
+        if ($transientRetryAttempt && in_array($status, [408,425,429,500,502,503,504], true)) return $response;
+
         // A verify miss means the location discovery pipeline has not learned this
         // route yet. The client is expected to continue safely; it is not a runtime
         // incident and can otherwise flood Sentinel while the route is being learned.

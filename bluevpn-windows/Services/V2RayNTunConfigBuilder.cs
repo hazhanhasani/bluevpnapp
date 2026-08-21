@@ -19,6 +19,10 @@ public static class V2RayNTunConfigBuilder
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Select(x => x.Contains(':') ? x + "/128" : x + "/32")
             .ToArray();
+        var routeExclusions = ipCidrs
+            .Concat(new[] { "127.0.0.0/8", "::1/128" })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         if (ipCidrs.Length > 0)
             rules.Add(new { ip_cidr = ipCidrs, action = "route", outbound = "direct" });
 
@@ -42,8 +46,13 @@ public static class V2RayNTunConfigBuilder
                     address = new[] { settings.Tun.GatewayV4, settings.Tun.GatewayV6 },
                     mtu = settings.Tun.Mtu,
                     auto_route = true,
-                    strict_route = true,
-                    stack = "system"
+                    // Match v2rayN 7.24.4's Windows TUN defaults. auto_route owns the
+                    // default route; strict_route stays off so Windows DNS and local
+                    // network discovery cannot deadlock the tunnel during startup.
+                    strict_route = false,
+                    stack = "system",
+                    sniff = true,
+                    route_exclude_address = routeExclusions
                 }
             },
             outbounds = new object[]

@@ -115,10 +115,10 @@ public sealed class ConnectionOrchestrator : IDisposable
         if (endpoints.Count == 0)
             throw new InvalidOperationException("هیچ کانفیگ قابل استفاده‌ای در اشتراک دریافت نشد.");
 
-        progress?.Report($"بررسی سریع {Math.Min(endpoints.Count, 40)} مسیر…");
+        progress?.Report($"بررسی سریع {Math.Min(endpoints.Count, 20)} مسیر…");
         var ranked = await EndpointSelector.RankAsync(endpoints, ct).ConfigureAwait(false);
-        var candidates = ranked.Where(x => x.ProbeLatencyMs < int.MaxValue).Take(8).ToList();
-        if (candidates.Count == 0) candidates = ranked.Take(4).ToList();
+        var candidates = ranked.Where(x => x.ProbeLatencyMs < int.MaxValue).Take(4).ToList();
+        if (candidates.Count == 0) candidates = ranked.Take(3).ToList();
 
         Exception? lastError = null;
         foreach (var endpoint in candidates)
@@ -129,10 +129,24 @@ public sealed class ConnectionOrchestrator : IDisposable
                 progress?.Report("اتصال به بهترین مسیر BlueVPN…");
                 var config = XrayConfigBuilder.Build(endpoint, _settings);
                 await _xray.StartAsync(config, endpoint, ct).ConfigureAwait(false);
-                progress?.Report("تأیید VPN سراسری…");
-                var verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, false, Array.Empty<string>(), _settings.Tun.Name, ct).ConfigureAwait(false);
+                TunnelVerificationResult verified;
+                if (_xray.RoutingMode == "tun")
+                {
+                    progress?.Report("تأیید مسیر VPN ویندوز…");
+                    verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, false, Array.Empty<string>(), _settings.Tun.Name, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    verified = new TunnelVerificationResult(false, "", "", "", "", "TUN آماده نشد");
+                }
+
                 if (!verified.Success)
-                    throw new InvalidOperationException($"تونل کامل نشد: {verified.Detail}");
+                {
+                    progress?.Report("TUN کامل نشد؛ فعال‌سازی مسیر سازگار سریع…");
+                    verified = await _xray.FallbackToSystemProxyAsync(before, _settings.ProbeUrl, ct).ConfigureAwait(false);
+                }
+                if (!verified.Success)
+                    throw new InvalidOperationException($"اتصال سیستم کامل نشد: {verified.Detail}");
 
                 _verifiedConnected = true;
                 ActiveEndpoint = endpoint;

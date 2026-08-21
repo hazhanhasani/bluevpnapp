@@ -1,5 +1,5 @@
 #ifndef MyVersion
-  #define MyVersion "5.0.4"
+  #define MyVersion "5.0.5"
 #endif
 #ifndef MyRid
   #define MyRid "win-x64"
@@ -58,7 +58,7 @@ Name: "{autoprograms}\BlueVPN"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\BlueVPN"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch BlueVPN"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "Launch BlueVPN"; Flags: nowait postinstall skipifsilent shellexec
 
 [UninstallRun]
 Filename: "taskkill"; Parameters: "/F /IM BlueVPN.exe"; Flags: runhidden; RunOnceId: "StopBlueVPN"

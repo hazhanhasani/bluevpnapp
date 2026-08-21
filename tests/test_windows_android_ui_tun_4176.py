@@ -8,8 +8,8 @@ def read(path): return (ROOT/path).read_text(encoding='utf-8')
 class WindowsAndroidUiTun4176Tests(unittest.TestCase):
     def test_release(self):
         r=json.loads(read('release.json'))
-        self.assertEqual(r['version'],'5.0.4')
-        self.assertEqual(r['version_code'],50004)
+        self.assertEqual(r['version'],'5.0.5')
+        self.assertEqual(r['version_code'],50005)
 
     def test_windows_home_matches_android_surface_order(self):
         x=read('bluevpn-windows/MainWindow.xaml')
@@ -29,7 +29,7 @@ class WindowsAndroidUiTun4176Tests(unittest.TestCase):
         self.assertIn('protocol"] = "socks"',xray)
         self.assertIn('LocalSocksPort = 20808',xray)
         self.assertIn('type = "tun"',tun)
-        self.assertIn('strict_route = true',tun)
+        self.assertIn('strict_route = false',tun)
         self.assertIn('process_name = new[] { "xray.exe" }',tun)
         self.assertIn('final = "xray-local"',tun)
         self.assertIn('V2RayNTunConfigBuilder.Build',ctrl)
@@ -38,8 +38,11 @@ class WindowsAndroidUiTun4176Tests(unittest.TestCase):
 
     def test_connected_is_fail_closed_on_route_and_ip(self):
         v=read('bluevpn-windows/Services/SystemTunnelVerifier.cs')
-        self.assertIn('route.Ipv4ThroughTunnel && route.Ipv6Safe',v)
+        self.assertIn('var routeOk = route.Ipv4ThroughTunnel',v)
         self.assertIn('consecutive >= 2',v)
+        self.assertIn('VerifySystemProxyAsync',v)
+        ctrl=read('bluevpn-windows/Services/XrayProcessController.cs')
+        self.assertIn('FallbackToSystemProxyAsync',ctrl)
         self.assertIn('IP سیستم تغییر نکرد',v)
         self.assertIn('Get-NetRoute',v)
         self.assertIn('Get-NetIPInterface',v)

@@ -6,6 +6,7 @@ namespace BlueVPN.Windows.Services;
 public static class XrayConfigBuilder
 {
     public const int LocalSocksPort = 20808;
+    public const int LocalHttpPort = 20809;
 
     public static string Build(ProxyEndpoint endpoint, AppSettings settings)
     {
@@ -32,6 +33,20 @@ public static class XrayConfigBuilder
                     {
                         ["enabled"] = true,
                         ["destOverride"] = new[] { "http", "tls", "quic" },
+                        ["routeOnly"] = true
+                    }
+                },
+                new Dictionary<string, object?>
+                {
+                    ["tag"] = "bluevpn-local-http",
+                    ["listen"] = "127.0.0.1",
+                    ["port"] = LocalHttpPort,
+                    ["protocol"] = "http",
+                    ["settings"] = new Dictionary<string, object?>(),
+                    ["sniffing"] = new Dictionary<string, object?>
+                    {
+                        ["enabled"] = true,
+                        ["destOverride"] = new[] { "http", "tls" },
                         ["routeOnly"] = true
                     }
                 }

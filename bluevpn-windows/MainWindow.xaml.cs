@@ -63,6 +63,15 @@ public partial class MainWindow : Window
         MenuTechnicalText.Text = _connection.RuntimeStatus;
         ApplyAuthModeUi();
 
+        // Restore the encrypted Windows session immediately so closing/reopening
+        // BlueVPN does not look like a logout. The server copy is refreshed on load.
+        _account = _api.CachedAccount;
+        if (_account is not null)
+        {
+            ApplyAccount();
+            AuthStatusText.Text = "حساب ذخیره‌شده بازیابی شد.";
+        }
+
         _adTimer.Tick += async (_, _) => await AdvanceAdAsync();
         _maintenanceTimer.Interval = TimeSpan.FromHours(4);
         _maintenanceTimer.Tick += MaintenanceTimer_Tick;
@@ -82,7 +91,7 @@ public partial class MainWindow : Window
         // home renders first and hydrates account/ads/IP independently; Windows
         // now follows the same non-blocking behaviour.
         await Task.WhenAll(
-            RefreshPlansSafeAsync(),
+            RestoreAccountSessionSafeAsync(),
             LoadAdsAsync(),
             RefreshPublicIpAsync());
 
@@ -445,13 +454,14 @@ public partial class MainWindow : Window
             var endpoints = SubscriptionParser.Parse(raw);
             var locations = LocationCatalog.Available(endpoints);
 
+            var pickerHeight = Math.Min(SystemParameters.WorkArea.Height * 0.78, Math.Clamp(190 + ((locations.Count + 1) * 58), 320, 610));
             var picker = new Window
             {
                 Owner = this,
                 Title = "انتخاب لوکیشن BlueVPN",
                 Width = 440,
-                Height = Math.Min(600, Math.Max(400, SystemParameters.WorkArea.Height * 0.74)),
-                MinHeight = 340,
+                Height = pickerHeight,
+                MinHeight = 300,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 ResizeMode = ResizeMode.CanResize,
                 Background = (Brush)FindResource("BlueVpnBg"),
@@ -818,6 +828,40 @@ public partial class MainWindow : Window
         RemainingTimeValue.Text = FormatRemainingTime(_account.Subscription);
     }
 
+    private async Task RestoreAccountSessionSafeAsync()
+    {
+        if (!_api.IsAuthenticated)
+        {
+            PlansList.ItemsSource = null;
+            return;
+        }
+
+        try
+        {
+            var fresh = await _api.GetAccountAsync(_lifetimeCts.Token);
+            _account = fresh;
+            ApplyAccount();
+            await RefreshPlansSafeAsync();
+            AuthStatusText.Text = "حساب BlueVPN آماده است.";
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            // Network loss on startup must not erase a valid remembered login.
+            // Keep the encrypted cached snapshot visible and retry on the next refresh.
+            if (_account is not null)
+            {
+                ApplyAccount();
+                FooterStatus.Text = "حساب ذخیره‌شده فعال است؛ بروزرسانی آنلاین اطلاعات بعداً دوباره انجام می‌شود.";
+            }
+            else
+            {
+                AuthStatusText.Text = FriendlyUiError(ex.Message);
+                FooterStatus.Text = "نشست ورود ذخیره شده است؛ برای دریافت اطلاعات حساب به اینترنت متصل شوید.";
+            }
+        }
+    }
+
     private async Task RefreshPlansSafeAsync()
     {
         try { PlansList.ItemsSource = await _api.GetPlansAsync(_lifetimeCts.Token); }
@@ -861,6 +905,13 @@ public partial class MainWindow : Window
     private static string FriendlyUiError(string message)
     {
         if (string.IsNullOrWhiteSpace(message)) return "عملیات انجام نشد؛ دوباره تلاش کنید.";
+        if (message.Contains("TUN", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("تونل", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("IP سیستم تغییر نکرد", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("مسیر پیش‌فرض", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("Administrator", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("WARP", StringComparison.OrdinalIgnoreCase))
+            return message.Length > 220 ? message[..220] + "…" : message;
         if (message.Contains("HttpClient.Timeout", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("configured HttpClient.Timeout", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||

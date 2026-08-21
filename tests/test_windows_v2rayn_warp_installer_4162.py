@@ -8,8 +8,8 @@ def read(p): return (ROOT/p).read_text(encoding='utf-8')
 class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
     def test_release_contract(self):
         r=json.loads(read('release.json'))
-        self.assertEqual(r['version'],'5.0.4')
-        self.assertEqual(r['version_code'],50004)
+        self.assertEqual(r['version'],'5.0.5')
+        self.assertEqual(r['version_code'],50005)
         self.assertEqual(r['windows']['runtime_base'],'v2rayN')
         self.assertEqual(r['windows']['artifact'],'inno_setup_exe')
         self.assertTrue(r['windows']['warp_x64'])
@@ -33,7 +33,7 @@ class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
         c=read('bluevpn-windows/Services/SingBoxWarpConfigBuilder.cs')
         self.assertIn('type = "tun"',c)
         self.assertIn('auto_route = true',c)
-        self.assertIn('strict_route = true',c)
+        self.assertIn('strict_route = false',c)
         self.assertIn('final = "warp-socks"',c)
         self.assertIn('aether.exe',c)
 
@@ -61,5 +61,17 @@ class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
         self.assertIn('SingBoxWarpConfigBuilder.Build(_settings, socksPort)',w)
         self.assertIn('TimeSpan.FromHours(4)',ui)
         self.assertIn('MaintenanceTimer_Tick',ui)
+
+    def test_installer_launch_keeps_elevation_and_xray_has_proxy_fallback(self):
+        installer=read('bluevpn-windows/installer/BlueVPN.iss')
+        xray=read('bluevpn-windows/Services/XrayConfigBuilder.cs')
+        ctrl=read('bluevpn-windows/Services/XrayProcessController.cs')
+        proxy=read('bluevpn-windows/Services/WindowsSystemProxyController.cs')
+        self.assertNotIn('runascurrentuser',installer)
+        self.assertIn('postinstall skipifsilent shellexec',installer)
+        self.assertIn('LocalHttpPort = 20809',xray)
+        self.assertIn('FallbackToSystemProxyAsync',ctrl)
+        self.assertIn('ProxyEnable',proxy)
+        self.assertIn('RecoverStaleState',proxy)
 
 if __name__ == '__main__': unittest.main()

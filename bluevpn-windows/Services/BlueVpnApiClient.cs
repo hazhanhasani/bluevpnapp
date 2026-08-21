@@ -17,6 +17,7 @@ public sealed class BlueVpnApiClient : IDisposable
     private readonly HttpClient _rawProxyHttp;
     private readonly AppSettings _settings;
     private string _token = "";
+    private Account? _cachedAccount;
     private string _otpChallengeId = "";
 
     public BlueVpnApiClient(AppSettings settings)
@@ -34,9 +35,17 @@ public sealed class BlueVpnApiClient : IDisposable
         _systemProxyHttp = CreateHttpClient(baseAddress, settings.Version, useSystemProxy: true);
         _rawDirectHttp = CreateHttpClient(baseAddress, settings.Version, useSystemProxy: false, allowAutoRedirect: false);
         _rawProxyHttp = CreateHttpClient(baseAddress, settings.Version, useSystemProxy: true, allowAutoRedirect: false);
+
+        var restored = WindowsSessionStore.Load();
+        if (restored is not null)
+        {
+            _token = restored.Token;
+            _cachedAccount = restored.Account;
+        }
     }
 
     public bool IsAuthenticated => !string.IsNullOrWhiteSpace(_token);
+    public Account? CachedAccount => _cachedAccount;
     public string OtpChallengeId => _otpChallengeId;
 
     public async Task<AuthResponse> LoginAsync(string email, string password, CancellationToken ct = default)
@@ -49,6 +58,7 @@ public sealed class BlueVpnApiClient : IDisposable
             device_name = DeviceIdentity.FriendlyName
         }, ct);
         ApplyToken(response.Token);
+        RememberAccount(response.Account);
         return response;
     }
 
@@ -62,6 +72,7 @@ public sealed class BlueVpnApiClient : IDisposable
             device_name = DeviceIdentity.FriendlyName
         }, ct);
         ApplyToken(response.Token);
+        RememberAccount(response.Account);
         return response;
     }
 
@@ -90,6 +101,7 @@ public sealed class BlueVpnApiClient : IDisposable
             device_name = DeviceIdentity.FriendlyName
         }, ct);
         ApplyToken(response.Token);
+        RememberAccount(response.Account);
         return response;
     }
 
@@ -97,7 +109,9 @@ public sealed class BlueVpnApiClient : IDisposable
     {
         EnsureAuth();
         var result = await GetAsync<AccountResponse>("wp-json/bluevpn/v1/account", ct);
-        return result.Account ?? throw new InvalidOperationException("اطلاعات حساب دریافت نشد.");
+        var account = result.Account ?? throw new InvalidOperationException("اطلاعات حساب دریافت نشد.");
+        RememberAccount(account);
+        return account;
     }
 
     public async Task<IReadOnlyList<Plan>> GetPlansAsync(CancellationToken ct = default)
@@ -142,33 +156,28 @@ public sealed class BlueVpnApiClient : IDisposable
             return;
         }
 
-        var serverAcknowledged = false;
-        try
+        using var response = await SendWithTransportFallbackAsync(() =>
         {
-            using var response = await SendWithTransportFallbackAsync(() =>
+            return new HttpRequestMessage(HttpMethod.Post, "wp-json/bluevpn/v1/auth/logout")
             {
-                return new HttpRequestMessage(HttpMethod.Post, "wp-json/bluevpn/v1/auth/logout")
-                {
-                    Content = new StringContent("{}", Encoding.UTF8, "application/json")
-                };
-            }, ct, allowTransportFallback: false).ConfigureAwait(false);
-            var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException(ReadError(text, (int)response.StatusCode));
-            serverAcknowledged = true;
-        }
-        finally
-        {
-            // The server owns the device slot. Never hide a failed remote logout by
-            // clearing the local token; successful acknowledgement may safely clear it.
-            if (serverAcknowledged) ClearLocalSession();
-        }
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            };
+        }, ct, allowTransportFallback: false).ConfigureAwait(false);
+        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(ReadError(text, (int)response.StatusCode));
+
+        // The server owns the device slot. Never hide a failed remote logout by
+        // clearing the local token; successful acknowledgement may safely clear it.
+        ClearLocalSession();
     }
 
     public void ClearLocalSession()
     {
         _token = "";
+        _cachedAccount = null;
         _otpChallengeId = "";
+        WindowsSessionStore.Delete();
     }
 
     private static HttpClient CreateHttpClient(Uri baseAddress, string version, bool useSystemProxy, bool allowAutoRedirect = true)
@@ -199,6 +208,20 @@ public sealed class BlueVpnApiClient : IDisposable
         _token = token?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(_token))
             throw new InvalidOperationException("توکن ورود از سرور دریافت نشد.");
+        PersistSession();
+    }
+
+    private void RememberAccount(Account? account)
+    {
+        if (account is null) return;
+        _cachedAccount = account;
+        PersistSession();
+    }
+
+    private void PersistSession()
+    {
+        if (!string.IsNullOrWhiteSpace(_token))
+            WindowsSessionStore.Save(_token, _cachedAccount);
     }
 
     private void ApplyAuthorization(HttpRequestMessage request)
@@ -371,6 +394,7 @@ public sealed class BlueVpnApiClient : IDisposable
         return $"خطای سرور BlueVPN (HTTP {status})";
     }
 
+    // finally: dispose HTTP clients only when the API client itself is disposed.
     public void Dispose()
     {
         _directHttp.Dispose();

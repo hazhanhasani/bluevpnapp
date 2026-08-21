@@ -1,19 +1,22 @@
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Principal;
 using BlueVPN.Windows.Models;
 
 namespace BlueVPN.Windows.Services;
 
 /// <summary>
-/// Starts the v2rayN-sourced Xray core as a localhost proxy and the v2rayN-sourced
-/// sing-box core as the Windows TUN owner. The remote endpoint is resolved before
-/// the TUN comes up and routed directly to make loop prevention deterministic.
+/// Xray is always the protocol core. sing-box is used only as the Windows TUN
+/// owner. If a particular Windows build/driver blocks TUN routing, BlueVPN falls
+/// back to the same Xray core through Windows system proxy instead of leaving the
+/// user with a fake "connected" state or no Internet.
 /// </summary>
 public sealed class XrayProcessController : IDisposable
 {
     private readonly ManagedCoreProcess _xray = new("xray");
     private readonly ManagedCoreProcess _singBox = new("sing-box-tun");
+    private readonly WindowsSystemProxyController _systemProxy = new();
     private readonly RuntimeLocator _runtime;
     private readonly AppSettings _settings;
     private readonly string _stateDir;
@@ -26,12 +29,14 @@ public sealed class XrayProcessController : IDisposable
         Directory.CreateDirectory(_stateDir);
     }
 
-    public bool IsRunning => _xray.IsRunning && _singBox.IsRunning;
+    public bool IsRunning => _xray.IsRunning && (_singBox.IsRunning || _systemProxy.IsActive);
+    public string RoutingMode { get; private set; } = "none";
     public string RuntimeStatus() => _runtime.RuntimeStatus();
 
     public async Task StartAsync(string configJson, ProxyEndpoint endpoint, CancellationToken ct = default)
     {
         Stop();
+        EnsureElevatedForTun();
         var bundle = _runtime.ResolveV2RayNBundle();
         var xray = bundle.XrayPath;
         var singBox = bundle.SingBoxPath;
@@ -40,32 +45,64 @@ public sealed class XrayProcessController : IDisposable
         var xrayConfig = Path.Combine(_stateDir, "xray-local-proxy.json");
         await File.WriteAllTextAsync(xrayConfig, configJson, ct).ConfigureAwait(false);
         await _xray.StartAsync(xray, ["run", "-c", xrayConfig], Path.GetDirectoryName(xray), ct).ConfigureAwait(false);
-        await WaitForPortAsync("127.0.0.1", XrayConfigBuilder.LocalSocksPort, TimeSpan.FromSeconds(12), ct).ConfigureAwait(false);
+        await WaitForPortAsync("127.0.0.1", XrayConfigBuilder.LocalSocksPort, TimeSpan.FromSeconds(7), ct).ConfigureAwait(false);
+        await WaitForPortAsync("127.0.0.1", XrayConfigBuilder.LocalHttpPort, TimeSpan.FromSeconds(4), ct).ConfigureAwait(false);
 
-        // Validate the selected proxy before touching Windows routes. This keeps
-        // a dead endpoint from briefly hijacking the whole system through TUN.
+        // Validate Xray before touching the default route. Multiple Cloudflare
+        // trace endpoints are raced by ConnectivityProbe, so a single filtered
+        // host no longer makes a healthy server look dead.
         var proxyTrace = await ConnectivityProbe.SnapshotViaSocksAsync(
             _settings.ProbeUrl,
             "127.0.0.1",
             XrayConfigBuilder.LocalSocksPort,
-            TimeSpan.FromSeconds(7),
+            TimeSpan.FromSeconds(4),
             ct).ConfigureAwait(false);
         if (!proxyTrace.Reachable || string.IsNullOrWhiteSpace(proxyTrace.PublicIp))
-            throw new InvalidOperationException($"هسته اتصال مسیر را باز کرد اما اینترنت از تونل عبور نکرد: {proxyTrace.Error}");
+            throw new InvalidOperationException($"هسته Xray به سرور رسید ولی اینترنت از آن عبور نکرد: {proxyTrace.Error}");
 
         var directIps = await ResolveEndpointIpsAsync(endpoint.Host, ct).ConfigureAwait(false);
         var tunConfig = Path.Combine(_stateDir, "sing-box-v2rayn-tun.json");
         await File.WriteAllTextAsync(tunConfig, V2RayNTunConfigBuilder.Build(_settings, XrayConfigBuilder.LocalSocksPort, endpoint.Host, directIps), ct).ConfigureAwait(false);
         await _singBox.StartAsync(singBox, ["run", "-c", tunConfig], Path.GetDirectoryName(singBox), ct).ConfigureAwait(false);
-        await Task.Delay(900, ct).ConfigureAwait(false);
-        if (!IsRunning) throw new InvalidOperationException("هسته TUN ویندوز پایدار نماند.");
+        await Task.Delay(750, ct).ConfigureAwait(false);
+        if (!_singBox.IsRunning)
+        {
+            RoutingMode = "tun_unavailable";
+            return;
+        }
+        RoutingMode = "tun";
+    }
+
+    public async Task<TunnelVerificationResult> FallbackToSystemProxyAsync(
+        ConnectivitySnapshot before,
+        string probeUrl,
+        CancellationToken ct = default)
+    {
+        // Remove broken TUN routes before enabling the compatibility path.
+        _singBox.Stop();
+        await Task.Delay(250, ct).ConfigureAwait(false);
+        if (!_xray.IsRunning)
+            return new(false, "", "", "", "", "هسته Xray متوقف شده است.");
+
+        _systemProxy.Enable(XrayConfigBuilder.LocalHttpPort, XrayConfigBuilder.LocalSocksPort);
+        RoutingMode = "system_proxy";
+        var verified = await SystemTunnelVerifier.VerifySystemProxyAsync(
+            before, probeUrl, XrayConfigBuilder.LocalHttpPort, ct).ConfigureAwait(false);
+        if (!verified.Success)
+        {
+            _systemProxy.Restore();
+            RoutingMode = "none";
+        }
+        return verified;
     }
 
     public void Stop()
     {
-        // TUN owner first so Windows restores its routes before Xray disappears.
+        _systemProxy.Restore();
+        // TUN owner first so Windows restores routes before Xray disappears.
         _singBox.Stop();
         _xray.Stop();
+        RoutingMode = "none";
     }
 
     private static async Task<IReadOnlyList<string>> ResolveEndpointIpsAsync(string host, CancellationToken ct)
@@ -94,14 +131,28 @@ public sealed class XrayProcessController : IDisposable
             {
                 using var tcp = new TcpClient();
                 using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                linked.CancelAfter(TimeSpan.FromSeconds(2));
+                linked.CancelAfter(TimeSpan.FromSeconds(1));
                 await tcp.ConnectAsync(host, port, linked.Token).ConfigureAwait(false);
                 if (tcp.Connected) return;
             }
             catch (Exception ex) { last = ex; }
-            await Task.Delay(300, ct).ConfigureAwait(false);
+            await Task.Delay(180, ct).ConfigureAwait(false);
         }
         throw new InvalidOperationException($"پروکسی داخلی BlueVPN آماده نشد: {last?.Message ?? "port unavailable"}");
+    }
+
+    private static void EnsureElevatedForTun()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            var principal = new WindowsPrincipal(identity);
+            if (!principal.IsInRole(WindowsBuiltInRole.Administrator))
+                throw new InvalidOperationException("برای فعال‌سازی VPN سراسری، BlueVPN باید با دسترسی Administrator اجرا شود.");
+        }
+        catch (InvalidOperationException) { throw; }
+        catch { /* app.manifest is the final elevation guard */ }
     }
 
     public void Dispose()

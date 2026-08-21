@@ -1,4 +1,4 @@
-# BlueVPN for Windows — 5.0.4
+# BlueVPN for Windows — 5.0.5
 
 ## 5.0.3 hotfix
 
@@ -72,7 +72,7 @@ The WPF home screen follows the current Android BlueVPN visual model: compact ac
 - First-party campaign media uses direct HTTPS, Windows system-proxy fallback and a persistent last-known-good cache. If an image cannot be decoded, the campaign title/subtitle/CTA remain visible instead of a blank dark rectangle.
 - The `/mobile/config` Tapsell payload is parsed only as a capability signal. The configured Tapsell Mediation App ID/Zone IDs are Android mobile-SDK credentials and are not impersonated as a native WPF ad implementation.
 
-## 5.0.4 Windows UI / update / runtime release
+## 5.0.5 Windows UI / update / runtime release
 
 - Responsive WPF home with vertical scrolling for 768p-class displays and wider content on large screens.
 - Vector power icon instead of font/emoji glyphs, so Windows font fallback cannot render a square.

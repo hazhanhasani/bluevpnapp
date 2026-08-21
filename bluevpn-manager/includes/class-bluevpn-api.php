@@ -297,15 +297,18 @@ final class BlueVPN_API {
             $result = BlueVPN_Windows_Release_Manager::ingest_direct_payload($payload,'github_signed_push');
             $stable = BlueVPN_Windows_Release_Manager::stable_release();
             $beta = BlueVPN_Windows_Release_Manager::beta_release();
+            $ok = !empty($result['ok']);
+            $message = (string)($result['message']??'');
             return self::ok([
-                'ok'=>!empty($result['ok']),
-                'message'=>(string)($result['message']??''),
+                'ok'=>$ok,
+                'message'=>$message,
+                'detail'=>$ok ? ['code'=>'WINDOWS_RELEASE_SYNC_OK','message'=>'Windows release metadata synchronized.'] : ['code'=>'WINDOWS_RELEASE_SYNC_PAYLOAD_INVALID','message'=>$message !== '' ? $message : 'Metadata نسخه Windows ناقص یا نامعتبر است.'],
                 'stable_version'=>(string)($stable['version']??''),
                 'beta_version'=>(string)($beta['version']??''),
                 'pending_stable_version'=>BlueVPN_Windows_Release_Manager::pending_stable_version(),
                 'source'=>'github_signed_push',
                 'manager_version'=>BLUEVPN_MANAGER_VERSION,
-            ], !empty($result['ok'])?200:422);
+            ], $ok?200:422);
         } catch (Throwable $e) {
             return self::unexpected($e,'windows_release_sync');
         }

@@ -31,22 +31,38 @@ if(clock){
   const tick=()=>{try{clock.textContent=new Intl.DateTimeFormat('fa-IR-u-ca-persian',{calendar:'persian',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZone:'Asia/Tehran'}).format(new Date())}catch(_){}};
   tick(); setInterval(tick,1000);
 }
-// Convert Control Center data tables to labeled mobile cards without changing desktop markup.
-document.querySelectorAll('table.bvc-table').forEach(table=>{
-  const rows=Array.from(table.querySelectorAll('tr'));
-  if(rows.length<2)return;
-  const headerRow=rows.find(row=>row.querySelectorAll('th').length>0);
-  if(!headerRow)return;
-  const labels=Array.from(headerRow.querySelectorAll('th')).map(th=>(th.textContent||'').trim());
-  if(!labels.length)return;
+// Convert data tables to scroll-safe desktop tables + labeled mobile cards without changing PHP markup.
+function wrapTable(table){
+  if(!table || table.closest('.bvc-table-scroll')) return;
+  const wrap=document.createElement('div');
+  wrap.className='bvc-table-scroll';
+  table.parentNode?.insertBefore(wrap,table);
+  wrap.appendChild(table);
+}
+function tableHeaderLabels(table){
+  const headerRow=table.querySelector('thead tr:last-child') || Array.from(table.querySelectorAll('tr')).find(row=>row.querySelectorAll('th').length>0);
+  if(!headerRow) return [];
+  return Array.from(headerRow.querySelectorAll('th')).map(th=>(th.textContent||'').replace(/\s+/g,' ').trim());
+}
+function enhanceResponsiveTable(table){
+  if(!table) return;
+  wrapTable(table);
+  const labels=tableHeaderLabels(table);
+  if(labels.length<1) return;
   table.classList.add('bvc-responsive-table');
-  rows.forEach(row=>{
-    if(row===headerRow)return;
+  // Wide data sets must scroll horizontally instead of crushing Persian/Latin
+  // text into unreadable 2-3 character columns on 1366px admin screens.
+  table.style.setProperty('min-width',`${Math.max(980,labels.length*150)}px`,'important');
+  Array.from(table.querySelectorAll('tr')).forEach(row=>{
+    if(row.querySelectorAll('th').length) return;
     Array.from(row.children).forEach((cell,index)=>{
-      if(cell.tagName==='TD' && labels[index])cell.dataset.label=labels[index];
+      if(cell.tagName==='TD' && labels[index] && !cell.dataset.label) cell.dataset.label=labels[index];
+      if(cell.tagName==='TD') cell.style.unicodeBidi='plaintext';
     });
   });
-});
+}
+document.querySelectorAll('table.bvc-table, table.bvp-table, table.widefat, table.wp-list-table').forEach(enhanceResponsiveTable);
+document.querySelectorAll('.tablenav, .tablenav .actions, .search-box, .subsubsub').forEach(el=>el.classList.add('bluevpn-toolbar-ready'));
 
 // Better file name feedback for ad image uploads.
 document.querySelectorAll('.bluevpn-file-input input[type=file]').forEach(input=>{

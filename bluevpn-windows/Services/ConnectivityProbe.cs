@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http;
+using System.Net.Sockets;
 using BlueVPN.Windows.Models;
 
 namespace BlueVPN.Windows.Services;
@@ -12,55 +13,38 @@ public static class ConnectivityProbe
         "https://1.1.1.1/cdn-cgi/trace"
     ];
 
-    public static Task<ConnectivitySnapshot> SnapshotAsync(string url, CancellationToken ct = default) =>
-        SnapshotCoreAsync(url, proxy: null, TimeSpan.FromSeconds(8), ct);
+    private static readonly string[] PublicIpUrls =
+    [
+        "https://api.ipify.org",
+        "https://icanhazip.com"
+    ];
 
-    public static async Task<ConnectivitySnapshot> SnapshotViaSocksAsync(string url, string host, int port, TimeSpan timeout, CancellationToken ct = default)
+    public static Task<ConnectivitySnapshot> SnapshotAsync(string url, CancellationToken ct = default) =>
+        SnapshotFirstAsync(BuildUrls(url, includePlainIp: true), proxy: null, TimeSpan.FromSeconds(4), ct);
+
+    public static Task<ConnectivitySnapshot> SnapshotTraceAsync(string url, CancellationToken ct = default) =>
+        SnapshotFirstAsync(BuildUrls(url, includePlainIp: false), proxy: null, TimeSpan.FromSeconds(4), ct);
+
+    public static Task<ConnectivitySnapshot> SnapshotViaSocksAsync(string url, string host, int port, TimeSpan timeout, CancellationToken ct = default)
     {
         var proxy = new WebProxy(new Uri($"socks5://{host}:{port}"));
-        var urls = new[] { url }.Concat(FallbackTraceUrls)
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        ConnectivitySnapshot last = new(false, "", "", "", DateTimeOffset.UtcNow, "tunnel probe unavailable");
-        var perAttempt = TimeSpan.FromSeconds(Math.Clamp(timeout.TotalSeconds, 4, 8));
-        for (var round = 0; round < 2; round++)
-        {
-            foreach (var candidate in urls)
-            {
-                ct.ThrowIfCancellationRequested();
-                last = await SnapshotCoreAsync(candidate, proxy, perAttempt, ct).ConfigureAwait(false);
-                if (last.Reachable && !string.IsNullOrWhiteSpace(last.PublicIp)) return last;
-            }
-            await Task.Delay(300, ct).ConfigureAwait(false);
-        }
-        return last with { Error = FriendlyProbeError(last.Error) };
+        return SnapshotFirstAsync(BuildUrls(url, includePlainIp: false), proxy,
+            TimeSpan.FromSeconds(Math.Clamp(timeout.TotalSeconds, 3, 5)), ct);
+    }
+
+    public static Task<ConnectivitySnapshot> SnapshotViaHttpProxyAsync(string url, string host, int port, TimeSpan timeout, CancellationToken ct = default)
+    {
+        var proxy = new WebProxy(new Uri($"http://{host}:{port}"));
+        return SnapshotFirstAsync(BuildUrls(url, includePlainIp: true), proxy,
+            TimeSpan.FromSeconds(Math.Clamp(timeout.TotalSeconds, 3, 5)), ct);
     }
 
     /// <summary>
-    /// A valid pre-VPN public IP is mandatory. Accepting an empty baseline made
-    /// any post-connect IP look "changed" and could produce false CONNECTED.
+    /// Captures a reliable pre-VPN IP. Multiple independent endpoints are raced,
+    /// so a slow/filtered Cloudflare trace no longer blocks the connect button.
     /// </summary>
-    public static async Task<ConnectivitySnapshot> CaptureBaselineAsync(string preferredUrl, CancellationToken ct = default)
-    {
-        var urls = new[] { preferredUrl }.Concat(FallbackTraceUrls)
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        ConnectivitySnapshot last = new(false, "", "", "", DateTimeOffset.UtcNow, "baseline unavailable");
-        for (var round = 0; round < 2; round++)
-        {
-            foreach (var url in urls)
-            {
-                ct.ThrowIfCancellationRequested();
-                last = await SnapshotCoreAsync(url, null, TimeSpan.FromSeconds(6), ct).ConfigureAwait(false);
-                if (last.Reachable && !string.IsNullOrWhiteSpace(last.PublicIp)) return last;
-            }
-            await Task.Delay(350, ct).ConfigureAwait(false);
-        }
-        return last;
-    }
+    public static Task<ConnectivitySnapshot> CaptureBaselineAsync(string preferredUrl, CancellationToken ct = default) =>
+        SnapshotFirstAsync(BuildUrls(preferredUrl, includePlainIp: true), proxy: null, TimeSpan.FromSeconds(4), ct);
 
     public static async Task<ConnectivitySnapshot> WaitForSnapshotAsync(string url, TimeSpan timeout, CancellationToken ct = default)
     {
@@ -71,9 +55,44 @@ public static class ConnectivityProbe
             ct.ThrowIfCancellationRequested();
             last = await SnapshotAsync(url, ct).ConfigureAwait(false);
             if (last.Reachable) return last;
-            await Task.Delay(750, ct).ConfigureAwait(false);
+            await Task.Delay(350, ct).ConfigureAwait(false);
         }
         return last;
+    }
+
+    private static string[] BuildUrls(string preferred, bool includePlainIp)
+    {
+        IEnumerable<string> urls = new[] { preferred }.Concat(FallbackTraceUrls);
+        if (includePlainIp) urls = urls.Concat(PublicIpUrls);
+        return urls.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static async Task<ConnectivitySnapshot> SnapshotFirstAsync(string[] urls, IWebProxy? proxy, TimeSpan timeout, CancellationToken ct)
+    {
+        if (urls.Length == 0) return new(false, "", "", "", DateTimeOffset.UtcNow, "probe unavailable");
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var tasks = urls.Select(url => SnapshotCoreAsync(url, proxy, timeout, linked.Token)).ToList();
+        ConnectivitySnapshot last = new(false, "", "", "", DateTimeOffset.UtcNow, "probe unavailable");
+        try
+        {
+            while (tasks.Count > 0)
+            {
+                var done = await Task.WhenAny(tasks).ConfigureAwait(false);
+                tasks.Remove(done);
+                try { last = await done.ConfigureAwait(false); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { continue; }
+                if (last.Reachable && !string.IsNullOrWhiteSpace(last.PublicIp))
+                {
+                    linked.Cancel();
+                    return last;
+                }
+            }
+        }
+        finally
+        {
+            linked.Cancel();
+        }
+        return last with { Error = FriendlyProbeError(last.Error) };
     }
 
     private static async Task<ConnectivitySnapshot> SnapshotCoreAsync(string url, IWebProxy? proxy, TimeSpan timeout, CancellationToken ct)
@@ -86,7 +105,7 @@ public static class ConnectivityProbe
             AllowAutoRedirect = false
         };
         using var http = new HttpClient(handler) { Timeout = timeout };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Probe/5.0.4");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Probe/5.0.5");
         try
         {
             using var response = await http.GetAsync(url, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
@@ -99,12 +118,22 @@ public static class ConnectivityProbe
                 .Where(parts => parts.Length == 2)
                 .ToDictionary(parts => parts[0].Trim(), parts => parts[1].Trim(), StringComparer.OrdinalIgnoreCase);
 
-            fields.TryGetValue("ip", out var ip);
-            fields.TryGetValue("loc", out var loc);
-            fields.TryGetValue("warp", out var warp);
-            return new(!string.IsNullOrWhiteSpace(ip), ip ?? "", loc ?? "", warp ?? "", DateTimeOffset.UtcNow);
+            if (fields.Count > 0)
+            {
+                fields.TryGetValue("ip", out var ip);
+                fields.TryGetValue("loc", out var loc);
+                fields.TryGetValue("warp", out var warp);
+                if (IPAddress.TryParse(ip?.Trim(), out var parsed))
+                    return new(true, parsed.ToString(), loc ?? "", warp ?? "", DateTimeOffset.UtcNow);
+            }
+
+            var plain = text.Trim();
+            if (IPAddress.TryParse(plain, out var plainIp))
+                return new(true, plainIp.ToString(), "", "", DateTimeOffset.UtcNow);
+
+            return new(false, "", "", "", DateTimeOffset.UtcNow, "پاسخ IP معتبر نبود");
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or SocketException)
         {
             return new(false, "", "", "", DateTimeOffset.UtcNow, FriendlyProbeError(ex.Message));
         }
@@ -116,6 +145,8 @@ public static class ConnectivityProbe
         if (value.Contains("timeout", StringComparison.OrdinalIgnoreCase) || value.Contains("timed out", StringComparison.OrdinalIgnoreCase))
             return "پاسخ مسیر بیش از حد طول کشید";
         if (value.Contains("refused", StringComparison.OrdinalIgnoreCase)) return "هسته اتصال پاسخ نداد";
+        if (value.Contains("name", StringComparison.OrdinalIgnoreCase) && value.Contains("resolve", StringComparison.OrdinalIgnoreCase))
+            return "DNS مسیر پاسخ نداد";
         return value.Length > 96 ? value[..96] + "…" : value;
     }
 }

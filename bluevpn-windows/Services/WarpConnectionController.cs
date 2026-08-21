@@ -1,6 +1,7 @@
 using System.IO;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Security.Principal;
 using BlueVPN.Windows.Models;
 
 namespace BlueVPN.Windows.Services;
@@ -27,6 +28,7 @@ public sealed class WarpConnectionController : IDisposable
     public async Task<ConnectivitySnapshot> StartAsync(WarpRuntimePolicy policy, IProgress<string>? progress, CancellationToken ct)
     {
         Stop();
+        EnsureElevatedForTun();
         if (!IsSupported) throw new PlatformNotSupportedException("WARP فعلاً برای این معماری در دسترس نیست.");
         if (!policy.Enabled) throw new InvalidOperationException("WARP از پنل BlueVPN غیرفعال است.");
 
@@ -161,6 +163,21 @@ public sealed class WarpConnectionController : IDisposable
             await Task.Delay(350, ct).ConfigureAwait(false);
         }
         throw new InvalidOperationException($"WARP آماده نشد: {last?.Message ?? $"SOCKS {port} unavailable"}");
+    }
+
+
+    private static void EnsureElevatedForTun()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            var principal = new WindowsPrincipal(identity);
+            if (!principal.IsInRole(WindowsBuiltInRole.Administrator))
+                throw new InvalidOperationException("برای فعال‌سازی WARP سراسری، BlueVPN باید با دسترسی Administrator اجرا شود.");
+        }
+        catch (InvalidOperationException) { throw; }
+        catch { }
     }
 
     public void Dispose() => Stop();

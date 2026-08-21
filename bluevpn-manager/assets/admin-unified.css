@@ -83,3 +83,52 @@ body.bluevpn-standalone-admin .bvc-table td,body.bluevpn-standalone-admin .bvc-t
 @media(max-width:782px){
   .bvem-summary{grid-template-columns:repeat(2,minmax(0,1fr))!important}.bvem-summary .bvc-card{padding:12px!important}.bvem-summary .bvc-kpi strong{font-size:20px!important}.bvem-toggle-grid,.bvem-number-grid{grid-template-columns:1fr!important}.bvem-section-head{gap:8px}.bvem-live{align-self:flex-start}.bvem-settings,.bvem-actions-card{padding:13px!important}.bvem-actions{display:grid!important;grid-template-columns:1fr!important}.bvem-actions form,.bvem-actions .button{width:100%!important}.bvem-events .bvc-table-scroll{overflow:visible!important}.bvem-events-table.bvc-responsive-table td:nth-child(1){white-space:normal!important}.bvem-events-table.bvc-responsive-table .bvem-message{min-width:0!important}.bvem-events-table.bvc-responsive-table td{font-size:10px!important}.bvem-events-table.bvc-responsive-table td code{max-width:100%!important}.bluevpn-top-title>div{min-width:0}.bluevpn-topbar h1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55vw}.bluevpn-sidebar{max-width:300px;width:82vw}}
 @media(max-width:430px){.bvem-summary{grid-template-columns:1fr 1fr!important}.bvem-section-head{flex-direction:column}.bvem-live{align-self:flex-start}.bluevpn-topbar h1{max-width:58vw}.bluevpn-sidebar{width:84vw}}
+
+
+/* 5.0.5 — admin-wide readability + layout repair */
+body.bluevpn-standalone-admin{font-size:14px;line-height:1.8}
+.bluevpn-sidebar{width:320px}
+.bluevpn-main{margin-right:320px}
+.bluevpn-content{padding:28px 32px 48px}
+.bluevpn-topbar{min-height:86px;padding:18px 32px;gap:20px}
+.bluevpn-topbar h1{font-size:24px!important;line-height:1.45!important}
+.bluevpn-topbar p{font-size:12px!important;color:#8ea0b7!important}
+.bluevpn-kicker,.bluevpn-nav-label,.bluevpn-sidebar-status small,.bluevpn-back-wp,.bluevpn-top-meta{font-size:11px!important}
+.bluevpn-brand strong{font-size:18px}.bluevpn-brand small{font-size:11px}.bluevpn-nav-item{padding:13px 14px;font-size:13px}.bluevpn-nav-item svg{width:20px;height:20px;flex-basis:20px}
+body.bluevpn-standalone-admin .wrap,body.bluevpn-standalone-admin .bvc-wrap{max-width:1680px!important}
+.bvc-grid,.bvp-grid{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))!important;gap:16px!important}
+.bvc-card,.bvp-card,.bvb-card{padding:20px!important;border-radius:18px!important}
+.bvc-card h2,.bvp-card h2,.bvb-card h2{font-size:18px!important;line-height:1.5!important}
+.bvc-card h3,.bvp-card h3,.bvb-card h3{font-size:15px!important;line-height:1.6!important}
+.bvc-kpi span,.bvc-note,.bvc-form-grid label,body.bluevpn-standalone-admin label,body.bluevpn-standalone-admin .form-table th,.bvai-card-head p,.bvai-refresh-note,.bvem-section-head p{font-size:12px!important;line-height:1.9!important}
+.bvc-kpi strong{font-size:32px!important}
+body.bluevpn-standalone-admin p,body.bluevpn-standalone-admin li,body.bluevpn-standalone-admin td,body.bluevpn-standalone-admin th{font-size:13px!important;line-height:1.85!important}
+body.bluevpn-standalone-admin code,.bvc-code,.bvp-code,.bvb-code{font-size:12px!important;line-height:1.8!important;word-break:break-word!important;overflow-wrap:anywhere!important}
+body.bluevpn-standalone-admin input[type=text],body.bluevpn-standalone-admin input[type=password],body.bluevpn-standalone-admin input[type=email],body.bluevpn-standalone-admin input[type=number],body.bluevpn-standalone-admin input[type=url],body.bluevpn-standalone-admin input[type=datetime-local],body.bluevpn-standalone-admin input[type=search],body.bluevpn-standalone-admin textarea,body.bluevpn-standalone-admin select,.bvc-form-grid input:not([type=checkbox]):not([type=radio]),.bvc-form-grid textarea,.bvc-form-grid select{min-height:44px!important;padding:10px 12px!important;font-size:14px!important;line-height:1.7!important;color:#e5eef9!important;border-radius:12px!important}
+body.bluevpn-standalone-admin textarea{min-height:120px!important}
+body.bluevpn-standalone-admin .button,body.bluevpn-standalone-admin .button-primary,body.bluevpn-standalone-admin button,body.bluevpn-standalone-admin input[type=submit]{min-height:42px!important;padding:8px 14px!important;font-size:13px!important;line-height:1.5!important;border-radius:12px!important;white-space:normal!important}
+body.bluevpn-standalone-admin .button-group,.bvc-actions{align-items:stretch!important}
+body.bluevpn-standalone-admin .button-group>.button{display:inline-flex;align-items:center;justify-content:center}
+body.bluevpn-standalone-admin .search-box,body.bluevpn-standalone-admin .tablenav,body.bluevpn-standalone-admin .tablenav .actions,body.bluevpn-standalone-admin .subsubsub{display:flex!important;align-items:center;gap:10px;flex-wrap:wrap!important;float:none!important;height:auto!important;margin:0 0 12px!important}
+body.bluevpn-standalone-admin .search-box{justify-content:flex-start}
+body.bluevpn-standalone-admin .search-box input[type=search]{min-width:min(340px,100%)!important}
+body.bluevpn-standalone-admin .tablenav .tablenav-pages{margin-inline-start:auto}
+body.bluevpn-standalone-admin .tablenav .actions select{min-width:160px!important}
+.bvc-table-scroll{width:100%;max-width:100%;overflow:auto!important;-webkit-overflow-scrolling:touch;border-radius:16px}
+body.bluevpn-standalone-admin table.widefat,body.bluevpn-standalone-admin table.wp-list-table,body.bluevpn-standalone-admin .bvc-table,body.bluevpn-standalone-admin .bvp-table{width:100%!important;table-layout:auto!important;min-width:960px;border-radius:16px!important}
+body.bluevpn-standalone-admin table.widefat th,body.bluevpn-standalone-admin table.wp-list-table th,body.bluevpn-standalone-admin .bvc-table th,body.bluevpn-standalone-admin .bvp-table th{font-size:12px!important;padding:14px 12px!important;color:#b9c7d8!important;vertical-align:middle!important;white-space:normal!important;overflow-wrap:anywhere!important}
+body.bluevpn-standalone-admin table.widefat td,body.bluevpn-standalone-admin table.wp-list-table td,body.bluevpn-standalone-admin .bvc-table td,body.bluevpn-standalone-admin .bvp-table td{font-size:13px!important;padding:14px 12px!important;vertical-align:top!important;color:#e0e9f4!important;white-space:normal!important;overflow-wrap:anywhere!important;word-break:break-word!important}
+body.bluevpn-standalone-admin table.widefat td .button,body.bluevpn-standalone-admin table.wp-list-table td .button,body.bluevpn-standalone-admin table.widefat td .button-primary,body.bluevpn-standalone-admin table.wp-list-table td .button-primary{margin:2px 0!important}
+body.bluevpn-standalone-admin .column-primary,body.bluevpn-standalone-admin .has-row-actions .row-actions{position:static!important}
+.bvai-card-head>div:last-child strong{font-size:22px!important}.bvai-tier{font-size:10px!important;padding:6px 10px!important}.bvai-live-table td small,.bvem-events-table td small{font-size:11px!important;line-height:1.6!important;color:#8ea0b7!important}
+.bvem-toggle strong{font-size:12px!important}.bvem-toggle small,.bvem-summary .bvc-kpi small{font-size:10px!important}.bvem-message{min-width:260px;max-width:46ch}
+@media(max-width:1280px){.bluevpn-sidebar{width:300px}.bluevpn-main{margin-right:300px}.bluevpn-content{padding:24px 22px 42px}.bluevpn-topbar{padding:14px 22px}.bvc-grid,.bvp-grid{grid-template-columns:repeat(auto-fit,minmax(250px,1fr))!important}}
+@media(max-width:900px){body.bluevpn-standalone-admin table.widefat,body.bluevpn-standalone-admin table.wp-list-table,body.bluevpn-standalone-admin .bvc-table,body.bluevpn-standalone-admin .bvp-table{min-width:780px}.bluevpn-topbar h1{font-size:20px!important}}
+@media(max-width:782px){.bluevpn-content{padding:16px 12px 28px}.bvc-grid,.bvp-grid{grid-template-columns:1fr!important}.bvc-card,.bvp-card,.bvb-card{padding:16px!important}body.bluevpn-standalone-admin .search-box,body.bluevpn-standalone-admin .tablenav,body.bluevpn-standalone-admin .tablenav .actions{align-items:stretch}.bvc-table-scroll{border-radius:14px}.bluevpn-topbar h1{font-size:17px!important;max-width:58vw}.bluevpn-sidebar{width:min(88vw,320px)}body.bluevpn-standalone-admin table.bvc-responsive-table td{font-size:12px!important;padding:12px!important}body.bluevpn-standalone-admin table.bvc-responsive-table td::before{font-size:10px!important;color:#8ea0b7!important}}
+
+/* 5.0.5 — mixed RTL/LTR table hardening for all Manager pages */
+body.bluevpn-standalone-admin table th,body.bluevpn-standalone-admin table td{unicode-bidi:plaintext!important}
+body.bluevpn-standalone-admin table code,body.bluevpn-standalone-admin table pre,body.bluevpn-standalone-admin table .bvp-code,body.bluevpn-standalone-admin table .bvc-code{direction:ltr!important;text-align:left!important;unicode-bidi:isolate!important}
+body.bluevpn-standalone-admin table a[href^="http"],body.bluevpn-standalone-admin table [data-ltr]{unicode-bidi:isolate!important}
+body.bluevpn-standalone-admin .bvc-table-scroll{box-shadow:inset 0 -1px 0 rgba(148,163,184,.08)}
+@media(min-width:783px) and (max-width:1450px){body.bluevpn-standalone-admin .bvc-table-scroll{padding-bottom:8px}body.bluevpn-standalone-admin table.widefat th,body.bluevpn-standalone-admin table.wp-list-table th,body.bluevpn-standalone-admin .bvc-table th{white-space:nowrap!important}}

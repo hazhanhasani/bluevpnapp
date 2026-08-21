@@ -1,12 +1,12 @@
 === BlueVPN Manager ===
-Version: 5.0.4
-Stable tag: 5.0.4
+Version: 5.0.5
+Stable tag: 5.0.5
 Requires PHP: 8.0
 
-== 5.0.4 ==
-- Synchronizes BlueVPN Manager with the 5.0.4 coordinated application release.
+== 5.0.5 ==
+- Synchronizes BlueVPN Manager with the 5.0.5 coordinated application release.
 - Carries the Windows UI/update/runtime fixes while preserving the existing WordPress/MySQL control-plane behavior.
-- Android, Manager, Theme and Windows release metadata are synchronized on 5.0.4 / 50004.
+- Android, Manager, Theme and Windows release metadata are synchronized on 5.0.5 / 50005.
 
 == 5.0.3 ==
 - Logout now removes the authenticated device sessions and releases its device slot immediately.

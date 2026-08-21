@@ -27,6 +27,7 @@ def main() -> None:
     xray = read("bluevpn-windows/Services/XrayConfigBuilder.cs")
     v2rayn_tun = read("bluevpn-windows/Services/V2RayNTunConfigBuilder.cs")
     connection = read("bluevpn-windows/Services/ConnectionOrchestrator.cs")
+    core = read("bluevpn-windows/Services/XrayProcessController.cs")
     workflow = read(".github/workflows/build-windows.yml")
     probe = read("bluevpn-windows/Services/ConnectivityProbe.cs")
     verifier = read("bluevpn-windows/Services/SystemTunnelVerifier.cs")
@@ -45,7 +46,7 @@ def main() -> None:
     require(version_match is not None, "invalid release version")
     _, minor, patch = map(int, version_match.groups())
     require(0 <= minor <= 10 and 0 <= patch <= 10, "BlueVPN release minor/patch must be 0..10")
-    require(version == "5.0.4", "this Windows migration must be release 5.0.4")
+    require(version == "5.0.5", "this Windows migration must be release 5.0.5")
     require(str(branding.get("version_name", "")) == version, "branding version drift")
     require(str(release.get("windows_version", "")) == version, "release windows_version mismatch")
     require(str(settings.get("version", "")) == version, "Windows appsettings version mismatch")
@@ -72,7 +73,7 @@ def main() -> None:
     require("android-raw-mainactivity-hard-disable" in read("release.json"), "Android raw UI boundary release marker missing")
     require('public string DisplayName => "BlueVPN • مسیر امن"' in endpoint_model, "raw Windows subscription names can still reach UI")
     require('Text="BlueVPN Core"' in main and 'Text="v2rayN"' not in main, "Windows customer UI exposes upstream runtime branding")
-    require('ActiveEngine = "BlueVPN Core"' in connection and 'ActiveEngine = "v2rayN' not in connection, "Windows connection status exposes upstream runtime branding")
+    require('"BlueVPN Core"' in connection and 'ActiveEngine = "v2rayN' not in connection, "Windows connection status exposes upstream runtime branding")
     require("ResolveV2RayNBundle()" in read("bluevpn-windows/Services/XrayProcessController.cs"), "premium controller can mix runtime files instead of one v2rayN bundle")
     require('!Find(tempRoot, "v2rayN.exe")' in runtime_update, "runtime updater does not validate the complete v2rayN application bundle")
 
@@ -83,7 +84,9 @@ def main() -> None:
     require("Get-NetRoute" in verifier and "NetworkInterface.GetAllNetworkInterfaces" in verifier, "Windows route/adapter evidence missing")
     require("SnapshotAsync" in probe and "CaptureBaselineAsync" in probe and "UseProxy = proxy is not null" in probe, "direct system-stack connectivity snapshot / baseline gate missing")
     require('protocol"] = "socks"' in xray and "LocalSocksPort = 20808" in xray, "premium Xray local proxy missing")
-    require('type = "tun"' in v2rayn_tun and "strict_route = true" in v2rayn_tun and 'process_name = new[] { "xray.exe" }' in v2rayn_tun, "premium v2rayN split-core TUN missing")
+    require('type = "tun"' in v2rayn_tun and "strict_route = false" in v2rayn_tun and 'process_name = new[] { "xray.exe" }' in v2rayn_tun, "premium v2rayN split-core TUN missing")
+    proxy_fallback = read(ROOT / "bluevpn-windows/Services/WindowsSystemProxyController.cs")
+    require("FallbackToSystemProxyAsync" in core and "ProxyEnable" in proxy_fallback and "LocalHttpPort = 20809" in xray, "Windows Xray compatibility fallback missing")
 
     # WARP path.
     require(settings.get("warp", {}).get("enabled") is True, "Windows WARP must be enabled")
@@ -92,7 +95,7 @@ def main() -> None:
     for flag in ("--masque", "--scan", "turbo", "--noize", "firewall", "--quick-reconnect"):
         require(flag in warp, f"Aether flag missing: {flag}")
     require('process_name = new[] { "aether.exe" }' in warp_config, "Aether process loop exclusion missing")
-    require("auto_detect_interface = true" in warp_config and "strict_route = true" in warp_config and "auto_route = true" in warp_config, "sing-box WARP TUN hardening missing")
+    require("auto_detect_interface = true" in warp_config and "strict_route = false" in warp_config and "auto_route = true" in warp_config, "sing-box WARP TUN hardening missing")
     require("VerifyAsync(before, _settings.ProbeUrl, true, blocked, ct)" in connection and "BlockedExitCountries" in connection and "RejectIrExit" in connection, "WARP validation / exit guard missing")
     require("_settings.Warp.SocksPort" in warp and "SingBoxWarpConfigBuilder.Build(_settings, socksPort)" in warp, "WARP SOCKS port policy drift")
 
@@ -132,7 +135,7 @@ def main() -> None:
     require("GetPremiumSubscriptionAsync" in connection and "GetFreeSubscriptionAsync" in connection, "Free/Premium isolation missing")
     require("EndpointSelector.RankAsync" in connection, "endpoint ranking missing")
 
-    # 5.0.4 Windows stability gates: Android UI parity, non-blocking media/metrics,
+    # 5.0.5 Windows stability gates: Android UI parity, non-blocking media/metrics,
     # panel-driven WARP, and fail-closed updater/connection state.
     media = read("bluevpn-windows/Services/MediaAssetLoader.cs")
     models = read("bluevpn-windows/Models/WindowsRuntimeModels.cs")
@@ -144,7 +147,7 @@ def main() -> None:
     require("ip_cidr = ipCidrs" in v2rayn_tun and "ResolveEndpointIpsAsync" in read("bluevpn-windows/Services/XrayProcessController.cs"), "endpoint-aware TUN loop guard missing")
     require("if (!candidate.AutoUpdate)" in main_cs and "if (userInitiated)" in main_cs and "_pendingUpdate = candidate" in main_cs, "Windows update channel semantics / deferred install missing")
 
-    # 5.0.4 CI/release hardening: installers must be root-level artifacts and
+    # 5.0.5 CI/release hardening: installers must be root-level artifacts and
     # Node.js 20-generation cache/artifact actions must not remain.
     require('dist/BlueVPN-Setup-*.exe' in workflow, "Windows Setup must upload from dist root")
     require('Normalize Windows release payload layout' in workflow, "Windows publish job must normalize artifact layout")

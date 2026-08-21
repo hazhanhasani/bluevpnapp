@@ -122,6 +122,13 @@ public sealed class GitHubReleaseClient : IDisposable
         await dst.FlushAsync(ct).ConfigureAwait(false);
     }
 
+    public static bool HasAuthenticodeSignature(string path)
+    {
+        if (!OperatingSystem.IsWindows() || !File.Exists(path)) return false;
+        try { _ = X509Certificate.CreateFromSignedFile(path); return true; }
+        catch { return false; }
+    }
+
     public static bool VerifyAuthenticode(string path, string expectedPublisher)
     {
         if (!OperatingSystem.IsWindows() || !File.Exists(path)) return false;

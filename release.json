@@ -1,12 +1,12 @@
 {
-  "version": "5.0.3",
-  "version_code": 50003,
+  "version": "5.0.4",
+  "version_code": 50004,
   "channel": "beta",
-  "build_id": "20260821-v5.0.3-runtime-ci-windows-ui-hotfix",
-  "built_at": "2026-08-21T21:41:00+03:30",
-  "android_version": "5.0.3",
-  "android_version_code": 50003,
-  "description": "BlueVPN 5.0.3 fixes Windows connection/update races, location selection and ad layout, restores the complete CI/release workflow set, and hardens Sentinel/provider transient error handling.",
+  "build_id": "20260821-v5.0.4-windows-ui-v2rayn-warp-update-fixes",
+  "built_at": "2026-08-21T23:04:00+03:30",
+  "android_version": "5.0.4",
+  "android_version_code": 50004,
+  "description": "BlueVPN 5.0.4 delivers the Windows responsive UI/readability, location picker, resilient tunnel verification, visible in-app update progress/install verification, coherent smaller v2rayN runtime packaging, and MASQUE/WireGuard WARP fallback improvements.",
   "features": [
     "windows-connect-update-shutdown-race-fix",
     "windows-location-picker-restored",
@@ -649,15 +649,15 @@
   ],
   "version_source": "source_declared_release_version",
   "tapsell_mediation_version": "1.4.0-alpha03",
-  "manager_version": "5.0.3",
-  "site_version": "5.0.3",
-  "theme_version": "5.0.3",
-  "windows_version": "5.0.3",
-  "windows_version_code": 50003,
+  "manager_version": "5.0.4",
+  "site_version": "5.0.4",
+  "theme_version": "5.0.4",
+  "windows_version": "5.0.4",
+  "windows_version_code": 50004,
   "windows": {
     "status": "beta",
     "framework": "net10.0-windows",
-    "ui": "WPF-BlueVPN-Android-home-parity",
+    "ui": "WPF-responsive-BlueVPN-home",
     "xray_version": "from-v2rayN-runtime",
     "architectures": [
       "win-x64",
@@ -684,8 +684,10 @@
     "site_channel": "managed_by_wordpress",
     "auto_update_policy": "stable_beta_independent",
     "beta_tester_source": "customer_beta_tester",
-    "stability_pass": "5.0.2-session-release-php84-windows-controlplane",
+    "stability_pass": "5.0.4-release-646-regressions",
     "ui_owner": "BlueVPN",
-    "runtime_bundle_coherent": true
+    "runtime_bundle_coherent": true,
+    "runtime_layout": "minimal-complete-v2rayn-core",
+    "warp_strategy": "aether-masque-then-wireguard-plus-singbox-tun"
   }
 }

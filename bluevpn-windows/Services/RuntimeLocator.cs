@@ -49,9 +49,11 @@ public sealed class RuntimeLocator
         var xray = FindFirst(root, "xray.exe");
         var singBox = FindFirst(root, "sing-box.exe");
         var wintun = FindFirst(root, "wintun.dll");
-        if (v2rayN is null || xray is null || singBox is null || wintun is null)
-            throw new FileNotFoundException("بسته کامل هسته اتصال BlueVPN پیدا نشد.");
-        return new V2RayNRuntimeBundle(root, v2rayN, xray, singBox, wintun);
+        var geoIp = FindFirst(root, "geoip.dat");
+        var geoSite = FindFirst(root, "geosite.dat");
+        if (v2rayN is null || xray is null || singBox is null || wintun is null || geoIp is null || geoSite is null)
+            throw new FileNotFoundException("بسته کامل هسته اتصال BlueVPN/v2rayN پیدا نشد.");
+        return new V2RayNRuntimeBundle(root, v2rayN, xray, singBox, wintun, geoIp, geoSite);
     }
 
     public string ResolveAether()
@@ -138,7 +140,7 @@ public sealed class RuntimeLocator
             if (!File.Exists(manifestPath)) return false;
             using var doc = JsonDocument.Parse(File.ReadAllText(manifestPath));
             if (!doc.RootElement.TryGetProperty("files", out var files) || files.ValueKind != JsonValueKind.Object) return false;
-            foreach (var name in new[] { "v2rayN.exe", "xray.exe", "sing-box.exe", "wintun.dll" })
+            foreach (var name in new[] { "v2rayN.exe", "xray.exe", "sing-box.exe", "wintun.dll", "geoip.dat", "geosite.dat" })
             {
                 if (!files.TryGetProperty(name, out var hashElement)) return false;
                 var expected = hashElement.GetString() ?? "";
@@ -166,4 +168,4 @@ public sealed class RuntimeLocator
     }
 }
 
-public sealed record V2RayNRuntimeBundle(string RootPath, string V2RayNPath, string XrayPath, string SingBoxPath, string WintunPath);
+public sealed record V2RayNRuntimeBundle(string RootPath, string V2RayNPath, string XrayPath, string SingBoxPath, string WintunPath, string GeoIpPath, string GeoSitePath);

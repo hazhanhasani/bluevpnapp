@@ -64,7 +64,7 @@ public sealed class RuntimeUpdateService
             await Task.Run(() =>
             {
                 ZipFile.ExtractToDirectory(zipPath, tempRoot, overwriteFiles: true);
-                if (!Find(tempRoot, "v2rayN.exe") || !Find(tempRoot, "xray.exe") || !Find(tempRoot, "sing-box.exe") || !Find(tempRoot, "wintun.dll"))
+                if (!Find(tempRoot, "v2rayN.exe") || !Find(tempRoot, "xray.exe") || !Find(tempRoot, "sing-box.exe") || !Find(tempRoot, "wintun.dll") || !Find(tempRoot, "geoip.dat") || !Find(tempRoot, "geosite.dat"))
                     throw new InvalidDataException("بسته جدید هسته اتصال کامل نیست.");
 
                 var normalized = Path.Combine(tempRoot, "bluevpn-core");
@@ -79,7 +79,9 @@ public sealed class RuntimeUpdateService
                     ["v2rayN.exe"] = HashFile(Path.Combine(normalized, "v2rayN.exe")),
                     ["xray.exe"] = HashFile(Path.Combine(normalized, "xray.exe")),
                     ["sing-box.exe"] = HashFile(Path.Combine(normalized, "sing-box.exe")),
-                    ["wintun.dll"] = HashFile(Path.Combine(normalized, "wintun.dll"))
+                    ["wintun.dll"] = HashFile(Path.Combine(normalized, "wintun.dll")),
+                    ["geoip.dat"] = HashFile(Path.Combine(normalized, "geoip.dat")),
+                    ["geosite.dat"] = HashFile(Path.Combine(normalized, "geosite.dat"))
                 };
                 File.WriteAllText(Path.Combine(tempRoot, ".manifest.json"), JsonSerializer.Serialize(new { version, files = manifest }, new JsonSerializerOptions { WriteIndented = true }));
                 File.WriteAllText(Path.Combine(tempRoot, ".validated"), $"v2rayN={version}\nvalidated={DateTimeOffset.UtcNow:O}\nmanifest=.manifest.json\n");

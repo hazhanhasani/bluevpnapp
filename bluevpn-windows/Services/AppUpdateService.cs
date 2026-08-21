@@ -62,7 +62,8 @@ public sealed class AppUpdateService
             try
             {
                 var current = await GitHubReleaseClient.Sha256Async(path, ct).ConfigureAwait(false);
-                if (current.Equals(expected, StringComparison.OrdinalIgnoreCase) && GitHubReleaseClient.VerifyAuthenticode(path, "BlueVPN")) return path;
+                if (current.Equals(expected, StringComparison.OrdinalIgnoreCase) &&
+                    (!GitHubReleaseClient.HasAuthenticodeSignature(path) || GitHubReleaseClient.VerifyAuthenticode(path, "BlueVPN"))) return path;
             }
             catch { }
             try { File.Delete(path); } catch { }
@@ -77,10 +78,10 @@ public sealed class AppUpdateService
                 progress?.Report((attempt - 1) / 3d);
                 using var gh = new GitHubReleaseClient($"BlueVPN-Windows/{_settings.Version}");
                 await gh.DownloadVerifiedAsync(candidate.DownloadUrl, path, candidate.Digest, ct, candidate.SizeBytes, progress).ConfigureAwait(false);
-                if (!GitHubReleaseClient.VerifyAuthenticode(path, "BlueVPN"))
+                if (GitHubReleaseClient.HasAuthenticodeSignature(path) && !GitHubReleaseClient.VerifyAuthenticode(path, "BlueVPN"))
                 {
                     try { File.Delete(path); } catch { }
-                    throw new InvalidDataException("امضای دیجیتال Installer ویندوز معتبر نیست یا ناشر BlueVPN تأیید نشد.");
+                    throw new InvalidDataException("امضای دیجیتال Installer ویندوز وجود دارد اما ناشر آن BlueVPN نیست.");
                 }
                 progress?.Report(1d);
                 return path;
@@ -115,10 +116,19 @@ public sealed class AppUpdateService
         catch { return false; }
     }
 
-    public static bool LaunchInstaller(string installerPath)
+    public static bool LaunchInstaller(string installerPath, string expectedDigest)
     {
         if (!File.Exists(installerPath)) return false;
-        if (!GitHubReleaseClient.VerifyAuthenticode(installerPath, "BlueVPN")) return false;
+        var expected = expectedDigest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) ? expectedDigest[7..] : expectedDigest;
+        if (expected.Length != 64) return false;
+        try
+        {
+            using var stream = File.OpenRead(installerPath);
+            var actual = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream)).ToLowerInvariant();
+            if (!actual.Equals(expected, StringComparison.OrdinalIgnoreCase)) return false;
+        }
+        catch { return false; }
+        if (GitHubReleaseClient.HasAuthenticodeSignature(installerPath) && !GitHubReleaseClient.VerifyAuthenticode(installerPath, "BlueVPN")) return false;
         Process.Start(new ProcessStartInfo
         {
             FileName = installerPath,

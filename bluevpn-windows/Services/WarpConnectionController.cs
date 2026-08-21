@@ -36,25 +36,44 @@ public sealed class WarpConnectionController : IDisposable
 
         var aether = _runtime.ResolveAether();
         var socksPort = Math.Clamp(_settings.Warp.SocksPort, 1024, 65535);
-        var args = BuildAetherArgs(policy, socksPort);
-
-        progress?.Report("آماده‌سازی WARP…");
-        await _aether.StartAsync(aether, args, _stateDir, token).ConfigureAwait(false);
-
         var startTimeout = Math.Clamp(policy.StartTimeoutSeconds, 3, 40);
-        await WaitForPortAsync("127.0.0.1", socksPort, TimeSpan.FromSeconds(startTimeout), token).ConfigureAwait(false);
-
-        // A listening port is not READY. Validate the Aether data plane through
-        // its own SOCKS socket before changing Windows routes.
-        progress?.Report("تأیید مسیر WARP…");
         var traceTimeout = TimeSpan.FromSeconds(Math.Clamp(policy.EndpointProbeSeconds, 3, 8));
-        var trace = await ConnectivityProbe.SnapshotViaSocksAsync(_settings.ProbeUrl, "127.0.0.1", socksPort, traceTimeout, token).ConfigureAwait(false);
-        if (policy.RequireExitTrace && (!trace.Reachable || string.IsNullOrWhiteSpace(trace.PublicIp)))
-            throw new InvalidOperationException($"WARP SOCKS اینترنت معتبر نداد: {trace.Error}");
-        if (trace.Reachable && !(trace.Warp.Equals("on", StringComparison.OrdinalIgnoreCase) || trace.Warp.Equals("plus", StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException("Cloudflare trace، WARP را برای این مسیر تأیید نکرد.");
-        if (trace.Reachable && policy.BlockedExitCountries.Any(x => x.Equals(trace.Country, StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidOperationException($"خروجی WARP در کشور مسدودشده {trace.Country} قرار گرفت.");
+        var masqueAllowed = policy.AllowedTransports.Count == 0 || policy.AllowedTransports.Any(x =>
+            x.Equals("h3", StringComparison.OrdinalIgnoreCase) || x.Equals("h2", StringComparison.OrdinalIgnoreCase) || x.Equals("h2_fragment", StringComparison.OrdinalIgnoreCase));
+        var wireGuardAllowed = policy.WireguardEnabled && (policy.AllowedTransports.Count == 0 || policy.AllowedTransports.Any(x => x.Equals("wireguard", StringComparison.OrdinalIgnoreCase)));
+
+        ConnectivitySnapshot trace = new(false, "", "", "", DateTimeOffset.UtcNow, "WARP unavailable");
+        Exception? transportError = null;
+        foreach (var transport in BuildTransportOrder(masqueAllowed, wireGuardAllowed))
+        {
+            token.ThrowIfCancellationRequested();
+            _aether.Stop();
+            var useMasque = transport == "masque";
+            progress?.Report(useMasque ? "WARP • اسکن و اتصال MASQUE…" : "WARP • مسیر WireGuard جایگزین…");
+            try
+            {
+                await _aether.StartAsync(aether, BuildAetherArgs(policy, socksPort, useMasque), _stateDir, token).ConfigureAwait(false);
+                await WaitForPortAsync("127.0.0.1", socksPort, TimeSpan.FromSeconds(startTimeout), token).ConfigureAwait(false);
+                progress?.Report("WARP • تأیید خروجی Cloudflare…");
+                trace = await ConnectivityProbe.SnapshotViaSocksAsync(_settings.ProbeUrl, "127.0.0.1", socksPort, traceTimeout, token).ConfigureAwait(false);
+                if (policy.RequireExitTrace && (!trace.Reachable || string.IsNullOrWhiteSpace(trace.PublicIp)))
+                    throw new InvalidOperationException($"WARP اینترنت معتبر نداد: {trace.Error}");
+                if (trace.Reachable && !(trace.Warp.Equals("on", StringComparison.OrdinalIgnoreCase) || trace.Warp.Equals("plus", StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException("Cloudflare مسیر WARP را تأیید نکرد.");
+                if (trace.Reachable && policy.BlockedExitCountries.Any(x => x.Equals(trace.Country, StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidOperationException($"خروجی WARP در کشور مسدودشده {trace.Country} قرار گرفت.");
+                transportError = null;
+                break;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                transportError = ex;
+                _aether.Stop();
+            }
+        }
+        if (transportError is not null || !_aether.IsRunning)
+            throw new InvalidOperationException($"WARP با MASQUE/WireGuard آماده نشد: {transportError?.Message ?? trace.Error}", transportError);
 
         progress?.Report("فعال‌سازی VPN سراسری…");
         var configPath = Path.Combine(_stateDir, "sing-box-warp.json");
@@ -73,14 +92,13 @@ public sealed class WarpConnectionController : IDisposable
         _aether.Stop();
     }
 
-    private static string[] BuildAetherArgs(WarpRuntimePolicy policy, int socksPort)
+    private static string[] BuildAetherArgs(WarpRuntimePolicy policy, int socksPort, bool useMasque)
     {
         var args = new List<string> { "--bind", $"127.0.0.1:{socksPort}" };
 
         // Aether's known transport switch: MASQUE is optional; without it the
         // runtime can use its legacy/WireGuard path. Never invent unsupported CLI flags.
-        if (policy.AllowedTransports.Count == 0 || policy.AllowedTransports.Any(x => x.Equals("h3", StringComparison.OrdinalIgnoreCase) || x.Equals("h2", StringComparison.OrdinalIgnoreCase) || x.Equals("h2_fragment", StringComparison.OrdinalIgnoreCase)))
-            args.Add("--masque");
+        if (useMasque) args.Add("--masque");
 
         if (!policy.IpMode.Equals("dual", StringComparison.OrdinalIgnoreCase)) args.Add("-4");
 
@@ -94,6 +112,16 @@ public sealed class WarpConnectionController : IDisposable
         }
         if (policy.QuickReconnect) args.Add("--quick-reconnect");
         return args.ToArray();
+    }
+
+
+    private static IReadOnlyList<string> BuildTransportOrder(bool masqueAllowed, bool wireGuardAllowed)
+    {
+        var order = new List<string>();
+        if (masqueAllowed) order.Add("masque");
+        if (wireGuardAllowed) order.Add("wireguard");
+        if (order.Count == 0) order.Add("masque");
+        return order;
     }
 
     private static string NormalizeScanMode(string value) => value.ToLowerInvariant() switch

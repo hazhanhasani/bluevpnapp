@@ -69,6 +69,9 @@ public partial class MainWindow : Window
 
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
+        MaxHeight = Math.Max(600, SystemParameters.WorkArea.Height);
+        Height = Math.Min(760, Math.Max(600, SystemParameters.WorkArea.Height - 18));
+        MaxWidth = Math.Max(620, SystemParameters.WorkArea.Width);
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -117,7 +120,7 @@ public partial class MainWindow : Window
     {
         await _ads.RefreshAsync(_lifetimeCts.Token);
         _adIndex = 0;
-        AdCard.Height = Math.Clamp(_ads.BannerHeight * 0.72, 92, 112);
+        AdCard.Height = Math.Clamp(_ads.BannerHeight * 0.58, 76, 96);
         await ShowCurrentAdAsync();
 
         _adTimer.Stop();
@@ -446,8 +449,8 @@ public partial class MainWindow : Window
             {
                 Owner = this,
                 Title = "انتخاب لوکیشن BlueVPN",
-                Width = 390,
-                Height = Math.Min(560, Math.Max(380, SystemParameters.WorkArea.Height * 0.72)),
+                Width = 440,
+                Height = Math.Min(600, Math.Max(400, SystemParameters.WorkArea.Height * 0.74)),
                 MinHeight = 340,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 ResizeMode = ResizeMode.CanResize,
@@ -456,13 +459,14 @@ public partial class MainWindow : Window
                 ShowInTaskbar = false
             };
 
-            var root = new DockPanel { Margin = new Thickness(16) };
+            var root = new DockPanel { Margin = new Thickness(18), Background = Brushes.White };
             var title = new TextBlock
             {
                 Text = "لوکیشن موردنظر را انتخاب کنید",
-                FontSize = 20,
+                FontSize = 22,
                 FontWeight = FontWeights.Bold,
-                Margin = new Thickness(0, 0, 0, 12)
+                Foreground = (Brush)FindResource("BlueVpnText"),
+                Margin = new Thickness(0, 0, 0, 14)
             };
             DockPanel.SetDock(title, Dock.Top);
             root.Children.Add(title);
@@ -470,9 +474,14 @@ public partial class MainWindow : Window
             var panel = new StackPanel();
             var autoButton = new Button
             {
-                Content = "🌐 انتخاب خودکار (پیشنهادی)",
-                Height = 48,
-                Margin = new Thickness(0, 0, 0, 8),
+                Content = "انتخاب خودکار  •  پیشنهادی",
+                Height = 52,
+                Margin = new Thickness(0, 0, 0, 10),
+                Background = (Brush)FindResource("BlueVpnBlue"),
+                Foreground = Brushes.White,
+                BorderBrush = (Brush)FindResource("BlueVpnBlue2"),
+                FontWeight = FontWeights.SemiBold,
+                FontSize = 14,
                 HorizontalContentAlignment = HorizontalAlignment.Right
             };
             autoButton.Click += (_, _) =>
@@ -488,10 +497,16 @@ public partial class MainWindow : Window
             {
                 var button = new Button
                 {
-                    Content = location.Display,
-                    Height = 46,
-                    Margin = new Thickness(0, 0, 0, 7),
+                    Content = $"{location.Title}    {location.Key.ToUpperInvariant()}",
+                    Height = 50,
+                    Margin = new Thickness(0, 0, 0, 8),
                     Tag = location,
+                    Background = Brushes.White,
+                    Foreground = (Brush)FindResource("BlueVpnText"),
+                    BorderBrush = new SolidColorBrush(Color.FromRgb(190, 205, 238)),
+                    BorderThickness = new Thickness(1.2),
+                    FontWeight = FontWeights.SemiBold,
+                    FontSize = 14,
                     HorizontalContentAlignment = HorizontalAlignment.Right
                 };
                 button.Click += (_, _) =>
@@ -590,7 +605,7 @@ public partial class MainWindow : Window
             EngineText.Text = "متصل • مسیر فعال در پس‌زمینه مدیریت می‌شود";
             ServerStatusText.Text = $"اتصال سراسری تأیید شد • {result.Engine}";
             TierText.Text = result.Premium ? "Premium" : "Free";
-            ConnectButton.Content = "⏻";
+            SetPowerIconState(true);
             IpValue.Text = result.Verification.PublicIp.Length > 0 ? result.Verification.PublicIp : "—";
             PingValue.Text = FormatLatency(result.Endpoint.ProbeLatencyMs);
             LocationBadge.Text = result.Verification.Country.Length > 0 ? result.Verification.Country : "VPN";
@@ -647,16 +662,30 @@ public partial class MainWindow : Window
 
     private async Task CheckAppUpdateSafeAsync(bool silentWhenCurrent, bool userInitiated)
     {
-        if (!await _updateGate.WaitAsync(0)) return;
+        var acquired = false;
+        if (userInitiated)
+        {
+            UpdateButton.Content = "در حال بروزرسانی…";
+            UpdateStatusText.Text = "یک عملیات بروزرسانی در حال اجراست؛ وضعیت آن همین‌جا نمایش داده می‌شود.";
+            await _updateGate.WaitAsync(_lifetimeCts.Token);
+            acquired = true;
+        }
+        else
+        {
+            acquired = await _updateGate.WaitAsync(0);
+            if (!acquired) return;
+        }
         try
         {
-            FooterStatus.Text = "بررسی بروزرسانی BlueVPN…";
+            ReportUpdateStatus("بررسی بروزرسانی BlueVPN…");
             var candidate = await _appUpdater.CheckAsync(_lifetimeCts.Token);
             if (candidate is null)
             {
                 UpdateButton.Content = "بررسی بروزرسانی";
+                UpdateProgressBar.Visibility = Visibility.Collapsed;
+                UpdateProgressBar.Value = 0;
+                ReportUpdateStatus("BlueVPN به‌روز است.");
                 if (!silentWhenCurrent) MessageBox.Show("BlueVPN به‌روز است.", "BlueVPN", MessageBoxButton.OK, MessageBoxImage.Information);
-                FooterStatus.Text = "آماده";
                 return;
             }
 
@@ -687,14 +716,14 @@ public partial class MainWindow : Window
             // automatic delivery for this Stable/Beta channel.
             if (!candidate.AutoUpdate)
             {
-                FooterStatus.Text = $"نسخه {candidate.Version} موجود است؛ نصب خودکار این کانال خاموش است.";
+                ReportUpdateStatus($"نسخه {candidate.Version} موجود است؛ نصب خودکار این کانال خاموش است.");
                 return;
             }
 
             if (_connectionOperationRunning || _connection.IsConnected)
             {
                 _pendingUpdate = candidate;
-                FooterStatus.Text = $"نسخه {candidate.Version} آماده است و پس از پایان اتصال نصب می‌شود.";
+                ReportUpdateStatus($"نسخه {candidate.Version} آماده است و پس از پایان اتصال نصب می‌شود.");
                 return;
             }
 
@@ -714,16 +743,16 @@ public partial class MainWindow : Window
             if (!silentWhenCurrent || userInitiated)
                 MessageBox.Show(ex.Message, "بروزرسانی BlueVPN", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
-        finally { _updateGate.Release(); }
+        finally { if (acquired) _updateGate.Release(); }
     }
 
     private async Task DownloadAndInstallUpdateAsync(UpdateCandidate candidate, bool forced)
     {
-        FooterStatus.Text = $"دریافت نسخه {candidate.Version}…";
+        ReportUpdateStatus($"دریافت نسخه {candidate.Version}…", 0);
         var progress = new Progress<double>(value =>
         {
             var percent = Math.Clamp((int)Math.Round(value * 100d), 0, 100);
-            FooterStatus.Text = $"دریافت نسخه {candidate.Version}… {percent}%";
+            ReportUpdateStatus($"دریافت نسخه {candidate.Version}… {percent}%", percent);
         });
         var installer = await _appUpdater.DownloadAsync(candidate, progress, _lifetimeCts.Token);
         // A background update check may finish after the user has already pressed Connect.
@@ -731,14 +760,14 @@ public partial class MainWindow : Window
         if (_connectionOperationRunning || _connection.IsConnected)
         {
             _pendingUpdate = candidate;
-            FooterStatus.Text = $"نسخه {candidate.Version} دریافت شد و پس از قطع اتصال نصب می‌شود.";
+            ReportUpdateStatus($"نسخه {candidate.Version} دریافت شد و پس از قطع اتصال نصب می‌شود.", 100);
             return;
         }
-        FooterStatus.Text = "بروزرسانی تأیید شد؛ در حال اجرای نصب…";
+        ReportUpdateStatus("بروزرسانی تأیید شد؛ در حال اجرای نصب…", 100);
         _pendingUpdate = null;
         _connectCts?.Cancel();
         _connection.Disconnect();
-        if (AppUpdateService.LaunchInstaller(installer))
+        if (AppUpdateService.LaunchInstaller(installer, candidate.Digest))
         {
             Application.Current.Shutdown();
             return;
@@ -832,11 +861,36 @@ public partial class MainWindow : Window
     private static string FriendlyUiError(string message)
     {
         if (string.IsNullOrWhiteSpace(message)) return "عملیات انجام نشد؛ دوباره تلاش کنید.";
+        if (message.Contains("HttpClient.Timeout", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("configured HttpClient.Timeout", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||
+            message.Contains("timeout", StringComparison.OrdinalIgnoreCase))
+            return "پاسخ مسیر اتصال دیر رسید. BlueVPN مسیر جایگزین را بررسی کرد؛ دوباره اتصال را امتحان کنید.";
         if (message.Contains("SSL", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("TLS", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("CONTROL_PLANE_TLS", StringComparison.OrdinalIgnoreCase))
             return "ارتباط امن با سرور BlueVPN برقرار نشد؛ تاریخ و ساعت ویندوز و اتصال شبکه را بررسی کنید.";
         return message.Length > 220 ? message[..220] + "…" : message;
+    }
+
+
+    private void ReportUpdateStatus(string text, int? percent = null)
+    {
+        FooterStatus.Text = text;
+        UpdateStatusText.Text = text;
+        if (percent is int value)
+        {
+            UpdateProgressBar.Visibility = Visibility.Visible;
+            UpdateProgressBar.Value = Math.Clamp(value, 0, 100);
+        }
+    }
+
+    private void SetPowerIconState(bool connected)
+    {
+        var brush = connected ? Brushes.White : Brushes.White;
+        PowerArc.Stroke = brush;
+        PowerStem.Stroke = brush;
+        ConnectButton.ToolTip = connected ? "قطع اتصال" : "اتصال";
     }
 
     private void SetConnectingUi()
@@ -867,7 +921,7 @@ public partial class MainWindow : Window
             ? "بهترین مسیر همان لوکیشن به‌صورت خودکار انتخاب می‌شود"
             : "بهترین مسیر مخفی این لوکیشن به‌صورت خودکار انتخاب می‌شود";
         ServerStatusText.Text = "آماده اتصال";
-        ConnectButton.Content = "⏻";
+        SetPowerIconState(false);
         ConnectButton.IsEnabled = true;
         PingValue.Text = "—";
         DurationValue.Text = "00:00:00";

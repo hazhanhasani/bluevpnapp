@@ -1,4 +1,4 @@
-# BlueVPN for Windows — 5.0.3
+# BlueVPN for Windows — 5.0.4
 
 ## 5.0.3 hotfix
 
@@ -71,3 +71,14 @@ The WPF home screen follows the current Android BlueVPN visual model: compact ac
 - Account/auth failures are rendered inside BlueVPN instead of surfacing raw transport exception dialogs.
 - First-party campaign media uses direct HTTPS, Windows system-proxy fallback and a persistent last-known-good cache. If an image cannot be decoded, the campaign title/subtitle/CTA remain visible instead of a blank dark rectangle.
 - The `/mobile/config` Tapsell payload is parsed only as a capability signal. The configured Tapsell Mediation App ID/Zone IDs are Android mobile-SDK credentials and are not impersonated as a native WPF ad implementation.
+
+## 5.0.4 Windows UI / update / runtime release
+
+- Responsive WPF home with vertical scrolling for 768p-class displays and wider content on large screens.
+- Vector power icon instead of font/emoji glyphs, so Windows font fallback cannot render a square.
+- High-contrast account and location surfaces; location buttons use stable text labels instead of depending on flag emoji rendering.
+- Connection verification retries Cloudflare trace endpoints and converts transport timeouts to concise Persian UI errors.
+- Manual update actions show progress/status and are not silently dropped when a background update check owns the update lock.
+- Windows update installers are always SHA-256 verified against the control-plane release metadata; Authenticode is additionally enforced when a signature is present.
+- v2rayN remains the pinned Windows runtime source. Packaging keeps one coherent minimal runtime set: v2rayN.exe, Xray, sing-box, Wintun, geoip.dat and geosite.dat, avoiding the previous duplicate full upstream tree.
+- Free WARP uses Aether with endpoint scanning and MASQUE first, then WireGuard fallback when policy allows, with sing-box owning the system TUN.

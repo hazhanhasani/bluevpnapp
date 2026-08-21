@@ -15,10 +15,26 @@ public static class ConnectivityProbe
     public static Task<ConnectivitySnapshot> SnapshotAsync(string url, CancellationToken ct = default) =>
         SnapshotCoreAsync(url, proxy: null, TimeSpan.FromSeconds(8), ct);
 
-    public static Task<ConnectivitySnapshot> SnapshotViaSocksAsync(string url, string host, int port, TimeSpan timeout, CancellationToken ct = default)
+    public static async Task<ConnectivitySnapshot> SnapshotViaSocksAsync(string url, string host, int port, TimeSpan timeout, CancellationToken ct = default)
     {
         var proxy = new WebProxy(new Uri($"socks5://{host}:{port}"));
-        return SnapshotCoreAsync(url, proxy, timeout, ct);
+        var urls = new[] { url }.Concat(FallbackTraceUrls)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        ConnectivitySnapshot last = new(false, "", "", "", DateTimeOffset.UtcNow, "tunnel probe unavailable");
+        var perAttempt = TimeSpan.FromSeconds(Math.Clamp(timeout.TotalSeconds, 4, 8));
+        for (var round = 0; round < 2; round++)
+        {
+            foreach (var candidate in urls)
+            {
+                ct.ThrowIfCancellationRequested();
+                last = await SnapshotCoreAsync(candidate, proxy, perAttempt, ct).ConfigureAwait(false);
+                if (last.Reachable && !string.IsNullOrWhiteSpace(last.PublicIp)) return last;
+            }
+            await Task.Delay(300, ct).ConfigureAwait(false);
+        }
+        return last with { Error = FriendlyProbeError(last.Error) };
     }
 
     /// <summary>
@@ -70,7 +86,7 @@ public static class ConnectivityProbe
             AllowAutoRedirect = false
         };
         using var http = new HttpClient(handler) { Timeout = timeout };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Probe/5.0.3");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Probe/5.0.4");
         try
         {
             using var response = await http.GetAsync(url, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
@@ -90,7 +106,16 @@ public static class ConnectivityProbe
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
         {
-            return new(false, "", "", "", DateTimeOffset.UtcNow, ex.Message);
+            return new(false, "", "", "", DateTimeOffset.UtcNow, FriendlyProbeError(ex.Message));
         }
+    }
+
+    private static string FriendlyProbeError(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "پاسخی از مسیر دریافت نشد";
+        if (value.Contains("timeout", StringComparison.OrdinalIgnoreCase) || value.Contains("timed out", StringComparison.OrdinalIgnoreCase))
+            return "پاسخ مسیر بیش از حد طول کشید";
+        if (value.Contains("refused", StringComparison.OrdinalIgnoreCase)) return "هسته اتصال پاسخ نداد";
+        return value.Length > 96 ? value[..96] + "…" : value;
     }
 }

@@ -10,8 +10,8 @@
         <SolidColorBrush x:Key="BlueVpnSurfaceSoft" Color="#FFE8EDF7" />
         <SolidColorBrush x:Key="BlueVpnStroke" Color="#FFD9DFEC" />
         <SolidColorBrush x:Key="BlueVpnText" Color="#FF141824" />
-        <SolidColorBrush x:Key="BlueVpnTextSecondary" Color="#FF525B6C" />
-        <SolidColorBrush x:Key="BlueVpnMuted" Color="#FF818A9B" />
+        <SolidColorBrush x:Key="BlueVpnTextSecondary" Color="#FF3E4758" />
+        <SolidColorBrush x:Key="BlueVpnMuted" Color="#FF667085" />
         <SolidColorBrush x:Key="BlueVpnBlue" Color="#FF356DF1" />
         <SolidColorBrush x:Key="BlueVpnBlue2" Color="#FF2455CC" />
         <SolidColorBrush x:Key="BlueVpnGreen" Color="#FF2ED8A3" />

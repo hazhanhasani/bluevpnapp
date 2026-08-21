@@ -52,7 +52,7 @@ def main() -> None:
     require(version_match is not None, "invalid release version")
     _, minor, patch = map(int, version_match.groups())
     require(0 <= minor <= 10 and 0 <= patch <= 10, "BlueVPN release minor/patch must be 0..10")
-    require(version == "5.0.10", "this Windows migration must be release 5.0.10")
+    require(version == "5.1.0", "this Windows migration must be release 5.1.0")
     require(str(branding.get("version_name", "")) == version, "branding version drift")
     require(str(release.get("windows_version", "")) == version, "release windows_version mismatch")
     require(str(settings.get("version", "")) == version, "Windows appsettings version mismatch")
@@ -68,7 +68,11 @@ def main() -> None:
     require(settings.get("v2rayn_version") == "7.24.4", "v2rayN stable baseline mismatch")
     require("V2RAYN_VERSION: '7.24.4'" in workflow, "workflow v2rayN pin mismatch")
     require("v2rayN-windows-64.zip" in workflow and "v2rayN-windows-arm64.zip" in workflow, "v2rayN architecture packages missing")
-    require("2dust/v2rayN" in workflow and "asset.digest" in workflow and "Get-FileHash" in workflow, "v2rayN SHA256 gate missing")
+    require("2dust/v2rayN" in workflow and "Get-FileHash $zip -Algorithm SHA256" in workflow and "EXPECTED_SHA256" in workflow, "v2rayN SHA256 gate missing")
+    require("api.github.com/repos/2dust/v2rayN/releases" not in workflow and "api.github.com/repos/CluvexStudio/Aether/releases" not in workflow, "Windows runtime bootstrap must not depend on GitHub REST release metadata")
+    require("v2rayn_sha256:" in workflow and "EXPECTED_SHA256: ${{ matrix.v2rayn_sha256 }}" in workflow, "v2rayN pinned per-architecture SHA256 gate missing")
+    require("releases/download/$env:V2RAYN_VERSION/$env:ASSET" in workflow and "$assetName.sha256" in workflow, "direct release asset/checksum bootstrap missing")
+    require(workflow.count("Download-WithRetry") >= 5 and "@(0,403,408,425,429,500,502,503,504)" in workflow, "Windows runtime download retry/backoff gate missing")
     require("ResolveV2RayNBundle" in runtime and "v2rayN.exe" in runtime and "xray.exe" in runtime and "sing-box.exe" in runtime and "wintun.dll" in runtime, "runtime resolver must require one complete v2rayN bundle")
     require("Get-PeMachine" in workflow and "0xAA64" in workflow and "0x8664" in workflow, "v2rayN runtime PE architecture gate missing")
     require("xray-local-proxy-smoke.json" in workflow and "run -test -config" in workflow and "Validate generated sing-box configs from Windows builders" in workflow and "BlueVPN.Windows.SmokeConfigGenerator.csproj" in workflow and "singbox-v2rayn-generated.json" in workflow and "singbox-warp-generated.json" in workflow and "check -c" in workflow, "runtime generated TUN config smoke checks missing")
@@ -144,7 +148,7 @@ def main() -> None:
     require("GetPremiumSubscriptionAsync" in connection and "GetFreeSubscriptionAsync" in connection, "Free/Premium isolation missing")
     require("EndpointSelector.RankAsync" in connection, "endpoint ranking missing")
 
-    # 5.0.10 Windows stability gates: Android UI parity, non-blocking media/metrics,
+    # 5.1.0 Windows stability gates: Android UI parity, non-blocking media/metrics,
     # panel-driven WARP, and fail-closed updater/connection state.
     media = read("bluevpn-windows/Services/MediaAssetLoader.cs")
     models = read("bluevpn-windows/Models/WindowsRuntimeModels.cs")
@@ -156,7 +160,7 @@ def main() -> None:
     require("ip_cidr = ipCidrs" in v2rayn_tun and "ResolveEndpointIpsAsync" in read("bluevpn-windows/Services/XrayProcessController.cs"), "endpoint-aware TUN loop guard missing")
     require("if (!candidate.AutoUpdate)" in main_cs and "if (userInitiated)" in main_cs and "_pendingUpdate = candidate" in main_cs, "Windows update channel semantics / deferred install missing")
 
-    # 5.0.10 CI/release hardening: installers must be root-level artifacts and
+    # 5.1.0 CI/release hardening: installers must be root-level artifacts and
     # Node.js 20-generation cache/artifact actions must not remain.
     require('dist/BlueVPN-Setup-*.exe' in workflow, "Windows Setup must upload from dist root")
     require('Normalize Windows release payload layout' in workflow, "Windows publish job must normalize artifact layout")

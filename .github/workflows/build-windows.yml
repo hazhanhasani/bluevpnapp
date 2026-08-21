@@ -27,9 +27,11 @@ jobs:
           - arch: x64
             rid: win-x64
             v2rayn_asset: v2rayN-windows-64.zip
+            v2rayn_sha256: 20fc30526fe5a0164ae7b9a1f8b807bf724e87759ad0fb642bd008276a4239e7
           - arch: arm64
             rid: win-arm64
             v2rayn_asset: v2rayN-windows-arm64.zip
+            v2rayn_sha256: 075cf40437ca9617496201ae35ea8ff4e5835c07b0f29dae7aa01415064f35a0
     env:
       V2RAYN_VERSION: '7.24.4'
       AETHER_VERSION: 'v1.1.1'
@@ -55,6 +57,7 @@ jobs:
         env:
           RID: ${{ matrix.rid }}
           ASSET: ${{ matrix.v2rayn_asset }}
+          EXPECTED_SHA256: ${{ matrix.v2rayn_sha256 }}
         run: |
           $ErrorActionPreference = 'Stop'
           $target = 'bluevpn-windows/runtime/v2rayn'
@@ -63,16 +66,29 @@ jobs:
           Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item $upstream -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force $upstream,$core | Out-Null
-          $headers = @{ 'User-Agent'='BlueVPN-Windows-Build'; 'Accept'='application/vnd.github+json' }
-          $release = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/2dust/v2rayN/releases/tags/$env:V2RAYN_VERSION"
-          $asset = $release.assets | Where-Object { $_.name -eq $env:ASSET } | Select-Object -First 1
-          if (-not $asset) { throw "v2rayN asset not found: $env:ASSET" }
-          if (-not $asset.digest -or -not $asset.digest.StartsWith('sha256:')) { throw "GitHub SHA256 digest missing for $env:ASSET" }
+          function Download-WithRetry([string]$url,[string]$outFile) {
+            for ($attempt=1; $attempt -le 5; $attempt++) {
+              try {
+                Invoke-WebRequest -Headers @{ 'User-Agent'='BlueVPN-Windows-Build' } -Uri $url -OutFile $outFile -TimeoutSec 180
+                return
+              } catch {
+                $status = 0
+                try { $status = [int]$_.Exception.Response.StatusCode } catch {}
+                $retryable = $status -in @(0,403,408,425,429,500,502,503,504)
+                if (-not $retryable -or $attempt -eq 5) { throw }
+                $delay = [Math]::Min(16,[int][Math]::Pow(2,$attempt-1))
+                Write-Warning "Runtime download failed (HTTP $status), retry $attempt/5 in ${delay}s"
+                Start-Sleep -Seconds $delay
+              }
+            }
+          }
+          if ($env:EXPECTED_SHA256 -notmatch '^[0-9a-fA-F]{64}$') { throw 'Pinned v2rayN SHA256 is invalid' }
           $zip = Join-Path $env:RUNNER_TEMP $env:ASSET
-          Invoke-WebRequest -Headers $headers -Uri $asset.browser_download_url -OutFile $zip
-          $expected = $asset.digest.Substring(7).ToLowerInvariant()
+          $url = "https://github.com/2dust/v2rayN/releases/download/$env:V2RAYN_VERSION/$env:ASSET"
+          Download-WithRetry $url $zip
+          $expected = $env:EXPECTED_SHA256.ToLowerInvariant()
           $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($actual -ne $expected) { throw "v2rayN SHA256 mismatch" }
+          if ($actual -ne $expected) { throw "v2rayN SHA256 mismatch: $actual / $expected" }
           Expand-Archive $zip -DestinationPath $upstream -Force
           function Find-One([string]$name) {
             $m=Get-ChildItem $upstream -Recurse -File -Filter $name | Select-Object -First 1
@@ -102,12 +118,29 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $target='bluevpn-windows/runtime/aether'; Remove-Item $target -Recurse -Force -ErrorAction SilentlyContinue; New-Item -ItemType Directory -Force $target | Out-Null
-          $headers=@{'User-Agent'='BlueVPN-Windows-Build';'Accept'='application/vnd.github+json'}
-          $release=Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/CluvexStudio/Aether/releases/tags/$env:AETHER_VERSION"
-          $assetName='aether-windows-x86_64.zip'; $asset=$release.assets|Where-Object{$_.name -eq $assetName}|Select-Object -First 1
-          if(-not $asset -or -not $asset.digest.StartsWith('sha256:')){throw 'Aether SHA256 digest missing'}
-          $zip=Join-Path $env:RUNNER_TEMP $assetName; Invoke-WebRequest -Headers $headers -Uri $asset.browser_download_url -OutFile $zip
-          $expected=$asset.digest.Substring(7).ToLowerInvariant(); $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant(); if($expected -ne $actual){throw 'Aether SHA256 mismatch'}
+          function Download-WithRetry([string]$url,[string]$outFile) {
+            for($attempt=1;$attempt -le 5;$attempt++){
+              try{Invoke-WebRequest -Headers @{'User-Agent'='BlueVPN-Windows-Build'} -Uri $url -OutFile $outFile -TimeoutSec 180; return}
+              catch{
+                $status=0; try{$status=[int]$_.Exception.Response.StatusCode}catch{}
+                $retryable=$status -in @(0,403,408,425,429,500,502,503,504)
+                if(-not $retryable -or $attempt -eq 5){throw}
+                $delay=[Math]::Min(16,[int][Math]::Pow(2,$attempt-1))
+                Write-Warning "Aether download failed (HTTP $status), retry $attempt/5 in ${delay}s"
+                Start-Sleep -Seconds $delay
+              }
+            }
+          }
+          $assetName='aether-windows-x86_64.zip'
+          $baseUrl="https://github.com/CluvexStudio/Aether/releases/download/$env:AETHER_VERSION"
+          $zip=Join-Path $env:RUNNER_TEMP $assetName
+          $shaFile=Join-Path $env:RUNNER_TEMP ($assetName+'.sha256')
+          Download-WithRetry "$baseUrl/$assetName" $zip
+          Download-WithRetry "$baseUrl/$assetName.sha256" $shaFile
+          $checksumText=Get-Content $shaFile -Raw
+          $match=[regex]::Match($checksumText,'(?i)\b[0-9a-f]{64}\b')
+          if(-not $match.Success){throw 'Aether SHA256 sidecar is invalid'}
+          $expected=$match.Value.ToLowerInvariant(); $actual=(Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant(); if($expected -ne $actual){throw 'Aether SHA256 mismatch'}
           Expand-Archive $zip -DestinationPath $target -Force
           if(-not (Get-ChildItem $target -Recurse -File -Filter aether.exe | Select-Object -First 1)){throw 'aether.exe missing'}
           @{source='CluvexStudio/Aether';version=$env:AETHER_VERSION;asset=$assetName;sha256=$actual;architecture='x86_64'}|ConvertTo-Json|Set-Content (Join-Path $target 'runtime.json') -Encoding UTF8

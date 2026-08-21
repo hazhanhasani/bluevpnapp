@@ -1,4 +1,11 @@
-# BlueVPN for Windows — 5.0.10
+# BlueVPN for Windows — 5.1.0
+
+
+## 5.1.0 GitHub runtime bootstrap hardening
+
+- Removes the build-time GitHub REST release-metadata lookup that can exhaust the shared runner-IP API quota.
+- Downloads deterministic v2rayN 7.24.4 release assets and verifies pinned x64/ARM64 SHA-256 values; Aether v1.1.1 is verified with its matching release checksum sidecar.
+- Adds bounded download retry/backoff and preserves architecture checks, real-core smoke tests and the complete 5.0.10 Windows client fixes.
 
 
 ## 5.0.10 BlueAI compile hardening

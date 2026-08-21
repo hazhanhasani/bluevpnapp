@@ -1,7 +1,12 @@
 === BlueVPN Manager ===
-Version: 5.0.10
-Stable tag: 5.0.10
+Version: 5.1.0
+Stable tag: 5.1.0
 Requires PHP: 8.0
+
+== 5.1.0 ==
+- Removes the Windows build dependency on GitHub REST release-metadata calls that can hit the shared runner-IP rate limit.
+- Downloads pinned v2rayN release assets directly and verifies per-architecture SHA-256; Aether uses its release-provided .sha256 sidecar.
+- Retries transient download failures with bounded backoff while keeping all BlueAI/fast-connect/authentication UI fixes from 5.0.10.
 
 == 5.0.10 ==
 - Fixes the Windows BlueAI C# compile failure caused by using the reserved keyword `operator` as an anonymous-object property identifier.

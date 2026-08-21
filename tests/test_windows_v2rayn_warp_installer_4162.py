@@ -8,8 +8,8 @@ def read(p): return (ROOT/p).read_text(encoding='utf-8')
 class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
     def test_release_contract(self):
         r=json.loads(read('release.json'))
-        self.assertEqual(r['version'],'5.0.10')
-        self.assertEqual(r['version_code'],50010)
+        self.assertEqual(r['version'],'5.1.0')
+        self.assertEqual(r['version_code'],50100)
         self.assertEqual(r['windows']['runtime_base'],'v2rayN')
         self.assertEqual(r['windows']['artifact'],'inno_setup_exe')
         self.assertTrue(r['windows']['warp_x64'])
@@ -30,6 +30,19 @@ class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
         self.assertIn('singbox-v2rayn-generated.json',wf)
         self.assertIn('singbox-warp-generated.json',wf)
         self.assertIn('check -c',wf)
+
+    def test_runtime_bootstrap_avoids_rest_api_rate_limits_and_keeps_integrity(self):
+        wf=read('.github/workflows/build-windows.yml')
+        self.assertNotIn('api.github.com/repos/2dust/v2rayN/releases', wf)
+        self.assertNotIn('api.github.com/repos/CluvexStudio/Aether/releases', wf)
+        self.assertIn('v2rayn_sha256: 20fc30526fe5a0164ae7b9a1f8b807bf724e87759ad0fb642bd008276a4239e7', wf)
+        self.assertIn('v2rayn_sha256: 075cf40437ca9617496201ae35ea8ff4e5835c07b0f29dae7aa01415064f35a0', wf)
+        self.assertIn('EXPECTED_SHA256: ${{ matrix.v2rayn_sha256 }}', wf)
+        self.assertIn('releases/download/$env:V2RAYN_VERSION/$env:ASSET', wf)
+        self.assertIn('$assetName.sha256', wf)
+        self.assertIn('Get-FileHash $zip -Algorithm SHA256', wf)
+        self.assertGreaterEqual(wf.count('Download-WithRetry'), 5)
+        self.assertIn('@(0,403,408,425,429,500,502,503,504)', wf)
 
     def test_warp_is_full_tun_not_system_proxy_only(self):
         c=read('bluevpn-windows/Services/SingBoxWarpConfigBuilder.cs')

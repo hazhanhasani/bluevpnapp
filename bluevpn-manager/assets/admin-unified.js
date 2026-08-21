@@ -50,9 +50,11 @@ function enhanceResponsiveTable(table){
   const labels=tableHeaderLabels(table);
   if(labels.length<1) return;
   table.classList.add('bvc-responsive-table');
-  // Wide data sets must scroll horizontally instead of crushing Persian/Latin
-  // text into unreadable 2-3 character columns on 1366px admin screens.
-  table.style.setProperty('min-width',`${Math.max(980,labels.length*150)}px`,'important');
+  // Never force a global pixel width: compact tables stay fluid, while only
+  // genuinely wide datasets get a scroll-safe max-content table on desktop.
+  table.style.removeProperty('min-width');
+  table.style.removeProperty('width');
+  table.classList.toggle('bvc-table-wide',labels.length>=7);
   Array.from(table.querySelectorAll('tr')).forEach(row=>{
     if(row.querySelectorAll('th').length) return;
     Array.from(row.children).forEach((cell,index)=>{

@@ -105,7 +105,7 @@ public static class ConnectivityProbe
             AllowAutoRedirect = false
         };
         using var http = new HttpClient(handler) { Timeout = timeout };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Probe/5.0.5");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("BlueVPN-Windows-Probe/5.0.6");
         try
         {
             using var response = await http.GetAsync(url, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);

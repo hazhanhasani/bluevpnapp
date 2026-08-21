@@ -1,4 +1,11 @@
-# BlueVPN for Windows — 5.0.5
+# BlueVPN for Windows — 5.0.6
+
+
+## 5.0.6 Manager compact UI / CI resilience
+
+- Keeps the Windows connection/runtime fixes from 5.0.5 unchanged.
+- Hardens Windows release metadata synchronization so transient GitHub API failures do not abort a completed installer publication.
+- Coordinates the 5.0.6 release with the compact responsive BlueVPN Manager UI.
 
 ## 5.0.3 hotfix
 

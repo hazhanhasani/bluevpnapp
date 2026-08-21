@@ -1,7 +1,13 @@
 === BlueVPN Manager ===
-Version: 5.0.5
-Stable tag: 5.0.5
+Version: 5.0.6
+Stable tag: 5.0.6
 Requires PHP: 8.0
+
+== 5.0.6 ==
+- Restores a compact responsive admin layout across all BlueVPN Manager pages.
+- Removes forced 960px/980px table widths and oversized 5.0.5 controls that caused panel breakage.
+- Keeps wide tables inside scroll containers on desktop and labeled card mode on mobile.
+- Hardens Windows release synchronization against transient GitHub API release-metadata failures.
 
 == 5.0.5 ==
 - Synchronizes BlueVPN Manager with the 5.0.5 coordinated application release.

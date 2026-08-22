@@ -1,0 +1,19 @@
+{
+  "manager_url": "https://YOUR-WORDPRESS.example",
+  "node_id": 1,
+  "node_secret": "PASTE-ONE-TIME-NODE-SECRET-HERE",
+  "xray_path": "/usr/local/bin/xray",
+  "xray_config_path": "/etc/bluevpn-gateway/xray.json",
+  "state_path": "/var/lib/bluevpn-gateway/state.json",
+  "xray_log_path": "/var/log/bluevpn-gateway-xray.log",
+  "cert_file": "/etc/letsencrypt/live/gw1.example.com/fullchain.pem",
+  "key_file": "/etc/letsencrypt/live/gw1.example.com/privkey.pem",
+  "listen_host": "0.0.0.0",
+  "listen_port": 443,
+  "api_server": "127.0.0.1:10085",
+  "poll_seconds": 20,
+  "usage_seconds": 15,
+  "http_timeout": 20,
+  "log_level": "INFO",
+  "xray_log_level": "warning"
+}

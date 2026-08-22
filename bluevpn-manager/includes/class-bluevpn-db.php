@@ -12,7 +12,7 @@ final class BlueVPN_DB {
     public static function table_names(): array {
         return [
             'app_settings', 'app_releases', 'windows_releases', 'ad_assets', 'server_locations', 'pasarguard_panels',
-            'marzban_panels', 'guardcore_panels', 'plans', 'customers', 'manual_customers',
+            'marzban_panels', 'guardcore_panels', 'subscription_sources', 'gateway_nodes', 'gateway_sessions', 'gateway_usage_events', 'plans', 'customers', 'manual_customers',
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
             'payment_events', 'provisioning_attempts', 'entitlement_ledger', 'webhook_deliveries',
@@ -221,6 +221,79 @@ final class BlueVPN_DB {
             PRIMARY KEY  (id)
         ) $cc;";
 
+        $queries[] = "CREATE TABLE {$t('subscription_sources')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            name varchar(160) NOT NULL DEFAULT '',
+            source_type varchar(20) NOT NULL DEFAULT 'url',
+            payload_enc longtext NULL,
+            active tinyint(1) NOT NULL DEFAULT 1,
+            last_test_ok tinyint(1) NOT NULL DEFAULT 0,
+            last_test_message longtext NULL,
+            last_test_at datetime NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id),
+            KEY ix_subscription_source_active (active, source_type)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('gateway_nodes')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            name varchar(160) NOT NULL DEFAULT '',
+            public_host varchar(255) NOT NULL DEFAULT '',
+            public_port int NOT NULL DEFAULT 443,
+            server_name varchar(255) NOT NULL DEFAULT '',
+            transport varchar(20) NOT NULL DEFAULT 'tcp',
+            secret_enc longtext NULL,
+            secret_hash varchar(64) NOT NULL DEFAULT '',
+            active tinyint(1) NOT NULL DEFAULT 1,
+            last_seen_at datetime NULL,
+            last_agent_version varchar(64) NOT NULL DEFAULT '',
+            last_xray_version varchar(64) NOT NULL DEFAULT '',
+            last_config_hash varchar(64) NOT NULL DEFAULT '',
+            last_error longtext NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id),
+            KEY ix_gateway_node_active (active, last_seen_at)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('gateway_sessions')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            node_id bigint unsigned NOT NULL,
+            customer_id bigint unsigned NOT NULL,
+            client_uuid varchar(64) NOT NULL DEFAULT '',
+            client_email varchar(190) NOT NULL DEFAULT '',
+            status varchar(24) NOT NULL DEFAULT 'active',
+            used_uplink_bytes bigint unsigned NOT NULL DEFAULT 0,
+            used_downlink_bytes bigint unsigned NOT NULL DEFAULT 0,
+            last_usage_at datetime NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY uq_gateway_session_node_customer (node_id, customer_id),
+            UNIQUE KEY uq_gateway_session_uuid (client_uuid),
+            KEY ix_gateway_session_customer (customer_id, status),
+            KEY ix_gateway_session_node (node_id, status)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('gateway_usage_events')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            event_id varchar(120) NOT NULL DEFAULT '',
+            node_id bigint unsigned NOT NULL,
+            session_id bigint unsigned NOT NULL,
+            customer_id bigint unsigned NOT NULL,
+            seq bigint unsigned NOT NULL DEFAULT 0,
+            uplink_bytes bigint unsigned NOT NULL DEFAULT 0,
+            downlink_bytes bigint unsigned NOT NULL DEFAULT 0,
+            reported_at datetime NULL,
+            created_at datetime NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY uq_gateway_usage_event (event_id),
+            KEY ix_gateway_usage_customer (customer_id, created_at),
+            KEY ix_gateway_usage_session_seq (session_id, seq),
+            KEY ix_gateway_usage_node (node_id, created_at)
+        ) $cc;";
+
         $queries[] = "CREATE TABLE {$t('plans')} (
             id bigint unsigned NOT NULL AUTO_INCREMENT,
             title varchar(150) NOT NULL DEFAULT '',
@@ -241,12 +314,15 @@ final class BlueVPN_DB {
             guardcore_panel_id bigint unsigned NULL,
             guardcore_service_ids_json longtext NULL,
             multi_provider_quota_mode varchar(20) NOT NULL DEFAULT 'split',
+            traffic_mode varchar(24) NOT NULL DEFAULT 'provider_reported',
+            source_ids_json longtext NULL,
             created_at datetime NULL,
             PRIMARY KEY  (id),
             KEY ix_plan_active (active, deleted, sort_order),
             KEY ix_plan_pasarguard (panel_id, active),
             KEY ix_plan_marzban (marzban_panel_id, active),
-            KEY ix_plan_guardcore (guardcore_panel_id, active)
+            KEY ix_plan_guardcore (guardcore_panel_id, active),
+            KEY ix_plan_traffic_mode (traffic_mode, active)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('customers')} (

@@ -1,6 +1,13 @@
-# BlueVPN for Windows — 5.1.3
+# BlueVPN for Windows — 5.1.4
 
 
+
+## 5.1.4 first-party gateway-metered paid subscriptions
+
+- Paid subscription URLs can now resolve to first-party BlueVPN Gateway VLESS/TLS entries, so Windows does not need direct knowledge of upstream provider/manual subscription credentials.
+- Central WordPress/MySQL usage remains the user-facing quota source for gateway-metered plans; provider counters are diagnostic only in this mode.
+- Keeps the Windows purchase, support, themes, BlueAI, fast-connect and high-DPI UI work from 5.1.3 unchanged.
+- Gateway deployment/traffic accounting is server-side and is shipped in the project under `bluevpn-gateway/`; no extra Windows runtime core replaces the existing Xray + sing-box TUN architecture.
 
 ## 5.1.3 Windows purchase + support + theme completion
 

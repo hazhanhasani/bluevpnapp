@@ -32,6 +32,8 @@ final class BlueVPN_Unified_UI {
                 ['bluevpn-manager', 'داشبورد', 'dashboard'],
                 ['bluevpn-customers', 'کاربران', 'users'],
                 ['bluevpn-plans', 'پلن‌ها', 'plans'],
+                ['bluevpn-subscription-sources', 'Sourceهای اشتراک', 'link'],
+                ['bluevpn-gateway', 'Gateway Metering', 'shield'],
                 ['bluevpn-orders', 'پرداخت‌ها', 'orders'],
                 ['bluevpn-blueai', 'BlueAI', 'ai'],
             ],

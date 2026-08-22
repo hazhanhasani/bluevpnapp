@@ -1,7 +1,14 @@
 === BlueVPN Manager ===
-Version: 5.1.3
-Stable tag: 5.1.3
+Version: 5.1.4
+Stable tag: 5.1.4
 Requires PHP: 8.0
+
+== 5.1.4 ==
+- اضافه‌شدن معماری gateway_metered برای پلن پولی؛ مصرف Upload/Download از Gateway خود BlueVPN در MySQL حساب می‌شود و آمار Provider مرجع حجم نیست.
+- اضافه‌شدن Sourceهای اشتراک دستی شامل Subscription URL رمزنگاری‌شده و Inline Config و تجمیع آن‌ها با Marzban/PasarGuard/GuardCore در Pool واحد سمت سرور.
+- اپ‌ها در حالت Gateway فقط VLESS/TLS مربوط به Gatewayهای BlueVPN را دریافت می‌کنند و لینک‌های اصلی Provider/ساب دستی به کلاینت داده نمی‌شود.
+- اضافه‌شدن Agent لینوکسی HMAC-authenticated با Xray per-user stats، ledger idempotent مصرف و قطع fail-closed پس از رسیدن به سقف حجم.
+- در فاز اول Gateway، Upstreamهای VLESS/VMess/Trojan/Shadowsocks اجرا می‌شوند؛ Hysteria2/TUIC در Pool حفظ ولی توسط Agent Xray فعلی skip می‌شوند.
 
 == 5.1.3 ==
 - تکمیل خرید سرویس در نسخه Windows با سفارش معتبر BlueVPN/BluPal، بازکردن درگاه HTTPS و بررسی خودکار فعال‌شدن اشتراک.

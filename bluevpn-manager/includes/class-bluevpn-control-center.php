@@ -3,7 +3,7 @@ if (!defined('ABSPATH')) exit;
 
 final class BlueVPN_Control_Center {
     private const TABS=[
-        'overview'=>'نمای کلی','blueai'=>'BlueAI','ads'=>'تبلیغات','free'=>'اتصال رایگان','database'=>'دیتابیس','production'=>'سلامت و Backup','panels'=>'PasarGuard','marzban'=>'Marzban','guardcore'=>'GuardCore','guardcore-manual'=>'صف GuardCore','plans'=>'پلن‌ها','blupal'=>'پرداخت / بلوپال','manual'=>'فعال‌سازی دستی','customers'=>'کاربران','manual-customers'=>'مشتریان دستی','orders'=>'پرداخت‌ها','app'=>'اپ و آپدیت','sms'=>'SMS / OTP'
+        'overview'=>'نمای کلی','blueai'=>'BlueAI','ads'=>'تبلیغات','free'=>'اتصال رایگان','database'=>'دیتابیس','production'=>'سلامت و Backup','panels'=>'PasarGuard','marzban'=>'Marzban','guardcore'=>'GuardCore','guardcore-manual'=>'صف GuardCore','sources'=>'Sourceهای اشتراک','gateway'=>'Gateway Metering','plans'=>'پلن‌ها','blupal'=>'پرداخت / بلوپال','manual'=>'فعال‌سازی دستی','customers'=>'کاربران','manual-customers'=>'مشتریان دستی','orders'=>'پرداخت‌ها','app'=>'اپ و آپدیت','sms'=>'SMS / OTP'
     ];
     private const PAGE_SLUGS=[
         'overview'=>'bluevpn-manager',
@@ -16,6 +16,8 @@ final class BlueVPN_Control_Center {
         'marzban'=>'bluevpn-marzban',
         'guardcore'=>'bluevpn-guardcore',
         'guardcore-manual'=>'bluevpn-guardcore-queue',
+        'sources'=>'bluevpn-subscription-sources',
+        'gateway'=>'bluevpn-gateway',
         'plans'=>'bluevpn-plans',
         'blupal'=>'bluevpn-payments',
         'manual'=>'bluevpn-manual',
@@ -90,6 +92,8 @@ final class BlueVPN_Control_Center {
     private static function tab_blueai(): void { BlueVPN_AI::render_admin(); }
     private static function tab_ads(): void { BlueVPN_Ads::render_admin(); }
     private static function tab_free(): void { BlueVPN_Ads::render_free_admin(); }
+    private static function tab_sources(): void { BlueVPN_Subscription_Sources::render_admin_tab(); }
+    private static function tab_gateway(): void { BlueVPN_Gateway::render_admin_tab(); }
     private static function tab_database(): void {
         $s=BlueVPN_DB::status();$counts=BlueVPN_DB::counts();echo '<div class="bvc-grid"><div class="bvc-card"><h3>وضعیت</h3><p class="'.($s['ready']?'bvc-ok':'bvc-bad').'">'.($s['ready']?'✅ آماده':'❌ ناقص').'</p><small>MySQL '.self::esc($s['mysql_version']).'</small></div><div class="bvc-card"><h3>Schema</h3><strong>'.self::esc($s['schema_version']).'</strong></div><div class="bvc-card"><h3>Cutover</h3><strong>'.(get_option('bluevpn_manager_cutover_ready','0')==='1'?'آماده':'ناآماده').'</strong></div></div>';
         echo '<div class="bvc-card"><div class="bvc-actions"><a class="button" href="'.esc_url(admin_url('admin.php?page=bluevpn-migration')).'">ابزار مهاجرت</a><a class="button button-primary" href="'.esc_url(wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_export_backup'),'bluevpn_cc_export_backup')).'">دانلود Backup JSON</a></div></div><table class="widefat striped bvc-table"><tr><th>جدول</th><th>تعداد</th></tr>';foreach($counts as $k=>$v)echo '<tr><td><code>'.self::esc($k).'</code></td><td>'.number_format((int)$v).'</td></tr>';echo '</table>';
@@ -488,7 +492,8 @@ final class BlueVPN_Control_Center {
         echo '<label>Marzban';$select('marzban_panel_id',$mzRows,0);echo '</label>';
         echo '<label>GuardCore';$select('guardcore_panel_id',$gcRows,0);echo '</label>';
         self::select('multi_provider_quota_mode','نحوه اعمال حجم',['split'=>'تقسیم حجم بین Providerها','full'=>'حجم کامل روی هر Provider'],'split');
-        echo '</div>';self::access_picker('pasarguard','panel_id',[]);self::access_picker('marzban','marzban_panel_id',[]);self::guardcore_service_picker('guardcore_panel_id',$gcRows,[]);echo '</div>';
+        self::select('traffic_mode','مرجع محاسبه حجم',['provider_reported'=>'Provider reported (قدیمی)','gateway_metered'=>'BlueVPN Gateway (مرکزی)'],'gateway_metered');
+        echo '</div>';self::access_picker('pasarguard','panel_id',[]);self::access_picker('marzban','marzban_panel_id',[]);self::guardcore_service_picker('guardcore_panel_id',$gcRows,[]);BlueVPN_Subscription_Sources::render_plan_picker([]);echo '</div>';
 
         echo '<details class="bvc-advanced-options"><summary>تنظیمات پیشرفته Provider</summary><div class="bvc-helper">GuardCore Serviceها از API رسمی پنل خوانده می‌شوند؛ ID دستی دیگر لازم نیست.</div></details>';
 
@@ -509,6 +514,8 @@ final class BlueVPN_Control_Center {
             $groupSelected=array_map('strval',BlueVPN_Utils::json_decode_array((string)($x['group_ids_json']??''),[]));
             $mzSelected=[];foreach(BlueVPN_Utils::json_decode_array((string)($x['marzban_inbounds_json']??''),[]) as $proto=>$tags)if(is_array($tags))foreach($tags as $tag)$mzSelected[]=(string)$proto.'|'.(string)$tag;
             $quotaMode=(string)($x['multi_provider_quota_mode']??'split');
+            $trafficMode=(string)($x['traffic_mode']??'provider_reported');
+            $sourceSelected=BlueVPN_Subscription_Sources::source_ids_for_plan($x);
             $active=(int)$x['active']===1;
 
             echo '<article class="bvc-plan-card '.($active?'is-active':'is-inactive').'">';
@@ -530,6 +537,8 @@ final class BlueVPN_Control_Center {
             echo $provider_badge('MZ',$x['mz_name']??'');
             echo $provider_badge('GC',$x['gc_name']??'');
             echo '<span class="bvc-provider-pill is-neutral">Quota: '.($quotaMode==='full'?'Full':'Split').'</span>';
+            echo '<span class="bvc-provider-pill '.($trafficMode==='gateway_metered'?'is-on':'is-neutral').'">Traffic: '.($trafficMode==='gateway_metered'?'Gateway':'Provider').'</span>';
+            if($sourceSelected)echo '<span class="bvc-provider-pill is-on">Manual Sources: '.count($sourceSelected).'</span>';
             echo '</div>';
 
             echo '<details class="bvc-plan-routing">';
@@ -543,7 +552,8 @@ final class BlueVPN_Control_Center {
             echo '<label>Marzban';$select('marzban_panel_id',$mzRows,(int)$x['marzban_panel_id']);echo '</label>';
             echo '<label>GuardCore';$select('guardcore_panel_id',$gcRows,(int)$x['guardcore_panel_id']);echo '</label>';
             echo '<label>نحوه اعمال حجم<select name="multi_provider_quota_mode"><option value="split" '.selected($quotaMode,'split',false).'>تقسیم بین Providerها</option><option value="full" '.selected($quotaMode,'full',false).'>حجم کامل روی هر Provider</option></select></label>';
-            echo '</div>';self::access_picker('pasarguard','panel_id',$groupSelected);self::access_picker('marzban','marzban_panel_id',$mzSelected);
+            echo '<label>مرجع حجم<select name="traffic_mode"><option value="provider_reported" '.selected($trafficMode,'provider_reported',false).'>Provider reported</option><option value="gateway_metered" '.selected($trafficMode,'gateway_metered',false).'>BlueVPN Gateway</option></select></label>';
+            echo '</div>';self::access_picker('pasarguard','panel_id',$groupSelected);self::access_picker('marzban','marzban_panel_id',$mzSelected);BlueVPN_Subscription_Sources::render_plan_picker($sourceSelected);
 
             echo '<details class="bvc-advanced-options"><summary>Group ID / Service ID</summary><div class="bvc-form-grid">';
             echo '</div>';self::guardcore_service_picker('guardcore_panel_id',$gcRows,BlueVPN_Utils::json_decode_array((string)($x['guardcore_service_ids_json']??''),[]));echo '<div class="bvc-form-grid">';
@@ -565,7 +575,8 @@ final class BlueVPN_Control_Center {
             echo '<label>Marzban';$select('marzban_panel_id',$mzRows,(int)$x['marzban_panel_id']);echo '</label>';
             echo '<label>GuardCore';$select('guardcore_panel_id',$gcRows,(int)$x['guardcore_panel_id']);echo '</label>';
             echo '<label>اعمال حجم<select name="multi_provider_quota_mode"><option value="split" '.selected($quotaMode,'split',false).'>Split</option><option value="full" '.selected($quotaMode,'full',false).'>Full</option></select></label>';
-            echo '</div>';self::guardcore_service_picker('guardcore_panel_id',$gcRows,BlueVPN_Utils::json_decode_array((string)($x['guardcore_service_ids_json']??''),[]));echo '<div class="bvc-form-grid">';
+            echo '<label>مرجع حجم<select name="traffic_mode"><option value="provider_reported" '.selected($trafficMode,'provider_reported',false).'>Provider reported</option><option value="gateway_metered" '.selected($trafficMode,'gateway_metered',false).'>BlueVPN Gateway</option></select></label>';
+            echo '</div>';self::guardcore_service_picker('guardcore_panel_id',$gcRows,BlueVPN_Utils::json_decode_array((string)($x['guardcore_service_ids_json']??''),[]));BlueVPN_Subscription_Sources::render_plan_picker($sourceSelected);echo '<div class="bvc-form-grid">';
             echo '<label><input type="checkbox" name="active" value="1" '.checked($active,true,false).'> فعال</label>';
             echo '<label style="grid-column:1/-1">توضیحات<textarea name="description" rows="3">'.esc_textarea((string)$x['description']).'</textarea></label>';
             echo '</div>';self::access_picker('pasarguard','panel_id',$groupSelected);self::access_picker('marzban','marzban_panel_id',$mzSelected);echo '<div class="bvc-form-actions"><button class="button button-primary">ذخیره همه تغییرات</button></div></form></div></details>';
@@ -837,24 +848,24 @@ final class BlueVPN_Control_Center {
     public static function save_plan_routing(): void {
         self::guard();global $wpdb;$id=(int)($_POST['plan_id']??0);check_admin_referer('bluevpn_cc_save_plan_routing_'.$id);$pt=BlueVPN_DB::table('plans');$plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$pt} WHERE id=%d AND deleted=0",$id),ARRAY_A);if(!$plan)self::redirect('plans','پلن پیدا نشد.',true);
         $ids=function(string $name): array {$raw=(string)wp_unslash($_POST[$name]??'');$out=[];foreach(preg_split('/[,\s]+/',$raw)?:[] as $v){$n=(int)$v;if($n>0&&!in_array($n,$out,true))$out[]=$n;}return array_slice($out,0,200);};
-        $pg=max(0,(int)($_POST['panel_id']??0));$mz=max(0,(int)($_POST['marzban_panel_id']??0));$gc=max(0,(int)($_POST['guardcore_panel_id']??0));$services=self::posted_ids('guardcore_service_ids_selected','guardcore_service_ids');$groups=self::posted_ids('group_ids_selected','group_ids');$mzInbounds=self::posted_marzban_inbounds();$mode=sanitize_key((string)wp_unslash($_POST['multi_provider_quota_mode']??'split'));$mode=in_array($mode,['split','full'],true)?$mode:'split';
+        $pg=max(0,(int)($_POST['panel_id']??0));$mz=max(0,(int)($_POST['marzban_panel_id']??0));$gc=max(0,(int)($_POST['guardcore_panel_id']??0));$services=self::posted_ids('guardcore_service_ids_selected','guardcore_service_ids');$groups=self::posted_ids('group_ids_selected','group_ids');$mzInbounds=self::posted_marzban_inbounds();$mode=sanitize_key((string)wp_unslash($_POST['multi_provider_quota_mode']??'split'));$mode=in_array($mode,['split','full'],true)?$mode:'split';$trafficMode=sanitize_key((string)wp_unslash($_POST['traffic_mode']??'provider_reported'));$trafficMode=$trafficMode==='gateway_metered'?'gateway_metered':'provider_reported';$sourceIds=self::posted_ids('source_ids_selected','source_ids');
         foreach([[$pg,'pasarguard_panels','PasarGuard'],[$mz,'marzban_panels','Marzban'],[$gc,'guardcore_panels','GuardCore']] as [$panelId,$table,$label])if($panelId>0&&!$wpdb->get_var($wpdb->prepare('SELECT id FROM '.BlueVPN_DB::table($table).' WHERE id=%d',$panelId)))self::redirect('plans',$label.' انتخاب‌شده پیدا نشد.',true);
         if($gc>0){$g=$wpdb->get_row($wpdb->prepare('SELECT auth_mode FROM '.BlueVPN_DB::table('guardcore_panels').' WHERE id=%d',$gc),ARRAY_A);if($g&&($g['auth_mode']??'manual')!=='manual'&&!$services)self::redirect('plans','برای GuardCore خودکار حداقل یک Service ID وارد کن.',true);}
-        $ok=$wpdb->update($pt,['panel_id'=>$pg?:null,'marzban_panel_id'=>$mz?:null,'guardcore_panel_id'=>$gc?:null,'group_ids_json'=>BlueVPN_Utils::json_encode($groups),'marzban_inbounds_json'=>BlueVPN_Utils::json_encode($mzInbounds),'guardcore_service_ids_json'=>BlueVPN_Utils::json_encode($services),'marzban_quota_mode'=>$mode,'multi_provider_quota_mode'=>$mode],['id'=>$id]);self::redirect('plans',$ok===false?'ذخیره Routing ناموفق بود.':'Routing پلن ذخیره شد.',$ok===false);
+        $ok=$wpdb->update($pt,['panel_id'=>$pg?:null,'marzban_panel_id'=>$mz?:null,'guardcore_panel_id'=>$gc?:null,'group_ids_json'=>BlueVPN_Utils::json_encode($groups),'marzban_inbounds_json'=>BlueVPN_Utils::json_encode($mzInbounds),'guardcore_service_ids_json'=>BlueVPN_Utils::json_encode($services),'marzban_quota_mode'=>$mode,'multi_provider_quota_mode'=>$mode,'traffic_mode'=>$trafficMode,'source_ids_json'=>BlueVPN_Utils::json_encode($sourceIds)],['id'=>$id]);self::redirect('plans',$ok===false?'ذخیره Routing ناموفق بود.':'Routing پلن ذخیره شد.',$ok===false);
     }
     public static function save_plan(): void {
         self::guard();global $wpdb;$id=(int)($_POST['plan_id']??0);check_admin_referer('bluevpn_cc_save_plan_'.$id);$pt=BlueVPN_DB::table('plans');
         $plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$pt} WHERE id=%d AND deleted=0",$id),ARRAY_A);if(!$plan)self::redirect('plans','پلن پیدا نشد.',true);
         $title=sanitize_text_field(wp_unslash($_POST['title']??''));if($title==='')self::redirect('plans','عنوان پلن نمی‌تواند خالی باشد.',true);
         $ids=function(string $name): array {$raw=(string)wp_unslash($_POST[$name]??'');$out=[];foreach(preg_split('/[,\s]+/',$raw)?:[] as $v){$n=(int)$v;if($n>0&&!in_array($n,$out,true))$out[]=$n;}return array_slice($out,0,200);};
-        $pg=max(0,(int)($_POST['panel_id']??0));$mz=max(0,(int)($_POST['marzban_panel_id']??0));$gc=max(0,(int)($_POST['guardcore_panel_id']??0));$services=self::posted_ids('guardcore_service_ids_selected','guardcore_service_ids');$groups=self::posted_ids('group_ids_selected','group_ids');$mzInbounds=self::posted_marzban_inbounds();$mode=sanitize_key((string)wp_unslash($_POST['multi_provider_quota_mode']??'split'));$mode=in_array($mode,['split','full'],true)?$mode:'split';
+        $pg=max(0,(int)($_POST['panel_id']??0));$mz=max(0,(int)($_POST['marzban_panel_id']??0));$gc=max(0,(int)($_POST['guardcore_panel_id']??0));$services=self::posted_ids('guardcore_service_ids_selected','guardcore_service_ids');$groups=self::posted_ids('group_ids_selected','group_ids');$mzInbounds=self::posted_marzban_inbounds();$mode=sanitize_key((string)wp_unslash($_POST['multi_provider_quota_mode']??'split'));$mode=in_array($mode,['split','full'],true)?$mode:'split';$trafficMode=sanitize_key((string)wp_unslash($_POST['traffic_mode']??'provider_reported'));$trafficMode=$trafficMode==='gateway_metered'?'gateway_metered':'provider_reported';$sourceIds=self::posted_ids('source_ids_selected','source_ids');
         foreach([[$pg,'pasarguard_panels','PasarGuard'],[$mz,'marzban_panels','Marzban'],[$gc,'guardcore_panels','GuardCore']] as [$panelId,$table,$label])if($panelId>0&&!$wpdb->get_var($wpdb->prepare('SELECT id FROM '.BlueVPN_DB::table($table).' WHERE id=%d',$panelId)))self::redirect('plans',$label.' انتخاب‌شده پیدا نشد.',true);
         if($gc>0){$g=$wpdb->get_row($wpdb->prepare('SELECT auth_mode FROM '.BlueVPN_DB::table('guardcore_panels').' WHERE id=%d',$gc),ARRAY_A);if($g&&($g['auth_mode']??'manual')!=='manual'&&!$services)self::redirect('plans','برای GuardCore خودکار حداقل یک Service ID وارد کن.',true);}
         $data=[
             'title'=>$title,'description'=>sanitize_textarea_field(wp_unslash($_POST['description']??'')),'price_toman'=>max(0,(int)($_POST['price_toman']??0)),
             'duration_days'=>max(0,min(3650,(int)($_POST['duration_days']??0))),'data_limit_gb'=>max(0,(int)($_POST['data_limit_gb']??0)),'device_limit'=>max(1,min(20,(int)($_POST['device_limit']??1))),
             'sort_order'=>(int)($_POST['sort_order']??0),'active'=>isset($_POST['active'])?1:0,'panel_id'=>$pg?:null,'marzban_panel_id'=>$mz?:null,'guardcore_panel_id'=>$gc?:null,
-            'group_ids_json'=>BlueVPN_Utils::json_encode($groups),'marzban_inbounds_json'=>BlueVPN_Utils::json_encode($mzInbounds),'guardcore_service_ids_json'=>BlueVPN_Utils::json_encode($services),'marzban_quota_mode'=>$mode,'multi_provider_quota_mode'=>$mode,
+            'group_ids_json'=>BlueVPN_Utils::json_encode($groups),'marzban_inbounds_json'=>BlueVPN_Utils::json_encode($mzInbounds),'guardcore_service_ids_json'=>BlueVPN_Utils::json_encode($services),'marzban_quota_mode'=>$mode,'multi_provider_quota_mode'=>$mode,'traffic_mode'=>$trafficMode,'source_ids_json'=>BlueVPN_Utils::json_encode($sourceIds),
         ];
         $ok=$wpdb->update($pt,$data,['id'=>$id]);self::redirect('plans',$ok===false?'ویرایش پلن ناموفق بود: '.mb_substr((string)$wpdb->last_error,0,180):'پلن با موفقیت ویرایش شد.',$ok===false);
     }

@@ -1,31 +1,48 @@
-# BlueVPN Gateway Metering — 5.1.4
+# BlueVPN Gateway Metering — 5.1.5 Phase 2
 
-This directory contains the first-party Linux gateway agent for `gateway_metered` paid plans.
+این پوشه دیتاپلین لینوکسی پلن‌های `gateway_metered` را اجرا می‌کند.
 
-## Data path
+## مسیر ترافیک
 
 `Windows / Android -> BlueVPN Gateway (VLESS/TLS) -> upstream provider/manual configs -> Internet`
 
-The app receives only the BlueVPN gateway VLESS credential. Original Marzban/PasarGuard/GuardCore/manual subscription URLs remain in WordPress and on the gateway control plane.
+کلاینت فقط credential خود BlueVPN Gateway را دریافت می‌کند. URLها و credentialهای اصلی Marzban/PasarGuard/GuardCore و Sourceهای دستی داخل Manager/Gateway باقی می‌مانند.
 
-## Metering
+## تغییرات Phase 2
 
-The agent enables Xray per-user stats (`statsUserUplink` and `statsUserDownlink`), calls `xray api statsquery ... -reset=true`, and posts byte deltas to the HMAC-protected Manager endpoint. Manager stores an idempotent event ledger and atomically increments `customers.used_traffic_bytes`. When quota is reached, the session is removed from subsequent gateway configs and the customer becomes `limited`.
+- **Quota lease محلی و fail-closed:** Manager سهم باقی‌مانده هر کاربر را بین replicaهای سالم تقسیم می‌کند. Agent مصرف reset-counter را قبل از ارسال روی دیسک ثبت می‌کند و اگر lease محلی تمام شود، همان لحظه کاربر را از Xray حذف می‌کند؛ بنابراین قطع Manager باعث مصرف نامحدود نمی‌شود.
+- **Exactly-once بهتر:** هر session شماره `seq` مونو‌تونیک دارد. Manager هم `event_id` و هم `(session_id, seq)` را کنترل می‌کند و آخرین seq را در config به Agent برمی‌گرداند تا بعد از پاک‌شدن state یا restart دوباره شماری رخ ندهد.
+- **Revoke فوری:** وقتی سهمیه مرکزی تمام شود، endpoint usage شناسه sessionهای revoke شده را همان پاسخ برمی‌گرداند و Agent قبل از poll بعدی آن‌ها را از دیتاپلین حذف می‌کند.
+- **Failover سلامت‌محور:** Manager به‌طور پیش‌فرض تا دو replica سالم برای هر کاربر نگه می‌دارد. Node آفلاین یا Drain شده در لینک اشتراک تحویل داده نمی‌شود. `priority` و `max_sessions` برای هر Node قابل تنظیم است.
+- **Telemetry:** heartbeat تعداد session فعال، pending usage و load یک‌دقیقه‌ای را به Manager می‌فرستد.
+- **Hysteria2 / TUIC:** Xray همچنان inbound و meter اصلی است. برای این دو upstream، Agent یک sing-box sidecar محلی می‌سازد؛ Xray ترافیک همان کاربر را به SOCKS لوکال می‌دهد و sing-box با `urltest` بهترین Hysteria2/TUIC را انتخاب می‌کند. این یعنی accounting همچنان در Xray و BlueVPN باقی می‌ماند.
 
-## Install
+## Runtime موردنیاز
 
-1. Install the official Xray binary at `/usr/local/bin/xray` (or change `xray_path`).
-2. Create a DNS name for the gateway and a valid TLS certificate/key.
-3. In WordPress: **BlueVPN -> Gateway Metering**, create a node and copy its one-time `NODE_ID` / `NODE_SECRET`.
-4. Run `sudo ./install.sh` on the gateway VPS.
-5. Edit `/etc/bluevpn-gateway/agent.json`; set Manager URL, node credentials, certificate paths, and port.
-6. `sudo systemctl enable --now bluevpn-gateway`
-7. Check `systemctl status bluevpn-gateway` and the WordPress Gateway page for heartbeat.
+1. Xray رسمی در `/usr/local/bin/xray`.
+2. sing-box رسمی در `/usr/local/bin/sing-box` برای Hysteria2/TUIC. اگر نصب نباشد، VLESS/VMess/Trojan/Shadowsocks همچنان کار می‌کنند ولی Hysteria2/TUIC برای آن Node استفاده نمی‌شوند.
+3. DNS و TLS معتبر برای Gateway.
+4. Python 3.10+ (Agent فقط stdlib استفاده می‌کند).
 
-## Supported upstreams in 5.1.4
+## نصب
 
-The gateway parser supports VLESS, VMess, Trojan, and Shadowsocks URI sources. Hysteria2 and TUIC entries are kept in BlueVPN's unified subscription snapshot but intentionally skipped by this Xray gateway agent until a later transport extension adds them safely.
+1. در WordPress: **BlueVPN -> Gateway Metering** یک Node بساز و `NODE_ID` / `NODE_SECRET` یک‌بارمصرف را کپی کن.
+2. روی VPS: `sudo ./install.sh`.
+3. `/etc/bluevpn-gateway/agent.json` را با URL Manager، Secret، مسیر certificate و runtimeها پر کن.
+4. `sudo systemctl enable --now bluevpn-gateway`.
+5. `systemctl status bluevpn-gateway` و صفحه Gateway در Manager را بررسی کن.
 
-## Security
+## Drain و ظرفیت
 
-Node secrets are HMAC keys, encrypted at rest in WordPress and shown once on creation/rotation. Keep `agent.json` mode `0600`, use HTTPS for Manager, and do not expose Xray's local API (`127.0.0.1:10085`) publicly.
+- `Priority`: عدد کمتر یعنی Node ترجیح داده می‌شود.
+- `Max Sessions`: صفر یعنی بدون سقف؛ مقدار مثبت از assignment جدید بعد از پر شدن جلوگیری می‌کند.
+- `Drain`: Node فعال می‌ماند و heartbeat می‌دهد، اما session جدید نمی‌گیرد و config دیتاپلین آن خالی می‌شود. برای تعمیر/آپدیت بدون حذف Node استفاده کن.
+
+## امنیت و صحت حسابداری
+
+- Secret هر Node کلید HMAC است، encrypted at rest در WordPress و فقط هنگام ساخت/rotate یک‌بار نمایش داده می‌شود.
+- `agent.json` باید mode `0600` داشته باشد.
+- Xray API فقط روی `127.0.0.1` گوش می‌دهد.
+- pending usage قبل از HTTP روی دیسک fsync می‌شود.
+- quota در MySQL/BlueVPN authority است؛ شمارنده Providerها در `gateway_metered` سهمیه را overwrite نمی‌کنند.
+- با چند Gateway، quota lease میزان overrun احتمالی هنگام قطع Manager را محدود می‌کند؛ برای quotaهای پولی این رفتار از client-reported accounting قابل اعتمادتر است.

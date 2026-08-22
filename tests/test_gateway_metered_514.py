@@ -12,10 +12,10 @@ class GatewayMetered514Tests(unittest.TestCase):
 
     def test_release_schema_and_gateway_tables_are_authoritative(self):
         release = json.loads(self.text("release.json"))
-        self.assertEqual(release["version"], "5.1.4")
-        self.assertEqual(release["version_code"], 50104)
+        self.assertEqual(release["version"], "5.1.5")
+        self.assertEqual(release["version_code"], 50105)
         plugin = self.text("bluevpn-manager/bluevpn-manager.php")
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.26.0'", plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.27.0'", plugin)
         db = self.text("bluevpn-manager/includes/class-bluevpn-db.php")
         for table in ("subscription_sources", "gateway_nodes", "gateway_sessions", "gateway_usage_events"):
             self.assertIn("CREATE TABLE {$t('" + table + "')}", db)
@@ -50,9 +50,10 @@ class GatewayMetered514Tests(unittest.TestCase):
         agent = self.text("bluevpn-gateway/agent.py")
         for token in ('"statsUserUplink": True', '"statsUserDownlink": True', '"stats": {}', '"user": [email]', '"balancerTag": balancer_tag', '"selector": [prefix]', '"protocol": "blackhole"', '"protocol": "vless"', '"security": "tls"', '"-reset=true"', '"/bluevpn-gateway/v1/usage"'):
             self.assertIn(token, agent)
-        self.assertIn('SUPPORTED = {"vless", "vmess", "trojan", "ss"}', agent)
-        self.assertIn("Hysteria2/TUIC sources stay in the unified Manager snapshot", agent)
-        self.assertIn("skipped here until", agent)
+        self.assertIn('XRAY_SCHEMES = {"vless", "vmess", "trojan", "ss"}', agent)
+        self.assertIn('BRIDGE_SCHEMES = {"hysteria2", "hy2", "tuic"}', agent)
+        self.assertIn("parse_hysteria2", agent)
+        self.assertIn("parse_tuic", agent)
         self.assertNotIn("import requests", agent)
         self.assertNotIn("import aiohttp", agent)
 

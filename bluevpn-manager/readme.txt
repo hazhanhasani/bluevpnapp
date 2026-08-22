@@ -1,7 +1,14 @@
 === BlueVPN Manager ===
-Version: 5.1.4
-Stable tag: 5.1.4
+Version: 5.1.5
+Stable tag: 5.1.5
 Requires PHP: 8.0
+
+== 5.1.5 ==
+- فاز دوم gateway_metered: quota lease محلی، ثبت pending قبل از HTTP و revoke فوری برای جلوگیری از مصرف آزاد هنگام قطع Manager.
+- scheduler سلامت‌محور تا دو replica، اولویت Node، سقف Max Sessions و حالت Drain برای تعمیر بدون حذف Gateway.
+- کنترل sequence مونو‌تونیک در کنار event_id برای جلوگیری از دوباره‌شماری usage پس از restart/state loss.
+- اضافه‌شدن telemetry تعداد Session، Pending usage و Load به heartbeat و نمایش آن در پنل Gateway.
+- پشتیبانی Hysteria2/TUIC با sing-box sidecar محلی؛ Xray همچنان inbound و مرجع metering کاربر باقی می‌ماند.
 
 == 5.1.4 ==
 - اضافه‌شدن معماری gateway_metered برای پلن پولی؛ مصرف Upload/Download از Gateway خود BlueVPN در MySQL حساب می‌شود و آمار Provider مرجع حجم نیست.

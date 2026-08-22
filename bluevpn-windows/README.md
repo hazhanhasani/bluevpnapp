@@ -1,6 +1,10 @@
-# BlueVPN for Windows — 5.1.4
+# BlueVPN for Windows — 5.1.5
 
+## 5.1.5 gateway-metered phase 2
 
+- Windows continues to receive only first-party BlueVPN Gateway VLESS/TLS entries; no upstream provider/manual source secrets are exposed to the client.
+- Gateway failover is now health-aware and quota enforcement is hardened server-side/agent-side; no Windows protocol-core changes are required for phase 2.
+- Hysteria2/TUIC upstream support is handled behind the Gateway by the Linux sing-box sidecar while Windows still connects to the same BlueVPN Gateway endpoint.
 
 ## 5.1.4 first-party gateway-metered paid subscriptions
 

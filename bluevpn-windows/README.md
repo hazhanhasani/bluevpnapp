@@ -1,8 +1,8 @@
-# BlueVPN for Windows — 5.1.7
+# BlueVPN for Windows — 5.1.8
 
 
 
-## 5.1.7 Gateway HA subscription behavior
+## 5.1.8 Gateway HA subscription behavior
 
 - Gateway-metered paid subscriptions can now contain a server-selected Primary plus one or two Standby BlueVPN Gateway endpoints.
 - Windows keeps its existing latency/BlueAI ranking and already tries up to three candidates, so a healthy Standby can be selected when the Primary endpoint is unavailable.

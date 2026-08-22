@@ -31,6 +31,7 @@
     "test_gateway_ha_phase3_515.py",
     "test_gateway_metered_514.py",
     "test_gateway_phase3_circuit_516.py",
+    "test_gateway_safe_rollout_518.py",
     "test_global_sentinel_4164.py",
     "test_guardcore_api_013_4111.py",
     "test_instant_ai_fastest_route_4127.py",

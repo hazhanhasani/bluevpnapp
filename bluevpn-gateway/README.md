@@ -1,4 +1,4 @@
-# BlueVPN Gateway Metering — 5.1.7
+# BlueVPN Gateway Metering — 5.1.8
 
 این پوشه دیتاپلین لینوکسی پلن‌های `gateway_metered` را اجرا می‌کند.
 
@@ -8,7 +8,7 @@
 
 کلاینت فقط credential خود BlueVPN Gateway را دریافت می‌کند؛ credential و URL اصلی Provider/Manual Source سمت سرور باقی می‌ماند.
 
-## Phase 3 (baseline 5.1.6، حفظ‌شده در 5.1.7)
+## Phase 3 (baseline 5.1.6، حفظ‌شده در 5.1.8)
 
 - HA چند Node با `priority`، `region`، `max_sessions`، Primary/Standby و Drain.
 - Reconcile یک‌دقیقه‌ای و region diversity برای جایگزینی Node خراب بدون حذف upstream اصلی از کنترل‌پلین.
@@ -20,6 +20,18 @@
 - quota lease محلی fail-closed است: اگر Manager موقتاً قطع شود، Agent بعد از مصرف lease کاربر را از Xray حذف می‌کند.
 - Hysteria2/TUIC با sing-box sidecar محلی اجرا می‌شوند؛ Xray همچنان VLESS/TLS ingress و مرجع per-user metering است.
 - heartbeat سلامت Xray، CPU/RAM، uptime، pending usage و وضعیت runtime را گزارش می‌کند.
+
+
+## Phase 4 — Safe Gateway Rollout (5.1.8)
+
+- هر config ساختاری یک `config_generation` دارد و Agent فقط بعد از apply موفق ACK می‌دهد.
+- انتشار با Canary و مراحل 10%، 25%، 50% و 100% انجام می‌شود.
+- config-hash mismatch، runtime error یا timeout ACK باعث rollback خودکار به نسل پایدار قبلی می‌شود.
+- quota/revoke و policy از snapshot جدا هستند و همیشه live از Manager rehydrate می‌شوند.
+- rollout تا وقتی همه Agentهای فعال حداقل 5.1.8 نباشند شروع نمی‌شود.
+- وضعیت Stable/Active generation و درصد مرحله در پنل Gateway نمایش داده می‌شود.
+
+جزئیات: `PHASE4.md`.
 
 ## Runtime
 

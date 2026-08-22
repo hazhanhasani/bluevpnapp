@@ -1,9 +1,9 @@
 === BlueVPN Manager ===
-Version: 5.1.7
-Stable tag: 5.1.7
+Version: 5.1.8
+Stable tag: 5.1.8
 Requires PHP: 8.0
 
-== 5.1.7 ==
+== 5.1.8 ==
 - رفع False Positive تنظیمات خود Sentinel (`bluevpn_error_monitor_settings`) و resolve خودکار incident قدیمی پس از ارتقا.
 - Watchdog خودکار Deploy Bot: job صفِ گم‌شده bounded retry می‌شود و stateهای گیرکرده بدون نیاز به `/unlock` آزاد می‌شوند.
 - بررسی دوره‌ای `getWebhookInfo` و ترمیم خودکار Webhook در صورت حذف/تغییر URL، بدون drop کردن updateهای pending.

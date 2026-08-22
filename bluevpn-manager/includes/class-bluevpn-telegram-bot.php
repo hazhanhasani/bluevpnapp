@@ -461,7 +461,7 @@ final class BlueVPN_Telegram_Bot {
     }
 
     /**
-     * 5.1.7 watchdog: no active job may lock a chat forever.
+     * 5.1.8 watchdog: no active job may lock a chat forever.
      *
      * - queued jobs whose cron event was lost are re-scheduled once boundedly;
      * - local deploy states older than 20 minutes are failed and therefore unlock;

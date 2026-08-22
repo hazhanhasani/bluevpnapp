@@ -1,6 +1,6 @@
-# BlueVPN Gateway — Phase 3 / 5.1.7
+# BlueVPN Gateway — Phase 3 baseline (5.1.6+)
 
-پایه Phase 3 که در 5.1.6 تکمیل شد در 5.1.7 بدون migration یا تغییر رفتار routing حفظ شده است. 5.1.7 یک release پایداری/Auto-Recovery در لایه Manager و Bot است.
+پایه Phase 3 که در 5.1.6 تکمیل شد همچنان لایه HA، metering و circuit-breaker است. Safe rollout نسل‌محور 5.1.8 در `PHASE4.md` مستند شده است.
 
 ## فعال در این نسخه
 

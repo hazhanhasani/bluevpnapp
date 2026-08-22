@@ -31,7 +31,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-AGENT_VERSION = "5.1.7"
+AGENT_VERSION = "5.1.8"
 XRAY_SCHEMES = {"vless", "vmess", "trojan", "ss"}
 BRIDGE_SCHEMES = {"hysteria2", "hy2", "tuic"}
 LOG = logging.getLogger("bluevpn-gateway")
@@ -291,8 +291,10 @@ class Agent:
         self.xray_config=Path(str(cfg.get("xray_config_path") or "/etc/bluevpn-gateway/xray.json")); self.singbox_config=Path(str(cfg.get("singbox_config_path") or "/etc/bluevpn-gateway/sing-box.json"))
         self.state_path=Path(str(cfg.get("state_path") or "/var/lib/bluevpn-gateway/state.json")); self.log_path=Path(str(cfg.get("xray_log_path") or "/var/log/bluevpn-gateway-xray.log")); self.singbox_log_path=Path(str(cfg.get("singbox_log_path") or "/var/log/bluevpn-gateway-singbox.log"))
         self.poll_seconds=max(5,int(cfg.get("poll_seconds") or 15)); self.usage_seconds=max(3,int(cfg.get("usage_seconds") or 5)); self.heartbeat_seconds=max(10,int(cfg.get("heartbeat_seconds") or 30)); self.http_timeout=max(5,int(cfg.get("http_timeout") or 20))
-        self.proc: subprocess.Popen[Any] | None=None; self.singbox_proc: subprocess.Popen[Any] | None=None; self.config_hash=""; self.policy_hash=""; self.applied_xray_hash=""; self.applied_singbox_hash=""; self.email_map={}; self.last_control={}; self.stop=False
+        self.proc: subprocess.Popen[Any] | None=None; self.singbox_proc: subprocess.Popen[Any] | None=None
         self.state=self._load_state(); self.usage_epoch=str(self.state.get("agent_epoch") or uuid.uuid4().hex); self.state["agent_epoch"]=self.usage_epoch; self.boot_id=uuid.uuid4().hex
+        self.config_hash=str(self.state.get("applied_config_hash") or ""); self.policy_hash=str(self.state.get("applied_policy_hash") or ""); self.applied_generation=max(0,int(self.state.get("applied_config_generation") or 0)); self.config_applied_at=str(self.state.get("config_applied_at") or "")
+        self.desired_config_hash=""; self.desired_policy_hash=""; self.desired_generation=0; self.applied_xray_hash=""; self.applied_singbox_hash=""; self.email_map={}; self.last_control={}; self.stop=False
         self.locally_blocked={int(x) for x in self.state.get("locally_blocked",[]) if str(x).isdigit()}; self._save_state()
         self.xray_version=self._binary_version(self.xray,["version"]); self.singbox_available=bool(shutil.which(self.singbox) or Path(self.singbox).exists()); self.singbox_version=self._binary_version(self.singbox,["version"]) if self.singbox_available else "not-installed"
 
@@ -300,7 +302,7 @@ class Agent:
         try:
             data=json.loads(self.state_path.read_text(encoding="utf-8")); return data if isinstance(data,dict) else {}
         except Exception:
-            return {"pending":[],"seq":{},"agent_epoch":uuid.uuid4().hex,"last_usage_flush_at":"","locally_blocked":[]}
+            return {"pending":[],"seq":{},"agent_epoch":uuid.uuid4().hex,"last_usage_flush_at":"","locally_blocked":[],"applied_config_generation":0,"applied_config_hash":"","applied_policy_hash":"","config_applied_at":""}
 
     def _save_state(self) -> None:
         self.state["locally_blocked"]=sorted(self.locally_blocked) if hasattr(self,"locally_blocked") else self.state.get("locally_blocked",[])
@@ -380,12 +382,20 @@ class Agent:
             except OSError: pass
         self.restart_singbox(); self.applied_singbox_hash=local_hash; return ports,skipped
 
+    def _mark_config_applied(self) -> None:
+        # ACK is persisted only after both dataplane validators/restarts succeeded.
+        # Heartbeat therefore proves the Manager generation reached the live runtime,
+        # instead of merely proving that /config was downloaded.
+        self.applied_generation=max(0,int(self.desired_generation)); self.config_hash=self.desired_config_hash; self.policy_hash=self.desired_policy_hash
+        self.config_applied_at=time.strftime("%Y-%m-%dT%H:%M:%SZ",time.gmtime()); self.state["applied_config_generation"]=self.applied_generation; self.state["applied_config_hash"]=self.config_hash; self.state["applied_policy_hash"]=self.policy_hash; self.state["config_applied_at"]=self.config_applied_at; self._save_state()
+
     def apply_config(self, control: dict[str, Any]) -> None:
-        self.last_control=control; self.config_hash=str(control.get("config_hash") or ""); self.policy_hash=str(control.get("policy_hash") or ""); self._sync_policy(control)
+        self.last_control=control; self.desired_generation=max(0,int(control.get("config_generation") or 0)); self.desired_config_hash=str(control.get("config_hash") or ""); self.desired_policy_hash=str(control.get("policy_hash") or ""); self._sync_policy(control)
         bridge_ports,bridge_skipped=self._apply_singbox(control); config,email_map,skipped=build_xray_config(control,self.cfg,bridge_ports,self.locally_blocked)
         for item in (bridge_skipped+skipped)[:50]: LOG.warning("upstream skipped: %s",item)
         generated=json.dumps(config,ensure_ascii=False,indent=2); local_hash=hashlib.sha256(generated.encode()).hexdigest(); self.email_map=email_map
-        if local_hash==self.applied_xray_hash and self.proc is not None and self.proc.poll() is None: return
+        if local_hash==self.applied_xray_hash and self.proc is not None and self.proc.poll() is None:
+            self._mark_config_applied(); return
         self.xray_config.parent.mkdir(parents=True,exist_ok=True); fd,tmp=tempfile.mkstemp(prefix="xray.",suffix=".json",dir=str(self.xray_config.parent))
         try:
             with os.fdopen(fd,"w",encoding="utf-8") as f: f.write(generated)
@@ -396,7 +406,7 @@ class Agent:
             try:
                 if os.path.exists(tmp): os.unlink(tmp)
             except OSError: pass
-        self.restart_xray(); self.applied_xray_hash=local_hash; LOG.info("applied gateway config sessions=%d blocked=%d hash=%s",len(email_map),len(self.locally_blocked),self.config_hash[:12])
+        self.restart_xray(); self.applied_xray_hash=local_hash; self._mark_config_applied(); LOG.info("applied gateway generation=%d sessions=%d blocked=%d hash=%s",self.applied_generation,len(email_map),len(self.locally_blocked),self.config_hash[:12])
 
     def restart_xray(self) -> None:
         self.stop_xray(); self.log_path.parent.mkdir(parents=True,exist_ok=True); log_file=open(self.log_path,"ab",buffering=0); self.proc=subprocess.Popen([self.xray,"run","-config",str(self.xray_config)],stdout=log_file,stderr=subprocess.STDOUT,start_new_session=True); time.sleep(0.7)
@@ -515,7 +525,7 @@ class Agent:
     def heartbeat(self, error: str = "") -> None:
         try:
             running=self.proc is not None and self.proc.poll() is None; singbox_running=self.singbox_proc is None or self.singbox_proc.poll() is None
-            payload={"agent_version":AGENT_VERSION,"xray_version":self.xray_version,"singbox_version":self.singbox_version,"config_hash":self.config_hash,"policy_hash":self.policy_hash,"error":error[:1800],"xray_running":running,"singbox_running":singbox_running,"active_sessions":len(self.email_map),"pending_usage_events":len(self.state.get("pending") or []),"cpu_load_pct":self._cpu_load_pct(),"memory_used_pct":self._memory_used_pct(),"uptime_seconds":self._uptime_seconds(),"agent_boot_id":self.boot_id,"last_usage_flush_at":str(self.state.get("last_usage_flush_at") or ""),"locally_blocked_sessions":len(self.locally_blocked)}
+            payload={"agent_version":AGENT_VERSION,"xray_version":self.xray_version,"singbox_version":self.singbox_version,"config_generation":self.applied_generation,"config_hash":self.config_hash,"policy_hash":self.policy_hash,"config_applied_at":self.config_applied_at,"desired_config_generation":self.desired_generation,"desired_config_hash":self.desired_config_hash,"error":error[:1800],"xray_running":running,"singbox_running":singbox_running,"active_sessions":len(self.email_map),"pending_usage_events":len(self.state.get("pending") or []),"cpu_load_pct":self._cpu_load_pct(),"memory_used_pct":self._memory_used_pct(),"uptime_seconds":self._uptime_seconds(),"agent_boot_id":self.boot_id,"last_usage_flush_at":str(self.state.get("last_usage_flush_at") or ""),"locally_blocked_sessions":len(self.locally_blocked)}
             self.request("POST","/bluevpn-gateway/v1/heartbeat",payload)
         except Exception as exc: LOG.warning("heartbeat failed: %s",exc)
 

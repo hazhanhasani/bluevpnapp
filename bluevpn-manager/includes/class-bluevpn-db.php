@@ -12,7 +12,7 @@ final class BlueVPN_DB {
     public static function table_names(): array {
         return [
             'app_settings', 'app_releases', 'windows_releases', 'ad_assets', 'server_locations', 'pasarguard_panels',
-            'marzban_panels', 'guardcore_panels', 'subscription_sources', 'gateway_nodes', 'gateway_sessions', 'gateway_usage_events', 'plans', 'customers', 'manual_customers',
+            'marzban_panels', 'guardcore_panels', 'subscription_sources', 'gateway_nodes', 'gateway_sessions', 'gateway_usage_events', 'gateway_config_generations', 'plans', 'customers', 'manual_customers',
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
             'payment_events', 'provisioning_attempts', 'entitlement_ledger', 'webhook_deliveries',
@@ -262,6 +262,9 @@ final class BlueVPN_DB {
             last_agent_version varchar(64) NOT NULL DEFAULT '',
             last_xray_version varchar(64) NOT NULL DEFAULT '',
             last_config_hash varchar(64) NOT NULL DEFAULT '',
+            last_policy_hash varchar(64) NOT NULL DEFAULT '',
+            last_config_generation bigint unsigned NOT NULL DEFAULT 0,
+            last_config_ack_at datetime NULL,
             last_error longtext NULL,
             created_at datetime NULL,
             updated_at datetime NULL,
@@ -311,6 +314,26 @@ final class BlueVPN_DB {
             KEY ix_gateway_usage_customer (customer_id, created_at),
             KEY ix_gateway_usage_session_seq (session_id, seq),
             KEY ix_gateway_usage_node (node_id, created_at)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('gateway_config_generations')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            generation bigint unsigned NOT NULL DEFAULT 0,
+            node_id bigint unsigned NOT NULL,
+            config_hash varchar(64) NOT NULL DEFAULT '',
+            snapshot_json longtext NULL,
+            rollout_state varchar(24) NOT NULL DEFAULT 'pending',
+            is_canary tinyint(1) NOT NULL DEFAULT 0,
+            served_at datetime NULL,
+            acked_at datetime NULL,
+            failed_at datetime NULL,
+            last_error longtext NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY uq_gateway_config_generation_node (generation, node_id),
+            KEY ix_gateway_config_rollout_state (rollout_state, generation),
+            KEY ix_gateway_config_node_generation (node_id, generation)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('plans')} (

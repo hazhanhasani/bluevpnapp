@@ -5,6 +5,9 @@ final class BlueVPN_Free_Sources {
     private const DEFAULT_SOURCE_KEY='telegram-persianvpnhub';
     private const DEFAULT_SOURCE_URL='https://t.me/s/persianvpnhub';
     private const ALLOWED_SCHEMES=['vless','vmess','trojan','ss','ssr','tuic','hysteria2','hy2','wireguard'];
+    private const RETRYABLE_HTTP=[408,425,429,500,502,503,504];
+    private const CRON_FAILURE_COOLDOWN_SECONDS=900;
+    private const ALERT_COOLDOWN_SECONDS=1800;
 
     public static function init(): void {
         add_action('bluevpn_manager_cleanup',[self::class,'cron_refresh'],20);
@@ -23,15 +26,145 @@ final class BlueVPN_Free_Sources {
         ]);
     }
 
+    private static function cooldown_key(int $id): string { return 'bluevpn_free_source_cooldown_'.$id; }
+    private static function alert_key(int $id): string { return 'bluevpn_free_source_alert_'.$id; }
+    private static function transport_code(int $id): string { return 'FREE_SOURCE_TRANSPORT_FAILED_'.$id; }
+
     public static function cron_refresh(): void {
         self::seed(); global $wpdb;$t=BlueVPN_DB::table('free_config_sources');
         $rows=$wpdb->get_results("SELECT * FROM {$t} WHERE enabled=1 ORDER BY priority,id",ARRAY_A)?:[];
         foreach($rows as $row){
+            $id=(int)$row['id'];
+            if($id<=0||get_transient(self::cooldown_key($id)))continue;
             $last=!empty($row['last_fetch_at'])?(strtotime((string)$row['last_fetch_at'].' UTC')?:0):0;
             if($last>0&&time()-$last<max(60,(int)$row['fetch_interval_seconds']))continue;
-            self::refresh_source((int)$row['id']);
+            self::refresh_source($id);
         }
         self::prune();
+    }
+
+    private static function source_request_args(int $timeout): array {
+        return [
+            'timeout'=>$timeout,
+            'redirection'=>2,
+            'sslverify'=>true,
+            'headers'=>[
+                'User-Agent'=>'BlueVPN-Collector/'.BLUEVPN_MANAGER_VERSION,
+                'Accept'=>'text/html',
+                // The free-source collector owns retry/dedup semantics. Suppress
+                // the generic HTTP observer so one Telegram outage is not reported
+                // once as HTTP_REQUEST_FAILED and again as FREE_SOURCE_FAILED.
+                'X-BlueVPN-Sentinel-Ignore'=>'1',
+            ],
+        ];
+    }
+
+    /**
+     * Fetch a public Telegram preview with bounded retries.
+     *
+     * Return shape:
+     *   ok=true  => response contains the successful WP HTTP response.
+     *   ok=false => message/code are ready for the source status and Sentinel.
+     */
+    private static function fetch_public_preview(string $url): array {
+        $timeouts=[6,10,15];
+        $lastMessage='درخواست منبع عمومی ناموفق بود.';
+        $lastCode=0;
+
+        foreach($timeouts as $index=>$timeout){
+            $res=wp_remote_get($url,self::source_request_args($timeout));
+            if(is_wp_error($res)){
+                $lastMessage=(string)$res->get_error_message();
+                if($index<count($timeouts)-1){
+                    usleep(($index===0?250:750)*1000);
+                    continue;
+                }
+                return ['ok'=>false,'transport'=>true,'message'=>$lastMessage,'http_code'=>0];
+            }
+
+            $code=(int)wp_remote_retrieve_response_code($res);
+            $body=(string)wp_remote_retrieve_body($res);
+            $lastCode=$code;
+
+            if($code>=200&&$code<300&&$body!==''){
+                return ['ok'=>true,'response'=>$res,'http_code'=>$code];
+            }
+
+            $retryable=in_array($code,self::RETRYABLE_HTTP,true)||$code===0||($code>=300&&$code<400)||($code>=200&&$code<300&&$body==='');
+            $lastMessage=($body===''&&$code>=200&&$code<300)?('HTTP '.$code.' empty response'):('HTTP '.$code);
+            if($retryable&&$index<count($timeouts)-1){
+                usleep(($index===0?250:750)*1000);
+                continue;
+            }
+            return ['ok'=>false,'transport'=>$retryable,'message'=>$lastMessage,'http_code'=>$code];
+        }
+
+        return ['ok'=>false,'transport'=>true,'message'=>$lastMessage,'http_code'=>$lastCode];
+    }
+
+    private static function mark_transport_failure(array $src,string $message): void {
+        global $wpdb;
+        $id=(int)($src['id']??0);
+        if($id<=0)return;
+        $st=BlueVPN_DB::table('free_config_sources');
+        $now=BlueVPN_Utils::now_mysql();
+
+        // Keep last_error empty for transport outages: Sentinel's operational table
+        // scanner uses last_error<>'' for content/runtime failures. This prevents a
+        // second FREE_SOURCE_FAILED alert for the same Telegram transport incident.
+        $wpdb->update($st,[
+            'last_fetch_at'=>$now,
+            'last_status'=>'failed_transport',
+            'last_error'=>'',
+            'updated_at'=>$now,
+        ],['id'=>$id]);
+
+        set_transient(self::cooldown_key($id),'1',self::CRON_FAILURE_COOLDOWN_SECONDS);
+
+        $alertKey=self::alert_key($id);
+        if(!get_transient($alertKey)&&class_exists('BlueVPN_Error_Monitor')){
+            set_transient($alertKey,'1',self::ALERT_COOLDOWN_SECONDS);
+            BlueVPN_Error_Monitor::report(
+                'runtime',
+                'free_sources',
+                'warning',
+                self::transport_code($id),
+                $message!==''?$message:'دسترسی به منبع عمومی Telegram موقتاً برقرار نشد.',
+                [
+                    'id'=>$id,
+                    'title'=>(string)($src['title']??''),
+                    'host'=>(string)wp_parse_url((string)($src['url']??''),PHP_URL_HOST),
+                    'last_status'=>'failed_transport',
+                    'retry_after_seconds'=>self::CRON_FAILURE_COOLDOWN_SECONDS,
+                ]
+            );
+        }
+    }
+
+    private static function mark_source_failure(int $id,string $message): void {
+        global $wpdb;
+        $now=BlueVPN_Utils::now_mysql();
+        $wpdb->update(BlueVPN_DB::table('free_config_sources'),[
+            'last_fetch_at'=>$now,
+            'last_status'=>'failed',
+            'last_error'=>mb_substr($message,0,1000),
+            'updated_at'=>$now,
+        ],['id'=>$id]);
+    }
+
+    private static function mark_source_success(int $id,string $now): void {
+        global $wpdb;
+        $wpdb->update(BlueVPN_DB::table('free_config_sources'),[
+            'last_fetch_at'=>$now,
+            'last_status'=>'ok',
+            'last_error'=>'',
+            'updated_at'=>$now,
+        ],['id'=>$id]);
+        delete_transient(self::cooldown_key($id));
+        delete_transient(self::alert_key($id));
+        if(class_exists('BlueVPN_Error_Monitor')){
+            BlueVPN_Error_Monitor::resolve_matching('runtime','free_sources',self::transport_code($id));
+        }
     }
 
     public static function refresh_source(int $id): array {
@@ -40,10 +173,17 @@ final class BlueVPN_Free_Sources {
         if(!$src)return ['ok'=>false,'message'=>'منبع پیدا نشد.'];
         $url=(string)$src['url'];
         if(!wp_http_validate_url($url)||!str_starts_with($url,'https://t.me/'))return ['ok'=>false,'message'=>'URL منبع عمومی تلگرام معتبر نیست.'];
-        $res=wp_remote_get($url,['timeout'=>12,'redirection'=>2,'sslverify'=>true,'headers'=>['User-Agent'=>'BlueVPN-Collector/'.BLUEVPN_MANAGER_VERSION,'Accept'=>'text/html']]);
-        if(is_wp_error($res)){$msg=$res->get_error_message();$wpdb->update($st,['last_fetch_at'=>BlueVPN_Utils::now_mysql(),'last_status'=>'failed','last_error'=>mb_substr($msg,0,1000)],['id'=>$id]);return ['ok'=>false,'message'=>$msg];}
-        $code=(int)wp_remote_retrieve_response_code($res);$html=(string)wp_remote_retrieve_body($res);
-        if($code>=400||$html===''){$msg='HTTP '.$code;$wpdb->update($st,['last_fetch_at'=>BlueVPN_Utils::now_mysql(),'last_status'=>'failed','last_error'=>$msg],['id'=>$id]);return ['ok'=>false,'message'=>$msg];}
+
+        $fetch=self::fetch_public_preview($url);
+        if(empty($fetch['ok'])){
+            $msg=(string)($fetch['message']??'درخواست منبع عمومی ناموفق بود.');
+            if(!empty($fetch['transport']))self::mark_transport_failure($src,$msg);
+            else self::mark_source_failure($id,$msg);
+            return ['ok'=>false,'message'=>$msg,'transport'=>!empty($fetch['transport'])];
+        }
+
+        $res=$fetch['response'];
+        $html=(string)wp_remote_retrieve_body($res);
         $decoded=html_entity_decode($html,ENT_QUOTES|ENT_HTML5,'UTF-8');
         $scheme='(?:'.implode('|',array_map('preg_quote',self::ALLOWED_SCHEMES)).')';
         preg_match_all("~\\b(".$scheme.")://[^\\s<>\"']+~iu",$decoded,$matches);
@@ -59,7 +199,7 @@ final class BlueVPN_Free_Sources {
             if($exists){$wpdb->update($ct,['last_seen_at'=>$now,'active'=>1,'country_hint'=>mb_substr($country,0,80),'source_ping_ms'=>$ping],['id'=>$hash]);$seen++;}
             else{$wpdb->insert($ct,['id'=>$hash,'source_id'=>$id,'protocol'=>$protocol,'config_uri'=>$uri,'country_hint'=>mb_substr($country,0,80),'source_ping_ms'=>$ping,'score'=>0,'reports_count'=>0,'successes'=>0,'failures'=>0,'active'=>1,'first_seen_at'=>$now,'last_seen_at'=>$now]);$added++;}
         }
-        $wpdb->update($st,['last_fetch_at'=>$now,'last_status'=>'ok','last_error'=>'','updated_at'=>$now],['id'=>$id]);
+        self::mark_source_success($id,$now);
         return ['ok'=>true,'added'=>$added,'seen'=>$seen,'total'=>count($uris)];
     }
 

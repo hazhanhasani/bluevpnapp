@@ -1,0 +1,418 @@
+--- a/bluevpn-manager/includes/class-bluevpn-free-sources.php
++++ b/bluevpn-manager/includes/class-bluevpn-free-sources.php
+@@ -5,6 +5,9 @@
+     private const DEFAULT_SOURCE_KEY='telegram-persianvpnhub';
+     private const DEFAULT_SOURCE_URL='https://t.me/s/persianvpnhub';
+     private const ALLOWED_SCHEMES=['vless','vmess','trojan','ss','ssr','tuic','hysteria2','hy2','wireguard'];
++    private const RETRYABLE_HTTP=[408,425,429,500,502,503,504];
++    private const CRON_FAILURE_COOLDOWN_SECONDS=900;
++    private const ALERT_COOLDOWN_SECONDS=1800;
+ 
+     public static function init(): void {
+         add_action('bluevpn_manager_cleanup',[self::class,'cron_refresh'],20);
+@@ -23,15 +26,145 @@
+         ]);
+     }
+ 
++    private static function cooldown_key(int $id): string { return 'bluevpn_free_source_cooldown_'.$id; }
++    private static function alert_key(int $id): string { return 'bluevpn_free_source_alert_'.$id; }
++    private static function transport_code(int $id): string { return 'FREE_SOURCE_TRANSPORT_FAILED_'.$id; }
++
+     public static function cron_refresh(): void {
+         self::seed(); global $wpdb;$t=BlueVPN_DB::table('free_config_sources');
+         $rows=$wpdb->get_results("SELECT * FROM {$t} WHERE enabled=1 ORDER BY priority,id",ARRAY_A)?:[];
+         foreach($rows as $row){
++            $id=(int)$row['id'];
++            if($id<=0||get_transient(self::cooldown_key($id)))continue;
+             $last=!empty($row['last_fetch_at'])?(strtotime((string)$row['last_fetch_at'].' UTC')?:0):0;
+             if($last>0&&time()-$last<max(60,(int)$row['fetch_interval_seconds']))continue;
+-            self::refresh_source((int)$row['id']);
++            self::refresh_source($id);
+         }
+         self::prune();
++    }
++
++    private static function source_request_args(int $timeout): array {
++        return [
++            'timeout'=>$timeout,
++            'redirection'=>2,
++            'sslverify'=>true,
++            'headers'=>[
++                'User-Agent'=>'BlueVPN-Collector/'.BLUEVPN_MANAGER_VERSION,
++                'Accept'=>'text/html',
++                // The free-source collector owns retry/dedup semantics. Suppress
++                // the generic HTTP observer so one Telegram outage is not reported
++                // once as HTTP_REQUEST_FAILED and again as FREE_SOURCE_FAILED.
++                'X-BlueVPN-Sentinel-Ignore'=>'1',
++            ],
++        ];
++    }
++
++    /**
++     * Fetch a public Telegram preview with bounded retries.
++     *
++     * Return shape:
++     *   ok=true  => response contains the successful WP HTTP response.
++     *   ok=false => message/code are ready for the source status and Sentinel.
++     */
++    private static function fetch_public_preview(string $url): array {
++        $timeouts=[6,10,15];
++        $lastMessage='درخواست منبع عمومی ناموفق بود.';
++        $lastCode=0;
++
++        foreach($timeouts as $index=>$timeout){
++            $res=wp_remote_get($url,self::source_request_args($timeout));
++            if(is_wp_error($res)){
++                $lastMessage=(string)$res->get_error_message();
++                if($index<count($timeouts)-1){
++                    usleep(($index===0?250:750)*1000);
++                    continue;
++                }
++                return ['ok'=>false,'transport'=>true,'message'=>$lastMessage,'http_code'=>0];
++            }
++
++            $code=(int)wp_remote_retrieve_response_code($res);
++            $body=(string)wp_remote_retrieve_body($res);
++            $lastCode=$code;
++
++            if($code>=200&&$code<300&&$body!==''){
++                return ['ok'=>true,'response'=>$res,'http_code'=>$code];
++            }
++
++            $retryable=in_array($code,self::RETRYABLE_HTTP,true)||$code===0||($code>=300&&$code<400)||($code>=200&&$code<300&&$body==='');
++            $lastMessage=($body===''&&$code>=200&&$code<300)?('HTTP '.$code.' empty response'):('HTTP '.$code);
++            if($retryable&&$index<count($timeouts)-1){
++                usleep(($index===0?250:750)*1000);
++                continue;
++            }
++            return ['ok'=>false,'transport'=>$retryable,'message'=>$lastMessage,'http_code'=>$code];
++        }
++
++        return ['ok'=>false,'transport'=>true,'message'=>$lastMessage,'http_code'=>$lastCode];
++    }
++
++    private static function mark_transport_failure(array $src,string $message): void {
++        global $wpdb;
++        $id=(int)($src['id']??0);
++        if($id<=0)return;
++        $st=BlueVPN_DB::table('free_config_sources');
++        $now=BlueVPN_Utils::now_mysql();
++
++        // Keep last_error empty for transport outages: Sentinel's operational table
++        // scanner uses last_error<>'' for content/runtime failures. This prevents a
++        // second FREE_SOURCE_FAILED alert for the same Telegram transport incident.
++        $wpdb->update($st,[
++            'last_fetch_at'=>$now,
++            'last_status'=>'failed_transport',
++            'last_error'=>'',
++            'updated_at'=>$now,
++        ],['id'=>$id]);
++
++        set_transient(self::cooldown_key($id),'1',self::CRON_FAILURE_COOLDOWN_SECONDS);
++
++        $alertKey=self::alert_key($id);
++        if(!get_transient($alertKey)&&class_exists('BlueVPN_Error_Monitor')){
++            set_transient($alertKey,'1',self::ALERT_COOLDOWN_SECONDS);
++            BlueVPN_Error_Monitor::report(
++                'runtime',
++                'free_sources',
++                'warning',
++                self::transport_code($id),
++                $message!==''?$message:'دسترسی به منبع عمومی Telegram موقتاً برقرار نشد.',
++                [
++                    'id'=>$id,
++                    'title'=>(string)($src['title']??''),
++                    'host'=>(string)wp_parse_url((string)($src['url']??''),PHP_URL_HOST),
++                    'last_status'=>'failed_transport',
++                    'retry_after_seconds'=>self::CRON_FAILURE_COOLDOWN_SECONDS,
++                ]
++            );
++        }
++    }
++
++    private static function mark_source_failure(int $id,string $message): void {
++        global $wpdb;
++        $now=BlueVPN_Utils::now_mysql();
++        $wpdb->update(BlueVPN_DB::table('free_config_sources'),[
++            'last_fetch_at'=>$now,
++            'last_status'=>'failed',
++            'last_error'=>mb_substr($message,0,1000),
++            'updated_at'=>$now,
++        ],['id'=>$id]);
++    }
++
++    private static function mark_source_success(int $id,string $now): void {
++        global $wpdb;
++        $wpdb->update(BlueVPN_DB::table('free_config_sources'),[
++            'last_fetch_at'=>$now,
++            'last_status'=>'ok',
++            'last_error'=>'',
++            'updated_at'=>$now,
++        ],['id'=>$id]);
++        delete_transient(self::cooldown_key($id));
++        delete_transient(self::alert_key($id));
++        if(class_exists('BlueVPN_Error_Monitor')){
++            BlueVPN_Error_Monitor::resolve_matching('runtime','free_sources',self::transport_code($id));
++        }
+     }
+ 
+     public static function refresh_source(int $id): array {
+@@ -40,10 +173,17 @@
+         if(!$src)return ['ok'=>false,'message'=>'منبع پیدا نشد.'];
+         $url=(string)$src['url'];
+         if(!wp_http_validate_url($url)||!str_starts_with($url,'https://t.me/'))return ['ok'=>false,'message'=>'URL منبع عمومی تلگرام معتبر نیست.'];
+-        $res=wp_remote_get($url,['timeout'=>12,'redirection'=>2,'sslverify'=>true,'headers'=>['User-Agent'=>'BlueVPN-Collector/'.BLUEVPN_MANAGER_VERSION,'Accept'=>'text/html']]);
+-        if(is_wp_error($res)){$msg=$res->get_error_message();$wpdb->update($st,['last_fetch_at'=>BlueVPN_Utils::now_mysql(),'last_status'=>'failed','last_error'=>mb_substr($msg,0,1000)],['id'=>$id]);return ['ok'=>false,'message'=>$msg];}
+-        $code=(int)wp_remote_retrieve_response_code($res);$html=(string)wp_remote_retrieve_body($res);
+-        if($code>=400||$html===''){$msg='HTTP '.$code;$wpdb->update($st,['last_fetch_at'=>BlueVPN_Utils::now_mysql(),'last_status'=>'failed','last_error'=>$msg],['id'=>$id]);return ['ok'=>false,'message'=>$msg];}
++
++        $fetch=self::fetch_public_preview($url);
++        if(empty($fetch['ok'])){
++            $msg=(string)($fetch['message']??'درخواست منبع عمومی ناموفق بود.');
++            if(!empty($fetch['transport']))self::mark_transport_failure($src,$msg);
++            else self::mark_source_failure($id,$msg);
++            return ['ok'=>false,'message'=>$msg,'transport'=>!empty($fetch['transport'])];
++        }
++
++        $res=$fetch['response'];
++        $html=(string)wp_remote_retrieve_body($res);
+         $decoded=html_entity_decode($html,ENT_QUOTES|ENT_HTML5,'UTF-8');
+         $scheme='(?:'.implode('|',array_map('preg_quote',self::ALLOWED_SCHEMES)).')';
+         preg_match_all("~\\b(".$scheme.")://[^\\s<>\"']+~iu",$decoded,$matches);
+@@ -59,7 +199,7 @@
+             if($exists){$wpdb->update($ct,['last_seen_at'=>$now,'active'=>1,'country_hint'=>mb_substr($country,0,80),'source_ping_ms'=>$ping],['id'=>$hash]);$seen++;}
+             else{$wpdb->insert($ct,['id'=>$hash,'source_id'=>$id,'protocol'=>$protocol,'config_uri'=>$uri,'country_hint'=>mb_substr($country,0,80),'source_ping_ms'=>$ping,'score'=>0,'reports_count'=>0,'successes'=>0,'failures'=>0,'active'=>1,'first_seen_at'=>$now,'last_seen_at'=>$now]);$added++;}
+         }
+-        $wpdb->update($st,['last_fetch_at'=>$now,'last_status'=>'ok','last_error'=>'','updated_at'=>$now],['id'=>$id]);
++        self::mark_source_success($id,$now);
+         return ['ok'=>true,'added'=>$added,'seen'=>$seen,'total'=>count($uris)];
+     }
+ 
+--- a/bluevpn-manager/bluevpn-manager.php
++++ b/bluevpn-manager/bluevpn-manager.php
+@@ -35,6 +35,7 @@
+ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-providers.php';
+ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-subscription-sources.php';
+ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-gateway.php';
++require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-gateway-phase3.php';
+ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-control-center.php';
+ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-compat.php';
+ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-cron.php';
+@@ -112,6 +113,7 @@
+     BlueVPN_Providers::init();
+     BlueVPN_Subscription_Sources::init();
+     BlueVPN_Gateway::init();
++    BlueVPN_Gateway_Phase3::init();
+     BlueVPN_Control_Center::init();
+     BlueVPN_Compat::init();
+     BlueVPN_Cron::init();
+--- /dev/null
++++ b/bluevpn-manager/includes/class-bluevpn-gateway-phase3.php
+@@ -0,0 +1,103 @@
++<?php
++if (!defined('ABSPATH')) exit;
++
++/**
++ * BlueVPN Gateway Phase 3 groundwork.
++ *
++ * This layer is deliberately observational first: it derives a deterministic
++ * health/capacity score from the heartbeat fields already written by Phase 2
++ * and stores a fleet snapshot. It does not automatically drain nodes or change
++ * live customer routing yet; that keeps the first Phase 3 step rollback-safe.
++ */
++final class BlueVPN_Gateway_Phase3 {
++    private const SNAPSHOT_OPTION='bluevpn_gateway_phase3_snapshot';
++    private const STALE_AFTER_SECONDS=180;
++
++    public static function init(): void {
++        add_action('bluevpn_manager_cleanup',[self::class,'refresh_snapshot'],30);
++    }
++
++    public static function score_node(array $node): int {
++        if((int)($node['active']??0)!==1||(int)($node['draining']??0)===1)return 0;
++
++        $score=100;
++        $seen=trim((string)($node['last_seen_at']??''));
++        if($seen==='')$score-=35;
++        else{
++            $ts=strtotime($seen.' UTC');
++            if($ts===false)$score-=35;
++            else{
++                $age=max(0,time()-$ts);
++                if($age>self::STALE_AFTER_SECONDS)$score-=min(60,20+(int)floor(($age-self::STALE_AFTER_SECONDS)/30)*5);
++            }
++        }
++
++        $load=max(0.0,(float)($node['last_load1']??0));
++        $score-=min(25,(int)round($load*4));
++
++        $pending=max(0,(int)($node['last_pending_events']??0));
++        $score-=min(20,(int)floor($pending/25)*2);
++
++        $active=max(0,(int)($node['last_active_sessions']??0));
++        $max=max(0,(int)($node['max_sessions']??0));
++        if($max>0){
++            $ratio=min(1.5,$active/$max);
++            $score-=min(30,(int)round($ratio*25));
++        }
++
++        if(trim((string)($node['last_error']??''))!=='')$score-=10;
++        return max(0,min(100,$score));
++    }
++
++    /** @return array<int,array<string,mixed>> */
++    public static function ranked_nodes(): array {
++        global $wpdb;
++        $table=BlueVPN_DB::table('gateway_nodes');
++        $rows=$wpdb->get_results(
++            "SELECT id,name,active,draining,priority,max_sessions,last_seen_at,last_active_sessions,last_pending_events,last_load1,last_error
++             FROM {$table} WHERE active=1 ORDER BY priority ASC,id ASC",
++            ARRAY_A
++        )?:[];
++
++        foreach($rows as &$row)$row['phase3_health_score']=self::score_node($row);
++        unset($row);
++
++        usort($rows,static function(array $a,array $b): int {
++            $pa=(int)($a['priority']??100);$pb=(int)($b['priority']??100);
++            if($pa!==$pb)return $pa<=>$pb;
++            $sa=(int)($a['phase3_health_score']??0);$sb=(int)($b['phase3_health_score']??0);
++            if($sa!==$sb)return $sb<=>$sa;
++            $aa=(int)($a['last_active_sessions']??0);$ab=(int)($b['last_active_sessions']??0);
++            if($aa!==$ab)return $aa<=>$ab;
++            return ((int)$a['id'])<=>((int)$b['id']);
++        });
++        return $rows;
++    }
++
++    public static function refresh_snapshot(): void {
++        $nodes=self::ranked_nodes();
++        $snapshot=[
++            'schema'=>1,
++            'generated_at'=>BlueVPN_Utils::iso_now(),
++            'phase'=>'3-groundwork',
++            'nodes'=>array_map(static function(array $node): array {
++                return [
++                    'id'=>(int)($node['id']??0),
++                    'name'=>(string)($node['name']??''),
++                    'priority'=>(int)($node['priority']??100),
++                    'health_score'=>(int)($node['phase3_health_score']??0),
++                    'active_sessions'=>(int)($node['last_active_sessions']??0),
++                    'pending_events'=>(int)($node['last_pending_events']??0),
++                    'load1'=>(float)($node['last_load1']??0),
++                    'last_seen_at'=>(string)($node['last_seen_at']??''),
++                ];
++            },$nodes),
++        ];
++        update_option(self::SNAPSHOT_OPTION,$snapshot,false);
++    }
++
++    public static function snapshot(): array {
++        $value=get_option(self::SNAPSHOT_OPTION,[]);
++        return is_array($value)?$value:[];
++    }
++}
+--- /dev/null
++++ b/bluevpn-gateway/PHASE3.md
+@@ -0,0 +1,20 @@
++# BlueVPN Gateway — Phase 3 start
++
++This patch keeps the completed 5.1.5 Phase 2 data plane unchanged and starts Phase 3 as a rollback-safe control-plane layer.
++
++## Implemented in this start
++
++- Deterministic 0–100 gateway health score using existing Phase 2 heartbeat telemetry.
++- Ranking keeps manual `priority` authoritative, then prefers healthier and less-loaded nodes.
++- A fleet snapshot is persisted on the existing BlueVPN cleanup cadence.
++- No automatic drain, no live session migration, and no routing mutation yet.
++
++## Next Phase 3 increments
++
++1. Feed the Phase 3 health score into `BlueVPN_Gateway::healthy_nodes()` behind a feature flag.
++2. Add circuit-breaker hysteresis (open / half-open / closed) so a flapping node cannot thrash assignments.
++3. Add config-generation acknowledgement from gateway agents.
++4. Add staged rollout/canary percentages and automatic rollback on heartbeat/config errors.
++5. Add session migration handoff so replica replacement does not cause avoidable reconnect storms.
++
++The observational-first step is intentional: it provides measurable fleet state before Phase 3 begins making placement decisions.
+--- /dev/null
++++ b/tests/test_free_source_resilience_515.py
+@@ -0,0 +1,37 @@
++import unittest
++from pathlib import Path
++
++ROOT=Path(__file__).resolve().parents[1]
++
++class FreeSourceResilience515Tests(unittest.TestCase):
++    def text(self,rel):
++        return (ROOT/rel).read_text(encoding="utf-8")
++
++    def test_bounded_retry_and_cooldown(self):
++        src=self.text("bluevpn-manager/includes/class-bluevpn-free-sources.php")
++        for token in (
++            "RETRYABLE_HTTP",
++            "$timeouts=[6,10,15]",
++            "CRON_FAILURE_COOLDOWN_SECONDS",
++            "get_transient(self::cooldown_key($id))",
++            "set_transient(self::cooldown_key($id)",
++        ):
++            self.assertIn(token,src)
++
++    def test_sentinel_is_single_owner_for_transport_incident(self):
++        src=self.text("bluevpn-manager/includes/class-bluevpn-free-sources.php")
++        self.assertIn("'X-BlueVPN-Sentinel-Ignore'=>'1'",src)
++        self.assertIn("'last_status'=>'failed_transport'",src)
++        self.assertIn("'last_error'=>''",src)
++        self.assertIn("FREE_SOURCE_TRANSPORT_FAILED_",src)
++        self.assertIn("BlueVPN_Error_Monitor::report(",src)
++        self.assertIn("BlueVPN_Error_Monitor::resolve_matching(",src)
++
++    def test_hard_content_failures_still_reach_operational_scan(self):
++        src=self.text("bluevpn-manager/includes/class-bluevpn-free-sources.php")
++        self.assertIn("private static function mark_source_failure",src)
++        self.assertIn("'last_status'=>'failed'",src)
++        self.assertIn("mb_substr($message,0,1000)",src)
++
++if __name__=="__main__":
++    unittest.main()
+--- /dev/null
++++ b/tests/test_gateway_phase3_start_515.py
+@@ -0,0 +1,38 @@
++import unittest
++from pathlib import Path
++
++ROOT=Path(__file__).resolve().parents[1]
++
++class GatewayPhase3Start515Tests(unittest.TestCase):
++    def text(self,rel):
++        return (ROOT/rel).read_text(encoding="utf-8")
++
++    def test_phase3_class_is_loaded_and_initialized(self):
++        plugin=self.text("bluevpn-manager/bluevpn-manager.php")
++        self.assertIn("class-bluevpn-gateway-phase3.php",plugin)
++        self.assertIn("BlueVPN_Gateway_Phase3::init();",plugin)
++
++    def test_phase3_is_observational_and_health_aware(self):
++        phase3=self.text("bluevpn-manager/includes/class-bluevpn-gateway-phase3.php")
++        for token in (
++            "score_node",
++            "phase3_health_score",
++            "last_pending_events",
++            "last_load1",
++            "last_active_sessions",
++            "max_sessions",
++            "priority",
++            "refresh_snapshot",
++            "phase'=>'3-groundwork'",
++        ):
++            self.assertIn(token,phase3)
++        self.assertNotIn("$wpdb->update(BlueVPN_DB::table('gateway_nodes')",phase3)
++
++    def test_phase3_roadmap_has_circuit_breaker_and_safe_rollout(self):
++        doc=self.text("bluevpn-gateway/PHASE3.md")
++        self.assertIn("circuit-breaker",doc)
++        self.assertIn("config-generation acknowledgement",doc)
++        self.assertIn("automatic rollback",doc)
++
++if __name__=="__main__":
++    unittest.main()

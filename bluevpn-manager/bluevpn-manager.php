@@ -35,6 +35,7 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-api.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-providers.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-subscription-sources.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-gateway.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-gateway-phase3.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-control-center.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-compat.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-cron.php';
@@ -112,6 +113,7 @@ add_action('plugins_loaded', function () {
     BlueVPN_Providers::init();
     BlueVPN_Subscription_Sources::init();
     BlueVPN_Gateway::init();
+    BlueVPN_Gateway_Phase3::init();
     BlueVPN_Control_Center::init();
     BlueVPN_Compat::init();
     BlueVPN_Cron::init();

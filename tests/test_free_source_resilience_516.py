@@ -3,7 +3,7 @@ from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 
-class FreeSourceResilience515Tests(unittest.TestCase):
+class FreeSourceResilience516Tests(unittest.TestCase):
     def text(self,rel):
         return (ROOT/rel).read_text(encoding="utf-8")
 

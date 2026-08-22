@@ -1,14 +1,15 @@
 === BlueVPN Manager ===
-Version: 5.1.5
-Stable tag: 5.1.5
+Version: 5.1.6
+Stable tag: 5.1.6
 Requires PHP: 8.0
 
-== 5.1.5 ==
-- فاز دوم gateway_metered: quota lease محلی، ثبت pending قبل از HTTP و revoke فوری برای جلوگیری از مصرف آزاد هنگام قطع Manager.
-- scheduler سلامت‌محور تا دو replica، اولویت Node، سقف Max Sessions و حالت Drain برای تعمیر بدون حذف Gateway.
-- کنترل sequence مونو‌تونیک در کنار event_id برای جلوگیری از دوباره‌شماری usage پس از restart/state loss.
-- اضافه‌شدن telemetry تعداد Session، Pending usage و Load به heartbeat و نمایش آن در پنل Gateway.
-- پشتیبانی Hysteria2/TUIC با sing-box sidecar محلی؛ Xray همچنان inbound و مرجع metering کاربر باقی می‌ماند.
+== 5.1.6 ==
+- فاز سه Gateway: انتخاب خودکار Node سالم بر اساس Priority/Capacity/Region و ساخت Primary/Standby برای هر پلن.
+- اضافه‌شدن Gateway replicas قابل تنظیم از 1 تا 3، Drain mode و Reconcile دستی/خودکار یک‌دقیقه‌ای برای Failover.
+- Heartbeat جدید Agent شامل Xray health، تعداد Session، صف مصرف، CPU/RAM و uptime است و Node آفلاین/پر/Drain برای کاربر جدید انتخاب نمی‌شود.
+- صف مصرف Agent بلافاصله بعد از Xray reset=true روی دیسک ذخیره می‌شود تا قطع شبکه/Crash باعث گم‌شدن byte delta نشود.
+- اضافه‌شدن agent_epoch + sequence replay guard و قفل FOR UPDATE روی حساب کاربر برای جلوگیری از race بین چند Gateway هنگام محاسبه سهمیه مرکزی.
+- Hysteria2/TUIC همچنان در snapshot یکپارچه حفظ می‌شوند اما تا اضافه‌شدن transport sidecar به‌صورت ساختگی روی Xray Gateway اجرا نمی‌شوند.
 
 == 5.1.4 ==
 - اضافه‌شدن معماری gateway_metered برای پلن پولی؛ مصرف Upload/Download از Gateway خود BlueVPN در MySQL حساب می‌شود و آمار Provider مرجع حجم نیست.

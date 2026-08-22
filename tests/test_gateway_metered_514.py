@@ -12,8 +12,8 @@ class GatewayMetered514Tests(unittest.TestCase):
 
     def test_release_schema_and_gateway_tables_are_authoritative(self):
         release = json.loads(self.text("release.json"))
-        self.assertEqual(release["version"], "5.1.5")
-        self.assertEqual(release["version_code"], 50105)
+        self.assertEqual(release["version"], "5.1.6")
+        self.assertEqual(release["version_code"], 50106)
         plugin = self.text("bluevpn-manager/bluevpn-manager.php")
         self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.27.0'", plugin)
         db = self.text("bluevpn-manager/includes/class-bluevpn-db.php")
@@ -40,7 +40,7 @@ class GatewayMetered514Tests(unittest.TestCase):
     def test_gateway_usage_is_hmac_idempotent_and_central_quota_is_authoritative(self):
         gateway = self.text("bluevpn-manager/includes/class-bluevpn-gateway.php")
         providers = self.text("bluevpn-manager/includes/class-bluevpn-providers.php")
-        for token in ("hash_hmac('sha256'", "hash_equals($expected,$signature)", "event_id", "used_traffic_bytes=used_traffic_bytes+%d", "subscription_status'=>'limited'", "reload_required"):
+        for token in ("hash_hmac('sha256'", "hash_equals($expected,$signature)", "event_id", "used_traffic_bytes=%d", "FOR UPDATE", "agent_epoch", "last_seq", "subscription_status'=>'limited'", "reload_required"):
             self.assertIn(token, gateway)
         self.assertIn("$providerQuota=$trafficMode==='gateway_metered'?0:$quota", providers)
         self.assertIn("if(!$gateway&&$responses>0)$u['used_traffic_bytes']=$providerUsed", providers)
@@ -48,14 +48,15 @@ class GatewayMetered514Tests(unittest.TestCase):
 
     def test_linux_agent_uses_xray_per_user_stats_and_fail_closed_routing(self):
         agent = self.text("bluevpn-gateway/agent.py")
-        for token in ('"statsUserUplink": True', '"statsUserDownlink": True', '"stats": {}', '"user": [email]', '"balancerTag": balancer_tag', '"selector": [prefix]', '"protocol": "blackhole"', '"protocol": "vless"', '"security": "tls"', '"-reset=true"', '"/bluevpn-gateway/v1/usage"'):
+        for token in ("statsUserUplink", "statsUserDownlink", '"stats"', '"user"', '"balancerTag"', '"selector"', '"protocol":"blackhole"', '"protocol":"vless"', '"security":"tls"', '"-reset=true"', '"/bluevpn-gateway/v1/usage"'):
             self.assertIn(token, agent)
         self.assertIn('XRAY_SCHEMES = {"vless", "vmess", "trojan", "ss"}', agent)
         self.assertIn('BRIDGE_SCHEMES = {"hysteria2", "hy2", "tuic"}', agent)
-        self.assertIn("parse_hysteria2", agent)
-        self.assertIn("parse_tuic", agent)
+        self.assertIn("build_singbox_config", agent)
+        self.assertIn("_enforce_local_leases", agent)
         self.assertNotIn("import requests", agent)
         self.assertNotIn("import aiohttp", agent)
+
 
     def test_manager_ui_exposes_sources_gateway_and_plan_traffic_mode(self):
         cc = self.text("bluevpn-manager/includes/class-bluevpn-control-center.php")

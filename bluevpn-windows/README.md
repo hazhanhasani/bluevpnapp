@@ -1,10 +1,13 @@
-# BlueVPN for Windows — 5.1.5
+# BlueVPN for Windows — 5.1.6
 
-## 5.1.5 gateway-metered phase 2
 
-- Windows continues to receive only first-party BlueVPN Gateway VLESS/TLS entries; no upstream provider/manual source secrets are exposed to the client.
-- Gateway failover is now health-aware and quota enforcement is hardened server-side/agent-side; no Windows protocol-core changes are required for phase 2.
-- Hysteria2/TUIC upstream support is handled behind the Gateway by the Linux sing-box sidecar while Windows still connects to the same BlueVPN Gateway endpoint.
+
+## 5.1.6 Gateway HA subscription behavior
+
+- Gateway-metered paid subscriptions can now contain a server-selected Primary plus one or two Standby BlueVPN Gateway endpoints.
+- Windows keeps its existing latency/BlueAI ranking and already tries up to three candidates, so a healthy Standby can be selected when the Primary endpoint is unavailable.
+- Upstream provider/manual credentials remain server-side; Windows still receives only first-party BlueVPN VLESS/TLS Gateway entries.
+- No Windows core replacement was introduced; Xray remains the protocol core and sing-box remains the Windows TUN owner.
 
 ## 5.1.4 first-party gateway-metered paid subscriptions
 

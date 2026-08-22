@@ -1,20 +1,16 @@
-# BlueVPN Gateway — Phase 3 start
+# BlueVPN Gateway — Phase 3 / 5.1.6
 
-This patch keeps the completed 5.1.5 Phase 2 data plane unchanged and starts Phase 3 as a rollback-safe control-plane layer.
+5.1.6 قابلیت‌های HA و حسابداری durable فاز ۳ را با quota lease محلی، Hysteria2/TUIC sidecar و circuit-breaker hysteresis یکپارچه می‌کند.
 
-## Implemented in this start
+## فعال در این نسخه
 
-- Deterministic 0–100 gateway health score using existing Phase 2 heartbeat telemetry.
-- Ranking keeps manual `priority` authoritative, then prefers healthier and less-loaded nodes.
-- A fleet snapshot is persisted on the existing BlueVPN cleanup cadence.
-- No automatic drain, no live session migration, and no routing mutation yet.
+- capacity-aware + region-diverse primary/standby placement
+- one-minute reconcile + drain
+- crash-durable usage queue + agent_epoch/sequence replay guard
+- row-locked central quota enforcement
+- per-replica local quota lease fail-closed
+- sing-box sidecar for Hysteria2/TUIC while Xray remains metering ingress
+- circuit breaker: 3 unhealthy observations -> open; 180s hold; 2 healthy observations -> closed
+- rollback flag: WordPress option/filter `bluevpn_gateway_phase3_circuit_enabled`
 
-## Next Phase 3 increments
-
-1. Feed the Phase 3 health score into `BlueVPN_Gateway::healthy_nodes()` behind a feature flag.
-2. Add circuit-breaker hysteresis (open / half-open / closed) so a flapping node cannot thrash assignments.
-3. Add config-generation acknowledgement from gateway agents.
-4. Add staged rollout/canary percentages and automatic rollback on heartbeat/config errors.
-5. Add session migration handoff so replica replacement does not cause avoidable reconnect storms.
-
-The observational-first step is intentional: it provides measurable fleet state before Phase 3 begins making placement decisions.
+No DB migration is required for the circuit breaker; state is stored in `bluevpn_gateway_phase3_circuit_state`.

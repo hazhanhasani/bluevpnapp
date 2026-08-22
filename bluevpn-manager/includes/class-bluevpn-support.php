@@ -611,6 +611,8 @@ final class BlueVPN_Support {
             $priority=$topic&&in_array((string)$topic['priority'],['low','normal','high','urgent'],true)
                 ?(string)$topic['priority']:'normal';
 
+            $source=sanitize_key((string)$r->get_header('x-bluevpn-platform'));
+            if(!in_array($source,['windows','android','web'],true))$source='app';
             $now=BlueVPN_Utils::now_mysql();
             $operatorId=self::auto_assign_operator($dept);
             $firstDue=gmdate('Y-m-d H:i:s',time()+max(5,(int)($d['first_response_minutes']??30))*60);
@@ -626,7 +628,7 @@ final class BlueVPN_Support {
                 'client_request_id'=>$clientRequestId!==''?$clientRequestId:null,
                 'status'=>$operatorId>0?'open':'waiting',
                 'priority'=>$priority,
-                'source'=>'android',
+                'source'=>$source,
                 'unread_customer'=>0,
                 'unread_operator'=>1,
                 'last_message_at'=>$now,

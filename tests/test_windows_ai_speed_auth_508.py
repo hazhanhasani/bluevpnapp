@@ -8,8 +8,8 @@ def text(path): return (ROOT/path).read_text(encoding='utf-8')
 class WindowsAiSpeedAuth508Tests(unittest.TestCase):
     def test_release_is_508(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'5.1.2')
-        self.assertEqual(r['version_code'],50102)
+        self.assertEqual(r['version'],'5.1.3')
+        self.assertEqual(r['version_code'],50103)
 
     def test_windows_blueai_is_real_closed_loop(self):
         ai=text('bluevpn-windows/Services/WindowsBlueAiService.cs')
@@ -71,12 +71,12 @@ class WindowsAiSpeedAuth508Tests(unittest.TestCase):
         code=text('bluevpn-windows/MainWindow.xaml.cs')
         auth=xaml[xaml.index('<!-- Account drawer -->'):xaml.index('<!-- Settings/menu drawer -->')]
         self.assertIn('FontFamily="Segoe UI"',xaml)
-        self.assertIn('Background="White" CornerRadius="22"',auth)
-        self.assertIn('Background="{StaticResource BlueVpnBlue}" Foreground="White"',auth)
+        self.assertIn('Background="{DynamicResource BlueVpnSurface}" CornerRadius="22"',auth)
+        self.assertIn('Background="{DynamicResource BlueVpnBlue}" Foreground="White"',auth)
         self.assertNotIn('#FF030405',auth)
         self.assertNotIn('#FFFF8A1F',auth)
-        self.assertIn('#FFEAF1FF',code)
-        self.assertIn('#FF2455CC',code)
+        self.assertIn('BlueVpnSurfaceStrong',code)
+        self.assertIn('BlueVpnBlue2',code)
 
     def test_system_proxy_fallback_is_not_labeled_full_tun(self):
         ui=text('bluevpn-windows/MainWindow.xaml.cs')

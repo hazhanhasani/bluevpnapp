@@ -121,6 +121,94 @@ public sealed class BlueVpnApiClient : IDisposable
         return result.Plans;
     }
 
+    public Task<OrderCreateResponse> CreateOrderAsync(int planId, CancellationToken ct = default)
+    {
+        EnsureAuth();
+        return PostAsync<OrderCreateResponse>("wp-json/bluevpn/v1/orders", new { plan_id = planId }, ct);
+    }
+
+    public Task<OrderStatusResponse> GetOrderAsync(string orderId, CancellationToken ct = default)
+    {
+        EnsureAuth();
+        return GetAsync<OrderStatusResponse>($"wp-json/bluevpn/v1/orders/{Uri.EscapeDataString(orderId)}", ct);
+    }
+
+    public Task<CheckoutResponse> OpenCheckoutAsync(string orderId, CancellationToken ct = default)
+    {
+        EnsureAuth();
+        return PostAsync<CheckoutResponse>($"wp-json/bluevpn/v1/orders/{Uri.EscapeDataString(orderId)}/checkout/open", new { }, ct);
+    }
+
+    public Task<CheckoutResponse> HeartbeatCheckoutAsync(string orderId, CancellationToken ct = default)
+    {
+        EnsureAuth();
+        return PostAsync<CheckoutResponse>($"wp-json/bluevpn/v1/orders/{Uri.EscapeDataString(orderId)}/checkout/heartbeat", new { }, ct);
+    }
+
+    public Task<CheckoutResponse> CloseCheckoutAsync(string orderId, CancellationToken ct = default)
+    {
+        EnsureAuth();
+        return PostAsync<CheckoutResponse>($"wp-json/bluevpn/v1/orders/{Uri.EscapeDataString(orderId)}/checkout/close", new { }, ct);
+    }
+
+    public Task<OrderStatusResponse> CheckOrderAfterSuccessAsync(string orderId, CancellationToken ct = default)
+    {
+        EnsureAuth();
+        return GetAsync<OrderStatusResponse>($"wp-json/bluevpn/v1/orders/{Uri.EscapeDataString(orderId)}/check-after-success", ct);
+    }
+
+    public Task<SupportDepartmentsResponse> GetSupportDepartmentsAsync(CancellationToken ct = default)
+    {
+        EnsureAuth();
+        return GetAsync<SupportDepartmentsResponse>("wp-json/bluevpn/v1/support/departments", ct);
+    }
+
+    public Task<SupportConversationsResponse> GetSupportConversationsAsync(CancellationToken ct = default)
+    {
+        EnsureAuth();
+        return GetAsync<SupportConversationsResponse>("wp-json/bluevpn/v1/support/conversations", ct);
+    }
+
+    public Task<SupportConversationResponse> CreateSupportConversationAsync(int departmentId, string subject, string message, CancellationToken ct = default)
+    {
+        EnsureAuth();
+        return PostAsync<SupportConversationResponse>("wp-json/bluevpn/v1/support/conversations", new
+        {
+            department_id = departmentId,
+            subject,
+            message,
+            client_request_id = Guid.NewGuid().ToString("N")
+        }, ct);
+    }
+
+    public Task<SupportMessagesResponse> GetSupportMessagesAsync(int conversationId, CancellationToken ct = default)
+    {
+        EnsureAuth();
+        return GetAsync<SupportMessagesResponse>($"wp-json/bluevpn/v1/support/conversations/{conversationId}/messages", ct);
+    }
+
+    public Task<SupportActionResponse> SendSupportMessageAsync(int conversationId, string message, CancellationToken ct = default)
+    {
+        EnsureAuth();
+        return PostAsync<SupportActionResponse>($"wp-json/bluevpn/v1/support/conversations/{conversationId}/messages", new
+        {
+            message,
+            client_message_id = Guid.NewGuid().ToString("N")
+        }, ct);
+    }
+
+    public Task<SupportActionResponse> CloseSupportConversationAsync(int conversationId, CancellationToken ct = default)
+    {
+        EnsureAuth();
+        return PostAsync<SupportActionResponse>($"wp-json/bluevpn/v1/support/conversations/{conversationId}/close", new { }, ct);
+    }
+
+    public Task<SupportUnreadResponse> GetSupportUnreadAsync(CancellationToken ct = default)
+    {
+        EnsureAuth();
+        return GetAsync<SupportUnreadResponse>("wp-json/bluevpn/v1/support/unread", ct);
+    }
+
     public async Task<string> GetPremiumSubscriptionAsync(Account account, CancellationToken ct = default)
     {
         if (!account.Subscription.Active || string.IsNullOrWhiteSpace(account.Subscription.Url))

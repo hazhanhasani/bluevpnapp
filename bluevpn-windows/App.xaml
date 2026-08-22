@@ -21,26 +21,26 @@
         <SolidColorBrush x:Key="BlueVpnCard2" Color="#FFEEF2FA" />
 
         <Style TargetType="Window">
-            <Setter Property="Background" Value="{StaticResource BlueVpnBg}"/>
-            <Setter Property="Foreground" Value="{StaticResource BlueVpnText}"/>
+            <Setter Property="Background" Value="{DynamicResource BlueVpnBg}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BlueVpnText}"/>
             <Setter Property="FontFamily" Value="Segoe UI"/>
         </Style>
         <Style TargetType="TextBlock">
-            <Setter Property="Foreground" Value="{StaticResource BlueVpnText}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BlueVpnText}"/>
         </Style>
 
         <Style TargetType="TextBox">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="Foreground" Value="{StaticResource BlueVpnText}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BlueVpnStroke}"/>
+            <Setter Property="Background" Value="{DynamicResource BlueVpnSurface}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BlueVpnText}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BlueVpnStroke}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="12,9"/>
             <Setter Property="Margin" Value="0,4,0,8"/>
         </Style>
         <Style TargetType="PasswordBox">
-            <Setter Property="Background" Value="White"/>
-            <Setter Property="Foreground" Value="{StaticResource BlueVpnText}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BlueVpnStroke}"/>
+            <Setter Property="Background" Value="{DynamicResource BlueVpnSurface}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BlueVpnText}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BlueVpnStroke}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="12,9"/>
             <Setter Property="Margin" Value="0,4,0,8"/>
@@ -48,9 +48,9 @@
 
         <!-- Android Material-style rounded button, with no heavyweight shadow/effect. -->
         <Style TargetType="Button">
-            <Setter Property="Background" Value="{StaticResource BlueVpnSurfaceStrong}"/>
-            <Setter Property="Foreground" Value="{StaticResource BlueVpnText}"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BlueVpnStroke}"/>
+            <Setter Property="Background" Value="{DynamicResource BlueVpnSurfaceStrong}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BlueVpnText}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BlueVpnStroke}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Padding" Value="14,9"/>
             <Setter Property="Margin" Value="4"/>
@@ -74,9 +74,9 @@
         </Style>
 
         <Style x:Key="BlueVpnMetricCardStyle" TargetType="Border">
-            <Setter Property="Background" Value="White"/>
+            <Setter Property="Background" Value="{DynamicResource BlueVpnSurface}"/>
             <Setter Property="CornerRadius" Value="18"/>
-            <Setter Property="BorderBrush" Value="{StaticResource BlueVpnStroke}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BlueVpnStroke}"/>
             <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="Margin" Value="4"/>
             <Setter Property="Padding" Value="6"/>

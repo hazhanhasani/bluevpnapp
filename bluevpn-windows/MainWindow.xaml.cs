@@ -18,6 +18,7 @@ public partial class MainWindow : Window
     private readonly AdvertisementService _ads;
     private readonly AppUpdateService _appUpdater;
     private readonly RuntimeUpdateService _runtimeUpdater;
+    private readonly WindowsThemeService _theme;
 
     private readonly CancellationTokenSource _lifetimeCts = new();
     private readonly DispatcherTimer _adTimer = new();
@@ -31,6 +32,10 @@ public partial class MainWindow : Window
     private bool _connectionOperationRunning;
     private bool _accountOperationRunning;
     private bool _maintenanceRunning;
+    private bool _themeUiReady;
+    private bool _purchaseOperationRunning;
+    private bool _supportOperationRunning;
+    private bool _supportSelectionChanging;
     private DateTimeOffset? _connectedAt;
     private long _lastReceivedBytes;
     private long _lastSentBytes;
@@ -56,6 +61,9 @@ public partial class MainWindow : Window
         _ads = AppServices.Advertisements!;
         _appUpdater = AppServices.AppUpdater!;
         _runtimeUpdater = AppServices.RuntimeUpdater!;
+        _theme = new WindowsThemeService();
+        _theme.Apply(this, RootGrid);
+        InitializeThemeUi();
 
         VersionText.Text = _settings.Version;
         MenuVersionText.Text = _settings.Version;
@@ -256,12 +264,14 @@ public partial class MainWindow : Window
     private void AccountButton_Click(object sender, RoutedEventArgs e)
     {
         MenuDrawer.Visibility = Visibility.Collapsed;
+        SupportDrawer.Visibility = Visibility.Collapsed;
         AccountDrawer.Visibility = AccountDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void MenuButton_Click(object sender, RoutedEventArgs e)
     {
         AccountDrawer.Visibility = Visibility.Collapsed;
+        SupportDrawer.Visibility = Visibility.Collapsed;
         MenuDrawer.Visibility = MenuDrawer.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
         MenuTechnicalText.Text = $"{_connection.RuntimeStatus} • {_connection.AiStatus}";
         MenuIpText.Text = $"IP: {IpValue.Text}";
@@ -271,6 +281,243 @@ public partial class MainWindow : Window
     {
         AccountDrawer.Visibility = Visibility.Collapsed;
         MenuDrawer.Visibility = Visibility.Collapsed;
+        SupportDrawer.Visibility = Visibility.Collapsed;
+    }
+
+    private void OpenAccountFromMenu_Click(object sender, RoutedEventArgs e)
+    {
+        MenuDrawer.Visibility = Visibility.Collapsed;
+        SupportDrawer.Visibility = Visibility.Collapsed;
+        AccountDrawer.Visibility = Visibility.Visible;
+    }
+
+    private async void OpenSupport_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_api.IsAuthenticated)
+        {
+            MenuDrawer.Visibility = Visibility.Collapsed;
+            SupportDrawer.Visibility = Visibility.Collapsed;
+            AccountDrawer.Visibility = Visibility.Visible;
+            AuthStatusText.Text = "برای استفاده از پشتیبانی ابتدا وارد حساب BlueVPN شوید.";
+            return;
+        }
+        MenuDrawer.Visibility = Visibility.Collapsed;
+        AccountDrawer.Visibility = Visibility.Collapsed;
+        SupportDrawer.Visibility = Visibility.Visible;
+        await LoadSupportAsync(selectConversationId: null);
+    }
+
+    private void InitializeThemeUi()
+    {
+        foreach (var item in ThemeComboBox.Items.OfType<ComboBoxItem>())
+        {
+            if (string.Equals(Convert.ToString(item.Tag), _theme.Preference, StringComparison.OrdinalIgnoreCase))
+            {
+                ThemeComboBox.SelectedItem = item;
+                break;
+            }
+        }
+        if (ThemeComboBox.SelectedIndex < 0) ThemeComboBox.SelectedIndex = 0;
+        _themeUiReady = true;
+    }
+
+    private void ThemeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!_themeUiReady || ThemeComboBox.SelectedItem is not ComboBoxItem item) return;
+        var pref = Convert.ToString(item.Tag) ?? "system";
+        _theme.SetPreference(pref, this, RootGrid);
+        FooterStatus.Text = pref switch
+        {
+            "dark" => "تم تیره فعال شد.",
+            "light" => "تم روشن فعال شد.",
+            _ => "تم برنامه با Windows هماهنگ شد."
+        };
+    }
+
+    private async void PurchasePlan_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.Tag is not Plan plan || _purchaseOperationRunning) return;
+        if (!_api.IsAuthenticated)
+        {
+            PurchaseStatusText.Text = "برای خرید سرویس ابتدا وارد حساب شوید.";
+            LoginPanel.Visibility = Visibility.Visible;
+            AccountPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        _purchaseOperationRunning = true;
+        PurchaseStatusText.Text = $"در حال ساخت فاکتور امن برای {plan.Title}…";
+        try
+        {
+            var created = await _api.CreateOrderAsync(plan.Id, _lifetimeCts.Token);
+            var order = created.Order;
+            if (string.IsNullOrWhiteSpace(order.Id)) throw new InvalidOperationException("شناسه فاکتور از سرور دریافت نشد.");
+
+            var opened = await _api.OpenCheckoutAsync(order.Id, _lifetimeCts.Token);
+            if (!string.IsNullOrWhiteSpace(opened.Order.PaymentUrl)) order = opened.Order;
+            if (!Uri.TryCreate(order.PaymentUrl, UriKind.Absolute, out var paymentUri) ||
+                !paymentUri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("لینک پرداخت امن معتبر نیست.");
+
+            Process.Start(new ProcessStartInfo(paymentUri.ToString()) { UseShellExecute = true });
+            PurchaseStatusText.Text = "درگاه پرداخت در مرورگر باز شد؛ BlueVPN وضعیت فعال‌سازی را خودکار بررسی می‌کند.";
+
+            var timeoutSeconds = Math.Clamp(created.PollTimeoutSeconds <= 0 ? 45 : created.PollTimeoutSeconds, 20, 90);
+            var intervalSeconds = Math.Clamp(created.PollIntervalSeconds <= 0 ? 5 : created.PollIntervalSeconds, 3, 10);
+            var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(timeoutSeconds);
+            while (DateTimeOffset.UtcNow < stop)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(intervalSeconds), _lifetimeCts.Token);
+                try { _ = await _api.HeartbeatCheckoutAsync(order.Id, _lifetimeCts.Token); } catch { }
+                var status = await _api.CheckOrderAfterSuccessAsync(order.Id, _lifetimeCts.Token);
+                order = status.Order;
+                if (status.Confirmed || string.Equals(order.Status, "activated", StringComparison.OrdinalIgnoreCase))
+                {
+                    _account = order.Account ?? await _api.GetAccountAsync(_lifetimeCts.Token);
+                    ApplyAccount();
+                    await RefreshPlansSafeAsync();
+                    try { _ = await _api.CloseCheckoutAsync(order.Id, _lifetimeCts.Token); } catch { }
+                    PurchaseStatusText.Text = "پرداخت تأیید شد و اشتراک BlueVPN فعال است.";
+                    MessageBox.Show(this, "پرداخت تأیید شد و سرویس شما فعال شد.", "BlueVPN", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
+                if (!status.Pending)
+                {
+                    var detail = string.IsNullOrWhiteSpace(order.ActivationError) ? "پرداخت نهایی نشد." : order.ActivationError;
+                    PurchaseStatusText.Text = detail;
+                    return;
+                }
+            }
+            PurchaseStatusText.Text = "پرداخت هنوز در حال بررسی است؛ پس از بازگشت از درگاه، «بروزرسانی حساب» را بزنید.";
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            PurchaseStatusText.Text = $"خرید انجام نشد: {FriendlyUiError(ex.Message)}";
+        }
+        finally { _purchaseOperationRunning = false; }
+    }
+
+    private async void RefreshSupport_Click(object sender, RoutedEventArgs e)
+    {
+        var selected = SupportConversationBox.SelectedItem as SupportConversation;
+        await LoadSupportAsync(selected?.Id);
+    }
+
+    private async Task LoadSupportAsync(int? selectConversationId)
+    {
+        if (_supportOperationRunning || !_api.IsAuthenticated) return;
+        _supportOperationRunning = true;
+        SupportStatusText.Text = "در حال دریافت پشتیبانی…";
+        try
+        {
+            var departmentsTask = _api.GetSupportDepartmentsAsync(_lifetimeCts.Token);
+            var conversationsTask = _api.GetSupportConversationsAsync(_lifetimeCts.Token);
+            await Task.WhenAll(departmentsTask, conversationsTask);
+            var departments = departmentsTask.Result.Departments;
+            var conversations = conversationsTask.Result.Conversations;
+            SupportDepartmentBox.ItemsSource = departments;
+            if (SupportDepartmentBox.SelectedIndex < 0 && departments.Count > 0) SupportDepartmentBox.SelectedIndex = 0;
+
+            _supportSelectionChanging = true;
+            SupportConversationBox.ItemsSource = conversations;
+            SupportConversationBox.SelectedItem = conversations.FirstOrDefault(x => x.Id == selectConversationId) ?? conversations.FirstOrDefault();
+            _supportSelectionChanging = false;
+            SupportMenuButton.Content = conversations.Sum(x => x.Unread) > 0 ? $"پشتیبانی ({conversations.Sum(x => x.Unread)})" : "پشتیبانی";
+            if (SupportConversationBox.SelectedItem is SupportConversation selected)
+                await LoadSupportMessagesAsync(selected.Id);
+            else
+            {
+                SupportMessagesList.ItemsSource = null;
+                SupportStatusText.Text = "هنوز گفتگویی ندارید؛ یک درخواست جدید ایجاد کنید.";
+            }
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested) { }
+        catch (Exception ex) { SupportStatusText.Text = FriendlyUiError(ex.Message); }
+        finally
+        {
+            _supportSelectionChanging = false;
+            _supportOperationRunning = false;
+        }
+    }
+
+    private async void SupportConversation_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_supportSelectionChanging || SupportConversationBox.SelectedItem is not SupportConversation conv) return;
+        await LoadSupportMessagesAsync(conv.Id);
+    }
+
+    private async Task LoadSupportMessagesAsync(int conversationId)
+    {
+        try
+        {
+            var result = await _api.GetSupportMessagesAsync(conversationId, _lifetimeCts.Token);
+            SupportMessagesList.ItemsSource = result.Messages;
+            SupportStatusText.Text = $"{result.Conversation.StatusLabel} • {result.Conversation.Department?.Name ?? "پشتیبانی"}";
+            SupportReplyBox.IsEnabled = !string.Equals(result.Conversation.Status, "closed", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) { SupportStatusText.Text = FriendlyUiError(ex.Message); }
+    }
+
+    private async void CreateSupport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_supportOperationRunning || SupportDepartmentBox.SelectedItem is not SupportDepartment dept) return;
+        var message = SupportNewMessageBox.Text.Trim();
+        if (message.Length < 3)
+        {
+            SupportStatusText.Text = "شرح درخواست را وارد کنید.";
+            return;
+        }
+        _supportOperationRunning = true;
+        try
+        {
+            var created = await _api.CreateSupportConversationAsync(dept.Id, SupportSubjectBox.Text.Trim(), message, _lifetimeCts.Token);
+            SupportSubjectBox.Clear();
+            SupportNewMessageBox.Clear();
+            SupportStatusText.Text = "درخواست پشتیبانی ثبت شد.";
+            _supportOperationRunning = false;
+            await LoadSupportAsync(created.Conversation.Id);
+        }
+        catch (Exception ex)
+        {
+            SupportStatusText.Text = FriendlyUiError(ex.Message);
+            _supportOperationRunning = false;
+        }
+    }
+
+    private async void SendSupport_Click(object sender, RoutedEventArgs e)
+    {
+        if (_supportOperationRunning || SupportConversationBox.SelectedItem is not SupportConversation conv) return;
+        var message = SupportReplyBox.Text.Trim();
+        if (message.Length == 0) return;
+        _supportOperationRunning = true;
+        try
+        {
+            await _api.SendSupportMessageAsync(conv.Id, message, _lifetimeCts.Token);
+            SupportReplyBox.Clear();
+            SupportStatusText.Text = "پیام ارسال شد.";
+            await LoadSupportMessagesAsync(conv.Id);
+        }
+        catch (Exception ex) { SupportStatusText.Text = FriendlyUiError(ex.Message); }
+        finally { _supportOperationRunning = false; }
+    }
+
+    private async void CloseSupportConversation_Click(object sender, RoutedEventArgs e)
+    {
+        if (_supportOperationRunning || SupportConversationBox.SelectedItem is not SupportConversation conv) return;
+        _supportOperationRunning = true;
+        try
+        {
+            await _api.CloseSupportConversationAsync(conv.Id, _lifetimeCts.Token);
+            SupportStatusText.Text = "گفتگو بسته شد.";
+            _supportOperationRunning = false;
+            await LoadSupportAsync(conv.Id);
+        }
+        catch (Exception ex)
+        {
+            SupportStatusText.Text = FriendlyUiError(ex.Message);
+            _supportOperationRunning = false;
+        }
     }
 
     private void AuthSmsMode_Click(object sender, RoutedEventArgs e)
@@ -400,9 +647,10 @@ public partial class MainWindow : Window
 
     private static void SetSegmentVisual(System.Windows.Controls.Button button, bool selected)
     {
-        button.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#FFEAF1FF" : "#FFF5F7FC"));
-        button.Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#FF2455CC" : "#FF667085"));
-        button.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(selected ? "#FFB9C9F4" : "#FFD9DFEC"));
+        Brush R(string key) => Application.Current.Resources[key] as Brush ?? Brushes.Transparent;
+        button.Background = R(selected ? "BlueVpnSurfaceStrong" : "BlueVpnBg");
+        button.Foreground = R(selected ? "BlueVpnBlue2" : "BlueVpnMuted");
+        button.BorderBrush = R(selected ? "BlueVpnBlue2" : "BlueVpnStroke");
     }
 
     private static bool LooksLikeEmail(string value)
@@ -457,6 +705,11 @@ public partial class MainWindow : Window
         LoginPanel.Visibility = Visibility.Visible;
         AccountPanel.Visibility = Visibility.Collapsed;
         PlansList.ItemsSource = null;
+        SupportMessagesList.ItemsSource = null;
+        SupportConversationBox.ItemsSource = null;
+        SupportDepartmentBox.ItemsSource = null;
+        SupportMenuButton.Content = "پشتیبانی";
+        PurchaseStatusText.Text = "برای خرید، وارد حساب شوید و پلن موردنظر را انتخاب کنید.";
         _remainingSecondsAtSnapshot = null;
         _authMode = "sms";
         _emailRegisterMode = false;
@@ -875,6 +1128,9 @@ public partial class MainWindow : Window
         _remainingSecondsAtSnapshot = _account.Subscription.RemainingSeconds;
         _accountSnapshotAt = DateTimeOffset.UtcNow;
         RemainingTimeValue.Text = FormatRemainingTime(_account.Subscription);
+        PurchaseStatusText.Text = _account.Subscription.Active
+            ? "اشتراک ویژه فعال است؛ برای تمدید می‌توانید یکی از پلن‌ها را خریداری کنید."
+            : "پلن موردنظر را انتخاب کنید؛ پرداخت امن در مرورگر باز می‌شود و فعال‌سازی خودکار بررسی خواهد شد.";
     }
 
     private async Task RestoreAccountSessionSafeAsync()

@@ -88,6 +88,7 @@
     "test_windows_direct_release_sync_4173.py",
     "test_windows_pending_stable_convergence_4172.py",
     "test_windows_public_route_label_buildfix_41710.py",
+    "test_windows_purchase_support_theme_513.py",
     "test_windows_release_channels_4163.py",
     "test_windows_release_sync_payload_505.py",
     "test_windows_release_sync_resilience_501.py",

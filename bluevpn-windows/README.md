@@ -1,5 +1,14 @@
-# BlueVPN for Windows — 5.1.2
+# BlueVPN for Windows — 5.1.3
 
+
+
+## 5.1.3 Windows purchase + support + theme completion
+
+- Adds real in-app premium purchase flow: creates the authoritative WordPress order, opens the HTTPS BluPal checkout in the browser, keeps checkout heartbeat alive and polls server-side activation before refreshing the account.
+- Adds a first-party Windows support drawer backed by the existing authenticated BlueVPN support API for departments, conversations, messages and conversation close.
+- Adds persisted Light / Dark / System themes and converts Windows surfaces to dynamic BlueVPN resources so the selection is applied immediately.
+- Tags support conversations with the real client platform (`windows`) instead of hard-coding Android while keeping existing Android/web compatibility.
+- Tapsell is intentionally unchanged in this release and remains a later task.
 
 
 ## 5.1.2 account/premium + diagnostics drawer readability fix

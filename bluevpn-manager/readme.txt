@@ -1,7 +1,14 @@
 === BlueVPN Manager ===
-Version: 5.1.6
-Stable tag: 5.1.6
+Version: 5.1.7
+Stable tag: 5.1.7
 Requires PHP: 8.0
+
+== 5.1.7 ==
+- رفع False Positive تنظیمات خود Sentinel (`bluevpn_error_monitor_settings`) و resolve خودکار incident قدیمی پس از ارتقا.
+- Watchdog خودکار Deploy Bot: job صفِ گم‌شده bounded retry می‌شود و stateهای گیرکرده بدون نیاز به `/unlock` آزاد می‌شوند.
+- بررسی دوره‌ای `getWebhookInfo` و ترمیم خودکار Webhook در صورت حذف/تغییر URL، بدون drop کردن updateهای pending.
+- Preflight سخت‌گیرانه Manager قبل از swap: تطبیق manifest PHP، بررسی dependencyهای bootstrap و `php -l` همه فایل‌ها.
+- Recovery guard اولین بوت Manager: در صورت Fatal مربوط به نسخه تازه قبل از `plugins_loaded`، پوشه نسخه قبلی خودکار restore می‌شود.
 
 == 5.1.6 ==
 - فاز سه Gateway: انتخاب خودکار Node سالم بر اساس Priority/Capacity/Region و ساخت Primary/Standby برای هر پلن.
@@ -9,7 +16,7 @@ Requires PHP: 8.0
 - Heartbeat جدید Agent شامل Xray health، تعداد Session، صف مصرف، CPU/RAM و uptime است و Node آفلاین/پر/Drain برای کاربر جدید انتخاب نمی‌شود.
 - صف مصرف Agent بلافاصله بعد از Xray reset=true روی دیسک ذخیره می‌شود تا قطع شبکه/Crash باعث گم‌شدن byte delta نشود.
 - اضافه‌شدن agent_epoch + sequence replay guard و قفل FOR UPDATE روی حساب کاربر برای جلوگیری از race بین چند Gateway هنگام محاسبه سهمیه مرکزی.
-- Hysteria2/TUIC همچنان در snapshot یکپارچه حفظ می‌شوند اما تا اضافه‌شدن transport sidecar به‌صورت ساختگی روی Xray Gateway اجرا نمی‌شوند.
+- Hysteria2/TUIC با sing-box sidecar محلی اجرا می‌شوند و Xray همچنان مرجع metering است.
 
 == 5.1.4 ==
 - اضافه‌شدن معماری gateway_metered برای پلن پولی؛ مصرف Upload/Download از Gateway خود BlueVPN در MySQL حساب می‌شود و آمار Provider مرجع حجم نیست.

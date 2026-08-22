@@ -1,6 +1,6 @@
-# BlueVPN Gateway — Phase 3 / 5.1.6
+# BlueVPN Gateway — Phase 3 / 5.1.7
 
-5.1.6 قابلیت‌های HA و حسابداری durable فاز ۳ را با quota lease محلی، Hysteria2/TUIC sidecar و circuit-breaker hysteresis یکپارچه می‌کند.
+پایه Phase 3 که در 5.1.6 تکمیل شد در 5.1.7 بدون migration یا تغییر رفتار routing حفظ شده است. 5.1.7 یک release پایداری/Auto-Recovery در لایه Manager و Bot است.
 
 ## فعال در این نسخه
 

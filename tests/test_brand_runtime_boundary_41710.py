@@ -7,11 +7,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 def text(rel):
     return (ROOT / rel).read_text(encoding="utf-8")
 
-class BrandRuntimeBoundary50106Tests(unittest.TestCase):
+class BrandRuntimeBoundary50107Tests(unittest.TestCase):
     def test_release_version(self):
         release = json.loads(text("release.json"))
-        self.assertEqual(release["version"], "5.1.6")
-        self.assertEqual(release["version_code"], 50106)
+        self.assertEqual(release["version"], "5.1.7")
+        self.assertEqual(release["version_code"], 50107)
 
     def test_quick_tile_never_uses_running_profile_name(self):
         src = text("android-source/BlueVpnQuickTileService.kt")

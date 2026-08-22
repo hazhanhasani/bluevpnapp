@@ -355,7 +355,7 @@ final class BlueVPN_Error_Monitor {
         global $wpdb;
         $source = sanitize_key($source);
         $component = sanitize_key($component);
-        $code = sanitize_key($code);
+        $code = strtoupper(substr(preg_replace('/[^A-Z0-9_.:-]+/i', '_', $code) ?: '', 0, 100));
         if ($source === '' || $component === '') return;
         $now = BlueVPN_Utils::now_mysql();
         if ($code !== '') {
@@ -475,15 +475,45 @@ final class BlueVPN_Error_Monitor {
         }
     }
 
+    private static function option_has_explicit_error_signal(string $name, $value): bool {
+        $name = sanitize_key($name);
+        // Sentinel's own settings contain the word "error" in the option name.
+        // They are configuration, not an incident. 5.1.6 used to report this
+        // option every health scan and notify again on occurrences 10, 20, ... .
+        if ($name === self::OPTION) return false;
+
+        if (is_object($value)) $value = (array)$value;
+        if (is_array($value)) {
+            foreach (['error','last_error','error_message','exception','fatal'] as $key) {
+                if (!array_key_exists($key, $value)) continue;
+                $signal = trim(is_scalar($value[$key]) ? (string)$value[$key] : wp_json_encode($value[$key]));
+                if ($signal !== '' && !in_array(strtolower($signal), ['0','false','none','null','[]','{}'], true)) return true;
+            }
+            $status = strtolower(trim((string)($value['status'] ?? '')));
+            return in_array($status, ['error','failed','failure','critical','fatal'], true);
+        }
+
+        // Scalar options such as bluevpn_*_last_error remain observable.
+        $text = trim((string)$value);
+        return $text !== '' && !in_array(strtolower($text), ['0','false','none','null','[]','{}'], true);
+    }
+
     private static function scan_error_options(): void {
         global $wpdb;
+
+        // Close the 5.1.6 false-positive incident immediately after upgrade so
+        // its occurrence counter cannot keep producing repeat notifications.
+        self::resolve_matching('wordpress_option', 'control_plane', 'BLUEVPN_ERROR_MONITOR_SETTINGS');
+
         $rows = $wpdb->get_results("SELECT option_name,option_value FROM {$wpdb->options} WHERE option_name LIKE 'bluevpn\\_%error%' ESCAPE '\\\\' AND option_value NOT IN ('','0','false','[]','{}') LIMIT 50", ARRAY_A);
         foreach ((array)$rows as $row) {
+            $name = (string)($row['option_name'] ?? '');
             $value = maybe_unserialize($row['option_value'] ?? '');
+            if (!self::option_has_explicit_error_signal($name, $value)) continue;
             if (is_array($value) || is_object($value)) $value = wp_json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             $text = trim((string)$value);
             if ($text === '') continue;
-            self::report('wordpress_option', 'control_plane', 'warning', strtoupper(sanitize_key((string)$row['option_name'])), $text, ['option' => $row['option_name']]);
+            self::report('wordpress_option', 'control_plane', 'warning', strtoupper(sanitize_key($name)), $text, ['option' => $name]);
         }
     }
 

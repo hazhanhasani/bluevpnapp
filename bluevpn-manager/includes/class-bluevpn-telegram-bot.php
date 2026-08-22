@@ -21,6 +21,10 @@ final class BlueVPN_Telegram_Bot {
     private const GITHUB_API_VERSION = '2022-11-28';
     private const MANAGER_WORKFLOW = 'bluevpn-manager-release.yml';
     private const MANAGER_REPOSITORY_EVENT = 'bluevpn_manager_release';
+    private const LOCAL_JOB_STALE_SECONDS = 20 * MINUTE_IN_SECONDS;
+    private const REMOTE_JOB_STALE_SECONDS = 3 * HOUR_IN_SECONDS;
+    private const QUEUED_JOB_RETRY_SECONDS = 5 * MINUTE_IN_SECONDS;
+    private const WEBHOOK_HEALTH_INTERVAL_SECONDS = 5 * MINUTE_IN_SECONDS;
 
     public static function init(): void {
         add_action('rest_api_init', [self::class, 'register_routes']);
@@ -453,7 +457,86 @@ final class BlueVPN_Telegram_Bot {
     private static function chat_has_active_job(string $chatId): bool {
         global $wpdb;
         $t = self::jobs_table();
-        return (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t} WHERE chat_id=%s AND status IN ('queued','downloading','deploying','dispatching','waiting_manager','building_manager','updating_manager','waiting_build','building')", $chatId)) > 0;
+        return (int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t} WHERE chat_id=%s AND status IN ('queued','retry','downloading','deploying','dispatching','waiting_manager','building_manager','updating_manager','waiting_build','building')", $chatId)) > 0;
+    }
+
+    /**
+     * 5.1.7 watchdog: no active job may lock a chat forever.
+     *
+     * - queued jobs whose cron event was lost are re-scheduled once boundedly;
+     * - local deploy states older than 20 minutes are failed and therefore unlock;
+     * - remote build/release states get a generous three-hour budget before unlock.
+     *
+     * The watchdog never guesses that a side effect succeeded. Ambiguous local
+     * deploy states fail closed and ask for a fresh ZIP instead of dispatching a
+     * build against an uncertain commit.
+     */
+    private static function recover_stale_jobs(array $s): void {
+        global $wpdb;
+        $t = self::jobs_table();
+        $now = time();
+        $active = $wpdb->get_results("SELECT * FROM {$t} WHERE status IN ('queued','retry','downloading','deploying','dispatching','waiting_manager','building_manager','updating_manager','waiting_build','building') ORDER BY created_at ASC LIMIT 50", ARRAY_A) ?: [];
+        foreach ($active as $job) {
+            $updated = strtotime((string)($job['updated_at'] ?: $job['created_at']) . ' UTC') ?: 0;
+            if ($updated <= 0) continue;
+            $age = $now - $updated;
+            $status = (string)$job['status'];
+
+            if (in_array($status, ['queued','retry'], true) && $age >= self::QUEUED_JOB_RETRY_SECONDS) {
+                $attempts = (int)$job['attempts'];
+                if ($attempts < 2) {
+                    self::update_job((string)$job['id'], [
+                        'status' => 'retry',
+                        'attempts' => $attempts + 1,
+                        'last_error' => 'AUTO_RECOVERY: cron claim was not observed; job re-queued.',
+                    ]);
+                    self::schedule_process((string)$job['id']);
+                    continue;
+                }
+                self::fail_job($job, 'BOT_JOB_WATCHDOG_TIMEOUT: queued job did not start after bounded auto-retry.', $s);
+                continue;
+            }
+
+            if (in_array($status, ['downloading','deploying','dispatching'], true) && $age >= self::LOCAL_JOB_STALE_SECONDS) {
+                self::fail_job($job, 'BOT_JOB_WATCHDOG_TIMEOUT: local deploy state became stale and was released automatically. Send the full project ZIP again.', $s);
+                continue;
+            }
+
+            if (in_array($status, ['waiting_manager','building_manager','updating_manager','waiting_build','building'], true) && $age >= self::REMOTE_JOB_STALE_SECONDS) {
+                self::fail_job($job, 'BOT_JOB_WATCHDOG_TIMEOUT: remote build/release exceeded the three-hour safety window and the chat lock was released automatically.', $s);
+            }
+        }
+    }
+
+    /** Verify Telegram webhook state periodically and repair only a missing/wrong URL. */
+    private static function repair_webhook_if_needed(array $s): void {
+        if (!self::runtime_ready()) return;
+        $key = 'bluevpn_bot_webhook_healthcheck_517';
+        if (get_transient($key)) return;
+        set_transient($key, '1', self::WEBHOOK_HEALTH_INTERVAL_SECONDS);
+
+        $info = self::api('getWebhookInfo', [], $s);
+        global $wpdb;
+        if (is_wp_error($info)) {
+            $wpdb->update(self::settings_table(), [
+                'webhook_status' => 'error',
+                'webhook_last_error' => mb_substr($info->get_error_message(), 0, 1800),
+                'updated_at' => BlueVPN_Utils::now_mysql(),
+            ], ['id' => 1]);
+            return;
+        }
+        $expected = self::webhook_url($s);
+        $actual = trim((string)($info['url'] ?? ''));
+        if ($actual === '' || !hash_equals($expected, $actual)) {
+            self::set_webhook();
+            return;
+        }
+        $lastError = trim((string)($info['last_error_message'] ?? ''));
+        $wpdb->update(self::settings_table(), [
+            'webhook_status' => 'active',
+            'webhook_last_error' => $lastError !== '' ? mb_substr($lastError, 0, 1800) : '',
+            'updated_at' => BlueVPN_Utils::now_mysql(),
+        ], ['id' => 1]);
     }
 
     public static function process_job(string $jobId): void {
@@ -1211,6 +1294,146 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
      * hard dependency for the same deploy transaction. This closes the race
      * where the release workflow succeeds but the Releases API is briefly stale.
      */
+    private static function manager_php_cli(): string {
+        $candidates = [];
+        if (defined('PHP_BINDIR')) $candidates[] = rtrim((string)PHP_BINDIR, '/\\') . '/php';
+        $candidates[] = '/usr/local/bin/php';
+        $candidates[] = '/usr/bin/php';
+        if (defined('PHP_BINARY')) {
+            $binary = (string)PHP_BINARY;
+            $base = strtolower(basename($binary));
+            if ($binary !== '' && !str_contains($base, 'fpm') && !str_contains($base, 'cgi')) $candidates[] = $binary;
+        }
+        foreach (array_values(array_unique($candidates)) as $candidate) {
+            if ($candidate !== '' && is_file($candidate) && is_executable($candidate)) return $candidate;
+        }
+        return '';
+    }
+
+    /** Fail closed before touching the live Manager directory. */
+    private static function preflight_manager_stage(string $stage): void {
+        $manifestPath = rtrim($stage, '/\\') . '/release_php_manifest.json';
+        if (!is_file($manifestPath)) throw new RuntimeException('MANAGER_PREFLIGHT_MANIFEST_MISSING: release_php_manifest.json وجود ندارد.');
+        $manifest = json_decode((string)file_get_contents($manifestPath), true);
+        $approved = is_array($manifest) && is_array($manifest['php_files'] ?? null) ? array_values($manifest['php_files']) : [];
+        $approved = array_values(array_unique(array_map(static fn($v) => ltrim(str_replace('\\','/', (string)$v), '/'), $approved)));
+        sort($approved);
+        if (!$approved) throw new RuntimeException('MANAGER_PREFLIGHT_MANIFEST_INVALID: فهرست PHP معتبر نیست.');
+
+        $actual = [];
+        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($stage, FilesystemIterator::SKIP_DOTS));
+        foreach ($it as $item) {
+            if (!$item->isFile() || strtolower($item->getExtension()) !== 'php') continue;
+            $actual[] = str_replace('\\','/', substr($item->getPathname(), strlen(rtrim($stage, '/\\')) + 1));
+        }
+        sort($actual);
+        if ($actual !== $approved) throw new RuntimeException('MANAGER_PREFLIGHT_MANIFEST_DRIFT: PHPهای staging با manifest انتشار یکسان نیستند.');
+
+        $main = rtrim($stage, '/\\') . '/bluevpn-manager.php';
+        $bootstrap = (string)file_get_contents($main);
+        if (preg_match_all("/require_once\\s+BLUEVPN_MANAGER_DIR\\s*\\.\\s*['\"]([^'\"]+)['\"]/", $bootstrap, $matches)) {
+            foreach ((array)$matches[1] as $relative) {
+                if (!is_file(rtrim($stage, '/\\') . '/' . ltrim((string)$relative, '/\\'))) {
+                    throw new RuntimeException('MANAGER_PREFLIGHT_DEPENDENCY_MISSING: ' . (string)$relative);
+                }
+            }
+        }
+
+        if (!function_exists('proc_open')) throw new RuntimeException('MANAGER_PREFLIGHT_LINTER_UNAVAILABLE: proc_open روی هاست فعال نیست؛ جایگزینی مستقیم برای جلوگیری از Critical Error متوقف شد.');
+        $disabled = array_map('trim', explode(',', (string)ini_get('disable_functions')));
+        if (in_array('proc_open', $disabled, true)) throw new RuntimeException('MANAGER_PREFLIGHT_LINTER_UNAVAILABLE: proc_open غیرفعال است؛ جایگزینی مستقیم متوقف شد.');
+        $php = self::manager_php_cli();
+        if ($php === '') throw new RuntimeException('MANAGER_PREFLIGHT_LINTER_UNAVAILABLE: PHP CLI پیدا نشد؛ جایگزینی مستقیم متوقف شد.');
+        foreach ($approved as $relative) {
+            $result = self::run_process([$php, '-l', rtrim($stage, '/\\') . '/' . $relative], null, self::base_process_env(), 20);
+            if ((int)$result['code'] !== 0) {
+                $detail = trim((string)($result['stderr'] ?: $result['stdout']));
+                throw new RuntimeException('MANAGER_PREFLIGHT_PHP_LINT_FAILED: ' . $relative . ' | ' . mb_substr($detail, -1200));
+            }
+        }
+    }
+
+    /**
+     * Arm a tiny MU-plugin guard before the atomic swap. On the first request
+     * that boots the new Manager successfully it removes the backup. If a fatal
+     * from bluevpn-manager happens before plugins_loaded, shutdown restores the
+     * known-good directory automatically so wp-admin does not stay bricked.
+     */
+    private static function arm_manager_boot_recovery_guard(string $target, string $backup, string $expectedVersion): void {
+        if (!defined('WPMU_PLUGIN_DIR') || !defined('WP_CONTENT_DIR')) throw new RuntimeException('MANAGER_RECOVERY_GUARD_UNAVAILABLE: WordPress MU plugin path در دسترس نیست.');
+        if (!is_dir(WPMU_PLUGIN_DIR) && !wp_mkdir_p(WPMU_PLUGIN_DIR)) throw new RuntimeException('MANAGER_RECOVERY_GUARD_UNAVAILABLE: ساخت mu-plugins ناموفق بود.');
+        if (!is_writable(WPMU_PLUGIN_DIR) || !is_writable(WP_CONTENT_DIR)) throw new RuntimeException('MANAGER_RECOVERY_GUARD_UNAVAILABLE: مسیر Recovery قابل نوشتن نیست.');
+
+        $marker = rtrim(WP_CONTENT_DIR, '/\\') . '/.bluevpn-manager-recovery.json';
+        $guard = rtrim(WPMU_PLUGIN_DIR, '/\\') . '/bluevpn-manager-recovery.php';
+        $payload = [
+            'target' => $target,
+            'backup' => $backup,
+            'expected_version' => $expectedVersion,
+            'armed_at' => time(),
+        ];
+        if (@file_put_contents($marker, wp_json_encode($payload, JSON_UNESCAPED_SLASHES)) === false) throw new RuntimeException('MANAGER_RECOVERY_GUARD_WRITE_FAILED: marker نوشته نشد.');
+
+        $guardPhp = <<<'BLUEVPN_RECOVERY_GUARD'
+<?php
+if (!defined('ABSPATH')) return;
+$bluevpn_recovery_marker = WP_CONTENT_DIR . '/.bluevpn-manager-recovery.json';
+$bluevpn_recovery_load = static function () use ($bluevpn_recovery_marker) {
+    $raw = is_file($bluevpn_recovery_marker) ? @file_get_contents($bluevpn_recovery_marker) : '';
+    $data = json_decode((string)$raw, true);
+    return is_array($data) ? $data : [];
+};
+$bluevpn_recovery_rrmdir = static function ($dir) use (&$bluevpn_recovery_rrmdir) {
+    if (!is_dir($dir)) return;
+    $items = @scandir($dir) ?: [];
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') continue;
+        $path = $dir . DIRECTORY_SEPARATOR . $item;
+        if (is_dir($path) && !is_link($path)) $bluevpn_recovery_rrmdir($path); else @unlink($path);
+    }
+    @rmdir($dir);
+};
+register_shutdown_function(static function () use ($bluevpn_recovery_load, $bluevpn_recovery_rrmdir, $bluevpn_recovery_marker) {
+    $e = error_get_last();
+    if (!is_array($e) || !in_array((int)($e['type'] ?? 0), [E_ERROR,E_PARSE,E_CORE_ERROR,E_COMPILE_ERROR,E_USER_ERROR,E_RECOVERABLE_ERROR], true)) return;
+    $data = $bluevpn_recovery_load();
+    $target = (string)($data['target'] ?? '');
+    $backup = (string)($data['backup'] ?? '');
+    $file = str_replace('\\','/', (string)($e['file'] ?? ''));
+    if ($target === '' || $backup === '' || !is_dir($backup)) return;
+    if (!str_contains($file, str_replace('\\','/', $target) . '/')) return;
+    $failed = $target . '.failed-' . gmdate('YmdHis');
+    if (is_dir($target)) @rename($target, $failed);
+    if (@rename($backup, $target)) {
+        if (is_dir($failed)) $bluevpn_recovery_rrmdir($failed);
+        @unlink($bluevpn_recovery_marker);
+        @unlink(__FILE__);
+        error_log('BlueVPN Manager boot recovery restored the previous plugin after fatal: ' . (string)($e['message'] ?? 'fatal'));
+    }
+});
+add_action('plugins_loaded', static function () use ($bluevpn_recovery_load, $bluevpn_recovery_rrmdir, $bluevpn_recovery_marker) {
+    $data = $bluevpn_recovery_load();
+    $expected = (string)($data['expected_version'] ?? '');
+    $backup = (string)($data['backup'] ?? '');
+    if ($expected === '' || !defined('BLUEVPN_MANAGER_VERSION') || (string)BLUEVPN_MANAGER_VERSION !== $expected) return;
+    if (is_dir($backup)) $bluevpn_recovery_rrmdir($backup);
+    @unlink($bluevpn_recovery_marker);
+    @unlink(__FILE__);
+}, PHP_INT_MAX);
+BLUEVPN_RECOVERY_GUARD;
+        if (@file_put_contents($guard, $guardPhp . "\n") === false) {
+            @unlink($marker);
+            throw new RuntimeException('MANAGER_RECOVERY_GUARD_WRITE_FAILED: MU guard نوشته نشد.');
+        }
+        @chmod($guard, 0644);
+        @chmod($marker, 0600);
+    }
+
+    private static function disarm_manager_boot_recovery_guard(): void {
+        if (defined('WP_CONTENT_DIR')) @unlink(rtrim(WP_CONTENT_DIR, '/\\') . '/.bluevpn-manager-recovery.json');
+        if (defined('WPMU_PLUGIN_DIR')) @unlink(rtrim(WPMU_PLUGIN_DIR, '/\\') . '/bluevpn-manager-recovery.php');
+    }
+
     private static function install_manager_from_project_tree(string $root, string $expectedVersion): array {
         $source = rtrim($root, '/\\') . '/bluevpn-manager';
         $sourceMain = $source . '/bluevpn-manager.php';
@@ -1239,6 +1462,7 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
 
         try {
             self::copy_tree_atomic_source($source, $stage);
+            self::preflight_manager_stage($stage);
             $stageMain = $stage . '/bluevpn-manager.php';
             $stageVersion = self::manager_version_from_file($stageMain);
             if ($stageVersion === '' || version_compare($stageVersion, $sourceVersion, '!=')) {
@@ -1249,8 +1473,10 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
             if ($hadTarget && !@rename($target, $backup)) {
                 throw new RuntimeException('MANAGER_ATOMIC_BACKUP_FAILED: پوشه فعلی Manager قابل جابه‌جایی نیست.');
             }
+            if ($hadTarget) self::arm_manager_boot_recovery_guard($target, $backup, $sourceVersion);
             if (!@rename($stage, $target)) {
                 if ($hadTarget && is_dir($backup) && !is_dir($target)) @rename($backup, $target);
+                self::disarm_manager_boot_recovery_guard();
                 throw new RuntimeException('MANAGER_ATOMIC_SWAP_FAILED: جایگزینی Manager ناموفق بود؛ rollback انجام شد.');
             }
 
@@ -1258,6 +1484,7 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
             if ($installedVersion === '' || version_compare($installedVersion, $sourceVersion, '!=')) {
                 self::rrmdir($target);
                 if ($hadTarget && is_dir($backup)) @rename($backup, $target);
+                self::disarm_manager_boot_recovery_guard();
                 throw new RuntimeException('MANAGER_ATOMIC_VERIFY_FAILED: نسخه نصب‌شده تأیید نشد؛ rollback انجام شد.');
             }
 
@@ -1266,7 +1493,9 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
                 foreach ($php as $file) if ($file->isFile() && str_ends_with(strtolower($file->getFilename()), '.php')) @opcache_invalidate($file->getPathname(), true);
             }
             clearstatcache(true);
-            if (is_dir($backup)) self::rrmdir($backup);
+            // Keep the old directory until the next request successfully boots
+            // the newly installed Manager. The MU recovery guard owns cleanup.
+            if (!$hadTarget && is_dir($backup)) self::rrmdir($backup);
             update_option('bluevpn_manager_last_source_install', [
                 'version' => $installedVersion,
                 'at' => BlueVPN_Utils::now_mysql(),
@@ -1276,10 +1505,13 @@ Commit: <code>" . esc_html(substr($commit, 0, 12)) . "</code>
         } catch (Throwable $e) {
             self::rrmdir($stage);
             if (!is_dir($target) && is_dir($backup)) @rename($backup, $target);
+            self::disarm_manager_boot_recovery_guard();
             return ['success'=>false, 'skipped'=>false, 'message'=>$e->getMessage(), 'version'=>$sourceVersion];
         } finally {
             if (is_dir($stage)) self::rrmdir($stage);
-            if (is_dir($backup) && is_dir($target)) self::rrmdir($backup);
+            // If a guarded swap succeeded, keep backup for first-boot rollback.
+            // Failed swaps restore target in catch and may safely clean leftovers.
+            if (is_dir($backup) && !is_dir($target)) @rename($backup, $target);
         }
     }
 
@@ -2196,6 +2428,8 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
         global $wpdb;
         $t = self::jobs_table();
         $s = self::settings();
+        self::recover_stale_jobs($s);
+        self::repair_webhook_if_needed($s);
 
         $managerJobs = $wpdb->get_results("SELECT * FROM {$t} WHERE status IN ('waiting_manager','building_manager','updating_manager') ORDER BY created_at ASC LIMIT 10", ARRAY_A);
         foreach ($managerJobs as $job) {
@@ -2328,7 +2562,7 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
     private static function unlock_chat($chatId, array $s): void {
         global $wpdb;
         $t = self::jobs_table();
-        $jobs = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$t} WHERE chat_id=%s AND status IN ('queued','downloading','deploying','dispatching','waiting_manager','building_manager','updating_manager','waiting_build','building')", (string)$chatId), ARRAY_A);
+        $jobs = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$t} WHERE chat_id=%s AND status IN ('queued','retry','downloading','deploying','dispatching','waiting_manager','building_manager','updating_manager','waiting_build','building')", (string)$chatId), ARRAY_A);
         $cancelledRuns = 0;
         $skippedRuns = 0;
         foreach ($jobs as $job) {

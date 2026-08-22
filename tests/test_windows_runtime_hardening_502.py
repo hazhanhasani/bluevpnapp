@@ -8,9 +8,9 @@ def text(rel):
 
 def test_release_is_502_and_codes_match():
     rel=json.loads(text('release.json')); app=json.loads(text('branding/app.json'))
-    assert rel['version']=='5.1.6' and rel['version_code']==50106
-    assert app['version_name']=='5.1.6' and app['version_code']==50106
-    assert rel['windows_version']=='5.1.6' and rel['windows_version_code']==50106
+    assert rel['version']=='5.1.7' and rel['version_code']==50107
+    assert app['version_name']=='5.1.7' and app['version_code']==50107
+    assert rel['windows_version']=='5.1.7' and rel['windows_version_code']==50107
 
 def test_subscription_is_https_and_uses_no_bearer_raw_client():
     s=text('bluevpn-windows/Services/BlueVpnApiClient.cs')

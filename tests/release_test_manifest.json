@@ -64,6 +64,7 @@
     "test_site_theme_autoupdate_4161.py",
     "test_sms_otp_autofill_477.py",
     "test_split_apk_abi_validation_496.py",
+    "test_stability_auto_recovery_517.py",
     "test_staged_regression_gate_4100.py",
     "test_subscription_expiry_idempotency_4174.py",
     "test_subscription_expiry_repair_4175.py",

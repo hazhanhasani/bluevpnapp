@@ -177,6 +177,27 @@ jobs:
               path.write_text(text, encoding="utf-8")
           PY_NDK
 
+      - name: Apply Android 16KB native packaging compatibility fix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY_PATCH'
+          from pathlib import Path
+          path = Path('upstream/V2rayNG/app/build.gradle.kts')
+          if path.exists():
+              text = path.read_text(encoding='utf-8')
+              block = """
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+"""
+              if 'useLegacyPackaging = false' not in text:
+                  text = text.replace('android {', 'android {' + block, 1)
+                  path.write_text(text, encoding='utf-8')
+          PY_PATCH
+
       - name: Restore libhevtun cache
         id: hevtun-cache
         uses: actions/cache@v5

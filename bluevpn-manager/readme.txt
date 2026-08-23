@@ -1,18 +1,13 @@
 === BlueVPN Manager ===
-Version: 5.2.0
-Stable tag: 5.2.0
+Version: 5.2.1
+Stable tag: 5.2.1
 Requires PHP: 8.0
 
-== 5.2.0 ==
-- Subscription URLهای HTTPS/HTTP با Port سفارشی مثل 8000/8443/2053 بدون خطای کاذب «URL نامعتبر» تست می‌شوند؛ حفاظت SSRF/private-IP حفظ شده است.
-- Base64 استاندارد و URL-safe، newlineهای escaped و Hysteria/Hy2 در Parser Source پشتیبانی می‌شوند و Source بعد از ذخیره خودکار تست می‌شود.
-- Fetch ساب با retry محدود، redirect کنترل‌شده و خطای redacted انجام می‌شود تا Token/Path حساس در پیام خطا لو نرود.
-- Aggregator پلن‌های دستی همان fetch امن Source را استفاده می‌کند تا تست پنل و مصرف واقعی رفتار یکسان داشته باشند.
-- Bot دستور «🩺 عیب‌یابی» برای Webhook/Jobs/WP-Cron/cURL/ZipArchive دارد.
-- Android بعد از handover شبکه، آخرین مسیر تأییدشده را در پنجره کوتاه recovery زودتر امتحان می‌کند و probeهای adaptive را فقط به‌عنوان هدف تست واقعی داخل Xray استفاده می‌کند.
-- Windows رتبه‌بندی endpoint را با چند نمونه TCP، jitter، success samples و recent-success stickiness انجام می‌دهد و تا چهار مسیر سالم را progressive امتحان می‌کند.
-- پوسته سایت reduced-motion، وضعیت offline، focus-visible و فرم‌های موبایل پایدارتر دریافت کرده است.
-- Schema دیتابیس بدون تغییر روی 1.30.0 باقی مانده است.
+== 5.2.1 ==
+* Connection/release hardening across Android, Windows, Manager, Telegram bot and Site.
+* Sentinel respects intentionally suppressed PHP warnings (including cleanup @unlink paths) and ignores expected client-validation noise such as EMAIL_INVALID while preserving real failures.
+* /diagnose surfaces the latest GitHub run, failed job and failed step; failed build jobs persist the same actionable step summary.
+* GitHub Actions failure delivery now extracts real Gradle/regression error lines, includes a bounded log tail, and uploads complete build-failure diagnostics.
 
 == 5.1.9 ==
 - Gateway Autopilot به‌صورت پیش‌فرض روشن است؛ Capacity از CPU/RAM واقعی Agent محاسبه می‌شود.

@@ -57,8 +57,21 @@ public static class EndpointSelector
         var second = await ProbeOnceAsync(host, port, 650, ct).ConfigureAwait(false);
         if (second == int.MaxValue) return new ProbeQuality(first, 300, 1, 2);
 
-        var latency = (first + second) / 2;
         var jitter = Math.Abs(first - second);
+        if (jitter >= 90)
+        {
+            // Close/jittery routes receive one extra bounded sample so a single
+            // scheduler/network spike does not push a healthy endpoint to the top.
+            var third = await ProbeOnceAsync(host, port, 650, ct).ConfigureAwait(false);
+            if (third == int.MaxValue)
+                return new ProbeQuality((first + second) / 2, Math.Max(jitter, 300), 2, 3);
+            var samples = new[] { first, second, third };
+            var latency3 = (int)samples.Average();
+            var jitter3 = samples.Max() - samples.Min();
+            return new ProbeQuality(Math.Max(1, latency3), jitter3, 3, 3);
+        }
+
+        var latency = (first + second) / 2;
         return new ProbeQuality(Math.Max(1, latency), jitter, 2, 2);
     }
 

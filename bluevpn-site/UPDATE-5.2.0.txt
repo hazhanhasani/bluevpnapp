@@ -1,4 +1,4 @@
-BlueVPN Site 5.2.0
+BlueVPN Site 5.2.1
 
 - Offline/online status feedback.
 - Reduced-motion safe reveal behavior.

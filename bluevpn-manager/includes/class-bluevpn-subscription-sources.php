@@ -6,6 +6,9 @@ if (!defined('ABSPATH')) exit;
  * URL tokens and inline configs are encrypted at rest and are never returned to apps.
  */
 final class BlueVPN_Subscription_Sources {
+    private const CACHE_TTL_SECONDS = 300;
+    private const STALE_IF_ERROR_SECONDS = 1800;
+
     public static function init(): void {
         add_action('admin_post_bluevpn_cc_save_subscription_source',[self::class,'save']);
         add_action('admin_post_bluevpn_cc_toggle_subscription_source',[self::class,'toggle']);
@@ -128,12 +131,51 @@ final class BlueVPN_Subscription_Sources {
         $code=sanitize_key((string)$error->get_error_code());return $code!==''?$code:'transport_error';
     }
 
+    private static function cache_key(string $url): string {
+        // Only a digest of the token-bearing URL is stored in the transient key.
+        return 'bluevpn_subsrc_'.substr(hash('sha256',trim($url)),0,40);
+    }
+
+    private static function cache_success(string $url,array $lines): void {
+        if(!$lines)return;
+        set_transient(self::cache_key($url),[
+            'fetched_at'=>time(),
+            'lines'=>array_slice(array_values($lines),0,5000),
+        ],self::STALE_IF_ERROR_SECONDS+120);
+    }
+
+    private static function cached_success(string $url,int $maxAge): ?array {
+        $cached=get_transient(self::cache_key($url));
+        if(!is_array($cached))return null;
+        $at=(int)($cached['fetched_at']??0);$lines=(array)($cached['lines']??[]);
+        if($at<=0||!$lines||time()-$at<0||time()-$at>$maxAge)return null;
+        $valid=[];foreach($lines as $line){$line=trim((string)$line);if(preg_match(self::supported_uri_pattern(),$line))$valid[]=$line;}
+        if(!$valid)return null;
+        return ['lines'=>array_values(array_unique($valid)),'age'=>max(0,time()-$at)];
+    }
+
+    private static function stale_fallback(string $url,string $reason,int $status=0): ?array {
+        $cached=self::cached_success($url,self::STALE_IF_ERROR_SECONDS);
+        if(!$cached)return null;
+        $age=(int)$cached['age'];$minutes=max(1,(int)ceil($age/60));
+        return [
+            'ok'=>true,
+            'lines'=>(array)$cached['lines'],
+            'message'=>'Source موقتاً در دسترس نیست؛ آخرین نسخه سالم '.$minutes.' دقیقه قبل استفاده شد ('.$reason.').',
+            'status'=>$status,
+            'endpoint'=>self::endpoint_label($url),
+            'stale'=>true,
+            'cache_age'=>$age,
+        ];
+    }
+
     public static function fetch_url_configs(string $url,int $maxRedirects=4): array {
-        $current=trim($url);$visited=[];$maxRedirects=max(0,min(5,$maxRedirects));
+        $origin=trim($url);$current=$origin;$visited=[];$maxRedirects=max(0,min(5,$maxRedirects));
         for($redirect=0;$redirect<=$maxRedirects;$redirect++){
             $valid=self::validate_subscription_url($current);
             if(empty($valid['ok']))return ['ok'=>false,'lines'=>[],'message'=>(string)$valid['message'],'status'=>0,'endpoint'=>self::endpoint_label($current)];
             $current=(string)$valid['url'];$key=hash('sha256',$current);if(isset($visited[$key]))return ['ok'=>false,'lines'=>[],'message'=>'Redirect loop در Subscription URL شناسایی شد.','status'=>0,'endpoint'=>self::endpoint_label($current)];$visited[$key]=true;
+            if($redirect===0){$fresh=self::cached_success($origin,self::CACHE_TTL_SECONDS);if($fresh)return ['ok'=>true,'lines'=>(array)$fresh['lines'],'message'=>count((array)$fresh['lines']).' کانفیگ معتبر از cache تازه Source استفاده شد.','status'=>200,'endpoint'=>self::endpoint_label($current),'stale'=>false,'cache_age'=>(int)$fresh['age']];}
             $response=null;$lastError='';$timeouts=[7,12];
             foreach($timeouts as $attempt=>$timeout){
                 $headers=['User-Agent'=>'BlueVPN-Subscription-Source/'.BLUEVPN_MANAGER_VERSION,'Accept'=>'text/plain,application/octet-stream,*/*;q=0.8','X-BlueVPN-Sentinel-Ignore'=>'1'];
@@ -142,7 +184,7 @@ final class BlueVPN_Subscription_Sources {
                 add_filter('http_allowed_safe_ports',$allowPort,10,1);
                 try{$r=wp_safe_remote_get($current,['timeout'=>$timeout,'redirection'=>0,'sslverify'=>true,'limit_response_size'=>8*1024*1024,'headers'=>$headers]);}
                 finally{remove_filter('http_allowed_safe_ports',$allowPort,10);}
-                if(is_wp_error($r)){$lastError=self::transport_error_label($r);if($attempt+1<count($timeouts)){usleep(250000);continue;}return ['ok'=>false,'lines'=>[],'message'=>'دریافت Subscription از '.self::endpoint_label($current).' ناموفق بود ('.$lastError.').','status'=>0,'endpoint'=>self::endpoint_label($current)];}
+                if(is_wp_error($r)){$lastError=self::transport_error_label($r);if($attempt+1<count($timeouts)){usleep(250000);continue;}$stale=self::stale_fallback($origin,$lastError,0);if($stale)return $stale;return ['ok'=>false,'lines'=>[],'message'=>'دریافت Subscription از '.self::endpoint_label($current).' ناموفق بود ('.$lastError.').','status'=>0,'endpoint'=>self::endpoint_label($current)];}
                 $code=(int)wp_remote_retrieve_response_code($r);
                 if(in_array($code,[408,425,429,500,502,503,504],true)&&$attempt+1<count($timeouts)){usleep(350000);continue;}
                 $response=$r;break;
@@ -157,10 +199,10 @@ final class BlueVPN_Subscription_Sources {
                 elseif(!preg_match('~^https?://~i',$location)){$base=preg_replace('~/[^/]*$~','/',$current)??$current;$location=$base.ltrim($location,'/');}
                 $current=$location;continue;
             }
-            if($code<200||$code>=300)return ['ok'=>false,'lines'=>[],'message'=>'Subscription از '.self::endpoint_label($current).' با HTTP '.$code.' پاسخ داد.','status'=>$code,'endpoint'=>self::endpoint_label($current)];
+            if($code<200||$code>=300){if(in_array($code,[408,425,429,500,502,503,504],true)){$stale=self::stale_fallback($origin,'HTTP '.$code,$code);if($stale)return $stale;}return ['ok'=>false,'lines'=>[],'message'=>'Subscription از '.self::endpoint_label($current).' با HTTP '.$code.' پاسخ داد.','status'=>$code,'endpoint'=>self::endpoint_label($current)];}
             $body=(string)wp_remote_retrieve_body($response);$lines=self::parse_lines($body);
             if(!$lines)return ['ok'=>false,'lines'=>[],'message'=>'پاسخ Subscription دریافت شد اما کانفیگ پشتیبانی‌شده‌ای داخل آن نبود.','status'=>$code,'endpoint'=>self::endpoint_label($current)];
-            return ['ok'=>true,'lines'=>$lines,'message'=>count($lines).' کانفیگ معتبر از '.self::endpoint_label($current).' دریافت شد.','status'=>$code,'endpoint'=>self::endpoint_label($current)];
+            self::cache_success($origin,$lines);return ['ok'=>true,'lines'=>$lines,'message'=>count($lines).' کانفیگ معتبر از '.self::endpoint_label($current).' دریافت شد.','status'=>$code,'endpoint'=>self::endpoint_label($current),'stale'=>false,'cache_age'=>0];
         }
         return ['ok'=>false,'lines'=>[],'message'=>'Subscription URL قابل دریافت نیست.','status'=>0,'endpoint'=>self::endpoint_label($current)];
     }
@@ -180,7 +222,7 @@ final class BlueVPN_Subscription_Sources {
         if($id>0){$ok=$wpdb->update(self::table(),$data,['id'=>$id]);}
         else{$data['created_at']=BlueVPN_Utils::now_mysql();$ok=$wpdb->insert(self::table(),$data);$id=(int)$wpdb->insert_id;}
         if($ok===false)self::redirect('ذخیره Source ناموفق بود.',true);
-        // 5.2.0: validate immediately after save so a typo/bad subscription is
+        // 5.2.1: validate immediately after save so a typo/bad subscription is
         // visible at the moment it is entered rather than much later during a
         // customer's refresh. Failure does not delete the encrypted source.
         $saved=self::source($id);$result=$saved?self::validate_payload((string)$saved['source_type'],self::plaintext($saved)):['ok'=>false,'message'=>'Source بعد از ذخیره قابل خواندن نبود.'];
@@ -212,7 +254,7 @@ final class BlueVPN_Subscription_Sources {
 
     public static function render_admin_tab(): void {
         $rows=self::rows(false);
-        echo '<div class="bvc-page-tools"><div><h2 class="bvc-section-title">Sourceهای اشتراک پولی</h2><p class="bvc-section-subtitle">ساب URL یا کانفیگ دستی را رمزنگاری‌شده ذخیره کن؛ پورت‌های HTTPS سفارشی مثل 8000/8443 پشتیبانی و بعد از ذخیره خودکار تست می‌شوند.</p></div></div>';
+        echo '<div class="bvc-page-tools"><div><h2 class="bvc-section-title">Sourceهای اشتراک پولی</h2><p class="bvc-section-subtitle">ساب URL یا کانفیگ دستی را رمزنگاری‌شده ذخیره کن؛ پورت‌های سفارشی مثل 8000/8443 پشتیبانی می‌شوند؛ در قطعی موقت هم آخرین Source سالم حداکثر ۳۰ دقیقه به‌صورت fail-safe نگه داشته می‌شود.</p></div></div>';
         echo '<details class="bvc-card bvc-disclosure" '.(!$rows?'open':'').'><summary><span><strong>افزودن Source</strong><small>URL یا متن کانفیگ</small></span><span>⌄</span></summary><div class="bvc-disclosure-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_subscription_source_0');echo '<input type="hidden" name="action" value="bluevpn_cc_save_subscription_source"><input type="hidden" name="source_id" value="0"><div class="bvc-form-grid"><label>نام<input name="name" required></label><label>نوع<select name="source_type"><option value="url">Subscription URL (custom ports supported)</option><option value="inline">Inline configs</option></select></label></div><label style="display:block;margin-top:10px">URL / Configs <small>(http/https با پورت سفارشی مجاز است)</small><textarea name="payload" rows="7" style="width:100%" required></textarea></label><label><input type="checkbox" name="active" value="1" checked> فعال</label><div class="bvc-form-actions"><button class="button button-primary">ذخیره Source</button></div></form></div></details>';
         if(!$rows){echo '<div class="bvc-empty-state"><strong>هنوز Source دستی ثبت نشده است.</strong></div>';return;}
         echo '<div class="bvc-plan-list">';foreach($rows as $row){$id=(int)$row['id'];$toggle=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_toggle_subscription_source&id='.$id),'bluevpn_cc_toggle_subscription_source_'.$id);$test=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_test_subscription_source&id='.$id),'bluevpn_cc_test_subscription_source_'.$id);echo '<article class="bvc-plan-card '.((int)$row['active']?'is-active':'is-inactive').'"><header class="bvc-plan-head"><div><h3>'.esc_html((string)$row['name']).'</h3><p>'.esc_html(strtoupper((string)$row['source_type'])).' • Payload encrypted at rest</p></div><span class="bvc-status-pill '.((int)$row['active']?'is-active':'is-inactive').'">'.((int)$row['active']?'فعال':'غیرفعال').'</span></header><div class="bvc-plan-metrics"><div><span>آخرین تست</span><strong>'.(!empty($row['last_test_at'])?esc_html(BlueVPN_Utils::tehran_datetime_fa((string)$row['last_test_at'])):'—').'</strong></div><div><span>نتیجه</span><strong>'.((int)$row['last_test_ok']?'سالم':'نیاز به تست').'</strong></div></div><div class="bvc-actions"><a class="button" href="'.esc_url($test).'">تست</a><a class="button" href="'.esc_url($toggle).'">'.((int)$row['active']?'غیرفعال':'فعال').' کردن</a></div><details class="bvc-plan-routing"><summary>ویرایش</summary><div class="bvc-plan-routing-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_subscription_source_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_save_subscription_source"><input type="hidden" name="source_id" value="'.$id.'"><div class="bvc-form-grid"><label>نام<input name="name" value="'.esc_attr((string)$row['name']).'" required></label><label>نوع<select name="source_type"><option value="url" '.selected((string)$row['source_type'],'url',false).'>Subscription URL</option><option value="inline" '.selected((string)$row['source_type'],'inline',false).'>Inline configs</option></select></label></div><label style="display:block;margin-top:10px">Payload جدید (خالی = بدون تغییر)<textarea name="payload" rows="6" style="width:100%"></textarea></label><label><input type="checkbox" name="active" value="1" '.checked((int)$row['active'],1,false).'> فعال</label><button class="button button-primary">ذخیره</button></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="margin-top:10px">';wp_nonce_field('bluevpn_cc_delete_subscription_source_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_delete_subscription_source"><input type="hidden" name="source_id" value="'.$id.'"><button class="button button-link-delete" onclick="return confirm(\'حذف شود؟\')">حذف</button></form></div></details></article>';}

@@ -89,6 +89,7 @@ public sealed class ConnectionOrchestrator : IDisposable
                     : (_settings.Warp.RejectIrExit ? new[] { "IR" } : Array.Empty<string>());
                 var verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, true, blocked, _settings.Tun.Name, ct).ConfigureAwait(false);
                 // Legacy validator contract: VerifyAsync(before, _settings.ProbeUrl, true, blocked, ct)
+                verified = await ConfirmStableTunnelAsync(before, verified, true, blocked, ct).ConfigureAwait(false);
                 if (!verified.Success) throw new InvalidOperationException(verified.Detail);
 
                 _verifiedConnected = true;
@@ -183,6 +184,8 @@ public sealed class ConnectionOrchestrator : IDisposable
                     progress?.Report("TUN کامل نشد؛ فعال‌سازی مسیر سازگار سریع…");
                     verified = await _xray.FallbackToSystemProxyAsync(before, _settings.ProbeUrl, ct).ConfigureAwait(false);
                 }
+                if (verified.Success)
+                    verified = await ConfirmStableTunnelAsync(before, verified, false, Array.Empty<string>(), ct).ConfigureAwait(false);
                 if (!verified.Success)
                     throw new InvalidOperationException($"اتصال سیستم کامل نشد: {verified.Detail}");
 
@@ -213,6 +216,27 @@ public sealed class ConnectionOrchestrator : IDisposable
         }
 
         throw new InvalidOperationException(lastError?.Message ?? "هیچ مسیر سالمی پیدا نشد.");
+    }
+
+    private async Task<TunnelVerificationResult> ConfirmStableTunnelAsync(
+        ConnectivitySnapshot before,
+        TunnelVerificationResult first,
+        bool warp,
+        IReadOnlyCollection<string> blocked,
+        CancellationToken ct)
+    {
+        if (!first.Success) return first;
+        await Task.Delay(280, ct).ConfigureAwait(false);
+        var confirmation = await SystemTunnelVerifier.VerifyAsync(
+            before,
+            _settings.ProbeUrl,
+            warp,
+            blocked,
+            _settings.Tun.Name,
+            ct).ConfigureAwait(false);
+        return confirmation.Success
+            ? confirmation
+            : confirmation with { Detail = $"تأیید دوم اتصال ناموفق بود: {Short(confirmation.Detail)}" };
     }
 
     private void CancelConnectAttempt()

@@ -1,4 +1,4 @@
-BlueVPN Manager 5.2.0
+BlueVPN Manager 5.2.1
 
 - Custom-port Subscription URL validation with SSRF/private-IP protection.
 - URL-safe Base64 + escaped-newline source parsing and auto-test on save.

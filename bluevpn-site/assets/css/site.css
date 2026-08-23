@@ -1407,11 +1407,15 @@ html,body,.bv-site-frame,.bv-home-v5{max-width:100%;overflow-x:hidden}
 .bv-download-simple-note{font-size:12px!important;color:#7c8ba0!important;line-height:1.8!important}.bv-download-coming-soon{display:flex;flex-direction:column;gap:6px;padding:18px 20px;border-radius:18px;background:#f5f8ff;border:1px solid #e0e9f7;color:#1d2a3d}.bv-download-coming-soon b{font-size:14px}.bv-download-coming-soon span{font-size:12px;color:#74839a;line-height:1.8}
 
 
-/* BlueVPN 5.2.0 — resilient mobile/offline UX and reduced-motion safe rendering. */
+/* BlueVPN 5.2.1 — resilient mobile/offline UX and reduced-motion safe rendering. */
 .bv-network-status{position:fixed;right:50%;bottom:max(18px,env(safe-area-inset-bottom));z-index:120;display:flex;align-items:center;gap:9px;max-width:calc(100vw - 32px);padding:10px 14px;border-radius:14px;background:rgba(19,31,49,.96);border:1px solid rgba(255,183,92,.28);box-shadow:0 16px 45px rgba(0,0,0,.28);color:#f6f9ff;font-size:11px;opacity:0;pointer-events:none;transform:translate(50%,18px);transition:opacity .2s ease,transform .2s ease}.bv-network-status span{width:8px;height:8px;border-radius:50%;background:#ffb15c;box-shadow:0 0 0 5px rgba(255,177,92,.11)}.bv-network-status b{font-size:11px}.bv-network-status.is-visible{opacity:1;transform:translate(50%,0)}
 @media(max-width:680px){.bv-toast{left:16px;right:16px;bottom:max(16px,env(safe-area-inset-bottom));max-width:none;text-align:center}.bv-network-status{bottom:max(14px,env(safe-area-inset-bottom));width:max-content}}
 @media(prefers-reduced-motion:reduce){html.bv-motion [data-bv-reveal],.bv-motion [data-bv-reveal]{opacity:1!important;transform:none!important}.bv-product-stage,.bv-app-shell,.bv-connect-orb-pulse{animation:none!important;transform:none!important}}
 
-/* BlueVPN 5.2.0 — keyboard/touch accessibility hardening. */
+/* BlueVPN 5.2.1 — keyboard/touch accessibility hardening. */
 :where(.bv-site a,.bv-site button,.bv-site input,.bv-site select,.bv-site textarea,[data-bv-app] a,[data-bv-app] button,[data-bv-app] input,[data-bv-app] select,[data-bv-app] textarea):focus-visible{outline:3px solid currentColor;outline-offset:3px}
 @media(max-width:720px){:where(.bv-site form,[data-bv-app] form) :where(input:not([type="checkbox"]):not([type="radio"]),select,textarea){width:100%;max-width:100%;min-height:44px}:where(.bv-site .bv-btn,.bv-site button,[data-bv-app] button,[data-bv-app] input[type="submit"]){min-height:44px;touch-action:manipulation}}
+
+/* 5.2.1 — resilient offline/API feedback */
+.bv-offline [data-buy-plan]{filter:saturate(.75);}
+.bv-offline [data-bv-network-status]{pointer-events:none;}

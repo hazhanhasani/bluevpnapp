@@ -313,6 +313,8 @@ final class BlueVPN_Telegram_Bot {
             self::send_status($chatId, $s);
         } elseif (in_array($text, ['/sources', '🧪 سلامت Sourceها'], true)) {
             self::send_source_health($chatId, $s);
+        } elseif (in_array($text, ['/releasecheck', '🧭 سلامت نسخه'], true)) {
+            self::send_release_health($chatId, $s);
         } elseif (in_array($text, ['/diagnose', '🩺 عیب‌یابی'], true)) {
             self::send_diagnostics($chatId, $s);
         } elseif (in_array($text, ['/unlock', '🔓 آزادسازی عملیات'], true)) {
@@ -334,7 +336,8 @@ final class BlueVPN_Telegram_Bot {
         return ['keyboard' => [
             [['text' => '📦 نصب و ساخت خودکار']],
             [['text' => '🟡 صف GuardCore'], ['text' => '📊 وضعیت']],
-            [['text' => '🧪 سلامت Sourceها'], ['text' => '🩺 عیب‌یابی']],
+            [['text' => '🧪 سلامت Sourceها'], ['text' => '🧭 سلامت نسخه']],
+            [['text' => '🩺 عیب‌یابی']],
             [['text' => '🚀 ساخت فوری'], ['text' => '⬇️ دریافت آخرین APK']],
             [['text' => '🧩 بروزرسانی Manager'], ['text' => '🔐 بررسی امضا']],
             [['text' => '🔓 آزادسازی عملیات']],
@@ -2461,8 +2464,14 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
                     }
                     $conclusion = (string)($match['conclusion'] ?? 'unknown');
                     if ($conclusion !== 'success') {
-                        self::update_job((string)$job['id'], ['status' => 'failed', 'run_id' => $runId, 'run_url' => $runUrl, 'last_error' => 'Manager release: ' . $conclusion, 'finished_at' => BlueVPN_Utils::now_mysql()]);
-                        self::send_message($job['chat_id'], "❌ انتشار Manager ناموفق بود.\nنتیجه: <code>" . esc_html($conclusion) . '</code>' . ($runUrl ? "\n<a href=\"" . esc_url($runUrl) . '\">مشاهده Log</a>' : ''), self::keyboard(), $s);
+                        $failure = self::github_run_failure_summary($runId, $s);
+                        $failedStep = !empty($failure['steps']) ? (string)$failure['steps'][0] : '';
+                        $error = 'Manager release: ' . $conclusion . ($failedStep !== '' ? ' | step: ' . $failedStep : '');
+                        self::update_job((string)$job['id'], ['status' => 'failed', 'run_id' => $runId, 'run_url' => $runUrl, 'last_error' => $error, 'finished_at' => BlueVPN_Utils::now_mysql()]);
+                        $message = "❌ انتشار Manager ناموفق بود.\nنتیجه: <code>" . esc_html($conclusion) . '</code>';
+                        if ($failedStep !== '') $message .= "\nمرحله: <code>" . esc_html($failedStep) . '</code>';
+                        if ($runUrl) $message .= "\n<a href=\"" . esc_url($runUrl) . '\">مشاهده Log</a>';
+                        self::send_message($job['chat_id'], $message, self::keyboard(), $s);
                         continue;
                     }
                     self::update_job((string)$job['id'], ['status' => 'updating_manager', 'run_id' => $runId, 'run_url' => $runUrl]);
@@ -2517,8 +2526,14 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
                     self::send_message($job['chat_id'], "🎉 <b>Build موفق شد</b>\n" . ($runUrl ? '<a href="' . esc_url($runUrl) . '">مشاهده GitHub Actions</a>\n' : '') . "نسخه جدید آماده دریافت است.", self::keyboard(), $s);
                     self::send_latest($job['chat_id'], $s);
                 } else {
-                    self::update_job((string)$job['id'], ['status' => 'failed', 'run_id' => $runId, 'run_url' => $runUrl, 'last_error' => 'Build: ' . $conclusion, 'finished_at' => BlueVPN_Utils::now_mysql()]);
-                    self::send_message($job['chat_id'], "❌ Build ناموفق بود.\nنتیجه: <code>" . esc_html($conclusion) . '</code>' . ($runUrl ? "\n<a href=\"" . esc_url($runUrl) . '\">مشاهده Log</a>' : ''), self::keyboard(), $s);
+                    $failure = self::github_run_failure_summary($runId, $s);
+                    $failedStep = !empty($failure['steps']) ? (string)$failure['steps'][0] : '';
+                    $error = 'Build: ' . $conclusion . ($failedStep !== '' ? ' | step: ' . $failedStep : '');
+                    self::update_job((string)$job['id'], ['status' => 'failed', 'run_id' => $runId, 'run_url' => $runUrl, 'last_error' => $error, 'finished_at' => BlueVPN_Utils::now_mysql()]);
+                    $message = "❌ Build ناموفق بود.\nنتیجه: <code>" . esc_html($conclusion) . '</code>';
+                    if ($failedStep !== '') $message .= "\nمرحله: <code>" . esc_html($failedStep) . '</code>';
+                    if ($runUrl) $message .= "\n<a href=\"" . esc_url($runUrl) . '\">مشاهده Log</a>';
+                    self::send_message($job['chat_id'], $message, self::keyboard(), $s);
                 }
             } catch (Throwable $e) {
                 self::update_job((string)$job['id'], ['attempts' => (int)$job['attempts'] + 1, 'last_error' => self::redact($e->getMessage(), $s)]);
@@ -2577,10 +2592,68 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
         self::send_message($chatId,implode("\n",$lines),self::keyboard(),$s);
     }
 
+    private static function send_release_health($chatId,array $s): void {
+        $theme=wp_get_theme();
+        $themeVersion=$theme&&method_exists($theme,'get')?trim((string)$theme->get('Version')):'';
+        $androidStable=class_exists('BlueVPN_App_Release_Manager')?BlueVPN_App_Release_Manager::stable_release():null;
+        $androidBeta=class_exists('BlueVPN_App_Release_Manager')?BlueVPN_App_Release_Manager::beta_release():null;
+        $windowsStable=class_exists('BlueVPN_Windows_Release_Manager')?BlueVPN_Windows_Release_Manager::stable_release():null;
+        $windowsBeta=class_exists('BlueVPN_Windows_Release_Manager')?BlueVPN_Windows_Release_Manager::beta_release():null;
+        $pendingWindows=class_exists('BlueVPN_Windows_Release_Manager')?BlueVPN_Windows_Release_Manager::pending_stable_version():'';
+        $fmt=static fn($row):string=>is_array($row)&&!empty($row['version'])?(string)$row['version']:'—';
+        $themeAligned=$themeVersion===''||$themeVersion===BLUEVPN_MANAGER_VERSION;
+        $lines=[
+            "🧭 <b>سلامت انتشار BlueVPN</b>",
+            'Manager: <code>'.esc_html(BLUEVPN_MANAGER_VERSION).'</code>',
+            'Theme فعال: <code>'.esc_html($themeVersion!==''?$themeVersion:'unknown').'</code> '.($themeAligned?'✅':'⚠️'),
+            'Android Stable/Beta: <code>'.esc_html($fmt($androidStable)).' / '.esc_html($fmt($androidBeta)).'</code>',
+            'Windows Stable/Beta: <code>'.esc_html($fmt($windowsStable)).' / '.esc_html($fmt($windowsBeta)).'</code>',
+        ];
+        if($pendingWindows!=='')$lines[]='Windows pending Stable: <code>'.esc_html($pendingWindows).'</code>';
+        if(!$themeAligned)$lines[]='⚠️ نسخه پوسته با Manager همگام نیست؛ قبل از انتشار Stable پوسته را هم بروزرسانی کن.';
+        $lines[]='این گزارش Secret، URL ساب یا Token منتشر نمی‌کند.';
+        self::send_message($chatId,implode("\n",$lines),self::keyboard(),$s);
+    }
+
+    private static function github_run_failure_summary(int $runId, array $s): array {
+        if ($runId <= 0) return [];
+        try {
+            $payload = self::gh('GET', self::repo_path($s) . '/actions/runs/' . $runId . '/jobs?per_page=100', null, $s);
+            $failedJob = '';
+            $jobConclusion = '';
+            $failedSteps = [];
+            foreach ((array)($payload['jobs'] ?? []) as $job) {
+                if (!is_array($job)) continue;
+                $conclusion = strtolower(trim((string)($job['conclusion'] ?? '')));
+                if (!in_array($conclusion, ['failure','cancelled','timed_out','action_required','startup_failure'], true)) continue;
+                if ($failedJob === '') {
+                    $failedJob = sanitize_text_field((string)($job['name'] ?? 'GitHub Actions job'));
+                    $jobConclusion = $conclusion;
+                }
+                foreach ((array)($job['steps'] ?? []) as $step) {
+                    if (!is_array($step)) continue;
+                    $stepConclusion = strtolower(trim((string)($step['conclusion'] ?? '')));
+                    if (!in_array($stepConclusion, ['failure','cancelled','timed_out','action_required','startup_failure'], true)) continue;
+                    $name = sanitize_text_field((string)($step['name'] ?? ''));
+                    if ($name !== '' && !in_array($name, $failedSteps, true)) $failedSteps[] = $name;
+                    if (count($failedSteps) >= 4) break 2;
+                }
+            }
+            return [
+                'job' => $failedJob,
+                'conclusion' => $jobConclusion,
+                'steps' => $failedSteps,
+            ];
+        } catch (Throwable $e) {
+            return ['lookup_error' => self::redact($e->getMessage(), $s)];
+        }
+    }
+
     private static function send_diagnostics($chatId,array $s): void {
         global $wpdb;
         $t=self::jobs_table();
         $active=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t} WHERE status IN ('queued','retry','downloading','deploying','dispatching','waiting_manager','building_manager','updating_manager','waiting_build','building')");
+        $latestJob=$wpdb->get_row("SELECT * FROM {$t} ORDER BY created_at DESC LIMIT 1",ARRAY_A);
         $nextPoll=wp_next_scheduled(self::POLL_HOOK);
         $cronDisabled=defined('DISABLE_WP_CRON')&&DISABLE_WP_CRON;
         $webhook=self::api('getWebhookInfo',[],$s);
@@ -2601,8 +2674,32 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
         ];
         if($lastUpdate!=='')$lines[]='آخرین Update ربات: <code>'.esc_html($lastUpdate).'</code>';
         if(is_wp_error($webhook))$lines[]='Webhook check: <code>'.esc_html(sanitize_key((string)$webhook->get_error_code())).'</code>';
+        elseif(!empty($webhook['last_error_message']))$lines[]='Webhook error: <code>'.esc_html(mb_substr((string)$webhook['last_error_message'],0,500)).'</code>';
+
+        if(is_array($latestJob)){
+            $lines[]='';
+            $lines[]='<b>آخرین Build/Deploy</b>';
+            $lines[]='Job: <code>'.esc_html((string)($latestJob['kind']??'unknown')).' / '.esc_html((string)($latestJob['status']??'unknown')).'</code>';
+            $commit=trim((string)($latestJob['commit_sha']??''));
+            if($commit!=='')$lines[]='Commit: <code>'.esc_html(substr($commit,0,12)).'</code>';
+            $runId=(int)($latestJob['run_id']??0);
+            if($runId>0)$lines[]='GitHub Run: <code>#'.$runId.'</code>';
+            $runUrl=trim((string)($latestJob['run_url']??''));
+            if($runUrl!=='')$lines[]='<a href="'.esc_url($runUrl).'">بازکردن GitHub Actions</a>';
+            $lastError=trim((string)($latestJob['last_error']??''));
+            if($lastError!=='')$lines[]='آخرین خطا: <code>'.esc_html(mb_substr($lastError,0,1000)).'</code>';
+            if($runId>0){
+                $failure=self::github_run_failure_summary($runId,$s);
+                if(!empty($failure['job']))$lines[]='GitHub Job: <code>'.esc_html((string)$failure['job']).'</code>';
+                if(!empty($failure['steps']))$lines[]='Failed step: <code>'.esc_html(implode(' → ',(array)$failure['steps'])).'</code>';
+                if(!empty($failure['conclusion']))$lines[]='Conclusion: <code>'.esc_html((string)$failure['conclusion']).'</code>';
+                if(!empty($failure['lookup_error']))$lines[]='Jobs API: <code>'.esc_html(mb_substr((string)$failure['lookup_error'],0,600)).'</code>';
+            }
+        }
+
         $lines[]=$active>0?'اگر عملیات واقعاً گیر کرده، Watchdog خودکار آن را آزاد می‌کند؛ /unlock مسیر دستی اضطراری است.':'قفل فعال ربات وجود ندارد.';
-        self::send_message($chatId,implode("\n",$lines),self::keyboard(),$s);
+        self::send_message($chatId,implode("
+",$lines),self::keyboard(),$s);
     }
 
     private static function send_status($chatId, array $s): void {

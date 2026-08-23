@@ -102,6 +102,11 @@ final class BlueVPN_Error_Monitor {
     public static function php_error_handler(int $severity, string $message, string $file = '', int $line = 0): bool {
         $s = self::settings();
         if (empty($s['enabled'])) return false;
+        // Respect PHP's @ operator and the active error_reporting mask. Without
+        // this guard Sentinel sees intentionally suppressed best-effort cleanup
+        // warnings (for example race-safe @unlink calls) and turns them into
+        // false runtime incidents even though PHP itself would suppress them.
+        if ((error_reporting() & $severity) === 0) return false;
         if (!self::belongs_to_bluevpn($file)) return false;
         $level = self::php_severity($severity);
         if ($level === 'notice' && empty($s['capture_php_notices'])) return false;
@@ -226,6 +231,12 @@ final class BlueVPN_Error_Monitor {
         // route yet. The client is expected to continue safely; it is not a runtime
         // incident and can otherwise flood Sentinel while the route is being learned.
         if ($route === '/bluevpn/v1/server-locations/verify' && $status === 404 && $code === 'server_location_not_found') return $response;
+
+        // Validation failures caused by user input are normal API outcomes, not
+        // infrastructure incidents. Keep real auth/provider/control-plane failures
+        // observable while preventing expected 4xx validation (notably EMAIL_INVALID)
+        // from repeatedly paging Sentinel.
+        if (self::expected_rest_client_outcome($status, $code)) return $response;
         $s = self::settings();
         if ($status >= 500 || ($status >= 400 && !empty($s['capture_rest_4xx']))) {
             self::report('rest', 'api', $status >= 500 ? 'error' : 'warning', $code !== '' ? $code : 'HTTP_' . $status, $message !== '' ? $message : 'REST API پاسخ ناموفق داد.', [
@@ -233,6 +244,26 @@ final class BlueVPN_Error_Monitor {
             ]);
         }
         return $response;
+    }
+
+    private static function expected_rest_client_outcome(int $status, string $code): bool {
+        $code = strtolower(trim($code));
+        if (!in_array($status, [400, 413, 422], true) || $code === '') return false;
+        return in_array($code, [
+            'email_invalid',
+            'weak_password',
+            'password_too_long',
+            'phone_invalid',
+            'device_id_required',
+            'otp_invalid_format',
+            'support_empty_message',
+            'support_message_too_long',
+            'support_attachment_too_large',
+            'support_attachment_invalid',
+            'support_attachment_type',
+            'server_location_key_invalid',
+            'server_country_invalid',
+        ], true);
     }
 
     public static function client_token(?int $bucket = null): string {

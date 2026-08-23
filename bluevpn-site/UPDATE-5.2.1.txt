@@ -1,0 +1,11 @@
+BlueVPN 5.2.1 — Connection & Release Hardening
+
+Final reliability fixes in this build:
+- Sentinel respects PHP's active error_reporting mask, so intentionally suppressed cleanup warnings such as @unlink do not create incidents.
+- Expected client-validation outcomes such as EMAIL_INVALID / WEAK_PASSWORD no longer become Sentinel runtime-noise incidents; unexpected 4xx and all relevant 5xx paths stay observable.
+- Telegram /diagnose now reports the latest deployment job, commit, GitHub run, failed job and failed step when available.
+- Failed Manager and Android build jobs persist the GitHub failed-step summary in the bot job error and include it in Telegram failure messages.
+- Android CI now generates telegram-build-error.txt from real regression/Gradle logs, extracts compiler/task/root-cause lines, appends a bounded log tail, and uploads complete failure diagnostics as a GitHub Actions artifact.
+- Gradle compilation uses strict shell failure handling (set -euo pipefail).
+
+All prior 5.2.1 connection hardening and every earlier BlueVPN component remain included in the full project archive.

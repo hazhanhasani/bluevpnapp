@@ -4593,7 +4593,7 @@ private fun dpHome(value: Int): Int =
             // requests. Xray's SOCKS inbound is HTTP-compatible. SOCKS is only a
             // compatibility fallback for devices/cores where HTTP proxy handling
             // behaves differently; it is not treated as a separate route.
-            race(Proxy.Type.HTTP) ?: run {
+            val firstSuccess = race(Proxy.Type.HTTP) ?: run {
                 val username = SettingsManager.getSocksUsername()
                 val password = SettingsManager.getSocksPassword()
                 if (username.isNullOrBlank() && password.isNullOrBlank()) {
@@ -4602,6 +4602,32 @@ private fun dpHome(value: Int): Int =
                     null
                 }
             }
+            if (firstSuccess == null) return@withContext null
+
+            // A handover can briefly leave a local Xray socket alive while the
+            // physical route is still converging. During that short window only,
+            // require a second independent HTTP success before CONNECTED. This
+            // suppresses false-connected states without slowing normal connects.
+            if (BlueVpnNetworkRecoveryManager.recoveryWindowActive(this@BlueVpnHomeActivity)) {
+                runCatching { Thread.sleep(180L) }
+                val confirmation = requestThroughLocalXrayProxy(
+                    endpoint = "https://cp.cloudflare.com/generate_204",
+                    localPort = localPort,
+                    proxyType = Proxy.Type.HTTP,
+                ) ?: run {
+                    val username = SettingsManager.getSocksUsername()
+                    val password = SettingsManager.getSocksPassword()
+                    if (username.isNullOrBlank() && password.isNullOrBlank()) {
+                        requestThroughLocalXrayProxy(
+                            endpoint = "https://cp.cloudflare.com/generate_204",
+                            localPort = localPort,
+                            proxyType = Proxy.Type.SOCKS,
+                        )
+                    } else null
+                } ?: return@withContext null
+                return@withContext maxOf(firstSuccess, confirmation)
+            }
+            firstSuccess
         }
 
     private fun fetchExitTraceThroughLocalXray(localPort: Int): String? {

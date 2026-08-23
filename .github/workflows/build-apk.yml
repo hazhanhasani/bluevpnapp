@@ -406,7 +406,7 @@ jobs:
         working-directory: upstream/V2rayNG
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
           echo gradle-compile > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           chmod +x gradlew
           ./gradlew :app:compilePlaystoreReleaseKotlin :app:assemblePlaystoreRelease "-PABI_FILTERS=arm64-v8a;armeabi-v7a" --stacktrace --no-daemon --build-cache --parallel 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
@@ -572,7 +572,7 @@ jobs:
           path: dist/
           retention-days: 30
 
-      - name: Send build failure and full log to Telegram
+      - name: Send actionable build failure report to Telegram
         if: ${{ failure() }}
         continue-on-error: true
         env:
@@ -582,7 +582,62 @@ jobs:
         run: |
           set +e
           STAGE="$(cat .bluevpn-regression-substage 2>/dev/null || cat .bluevpn-build-stage 2>/dev/null || echo unknown)"
-          printf 'Regression substage: %s\nLook for AssertionError / PHP LINT FAILED / REGRESSION_SUBSTAGE_FAILED\n' "$STAGE" > telegram-build-error.txt
-          if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
-            curl --fail --silent --show-error --retry 3 --request POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" --form "chat_id=${TELEGRAM_CHAT_ID}" --form 'document=@telegram-build-error.txt' || true
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          PRIMARY_LOG="$GITHUB_WORKSPACE/android-build.log"
+          if [ "$STAGE" = "release-regression-gate" ] || [ -s "$GITHUB_WORKSPACE/.bluevpn-regression-substage" ]; then
+            [ -s "$GITHUB_WORKSPACE/stability-gate.log" ] && PRIMARY_LOG="$GITHUB_WORKSPACE/stability-gate.log"
           fi
+
+          {
+            printf 'BlueVPN build failure report\n'
+            printf 'Stage: %s\n' "$STAGE"
+            printf 'Run: %s\n' "$RUN_URL"
+            printf 'Run number: %s\n' "${GITHUB_RUN_NUMBER:-unknown}"
+            printf 'Commit: %s\n\n' "${GITHUB_SHA:-unknown}"
+            printf '=== Extracted failure lines ===\n'
+            grep -hEi 'REGRESSION_SUBSTAGE_FAILED|REGRESSION_EXIT_CODE|AssertionError|PHP LINT FAILED|FAILURE: Build failed|Execution failed for task|Compilation error|^e: |error:|Unresolved reference|Type mismatch|Cannot infer|Caused by:|Exception|FAILED' \
+              "$GITHUB_WORKSPACE/stability-gate.log" "$GITHUB_WORKSPACE/android-build.log" 2>/dev/null | tail -n 260 || true
+            printf '\n=== Last 180 lines of primary log ===\n'
+            if [ -s "$PRIMARY_LOG" ]; then
+              tail -n 180 "$PRIMARY_LOG"
+            else
+              printf 'No detailed build log was created.\n'
+            fi
+          } > "$GITHUB_WORKSPACE/telegram-build-error.txt"
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path('telegram-build-error.txt')
+          text = p.read_text(encoding='utf-8', errors='replace') if p.exists() else ''
+          for key in ('TELEGRAM_BOT_TOKEN', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_PASSWORD'):
+              secret = os.getenv(key, '')
+              if secret:
+                  text = text.replace(secret, '***')
+          # Telegram documents can be large, but a bounded diagnostic is easier
+          # to review from a phone and prevents accidental megabyte-scale spam.
+          if len(text) > 180000:
+              text = '... report truncated to last 180000 characters ...\n' + text[-180000:]
+          p.write_text(text, encoding='utf-8')
+          PY
+
+          if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+            curl --fail --silent --show-error --retry 3 --request POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              --form "chat_id=${TELEGRAM_CHAT_ID}" \
+              --form 'document=@telegram-build-error.txt' \
+              --form "caption=BlueVPN build failed • ${STAGE} • run #${GITHUB_RUN_NUMBER:-?}" || true
+          fi
+
+      - name: Upload complete build failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: BlueVPN-build-failure-${{ github.run_id }}
+          path: |
+            telegram-build-error.txt
+            android-build.log
+            stability-gate.log
+            .bluevpn-build-stage
+            .bluevpn-regression-substage
+          if-no-files-found: ignore
+          retention-days: 14

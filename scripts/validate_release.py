@@ -146,6 +146,16 @@ def main() -> None:
     require("beginWarpFreeConnection()" in home, "Free WARP routing entrypoint missing")
     require("BlueVpnWarpEngine.isBridgeGuid" in home, "WARP bridge is not isolated from subscription candidates")
     require("import com.v2ray.ang.bluevpn.BlueVpnWarpEngine" in home, "BlueVpnHomeActivity is missing the explicit WARP engine import")
+    require("import com.v2ray.ang.bluevpn.BlueVpnIrcfIntelligence" in home,
+            "BlueVpnHomeActivity is missing the explicit IRCF intelligence import")
+    require("BlueVpnIrcfIntelligence.adaptiveProbeUrls" in home,
+            "BlueVpnHomeActivity adaptive probe hook missing")
+    require(".forEach(::add)" not in home,
+            "Android adaptive probe insertion retains Kotlin overload ambiguity")
+    require((ROOT / "android-source/BlueVpnIrcfIntelligence.kt").is_file(),
+            "BlueVpnIrcfIntelligence canonical source missing")
+    require('bluevpn_dir / "BlueVpnIrcfIntelligence.kt": ROOT / "android-source/BlueVpnIrcfIntelligence.kt"' in prepare,
+            "prepare_android does not copy BlueVpnIrcfIntelligence into upstream build")
     require("warpFreeEnabled(this)" in home, "Free connect gate is not policy-driven by WARP")
     require("warpReadyByPolicy = snapshot.warpEnabled" in account, "Free entitlement still depends on legacy subscription rows")
     require('BRIDGE_SUBSCRIPTION_ID = "bluevpn_free_warp_aether"' in warp, "dedicated WARP bridge ownership missing")

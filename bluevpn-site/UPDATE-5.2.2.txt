@@ -1,0 +1,8 @@
+BlueVPN 5.2.2 — Android Compile Hotfix
+
+- Fixed the GitHub APK build failure from Run 32629709198.
+- BlueVpnHomeActivity now explicitly imports com.v2ray.ang.bluevpn.BlueVpnIrcfIntelligence.
+- Adaptive probe insertion now uses an explicit Kotlin lambda instead of forEach(::add), removing overload ambiguity.
+- prepare_android.py fails fast if the IRCF source/import/copy contract is broken.
+- validate_release.py and a dedicated 5.2.2 regression test enforce the compile boundary before CI.
+- No database schema migration. Manager, Bot, Site, Windows and all 5.2.1 stability work remain included.

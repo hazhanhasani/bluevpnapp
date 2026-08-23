@@ -8,11 +8,11 @@ def text(path: str) -> str: return (ROOT / path).read_text(encoding="utf-8")
 class WindowsClient4162Tests(unittest.TestCase):
     def test_release_versions_are_unified(self):
         release = json.loads(text("release.json")); branding = json.loads(text("branding/app.json"))
-        self.assertEqual(release["version"], "5.2.1")
-        self.assertEqual(release["windows_version"], "5.2.1")
-        self.assertEqual(release["windows_version_code"], 50201)
-        self.assertEqual(branding["version_name"], "5.2.1")
-        self.assertIn("<Version>5.2.1</Version>", text("bluevpn-windows/BlueVPN.Windows.csproj"))
+        self.assertEqual(release["version"], "5.2.2")
+        self.assertEqual(release["windows_version"], "5.2.2")
+        self.assertEqual(release["windows_version_code"], 50202)
+        self.assertEqual(branding["version_name"], "5.2.2")
+        self.assertIn("<Version>5.2.2</Version>", text("bluevpn-windows/BlueVPN.Windows.csproj"))
 
     def test_existing_bluevpn_control_plane_is_preserved(self):
         api = text("bluevpn-windows/Services/BlueVpnApiClient.cs")

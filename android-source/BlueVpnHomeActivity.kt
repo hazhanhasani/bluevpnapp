@@ -64,6 +64,7 @@ import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnConnectionMode
 import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnIntelligenceCore
+import com.v2ray.ang.bluevpn.BlueVpnIrcfIntelligence
 import com.v2ray.ang.bluevpn.BlueVpnFreeStoryAdGate
 import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
 import com.v2ray.ang.bluevpn.BlueVpnNetworkRecoveryManager
@@ -4540,7 +4541,7 @@ private fun dpHome(value: Int): Int =
                 // tunnel; bundled probes remain as deterministic fallback.
                 BlueVpnIrcfIntelligence.adaptiveProbeUrls(this@BlueVpnHomeActivity)
                     .take(3)
-                    .forEach(::add)
+                    .forEach { url -> add(url) }
                 add("https://www.google.com/generate_204")
                 add("https://cp.cloudflare.com/generate_204")
                 add("http://connectivitycheck.gstatic.com/generate_204")

@@ -1,4 +1,4 @@
-# BlueVPN Gateway Metering — 5.2.1 Autopilot + One-Click Enrollment
+# BlueVPN Gateway Metering — 5.2.2 Autopilot + One-Click Enrollment
 
 این پوشه دیتاپلین لینوکسی پلن‌های `gateway_metered` را اجرا می‌کند.
 
@@ -8,7 +8,7 @@
 
 کلاینت فقط credential خود BlueVPN Gateway را دریافت می‌کند؛ credential و URL اصلی Provider/Manual Source سمت سرور باقی می‌ماند.
 
-## Phase 3 (baseline 5.1.6، حفظ‌شده در 5.2.1)
+## Phase 3 (baseline 5.1.6، حفظ‌شده در 5.2.2)
 
 - HA چند Node با `priority`، `region`، `max_sessions`، Primary/Standby و Drain.
 - Reconcile یک‌دقیقه‌ای و region diversity برای جایگزینی Node خراب بدون حذف upstream اصلی از کنترل‌پلین.

@@ -824,6 +824,19 @@ def inject_bluevpn_home() -> None:
         raise RuntimeError("BlueVPN Home is not using v2rayNG stop lifecycle")
     if "BlueVpnEngineManager" in home_runtime or "BlueVpnSingBox" in home_runtime:
         raise RuntimeError("Legacy dual-engine runtime still leaked into BlueVPN Home")
+    if "BlueVpnIrcfIntelligence.adaptiveProbeUrls" in home_runtime:
+        if "import com.v2ray.ang.bluevpn.BlueVpnIrcfIntelligence" not in home_runtime:
+            raise RuntimeError(
+                "BlueVpnHomeActivity references BlueVpnIrcfIntelligence without the explicit import"
+            )
+        if not (bluevpn_dir / "BlueVpnIrcfIntelligence.kt").is_file():
+            raise RuntimeError(
+                "BlueVpnIrcfIntelligence source was not copied into the generated Android project"
+            )
+        if ".forEach(::add)" in home_runtime:
+            raise RuntimeError(
+                "Adaptive probe insertion must use an explicit lambda to avoid Kotlin overload ambiguity"
+            )
 
     home_source = (java_dir / "BlueVpnHomeActivity.kt").read_text(
         encoding="utf-8",

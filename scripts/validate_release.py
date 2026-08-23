@@ -382,7 +382,7 @@ def main() -> None:
     # Versioning contract: patch series is 0..10.
     require(0 <= patch <= 10, "patch version exceeded BlueVPN short series")
 
-    # 5.2.3 public store publishing gates.
+    # 5.2.4 public store publishing gates.
     store_policy = read("android-source/BlueVpnStorePolicy.kt")
     play_stub = read("android-source/BlueVpnTapsellManagerPlay.kt")
     play_docs = read("store/google-play/PLAY-CONSOLE-CHECKLIST.md")
@@ -392,7 +392,8 @@ def main() -> None:
     require(app.get("android_store_self_update") is False, "Play build must not self-install APK updates")
     require("bundlePlaystoreRelease" in workflow and "GooglePlay.aab" in workflow, "Play AAB workflow missing")
     require("-c -P 16 -v 4" in workflow and "ELF LOAD alignment" in workflow, "Android 16 KB gates missing")
-    require('fdroidImplementation("ir.tapsell:tapsell:' in prepare_android, "Tapsell SDK must be direct-flavor only")
+    require('add("fdroidImplementation", "ir.tapsell:tapsell:' in prepare_android, "Tapsell SDK must be direct-flavor only via AGP9-safe DependencyHandler.add")
+    require('fdroidImplementation(' not in prepare_android, "AGP9-incompatible typed fdroidImplementation accessor must not be generated")
     require("import ir.tapsell" not in play_stub, "Google Play flavor must not compile the Tapsell SDK")
     require("allowExternalCheckout" in store_policy and "allowPackageInstallerUpdates" in store_policy, "Google Play distribution policy incomplete")
     require("VpnService" in play_docs, "Google Play VpnService publishing documentation missing")

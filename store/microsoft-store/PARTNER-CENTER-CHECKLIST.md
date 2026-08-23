@@ -1,4 +1,4 @@
-# BlueVPN 5.2.3 — Microsoft Store (EXE/MSI path) checklist
+# BlueVPN 5.2.4 — Microsoft Store (EXE/MSI path) checklist
 
 Checked against Microsoft Learn on 2026-08-23.
 
@@ -23,8 +23,8 @@ Then run `Build BlueVPN Windows` manually with:
 
 The workflow will fail closed if the PFX/password are missing, signs unsigned PE files in the self-contained payload, verifies every EXE/DLL has a Valid Authenticode signature, builds the offline installer, signs/verifies the installer, and emits:
 
-- `BlueVPN-MicrosoftStore-Setup-5.2.3-win-x64.exe`
-- `BlueVPN-MicrosoftStore-Setup-5.2.3-win-arm64.exe`
+- `BlueVPN-MicrosoftStore-Setup-5.2.4-win-x64.exe`
+- `BlueVPN-MicrosoftStore-Setup-5.2.4-win-arm64.exe`
 
 Do not submit an installer generated without the `store_release=true` gate.
 
@@ -41,11 +41,11 @@ Do not submit an installer generated without the `store_release=true` gate.
 
 ## Suggested immutable GitHub Release URLs
 
-After the Store workflow publishes version 5.2.3:
+After the Store workflow publishes version 5.2.4:
 
-`https://github.com/hazhanhasani/bluevpnapp/releases/download/bluevpn-windows-v5.2.3/BlueVPN-MicrosoftStore-Setup-5.2.3-win-x64.exe`
+`https://github.com/hazhanhasani/bluevpnapp/releases/download/bluevpn-windows-v5.2.4/BlueVPN-MicrosoftStore-Setup-5.2.4-win-x64.exe`
 
-`https://github.com/hazhanhasani/bluevpnapp/releases/download/bluevpn-windows-v5.2.3/BlueVPN-MicrosoftStore-Setup-5.2.3-win-arm64.exe`
+`https://github.com/hazhanhasani/bluevpnapp/releases/download/bluevpn-windows-v5.2.4/BlueVPN-MicrosoftStore-Setup-5.2.4-win-arm64.exe`
 
 Verify the URLs return the installer directly over HTTPS before submitting them to Partner Center.
 

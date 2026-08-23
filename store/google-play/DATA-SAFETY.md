@@ -1,4 +1,4 @@
-# Google Play Data safety — engineering inventory for BlueVPN 5.2.3
+# Google Play Data safety — engineering inventory for BlueVPN 5.2.4
 
 This is an engineering inventory, not a substitute for the legal/Play Console declaration. The publisher must reconcile it with actual production retention, logging, analytics, payment, and support practices before submission.
 

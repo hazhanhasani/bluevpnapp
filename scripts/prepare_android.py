@@ -185,12 +185,17 @@ def patch_build_gradle() -> None:
     # Keep the existing BlueVPN compatibility dependencies. WorkManager is used
     # by support/background tasks; explicit Android Guava keeps its public
     # ListenableFuture API resolvable across the v2rayNG/Tapsell dependency graph.
+    # Kotlin DSL does not generate type-safe accessors for configurations created
+    # dynamically by product flavors at script-compilation time on AGP 9. Use
+    # DependencyHandler.add(name, notation) so fdroid-only Tapsell dependencies
+    # stay flavor-scoped without causing an unresolved accessor before Gradle can
+    # configure the Android plugin.
     required_dependencies = (
         'implementation("com.google.guava:guava:33.6.0-android")',
-        f'fdroidImplementation("ir.tapsell:tapsell:{TAPSELL_MEDIATION_VERSION}")',
-        f'fdroidImplementation("ir.tapsell.mediation.adapter:legacy:{TAPSELL_MEDIATION_VERSION}")',
-        f'fdroidImplementation("ir.tapsell.mediation.adapter:legacy-ima-extension:{TAPSELL_MEDIATION_VERSION}")',
-        f'fdroidImplementation("ir.tapsell.mediation.adapter:legacy-taproll:{TAPSELL_MEDIATION_VERSION}")',
+        f'add("fdroidImplementation", "ir.tapsell:tapsell:{TAPSELL_MEDIATION_VERSION}")',
+        f'add("fdroidImplementation", "ir.tapsell.mediation.adapter:legacy:{TAPSELL_MEDIATION_VERSION}")',
+        f'add("fdroidImplementation", "ir.tapsell.mediation.adapter:legacy-ima-extension:{TAPSELL_MEDIATION_VERSION}")',
+        f'add("fdroidImplementation", "ir.tapsell.mediation.adapter:legacy-taproll:{TAPSELL_MEDIATION_VERSION}")',
         'implementation("com.google.android.gms:play-services-auth-api-phone:18.3.1")',
         'implementation("androidx.work:work-runtime:2.10.0")',
     )

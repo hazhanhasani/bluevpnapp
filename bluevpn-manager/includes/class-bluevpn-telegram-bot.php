@@ -2916,7 +2916,13 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
 
     public static function webhook_url(?array $s = null): string {
         $s = $s ?: self::settings();
-        return rest_url('bluevpn-bot/v1/webhook/' . rawurlencode((string)$s['webhook_secret']));
+        // Use the canonical rest_route query form instead of relying on /wp-json
+        // rewrite rules. Some hosts/CDNs return 404 for pretty REST paths while
+        // WordPress itself is healthy; Telegram then reports "Wrong response
+        // from the webhook: 404 Not Found". The query route reaches the same
+        // registered REST callback without requiring server rewrite support.
+        $route = '/bluevpn-bot/v1/webhook/' . rawurlencode((string)$s['webhook_secret']);
+        return home_url('/?rest_route=' . $route);
     }
 
     public static function set_webhook() {

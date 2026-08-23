@@ -1,10 +1,10 @@
-# BlueVPN 5.2.3 — Google Play publishing checklist
+# BlueVPN 5.2.4 — Google Play publishing checklist
 
 Checked against Google Play / Android guidance on 2026-08-23.
 
 ## Binary and Android requirements
 
-- Upload `BlueVPN-5.2.3-GooglePlay.aab` produced by `Build Signed BlueVPN Android`.
+- Upload `BlueVPN-5.2.4-GooglePlay.aab` produced by `Build Signed BlueVPN Android`.
 - BlueVPN uses the upstream v2rayNG 2.2.6 Android project, whose `targetSdk` is 37; the release workflow fails if the target falls below API 36.
 - The workflow builds `bundlePlaystoreRelease`, signs the AAB with the permanent Android upload key, and verifies the JAR signature.
 - Native libraries are gated for 16 KB ELF LOAD alignment and signed APKs are checked with `zipalign -P 16`.

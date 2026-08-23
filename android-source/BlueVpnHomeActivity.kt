@@ -4535,6 +4535,12 @@ private fun dpHome(value: Int): Int =
             }
 
             val endpoints = buildList {
+                // IRCF-style adaptive test targets are supplemental only. Every
+                // success is still a real HTTP request through the local Xray
+                // tunnel; bundled probes remain as deterministic fallback.
+                BlueVpnIrcfIntelligence.adaptiveProbeUrls(this@BlueVpnHomeActivity)
+                    .take(3)
+                    .forEach(::add)
                 add("https://www.google.com/generate_204")
                 add("https://cp.cloudflare.com/generate_204")
                 add("http://connectivitycheck.gstatic.com/generate_204")
@@ -4543,7 +4549,7 @@ private fun dpHome(value: Int): Int =
                 if (!BlueVpnPerformance.isLowEnd(this@BlueVpnHomeActivity)) {
                     add("https://check-host.net/cdn-cgi/trace")
                 }
-            }
+            }.distinct()
 
             fun race(proxyType: Proxy.Type): Long? {
                     val executor = Executors.newFixedThreadPool(

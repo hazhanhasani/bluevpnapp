@@ -311,6 +311,10 @@ final class BlueVPN_Telegram_Bot {
             self::queue_rebuild($chatId, $userId, $s);
         } elseif (in_array($text, ['/status', '📊 وضعیت'], true)) {
             self::send_status($chatId, $s);
+        } elseif (in_array($text, ['/sources', '🧪 سلامت Sourceها'], true)) {
+            self::send_source_health($chatId, $s);
+        } elseif (in_array($text, ['/diagnose', '🩺 عیب‌یابی'], true)) {
+            self::send_diagnostics($chatId, $s);
         } elseif (in_array($text, ['/unlock', '🔓 آزادسازی عملیات'], true)) {
             self::unlock_chat($chatId, $s);
         } elseif (in_array($text, ['/latest', '⬇️ دریافت آخرین APK'], true)) {
@@ -330,6 +334,7 @@ final class BlueVPN_Telegram_Bot {
         return ['keyboard' => [
             [['text' => '📦 نصب و ساخت خودکار']],
             [['text' => '🟡 صف GuardCore'], ['text' => '📊 وضعیت']],
+            [['text' => '🧪 سلامت Sourceها'], ['text' => '🩺 عیب‌یابی']],
             [['text' => '🚀 ساخت فوری'], ['text' => '⬇️ دریافت آخرین APK']],
             [['text' => '🧩 بروزرسانی Manager'], ['text' => '🔐 بررسی امضا']],
             [['text' => '🔓 آزادسازی عملیات']],
@@ -461,7 +466,7 @@ final class BlueVPN_Telegram_Bot {
     }
 
     /**
-     * 5.1.9 watchdog: no active job may lock a chat forever.
+     * 5.1.10 watchdog: no active job may lock a chat forever.
      *
      * - queued jobs whose cron event was lost are re-scheduled once boundedly;
      * - local deploy states older than 20 minutes are failed and therefore unlock;
@@ -2544,11 +2549,68 @@ Trigger: <code>" . esc_html($triggerLabel) . '</code>', self::keyboard(), $s);
         return $text;
     }
 
+    private static function subscription_source_health(): array {
+        global $wpdb;
+        $table=BlueVPN_DB::table('subscription_sources');
+        $rows=$wpdb->get_results("SELECT id,name,active,last_test_ok,last_test_at FROM {$table} ORDER BY active DESC,name ASC,id ASC LIMIT 200",ARRAY_A)?:[];
+        $active=0;$healthy=0;$failed=0;$untested=0;$failedNames=[];
+        foreach($rows as $row){
+            if(empty($row['active']))continue;$active++;
+            if(empty($row['last_test_at'])){$untested++;continue;}
+            if(!empty($row['last_test_ok'])){$healthy++;continue;}
+            $failed++;if(count($failedNames)<5)$failedNames[]=sanitize_text_field((string)($row['name']??('Source #'.(int)$row['id'])));
+        }
+        return ['total'=>count($rows),'active'=>$active,'healthy'=>$healthy,'failed'=>$failed,'untested'=>$untested,'failed_names'=>$failedNames];
+    }
+
+    private static function send_source_health($chatId,array $s): void {
+        $h=self::subscription_source_health();
+        $lines=[
+            "🧪 <b>سلامت Subscription Sourceها</b>",
+            'فعال: <b>'.(int)$h['active'].'</b>',
+            'سالم: <b>'.(int)$h['healthy'].'</b>',
+            'ناموفق: <b>'.(int)$h['failed'].'</b>',
+            'تست‌نشده: <b>'.(int)$h['untested'].'</b>',
+        ];
+        if(!empty($h['failed_names']))$lines[]='نیازمند بررسی: <code>'.esc_html(implode('، ',(array)$h['failed_names'])).'</code>';
+        $lines[]='برای تست شبکه، از پنل «Sourceهای اشتراک» روی تست بزن؛ URL/Token در پیام ربات نمایش داده نمی‌شود.';
+        self::send_message($chatId,implode("\n",$lines),self::keyboard(),$s);
+    }
+
+    private static function send_diagnostics($chatId,array $s): void {
+        global $wpdb;
+        $t=self::jobs_table();
+        $active=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t} WHERE status IN ('queued','retry','downloading','deploying','dispatching','waiting_manager','building_manager','updating_manager','waiting_build','building')");
+        $nextPoll=wp_next_scheduled(self::POLL_HOOK);
+        $cronDisabled=defined('DISABLE_WP_CRON')&&DISABLE_WP_CRON;
+        $webhook=self::api('getWebhookInfo',[],$s);
+        $webhookOk=!is_wp_error($webhook)&&is_array($webhook)&&empty($webhook['last_error_message']);
+        $pending=!is_wp_error($webhook)&&is_array($webhook)?(int)($webhook['pending_update_count']??0):-1;
+        $lastUpdate=trim((string)($s['last_update_at']??''));
+        $lines=[
+            "🩺 <b>عیب‌یابی BlueVPN</b>",
+            'Manager: <code>'.esc_html(BLUEVPN_MANAGER_VERSION).'</code>',
+            'Runtime: '.(self::runtime_ready()?'✅ آماده':'❌ ناقص'),
+            'Telegram Webhook: '.($webhookOk?'✅ سالم':'⚠️ نیازمند بررسی'),
+            'Pending Telegram updates: <code>'.($pending>=0?$pending:'?').'</code>',
+            'Active bot jobs: <code>'.$active.'</code>',
+            'WP-Cron: '.($cronDisabled?'⚠️ توسط wp-config غیرفعال':'✅ داخلی فعال'),
+            'Bot poll: <code>'.($nextPoll?esc_html(gmdate('Y-m-d H:i:s',$nextPoll)).' UTC':'not scheduled').'</code>',
+            'PHP cURL: '.(function_exists('curl_init')?'✅':'⚠️'),
+            'PHP ZipArchive: '.(class_exists('ZipArchive')?'✅':'❌'),
+        ];
+        if($lastUpdate!=='')$lines[]='آخرین Update ربات: <code>'.esc_html($lastUpdate).'</code>';
+        if(is_wp_error($webhook))$lines[]='Webhook check: <code>'.esc_html(sanitize_key((string)$webhook->get_error_code())).'</code>';
+        $lines[]=$active>0?'اگر عملیات واقعاً گیر کرده، Watchdog خودکار آن را آزاد می‌کند؛ /unlock مسیر دستی اضطراری است.':'قفل فعال ربات وجود ندارد.';
+        self::send_message($chatId,implode("\n",$lines),self::keyboard(),$s);
+    }
+
     private static function send_status($chatId, array $s): void {
         global $wpdb;
         $t = self::jobs_table();
         $job = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE chat_id=%s ORDER BY created_at DESC LIMIT 1", (string)$chatId), ARRAY_A);
-        $lines = ["📊 <b>وضعیت BlueVPN Bot</b>", 'Runtime: ' . (self::runtime_ready() ? '✅ آماده' : '❌ ناقص'), 'Version: <code>' . esc_html(BLUEVPN_MANAGER_VERSION) . '</code>', 'Upload transport: <code>' . (self::git_cli_available() ? 'git_https' : 'rest_fallback') . '</code>', 'Webhook: <code>' . esc_html((string)$s['webhook_status']) . '</code>', 'Repository: <code>' . esc_html((string)$s['github_repository']) . '</code>'];
+        $sourceHealth=self::subscription_source_health();
+        $lines = ["📊 <b>وضعیت BlueVPN Bot</b>", 'Runtime: ' . (self::runtime_ready() ? '✅ آماده' : '❌ ناقص'), 'Version: <code>' . esc_html(BLUEVPN_MANAGER_VERSION) . '</code>', 'Upload transport: <code>' . (self::git_cli_available() ? 'git_https' : 'rest_fallback') . '</code>', 'Webhook: <code>' . esc_html((string)$s['webhook_status']) . '</code>', 'Repository: <code>' . esc_html((string)$s['github_repository']) . '</code>', 'Sources: <code>'.(int)$sourceHealth['healthy'].' ok / '.(int)$sourceHealth['failed'].' failed / '.(int)$sourceHealth['untested'].' untested</code>'];
         if ($job) {
             $lines[] = '';
             $lines[] = 'آخرین عملیات: <code>' . esc_html((string)$job['status']) . '</code>';

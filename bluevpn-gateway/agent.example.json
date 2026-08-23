@@ -24,5 +24,6 @@
   "http_timeout": 20,
   "log_level": "INFO",
   "xray_log_level": "warning",
-  "singbox_log_level": "warn"
+  "singbox_log_level": "warn",
+  "credential_generation": 1
 }

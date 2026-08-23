@@ -1,8 +1,0 @@
-BlueVPN Manager 5.1.9 — Gateway Autopilot + Zero-Downtime Handoff
-
-- Autopilot default-on for capacity, drain/recovery and placement decisions.
-- Agent reports CPU cores and total RAM for conservative automatic capacity.
-- Graceful Drain keeps current sessions until a healthy target ACKs applied config.
-- 60-second overlap before source retirement; 240-second target preparation fail-safe.
-- Migration state persisted in bluevpn_gateway_session_migrations.
-- Schema: 1.29.0.

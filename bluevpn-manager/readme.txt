@@ -1,15 +1,23 @@
 === BlueVPN Manager ===
-Version: 5.1.9
-Stable tag: 5.1.9
+Version: 5.2.0
+Stable tag: 5.2.0
 Requires PHP: 8.0
 
+== 5.2.0 ==
+- Subscription URLهای HTTPS/HTTP با Port سفارشی مثل 8000/8443/2053 بدون خطای کاذب «URL نامعتبر» تست می‌شوند؛ حفاظت SSRF/private-IP حفظ شده است.
+- Base64 استاندارد و URL-safe، newlineهای escaped و Hysteria/Hy2 در Parser Source پشتیبانی می‌شوند و Source بعد از ذخیره خودکار تست می‌شود.
+- Fetch ساب با retry محدود، redirect کنترل‌شده و خطای redacted انجام می‌شود تا Token/Path حساس در پیام خطا لو نرود.
+- Aggregator پلن‌های دستی همان fetch امن Source را استفاده می‌کند تا تست پنل و مصرف واقعی رفتار یکسان داشته باشند.
+- Bot دستور «🩺 عیب‌یابی» برای Webhook/Jobs/WP-Cron/cURL/ZipArchive دارد.
+- Android بعد از handover شبکه، آخرین مسیر تأییدشده را در پنجره کوتاه recovery زودتر امتحان می‌کند و probeهای adaptive را فقط به‌عنوان هدف تست واقعی داخل Xray استفاده می‌کند.
+- Windows رتبه‌بندی endpoint را با چند نمونه TCP، jitter، success samples و recent-success stickiness انجام می‌دهد و تا چهار مسیر سالم را progressive امتحان می‌کند.
+- پوسته سایت reduced-motion، وضعیت offline، focus-visible و فرم‌های موبایل پایدارتر دریافت کرده است.
+- Schema دیتابیس بدون تغییر روی 1.30.0 باقی مانده است.
+
 == 5.1.9 ==
-- Gateway Autopilot به‌صورت پیش‌فرض روشن است؛ Capacity از CPU/RAM واقعی Agent محاسبه می‌شود و Priority/Max Sessions برای کار عادی نیاز به تنظیم ندارند.
-- Auto-Drain پس از Heartbeatهای ناسالم/فشار شدید و Auto-Recover پس از سه Heartbeat سالم، بدون دخالت اپراتور.
-- Drain به حالت graceful تبدیل شد: Source Session تا آماده‌شدن Target فوراً حذف نمی‌شود.
-- Session Handoff با Target Config ACK، overlap امن 60 ثانیه‌ای و fail-safe timeout 240 ثانیه‌ای.
-- در زمان Handoff، Source سالم به‌عنوان fallback قابل reconnect باقی می‌ماند و حسابداری quota/sequence مرکزی authoritative است.
-- فرم Gateway ساده شد؛ برای حالت Autopilot فقط Public Host لازم است و Name/TLS Server Name از Host قابل ساخت هستند.
+- Gateway Autopilot به‌صورت پیش‌فرض روشن است؛ Capacity از CPU/RAM واقعی Agent محاسبه می‌شود.
+- Auto-Drain/Auto-Recover و Session Handoff با ACK و overlap امن 60 ثانیه‌ای.
+- فرم Gateway برای استفاده روزمره به Public Host ساده شد.
 - Schema دیتابیس 1.29.0 با telemetry سخت‌افزار و جدول gateway_session_migrations.
 
 == 5.1.8 ==

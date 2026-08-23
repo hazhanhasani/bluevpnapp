@@ -26,6 +26,7 @@ object BlueVpnRuntimeAudit {
         PREDICTIVE_FAILOVER,
         NETWORK_CHANGE,
         RUNTIME_FAILURE,
+        RUNTIME_GATE_RECOVERY,
     }
 
     private fun prefs(context: Context) =

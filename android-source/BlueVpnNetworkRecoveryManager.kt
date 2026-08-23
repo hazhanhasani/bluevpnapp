@@ -13,6 +13,23 @@ import android.net.NetworkCapabilities
  */
 object BlueVpnNetworkRecoveryManager {
     private var callback: ConnectivityManager.NetworkCallback? = null
+    private const val PREFS = "bluevpn_network_recovery"
+    private const val KEY_LAST_LOST_AT = "last_lost_at"
+    private const val KEY_RECOVERY_UNTIL = "recovery_until"
+    private const val RECOVERY_WINDOW_MS = 60_000L
+
+    private fun prefs(context: Context) = context.applicationContext
+        .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    /**
+     * During a short physical-network handover window, retry the last verified
+     * route first if it is still eligible. This mirrors resilient clients that
+     * reconnect to the just-working endpoint before rescanning the whole pool.
+     * It never restarts the VPN by itself; the normal connection state machine
+     * remains the single owner of service mutation.
+     */
+    fun recoveryWindowActive(context: Context): Boolean =
+        prefs(context).getLong(KEY_RECOVERY_UNTIL, 0L) > System.currentTimeMillis()
 
     @Synchronized
     fun start(context: Context) {
@@ -23,8 +40,14 @@ object BlueVpnNetworkRecoveryManager {
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 runCatching {
+                    val app = context.applicationContext
+                    val p = prefs(app)
+                    val lastLost = p.getLong(KEY_LAST_LOST_AT, 0L)
+                    if (lastLost > 0L && System.currentTimeMillis() - lastLost in 0..RECOVERY_WINDOW_MS) {
+                        p.edit().putLong(KEY_RECOVERY_UNTIL, System.currentTimeMillis() + RECOVERY_WINDOW_MS).apply()
+                    }
                     BlueVpnRuntimeAudit.record(
-                        context.applicationContext,
+                        app,
                         BlueVpnRuntimeAudit.Event.NETWORK_CHANGE,
                         "available"
                     )
@@ -38,8 +61,14 @@ object BlueVpnNetworkRecoveryManager {
 
             override fun onLost(network: Network) {
                 runCatching {
+                    val app = context.applicationContext
+                    val now = System.currentTimeMillis()
+                    prefs(app).edit()
+                        .putLong(KEY_LAST_LOST_AT, now)
+                        .putLong(KEY_RECOVERY_UNTIL, now + RECOVERY_WINDOW_MS)
+                        .apply()
                     BlueVpnRuntimeAudit.record(
-                        context.applicationContext,
+                        app,
                         BlueVpnRuntimeAudit.Event.NETWORK_CHANGE,
                         "lost"
                     )

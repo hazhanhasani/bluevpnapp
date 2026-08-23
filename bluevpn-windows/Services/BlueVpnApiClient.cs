@@ -440,17 +440,46 @@ public sealed class BlueVpnApiClient : IDisposable
         var target = Uri.TryCreate(pathOrUrl, UriKind.Absolute, out var absolute)
             ? absolute
             : new Uri(baseUri, pathOrUrl.TrimStart('/'));
-        if (!string.Equals(target.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("آدرس اشتراک باید HTTPS باشد.");
+        ValidateSubscriptionUri(target);
 
-        using var response = await SendRawAsync(target, ct).ConfigureAwait(false);
-        var finalUri = response.RequestMessage?.RequestUri;
-        if (finalUri is null || !string.Equals(finalUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("اشتراک به یک مقصد ناامن HTTP هدایت شد و دریافت متوقف شد.");
-        var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
-            throw new InvalidOperationException(ReadError(text, (int)response.StatusCode));
-        return text;
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        for (var redirect = 0; redirect <= 4; redirect++)
+        {
+            ct.ThrowIfCancellationRequested();
+            if (!visited.Add(target.AbsoluteUri))
+                throw new InvalidDataException("اشتراک وارد چرخه Redirect شده است.");
+
+            using var response = await SendRawAsync(target, ct).ConfigureAwait(false);
+            if ((int)response.StatusCode is >= 300 and < 400)
+            {
+                if (redirect >= 4)
+                    throw new InvalidDataException("تعداد Redirectهای اشتراک بیش از حد مجاز است.");
+                var location = response.Headers.Location
+                    ?? throw new InvalidDataException("اشتراک Redirect بدون مقصد برگرداند.");
+                target = location.IsAbsoluteUri ? location : new Uri(target, location);
+                ValidateSubscriptionUri(target);
+                continue;
+            }
+
+            var finalUri = response.RequestMessage?.RequestUri ?? target;
+            ValidateSubscriptionUri(finalUri);
+            var text = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(ReadError(text, (int)response.StatusCode));
+            return text;
+        }
+        throw new InvalidDataException("اشتراک قابل دریافت نیست.");
+    }
+
+    private static void ValidateSubscriptionUri(Uri target)
+    {
+        if (!target.IsAbsoluteUri ||
+            !string.Equals(target.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("آدرس اشتراک باید HTTPS باشد.");
+        if (string.IsNullOrWhiteSpace(target.Host) || !string.IsNullOrEmpty(target.UserInfo))
+            throw new InvalidDataException("Host اشتراک معتبر نیست یا URL شامل credential است.");
+        if (target.Port is <= 0 or > 65535)
+            throw new InvalidDataException("Port اشتراک معتبر نیست.");
     }
 
     private async Task<HttpResponseMessage> SendRawAsync(Uri target, CancellationToken ct)
@@ -462,13 +491,9 @@ public sealed class BlueVpnApiClient : IDisposable
             {
                 using var request = new HttpRequestMessage(HttpMethod.Get, target);
                 // Never attach the BlueVPN bearer token to a subscription host.
-                var response = await client.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
-                if ((int)response.StatusCode is >= 300 and < 400)
-                {
-                    response.Dispose();
-                    throw new InvalidDataException("اشتراک redirect دارد؛ redirect خودکار برای امنیت غیرفعال است.");
-                }
-                return response;
+                // Redirects are handled explicitly by GetRawAsync so every target
+                // is revalidated and custom HTTPS ports remain supported.
+                return await client.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch (Exception ex) when (ex is HttpRequestException or IOException or AuthenticationException or TaskCanceledException)

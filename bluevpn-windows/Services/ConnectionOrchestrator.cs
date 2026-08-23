@@ -11,6 +11,9 @@ public sealed class ConnectionOrchestrator : IDisposable
     private readonly WarpConnectionController _warp;
     private readonly WindowsBlueAiService _ai;
     private bool _verifiedConnected;
+    private readonly SemaphoreSlim _connectGate = new(1, 1);
+    private readonly object _connectSync = new();
+    private CancellationTokenSource? _activeConnectAttempt;
 
     public ConnectionOrchestrator(AppSettings settings, BlueVpnApiClient api, RuntimeLocator runtime)
     {
@@ -31,7 +34,30 @@ public sealed class ConnectionOrchestrator : IDisposable
 
     public async Task<ConnectionResult> ConnectAsync(Account? account, IProgress<string>? progress = null, CancellationToken ct = default, string preferredLocationKey = "")
     {
-        Disconnect();
+        // A second connect request cancels the first attempt before it can race
+        // Xray/TUN state. Only one ConnectCoreAsync may own runtime mutation at
+        // a time, while Disconnect() remains immediate and cancellation-safe.
+        CancelConnectAttempt();
+        await _connectGate.WaitAsync(ct).ConfigureAwait(false);
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        lock (_connectSync) _activeConnectAttempt = attempt;
+        try
+        {
+            return await ConnectCoreAsync(account, progress, attempt.Token, preferredLocationKey).ConfigureAwait(false);
+        }
+        finally
+        {
+            lock (_connectSync)
+            {
+                if (ReferenceEquals(_activeConnectAttempt, attempt)) _activeConnectAttempt = null;
+            }
+            _connectGate.Release();
+        }
+    }
+
+    private async Task<ConnectionResult> ConnectCoreAsync(Account? account, IProgress<string>? progress, CancellationToken ct, string preferredLocationKey)
+    {
+        StopRuntime();
 
         progress?.Report("بررسی سریع اینترنت و سیاست اتصال…");
         var baselineTask = ConnectivityProbe.CaptureBaselineAsync(_settings.ProbeUrl, ct);
@@ -129,8 +155,8 @@ public sealed class ConnectionOrchestrator : IDisposable
         if (!aiRefresh.IsCompleted)
             _ = await Task.WhenAny(aiRefresh, Task.Delay(80, ct)).ConfigureAwait(false);
         ranked = _ai.Reorder(ranked);
-        var candidates = ranked.Where(x => x.ProbeLatencyMs < int.MaxValue).Take(3).ToList();
-        if (candidates.Count == 0) candidates = ranked.Take(3).ToList();
+        var candidates = ranked.Where(x => x.ProbeLatencyMs < int.MaxValue).Take(4).ToList();
+        if (candidates.Count == 0) candidates = ranked.Take(4).ToList();
 
         Exception? lastError = null;
         foreach (var endpoint in candidates)
@@ -189,7 +215,14 @@ public sealed class ConnectionOrchestrator : IDisposable
         throw new InvalidOperationException(lastError?.Message ?? "هیچ مسیر سالمی پیدا نشد.");
     }
 
-    public void Disconnect()
+    private void CancelConnectAttempt()
+    {
+        CancellationTokenSource? active;
+        lock (_connectSync) active = _activeConnectAttempt;
+        try { active?.Cancel(); } catch (ObjectDisposedException) { }
+    }
+
+    private void StopRuntime()
     {
         _verifiedConnected = false;
         ActiveEndpoint = null;
@@ -200,9 +233,16 @@ public sealed class ConnectionOrchestrator : IDisposable
         _xray.Stop();
     }
 
+    public void Disconnect()
+    {
+        CancelConnectAttempt();
+        StopRuntime();
+    }
+
     public void Dispose()
     {
         Disconnect();
+        _connectGate.Dispose();
         _warp.Dispose();
         _xray.Dispose();
         _ai.Dispose();

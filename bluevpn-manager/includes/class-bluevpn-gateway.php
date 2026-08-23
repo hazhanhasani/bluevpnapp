@@ -4,8 +4,8 @@ if (!defined('ABSPATH')) exit;
 /**
  * BlueVPN first-party gateway control plane.
  *
- * Phase 5 adds Gateway Autopilot and zero-downtime handoff on top of HA,
- * durable metering, circuit breaking and safe staged rollout.
+ * Phase 6 adds one-click enrollment and production credential hardening on top of
+ * Gateway Autopilot, zero-downtime handoff, durable metering and safe rollout.
  */
 final class BlueVPN_Gateway {
     private const AUTH_WINDOW_SECONDS = 300;
@@ -36,6 +36,11 @@ final class BlueVPN_Gateway {
     private const AUTOPILOT_HIGH_MEMORY_PCT = 95.0;
     private const MIGRATION_PREPARE_TIMEOUT_SECONDS = 240;
     private const MIGRATION_OVERLAP_SECONDS = 60;
+    private const ENROLLMENT_TOKEN_TTL_SECONDS = 1800;
+    private const ENROLLMENT_HEARTBEAT_GRACE_SECONDS = 900;
+    private const SECRET_ROTATION_SECONDS = 2592000; // 30 days.
+    private const PREVIOUS_SECRET_GRACE_SECONDS = 86400; // 24h handoff window.
+    private const ENROLLMENT_AGENT_MIN_VERSION = '5.2.0';
 
     public static function init(): void {
         add_action('rest_api_init',[self::class,'register_routes']);
@@ -43,6 +48,7 @@ final class BlueVPN_Gateway {
         add_action('admin_post_bluevpn_cc_toggle_gateway_node',[self::class,'toggle_node']);
         add_action('admin_post_bluevpn_cc_delete_gateway_node',[self::class,'delete_node']);
         add_action('admin_post_bluevpn_cc_rotate_gateway_secret',[self::class,'rotate_secret']);
+        add_action('admin_post_bluevpn_cc_regenerate_gateway_enrollment',[self::class,'regenerate_enrollment']);
         add_action('admin_post_bluevpn_cc_reconcile_gateways',[self::class,'reconcile_gateways']);
         add_action('init',[self::class,'ensure_schedule'],20);
         add_action(self::RECONCILE_HOOK,[self::class,'scheduled_reconcile']);
@@ -60,6 +66,7 @@ final class BlueVPN_Gateway {
         register_rest_route('bluevpn-gateway/v1','/config',['methods'=>'GET','callback'=>[self::class,'rest_config'],'permission_callback'=>'__return_true']);
         register_rest_route('bluevpn-gateway/v1','/usage',['methods'=>'POST','callback'=>[self::class,'rest_usage'],'permission_callback'=>'__return_true']);
         register_rest_route('bluevpn-gateway/v1','/heartbeat',['methods'=>'POST','callback'=>[self::class,'rest_heartbeat'],'permission_callback'=>'__return_true']);
+        register_rest_route('bluevpn-gateway/v1','/enroll',['methods'=>'POST','callback'=>[self::class,'rest_enroll'],'permission_callback'=>'__return_true']);
     }
 
     private static function ok(array $data,int $status=200): WP_REST_Response { return new WP_REST_Response($data,$status); }
@@ -72,6 +79,91 @@ final class BlueVPN_Gateway {
     }
 
     private static function node_secret(array $node): string { return BlueVPN_Utils::decrypt_secret((string)($node['secret_enc']??'')); }
+
+
+    private static function enrollment_token_key(int $nodeId,string $token): string {
+        return hash('sha256',$nodeId.'|'.$token);
+    }
+
+    private static function enrollment_asset_url(string $name): string {
+        return trailingslashit(BLUEVPN_MANAGER_URL).'assets/gateway/'.rawurlencode($name);
+    }
+
+    private static function enrollment_command(int $nodeId,string $token): string {
+        $installer=self::enrollment_asset_url('one-click-install.sh');
+        $endpoint=rest_url('bluevpn-gateway/v1/enroll');
+        return "curl -fsSL '".$installer."' | sudo bash -s -- '".$endpoint."' '".$nodeId."' '".$token."'";
+    }
+
+    private static function issue_enrollment_token(int $nodeId): array {
+        global $wpdb;$node=self::node($nodeId);if(!$node)throw new RuntimeException('Gateway پیدا نشد.');
+        $token=BlueVPN_Utils::random_token(36);$expires=time()+self::ENROLLMENT_TOKEN_TTL_SECONDS;
+        $ok=$wpdb->update(self::nodes_table(),[
+            'enrollment_token_hash'=>self::enrollment_token_key($nodeId,$token),
+            'enrollment_expires_at'=>gmdate('Y-m-d H:i:s',$expires),
+            'updated_at'=>BlueVPN_Utils::now_mysql(),
+        ],['id'=>$nodeId]);
+        if($ok===false)throw new RuntimeException('ساخت توکن Enrollment ناموفق بود.');
+        return ['node_id'=>$nodeId,'token'=>$token,'expires_at'=>$expires];
+    }
+
+    private static function stash_enrollment_display(array $enroll): void {
+        $nodeId=max(0,(int)($enroll['node_id']??0));$token=(string)($enroll['token']??'');if($nodeId<=0||$token==='')return;
+        set_transient('bluevpn_gateway_enrollment_'.get_current_user_id(),[
+            'node_id'=>$nodeId,
+            'token_enc'=>BlueVPN_Utils::encrypt_secret($token),
+            'expires_at'=>max(time()+60,(int)($enroll['expires_at']??0)),
+        ],self::ENROLLMENT_TOKEN_TTL_SECONDS);
+    }
+
+    private static function rotate_node_secret_internal(array $node): array {
+        global $wpdb;$id=(int)($node['id']??0);if($id<=0)throw new RuntimeException('Gateway نامعتبر است.');
+        $old=self::node_secret($node);if($old==='')throw new RuntimeException('Secret فعلی Gateway خالی است.');
+        $secret=BlueVPN_Utils::random_token(36);$generation=max(1,(int)($node['secret_generation']??1))+1;$now=BlueVPN_Utils::now_mysql();
+        $ok=$wpdb->update(self::nodes_table(),[
+            'previous_secret_enc'=>BlueVPN_Utils::encrypt_secret($old),
+            'previous_secret_hash'=>hash('sha256',$old),
+            'previous_secret_expires_at'=>gmdate('Y-m-d H:i:s',time()+self::PREVIOUS_SECRET_GRACE_SECONDS),
+            'secret_enc'=>BlueVPN_Utils::encrypt_secret($secret),
+            'secret_hash'=>hash('sha256',$secret),
+            'secret_generation'=>$generation,
+            'last_secret_rotated_at'=>$now,
+            'updated_at'=>$now,
+        ],['id'=>$id]);
+        if($ok===false)throw new RuntimeException('چرخش Secret ناموفق بود.');
+        return ['secret'=>$secret,'generation'=>$generation];
+    }
+
+    private static function rotate_stale_secrets(int $limit=10): int {
+        global $wpdb;$limit=max(1,min(50,$limit));$cutoff=gmdate('Y-m-d H:i:s',time()-self::SECRET_ROTATION_SECONDS);$seen=gmdate('Y-m-d H:i:s',time()-self::HEALTHY_WINDOW_SECONDS);
+        $rows=$wpdb->get_results($wpdb->prepare('SELECT * FROM '.self::nodes_table()." WHERE active=1 AND last_seen_at IS NOT NULL AND last_seen_at>=%s AND (last_secret_rotated_at IS NULL OR last_secret_rotated_at<%s) ORDER BY id ASC LIMIT {$limit}",$seen,$cutoff),ARRAY_A)?:[];
+        $rotated=0;foreach($rows as $row){try{self::rotate_node_secret_internal($row);$rotated++;}catch(Throwable $ignored){}}
+        return $rotated;
+    }
+
+    private static function enrollment_health_watchdog(int $limit=25): void {
+        if(!class_exists('BlueVPN_Error_Monitor'))return;global $wpdb;$limit=max(1,min(100,$limit));$cutoff=gmdate('Y-m-d H:i:s',time()-self::ENROLLMENT_HEARTBEAT_GRACE_SECONDS);
+        $rows=$wpdb->get_results($wpdb->prepare('SELECT id,name,public_host,enrolled_at,last_seen_at FROM '.self::nodes_table()." WHERE active=1 AND enrolled_at IS NOT NULL AND enrolled_at<%s AND (last_seen_at IS NULL OR last_seen_at<enrolled_at) ORDER BY id ASC LIMIT {$limit}",$cutoff),ARRAY_A)?:[];
+        foreach($rows as $row){$id=(int)$row['id'];BlueVPN_Error_Monitor::report('gateway','enrollment','warning','GATEWAY_ENROLLMENT_NO_HEARTBEAT_'.$id,'Gateway ثبت شده ولی Heartbeat دریافت نشده است.',['node_id'=>$id,'name'=>(string)$row['name'],'public_host'=>(string)$row['public_host']]);}
+    }
+
+    public static function rest_enroll(WP_REST_Request $r): WP_REST_Response {
+        $body=$r->get_json_params();if(!is_array($body))$body=[];$nodeId=max(0,(int)($body['node_id']??0));$token=trim((string)($body['enrollment_token']??''));$agentVersion=substr(sanitize_text_field((string)($body['agent_version']??'')),0,64);
+        if($nodeId<=0||!preg_match('/^[A-Za-z0-9_-]{20,120}$/',$token))return self::ok(['ok'=>false,'detail'=>['code'=>'GATEWAY_ENROLLMENT_INVALID','message'=>'Enrollment معتبر نیست.']],401);
+        $ip=(string)($_SERVER['REMOTE_ADDR']??'');$rateKey='bluevpn_gw_enroll_'.substr(hash_hmac('sha256',$nodeId.'|'.$ip,wp_salt('auth')),0,24);$attempts=(int)get_transient($rateKey);if($attempts>=10)return self::ok(['ok'=>false,'detail'=>['code'=>'GATEWAY_ENROLLMENT_RATE_LIMIT','message'=>'تلاش بیش از حد.']],429);set_transient($rateKey,$attempts+1,10*MINUTE_IN_SECONDS);
+        $node=self::node($nodeId);if(!$node||(int)($node['active']??0)!==1)return self::ok(['ok'=>false,'detail'=>['code'=>'GATEWAY_ENROLLMENT_NODE_DISABLED','message'=>'Gateway فعال نیست.']],403);
+        $expires=!empty($node['enrollment_expires_at'])?(strtotime((string)$node['enrollment_expires_at'].' UTC')?:0):0;$stored=(string)($node['enrollment_token_hash']??'');$expected=self::enrollment_token_key($nodeId,$token);
+        if($stored===''||$expires<=time()||!hash_equals($stored,$expected))return self::ok(['ok'=>false,'detail'=>['code'=>'GATEWAY_ENROLLMENT_EXPIRED','message'=>'لینک نصب منقضی یا قبلاً استفاده شده است. از پنل یک لینک جدید بساز.']],401);
+        if($agentVersion!==''&&version_compare($agentVersion,self::ENROLLMENT_AGENT_MIN_VERSION,'<'))return self::ok(['ok'=>false,'detail'=>['code'=>'GATEWAY_ENROLLMENT_AGENT_OLD','message'=>'Installer/Agent قدیمی است.']],409);
+        $secret=self::node_secret($node);if($secret==='')return self::ok(['ok'=>false,'detail'=>['code'=>'GATEWAY_SECRET_MISSING','message'=>'Secret Gateway موجود نیست.']],500);
+        global $wpdb;$now=BlueVPN_Utils::now_mysql();$wpdb->update(self::nodes_table(),['enrollment_token_hash'=>'','enrollment_expires_at'=>null,'enrolled_at'=>$now,'last_secret_rotated_at'=>($node['last_secret_rotated_at']??null)?:$now,'updated_at'=>$now],['id'=>$nodeId]);delete_transient($rateKey);
+        $host=(string)$node['public_host'];$config=[
+            'manager_url'=>home_url('/'),'node_id'=>$nodeId,'node_secret'=>$secret,'credential_generation'=>max(1,(int)($node['secret_generation']??1)),
+            'xray_path'=>'/usr/local/bin/xray','singbox_path'=>'/usr/local/bin/sing-box','xray_config_path'=>'/etc/bluevpn-gateway/xray.json','singbox_config_path'=>'/etc/bluevpn-gateway/sing-box.json','state_path'=>'/var/lib/bluevpn-gateway/state.json','xray_log_path'=>'/var/log/bluevpn-gateway-xray.log','singbox_log_path'=>'/var/log/bluevpn-gateway-singbox.log',
+            'cert_file'=>'/etc/letsencrypt/live/'.$host.'/fullchain.pem','key_file'=>'/etc/letsencrypt/live/'.$host.'/privkey.pem','listen_host'=>'0.0.0.0','listen_port'=>(int)$node['public_port'],'api_server'=>'127.0.0.1:10085','bridge_socks_base_port'=>18080,'bridge_test_url'=>'https://www.gstatic.com/generate_204','bridge_test_interval'=>'2m','bridge_test_tolerance_ms'=>80,'poll_seconds'=>15,'usage_seconds'=>5,'heartbeat_seconds'=>30,'http_timeout'=>20,'log_level'=>'INFO','xray_log_level'=>'warning','singbox_log_level'=>'warn'
+        ];
+        return self::ok(['ok'=>true,'node_id'=>$nodeId,'public_host'=>$host,'server_name'=>(string)$node['server_name'],'config'=>$config,'assets'=>['agent'=>self::enrollment_asset_url('agent.py'),'service'=>self::enrollment_asset_url('bluevpn-gateway.service')],'server_time'=>time()]);
+    }
 
     public static function active_nodes(): array {
         global $wpdb;
@@ -312,9 +404,11 @@ final class BlueVPN_Gateway {
     private static function auth_node(WP_REST_Request $r): array {
         $nodeId=(int)$r->get_header('x-bluevpn-gateway-id');$timestamp=trim((string)$r->get_header('x-bluevpn-gateway-timestamp'));$signature=strtolower(trim((string)$r->get_header('x-bluevpn-gateway-signature')));
         if($nodeId<=0||!preg_match('/^\d{10}$/',$timestamp)||abs(time()-(int)$timestamp)>self::AUTH_WINDOW_SECONDS||!preg_match('/^[a-f0-9]{64}$/',$signature))throw new RuntimeException('GATEWAY_AUTH_INVALID');
-        $node=self::node($nodeId);if(!$node||(int)$node['active']!==1)throw new RuntimeException('GATEWAY_NODE_DISABLED');$secret=self::node_secret($node);if($secret==='')throw new RuntimeException('GATEWAY_SECRET_MISSING');
-        $body=(string)$r->get_body();$route=(string)$r->get_route();$message=$timestamp."\n".strtoupper((string)$r->get_method())."\n".$route."\n".hash('sha256',$body);$expected=hash_hmac('sha256',$message,$secret);if(!hash_equals($expected,$signature))throw new RuntimeException('GATEWAY_AUTH_INVALID');
-        return $node;
+        $node=self::node($nodeId);if(!$node||(int)$node['active']!==1)throw new RuntimeException('GATEWAY_NODE_DISABLED');
+        $body=(string)$r->get_body();$route=(string)$r->get_route();$message=$timestamp."\n".strtoupper((string)$r->get_method())."\n".$route."\n".hash('sha256',$body);
+        $current=self::node_secret($node);$matched='';$expected=$current!==''?hash_hmac('sha256',$message,$current):'';if($expected!==''&&hash_equals($expected,$signature))$matched='current';
+        if($matched===''){$expires=!empty($node['previous_secret_expires_at'])?(strtotime((string)$node['previous_secret_expires_at'].' UTC')?:0):0;$previous=$expires>time()?BlueVPN_Utils::decrypt_secret((string)($node['previous_secret_enc']??'')):'';if($previous!==''&&hash_equals(hash_hmac('sha256',$message,$previous),$signature))$matched='previous';}
+        if($matched==='')throw new RuntimeException('GATEWAY_AUTH_INVALID');$node['_auth_secret_slot']=$matched;return $node;
     }
 
     private static function auth_fail(Throwable $e): WP_REST_Response {
@@ -322,7 +416,7 @@ final class BlueVPN_Gateway {
         return self::ok(['ok'=>false,'detail'=>['code'=>$code,'message'=>'احراز هویت Gateway معتبر نیست.']],$status);
     }
 
-    /** Phase 4 / 5.1.9 safe staged rollout can be disabled instantly. */
+    /** Phase 4 / 5.2.0 safe staged rollout can be disabled instantly. */
     public static function rollout_enabled(): bool {
         $enabled=(string)get_option(self::ROLLOUT_ENABLED_OPTION,'1')!=='0';
         return (bool)apply_filters('bluevpn_gateway_safe_rollout_enabled',$enabled);
@@ -544,7 +638,10 @@ final class BlueVPN_Gateway {
         try{$node=self::auth_node($r);}catch(Throwable $e){return self::auth_fail($e);}global $wpdb;$body=$r->get_json_params();if(!is_array($body))$body=[];$error=mb_substr(sanitize_textarea_field((string)($body['error']??'')),0,1800);$xrayRunning=!empty($body['xray_running']);$health=!$xrayRunning?'down':($error!==''?'degraded':'healthy');$lastFlushRaw=(string)($body['last_usage_flush_at']??'');$lastFlush=$lastFlushRaw!==''?BlueVPN_Utils::mysql_from_iso($lastFlushRaw):null;
         $generation=max(0,(int)($body['config_generation']??0));$appliedHash=substr(preg_replace('/[^a-f0-9]/i','',(string)($body['config_hash']??'')),0,64);$policyHash=substr(preg_replace('/[^a-f0-9]/i','',(string)($body['policy_hash']??'')),0,64);$ackRaw=(string)($body['config_applied_at']??'');$ackAt=$ackRaw!==''?BlueVPN_Utils::mysql_from_iso($ackRaw):null;
         $data=['last_seen_at'=>BlueVPN_Utils::now_mysql(),'health_status'=>$health,'active_sessions'=>max(0,min(self::MAX_NODE_SESSIONS,(int)($body['active_sessions']??0))),'pending_usage_events'=>max(0,min(100000,(int)($body['pending_usage_events']??0))),'cpu_load_pct'=>max(0,min(1000,(float)($body['cpu_load_pct']??0))),'memory_used_pct'=>max(0,min(100,(float)($body['memory_used_pct']??0))),'cpu_cores'=>max(1,min(256,(int)($body['cpu_cores']??1))),'memory_total_mb'=>max(256,min(1048576,(int)($body['memory_total_mb']??256))),'agent_uptime_seconds'=>max(0,(int)($body['uptime_seconds']??0)),'agent_boot_id'=>substr(preg_replace('/[^a-zA-Z0-9._:-]/','',(string)($body['agent_boot_id']??'')),0,64),'last_agent_version'=>substr(sanitize_text_field((string)($body['agent_version']??'')),0,64),'last_xray_version'=>substr(sanitize_text_field((string)($body['xray_version']??'')),0,64),'last_config_hash'=>$appliedHash,'last_policy_hash'=>$policyHash,'last_config_generation'=>$generation,'last_error'=>$error,'updated_at'=>BlueVPN_Utils::now_mysql()];if($lastFlush)$data['last_usage_flush_at']=$lastFlush;if($ackAt)$data['last_config_ack_at']=$ackAt;$wpdb->update(self::nodes_table(),$data,['id'=>(int)$node['id']]);$fresh=array_replace($node,$data);self::record_circuit_observation((int)$node['id'],$health==='healthy');self::autopilot_observe_node($fresh,$health,$error);self::rollout_record_heartbeat((int)$node['id'],$generation,$appliedHash,$health,$error);
-        $circuit=self::circuit_node_state((int)$node['id']);$rollout=self::rollout_summary();return self::ok(['ok'=>true,'server_time'=>time(),'health'=>$health,'draining'=>self::node_effectively_draining($fresh),'effective_capacity'=>self::autopilot_capacity($fresh),'circuit_state'=>$circuit['state'],'rollout'=>$rollout,'autopilot'=>self::autopilot_summary(),'migration'=>self::migration_summary()]);
+        if(class_exists('BlueVPN_Error_Monitor'))BlueVPN_Error_Monitor::resolve_matching('gateway','enrollment','GATEWAY_ENROLLMENT_NO_HEARTBEAT_'.(int)$node['id']);
+        $circuit=self::circuit_node_state((int)$node['id']);$rollout=self::rollout_summary();$response=['ok'=>true,'server_time'=>time(),'health'=>$health,'draining'=>self::node_effectively_draining($fresh),'effective_capacity'=>self::autopilot_capacity($fresh),'circuit_state'=>$circuit['state'],'rollout'=>$rollout,'autopilot'=>self::autopilot_summary(),'migration'=>self::migration_summary()];
+        if((string)($node['_auth_secret_slot']??'')==='previous'){$response['credential_update']=['node_secret'=>self::node_secret($node),'generation'=>max(1,(int)($node['secret_generation']??1))];}
+        return self::ok($response);
     }
 
 
@@ -560,6 +657,8 @@ final class BlueVPN_Gateway {
         self::reconcile_metered_customers(120,true);
         self::migration_tick(500);
         self::rollout_tick();
+        self::rotate_stale_secrets(10);
+        self::enrollment_health_watchdog(25);
     }
 
     public static function reconcile_metered_customers(int $limit=500,bool $useCursor=false): array {
@@ -572,7 +671,10 @@ final class BlueVPN_Gateway {
     }
 
     public static function save_node(): void {
-        self::guard_admin();$id=max(0,(int)($_POST['node_id']??0));check_admin_referer('bluevpn_cc_save_gateway_node_'.$id);global $wpdb;$old=$id>0?self::node($id):null;$name=sanitize_text_field(wp_unslash($_POST['name']??''));$host=sanitize_text_field(wp_unslash($_POST['public_host']??''));$port=max(1,min(65535,(int)($_POST['public_port']??443)));$sni=sanitize_text_field(wp_unslash($_POST['server_name']??''));$region=sanitize_text_field(wp_unslash($_POST['region']??''));$priority=max(1,min(10000,(int)($_POST['priority']??100)));$maxSessions=max(1,min(self::MAX_NODE_SESSIONS,(int)($_POST['max_sessions']??5000)));if($host==='')self::redirect('Public Host اجباری است.',true);if($sni==='')$sni=$host;if($name==='')$name='Gateway '.$host;$secret=$old?self::node_secret($old):'';if($secret==='')$secret=BlueVPN_Utils::random_token(36);$data=['name'=>$name,'public_host'=>$host,'public_port'=>$port,'server_name'=>$sni,'transport'=>'tcp','region'=>$region,'priority'=>$priority,'max_sessions'=>$maxSessions,'draining'=>isset($_POST['draining'])?1:0,'secret_enc'=>BlueVPN_Utils::encrypt_secret($secret),'secret_hash'=>hash('sha256',$secret),'active'=>isset($_POST['active'])?1:0,'updated_at'=>BlueVPN_Utils::now_mysql()];if($id>0)$ok=$wpdb->update(self::nodes_table(),$data,['id'=>$id]);else{$data['created_at']=BlueVPN_Utils::now_mysql();$ok=$wpdb->insert(self::nodes_table(),$data);$id=(int)$wpdb->insert_id;set_transient('bluevpn_gateway_secret_'.get_current_user_id(),['node_id'=>$id,'secret'=>$secret],300);}self::redirect($ok===false?'ذخیره Gateway ناموفق بود.':'Gateway ذخیره شد.',$ok===false);
+        self::guard_admin();$id=max(0,(int)($_POST['node_id']??0));check_admin_referer('bluevpn_cc_save_gateway_node_'.$id);global $wpdb;$old=$id>0?self::node($id):null;$name=sanitize_text_field(wp_unslash($_POST['name']??''));$host=strtolower(trim(sanitize_text_field(wp_unslash($_POST['public_host']??''))));$host=preg_replace('#^https?://#','',$host);$host=preg_replace('#[/:].*$#','',$host);$port=max(1,min(65535,(int)($_POST['public_port']??443)));$sni=sanitize_text_field(wp_unslash($_POST['server_name']??''));$region=sanitize_text_field(wp_unslash($_POST['region']??''));$priority=max(1,min(10000,(int)($_POST['priority']??100)));$maxSessions=max(1,min(self::MAX_NODE_SESSIONS,(int)($_POST['max_sessions']??5000)));
+        if($host===''||strlen($host)>253||!preg_match('/^[a-z0-9.-]+$/',$host))self::redirect('Public Host معتبر وارد کن.',true);if($sni==='')$sni=$host;if($name==='')$name='Gateway '.$host;$secret=$old?self::node_secret($old):'';if($secret==='')$secret=BlueVPN_Utils::random_token(36);$now=BlueVPN_Utils::now_mysql();$data=['name'=>$name,'public_host'=>$host,'public_port'=>$port,'server_name'=>$sni,'transport'=>'tcp','region'=>$region,'priority'=>$priority,'max_sessions'=>$maxSessions,'draining'=>isset($_POST['draining'])?1:0,'secret_enc'=>BlueVPN_Utils::encrypt_secret($secret),'secret_hash'=>hash('sha256',$secret),'active'=>isset($_POST['active'])?1:0,'updated_at'=>$now];
+        if($id>0)$ok=$wpdb->update(self::nodes_table(),$data,['id'=>$id]);else{$data['secret_generation']=1;$data['last_secret_rotated_at']=$now;$data['created_at']=$now;$ok=$wpdb->insert(self::nodes_table(),$data);$id=(int)$wpdb->insert_id;if($ok!==false&&$id>0){try{$enroll=self::issue_enrollment_token($id);self::stash_enrollment_display($enroll);}catch(Throwable $ignored){}}}
+        self::redirect($ok===false?'ذخیره Gateway ناموفق بود.':($old?'Gateway ذخیره شد.':'Gateway ساخته شد؛ دستور نصب یک‌مرحله‌ای آماده است.'),$ok===false);
     }
 
     public static function toggle_node(): void {
@@ -580,7 +682,11 @@ final class BlueVPN_Gateway {
     }
 
     public static function rotate_secret(): void {
-        self::guard_admin();$id=max(0,(int)($_POST['node_id']??0));check_admin_referer('bluevpn_cc_rotate_gateway_secret_'.$id);global $wpdb;$node=self::node($id);if(!$node)self::redirect('Gateway پیدا نشد.',true);$secret=BlueVPN_Utils::random_token(36);$ok=$wpdb->update(self::nodes_table(),['secret_enc'=>BlueVPN_Utils::encrypt_secret($secret),'secret_hash'=>hash('sha256',$secret),'updated_at'=>BlueVPN_Utils::now_mysql()],['id'=>$id]);if($ok!==false)set_transient('bluevpn_gateway_secret_'.get_current_user_id(),['node_id'=>$id,'secret'=>$secret],300);self::redirect($ok===false?'چرخش Secret ناموفق بود.':'Secret جدید ساخته شد؛ Agent را با Secret جدید بروزرسانی کن.',$ok===false);
+        self::guard_admin();$id=max(0,(int)($_POST['node_id']??0));check_admin_referer('bluevpn_cc_rotate_gateway_secret_'.$id);$node=self::node($id);if(!$node)self::redirect('Gateway پیدا نشد.',true);try{self::rotate_node_secret_internal($node);self::redirect('Secret چرخش کرد؛ Agent در Heartbeat بعدی Credential جدید را خودکار دریافت و ذخیره می‌کند.');}catch(Throwable $e){self::redirect('چرخش Secret ناموفق بود.',true);}
+    }
+
+    public static function regenerate_enrollment(): void {
+        self::guard_admin();$id=max(0,(int)($_POST['node_id']??0));check_admin_referer('bluevpn_cc_regenerate_gateway_enrollment_'.$id);if(!self::node($id))self::redirect('Gateway پیدا نشد.',true);try{$enroll=self::issue_enrollment_token($id);self::stash_enrollment_display($enroll);self::redirect('لینک نصب یک‌بارمصرف جدید ساخته شد.');}catch(Throwable $e){self::redirect('ساخت لینک Enrollment ناموفق بود.',true);}
     }
 
     public static function reconcile_gateways(): void {
@@ -592,19 +698,19 @@ final class BlueVPN_Gateway {
     }
 
     public static function render_admin_tab(): void {
-        global $wpdb;$nodes=$wpdb->get_results('SELECT * FROM '.self::nodes_table().' ORDER BY active DESC,priority ASC,id ASC',ARRAY_A)?:[];$ct=self::customers_table();$pt=self::plans_table();$metered=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$ct} c JOIN {$pt} p ON p.id=c.plan_id WHERE c.active=1 AND p.traffic_mode='gateway_metered'");$used=(int)$wpdb->get_var("SELECT COALESCE(SUM(c.used_traffic_bytes),0) FROM {$ct} c JOIN {$pt} p ON p.id=c.plan_id WHERE p.traffic_mode='gateway_metered'");$secret=get_transient('bluevpn_gateway_secret_'.get_current_user_id());if($secret!==false)delete_transient('bluevpn_gateway_secret_'.get_current_user_id());$healthy=count(array_filter($nodes,static fn($n)=>self::node_last_seen_age($n)<=self::HEALTHY_WINDOW_SECONDS&&(string)($n['health_status']??'')==='healthy'&&!self::node_effectively_draining($n)));$rollout=self::rollout_summary();$autopilot=self::autopilot_summary();$migration=self::migration_summary();
-        echo '<div class="bvc-page-tools"><div><h2 class="bvc-section-title">BlueVPN Gateway HA Metering</h2><p class="bvc-section-subtitle">Phase 5 / 5.1.9: Gateway Autopilot + انتقال بدون قطعی؛ تنظیمات فنی به‌صورت خودکار مدیریت می‌شوند.</p></div><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_reconcile_gateways');echo '<input type="hidden" name="action" value="bluevpn_cc_reconcile_gateways"><button class="button button-primary">Reconcile همه Gatewayها</button></form></div>';
+        global $wpdb;$nodes=$wpdb->get_results('SELECT * FROM '.self::nodes_table().' ORDER BY active DESC,priority ASC,id ASC',ARRAY_A)?:[];$ct=self::customers_table();$pt=self::plans_table();$metered=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$ct} c JOIN {$pt} p ON p.id=c.plan_id WHERE c.active=1 AND p.traffic_mode='gateway_metered'");$used=(int)$wpdb->get_var("SELECT COALESCE(SUM(c.used_traffic_bytes),0) FROM {$ct} c JOIN {$pt} p ON p.id=c.plan_id WHERE p.traffic_mode='gateway_metered'");$enrollment=get_transient('bluevpn_gateway_enrollment_'.get_current_user_id());if($enrollment!==false)delete_transient('bluevpn_gateway_enrollment_'.get_current_user_id());$enrollmentCommand='';if(is_array($enrollment)&&!empty($enrollment['token_enc'])){$displayToken=BlueVPN_Utils::decrypt_secret((string)$enrollment['token_enc']);if($displayToken!=='')$enrollmentCommand=self::enrollment_command((int)($enrollment['node_id']??0),$displayToken);}$healthy=count(array_filter($nodes,static fn($n)=>self::node_last_seen_age($n)<=self::HEALTHY_WINDOW_SECONDS&&(string)($n['health_status']??'')==='healthy'&&!self::node_effectively_draining($n)));$rollout=self::rollout_summary();$autopilot=self::autopilot_summary();$migration=self::migration_summary();
+        echo '<div class="bvc-page-tools"><div><h2 class="bvc-section-title">BlueVPN Gateway HA Metering</h2><p class="bvc-section-subtitle">Phase 6 / 5.2.0: Gateway Autopilot + نصب یک‌مرحله‌ای؛ Node و Secret و Agent به‌صورت خودکار Enrollment می‌شوند.</p></div><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_reconcile_gateways');echo '<input type="hidden" name="action" value="bluevpn_cc_reconcile_gateways"><button class="button button-primary">Reconcile همه Gatewayها</button></form></div>';
         echo '<div class="bvc-grid"><div class="bvc-card bvc-kpi"><span>Gateway سالم</span><strong>'.number_format($healthy).'</strong><small>Autopilot: '.($autopilot['enabled']?'ON':'OFF').'</small></div><div class="bvc-card bvc-kpi"><span>کاربر Metered</span><strong>'.number_format($metered).'</strong></div><div class="bvc-card bvc-kpi"><span>Safe Rollout</span><strong>'.esc_html(strtoupper((string)$rollout['status'])).' '.((int)$rollout['stage_percent']?(int)$rollout['stage_percent'].'%':'').'</strong><small>Stable #'.(int)$rollout['stable_generation'].' • Active #'.(int)$rollout['active_generation'].'</small></div><div class="bvc-card bvc-kpi"><span>Migration فعال</span><strong>'.number_format((int)$migration['active']).'</strong><small>Overlap '.(int)$migration['overlap_seconds'].'s</small></div></div>';
-        if(is_array($secret)&&!empty($secret['secret'])){echo '<div class="notice notice-warning"><p><strong>Secret فقط همین یک بار نمایش داده می‌شود.</strong></p><div class="bvc-code">NODE_ID='.(int)$secret['node_id'].'<br>NODE_SECRET='.esc_html((string)$secret['secret']).'</div></div>';}
+        if($enrollmentCommand!==''){echo '<div class="notice notice-success"><p><strong>نصب یک‌مرحله‌ای Gateway آماده است.</strong> این دستور فقط یک‌بار و تا ۳۰ دقیقه معتبر است.</p><div class="bvc-code">'.esc_html($enrollmentCommand).'</div><p class="description">دستور را روی VPS با دسترسی root اجرا کن؛ Node ID، Secret و agent.json خودکار ساخته می‌شوند.</p></div>';}
         echo '<details class="bvc-card bvc-disclosure" '.(!$nodes?'open':'').'><summary><span><strong>افزودن Gateway با Autopilot</strong><small>فقط Public Host را وارد کن؛ Priority، Capacity و Drain خودکار هستند.</small></span><span>⌄</span></summary><div class="bvc-disclosure-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_gateway_node_0');echo '<input type="hidden" name="action" value="bluevpn_cc_save_gateway_node"><input type="hidden" name="node_id" value="0"><div class="bvc-form-grid"><label>Public Host<input name="public_host" required placeholder="gw1.example.com"></label></div><input type="hidden" name="public_port" value="443"><input type="hidden" name="priority" value="100"><input type="hidden" name="max_sessions" value="5000"><input type="hidden" name="active" value="1"><details class="bvc-plan-routing"><summary>Advanced Override (اختیاری)</summary><div class="bvc-form-grid"><label>نام<input name="name" placeholder="خودکار از Host"></label><label>Region<input name="region" placeholder="اختیاری"></label><label>TLS Server Name<input name="server_name" placeholder="خودکار از Host"></label></div></details><div class="bvc-form-actions"><button class="button button-primary">ساخت Gateway</button></div></form></div></details>';
-        if(!$nodes){echo '<div class="bvc-empty-state"><strong>Gateway ثبت نشده است.</strong><span>بعد از ساخت Node، Secret را داخل agent.json سرور قرار بده.</span></div>';return;}
+        if(!$nodes){echo '<div class="bvc-empty-state"><strong>Gateway ثبت نشده است.</strong><span>بعد از ساخت Node، دستور نصب یک‌مرحله‌ای را روی VPS اجرا کن؛ تنظیم دستی Secret لازم نیست.</span></div>';return;}
         echo '<div class="bvc-plan-list">';
         foreach($nodes as $node){$id=(int)$node['id'];$toggle=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_toggle_gateway_node&id='.$id),'bluevpn_cc_toggle_gateway_node_'.$id);$last=!empty($node['last_seen_at'])?strtotime((string)$node['last_seen_at'].' UTC'):0;$age=self::node_last_seen_age($node);$health=(string)($node['health_status']??'unknown');$circuit=self::circuit_node_state($id);$online=$age<=self::DEGRADED_WINDOW_SECONDS&&$health!=='down';$max=self::autopilot_capacity($node);$active=max(0,(int)($node['active_sessions']??0));$util=min(100,round(($active/$max)*100));$autoState=self::autopilot_node_state($id);$statusLabel=$circuit['state']!=='closed'?'Circuit '.strtoupper($circuit['state']):(self::node_effectively_draining($node)?($autoState['auto_draining']?'Auto-Drain':'Drain'):($online?($health==='healthy'?'سالم':'Degraded'):'آفلاین'));
             echo '<article class="bvc-plan-card '.((int)$node['active']?'is-active':'is-inactive').'"><header class="bvc-plan-head"><div><h3>'.esc_html((string)$node['name']).'</h3><p>'.esc_html((string)$node['public_host']).':'.(int)$node['public_port'].' • '.esc_html((string)($node['region']?:'بدون Region')).' • Autopilot '.(self::autopilot_enabled()?'ON':'OFF').'</p></div><span class="bvc-status-pill '.($online&&$health==='healthy'?'is-active':'is-inactive').'">'.esc_html($statusLabel).'</span></header><div class="bvc-plan-metrics"><div><span>Sessions</span><strong>'.number_format($active).' / '.number_format($max).' ('.$util.'%)</strong></div><div><span>Load / RAM</span><strong>'.number_format((float)($node['cpu_load_pct']??0),1).'% / '.number_format((float)($node['memory_used_pct']??0),1).'%</strong></div><div><span>Pending Usage</span><strong>'.number_format((int)($node['pending_usage_events']??0)).'</strong></div><div><span>آخرین Heartbeat</span><strong>'.($last?esc_html(BlueVPN_Utils::tehran_datetime_fa((string)$node['last_seen_at'])):'—').'</strong></div><div><span>Agent</span><strong>'.esc_html((string)($node['last_agent_version']?:'—')).'</strong></div><div><span>Config ACK</span><strong>#'.number_format((int)($node['last_config_generation']??0)).' • '.(!empty($node['last_config_ack_at'])?esc_html(BlueVPN_Utils::tehran_datetime_fa((string)$node['last_config_ack_at'])):'—').'</strong></div><div><span>Xray</span><strong>'.esc_html((string)($node['last_xray_version']?:'—')).'</strong></div></div><div class="bvc-actions"><a class="button" href="'.esc_url($toggle).'">'.((int)$node['active']?'غیرفعال':'فعال').' کردن</a></div>';
             if(!empty($node['last_error']))echo '<div class="bvc-note bvc-bad">'.esc_html(mb_substr((string)$node['last_error'],0,500)).'</div>';
-            echo '<details class="bvc-plan-routing"><summary>Advanced Override — معمولاً نیاز نیست</summary><div class="bvc-plan-routing-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_gateway_node_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_save_gateway_node"><input type="hidden" name="node_id" value="'.$id.'"><div class="bvc-form-grid"><label>نام<input name="name" value="'.esc_attr((string)$node['name']).'" required></label><label>Region<input name="region" value="'.esc_attr((string)($node['region']??'')).'"></label><label>Public Host<input name="public_host" value="'.esc_attr((string)$node['public_host']).'" required></label><label>Port<input type="number" name="public_port" value="'.(int)$node['public_port'].'"></label><label>TLS Server Name<input name="server_name" value="'.esc_attr((string)$node['server_name']).'" required></label><label>Priority<input type="number" name="priority" value="'.(int)($node['priority']??100).'" min="1" max="10000"></label><label>Max Sessions<input type="number" name="max_sessions" value="'.(int)($node['max_sessions']??5000).'" min="1" max="10000"></label></div><label><input type="checkbox" name="active" value="1" '.checked((int)$node['active'],1,false).'> فعال</label> <label><input type="checkbox" name="draining" value="1" '.checked((int)($node['draining']??0),1,false).'> Drain</label><button class="button button-primary">ذخیره</button></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="display:inline-block;margin-top:10px">';wp_nonce_field('bluevpn_cc_rotate_gateway_secret_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_rotate_gateway_secret"><input type="hidden" name="node_id" value="'.$id.'"><button class="button">چرخش Secret</button></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="display:inline-block;margin:10px">';wp_nonce_field('bluevpn_cc_delete_gateway_node_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_delete_gateway_node"><input type="hidden" name="node_id" value="'.$id.'"><button class="button button-link-delete" onclick="return confirm(\'Gateway حذف شود؟\')">حذف</button></form></div></details></article>';
+            echo '<details class="bvc-plan-routing"><summary>Advanced Override — معمولاً نیاز نیست</summary><div class="bvc-plan-routing-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_gateway_node_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_save_gateway_node"><input type="hidden" name="node_id" value="'.$id.'"><div class="bvc-form-grid"><label>نام<input name="name" value="'.esc_attr((string)$node['name']).'" required></label><label>Region<input name="region" value="'.esc_attr((string)($node['region']??'')).'"></label><label>Public Host<input name="public_host" value="'.esc_attr((string)$node['public_host']).'" required></label><label>Port<input type="number" name="public_port" value="'.(int)$node['public_port'].'"></label><label>TLS Server Name<input name="server_name" value="'.esc_attr((string)$node['server_name']).'" required></label><label>Priority<input type="number" name="priority" value="'.(int)($node['priority']??100).'" min="1" max="10000"></label><label>Max Sessions<input type="number" name="max_sessions" value="'.(int)($node['max_sessions']??5000).'" min="1" max="10000"></label></div><label><input type="checkbox" name="active" value="1" '.checked((int)$node['active'],1,false).'> فعال</label> <label><input type="checkbox" name="draining" value="1" '.checked((int)($node['draining']??0),1,false).'> Drain</label><button class="button button-primary">ذخیره</button></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="display:inline-block;margin-top:10px">';wp_nonce_field('bluevpn_cc_regenerate_gateway_enrollment_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_regenerate_gateway_enrollment"><input type="hidden" name="node_id" value="'.$id.'"><button class="button button-primary">ساخت دستور نصب جدید</button></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="display:inline-block;margin:10px 0 0 10px">';wp_nonce_field('bluevpn_cc_rotate_gateway_secret_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_rotate_gateway_secret"><input type="hidden" name="node_id" value="'.$id.'"><button class="button">چرخش امن Secret</button></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="display:inline-block;margin:10px">';wp_nonce_field('bluevpn_cc_delete_gateway_node_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_delete_gateway_node"><input type="hidden" name="node_id" value="'.$id.'"><button class="button button-link-delete" onclick="return confirm(\'Gateway حذف شود؟\')">حذف</button></form></div></details></article>';
         }
-        echo '</div><div class="bvc-card"><h3>Agent Endpoint</h3><div class="bvc-code">'.esc_html(rest_url('bluevpn-gateway/v1/config')).'</div><p class="description">Autopilot ظرفیت، انتخاب Primary/Standby، Drain/Recovery و Session Handoff را خودکار مدیریت می‌کند. تنظیمات دستی فقط برای Override پیشرفته هستند.</p></div>';
+        echo '</div><div class="bvc-card"><h3>Agent Endpoint</h3><div class="bvc-code">'.esc_html(rest_url('bluevpn-gateway/v1/config')).'</div><p class="description">Autopilot ظرفیت، Primary/Standby، Drain/Recovery، Handoff و Credential Rotation را خودکار مدیریت می‌کند. برای نصب Node فقط دستور Enrollment را اجرا کن.</p></div>';
     }
 
     private static function fmt_bytes(int $bytes): string { $n=max(0,(float)$bytes);foreach(['B','KB','MB','GB','TB'] as $u){if($n<1024||$u==='TB')return number_format($n,$n<10&&$u!=='B'?2:0).' '.$u;$n/=1024;}return '0 B'; }

@@ -25,6 +25,9 @@ public sealed class ProxyEndpoint
     public string Mode { get; init; } = "";
     public IReadOnlyList<string> Alpn { get; init; } = [];
     public int ProbeLatencyMs { get; set; } = int.MaxValue;
+    public int ProbeJitterMs { get; set; } = int.MaxValue;
+    public int ProbeSuccessCount { get; set; }
+    public int ProbeSampleCount { get; set; }
 
     // Raw subscription remarks are internal metadata only. Any UI/progress
     // surface that asks for DisplayName receives a BlueVPN-owned label.

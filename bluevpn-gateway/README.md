@@ -1,4 +1,4 @@
-# BlueVPN Gateway Metering — 5.1.9 Autopilot
+# BlueVPN Gateway Metering — 5.2.0 Autopilot + One-Click Enrollment
 
 این پوشه دیتاپلین لینوکسی پلن‌های `gateway_metered` را اجرا می‌کند.
 
@@ -8,7 +8,7 @@
 
 کلاینت فقط credential خود BlueVPN Gateway را دریافت می‌کند؛ credential و URL اصلی Provider/Manual Source سمت سرور باقی می‌ماند.
 
-## Phase 3 (baseline 5.1.6، حفظ‌شده در 5.1.9)
+## Phase 3 (baseline 5.1.6، حفظ‌شده در 5.2.0)
 
 - HA چند Node با `priority`، `region`، `max_sessions`، Primary/Standby و Drain.
 - Reconcile یک‌دقیقه‌ای و region diversity برای جایگزینی Node خراب بدون حذف upstream اصلی از کنترل‌پلین.
@@ -22,13 +22,13 @@
 - heartbeat سلامت Xray، CPU/RAM، uptime، pending usage و وضعیت runtime را گزارش می‌کند.
 
 
-## Phase 4 — Safe Gateway Rollout (5.1.9)
+## Phase 4 — Safe Gateway Rollout (introduced in 5.1.8)
 
 - هر config ساختاری یک `config_generation` دارد و Agent فقط بعد از apply موفق ACK می‌دهد.
 - انتشار با Canary و مراحل 10%، 25%، 50% و 100% انجام می‌شود.
 - config-hash mismatch، runtime error یا timeout ACK باعث rollback خودکار به نسل پایدار قبلی می‌شود.
 - quota/revoke و policy از snapshot جدا هستند و همیشه live از Manager rehydrate می‌شوند.
-- rollout تا وقتی همه Agentهای فعال حداقل 5.1.9 نباشند شروع نمی‌شود.
+- rollout تا وقتی همه Agentهای فعال حداقل 5.1.8 نباشند شروع نمی‌شود.
 - وضعیت Stable/Active generation و درصد مرحله در پنل Gateway نمایش داده می‌شود.
 
 جزئیات: `PHASE4.md`.
@@ -39,13 +39,15 @@
 2. sing-box رسمی در `/usr/local/bin/sing-box` برای Hysteria2/TUIC؛ بدون آن VLESS/VMess/Trojan/Shadowsocks همچنان کار می‌کنند.
 3. Python 3.10+، DNS و TLS معتبر.
 
-## نصب
+## نصب یک‌مرحله‌ای
 
-1. در BlueVPN Manager یک Gateway بساز و Node ID/Secret را بردار.
-2. `sudo ./install.sh` را اجرا کن.
-3. `/etc/bluevpn-gateway/agent.json` را تکمیل کن.
-4. `sudo systemctl enable --now bluevpn-gateway`.
-5. قبل از assignment صبر کن Node Healthy شود. برای HA حداقل دو Node در Region متفاوت داشته باش.
+1. در BlueVPN Manager فقط **Public Host** را وارد کن.
+2. Manager یک دستور نصب یک‌بارمصرف ۳۰ دقیقه‌ای نشان می‌دهد.
+3. همان یک دستور را روی VPS با دسترسی root اجرا کن.
+4. Node ID، Secret، `agent.json` و systemd خودکار نصب می‌شوند.
+5. اگر Xray/TLS روی VPS آماده نباشد، installer به‌صورت fail-safe سرویس را start نمی‌کند و دقیقاً prerequisite مفقود را اعلام می‌کند.
+
+Secret دیگر نیاز به Copy/Paste دستی ندارد. جزئیات امنیتی و rotation خودکار در `PHASE6.md` است.
 
 ## Drain / نگهداری
 
@@ -65,3 +67,12 @@ Drain را فعال و Reconcile را اجرا کن. Node جدید session نم�
 - Auto-Drain/Auto-Recover نیاز به تنظیم روزانه ندارد.
 - Drain دیگر connection موجود را فوراً قطع نمی‌کند؛ Session جایگزین ACK می‌شود و پس از overlap، source retire می‌شود.
 - جزئیات: `PHASE5.md`.
+
+
+## Phase 6 One-Click Enrollment
+
+- توکن Enrollment یک‌بارمصرف و ۳۰ دقیقه‌ای.
+- Agent و service دقیقاً از همان Manager نصب‌شده دریافت می‌شوند.
+- Secret هر ۳۰ روز خودکار rotate می‌شود و Agent آن را بدون SSH به‌صورت atomic ذخیره می‌کند.
+- Sentinel برای Enrollment بدون Heartbeat watchdog دارد.
+- جزئیات: `PHASE6.md`.

@@ -402,8 +402,38 @@ public sealed class WindowsBlueAiService : IDisposable
                 <= 600 => 42,
                 _ => 25
             };
+        var jitterPenalty = endpoint.ProbeJitterMs switch
+        {
+            int.MaxValue => 500,
+            <= 20 => 0,
+            <= 50 => 120,
+            <= 120 => 280,
+            <= 250 => 520,
+            _ => 760
+        };
+        var samplePenalty = Math.Max(0, endpoint.ProbeSampleCount - endpoint.ProbeSuccessCount) * 420;
         var history = HistoricalScore(endpoint);
-        return latencyScore * 68 + history * 32;
+        // A just-working endpoint receives a bounded sticky bonus, matching the
+        // recovery strategy used by resilient clients: retry recent success
+        // before a full rescan, but never override a dead live probe.
+        var stickyBonus = endpoint.ProbeLatencyMs == int.MaxValue ? 0 : RecentSuccessBonus(endpoint);
+        return latencyScore * 68 + history * 32 + stickyBonus - jitterPenalty - samplePenalty;
+    }
+
+    private int RecentSuccessBonus(ProxyEndpoint endpoint)
+    {
+        var key = Fingerprint(endpoint);
+        lock (_sync)
+        {
+            if (!_state.Personal.TryGetValue(key, out var row) || row.LastSuccess is null) return 0;
+            if (row.LastFailure is not null && row.LastFailure >= row.LastSuccess) return 0;
+            var age = DateTimeOffset.UtcNow - row.LastSuccess.Value;
+            if (age < TimeSpan.Zero) return 0;
+            if (age < TimeSpan.FromMinutes(3)) return 650;
+            if (age < TimeSpan.FromMinutes(15)) return 350;
+            if (age < TimeSpan.FromHours(2)) return 140;
+            return 0;
+        }
     }
 
     private int PersonalReliabilityLocked(string key)

@@ -201,7 +201,13 @@ object BlueVpnSmartSelector {
         val ranked = rankTrusted(context, candidates)
         recordShadowComparison(context, ranked)
         if (ranked.size < 2) return ranked
-        val sticky = BlueVpnRouteIntelligence.stickyCandidate(context, ranked)
+        val recovery = BlueVpnNetworkRecoveryManager.recoveryWindowActive(context)
+        val sticky = BlueVpnRouteIntelligence.stickyCandidate(
+            context,
+            ranked,
+            scoreTolerance = if (recovery) 18 else 7,
+            latencyToleranceMs = if (recovery) 180L else 60L,
+        )
         if (sticky != null && sticky.candidate.guid != ranked.first().candidate.guid) {
             return buildList {
                 add(sticky)
@@ -229,7 +235,13 @@ object BlueVpnSmartSelector {
         // it is still within a small score/latency tolerance. This avoids
         // unnecessary server flapping and only switches when another route is
         // meaningfully better or the current one has actually failed.
-        val sticky = BlueVpnRouteIntelligence.stickyCandidate(context, ranked)
+        val recovery = BlueVpnNetworkRecoveryManager.recoveryWindowActive(context)
+        val sticky = BlueVpnRouteIntelligence.stickyCandidate(
+            context,
+            ranked,
+            scoreTolerance = if (recovery) 18 else 7,
+            latencyToleranceMs = if (recovery) 180L else 60L,
+        )
         if (sticky != null && sticky.candidate.guid != ranked.first().candidate.guid) {
             return buildList {
                 add(sticky)

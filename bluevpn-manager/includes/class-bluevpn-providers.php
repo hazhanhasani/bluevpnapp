@@ -1179,10 +1179,23 @@ final class BlueVPN_Providers {
                 $sourceStats[$provider]=['ok'=>!empty($providerLines),'count'=>count($providerLines),'payload_hash'=>hash('sha256',$payload),'content_hash'=>hash('sha256',implode("\n",$providerLines)),'updated_at'=>time()];
                 if(!$providerLines)$errors[]=$provider.': inline source has no usable configs';
             }else{
-                $url=$payload;$r=wp_remote_get($url,['timeout'=>8,'redirection'=>2,'sslverify'=>true,'headers'=>['User-Agent'=>'BlueVPN-WordPress/'.BLUEVPN_MANAGER_VERSION,'Accept'=>'text/plain,*/*']]);
-                if(is_wp_error($r)){$errors[]=$provider.': '.$r->get_error_message();$sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>$r->get_error_message()];continue;}
-                $code=(int)wp_remote_retrieve_response_code($r);if($code>=400){$errors[]=$provider.': HTTP '.$code;$sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>'HTTP '.$code];continue;}
-                $successSources++;$providerLines=self::subscription_lines((string)wp_remote_retrieve_body($r));$sourceStats[$provider]=['ok'=>true,'count'=>count($providerLines),'url_hash'=>hash('sha256',$url),'content_hash'=>hash('sha256',implode("\n",$providerLines)),'updated_at'=>time()];
+                $url=$payload;
+                if(str_starts_with($provider,'manual:')&&class_exists('BlueVPN_Subscription_Sources')){
+                    $manual=BlueVPN_Subscription_Sources::fetch_url_configs($url);
+                    if(empty($manual['ok'])){
+                        $message=(string)($manual['message']??'Subscription Source unavailable');
+                        $errors[]=$provider.': '.$message;
+                        $sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>$message];
+                        continue;
+                    }
+                    $successSources++;$providerLines=array_values((array)($manual['lines']??[]));
+                    $sourceStats[$provider]=['ok'=>true,'count'=>count($providerLines),'url_hash'=>hash('sha256',$url),'content_hash'=>hash('sha256',implode("\n",$providerLines)),'updated_at'=>time()];
+                }else{
+                    $r=wp_remote_get($url,['timeout'=>8,'redirection'=>2,'sslverify'=>true,'headers'=>['User-Agent'=>'BlueVPN-WordPress/'.BLUEVPN_MANAGER_VERSION,'Accept'=>'text/plain,*/*']]);
+                    if(is_wp_error($r)){$errors[]=$provider.': '.$r->get_error_message();$sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>$r->get_error_message()];continue;}
+                    $code=(int)wp_remote_retrieve_response_code($r);if($code>=400){$errors[]=$provider.': HTTP '.$code;$sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>'HTTP '.$code];continue;}
+                    $successSources++;$providerLines=self::subscription_lines((string)wp_remote_retrieve_body($r));$sourceStats[$provider]=['ok'=>true,'count'=>count($providerLines),'url_hash'=>hash('sha256',$url),'content_hash'=>hash('sha256',implode("\n",$providerLines)),'updated_at'=>time()];
+                }
             }
             foreach($providerLines as $line){$key=sha1($line);if(isset($seen[$key]))continue;$seen[$key]=1;$lines[]=$line;}
         }

@@ -1,0 +1,7 @@
+BlueVPN Manager 5.2.0
+
+- Custom-port Subscription URL validation with SSRF/private-IP protection.
+- URL-safe Base64 + escaped-newline source parsing and auto-test on save.
+- Bounded source retry/redirect with redacted diagnostics.
+- Bot /diagnose runtime health command.
+- Same safe manual-source fetch path used by plan aggregation.

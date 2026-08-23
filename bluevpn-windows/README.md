@@ -1,13 +1,12 @@
-# BlueVPN for Windows — 5.1.9
+# BlueVPN for Windows — 5.2.0
 
+## 5.2.0 connection stability
 
-
-## 5.1.9 Gateway HA subscription behavior
-
-- Gateway-metered paid subscriptions can now contain a server-selected Primary plus one or two Standby BlueVPN Gateway endpoints.
-- Windows keeps its existing latency/BlueAI ranking and already tries up to three candidates, so a healthy Standby can be selected when the Primary endpoint is unavailable.
-- Upstream provider/manual credentials remain server-side; Windows still receives only first-party BlueVPN VLESS/TLS Gateway entries.
-- No Windows core replacement was introduced; Xray remains the protocol core and sing-box remains the Windows TUN owner.
+- Endpoint selection now samples reachable routes twice and ranks with latency + jitter + sample reliability instead of one TCP connect only.
+- A recently successful route receives a bounded reconnect preference while a failed live probe still wins fail-closed.
+- Progressive connection tries up to four ranked routes before declaring the pool unavailable.
+- Subscription redirects are revalidated explicitly and custom HTTPS ports remain valid without attaching BlueVPN bearer credentials to the subscription host.
+- Existing Xray + sing-box TUN verification, public-IP change gate, updater integrity and x64/ARM64 behavior remain unchanged.
 
 ## 5.1.4 first-party gateway-metered paid subscriptions
 

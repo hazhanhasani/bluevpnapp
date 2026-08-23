@@ -10,8 +10,8 @@ def text(rel: str) -> str:
 class CronSafetySentinelUi4167Tests(unittest.TestCase):
     def test_release_is_4167(self):
         release = json.loads(text('release.json'))
-        self.assertEqual(release['version'], '5.1.9')
-        self.assertEqual(release['version_code'], 50109)
+        self.assertEqual(release['version'], '5.2.0')
+        self.assertEqual(release['version_code'], 50200)
 
     def test_bluevpn_never_calls_wordpress_core_spawn_cron_directly(self):
         for rel in [
@@ -41,7 +41,7 @@ class CronSafetySentinelUi4167Tests(unittest.TestCase):
         self.assertIn('.bvem-events-table.bvc-responsive-table', css)
         self.assertIn("window.addEventListener('pageshow'", js)
         self.assertIn("setOpen(false)", js)
-        self.assertIn('5.1.9 — compact responsive control center', css)
+        self.assertIn('5.2.0 — compact responsive control center', css)
         self.assertNotIn('min-width:960px', css)
         self.assertNotIn('Math.max(980', js)
         self.assertIn("table.classList.toggle('bvc-table-wide',labels.length>=7)", js)

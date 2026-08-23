@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 class ThemeReleaseProbePackaging4168(unittest.TestCase):
     def test_release_version(self):
         release = json.loads((ROOT / 'release.json').read_text(encoding='utf-8'))
-        self.assertEqual(release['version'], '5.1.9')
-        self.assertEqual(release['version_code'], 50109)
+        self.assertEqual(release['version'], '5.2.0')
+        self.assertEqual(release['version_code'], 50200)
 
     def test_optional_exact_tag_404_is_declared_expected(self):
         updater = (ROOT / 'bluevpn-site/inc/class-bluevpn-site-updater.php').read_text(encoding='utf-8')

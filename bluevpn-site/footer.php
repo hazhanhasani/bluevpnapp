@@ -23,6 +23,7 @@
   </footer>
 <?php endif; ?>
 </div>
-<div class="bv-toast" data-bv-toast></div>
+<div class="bv-network-status" data-bv-network-status role="status" aria-live="polite" aria-hidden="true"><span></span><b>اتصال اینترنت قطع است</b></div>
+<div class="bv-toast" data-bv-toast role="status" aria-live="polite"></div>
 <?php wp_footer(); ?>
 </body></html>

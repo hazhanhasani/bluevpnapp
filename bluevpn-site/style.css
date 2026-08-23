@@ -3,8 +3,41 @@ Theme Name: BlueVPN Site
 Theme URI: https://bot.blluepanel.ir/
 Author: BlueVPN
 Description: پوسته رسمی وب BlueVPN برای حساب کاربری، پلن‌ها، دانلود و پشتیبانی.
-Version: 5.1.9
+Version: 5.2.0
 Requires at least: 6.4
 Requires PHP: 8.1
 Text Domain: bluevpn-site
 */
+
+/* 5.2.0 — stability/accessibility pass: keyboard focus, narrow-screen forms and reduced motion. */
+:where(a,button,input,select,textarea,[tabindex]):focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 3px;
+}
+:where(input,select,textarea,button) {
+  max-width: 100%;
+}
+:where(.elementor-widget-text-editor,.elementor-widget-theme-post-content,.bluevpn-content) {
+  overflow-wrap: anywhere;
+}
+:where(img,video,iframe) {
+  max-width: 100%;
+}
+@media (max-width: 720px) {
+  :where(form) :where(input:not([type="checkbox"]):not([type="radio"]),select,textarea) {
+    width: 100%;
+    min-height: 44px;
+  }
+  :where(.elementor-button,.wp-element-button,button,input[type="submit"]) {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,*::before,*::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}

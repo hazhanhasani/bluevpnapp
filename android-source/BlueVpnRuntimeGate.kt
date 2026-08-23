@@ -1,6 +1,7 @@
 package com.v2ray.ang.bluevpn
 
 import android.content.Context
+import android.os.Process
 import android.os.SystemClock
 
 /**
@@ -16,6 +17,7 @@ object BlueVpnRuntimeGate {
     private const val PREFS = "bluevpn_runtime_gate"
     private const val KEY_CONNECTION_ACTIVE = "connection_active"
     private const val KEY_CONNECTION_STARTED_AT = "connection_started_at"
+    private const val KEY_CONNECTION_OWNER_PID = "connection_owner_pid"
 
     private val monitor = Object()
     @Volatile private var connectionActiveMemory = false
@@ -24,8 +26,32 @@ object BlueVpnRuntimeGate {
     private fun prefs(context: Context) = context.applicationContext
         .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun connectionActive(context: Context): Boolean =
-        connectionActiveMemory || prefs(context).getBoolean(KEY_CONNECTION_ACTIVE, false)
+    fun connectionActive(context: Context): Boolean {
+        if (connectionActiveMemory) return true
+        val p = prefs(context)
+        if (!p.getBoolean(KEY_CONNECTION_ACTIVE, false)) return false
+        val ownerPid = p.getInt(KEY_CONNECTION_OWNER_PID, -1)
+        if (ownerPid == Process.myPid()) return true
+
+        // A persisted gate belongs to the process that owned the VPN lifecycle.
+        // If that process died (crash, force-stop, package update), keeping the
+        // boolean forever blocks subscription refresh even though the tunnel is
+        // already gone. Recover only cross-process/stale ownership; an active
+        // current-process connection still stays authoritative.
+        p.edit()
+            .putBoolean(KEY_CONNECTION_ACTIVE, false)
+            .remove(KEY_CONNECTION_STARTED_AT)
+            .remove(KEY_CONNECTION_OWNER_PID)
+            .apply()
+        runCatching {
+            BlueVpnRuntimeAudit.record(
+                context.applicationContext,
+                BlueVpnRuntimeAudit.Event.RUNTIME_GATE_RECOVERY,
+                "stale_owner_pid",
+            )
+        }
+        return false
+    }
 
     fun subscriptionMutationActive(): Boolean = subscriptionMutationActive
 
@@ -51,6 +77,7 @@ object BlueVpnRuntimeGate {
             prefs(context).edit()
                 .putBoolean(KEY_CONNECTION_ACTIVE, true)
                 .putLong(KEY_CONNECTION_STARTED_AT, System.currentTimeMillis())
+                .putInt(KEY_CONNECTION_OWNER_PID, Process.myPid())
                 .apply()
             return true
         }
@@ -63,6 +90,7 @@ object BlueVpnRuntimeGate {
             prefs(context).edit()
                 .putBoolean(KEY_CONNECTION_ACTIVE, true)
                 .putLong(KEY_CONNECTION_STARTED_AT, System.currentTimeMillis())
+                .putInt(KEY_CONNECTION_OWNER_PID, Process.myPid())
                 .apply()
             monitor.notifyAll()
         }
@@ -74,6 +102,7 @@ object BlueVpnRuntimeGate {
             prefs(context).edit()
                 .putBoolean(KEY_CONNECTION_ACTIVE, false)
                 .remove(KEY_CONNECTION_STARTED_AT)
+                .remove(KEY_CONNECTION_OWNER_PID)
                 .apply()
             monitor.notifyAll()
         }

@@ -1,0 +1,10 @@
+BlueVPN Manager 5.1.10
+
+- Gateway One-Click Enrollment: ساخت Node با Public Host و ارائه یک دستور نصب یک‌بارمصرف ۳۰ دقیقه‌ای.
+- Enrollment Token فقط به‌صورت hash ذخیره می‌شود و بعد از اولین استفاده باطل می‌شود.
+- Agent و systemd unit دقیقاً از همان نسخه Manager نصب‌شده دریافت می‌شوند.
+- Secret Rotation خودکار هر ۳۰ روز با dual-secret grace 24h؛ Agent Credential جدید را از heartbeat دریافت و atomic در agent.json ذخیره می‌کند.
+- Manual Secret Rotation دیگر نیاز به SSH/Edit ندارد.
+- Enrollment Watchdog اگر ۱۵ دقیقه Heartbeat نرسد Sentinel incident ثبت می‌کند و بعد از اولین Heartbeat resolve می‌شود.
+- Installer هنگام نبود Xray/TLS fail-safe است و data plane را start نمی‌کند.
+- Schema: 1.30.0.

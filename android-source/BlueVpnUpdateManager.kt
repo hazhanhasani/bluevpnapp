@@ -244,19 +244,17 @@ object BlueVpnUpdateManager {
                 KEY_FORCE_BLOCK,
                 false,
             ) -> {
-                if (BlueVpnStorePolicy.isGooglePlayBuild()) {
-                    showGooglePlayUpdateDialog(
-                        activity,
-                        preferences.getString(KEY_UPDATE_VERSION, "").orEmpty(),
-                        forced = true,
-                    )
-                } else {
-                    showForcedUpdateDialog(
-                        activity,
-                        preferences.getString(KEY_UPDATE_URL, "").orEmpty(),
-                        preferences.getString(KEY_UPDATE_VERSION, "").orEmpty(),
-                    )
-                }
+                showForcedUpdateDialog(
+                    activity,
+                    preferences.getString(
+                        KEY_UPDATE_URL,
+                        "",
+                    ).orEmpty(),
+                    preferences.getString(
+                        KEY_UPDATE_VERSION,
+                        "",
+                    ).orEmpty(),
+                )
                 true
             }
 
@@ -268,10 +266,6 @@ object BlueVpnUpdateManager {
         activity: Activity,
     ) {
         reconcileInstalledVersion(activity)
-        if (!BlueVpnStorePolicy.allowPackageInstallerUpdates()) {
-            clearDownloadState(activity, activity.getSharedPreferences(PREFS, Context.MODE_PRIVATE), removeDownload = true)
-            return
-        }
 
         val preferences = activity.getSharedPreferences(
             PREFS,
@@ -322,7 +316,7 @@ object BlueVpnUpdateManager {
         } else {
             latestCode > BuildConfig.VERSION_CODE
         }
-        return newer && (BlueVpnStorePolicy.isGooglePlayBuild() || apkUrl.startsWith("http"))
+        return newer && apkUrl.startsWith("http")
     }
 
     private fun applyRemoteConfig(
@@ -398,7 +392,7 @@ object BlueVpnUpdateManager {
                     codeIsNewer
                 }
                 ) &&
-                (BlueVpnStorePolicy.isGooglePlayBuild() || apkUrl.startsWith("http"))
+                apkUrl.startsWith("http")
 
         if (!updateAvailable) {
             clearObsoleteUpdateState(
@@ -424,20 +418,11 @@ object BlueVpnUpdateManager {
             .putString(KEY_RELEASE_CHANNEL, releaseChannel)
             .putBoolean(KEY_BETA_TESTER, betaTester)
             .putString(KEY_SUPPORT_URL, supportUrl)
-            .putString(KEY_UPDATE_URL, if (BlueVpnStorePolicy.isGooglePlayBuild()) "" else apkUrl)
+            .putString(KEY_UPDATE_URL, apkUrl)
             .putString(KEY_UPDATE_VERSION, latestVersion)
             .putString(KEY_UPDATE_SHA256, apkAsset.sha256)
             .putLong(KEY_UPDATE_SIZE, apkAsset.sizeBytes)
             .apply()
-
-        if (BlueVpnStorePolicy.isGooglePlayBuild()) {
-            when {
-                maintenance -> showMaintenanceDialog(activity, supportUrl)
-                updateAvailable -> showGooglePlayUpdateDialog(activity, latestVersion, forced)
-                else -> showAnnouncementIfNeeded(activity, config)
-            }
-            return updateAvailable
-        }
 
         when {
             maintenance -> {
@@ -491,29 +476,6 @@ object BlueVpnUpdateManager {
         }
 
         return updateAvailable
-    }
-
-    private fun showGooglePlayUpdateDialog(
-        activity: Activity,
-        latestVersion: String,
-        forced: Boolean,
-    ) {
-        val versionLabel = latestVersion.takeIf { it.isNotBlank() } ?: "جدید"
-        showPremiumDialog(
-            activity = activity,
-            eyebrow = "GOOGLE PLAY",
-            title = "بروزرسانی BlueVPN $versionLabel",
-            message = if (forced) {
-                "برای ادامه استفاده، نسخه جدید را از Google Play نصب کنید. BlueVPN در نسخه فروشگاهی هیچ APK خارجی دانلود یا نصب نمی‌کند."
-            } else {
-                "نسخه جدید BlueVPN در Google Play در دسترس است. بروزرسانی فقط توسط فروشگاه انجام می‌شود."
-            },
-            accentColor = Color.parseColor("#38BDF8"),
-            primaryText = "باز کردن Google Play",
-            secondaryText = if (forced) null else "بعداً",
-            cancelable = !forced,
-            onPrimary = { BlueVpnStorePolicy.openGooglePlay(activity) },
-        )
     }
 
     private fun showStoredBlockIfNeeded(

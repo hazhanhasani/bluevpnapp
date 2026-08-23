@@ -3,13 +3,13 @@ Theme Name: BlueVPN Site
 Theme URI: https://bot.blluepanel.ir/
 Author: BlueVPN
 Description: پوسته رسمی وب BlueVPN برای حساب کاربری، پلن‌ها، دانلود و پشتیبانی.
-Version: 5.2.4
+Version: 5.2.2
 Requires at least: 6.4
 Requires PHP: 8.1
 Text Domain: bluevpn-site
 */
 
-/* 5.2.4 — stability/accessibility pass: keyboard focus, narrow-screen forms and reduced motion. */
+/* 5.2.2 — stability/accessibility pass: keyboard focus, narrow-screen forms and reduced motion. */
 :where(a,button,input,select,textarea,[tabindex]):focus-visible {
   outline: 3px solid currentColor;
   outline-offset: 3px;

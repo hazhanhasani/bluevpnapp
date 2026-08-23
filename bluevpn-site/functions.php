@@ -1,7 +1,7 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-define('BLUEVPN_SITE_VERSION', '5.2.4');
+define('BLUEVPN_SITE_VERSION', '5.2.2');
 
 define('BLUEVPN_SITE_DIR', get_template_directory());
 define('BLUEVPN_SITE_URL', get_template_directory_uri());
@@ -121,8 +121,6 @@ function bluevpn_site_activate(): void {
         ['title'=>'دانلود','slug'=>'download','template'=>'page-download.php'],
         ['title'=>'حساب کاربری','slug'=>'account','template'=>'page-account.php'],
         ['title'=>'پشتیبانی','slug'=>'support','template'=>'page-support.php'],
-        ['title'=>'حریم خصوصی','slug'=>'privacy','template'=>'page-privacy.php'],
-        ['title'=>'شرایط استفاده','slug'=>'terms','template'=>'page-terms.php'],
     ];
     $home_id = 0;
     foreach ($pages as $page) {
@@ -154,5 +152,5 @@ add_action('admin_notices', 'bluevpn_site_admin_notice');
 
 
 
-// BlueVPN Site 5.2.4 cache/debug marker.
+// BlueVPN Site 5.2.2 cache/debug marker.
 add_filter('body_class', static function($classes){ $classes[] = 'bluevpn-site-v4-16-9'; return $classes; });

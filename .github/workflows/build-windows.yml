@@ -2,12 +2,6 @@ name: Build BlueVPN Windows
 
 on:
   workflow_dispatch:
-    inputs:
-      store_release:
-        description: Build Microsoft Store Authenticode-signed EXE installers
-        required: false
-        default: false
-        type: boolean
   push:
     paths:
       - 'bluevpn-windows/**'
@@ -43,8 +37,6 @@ jobs:
       AETHER_VERSION: 'v1.1.1'
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
-      WINDOWS_SIGN_PFX_BASE64: ${{ secrets.WINDOWS_SIGN_PFX_BASE64 }}
-      WINDOWS_SIGN_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGN_PFX_PASSWORD }}
     steps:
       - name: Checkout BlueVPN
         uses: actions/checkout@v6
@@ -199,35 +191,6 @@ jobs:
           $out="dist/BlueVPN-Windows-$env:RID"
           foreach($f in @('BlueVPN.exe','appsettings.json','runtime/v2rayn/runtime.json')){if(-not(Test-Path(Join-Path $out $f))){throw "Missing published file: $f"}}
 
-      - name: Authenticode-sign Microsoft Store publish payload
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.store_release }}
-        shell: pwsh
-        env:
-          RID: ${{ matrix.rid }}
-        run: |
-          $ErrorActionPreference='Stop'
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGN_PFX_BASE64)) { throw 'WINDOWS_SIGN_PFX_BASE64 is required for a Microsoft Store EXE release' }
-          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_SIGN_PFX_PASSWORD)) { throw 'WINDOWS_SIGN_PFX_PASSWORD is required for a Microsoft Store EXE release' }
-          $pfx=Join-Path $env:RUNNER_TEMP 'BlueVPN-Store-CodeSigning.pfx'
-          [IO.File]::WriteAllBytes($pfx,[Convert]::FromBase64String($env:WINDOWS_SIGN_PFX_BASE64))
-          $signtool=(Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -File -Filter signtool.exe | Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } | Sort-Object FullName -Descending | Select-Object -First 1).FullName
-          if (-not $signtool -or -not (Test-Path $signtool)) { throw 'signtool.exe not found' }
-          $out="dist/BlueVPN-Windows-$env:RID"
-          $pe=Get-ChildItem $out -Recurse -File | Where-Object { $_.Extension -in @('.exe','.dll') }
-          if (-not $pe) { throw 'No PE files found in Windows publish payload' }
-          foreach($file in $pe){
-            $existing=Get-AuthenticodeSignature $file.FullName
-            if($existing.Status -ne 'Valid'){
-              & $signtool sign /fd SHA256 /td SHA256 /tr 'https://timestamp.digicert.com' /f $pfx /p $env:WINDOWS_SIGN_PFX_PASSWORD $file.FullName
-              if($LASTEXITCODE -ne 0){throw "signtool failed for $($file.FullName)"}
-            }
-          }
-          foreach($file in $pe){
-            $sig=Get-AuthenticodeSignature $file.FullName
-            if($sig.Status -ne 'Valid'){throw "Microsoft Store payload contains non-valid Authenticode PE: $($file.FullName) status=$($sig.Status)"}
-          }
-          Write-Host "Microsoft Store PE signature gate: PASS ($($pe.Count) files)"
-
       - name: Package portable diagnostic ZIP
         shell: pwsh
         env:
@@ -258,20 +221,6 @@ jobs:
           if(-not(Test-Path $generatedSetup)){throw "Installer not created: $generatedSetup"}
           $setup = "dist/BlueVPN-Setup-$version-$env:RID.exe"
           Move-Item $generatedSetup $setup -Force
-          if ($env:GITHUB_EVENT_NAME -eq 'workflow_dispatch' -and '${{ inputs.store_release }}' -eq 'true') {
-            $pfx=Join-Path $env:RUNNER_TEMP 'BlueVPN-Store-CodeSigning.pfx'
-            if(-not(Test-Path $pfx)){throw 'Microsoft Store signing PFX was not prepared'}
-            $signtool=(Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -File -Filter signtool.exe | Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } | Sort-Object FullName -Descending | Select-Object -First 1).FullName
-            if(-not $signtool){throw 'signtool.exe not found'}
-            & $signtool sign /fd SHA256 /td SHA256 /tr 'https://timestamp.digicert.com' /f $pfx /p $env:WINDOWS_SIGN_PFX_PASSWORD $setup
-            if($LASTEXITCODE -ne 0){throw 'Installer Authenticode signing failed'}
-            $sig=Get-AuthenticodeSignature $setup
-            if($sig.Status -ne 'Valid'){throw "Installer Authenticode validation failed: $($sig.Status)"}
-            $storeSetup="dist/BlueVPN-MicrosoftStore-Setup-$version-$env:RID.exe"
-            Copy-Item $setup $storeSetup -Force
-            $storeHash=Get-FileHash $storeSetup -Algorithm SHA256
-            "$($storeHash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($storeSetup))" | Set-Content "$storeSetup.sha256"
-          }
           $hash=Get-FileHash $setup -Algorithm SHA256
           "$($hash.Hash.ToLowerInvariant())  $([IO.Path]::GetFileName($setup))" | Set-Content "$setup.sha256"
 
@@ -284,8 +233,6 @@ jobs:
             dist/BlueVPN-Windows-*.zip.sha256
             dist/BlueVPN-Setup-*.exe
             dist/BlueVPN-Setup-*.exe.sha256
-            dist/BlueVPN-MicrosoftStore-Setup-*.exe
-            dist/BlueVPN-MicrosoftStore-Setup-*.exe.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -329,17 +276,6 @@ jobs:
               cp "${MATCHES[0]}" "$TARGET"
             done
           done
-          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.store_release }}" = "true" ]; then
-            for RID in win-x64 win-arm64; do
-              for NAME in "BlueVPN-MicrosoftStore-Setup-${VERSION}-${RID}.exe" "BlueVPN-MicrosoftStore-Setup-${VERSION}-${RID}.exe.sha256"; do
-                TARGET="windows-release/${NAME}"
-                [ -s "$TARGET" ] && continue
-                mapfile -t MATCHES < <(find windows-release -type f -name "$NAME" -print)
-                if [ "${#MATCHES[@]}" -ne 1 ]; then echo "::error::Expected exactly one Store artifact named $NAME, found ${#MATCHES[@]}"; exit 1; fi
-                cp "${MATCHES[0]}" "$TARGET"
-              done
-            done
-          fi
 
       - name: Validate Windows release payload
         shell: bash
@@ -354,13 +290,6 @@ jobs:
             done
             unzip -t "$ZIP" >/dev/null
           done
-          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.store_release }}" = "true" ]; then
-            for RID in win-x64 win-arm64; do
-              FILE="windows-release/BlueVPN-MicrosoftStore-Setup-${VERSION}-${RID}.exe"
-              test -s "$FILE"; test -s "$FILE.sha256"
-              EXPECTED="$(awk '{print $1}' "$FILE.sha256"|tr '[:upper:]' '[:lower:]')"; ACTUAL="$(sha256sum "$FILE"|awk '{print $1}')"; test "$EXPECTED" = "$ACTUAL"
-            done
-          fi
 
       - name: Publish Windows installers for website and auto-update
         env:
@@ -370,24 +299,17 @@ jobs:
           set -euo pipefail
           VERSION="$(python -c 'import json;print(json.load(open("release.json"))["version"])')"
           WINDOWS_CHANNEL="beta"
-          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.store_release }}" = "true" ]; then WINDOWS_CHANNEL="stable"; fi
           TAG="bluevpn-windows-v${VERSION}"
-          TITLE="BlueVPN Windows ${VERSION}"
-          [ "$WINDOWS_CHANNEL" = "beta" ] && TITLE="$TITLE Beta"
-          NOTES="BlueVPN Windows ${VERSION}"$'\n'"BlueVPN-Windows-Channel: ${WINDOWS_CHANNEL}"$'\n'"BlueVPN-Windows-Channel-Authority: wordpress-manager"
+          TITLE="BlueVPN Windows ${VERSION} Beta"
+          NOTES="BlueVPN Windows ${VERSION}"$'\n'"BlueVPN-Windows-Channel: beta"$'\n'"BlueVPN-Windows-Channel-Authority: wordpress-manager"
           mapfile -t ASSETS < <(find windows-release -maxdepth 1 -type f -name "BlueVPN-*${VERSION}-win-*" -print | sort)
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes "$NOTES" --latest=false
             RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .id)"
-            if [ "$WINDOWS_CHANNEL" = "beta" ]; then
-              printf '{"prerelease":true}\n' | gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --input - >/dev/null
-            else
-              printf '{"prerelease":false}\n' | gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --input - >/dev/null
-            fi
+            printf '{"prerelease":true}\n' | gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --input - >/dev/null
           else
-            ARGS=("$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES" --latest=false)
-            [ "$WINDOWS_CHANNEL" = "beta" ] && ARGS+=(--prerelease)
+            ARGS=("$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES" --latest=false --prerelease)
             gh release create "${ARGS[@]}"
           fi
 
@@ -413,7 +335,6 @@ jobs:
           set -euo pipefail
           VERSION="$(python -c 'import json;print(json.load(open("release.json"))["version"])')"
           TAG="bluevpn-windows-v${VERSION}"; WINDOWS_CHANNEL="beta"
-          if [ "${{ github.event_name == 'workflow_dispatch' && inputs.store_release }}" = "true" ]; then WINDOWS_CHANNEL="stable"; fi
           SYNC_SECRET="${BLUEVPN_RELEASE_SYNC_SECRET:-${TELEGRAM_BOT_TOKEN:-}}"
           API_BASE="$(python -c 'import json;print(json.load(open("branding/app.json"))["api_base_url"].rstrip("/"))')"
           DIRECT_SYNC_ENABLED=1

@@ -37,7 +37,6 @@ import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnPersianDate
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import com.v2ray.ang.bluevpn.BlueVpnTapsellManager
-import com.v2ray.ang.bluevpn.BlueVpnStorePolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -128,11 +127,8 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   })
  }
  private fun auth(){
-  if(!BlueVpnStorePolicy.allowAccountCreation())emailRegister=false
   status.setTextColor(authMuted())
-  status.text=if(BlueVpnStorePolicy.isGooglePlayBuild()){
-   "نسخه Google Play فقط برای ورود به حساب موجود و استفاده از اشتراک فعال است"
-  }else when(entryRoute){
+  status.text=when(entryRoute){
    "purchase","plans","renew"->"برای ادامه خرید یا تمدید، ابتدا وارد حساب شوید یا ثبت‌نام کنید"
    else->if(authMode=="sms")"ورود امن با کد یک‌بارمصرف ۶ رقمی" else "ورود یا ثبت‌نام با ایمیل"
   }
@@ -190,10 +186,8 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
     orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER;setPadding(dp(4),dp(4),dp(4),dp(4))
     background=GradientDrawable().apply{cornerRadius=dp(14).toFloat();setColor(Color.parseColor("#101114"));setStroke(dp(1),Color.parseColor("#292A2E"))}
    }
-   emailMode.addView(archiveMiniSegment("ورود",true).apply{setOnClickListener{if(emailRegister){emailRegister=false;render()}}},LinearLayout.LayoutParams(0,dp(38),1f).apply{marginEnd=dp(3)})
-   if(BlueVpnStorePolicy.allowAccountCreation()){
-    emailMode.addView(archiveMiniSegment("ثبت‌نام",emailRegister).apply{setOnClickListener{if(!emailRegister){emailRegister=true;render()}}},LinearLayout.LayoutParams(0,dp(38),1f).apply{marginStart=dp(3)})
-   }
+   emailMode.addView(archiveMiniSegment("ورود",!emailRegister).apply{setOnClickListener{if(emailRegister){emailRegister=false;render()}}},LinearLayout.LayoutParams(0,dp(38),1f).apply{marginEnd=dp(3)})
+   emailMode.addView(archiveMiniSegment("ثبت‌نام",emailRegister).apply{setOnClickListener{if(!emailRegister){emailRegister=true;render()}}},LinearLayout.LayoutParams(0,dp(38),1f).apply{marginStart=dp(3)})
    box.addView(emailMode,LinearLayout.LayoutParams(-1,dp(46)).apply{bottomMargin=dp(20)})
    box.addView(archiveTitle(if(emailRegister)"ساخت حساب کاربری" else "ورود با ایمیل"))
    box.addView(archiveSubtitle(if(emailRegister)"ایمیل و یک رمز عبور حداقل ۸ کاراکتری تعیین کنید." else "ایمیل و رمز عبور حساب BlueVPN خود را وارد کنید."),LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(18)})
@@ -330,9 +324,7 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
      ?: "نامحدود"
     "اعتبار تا: $expireDisplay • تهران"
    }else{
-    if(BlueVpnStorePolicy.isGooglePlayBuild())
-     "در نسخه Google Play خرید داخل برنامه ارائه نمی‌شود؛ اشتراک موجود خودکار همگام می‌شود."
-    else "پس از انتخاب پلن، کانفیگ‌ها خودکار به حساب اضافه می‌شوند."
+    "پس از انتخاب پلن، کانفیگ‌ها خودکار به حساب اضافه می‌شوند."
    }
    textSize=12f
    gravity=Gravity.CENTER
@@ -361,31 +353,9 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   }else{
    BlueVpnTapsellManager.onEntitlementChanged(this)
   }
-  if(BlueVpnStorePolicy.isGooglePlayBuild()){
-   playStoreConsumptionCard()
-  }else{
-   loadPlans(generation)
-  }
- }
- private fun playStoreConsumptionCard(){
-  val card=card()
-  val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(18),dp(18),dp(18),dp(18))}
-  box.addView(TextView(this).apply{
-   text="نسخه Google Play"
-   textSize=16f;setTextColor(palette.textPrimary);setTypeface(typeface,Typeface.BOLD);gravity=Gravity.END
-  })
-  box.addView(TextView(this).apply{
-   text="این نسخه برای ورود و استفاده از اشتراک موجود طراحی شده است. خرید یا هدایت به درگاه پرداخت خارجی داخل برنامه انجام نمی‌شود."
-   textSize=11.5f;setTextColor(palette.textMuted);gravity=Gravity.END;setPadding(0,dp(7),0,dp(10))
-  })
-  box.addView(button("همگام‌سازی وضعیت اشتراک","#1676FF").apply{
-   BlueVpnUiGuard.bind(this){sync(true)}
-  },LinearLayout.LayoutParams(-1,dp(48)))
-  card.addView(box)
-  content.addView(card,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(12)})
+  loadPlans(generation)
  }
  private fun attachFreeNativeVideo(){
-  if(BlueVpnStorePolicy.isGooglePlayBuild())return
   if(!com.v2ray.ang.bluevpn.BlueVpnEntitlement.resolveUi(this).isFree)return
   val host=FrameLayout(this).apply{visibility=View.GONE;clipChildren=true;clipToPadding=true}
   content.addView(host,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(12)})
@@ -567,11 +537,6 @@ private fun loadPlans(generation:Int){
  }
  private fun emailAuth(email:String,password:String,register:Boolean){
   if(busy)return
-  if(register&&!BlueVpnStorePolicy.allowAccountCreation()){
-   emailRegister=false
-   status.text="ثبت‌نام در نسخه Google Play داخل برنامه انجام نمی‌شود"
-   return
-  }
   draftEmail=email;draftPassword=password
   if(!email.contains("@")){Toast.makeText(this,"ایمیل معتبر وارد کنید",Toast.LENGTH_SHORT).show();return}
   if(password.length<8){Toast.makeText(this,"رمز عبور باید حداقل ۸ کاراکتر باشد",Toast.LENGTH_SHORT).show();return}
@@ -661,10 +626,6 @@ private fun loadPlans(generation:Int){
  }
  private fun buy(planId:Int){
   if(busy)return
-  if(!BlueVpnStorePolicy.allowExternalCheckout()){
-   status.text="خرید خارجی در نسخه Google Play غیرفعال است"
-   return
-  }
   BlueVpnAccountManager.clearPendingOrder(this)
   handler.removeCallbacks(poll)
   busy=true

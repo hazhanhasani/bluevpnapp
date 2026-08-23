@@ -1,7 +1,0 @@
-BlueVPN 5.2.4 — Android AGP 9 Build + Telegram Webhook Hotfix
-
-- Fixed Google Play/Android Gradle script compilation on AGP 9 by replacing generated fdroidImplementation(...) Kotlin DSL accessors with DependencyHandler.add("fdroidImplementation", ...).
-- Tapsell remains limited to the direct/F-Droid flavor; Google Play still compiles the no-Tapsell stub and remains ads/AD_ID free.
-- Added release/test gates that fail before CI if the incompatible typed accessor pattern returns.
-- Telegram webhook URL now uses WordPress rest_route query routing, avoiding 404 delivery failures on hosts/CDNs where /wp-json rewrite paths are unavailable.
-- All Google Play AAB, 16 KB native alignment, Microsoft Store signing, Source, Android/Windows stability, Manager, theme and bot hardening from 5.2.3 remain included.

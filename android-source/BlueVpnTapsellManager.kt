@@ -426,11 +426,6 @@ object BlueVpnTapsellManager {
         after: (() -> Unit)? = null,
         onUnavailable: (() -> Unit)? = null,
     ) {
-        if (!BlueVpnStorePolicy.allowThirdPartyAds()) {
-            recordStatus(context, "store_ads_disabled", "Third-party advertising is disabled in the Google Play build.")
-            onUnavailable?.invoke()
-            return
-        }
         if (!loaded.hasAnyPlacement || !BlueVpnEntitlement.resolveUi(context).isFree) {
             onUnavailable?.invoke()
             return

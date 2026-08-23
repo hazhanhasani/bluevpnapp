@@ -1,6 +1,6 @@
-# BlueVPN for Windows — 5.2.4
+# BlueVPN for Windows — 5.2.2
 
-## 5.2.4 connection stability
+## 5.2.2 connection stability
 
 - Endpoint selection now samples reachable routes twice and ranks with latency + jitter + sample reliability instead of one TCP connect only.
 - A recently successful route receives a bounded reconnect preference while a failed live probe still wins fail-closed.

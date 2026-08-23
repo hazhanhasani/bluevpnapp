@@ -1,4 +1,4 @@
-# BlueVPN Gateway Metering — 5.1.8
+# BlueVPN Gateway Metering — 5.1.9 Autopilot
 
 این پوشه دیتاپلین لینوکسی پلن‌های `gateway_metered` را اجرا می‌کند.
 
@@ -8,7 +8,7 @@
 
 کلاینت فقط credential خود BlueVPN Gateway را دریافت می‌کند؛ credential و URL اصلی Provider/Manual Source سمت سرور باقی می‌ماند.
 
-## Phase 3 (baseline 5.1.6، حفظ‌شده در 5.1.8)
+## Phase 3 (baseline 5.1.6، حفظ‌شده در 5.1.9)
 
 - HA چند Node با `priority`، `region`، `max_sessions`، Primary/Standby و Drain.
 - Reconcile یک‌دقیقه‌ای و region diversity برای جایگزینی Node خراب بدون حذف upstream اصلی از کنترل‌پلین.
@@ -22,13 +22,13 @@
 - heartbeat سلامت Xray، CPU/RAM، uptime، pending usage و وضعیت runtime را گزارش می‌کند.
 
 
-## Phase 4 — Safe Gateway Rollout (5.1.8)
+## Phase 4 — Safe Gateway Rollout (5.1.9)
 
 - هر config ساختاری یک `config_generation` دارد و Agent فقط بعد از apply موفق ACK می‌دهد.
 - انتشار با Canary و مراحل 10%، 25%، 50% و 100% انجام می‌شود.
 - config-hash mismatch، runtime error یا timeout ACK باعث rollback خودکار به نسل پایدار قبلی می‌شود.
 - quota/revoke و policy از snapshot جدا هستند و همیشه live از Manager rehydrate می‌شوند.
-- rollout تا وقتی همه Agentهای فعال حداقل 5.1.8 نباشند شروع نمی‌شود.
+- rollout تا وقتی همه Agentهای فعال حداقل 5.1.9 نباشند شروع نمی‌شود.
 - وضعیت Stable/Active generation و درصد مرحله در پنل Gateway نمایش داده می‌شود.
 
 جزئیات: `PHASE4.md`.
@@ -57,3 +57,11 @@ Drain را فعال و Reconcile را اجرا کن. Node جدید session نم�
 - `agent.json` باید 0600 باشد.
 - Xray API فقط localhost.
 - سهمیه نهایی در MySQL/BlueVPN authoritative است؛ lease فقط fail-closed محلی برای محدودکردن overrun هنگام outage است.
+
+
+## Phase 5 Autopilot
+
+- ظرفیت Node از CPU/RAM Agent خودکار محاسبه می‌شود.
+- Auto-Drain/Auto-Recover نیاز به تنظیم روزانه ندارد.
+- Drain دیگر connection موجود را فوراً قطع نمی‌کند؛ Session جایگزین ACK می‌شود و پس از overlap، source retire می‌شود.
+- جزئیات: `PHASE5.md`.

@@ -4,8 +4,8 @@ if (!defined('ABSPATH')) exit;
 /**
  * BlueVPN first-party gateway control plane.
  *
- * Phase 3 adds HA scheduling, capacity-aware placement, drain/reconcile,
- * durable sequence-aware metering and live gateway health telemetry.
+ * Phase 5 adds Gateway Autopilot and zero-downtime handoff on top of HA,
+ * durable metering, circuit breaking and safe staged rollout.
  */
 final class BlueVPN_Gateway {
     private const AUTH_WINDOW_SECONDS = 300;
@@ -28,6 +28,14 @@ final class BlueVPN_Gateway {
     private const ROLLOUT_ACK_TIMEOUT_SECONDS = 150;
     private const ROLLOUT_HEALTH_HOLD_SECONDS = 45;
     private const ROLLOUT_RETRY_COOLDOWN_SECONDS = 900;
+    private const AUTOPILOT_OPTION = 'bluevpn_gateway_autopilot_state';
+    private const AUTOPILOT_ENABLED_OPTION = 'bluevpn_gateway_autopilot_enabled';
+    private const AUTOPILOT_FAILURE_THRESHOLD = 2;
+    private const AUTOPILOT_RECOVERY_THRESHOLD = 3;
+    private const AUTOPILOT_HIGH_CPU_PCT = 95.0;
+    private const AUTOPILOT_HIGH_MEMORY_PCT = 95.0;
+    private const MIGRATION_PREPARE_TIMEOUT_SECONDS = 240;
+    private const MIGRATION_OVERLAP_SECONDS = 60;
 
     public static function init(): void {
         add_action('rest_api_init',[self::class,'register_routes']);
@@ -44,6 +52,7 @@ final class BlueVPN_Gateway {
     private static function sessions_table(): string { return BlueVPN_DB::table('gateway_sessions'); }
     private static function usage_table(): string { return BlueVPN_DB::table('gateway_usage_events'); }
     private static function rollout_table(): string { return BlueVPN_DB::table('gateway_config_generations'); }
+    private static function migrations_table(): string { return BlueVPN_DB::table('gateway_session_migrations'); }
     private static function customers_table(): string { return BlueVPN_DB::table('customers'); }
     private static function plans_table(): string { return BlueVPN_DB::table('plans'); }
 
@@ -98,8 +107,52 @@ final class BlueVPN_Gateway {
         return $ts>0?max(0,time()-$ts):PHP_INT_MAX;
     }
 
+    public static function autopilot_enabled(): bool {
+        $enabled=(string)get_option(self::AUTOPILOT_ENABLED_OPTION,'1')!=='0';
+        return (bool)apply_filters('bluevpn_gateway_autopilot_enabled',$enabled);
+    }
+
+    private static function autopilot_state(): array {
+        $state=get_option(self::AUTOPILOT_OPTION,[]);
+        return is_array($state)?$state:[];
+    }
+
+    private static function autopilot_node_state(int $nodeId): array {
+        $all=self::autopilot_state();$row=$all[(string)$nodeId]??[];if(!is_array($row))$row=[];
+        return ['auto_draining'=>!empty($row['auto_draining']),'failures'=>max(0,(int)($row['failures']??0)),'recoveries'=>max(0,(int)($row['recoveries']??0)),'reason'=>(string)($row['reason']??''),'updated_at'=>max(0,(int)($row['updated_at']??0))];
+    }
+
+    private static function node_effectively_draining(array $node): bool {
+        if((int)($node['draining']??0)===1)return true;
+        return self::autopilot_enabled()&&self::autopilot_node_state((int)($node['id']??0))['auto_draining'];
+    }
+
+    private static function autopilot_capacity(array $node): int {
+        $manual=max(1,min(self::MAX_NODE_SESSIONS,(int)($node['max_sessions']??5000)));
+        if(!self::autopilot_enabled())return $manual;
+        $cores=max(1,(int)($node['cpu_cores']??0));$mem=max(256,(int)($node['memory_total_mb']??0));
+        if((int)($node['cpu_cores']??0)<=0||(int)($node['memory_total_mb']??0)<=0)return min($manual,2000);
+        // Conservative capacity: both CPU and RAM must be able to support the session count.
+        $auto=max(250,min(self::MAX_NODE_SESSIONS,$cores*1000,(int)floor($mem/2)));
+        return $auto;
+    }
+
+    private static function autopilot_observe_node(array $node,string $health,string $error): void {
+        if(!self::autopilot_enabled())return;$id=(int)($node['id']??0);if($id<=0)return;
+        $all=self::autopilot_state();$row=self::autopilot_node_state($id);$cpu=(float)($node['cpu_load_pct']??0);$mem=(float)($node['memory_used_pct']??0);
+        $bad=$health!=='healthy'||$error!==''||$cpu>=self::AUTOPILOT_HIGH_CPU_PCT||$mem>=self::AUTOPILOT_HIGH_MEMORY_PCT;
+        if($bad){$row['failures']++;$row['recoveries']=0;$row['reason']=$health!=='healthy'?'health_'.$health:($error!==''?'runtime_error':($cpu>=self::AUTOPILOT_HIGH_CPU_PCT?'cpu_pressure':'memory_pressure'));if($row['failures']>=self::AUTOPILOT_FAILURE_THRESHOLD)$row['auto_draining']=true;}
+        else{$row['failures']=0;$row['recoveries']++;if($row['auto_draining']&&$row['recoveries']>=self::AUTOPILOT_RECOVERY_THRESHOLD){$row['auto_draining']=false;$row['reason']='recovered';$row['recoveries']=0;}}
+        $row['updated_at']=time();$all[(string)$id]=$row;update_option(self::AUTOPILOT_OPTION,$all,false);
+    }
+
+    public static function autopilot_summary(): array {
+        $auto=0;foreach(self::active_nodes() as $n)if(self::autopilot_node_state((int)$n['id'])['auto_draining'])$auto++;
+        return ['enabled'=>self::autopilot_enabled(),'auto_draining_nodes'=>$auto,'mode'=>self::autopilot_enabled()?'autopilot':'manual'];
+    }
+
     private static function node_has_capacity(array $node): bool {
-        $max=max(1,(int)($node['max_sessions']??5000));
+        $max=self::autopilot_capacity($node);
         return (int)($node['active_sessions']??0)<$max;
     }
 
@@ -161,7 +214,7 @@ final class BlueVPN_Gateway {
     public static function eligible_nodes(): array {
         $healthy=[];$degraded=[];
         foreach(self::active_nodes() as $node){
-            if((int)($node['draining']??0)===1||!self::node_has_capacity($node)||!self::circuit_allows_node($node))continue;
+            if(self::node_effectively_draining($node)||!self::node_has_capacity($node)||!self::circuit_allows_node($node))continue;
             $age=self::node_last_seen_age($node);$health=strtolower((string)($node['health_status']??'unknown'));
             if($age<=self::HEALTHY_WINDOW_SECONDS&&$health==='healthy'){$healthy[]=$node;continue;}
             if($age<=self::DEGRADED_WINDOW_SECONDS&&in_array($health,['healthy','degraded','unknown'],true))$degraded[]=$node;
@@ -170,8 +223,8 @@ final class BlueVPN_Gateway {
     }
 
     private static function node_score(array $node,int $customerId): float {
-        $priority=max(1,min(10000,(int)($node['priority']??100)));
-        $max=max(1,(int)($node['max_sessions']??5000));
+        $priority=self::autopilot_enabled()?100:max(1,min(10000,(int)($node['priority']??100)));
+        $max=self::autopilot_capacity($node);
         $active=max(0,(int)($node['active_sessions']??0));
         $util=min(1.5,$active/$max);
         $health=strtolower((string)($node['health_status']??'unknown'));
@@ -181,13 +234,44 @@ final class BlueVPN_Gateway {
     }
 
     private static function select_nodes_for_customer(int $customerId,int $replicas): array {
-        $nodes=self::eligible_nodes();
-        usort($nodes,static function(array $a,array $b)use($customerId){return self::node_score($a,$customerId)<=>self::node_score($b,$customerId);});
+        $nodes=self::eligible_nodes();global $wpdb;$existingIds=array_map('intval',$wpdb->get_col($wpdb->prepare("SELECT node_id FROM ".self::sessions_table()." WHERE customer_id=%d AND status='active'",$customerId))?:[]);$sticky=array_fill_keys($existingIds,true);
+        usort($nodes,static function(array $a,array $b)use($customerId,$sticky){$sa=isset($sticky[(int)$a['id']])?0:1;$sb=isset($sticky[(int)$b['id']])?0:1;if($sa!==$sb)return $sa<=>$sb;return self::node_score($a,$customerId)<=>self::node_score($b,$customerId);});
         $replicas=max(1,min(3,$replicas));if(count($nodes)<=$replicas)return $nodes;
         $selected=[];$regions=[];
         foreach($nodes as $node){$region=strtolower(trim((string)($node['region']??'')));if($region!==''&&isset($regions[$region]))continue;$selected[]=$node;if($region!=='')$regions[$region]=true;if(count($selected)>=$replicas)return $selected;}
         foreach($nodes as $node){$id=(int)$node['id'];$exists=false;foreach($selected as $s){if((int)$s['id']===$id){$exists=true;break;}}if($exists)continue;$selected[]=$node;if(count($selected)>=$replicas)break;}
         return $selected;
+    }
+
+    private static function active_migration_for_source(int $sourceSessionId): ?array {
+        if($sourceSessionId<=0)return null;global $wpdb;$row=$wpdb->get_row($wpdb->prepare("SELECT * FROM ".self::migrations_table()." WHERE source_session_id=%d AND state IN ('preparing','ready') ORDER BY id DESC LIMIT 1",$sourceSessionId),ARRAY_A);return is_array($row)?$row:null;
+    }
+
+    private static function start_session_migration(array $source,array $target): void {
+        $sourceId=(int)($source['id']??0);$targetId=(int)($target['id']??0);if($sourceId<=0||$targetId<=0||$sourceId===$targetId)return;if(self::active_migration_for_source($sourceId))return;
+        global $wpdb;$now=BlueVPN_Utils::now_mysql();$deadline=gmdate('Y-m-d H:i:s',time()+self::MIGRATION_PREPARE_TIMEOUT_SECONDS);
+        $wpdb->insert(self::migrations_table(),['customer_id'=>(int)$source['customer_id'],'source_session_id'=>$sourceId,'target_session_id'=>$targetId,'source_node_id'=>(int)$source['node_id'],'target_node_id'=>(int)$target['node_id'],'state'=>'preparing','started_at'=>$now,'target_ready_at'=>null,'completed_at'=>null,'deadline_at'=>$deadline,'last_error'=>'','created_at'=>$now,'updated_at'=>$now]);
+    }
+
+    private static function migration_target_ready(array $migration): bool {
+        $node=self::node((int)($migration['target_node_id']??0));if(!$node||self::node_effectively_draining($node)||!self::circuit_allows_node($node))return false;
+        if(self::node_last_seen_age($node)>self::HEALTHY_WINDOW_SECONDS||(string)($node['health_status']??'')!=='healthy')return false;
+        $started=!empty($migration['started_at'])?(strtotime((string)$migration['started_at'].' UTC')?:0):0;$acked=!empty($node['last_config_ack_at'])?(strtotime((string)$node['last_config_ack_at'].' UTC')?:0):0;
+        return $started>0&&$acked>=$started;
+    }
+
+    public static function migration_tick(int $limit=500): array {
+        global $wpdb;$mt=self::migrations_table();$st=self::sessions_table();$limit=max(1,min(2000,$limit));$rows=$wpdb->get_results("SELECT * FROM {$mt} WHERE state IN ('preparing','ready') ORDER BY id ASC LIMIT {$limit}",ARRAY_A)?:[];$ready=0;$completed=0;$failed=0;$now=time();$nowMysql=BlueVPN_Utils::now_mysql();
+        foreach($rows as $m){$id=(int)$m['id'];$deadline=!empty($m['deadline_at'])?(strtotime((string)$m['deadline_at'].' UTC')?:0):0;$isReady=self::migration_target_ready($m);
+            if((string)$m['state']==='preparing'&&$isReady){$wpdb->update($mt,['state'=>'ready','target_ready_at'=>$nowMysql,'updated_at'=>$nowMysql],['id'=>$id]);$ready++;continue;}
+            if((string)$m['state']==='ready'){if(!$isReady){$wpdb->update($mt,['state'=>'preparing','target_ready_at'=>null,'last_error'=>'target_lost_health_before_cutover','updated_at'=>$nowMysql],['id'=>$id]);continue;}$readyAt=!empty($m['target_ready_at'])?(strtotime((string)$m['target_ready_at'].' UTC')?:0):0;if($readyAt>0&&($now-$readyAt)>=self::MIGRATION_OVERLAP_SECONDS){$wpdb->update($st,['status'=>'retired','revoked_at'=>$nowMysql,'updated_at'=>$nowMysql],['id'=>(int)$m['source_session_id']]);$wpdb->update($mt,['state'=>'completed','completed_at'=>$nowMysql,'last_error'=>'','updated_at'=>$nowMysql],['id'=>$id]);$completed++;continue;}}
+            if((string)$m['state']==='preparing'&&$deadline>0&&$now>$deadline){$wpdb->update($mt,['state'=>'failed','last_error'=>'target_not_ready_before_deadline','updated_at'=>$nowMysql],['id'=>$id]);$wpdb->update($st,['status'=>'retired','revoked_at'=>$nowMysql,'updated_at'=>$nowMysql],['id'=>(int)$m['target_session_id']]);$failed++;}
+        }
+        return ['checked'=>count($rows),'ready'=>$ready,'completed'=>$completed,'failed'=>$failed];
+    }
+
+    public static function migration_summary(): array {
+        global $wpdb;$t=self::migrations_table();$active=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t} WHERE state IN ('preparing','ready')");$failed=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t} WHERE state='failed' AND updated_at>=DATE_SUB(UTC_TIMESTAMP(),INTERVAL 1 DAY)");return ['active'=>$active,'failed_24h'=>$failed,'overlap_seconds'=>self::MIGRATION_OVERLAP_SECONDS];
     }
 
     public static function ensure_customer_sessions(int $customerId): array {
@@ -203,16 +287,17 @@ final class BlueVPN_Gateway {
             elseif((string)$row['status']!=='active'||(string)($row['role']??'')!==$role){$wpdb->update($st,['status'=>'active','role'=>$role,'revoked_at'=>null,'assigned_at'=>$now,'updated_at'=>$now],['id'=>(int)$row['id']]);$row['status']='active';$row['role']=$role;$row['revoked_at']=null;}
             if(is_array($row))$out[]=$row;
         }
-        foreach($existing as $row){$nodeId=(int)$row['node_id'];if(isset($desired[$nodeId])||(string)$row['status']!=='active')continue;$wpdb->update($st,['status'=>'retired','revoked_at'=>$now,'updated_at'=>$now],['id'=>(int)$row['id']]);}
+        $targetPrimary=null;foreach($out as $candidate){if((string)($candidate['role']??'')==='primary'){$targetPrimary=$candidate;break;}}if(!$targetPrimary&&$out)$targetPrimary=$out[0];
+        foreach($existing as $row){$nodeId=(int)$row['node_id'];if(isset($desired[$nodeId])||(string)$row['status']!=='active')continue;if(is_array($targetPrimary)){self::start_session_migration($row,$targetPrimary);if(self::active_migration_for_source((int)$row['id']))$out[]=$row;}}
         return $out;
     }
 
     public static function gateway_subscription_lines(array $customer): array {
         if(!self::is_gateway_metered_customer($customer)||!self::entitlement_allows($customer))return [];
         $sessions=self::ensure_customer_sessions((int)$customer['id']);if(!$sessions)return [];
-        $nodes=[];foreach(self::eligible_nodes() as $n)$nodes[(int)$n['id']]=$n;$lines=[];
+        $nodes=[];foreach(self::active_nodes() as $n){$age=self::node_last_seen_age($n);$health=strtolower((string)($n['health_status']??'unknown'));if(!self::circuit_allows_node($n)||$age>self::DEGRADED_WINDOW_SECONDS||!in_array($health,['healthy','degraded','unknown'],true))continue;$nodes[(int)$n['id']]=$n;}$lines=[];
         foreach($sessions as $session){if((string)$session['status']!=='active')continue;$node=$nodes[(int)$session['node_id']]??null;if(!$node)continue;$host=trim((string)$node['public_host']);$port=max(1,min(65535,(int)$node['public_port']));$sni=trim((string)$node['server_name']);if($host===''||$sni==='')continue;
-            $query=http_build_query(['encryption'=>'none','security'=>'tls','sni'=>$sni,'type'=>'tcp'],'','&',PHP_QUERY_RFC3986);$role=(string)($session['role']??'primary');$label=$role==='primary'?'Primary':'Standby';$region=trim((string)($node['region']??''));$name='BlueVPN '.$label.' • '.((string)$node['name']?:$host).($region!==''?' • '.$region:'');$lines[]='vless://'.rawurlencode((string)$session['client_uuid']).'@'.$host.':'.$port.'?'.$query.'#'.rawurlencode($name);
+            $query=http_build_query(['encryption'=>'none','security'=>'tls','sni'=>$sni,'type'=>'tcp'],'','&',PHP_QUERY_RFC3986);$role=(string)($session['role']??'primary');$label=self::node_effectively_draining($node)?'Handoff':($role==='primary'?'Primary':'Standby');$region=trim((string)($node['region']??''));$name='BlueVPN '.$label.' • '.((string)$node['name']?:$host).($region!==''?' • '.$region:'');$lines[]='vless://'.rawurlencode((string)$session['client_uuid']).'@'.$host.':'.$port.'?'.$query.'#'.rawurlencode($name);
         }
         return $lines;
     }
@@ -237,7 +322,7 @@ final class BlueVPN_Gateway {
         return self::ok(['ok'=>false,'detail'=>['code'=>$code,'message'=>'احراز هویت Gateway معتبر نیست.']],$status);
     }
 
-    /** Phase 4 / 5.1.8 safe staged rollout can be disabled instantly. */
+    /** Phase 4 / 5.1.9 safe staged rollout can be disabled instantly. */
     public static function rollout_enabled(): bool {
         $enabled=(string)get_option(self::ROLLOUT_ENABLED_OPTION,'1')!=='0';
         return (bool)apply_filters('bluevpn_gateway_safe_rollout_enabled',$enabled);
@@ -271,7 +356,7 @@ final class BlueVPN_Gateway {
     /** Structural config only; quota/sequence policy is rehydrated live on every poll. */
     private static function structural_snapshot_for_node(array $node): array {
         global $wpdb;$nodeId=(int)($node['id']??0);if($nodeId<=0)return ['config_hash'=>hash('sha256','empty'),'sessions'=>[]];
-        $st=self::sessions_table();$ct=self::customers_table();$pt=self::plans_table();$limit=max(1,min(self::MAX_NODE_SESSIONS,(int)($node['max_sessions']??5000)));
+        $st=self::sessions_table();$ct=self::customers_table();$pt=self::plans_table();$limit=self::autopilot_capacity($node);
         $sql=$wpdb->prepare("SELECT s.*,c.plan_id,c.subscription_status,c.subscription_expire,c.data_limit_bytes,c.used_traffic_bytes,c.active,p.traffic_mode FROM {$st} s JOIN {$ct} c ON c.id=s.customer_id JOIN {$pt} p ON p.id=c.plan_id AND p.deleted=0 WHERE s.node_id=%d AND s.status='active' AND c.active=1 AND p.traffic_mode='gateway_metered' ORDER BY s.role ASC,s.customer_id ASC LIMIT {$limit}",$nodeId);
         $rows=$wpdb->get_results($sql,ARRAY_A)?:[];$sessions=[];$fingerprint=[];
         foreach($rows as $row){
@@ -298,7 +383,7 @@ final class BlueVPN_Gateway {
     }
 
     private static function rollout_nodes(): array {
-        $out=[];foreach(self::active_nodes() as $node){if((int)($node['draining']??0)===1||!self::circuit_allows_node($node))continue;$out[]=$node;}return $out;
+        $out=[];foreach(self::active_nodes() as $node){if(self::node_effectively_draining($node)||!self::circuit_allows_node($node))continue;$out[]=$node;}return $out;
     }
 
     private static function build_rollout_snapshots(array $nodes): array {
@@ -415,16 +500,16 @@ final class BlueVPN_Gateway {
     public static function rest_config(WP_REST_Request $r): WP_REST_Response {
         try{$node=self::auth_node($r);}catch(Throwable $e){return self::auth_fail($e);}global $wpdb;$nodeId=(int)$node['id'];
         $rollout=self::rollout_summary();
-        // Drain/circuit isolation is an emergency control and must never wait for staged rollout.
-        if((int)($node['draining']??0)===1||!self::circuit_allows_node($node)){
+        // Circuit isolation is immediate. Drain is graceful: stop new placement but keep existing sessions alive until handoff ACK + overlap completes.
+        if(!self::circuit_allows_node($node)){
             $state=self::circuit_node_state($nodeId);$hash=hash('sha256','disabled:'.$nodeId.':'.$state['state']);
-            return self::ok(['ok'=>true,'schema'=>4,'mode'=>'gateway_metered','draining'=>(bool)($node['draining']??0),'circuit_state'=>$state['state'],'config_generation'=>0,'config_hash'=>$hash,'policy_hash'=>$hash,'rollout_status'=>'emergency_bypass','rollout_stage_percent'=>0,'rollout_canary'=>false,'generated_at'=>BlueVPN_Utils::iso_now(),'sessions'=>[]]);
+            return self::ok(['ok'=>true,'schema'=>5,'mode'=>'gateway_metered','draining'=>self::node_effectively_draining($node),'accept_new'=>false,'circuit_state'=>$state['state'],'config_generation'=>0,'config_hash'=>$hash,'policy_hash'=>$hash,'rollout_status'=>'emergency_bypass','rollout_stage_percent'=>0,'rollout_canary'=>false,'generated_at'=>BlueVPN_Utils::iso_now(),'sessions'=>[]]);
         }
         $current=self::structural_snapshot_for_node($node);$selection=self::rollout_enabled()?self::rollout_selection_for_node($nodeId,$current):['generation'=>0,'snapshot'=>$current,'source'=>'disabled','canary'=>false,'state'=>self::rollout_state()];
         $snapshot=is_array($selection['snapshot']??null)?$selection['snapshot']:$current;$live=self::hydrate_structural_snapshot($nodeId,$snapshot);$hash=(string)($snapshot['config_hash']??$current['config_hash']);$policyHash=(string)$live['policy_hash'];$now=BlueVPN_Utils::now_mysql();
         // last_config_hash is ACKed runtime state and is only written by heartbeat, never by GET /config.
         $wpdb->update(self::nodes_table(),['last_seen_at'=>$now,'updated_at'=>$now],['id'=>$nodeId]);
-        return self::ok(['ok'=>true,'schema'=>4,'mode'=>'gateway_metered','node'=>['id'=>$nodeId,'name'=>(string)$node['name'],'region'=>(string)($node['region']??''),'public_host'=>(string)$node['public_host'],'public_port'=>(int)$node['public_port'],'server_name'=>(string)$node['server_name'],'transport'=>(string)$node['transport'],'draining'=>(bool)($node['draining']??0)],'config_generation'=>(int)($selection['generation']??0),'config_hash'=>$hash,'policy_hash'=>$policyHash,'rollout_status'=>(string)($selection['source']??'stable'),'rollout_stage_percent'=>(int)($selection['state']['stage_percent']??0),'rollout_canary'=>!empty($selection['canary']),'generated_at'=>BlueVPN_Utils::iso_now(),'sessions'=>$live['sessions']]);
+        return self::ok(['ok'=>true,'schema'=>5,'mode'=>'gateway_metered','node'=>['id'=>$nodeId,'name'=>(string)$node['name'],'region'=>(string)($node['region']??''),'public_host'=>(string)$node['public_host'],'public_port'=>(int)$node['public_port'],'server_name'=>(string)$node['server_name'],'transport'=>(string)$node['transport'],'draining'=>self::node_effectively_draining($node),'accept_new'=>!self::node_effectively_draining($node),'effective_capacity'=>self::autopilot_capacity($node)],'config_generation'=>(int)($selection['generation']??0),'config_hash'=>$hash,'policy_hash'=>$policyHash,'rollout_status'=>(string)($selection['source']??'stable'),'rollout_stage_percent'=>(int)($selection['state']['stage_percent']??0),'rollout_canary'=>!empty($selection['canary']),'generated_at'=>BlueVPN_Utils::iso_now(),'sessions'=>$live['sessions']]);
     }
 
     public static function rest_usage(WP_REST_Request $r): WP_REST_Response {
@@ -458,8 +543,8 @@ final class BlueVPN_Gateway {
     public static function rest_heartbeat(WP_REST_Request $r): WP_REST_Response {
         try{$node=self::auth_node($r);}catch(Throwable $e){return self::auth_fail($e);}global $wpdb;$body=$r->get_json_params();if(!is_array($body))$body=[];$error=mb_substr(sanitize_textarea_field((string)($body['error']??'')),0,1800);$xrayRunning=!empty($body['xray_running']);$health=!$xrayRunning?'down':($error!==''?'degraded':'healthy');$lastFlushRaw=(string)($body['last_usage_flush_at']??'');$lastFlush=$lastFlushRaw!==''?BlueVPN_Utils::mysql_from_iso($lastFlushRaw):null;
         $generation=max(0,(int)($body['config_generation']??0));$appliedHash=substr(preg_replace('/[^a-f0-9]/i','',(string)($body['config_hash']??'')),0,64);$policyHash=substr(preg_replace('/[^a-f0-9]/i','',(string)($body['policy_hash']??'')),0,64);$ackRaw=(string)($body['config_applied_at']??'');$ackAt=$ackRaw!==''?BlueVPN_Utils::mysql_from_iso($ackRaw):null;
-        $data=['last_seen_at'=>BlueVPN_Utils::now_mysql(),'health_status'=>$health,'active_sessions'=>max(0,min(self::MAX_NODE_SESSIONS,(int)($body['active_sessions']??0))),'pending_usage_events'=>max(0,min(100000,(int)($body['pending_usage_events']??0))),'cpu_load_pct'=>max(0,min(1000,(float)($body['cpu_load_pct']??0))),'memory_used_pct'=>max(0,min(100,(float)($body['memory_used_pct']??0))),'agent_uptime_seconds'=>max(0,(int)($body['uptime_seconds']??0)),'agent_boot_id'=>substr(preg_replace('/[^a-zA-Z0-9._:-]/','',(string)($body['agent_boot_id']??'')),0,64),'last_agent_version'=>substr(sanitize_text_field((string)($body['agent_version']??'')),0,64),'last_xray_version'=>substr(sanitize_text_field((string)($body['xray_version']??'')),0,64),'last_config_hash'=>$appliedHash,'last_policy_hash'=>$policyHash,'last_config_generation'=>$generation,'last_error'=>$error,'updated_at'=>BlueVPN_Utils::now_mysql()];if($lastFlush)$data['last_usage_flush_at']=$lastFlush;if($ackAt)$data['last_config_ack_at']=$ackAt;$wpdb->update(self::nodes_table(),$data,['id'=>(int)$node['id']]);self::record_circuit_observation((int)$node['id'],$health==='healthy');self::rollout_record_heartbeat((int)$node['id'],$generation,$appliedHash,$health,$error);
-        $circuit=self::circuit_node_state((int)$node['id']);$rollout=self::rollout_summary();return self::ok(['ok'=>true,'server_time'=>time(),'health'=>$health,'draining'=>(bool)($node['draining']??0),'circuit_state'=>$circuit['state'],'rollout'=>$rollout]);
+        $data=['last_seen_at'=>BlueVPN_Utils::now_mysql(),'health_status'=>$health,'active_sessions'=>max(0,min(self::MAX_NODE_SESSIONS,(int)($body['active_sessions']??0))),'pending_usage_events'=>max(0,min(100000,(int)($body['pending_usage_events']??0))),'cpu_load_pct'=>max(0,min(1000,(float)($body['cpu_load_pct']??0))),'memory_used_pct'=>max(0,min(100,(float)($body['memory_used_pct']??0))),'cpu_cores'=>max(1,min(256,(int)($body['cpu_cores']??1))),'memory_total_mb'=>max(256,min(1048576,(int)($body['memory_total_mb']??256))),'agent_uptime_seconds'=>max(0,(int)($body['uptime_seconds']??0)),'agent_boot_id'=>substr(preg_replace('/[^a-zA-Z0-9._:-]/','',(string)($body['agent_boot_id']??'')),0,64),'last_agent_version'=>substr(sanitize_text_field((string)($body['agent_version']??'')),0,64),'last_xray_version'=>substr(sanitize_text_field((string)($body['xray_version']??'')),0,64),'last_config_hash'=>$appliedHash,'last_policy_hash'=>$policyHash,'last_config_generation'=>$generation,'last_error'=>$error,'updated_at'=>BlueVPN_Utils::now_mysql()];if($lastFlush)$data['last_usage_flush_at']=$lastFlush;if($ackAt)$data['last_config_ack_at']=$ackAt;$wpdb->update(self::nodes_table(),$data,['id'=>(int)$node['id']]);$fresh=array_replace($node,$data);self::record_circuit_observation((int)$node['id'],$health==='healthy');self::autopilot_observe_node($fresh,$health,$error);self::rollout_record_heartbeat((int)$node['id'],$generation,$appliedHash,$health,$error);
+        $circuit=self::circuit_node_state((int)$node['id']);$rollout=self::rollout_summary();return self::ok(['ok'=>true,'server_time'=>time(),'health'=>$health,'draining'=>self::node_effectively_draining($fresh),'effective_capacity'=>self::autopilot_capacity($fresh),'circuit_state'=>$circuit['state'],'rollout'=>$rollout,'autopilot'=>self::autopilot_summary(),'migration'=>self::migration_summary()]);
     }
 
 
@@ -473,6 +558,7 @@ final class BlueVPN_Gateway {
 
     public static function scheduled_reconcile(): void {
         self::reconcile_metered_customers(120,true);
+        self::migration_tick(500);
         self::rollout_tick();
     }
 
@@ -486,7 +572,7 @@ final class BlueVPN_Gateway {
     }
 
     public static function save_node(): void {
-        self::guard_admin();$id=max(0,(int)($_POST['node_id']??0));check_admin_referer('bluevpn_cc_save_gateway_node_'.$id);global $wpdb;$old=$id>0?self::node($id):null;$name=sanitize_text_field(wp_unslash($_POST['name']??''));$host=sanitize_text_field(wp_unslash($_POST['public_host']??''));$port=max(1,min(65535,(int)($_POST['public_port']??443)));$sni=sanitize_text_field(wp_unslash($_POST['server_name']??''));$region=sanitize_text_field(wp_unslash($_POST['region']??''));$priority=max(1,min(10000,(int)($_POST['priority']??100)));$maxSessions=max(1,min(self::MAX_NODE_SESSIONS,(int)($_POST['max_sessions']??5000)));if($name===''||$host===''||$sni==='')self::redirect('نام، Host و TLS Server Name اجباری است.',true);$secret=$old?self::node_secret($old):'';if($secret==='')$secret=BlueVPN_Utils::random_token(36);$data=['name'=>$name,'public_host'=>$host,'public_port'=>$port,'server_name'=>$sni,'transport'=>'tcp','region'=>$region,'priority'=>$priority,'max_sessions'=>$maxSessions,'draining'=>isset($_POST['draining'])?1:0,'secret_enc'=>BlueVPN_Utils::encrypt_secret($secret),'secret_hash'=>hash('sha256',$secret),'active'=>isset($_POST['active'])?1:0,'updated_at'=>BlueVPN_Utils::now_mysql()];if($id>0)$ok=$wpdb->update(self::nodes_table(),$data,['id'=>$id]);else{$data['created_at']=BlueVPN_Utils::now_mysql();$ok=$wpdb->insert(self::nodes_table(),$data);$id=(int)$wpdb->insert_id;set_transient('bluevpn_gateway_secret_'.get_current_user_id(),['node_id'=>$id,'secret'=>$secret],300);}self::redirect($ok===false?'ذخیره Gateway ناموفق بود.':'Gateway ذخیره شد.',$ok===false);
+        self::guard_admin();$id=max(0,(int)($_POST['node_id']??0));check_admin_referer('bluevpn_cc_save_gateway_node_'.$id);global $wpdb;$old=$id>0?self::node($id):null;$name=sanitize_text_field(wp_unslash($_POST['name']??''));$host=sanitize_text_field(wp_unslash($_POST['public_host']??''));$port=max(1,min(65535,(int)($_POST['public_port']??443)));$sni=sanitize_text_field(wp_unslash($_POST['server_name']??''));$region=sanitize_text_field(wp_unslash($_POST['region']??''));$priority=max(1,min(10000,(int)($_POST['priority']??100)));$maxSessions=max(1,min(self::MAX_NODE_SESSIONS,(int)($_POST['max_sessions']??5000)));if($host==='')self::redirect('Public Host اجباری است.',true);if($sni==='')$sni=$host;if($name==='')$name='Gateway '.$host;$secret=$old?self::node_secret($old):'';if($secret==='')$secret=BlueVPN_Utils::random_token(36);$data=['name'=>$name,'public_host'=>$host,'public_port'=>$port,'server_name'=>$sni,'transport'=>'tcp','region'=>$region,'priority'=>$priority,'max_sessions'=>$maxSessions,'draining'=>isset($_POST['draining'])?1:0,'secret_enc'=>BlueVPN_Utils::encrypt_secret($secret),'secret_hash'=>hash('sha256',$secret),'active'=>isset($_POST['active'])?1:0,'updated_at'=>BlueVPN_Utils::now_mysql()];if($id>0)$ok=$wpdb->update(self::nodes_table(),$data,['id'=>$id]);else{$data['created_at']=BlueVPN_Utils::now_mysql();$ok=$wpdb->insert(self::nodes_table(),$data);$id=(int)$wpdb->insert_id;set_transient('bluevpn_gateway_secret_'.get_current_user_id(),['node_id'=>$id,'secret'=>$secret],300);}self::redirect($ok===false?'ذخیره Gateway ناموفق بود.':'Gateway ذخیره شد.',$ok===false);
     }
 
     public static function toggle_node(): void {
@@ -498,27 +584,27 @@ final class BlueVPN_Gateway {
     }
 
     public static function reconcile_gateways(): void {
-        self::guard_admin();check_admin_referer('bluevpn_cc_reconcile_gateways');$r=self::reconcile_metered_customers(2000,false);self::rollout_tick();self::redirect('Reconcile انجام شد؛ '.number_format((int)$r['placed']).' کاربر جایگذاری شد و '.number_format((int)$r['empty']).' کاربر Gateway سالم نداشت.',false);
+        self::guard_admin();check_admin_referer('bluevpn_cc_reconcile_gateways');$r=self::reconcile_metered_customers(2000,false);self::migration_tick(2000);self::rollout_tick();self::redirect('Reconcile انجام شد؛ '.number_format((int)$r['placed']).' کاربر جایگذاری شد و '.number_format((int)$r['empty']).' کاربر Gateway سالم نداشت.',false);
     }
 
     public static function delete_node(): void {
-        self::guard_admin();$id=max(0,(int)($_POST['node_id']??0));check_admin_referer('bluevpn_cc_delete_gateway_node_'.$id);global $wpdb;$wpdb->query('START TRANSACTION');try{$wpdb->delete(self::usage_table(),['node_id'=>$id],['%d']);$wpdb->delete(self::sessions_table(),['node_id'=>$id],['%d']);$wpdb->delete(self::rollout_table(),['node_id'=>$id],['%d']);$ok=$wpdb->delete(self::nodes_table(),['id'=>$id],['%d']);if($ok===false)throw new RuntimeException('delete failed');$wpdb->query('COMMIT');self::clear_circuit_node($id);}catch(Throwable $e){$wpdb->query('ROLLBACK');self::redirect('حذف Gateway ناموفق بود.',true);}self::redirect('Gateway و sessionهای آن حذف شدند.');
+        self::guard_admin();$id=max(0,(int)($_POST['node_id']??0));check_admin_referer('bluevpn_cc_delete_gateway_node_'.$id);global $wpdb;$wpdb->query('START TRANSACTION');try{$wpdb->delete(self::usage_table(),['node_id'=>$id],['%d']);$wpdb->delete(self::sessions_table(),['node_id'=>$id],['%d']);$wpdb->delete(self::rollout_table(),['node_id'=>$id],['%d']);$wpdb->query($wpdb->prepare('DELETE FROM '.self::migrations_table().' WHERE source_node_id=%d OR target_node_id=%d',$id,$id));$ok=$wpdb->delete(self::nodes_table(),['id'=>$id],['%d']);if($ok===false)throw new RuntimeException('delete failed');$wpdb->query('COMMIT');self::clear_circuit_node($id);}catch(Throwable $e){$wpdb->query('ROLLBACK');self::redirect('حذف Gateway ناموفق بود.',true);}self::redirect('Gateway و sessionهای آن حذف شدند.');
     }
 
     public static function render_admin_tab(): void {
-        global $wpdb;$nodes=$wpdb->get_results('SELECT * FROM '.self::nodes_table().' ORDER BY active DESC,priority ASC,id ASC',ARRAY_A)?:[];$ct=self::customers_table();$pt=self::plans_table();$metered=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$ct} c JOIN {$pt} p ON p.id=c.plan_id WHERE c.active=1 AND p.traffic_mode='gateway_metered'");$used=(int)$wpdb->get_var("SELECT COALESCE(SUM(c.used_traffic_bytes),0) FROM {$ct} c JOIN {$pt} p ON p.id=c.plan_id WHERE p.traffic_mode='gateway_metered'");$secret=get_transient('bluevpn_gateway_secret_'.get_current_user_id());if($secret!==false)delete_transient('bluevpn_gateway_secret_'.get_current_user_id());$healthy=count(array_filter($nodes,static fn($n)=>self::node_last_seen_age($n)<=self::HEALTHY_WINDOW_SECONDS&&(string)($n['health_status']??'')==='healthy'&&(int)($n['draining']??0)===0));$rollout=self::rollout_summary();
-        echo '<div class="bvc-page-tools"><div><h2 class="bvc-section-title">BlueVPN Gateway HA Metering</h2><p class="bvc-section-subtitle">Phase 4 / 5.1.8: Safe rollout مرحله‌ای، Canary، ACK واقعی Agent و Rollback خودکار.</p></div><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_reconcile_gateways');echo '<input type="hidden" name="action" value="bluevpn_cc_reconcile_gateways"><button class="button button-primary">Reconcile همه Gatewayها</button></form></div>';
-        echo '<div class="bvc-grid"><div class="bvc-card bvc-kpi"><span>Gateway سالم</span><strong>'.number_format($healthy).'</strong></div><div class="bvc-card bvc-kpi"><span>کاربر Metered</span><strong>'.number_format($metered).'</strong></div><div class="bvc-card bvc-kpi"><span>Safe Rollout</span><strong>'.esc_html(strtoupper((string)$rollout['status'])).' '.((int)$rollout['stage_percent']?(int)$rollout['stage_percent'].'%':'').'</strong><small>Stable #'.(int)$rollout['stable_generation'].' • Active #'.(int)$rollout['active_generation'].'</small></div><div class="bvc-card bvc-kpi"><span>مصرف ثبت‌شده</span><strong>'.esc_html(self::fmt_bytes($used)).'</strong></div></div>';
+        global $wpdb;$nodes=$wpdb->get_results('SELECT * FROM '.self::nodes_table().' ORDER BY active DESC,priority ASC,id ASC',ARRAY_A)?:[];$ct=self::customers_table();$pt=self::plans_table();$metered=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$ct} c JOIN {$pt} p ON p.id=c.plan_id WHERE c.active=1 AND p.traffic_mode='gateway_metered'");$used=(int)$wpdb->get_var("SELECT COALESCE(SUM(c.used_traffic_bytes),0) FROM {$ct} c JOIN {$pt} p ON p.id=c.plan_id WHERE p.traffic_mode='gateway_metered'");$secret=get_transient('bluevpn_gateway_secret_'.get_current_user_id());if($secret!==false)delete_transient('bluevpn_gateway_secret_'.get_current_user_id());$healthy=count(array_filter($nodes,static fn($n)=>self::node_last_seen_age($n)<=self::HEALTHY_WINDOW_SECONDS&&(string)($n['health_status']??'')==='healthy'&&!self::node_effectively_draining($n)));$rollout=self::rollout_summary();$autopilot=self::autopilot_summary();$migration=self::migration_summary();
+        echo '<div class="bvc-page-tools"><div><h2 class="bvc-section-title">BlueVPN Gateway HA Metering</h2><p class="bvc-section-subtitle">Phase 5 / 5.1.9: Gateway Autopilot + انتقال بدون قطعی؛ تنظیمات فنی به‌صورت خودکار مدیریت می‌شوند.</p></div><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_reconcile_gateways');echo '<input type="hidden" name="action" value="bluevpn_cc_reconcile_gateways"><button class="button button-primary">Reconcile همه Gatewayها</button></form></div>';
+        echo '<div class="bvc-grid"><div class="bvc-card bvc-kpi"><span>Gateway سالم</span><strong>'.number_format($healthy).'</strong><small>Autopilot: '.($autopilot['enabled']?'ON':'OFF').'</small></div><div class="bvc-card bvc-kpi"><span>کاربر Metered</span><strong>'.number_format($metered).'</strong></div><div class="bvc-card bvc-kpi"><span>Safe Rollout</span><strong>'.esc_html(strtoupper((string)$rollout['status'])).' '.((int)$rollout['stage_percent']?(int)$rollout['stage_percent'].'%':'').'</strong><small>Stable #'.(int)$rollout['stable_generation'].' • Active #'.(int)$rollout['active_generation'].'</small></div><div class="bvc-card bvc-kpi"><span>Migration فعال</span><strong>'.number_format((int)$migration['active']).'</strong><small>Overlap '.(int)$migration['overlap_seconds'].'s</small></div></div>';
         if(is_array($secret)&&!empty($secret['secret'])){echo '<div class="notice notice-warning"><p><strong>Secret فقط همین یک بار نمایش داده می‌شود.</strong></p><div class="bvc-code">NODE_ID='.(int)$secret['node_id'].'<br>NODE_SECRET='.esc_html((string)$secret['secret']).'</div></div>';}
-        echo '<details class="bvc-card bvc-disclosure" '.(!$nodes?'open':'').'><summary><span><strong>افزودن Gateway</strong><small>Agent باید قبل از دریافت کاربر Heartbeat سالم بفرستد.</small></span><span>⌄</span></summary><div class="bvc-disclosure-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_gateway_node_0');echo '<input type="hidden" name="action" value="bluevpn_cc_save_gateway_node"><input type="hidden" name="node_id" value="0"><div class="bvc-form-grid"><label>نام<input name="name" required placeholder="Gateway Frankfurt 1"></label><label>Region<input name="region" placeholder="de-fra"></label><label>Public Host<input name="public_host" required placeholder="gw1.example.com"></label><label>Port<input type="number" name="public_port" value="443" min="1" max="65535"></label><label>TLS Server Name<input name="server_name" required placeholder="gw1.example.com"></label><label>Priority<input type="number" name="priority" value="100" min="1" max="10000"></label><label>Max Sessions<input type="number" name="max_sessions" value="5000" min="1" max="10000"></label></div><label><input type="checkbox" name="active" value="1" checked> فعال</label> <label><input type="checkbox" name="draining" value="1"> Drain (کاربر جدید نگیرد)</label><div class="bvc-form-actions"><button class="button button-primary">ساخت Gateway</button></div></form></div></details>';
+        echo '<details class="bvc-card bvc-disclosure" '.(!$nodes?'open':'').'><summary><span><strong>افزودن Gateway با Autopilot</strong><small>فقط Public Host را وارد کن؛ Priority، Capacity و Drain خودکار هستند.</small></span><span>⌄</span></summary><div class="bvc-disclosure-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_gateway_node_0');echo '<input type="hidden" name="action" value="bluevpn_cc_save_gateway_node"><input type="hidden" name="node_id" value="0"><div class="bvc-form-grid"><label>Public Host<input name="public_host" required placeholder="gw1.example.com"></label></div><input type="hidden" name="public_port" value="443"><input type="hidden" name="priority" value="100"><input type="hidden" name="max_sessions" value="5000"><input type="hidden" name="active" value="1"><details class="bvc-plan-routing"><summary>Advanced Override (اختیاری)</summary><div class="bvc-form-grid"><label>نام<input name="name" placeholder="خودکار از Host"></label><label>Region<input name="region" placeholder="اختیاری"></label><label>TLS Server Name<input name="server_name" placeholder="خودکار از Host"></label></div></details><div class="bvc-form-actions"><button class="button button-primary">ساخت Gateway</button></div></form></div></details>';
         if(!$nodes){echo '<div class="bvc-empty-state"><strong>Gateway ثبت نشده است.</strong><span>بعد از ساخت Node، Secret را داخل agent.json سرور قرار بده.</span></div>';return;}
         echo '<div class="bvc-plan-list">';
-        foreach($nodes as $node){$id=(int)$node['id'];$toggle=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_toggle_gateway_node&id='.$id),'bluevpn_cc_toggle_gateway_node_'.$id);$last=!empty($node['last_seen_at'])?strtotime((string)$node['last_seen_at'].' UTC'):0;$age=self::node_last_seen_age($node);$health=(string)($node['health_status']??'unknown');$circuit=self::circuit_node_state($id);$online=$age<=self::DEGRADED_WINDOW_SECONDS&&$health!=='down';$max=max(1,(int)($node['max_sessions']??5000));$active=max(0,(int)($node['active_sessions']??0));$util=min(100,round(($active/$max)*100));$statusLabel=$circuit['state']!=='closed'?'Circuit '.strtoupper($circuit['state']):((int)($node['draining']??0)?'Drain':($online?($health==='healthy'?'سالم':'Degraded'):'آفلاین'));
-            echo '<article class="bvc-plan-card '.((int)$node['active']?'is-active':'is-inactive').'"><header class="bvc-plan-head"><div><h3>'.esc_html((string)$node['name']).'</h3><p>'.esc_html((string)$node['public_host']).':'.(int)$node['public_port'].' • '.esc_html((string)($node['region']?:'بدون Region')).' • Priority '.(int)$node['priority'].'</p></div><span class="bvc-status-pill '.($online&&$health==='healthy'?'is-active':'is-inactive').'">'.esc_html($statusLabel).'</span></header><div class="bvc-plan-metrics"><div><span>Sessions</span><strong>'.number_format($active).' / '.number_format($max).' ('.$util.'%)</strong></div><div><span>Load / RAM</span><strong>'.number_format((float)($node['cpu_load_pct']??0),1).'% / '.number_format((float)($node['memory_used_pct']??0),1).'%</strong></div><div><span>Pending Usage</span><strong>'.number_format((int)($node['pending_usage_events']??0)).'</strong></div><div><span>آخرین Heartbeat</span><strong>'.($last?esc_html(BlueVPN_Utils::tehran_datetime_fa((string)$node['last_seen_at'])):'—').'</strong></div><div><span>Agent</span><strong>'.esc_html((string)($node['last_agent_version']?:'—')).'</strong></div><div><span>Config ACK</span><strong>#'.number_format((int)($node['last_config_generation']??0)).' • '.(!empty($node['last_config_ack_at'])?esc_html(BlueVPN_Utils::tehran_datetime_fa((string)$node['last_config_ack_at'])):'—').'</strong></div><div><span>Xray</span><strong>'.esc_html((string)($node['last_xray_version']?:'—')).'</strong></div></div><div class="bvc-actions"><a class="button" href="'.esc_url($toggle).'">'.((int)$node['active']?'غیرفعال':'فعال').' کردن</a></div>';
+        foreach($nodes as $node){$id=(int)$node['id'];$toggle=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_toggle_gateway_node&id='.$id),'bluevpn_cc_toggle_gateway_node_'.$id);$last=!empty($node['last_seen_at'])?strtotime((string)$node['last_seen_at'].' UTC'):0;$age=self::node_last_seen_age($node);$health=(string)($node['health_status']??'unknown');$circuit=self::circuit_node_state($id);$online=$age<=self::DEGRADED_WINDOW_SECONDS&&$health!=='down';$max=self::autopilot_capacity($node);$active=max(0,(int)($node['active_sessions']??0));$util=min(100,round(($active/$max)*100));$autoState=self::autopilot_node_state($id);$statusLabel=$circuit['state']!=='closed'?'Circuit '.strtoupper($circuit['state']):(self::node_effectively_draining($node)?($autoState['auto_draining']?'Auto-Drain':'Drain'):($online?($health==='healthy'?'سالم':'Degraded'):'آفلاین'));
+            echo '<article class="bvc-plan-card '.((int)$node['active']?'is-active':'is-inactive').'"><header class="bvc-plan-head"><div><h3>'.esc_html((string)$node['name']).'</h3><p>'.esc_html((string)$node['public_host']).':'.(int)$node['public_port'].' • '.esc_html((string)($node['region']?:'بدون Region')).' • Autopilot '.(self::autopilot_enabled()?'ON':'OFF').'</p></div><span class="bvc-status-pill '.($online&&$health==='healthy'?'is-active':'is-inactive').'">'.esc_html($statusLabel).'</span></header><div class="bvc-plan-metrics"><div><span>Sessions</span><strong>'.number_format($active).' / '.number_format($max).' ('.$util.'%)</strong></div><div><span>Load / RAM</span><strong>'.number_format((float)($node['cpu_load_pct']??0),1).'% / '.number_format((float)($node['memory_used_pct']??0),1).'%</strong></div><div><span>Pending Usage</span><strong>'.number_format((int)($node['pending_usage_events']??0)).'</strong></div><div><span>آخرین Heartbeat</span><strong>'.($last?esc_html(BlueVPN_Utils::tehran_datetime_fa((string)$node['last_seen_at'])):'—').'</strong></div><div><span>Agent</span><strong>'.esc_html((string)($node['last_agent_version']?:'—')).'</strong></div><div><span>Config ACK</span><strong>#'.number_format((int)($node['last_config_generation']??0)).' • '.(!empty($node['last_config_ack_at'])?esc_html(BlueVPN_Utils::tehran_datetime_fa((string)$node['last_config_ack_at'])):'—').'</strong></div><div><span>Xray</span><strong>'.esc_html((string)($node['last_xray_version']?:'—')).'</strong></div></div><div class="bvc-actions"><a class="button" href="'.esc_url($toggle).'">'.((int)$node['active']?'غیرفعال':'فعال').' کردن</a></div>';
             if(!empty($node['last_error']))echo '<div class="bvc-note bvc-bad">'.esc_html(mb_substr((string)$node['last_error'],0,500)).'</div>';
-            echo '<details class="bvc-plan-routing"><summary>تنظیمات Node</summary><div class="bvc-plan-routing-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_gateway_node_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_save_gateway_node"><input type="hidden" name="node_id" value="'.$id.'"><div class="bvc-form-grid"><label>نام<input name="name" value="'.esc_attr((string)$node['name']).'" required></label><label>Region<input name="region" value="'.esc_attr((string)($node['region']??'')).'"></label><label>Public Host<input name="public_host" value="'.esc_attr((string)$node['public_host']).'" required></label><label>Port<input type="number" name="public_port" value="'.(int)$node['public_port'].'"></label><label>TLS Server Name<input name="server_name" value="'.esc_attr((string)$node['server_name']).'" required></label><label>Priority<input type="number" name="priority" value="'.(int)($node['priority']??100).'" min="1" max="10000"></label><label>Max Sessions<input type="number" name="max_sessions" value="'.(int)($node['max_sessions']??5000).'" min="1" max="10000"></label></div><label><input type="checkbox" name="active" value="1" '.checked((int)$node['active'],1,false).'> فعال</label> <label><input type="checkbox" name="draining" value="1" '.checked((int)($node['draining']??0),1,false).'> Drain</label><button class="button button-primary">ذخیره</button></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="display:inline-block;margin-top:10px">';wp_nonce_field('bluevpn_cc_rotate_gateway_secret_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_rotate_gateway_secret"><input type="hidden" name="node_id" value="'.$id.'"><button class="button">چرخش Secret</button></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="display:inline-block;margin:10px">';wp_nonce_field('bluevpn_cc_delete_gateway_node_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_delete_gateway_node"><input type="hidden" name="node_id" value="'.$id.'"><button class="button button-link-delete" onclick="return confirm(\'Gateway حذف شود؟\')">حذف</button></form></div></details></article>';
+            echo '<details class="bvc-plan-routing"><summary>Advanced Override — معمولاً نیاز نیست</summary><div class="bvc-plan-routing-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_gateway_node_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_save_gateway_node"><input type="hidden" name="node_id" value="'.$id.'"><div class="bvc-form-grid"><label>نام<input name="name" value="'.esc_attr((string)$node['name']).'" required></label><label>Region<input name="region" value="'.esc_attr((string)($node['region']??'')).'"></label><label>Public Host<input name="public_host" value="'.esc_attr((string)$node['public_host']).'" required></label><label>Port<input type="number" name="public_port" value="'.(int)$node['public_port'].'"></label><label>TLS Server Name<input name="server_name" value="'.esc_attr((string)$node['server_name']).'" required></label><label>Priority<input type="number" name="priority" value="'.(int)($node['priority']??100).'" min="1" max="10000"></label><label>Max Sessions<input type="number" name="max_sessions" value="'.(int)($node['max_sessions']??5000).'" min="1" max="10000"></label></div><label><input type="checkbox" name="active" value="1" '.checked((int)$node['active'],1,false).'> فعال</label> <label><input type="checkbox" name="draining" value="1" '.checked((int)($node['draining']??0),1,false).'> Drain</label><button class="button button-primary">ذخیره</button></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="display:inline-block;margin-top:10px">';wp_nonce_field('bluevpn_cc_rotate_gateway_secret_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_rotate_gateway_secret"><input type="hidden" name="node_id" value="'.$id.'"><button class="button">چرخش Secret</button></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="display:inline-block;margin:10px">';wp_nonce_field('bluevpn_cc_delete_gateway_node_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_delete_gateway_node"><input type="hidden" name="node_id" value="'.$id.'"><button class="button button-link-delete" onclick="return confirm(\'Gateway حذف شود؟\')">حذف</button></form></div></details></article>';
         }
-        echo '</div><div class="bvc-card"><h3>Agent Endpoint</h3><div class="bvc-code">'.esc_html(rest_url('bluevpn-gateway/v1/config')).'</div><p class="description">برای HA حداقل دو Gateway سالم در Regionهای متفاوت ثبت کن. تغییرات ساختاری config ابتدا روی Canary اعمال می‌شوند و فقط پس از ACK سالم مرحله‌به‌مرحله گسترش می‌یابند.</p></div>';
+        echo '</div><div class="bvc-card"><h3>Agent Endpoint</h3><div class="bvc-code">'.esc_html(rest_url('bluevpn-gateway/v1/config')).'</div><p class="description">Autopilot ظرفیت، انتخاب Primary/Standby، Drain/Recovery و Session Handoff را خودکار مدیریت می‌کند. تنظیمات دستی فقط برای Override پیشرفته هستند.</p></div>';
     }
 
     private static function fmt_bytes(int $bytes): string { $n=max(0,(float)$bytes);foreach(['B','KB','MB','GB','TB'] as $u){if($n<1024||$u==='TB')return number_format($n,$n<10&&$u!=='B'?2:0).' '.$u;$n/=1024;}return '0 B'; }

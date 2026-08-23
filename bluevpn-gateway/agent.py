@@ -31,7 +31,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-AGENT_VERSION = "5.1.8"
+AGENT_VERSION = "5.1.9"
 XRAY_SCHEMES = {"vless", "vmess", "trojan", "ss"}
 BRIDGE_SCHEMES = {"hysteria2", "hy2", "tuic"}
 LOG = logging.getLogger("bluevpn-gateway")
@@ -522,10 +522,19 @@ class Agent:
         except Exception:
             return 0.0
 
+    def _memory_total_mb(self) -> int:
+        try:
+            for line in Path('/proc/meminfo').read_text(encoding='utf-8').splitlines():
+                if line.startswith('MemTotal:'):
+                    return max(256,int(line.split()[1])//1024)
+        except Exception:
+            pass
+        return 256
+
     def heartbeat(self, error: str = "") -> None:
         try:
             running=self.proc is not None and self.proc.poll() is None; singbox_running=self.singbox_proc is None or self.singbox_proc.poll() is None
-            payload={"agent_version":AGENT_VERSION,"xray_version":self.xray_version,"singbox_version":self.singbox_version,"config_generation":self.applied_generation,"config_hash":self.config_hash,"policy_hash":self.policy_hash,"config_applied_at":self.config_applied_at,"desired_config_generation":self.desired_generation,"desired_config_hash":self.desired_config_hash,"error":error[:1800],"xray_running":running,"singbox_running":singbox_running,"active_sessions":len(self.email_map),"pending_usage_events":len(self.state.get("pending") or []),"cpu_load_pct":self._cpu_load_pct(),"memory_used_pct":self._memory_used_pct(),"uptime_seconds":self._uptime_seconds(),"agent_boot_id":self.boot_id,"last_usage_flush_at":str(self.state.get("last_usage_flush_at") or ""),"locally_blocked_sessions":len(self.locally_blocked)}
+            payload={"agent_version":AGENT_VERSION,"xray_version":self.xray_version,"singbox_version":self.singbox_version,"config_generation":self.applied_generation,"config_hash":self.config_hash,"policy_hash":self.policy_hash,"config_applied_at":self.config_applied_at,"desired_config_generation":self.desired_generation,"desired_config_hash":self.desired_config_hash,"error":error[:1800],"xray_running":running,"singbox_running":singbox_running,"active_sessions":len(self.email_map),"pending_usage_events":len(self.state.get("pending") or []),"cpu_load_pct":self._cpu_load_pct(),"memory_used_pct":self._memory_used_pct(),"cpu_cores":max(1,int(os.cpu_count() or 1)),"memory_total_mb":self._memory_total_mb(),"uptime_seconds":self._uptime_seconds(),"agent_boot_id":self.boot_id,"last_usage_flush_at":str(self.state.get("last_usage_flush_at") or ""),"locally_blocked_sessions":len(self.locally_blocked)}
             self.request("POST","/bluevpn-gateway/v1/heartbeat",payload)
         except Exception as exc: LOG.warning("heartbeat failed: %s",exc)
 

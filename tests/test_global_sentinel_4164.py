@@ -7,10 +7,10 @@ ROOT=pathlib.Path(__file__).resolve().parents[1]
 class GlobalSentinel4164(unittest.TestCase):
     def test_release_version_and_schema(self):
         release=json.loads((ROOT/'release.json').read_text())
-        self.assertEqual(release['version'],'5.1.8')
-        self.assertEqual(release['version_code'],50108)
+        self.assertEqual(release['version'],'5.1.9')
+        self.assertEqual(release['version_code'],50109)
         plugin=(ROOT/'bluevpn-manager/bluevpn-manager.php').read_text()
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.28.0",plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.29.0",plugin)
         self.assertIn("class-bluevpn-error-monitor.php",plugin)
         self.assertIn('BlueVPN_Error_Monitor::bootstrap()',plugin)
 

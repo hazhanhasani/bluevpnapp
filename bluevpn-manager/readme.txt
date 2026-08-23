@@ -1,14 +1,25 @@
 === BlueVPN Manager ===
-Version: 5.1.8
-Stable tag: 5.1.8
+Version: 5.1.9
+Stable tag: 5.1.9
 Requires PHP: 8.0
 
+== 5.1.9 ==
+- Gateway Autopilot به‌صورت پیش‌فرض روشن است؛ Capacity از CPU/RAM واقعی Agent محاسبه می‌شود و Priority/Max Sessions برای کار عادی نیاز به تنظیم ندارند.
+- Auto-Drain پس از Heartbeatهای ناسالم/فشار شدید و Auto-Recover پس از سه Heartbeat سالم، بدون دخالت اپراتور.
+- Drain به حالت graceful تبدیل شد: Source Session تا آماده‌شدن Target فوراً حذف نمی‌شود.
+- Session Handoff با Target Config ACK، overlap امن 60 ثانیه‌ای و fail-safe timeout 240 ثانیه‌ای.
+- در زمان Handoff، Source سالم به‌عنوان fallback قابل reconnect باقی می‌ماند و حسابداری quota/sequence مرکزی authoritative است.
+- فرم Gateway ساده شد؛ برای حالت Autopilot فقط Public Host لازم است و Name/TLS Server Name از Host قابل ساخت هستند.
+- Schema دیتابیس 1.29.0 با telemetry سخت‌افزار و جدول gateway_session_migrations.
+
 == 5.1.8 ==
-- رفع False Positive تنظیمات خود Sentinel (`bluevpn_error_monitor_settings`) و resolve خودکار incident قدیمی پس از ارتقا.
-- Watchdog خودکار Deploy Bot: job صفِ گم‌شده bounded retry می‌شود و stateهای گیرکرده بدون نیاز به `/unlock` آزاد می‌شوند.
-- بررسی دوره‌ای `getWebhookInfo` و ترمیم خودکار Webhook در صورت حذف/تغییر URL، بدون drop کردن updateهای pending.
-- Preflight سخت‌گیرانه Manager قبل از swap: تطبیق manifest PHP، بررسی dependencyهای bootstrap و `php -l` همه فایل‌ها.
-- Recovery guard اولین بوت Manager: در صورت Fatal مربوط به نسخه تازه قبل از `plugins_loaded`، پوشه نسخه قبلی خودکار restore می‌شود.
+- Safe Gateway Rollout با config_generation، ACK واقعی Agent، Canary و مراحل 10% → 25% → 50% → 100%.
+- rollback خودکار در صورت config mismatch، خطای runtime یا timeout ACK.
+- quota/revoke و policy زنده از rollout ساختاری مستقل باقی ماندند.
+
+== 5.1.7 ==
+- رفع False Positive تنظیمات خود Sentinel و resolve خودکار incident قدیمی.
+- Watchdog خودکار Deploy Bot، ترمیم Webhook و Recovery Guard برای نصب Manager.
 
 == 5.1.6 ==
 - فاز سه Gateway: انتخاب خودکار Node سالم بر اساس Priority/Capacity/Region و ساخت Primary/Standby برای هر پلن.

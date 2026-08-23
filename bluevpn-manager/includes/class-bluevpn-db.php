@@ -12,7 +12,7 @@ final class BlueVPN_DB {
     public static function table_names(): array {
         return [
             'app_settings', 'app_releases', 'windows_releases', 'ad_assets', 'server_locations', 'pasarguard_panels',
-            'marzban_panels', 'guardcore_panels', 'subscription_sources', 'gateway_nodes', 'gateway_sessions', 'gateway_usage_events', 'gateway_config_generations', 'plans', 'customers', 'manual_customers',
+            'marzban_panels', 'guardcore_panels', 'subscription_sources', 'gateway_nodes', 'gateway_sessions', 'gateway_usage_events', 'gateway_config_generations', 'gateway_session_migrations', 'plans', 'customers', 'manual_customers',
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
             'payment_events', 'provisioning_attempts', 'entitlement_ledger', 'webhook_deliveries',
@@ -255,6 +255,8 @@ final class BlueVPN_DB {
             pending_usage_events int NOT NULL DEFAULT 0,
             cpu_load_pct decimal(6,2) NOT NULL DEFAULT 0,
             memory_used_pct decimal(6,2) NOT NULL DEFAULT 0,
+            cpu_cores int NOT NULL DEFAULT 1,
+            memory_total_mb int NOT NULL DEFAULT 256,
             agent_uptime_seconds bigint unsigned NOT NULL DEFAULT 0,
             agent_boot_id varchar(64) NOT NULL DEFAULT '',
             last_usage_flush_at datetime NULL,
@@ -334,6 +336,28 @@ final class BlueVPN_DB {
             UNIQUE KEY uq_gateway_config_generation_node (generation, node_id),
             KEY ix_gateway_config_rollout_state (rollout_state, generation),
             KEY ix_gateway_config_node_generation (node_id, generation)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('gateway_session_migrations')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            customer_id bigint unsigned NOT NULL,
+            source_session_id bigint unsigned NOT NULL,
+            target_session_id bigint unsigned NOT NULL,
+            source_node_id bigint unsigned NOT NULL,
+            target_node_id bigint unsigned NOT NULL,
+            state varchar(24) NOT NULL DEFAULT 'preparing',
+            started_at datetime NULL,
+            target_ready_at datetime NULL,
+            completed_at datetime NULL,
+            deadline_at datetime NULL,
+            last_error longtext NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id),
+            KEY ix_gateway_migration_state (state, deadline_at),
+            KEY ix_gateway_migration_customer (customer_id, state),
+            KEY ix_gateway_migration_source (source_session_id, state),
+            KEY ix_gateway_migration_target (target_node_id, state)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('plans')} (

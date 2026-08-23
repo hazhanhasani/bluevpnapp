@@ -28,6 +28,7 @@
     "test_free_source_resilience_516.py",
     "test_free_story_video_render_4125.py",
     "test_gateway_agent_sidecar_516.py",
+    "test_gateway_autopilot_migration_519.py",
     "test_gateway_ha_phase3_515.py",
     "test_gateway_metered_514.py",
     "test_gateway_phase3_circuit_516.py",

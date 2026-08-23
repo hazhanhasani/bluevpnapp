@@ -1,8 +1,8 @@
 {
     "app_name": "BlueVPN",
     "application_id": "ir.blluepanel.bluevpn",
-    "version_name": "5.2.2",
-    "version_code": 50202,
+    "version_name": "5.2.3",
+    "version_code": 50203,
     "deep_link_scheme": "bluevpn",
     "api_base_url": "https://bot.blluepanel.ir",
     "website_url": "https://bot.blluepanel.ir",
@@ -27,5 +27,16 @@
     "windows_installer": "inno-setup",
     "windows_auto_update": true,
     "windows_release_channels": "wordpress_managed_stable_beta",
-    "control_plane": "wordpress_mysql_native"
+    "control_plane": "wordpress_mysql_native",
+    "android_store_artifact": "aab",
+    "android_store_target_api_min": 36,
+    "android_store_target_api_expected": 37,
+    "android_store_purchase_mode": "consumption_only_existing_accounts",
+    "android_store_account_creation": false,
+    "android_store_self_update": false,
+    "android_store_third_party_ads": false,
+    "android_store_ad_id": false,
+    "windows_store_path": "microsoft_store_exe_msi",
+    "windows_store_signing": "authenticode_ca_trusted_required",
+    "windows_store_installer": "offline_inno_setup"
 }

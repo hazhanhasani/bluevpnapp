@@ -72,6 +72,7 @@
     "test_split_apk_abi_validation_496.py",
     "test_stability_auto_recovery_517.py",
     "test_staged_regression_gate_4100.py",
+    "test_store_publishing_523.py",
     "test_subscription_expiry_idempotency_4174.py",
     "test_subscription_expiry_repair_4175.py",
     "test_support_admin_sidebar_4105.py",

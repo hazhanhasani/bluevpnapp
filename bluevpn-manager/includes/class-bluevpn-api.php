@@ -200,6 +200,8 @@ final class BlueVPN_API {
             'app_name'=>$s['app_name'],
             'maintenance'=>(bool)$s['maintenance'],
             'support_url'=>$s['support_url'],
+            'privacy_url'=>home_url('/privacy/'),
+            'terms_url'=>home_url('/terms/'),
             'minimum_version'=>$s['minimum_version'],
             'force_update'=>$forceUpdate,
             'auto_update'=>$autoUpdate,
@@ -570,8 +572,8 @@ final class BlueVPN_API {
     }
     public static function blupal_webhook(WP_REST_Request $r): WP_REST_Response { return BlueVPN_Payments::webhook($r); }
 
-    public static function otp_request(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);return self::ok(BlueVPN_SMS_OTP::request((string)($b['phone']??''),(string)($b['device_id']??'')));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);}catch(Throwable $e){return self::unexpected($e,'otp_request');} }
-    public static function otp_verify(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);return self::ok(BlueVPN_SMS_OTP::verify((string)($b['phone']??''),(string)($b['challenge_id']??''),(string)($b['code']??''),(string)($b['device_id']??''),(string)($b['device_name']??'')));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);}catch(Throwable $e){return self::unexpected($e,'otp_verify');} }
+    public static function otp_request(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);return self::ok(BlueVPN_SMS_OTP::request((string)($b['phone']??''),(string)($b['device_id']??''),rest_sanitize_boolean($b['login_only']??false)));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);}catch(Throwable $e){return self::unexpected($e,'otp_request');} }
+    public static function otp_verify(WP_REST_Request $r): WP_REST_Response { try{$b=self::body($r);return self::ok(BlueVPN_SMS_OTP::verify((string)($b['phone']??''),(string)($b['challenge_id']??''),(string)($b['code']??''),(string)($b['device_id']??''),(string)($b['device_name']??''),rest_sanitize_boolean($b['login_only']??false)));}catch(BlueVPN_Auth_Exception $e){return self::fail($e);}catch(Throwable $e){return self::unexpected($e,'otp_verify');} }
     public static function register(WP_REST_Request $r): WP_REST_Response {
         $rl='';
         try{

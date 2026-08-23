@@ -203,14 +203,14 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
                 title = "سیاست حفظ حریم خصوصی",
                 value = "مشاهده",
                 description = "محتوای ترافیک شما ثبت یا خوانده نمی‌شود",
-            ) { showPrivacy() },
+            ) { openRemoteLink("privacy_url") },
         )
         content.addView(
             settingRow(
                 title = "شرایط استفاده",
                 value = "مشاهده",
                 description = "قوانین استفاده از سرویس",
-            ) { showTerms() },
+            ) { openRemoteLink("terms_url") },
         )
         content.addView(
             settingRow(

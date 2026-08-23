@@ -1,0 +1,23 @@
+BlueVPN 5.2.3 — Store Publishing Readiness
+
+Android / Google Play
+- Builds and permanently signs a Google Play AAB in GitHub Actions.
+- Uses upstream v2rayNG 2.2.6 with targetSdk 37 and a fail-closed targetSdk >=36 gate.
+- Google Play flavor is consumption-only: existing-account login and entitlement use only.
+- Account creation, external digital checkout and external APK self-update are disabled in the Play build.
+- Play merged manifest removes REQUEST_INSTALL_PACKAGES and AD_ID.
+- Tapsell SDK is excluded from the Play flavor; direct/F-Droid flavor retains its SDK implementation.
+- Native libraries are checked for 16 KB ELF LOAD alignment and APK zip alignment.
+- Public privacy/terms pages and Play Console/VpnService/Data Safety checklists are included.
+
+Windows / Microsoft Store
+- Adds a dedicated Microsoft Store EXE/MSI workflow mode (`store_release=true`).
+- Store mode requires CA-trusted Authenticode secrets and fails closed without them.
+- Every EXE/DLL PE in the self-contained payload is verified as Authenticode-valid before packaging.
+- The offline Inno Setup installer is signed and verified, producing x64 and ARM64 Store-named installers.
+- Partner Center checklist, certification notes, listing draft and signing-secret guide are included.
+
+Validation
+- Release, PHP and Windows validators must pass.
+- Complete Python regression suite must pass.
+- Store policy regression tests cover Play/AAB/16 KB and Microsoft Store Authenticode gates.

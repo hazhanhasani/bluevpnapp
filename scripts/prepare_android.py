@@ -187,10 +187,10 @@ def patch_build_gradle() -> None:
     # ListenableFuture API resolvable across the v2rayNG/Tapsell dependency graph.
     required_dependencies = (
         'implementation("com.google.guava:guava:33.6.0-android")',
-        f'implementation("ir.tapsell:tapsell:{TAPSELL_MEDIATION_VERSION}")',
-        f'implementation("ir.tapsell.mediation.adapter:legacy:{TAPSELL_MEDIATION_VERSION}")',
-        f'implementation("ir.tapsell.mediation.adapter:legacy-ima-extension:{TAPSELL_MEDIATION_VERSION}")',
-        f'implementation("ir.tapsell.mediation.adapter:legacy-taproll:{TAPSELL_MEDIATION_VERSION}")',
+        f'fdroidImplementation("ir.tapsell:tapsell:{TAPSELL_MEDIATION_VERSION}")',
+        f'fdroidImplementation("ir.tapsell.mediation.adapter:legacy:{TAPSELL_MEDIATION_VERSION}")',
+        f'fdroidImplementation("ir.tapsell.mediation.adapter:legacy-ima-extension:{TAPSELL_MEDIATION_VERSION}")',
+        f'fdroidImplementation("ir.tapsell.mediation.adapter:legacy-taproll:{TAPSELL_MEDIATION_VERSION}")',
         'implementation("com.google.android.gms:play-services-auth-api-phone:18.3.1")',
         'implementation("androidx.work:work-runtime:2.10.0")',
     )
@@ -275,6 +275,40 @@ def _ensure_android_string(xml_text: str, name: str, value: str) -> str:
     if name in _android_string_names(xml_text):
         return xml_text
     return _upsert_android_string(xml_text, name, value)
+
+
+def write_distribution_manifest_overlays() -> None:
+    """Keep restricted installer/ad permissions out of the Google Play flavor."""
+    fdroid = APP / "src" / "fdroid" / "AndroidManifest.xml"
+    play = APP / "src" / "playstore" / "AndroidManifest.xml"
+    fdroid.parent.mkdir(parents=True, exist_ok=True)
+    play.parent.mkdir(parents=True, exist_ok=True)
+
+    fdroid.write_text(
+        """<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
+</manifest>
+""",
+        encoding="utf-8",
+    )
+
+    play.write_text(
+        """<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
+    <application>
+        <activity android:name=".ui.BlueVpnUpdateInstallActivity" tools:node="remove" />
+        <provider android:name="com.v2ray.ang.bluevpn.BlueVpnUpdateFileProvider" tools:node="remove" />
+        <meta-data android:name="ir.tapsell.mediation.AUTO_INIT" tools:node="remove" />
+    </application>
+</manifest>
+""",
+        encoding="utf-8",
+    )
 
 
 def patch_strings() -> None:
@@ -476,10 +510,6 @@ def patch_manifest() -> None:
 
     text = _ensure_manifest_permission(
         text,
-        "android.permission.REQUEST_INSTALL_PACKAGES",
-    )
-    text = _ensure_manifest_permission(
-        text,
         "android.permission.CHANGE_NETWORK_STATE",
     )
     text = _ensure_manifest_permission(
@@ -493,10 +523,6 @@ def patch_manifest() -> None:
     text = _ensure_manifest_permission(
         text,
         "android.permission.POST_NOTIFICATIONS",
-    )
-    text = _ensure_manifest_permission(
-        text,
-        "com.google.android.gms.permission.AD_ID",
     )
 
     if 'android:name="ir.tapsell.mediation.AUTO_INIT"' not in text:
@@ -771,6 +797,7 @@ def inject_bluevpn_home() -> None:
     plain_overrides = {
         java_dir / "BlueVpnHomeActivity.kt": ROOT / "android-source/BlueVpnHomeActivity.kt",
         bluevpn_dir / "BlueVpnAccountManager.kt": ROOT / "android-source/BlueVpnAccountManager.kt",
+        bluevpn_dir / "BlueVpnStorePolicy.kt": ROOT / "android-source/BlueVpnStorePolicy.kt",
         bluevpn_dir / "BlueVpnAdsCarouselView.kt": ROOT / "android-source/BlueVpnAdsCarouselView.kt",
         bluevpn_dir / "BlueVpnAdActionRouter.kt": ROOT / "android-source/BlueVpnAdActionRouter.kt",
         bluevpn_dir / "BlueVpnFreeStoryAdGate.kt": ROOT / "android-source/BlueVpnFreeStoryAdGate.kt",
@@ -794,7 +821,6 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnRuntimeGate.kt": ROOT / "android-source/BlueVpnRuntimeGate.kt",
         bluevpn_dir / "BlueVpnEntitlement.kt": ROOT / "android-source/BlueVpnEntitlement.kt",
         bluevpn_dir / "BlueVpnSmartSelector.kt": ROOT / "android-source/BlueVpnSmartSelector.kt",
-        bluevpn_dir / "BlueVpnTapsellManager.kt": ROOT / "android-source/BlueVpnTapsellManager.kt",
         bluevpn_dir / "BlueVpnProfileManager.kt": ROOT / "android-source/BlueVpnProfileManager.kt",
         bluevpn_dir / "BlueVpnRouteIntelligence.kt": ROOT / "android-source/BlueVpnRouteIntelligence.kt",
         bluevpn_dir / "BlueVpnSubscriptionIntelligence.kt": ROOT / "android-source/BlueVpnSubscriptionIntelligence.kt",
@@ -816,6 +842,22 @@ def inject_bluevpn_home() -> None:
         if not source.exists():
             raise RuntimeError(f"Canonical BlueVPN source is missing: {source}")
         shutil.copy2(source, target)
+
+    # Keep third-party advertising code completely outside the Google Play
+    # variant. The F-Droid/direct flavor gets the real SDK-backed manager; the
+    # Play flavor gets a no-SDK stub with the same public surface.
+    fdroid_bluevpn_dir = APP / "src" / "fdroid" / "java" / "com" / "v2ray" / "ang" / "bluevpn"
+    play_bluevpn_dir = APP / "src" / "playstore" / "java" / "com" / "v2ray" / "ang" / "bluevpn"
+    fdroid_bluevpn_dir.mkdir(parents=True, exist_ok=True)
+    play_bluevpn_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(
+        ROOT / "android-source" / "BlueVpnTapsellManager.kt",
+        fdroid_bluevpn_dir / "BlueVpnTapsellManager.kt",
+    )
+    shutil.copy2(
+        ROOT / "android-source" / "BlueVpnTapsellManagerPlay.kt",
+        play_bluevpn_dir / "BlueVpnTapsellManager.kt",
+    )
 
     home_runtime = (java_dir / "BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
     if "CoreServiceManager.startVService(this, guid)" not in home_runtime:
@@ -851,15 +893,21 @@ def inject_bluevpn_home() -> None:
             "Fast-connect completion task was not generated correctly"
         )
 
-    tapsell_source = (bluevpn_dir / "BlueVpnTapsellManager.kt").read_text(
+    tapsell_source = (fdroid_bluevpn_dir / "BlueVpnTapsellManager.kt").read_text(
         encoding="utf-8",
     )
     if "ir.tapsell.plus" in tapsell_source or "TapsellPlus" in tapsell_source:
         raise RuntimeError("Deprecated Tapsell Plus runtime leaked into Android overlay")
     if "import ir.tapsell.mediation.Tapsell" not in tapsell_source:
-        raise RuntimeError("Tapsell Mediation native SDK import is missing")
+        raise RuntimeError("Tapsell Mediation native SDK import is missing from direct flavor")
     if "BuildConfig.BLUEVPN_TAPSELL_APP_ID" not in tapsell_source:
-        raise RuntimeError("Tapsell APK/runtime App ID guard is missing")
+        raise RuntimeError("Tapsell direct-flavor App ID guard is missing")
+
+    play_tapsell = (play_bluevpn_dir / "BlueVpnTapsellManager.kt").read_text(encoding="utf-8")
+    if "import ir.tapsell" in play_tapsell or "ir.tapsell." in play_tapsell:
+        raise RuntimeError("Google Play Tapsell stub must not import/reference the third-party SDK")
+    if "onUnavailable?.invoke()" not in play_tapsell:
+        raise RuntimeError("Google Play Tapsell stub must fail closed without affecting VPN state")
 
     ads_source = (bluevpn_dir / "BlueVpnAdsCarouselView.kt").read_text(encoding="utf-8")
     if 'optJSONObject("advertising")' not in ads_source or "slideRunnable" not in ads_source:
@@ -924,6 +972,7 @@ def main() -> None:
     patch_build_gradle()
     patch_strings()
     patch_manifest()
+    write_distribution_manifest_overlays()
     patch_system_notification()
     patch_app_config()
     inject_bootstrap()

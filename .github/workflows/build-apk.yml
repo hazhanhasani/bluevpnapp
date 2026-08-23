@@ -1,4 +1,4 @@
-name: Build Signed BlueVPN APK
+name: Build Signed BlueVPN Android
 
 on:
   workflow_dispatch:
@@ -402,14 +402,73 @@ jobs:
           print('Generated AndroidManifest.xml runtime contract: PASS')
           PY
 
-      - name: Build unsigned release APKs
+      - name: Validate Google Play target and flavor policy before Gradle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import re
+          from pathlib import Path
+          gradle = Path('upstream/V2rayNG/app/build.gradle.kts').read_text(encoding='utf-8')
+          m = re.search(r'\btargetSdk\s*=\s*(\d+)', gradle)
+          if not m or int(m.group(1)) < 36:
+              raise SystemExit('Google Play release requires targetSdk >= 36')
+          overlay = Path('upstream/V2rayNG/app/src/playstore/AndroidManifest.xml').read_text(encoding='utf-8')
+          required = [
+              'android.permission.REQUEST_INSTALL_PACKAGES',
+              'com.google.android.gms.permission.AD_ID',
+              'tools:node="remove"',
+              'BlueVpnUpdateInstallActivity',
+              'BlueVpnUpdateFileProvider',
+              'ir.tapsell.mediation.AUTO_INIT',
+          ]
+          missing = [x for x in required if x not in overlay]
+          if missing:
+              raise SystemExit('Play manifest overlay incomplete: ' + ', '.join(missing))
+          policy = Path('upstream/V2rayNG/app/src/main/java/com/v2ray/ang/bluevpn/BlueVpnStorePolicy.kt').read_text(encoding='utf-8')
+          for token in ('allowAccountCreation', 'allowExternalCheckout', 'allowPackageInstallerUpdates', 'allowThirdPartyAds'):
+              if token not in policy:
+                  raise SystemExit('Missing Play distribution policy: ' + token)
+          print('Google Play pre-Gradle policy: PASS; targetSdk=' + m.group(1))
+          PY
+
+      - name: Build unsigned release APKs and Google Play AAB
         working-directory: upstream/V2rayNG
         shell: bash
         run: |
           set -euo pipefail
           echo gradle-compile > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           chmod +x gradlew
-          ./gradlew :app:compilePlaystoreReleaseKotlin :app:assemblePlaystoreRelease "-PABI_FILTERS=arm64-v8a;armeabi-v7a" --stacktrace --no-daemon --build-cache --parallel 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
+          ./gradlew :app:compilePlaystoreReleaseKotlin :app:assemblePlaystoreRelease :app:bundlePlaystoreRelease "-PABI_FILTERS=arm64-v8a;armeabi-v7a" --stacktrace --no-daemon --build-cache --parallel 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Validate merged Google Play manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t MANIFESTS < <(find upstream/V2rayNG/app/build/intermediates -type f -path '*playstoreRelease*' -name AndroidManifest.xml | sort)
+          test "${#MANIFESTS[@]}" -gt 0 || { echo '::error::Merged Play manifest not found'; exit 1; }
+          MERGED="${MANIFESTS[-1]}"
+          echo "Validating merged Play manifest: $MERGED"
+          python - "$MERGED" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          p=Path(sys.argv[1]); root=ET.parse(p).getroot()
+          android='{http://schemas.android.com/apk/res/android}'
+          perms={n.get(android+'name','') for n in root.findall('uses-permission')}
+          forbidden={'android.permission.REQUEST_INSTALL_PACKAGES','com.google.android.gms.permission.AD_ID'}
+          bad=perms & forbidden
+          if bad: raise SystemExit('Forbidden Play permission merged: '+', '.join(sorted(bad)))
+          app=root.find('application')
+          if app is not None:
+              names={n.get(android+'name','') for n in list(app)}
+              for forbidden_name in ('.ui.BlueVpnUpdateInstallActivity','com.v2ray.ang.bluevpn.BlueVpnUpdateFileProvider'):
+                  if forbidden_name in names: raise SystemExit('Forbidden Play component merged: '+forbidden_name)
+              for md in app.findall('meta-data'):
+                  if md.get(android+'name','') == 'ir.tapsell.mediation.AUTO_INIT':
+                      raise SystemExit('Tapsell auto-init must not exist in Play manifest')
+          print('Merged Google Play manifest: PASS')
+          PY
 
       - name: Decode permanent signing key
         shell: bash
@@ -427,9 +486,57 @@ jobs:
           test "${#APKS[@]}" -gt 0
           for apk in "${APKS[@]}"; do
             name="$(basename "$apk" .apk)"; name="${name%-unsigned}"; name="${name%-release}"
-            "$BUILD_TOOLS/zipalign" -p -f 4 "$apk" "$RUNNER_TEMP/bluevpn-aligned/${name}.apk"
+            "$BUILD_TOOLS/zipalign" -P 16 -f 4 "$apk" "$RUNNER_TEMP/bluevpn-aligned/${name}.apk"
             "$BUILD_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/bluevpn-signing/BlueVPN-release.jks" --ks-key-alias "$ANDROID_KEY_ALIAS" --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD --out "dist/${name}.apk" "$RUNNER_TEMP/bluevpn-aligned/${name}.apk"
           done
+
+      - name: Sign Google Play AAB permanently
+        shell: bash
+        env:
+          VERSION: ${{ steps.config.outputs.version }}
+        run: |
+          set -euo pipefail
+          mapfile -t AABS < <(find upstream/V2rayNG/app/build/outputs/bundle -type f -name '*.aab' | sort)
+          test "${#AABS[@]}" -eq 1 || { echo "::error::Expected one Play AAB, found ${#AABS[@]}"; exit 1; }
+          OUT="dist/BlueVPN-${VERSION}-GooglePlay.aab"
+          jarsigner \
+            -keystore "$RUNNER_TEMP/bluevpn-signing/BlueVPN-release.jks" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -keypass "$ANDROID_KEY_PASSWORD" \
+            -sigalg SHA256withRSA -digestalg SHA-256 \
+            -signedjar "$OUT" "${AABS[0]}" "$ANDROID_KEY_ALIAS"
+          jarsigner -verify -verbose -certs "$OUT"
+
+      - name: Validate Google Play AAB native 16 KB compatibility
+        shell: bash
+        env:
+          VERSION: ${{ steps.config.outputs.version }}
+        run: |
+          set -euo pipefail
+          AAB="dist/BlueVPN-${VERSION}-GooglePlay.aab"
+          test -s "$AAB"
+          TMP="$RUNNER_TEMP/bluevpn-aab-16k"
+          rm -rf "$TMP" && mkdir -p "$TMP"
+          unzip -q "$AAB" -d "$TMP"
+          mapfile -t LIBS < <(find "$TMP" -type f -path '*/lib/*/*.so' | sort)
+          test "${#LIBS[@]}" -gt 0 || { echo '::error::No native libraries found in AAB'; exit 1; }
+          python - "${LIBS[@]}" <<'PY'
+          import re, subprocess, sys
+          bad=[]
+          for lib in sys.argv[1:]:
+              out=subprocess.check_output(['readelf','-lW',lib],text=True,errors='replace')
+              aligns=[]
+              for line in out.splitlines():
+                  if line.lstrip().startswith('LOAD '):
+                      m=re.search(r'\s(0x[0-9a-fA-F]+)\s*$', line)
+                      if m: aligns.append(int(m.group(1),16))
+              if not aligns or min(aligns) < 0x4000:
+                  bad.append((lib, aligns))
+          if bad:
+              for lib,aligns in bad: print('16K alignment failure:',lib,aligns)
+              raise SystemExit('Native ELF LOAD alignment is below 16 KB')
+          print(f'16 KB ELF alignment: PASS ({len(sys.argv)-1} libraries)')
+          PY
 
       - name: Validate signed APK runtime contract
         shell: bash
@@ -440,6 +547,7 @@ jobs:
           python scripts/validate_android_apk.py "${SIGNED_APKS[@]}"
           for apk in "${SIGNED_APKS[@]}"; do
             "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$apk"
+            "$ANDROID_HOME/build-tools/37.0.0/zipalign" -c -P 16 -v 4 "$apk"
             unzip -t "$apk" >/dev/null
           done
           # ABI coverage is validated across the complete signed APK set by validate_android_apk.py.
@@ -458,7 +566,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: BlueVPN-${{ steps.config.outputs.version }}-FAST-signed
-          path: dist/*.apk
+          path: |
+            dist/*.apk
+            dist/*.aab
           compression-level: 0
 
       - name: Publish synchronized BlueVPN Manager release barrier
@@ -527,7 +637,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+          (cd dist && sha256sum *.apk *.aab > SHA256SUMS.txt)
           python - <<'PY'
           import json,os
           from pathlib import Path
@@ -544,7 +654,7 @@ jobs:
           set -euo pipefail
           TAG="v${VERSION}"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
-          gh release create "$TAG" dist/*.apk dist/SHA256SUMS.txt dist/release-manifest.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "BlueVPN ${VERSION}"
+          gh release create "$TAG" dist/*.apk dist/*.aab dist/SHA256SUMS.txt dist/release-manifest.json --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "BlueVPN ${VERSION}"
 
       - name: Sync Android release metadata to WordPress
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}

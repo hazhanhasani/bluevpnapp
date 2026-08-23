@@ -1,9 +1,9 @@
 === BlueVPN Manager ===
-Version: 5.2.2
-Stable tag: 5.2.2
+Version: 5.2.3
+Stable tag: 5.2.3
 Requires PHP: 8.0
 
-== 5.2.2 ==
+== 5.2.3 ==
 * Connection/release hardening across Android, Windows, Manager, Telegram bot and Site.
 * Sentinel respects intentionally suppressed PHP warnings (including cleanup @unlink paths) and ignores expected client-validation noise such as EMAIL_INVALID while preserving real failures.
 * /diagnose surfaces the latest GitHub run, failed job and failed step; failed build jobs persist the same actionable step summary.

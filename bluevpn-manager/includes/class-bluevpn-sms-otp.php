@@ -564,11 +564,16 @@ final class BlueVPN_SMS_OTP {
         return $data;
     }
 
-    public static function request(string $phoneRaw, string $deviceId): array {
+    public static function request(string $phoneRaw, string $deviceId, bool $loginOnly = false): array {
         global $wpdb;
         $phone = self::normalize_phone($phoneRaw);
         $deviceId = mb_substr(trim($deviceId), 0, 180);
         if ($deviceId === '') throw new BlueVPN_Auth_Exception(422, 'DEVICE_ID_REQUIRED', 'شناسه دستگاه لازم است.');
+        if ($loginOnly) {
+            $customers = BlueVPN_DB::table('customers');
+            $existing = $wpdb->get_var($wpdb->prepare("SELECT id FROM {$customers} WHERE phone=%s AND active=1 LIMIT 1", $phone));
+            if (!$existing) throw new BlueVPN_Auth_Exception(404, 'ACCOUNT_NOT_FOUND', 'برای این شماره حساب موجودی پیدا نشد.');
+        }
         self::rate_limit($phone, $deviceId);
         $lockName = 'bluevpn_otp_' . substr(hash('sha256', $phone), 0, 40);
         $lockAcquired = (int)$wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 5)', $lockName));
@@ -635,7 +640,7 @@ final class BlueVPN_SMS_OTP {
         }
     }
 
-    public static function verify(string $phoneRaw, string $challengeId, string $codeRaw, string $deviceId, string $deviceName = ''): array {
+    public static function verify(string $phoneRaw, string $challengeId, string $codeRaw, string $deviceId, string $deviceName = '', bool $loginOnly = false): array {
         global $wpdb;
         $phone = self::normalize_phone($phoneRaw);
         $challengeId = trim($challengeId);
@@ -677,6 +682,9 @@ final class BlueVPN_SMS_OTP {
         $customers = BlueVPN_DB::table('customers');
         $customer = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$customers} WHERE phone=%s LIMIT 1", $phone), ARRAY_A);
         $isNew = false;
+        if (!$customer && $loginOnly) {
+            throw new BlueVPN_Auth_Exception(404, 'ACCOUNT_NOT_FOUND', 'برای این شماره حساب موجودی پیدا نشد.');
+        }
         if (!$customer) {
             $isNew = true;
             $subscriptionToken = BlueVPN_Utils::random_token(32);

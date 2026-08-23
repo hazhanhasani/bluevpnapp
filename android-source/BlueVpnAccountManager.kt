@@ -2080,7 +2080,8 @@ object BlueVpnAccountManager {
                 JSONObject()
                     .put("phone", phone.trim())
                     .put("device_id", deviceId(c))
-                    .put("device_name", deviceName()),
+                    .put("device_name", deviceName())
+                    .put("login_only", BlueVpnStorePolicy.isGooglePlayBuild()),
                 false,
             )
         }
@@ -2107,6 +2108,7 @@ object BlueVpnAccountManager {
             .put("code", code.trim())
             .put("device_id", deviceId(c))
             .put("device_name", deviceName())
+            .put("login_only", !bindToCurrentAccount && BlueVpnStorePolicy.isGooglePlayBuild())
 
         val response = if (bindToCurrentAccount) {
             authenticatedRequest(

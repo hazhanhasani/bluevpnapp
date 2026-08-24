@@ -240,6 +240,8 @@ public partial class MainWindow : Window
         {
             if (!_tapsellWebInitialized)
             {
+                var installProgress = new Progress<string>(text => FooterStatus.Text = text);
+                if (!await WebView2RuntimeInstaller.EnsureInstalledAsync(installProgress, _lifetimeCts.Token)) return false;
                 await TapsellWebView.EnsureCoreWebView2Async();
                 if (TapsellWebView.CoreWebView2 is null) return false;
                 TapsellWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;

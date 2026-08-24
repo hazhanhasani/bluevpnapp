@@ -130,6 +130,7 @@
     "test_windows_tapsell_web_553.py",
     "test_admin_transition_rejection_554.py",
     "test_windows_combobox_dark_template_555.py",
-    "test_windows_xray_proxy_confirmation_556.py"
+    "test_windows_xray_proxy_confirmation_556.py",
+    "test_windows_webview2_autoinstall_557.py"
   ]
 }

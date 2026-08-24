@@ -20,6 +20,17 @@ class PoolStaleWhileRevalidate538Tests(unittest.TestCase):
         self.assertIn('application.append(node)', source)
         self.assertNotIn('Could not replace the MainActivity launcher block', source)
 
+    def test_v2rayng_235_view_compatibility_facades_are_packaged(self):
+        prepare = (ROOT / "scripts/prepare_android.py").read_text()
+        activity = (ROOT / "android-source/HelperBaseActivity.kt").read_text()
+        model = (ROOT / "android-source/BlueVpnLegacyViewModel.kt").read_text()
+        self.assertIn("HelperBaseActivity.kt", prepare)
+        self.assertIn("BlueVpnLegacyViewModel.kt", prepare)
+        self.assertIn("AppCompatActivity", activity)
+        self.assertIn("com.v2ray.ang.ui.main.MainViewModel", model)
+        self.assertIn("MainRepository", model)
+        self.assertIn('com.google.android.material:material:1.13.0', prepare)
+
     def test_premium_readiness_accepts_same_entitlement_lkg(self):
         source = (ROOT / "android-source/BlueVpnAccountManager.kt").read_text()
         block = source.split("fun hasUsableCurrentEntitlementPool", 1)[1].split("fun entitlementSubscriptionGuids", 1)[0]

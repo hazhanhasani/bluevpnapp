@@ -55,7 +55,7 @@ class PremiumVerificationRecovery4102(unittest.TestCase):
         begin_start=s.index("private fun beginSmartConnection()")
         begin_end=s.index("private fun startSmartConnectionWithCandidates", begin_start)
         begin=s[begin_start:begin_end]
-        self.assertIn("CoreServiceManager.stopVService(this)",begin)
+        self.assertIn("LauncherManager.stopService(this)",begin)
         self.assertIn("pendingConnectionRequest = true",begin)
         self.assertIn("BlueVpnPreferences.clearConnected(this)",begin)
 
@@ -64,7 +64,7 @@ class PremiumVerificationRecovery4102(unittest.TestCase):
         helper=s[s.index("private fun recoverUnverifiedExistingSession"):
                  s.index("private fun verifyTunnelThroughCore")]
         self.assertIn("pendingConnectionRequest = true",helper)
-        self.assertIn("CoreServiceManager.stopVService(this)",helper)
+        self.assertIn("LauncherManager.stopService(this)",helper)
         self.assertNotIn("BlueVpnWarpEngine.prepare",helper)
         self.assertNotIn("prepareFreeAccess",helper)
 

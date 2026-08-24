@@ -204,6 +204,9 @@ def patch_build_gradle() -> None:
     # by support/background tasks; explicit Android Guava keeps its public
     # ListenableFuture API resolvable across the v2rayNG/Tapsell dependency graph.
     required_dependencies = (
+        # v2rayNG 2.3.5 migrated upstream UI to Compose Material3 and no longer
+        # exposes the classic Material Views artifact used by BlueVPN screens.
+        'implementation("com.google.android.material:material:1.13.0")',
         'implementation("com.google.guava:guava:33.6.0-android")',
         f'implementation("ir.tapsell:tapsell:{TAPSELL_MEDIATION_VERSION}")',
         f'implementation("ir.tapsell.mediation.adapter:legacy:{TAPSELL_MEDIATION_VERSION}")',
@@ -874,16 +877,22 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnSmsOtpAutoFill.kt": ROOT / "android-source/BlueVpnSmsOtpAutoFill.kt",
         java_dir / "BlueVpnSettingsActivity.kt": ROOT / "android-source/BlueVpnSettingsActivity.kt",
         java_dir / "BlueVpnSupportActivity.kt": ROOT / "android-source/BlueVpnSupportActivity.kt",
+        java_dir / "HelperBaseActivity.kt": ROOT / "android-source/HelperBaseActivity.kt",
     }
+    main_compat_dir = APP / "src/main/java/com/v2ray/ang/viewmodel"
+    main_compat_dir.mkdir(parents=True, exist_ok=True)
+    plain_overrides[
+        main_compat_dir / "BlueVpnLegacyViewModel.kt"
+    ] = ROOT / "android-source/BlueVpnLegacyViewModel.kt"
     for target, source in plain_overrides.items():
         if not source.exists():
             raise RuntimeError(f"Canonical BlueVPN source is missing: {source}")
         shutil.copy2(source, target)
 
     home_runtime = (java_dir / "BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
-    if "CoreServiceManager.startVService(this, guid)" not in home_runtime:
+    if "LauncherManager.startService(this, guid)" not in home_runtime:
         raise RuntimeError("BlueVPN Home is not mounted directly on v2rayNG CoreServiceManager")
-    if "CoreServiceManager.stopVService" not in home_runtime:
+    if "LauncherManager.stopService" not in home_runtime:
         raise RuntimeError("BlueVPN Home is not using v2rayNG stop lifecycle")
     if "BlueVpnEngineManager" in home_runtime or "BlueVpnSingBox" in home_runtime:
         raise RuntimeError("Legacy dual-engine runtime still leaked into BlueVPN Home")

@@ -26,7 +26,7 @@ class BackgroundGuardCoreVisibility4110(unittest.TestCase):
     def test_system_premium_start_uses_stock_core_foreground_owner(self):
         s=self.text("android-source/BlueVpnSystemController.kt")
         premium=s[s.index("} else {",s.index("fun start(context")):s.index("private suspend fun startFreeWarp")]
-        self.assertIn("CoreServiceManager.startVServiceFromToggle(app)",premium)
+        self.assertIn("LauncherManager.startServiceFromToggle(app)",premium)
         self.assertNotIn("BlueVpnWarpKeepAliveService.start(app)",premium)
 
     def test_guardcore_snapshot_records_provider_specific_count_without_raw_configs(self):

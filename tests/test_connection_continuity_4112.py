@@ -45,14 +45,14 @@ class ConnectionContinuity4112(unittest.TestCase):
         block=s[s.index("private fun recoverUnverifiedExistingSession"):
                 s.index("private fun verifyTunnelThroughCore")]
         hard=block[block.index("// Hard recovery"):]
-        self.assertIn("CoreServiceManager.stopVService(this)",hard)
+        self.assertIn("LauncherManager.stopService(this)",hard)
         self.assertIn("سرویس اتصال متوقف شده",hard)
 
     def test_premium_does_not_start_second_foreground_owner(self):
         s=self.text("android-source/BlueVpnSystemController.kt")
         start=s[s.index("fun start(context"):s.index("private suspend fun startFreeWarp")]
         premium=start[start.index("} else {"):]
-        self.assertIn("CoreServiceManager.startVServiceFromToggle(app)",premium)
+        self.assertIn("LauncherManager.startServiceFromToggle(app)",premium)
         self.assertNotIn("BlueVpnWarpKeepAliveService.start(app)",premium)
 
     def test_keepalive_is_conditional_to_free_warp_in_home(self):

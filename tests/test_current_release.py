@@ -412,8 +412,8 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertEqual(self.app.get("aether_ref"), "a26159b82a70048b459e0128213c71767abecb8a")
 
     def test_04_direct_stock_start_stop(self):
-        self.assertIn("CoreServiceManager.startVService(this, guid)", self.home)
-        self.assertIn("CoreServiceManager.stopVService", self.home)
+        self.assertIn("LauncherManager.startService(this, guid)", self.home)
+        self.assertIn("LauncherManager.stopService", self.home)
         self.assertNotIn("BlueVpnEngineManager", self.home + self.account)
 
     def test_05_alternate_engine_files_removed(self):
@@ -445,7 +445,7 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("libbluevpn_aether.so", self.aether_build)
 
     def test_05c_premium_runtime_stays_stock_v2rayng(self):
-        self.assertIn("CoreServiceManager.startVService(this, guid)", self.home)
+        self.assertIn("LauncherManager.startService(this, guid)", self.home)
         self.assertNotIn("BlueVpnEngineManager", self.home + self.account)
         self.assertNotIn("BlueVpnSingBox", self.home + self.account)
 
@@ -533,7 +533,7 @@ class CurrentReleaseTests(unittest.TestCase):
 
     def test_15_exact_handoff_has_no_duplicate_select_write(self):
         exact = block(self.home, "private fun startExactCandidateCore", "private fun scheduleConnectionVerification")
-        self.assertIn("CoreServiceManager.startVService(this, guid)", exact)
+        self.assertIn("LauncherManager.startService(this, guid)", exact)
         self.assertNotIn("MmkvManager.setSelectServer(guid)", exact)
         self.assertIn("handler.postDelayed(attemptTimeout, 12_000L)", exact)
 
@@ -678,7 +678,7 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("active_pattern_codes", cc)
 
     def test_41_runtime_freeze_survives_sms_pattern_release(self):
-        self.assertIn("CoreServiceManager.startVService(this, guid)", self.home)
+        self.assertIn("LauncherManager.startService(this, guid)", self.home)
         self.assertNotIn("BlueVpnEngineManager", self.home + self.account)
         self.assertEqual(self.app["upstream_ref"], "2.3.5")
 
@@ -818,7 +818,7 @@ class CurrentReleaseTests(unittest.TestCase):
         ads = text("android-source/BlueVpnAdsCarouselView.kt")
         home = text("android-source/BlueVpnHomeActivity.kt")
         self.assertNotIn("CoreServiceManager", ads)
-        self.assertIn("CoreServiceManager.startVService(this, guid)", home)
+        self.assertIn("LauncherManager.startService(this, guid)", home)
 
     def test_public_theme_hides_internal_project_implementation_copy(self):
         public = "\n".join(text(p) for p in [
@@ -995,7 +995,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         app = json.loads(text("branding/app.json"))
         home = text("android-source/BlueVpnHomeActivity.kt")
         self.assertEqual(app["upstream_ref"], "2.3.5")
-        self.assertIn("CoreServiceManager.startVService(this, guid)", home)
+        self.assertIn("LauncherManager.startService(this, guid)", home)
         self.assertNotIn("BlueVpnEngineManager", home)
 
 

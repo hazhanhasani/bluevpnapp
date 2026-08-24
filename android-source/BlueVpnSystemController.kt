@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.VpnService
 import android.os.SystemClock
 import com.v2ray.ang.core.CoreServiceManager
+import com.v2ray.ang.core.LauncherManager
 import com.v2ray.ang.ui.BlueVpnHomeActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,7 +30,7 @@ object BlueVpnSystemController {
     fun stop(context: Context) {
         val app = context.applicationContext
         BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.VPN_STOP_REQUEST)
-        CoreServiceManager.stopVService(app)
+        LauncherManager.stopService(app)
         BlueVpnWarpKeepAliveService.stop(app)
         scope.launch {
             BlueVpnWarpEngine.stop()
@@ -61,7 +62,7 @@ object BlueVpnSystemController {
         val app = context.applicationContext
         BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.VPN_RESTART_REQUEST)
         scope.launch {
-            CoreServiceManager.stopVService(app)
+            LauncherManager.stopService(app)
             BlueVpnWarpKeepAliveService.stop(app)
             BlueVpnWarpEngine.stop()
             BlueVpnPreferences.clearConnected(app)
@@ -84,14 +85,14 @@ object BlueVpnSystemController {
             // Premium is already owned by stock v2rayNG/CoreVpnService, which is
             // itself a foreground VpnService. A second foreground owner is not
             // needed and may contend for the same visible notification.
-            CoreServiceManager.startVServiceFromToggle(app)
+            LauncherManager.startServiceFromToggle(app)
         }
     }
 
     private suspend fun startFreeWarp(app: Context) {
         runCatching {
             val prepared = BlueVpnWarpEngine.prepareAdaptive(app)
-            CoreServiceManager.startVService(app, prepared.guid)
+            LauncherManager.startService(app, prepared.guid)
             val deadline = SystemClock.elapsedRealtime() + 10_000L
             while (!CoreServiceManager.isRunning() && SystemClock.elapsedRealtime() < deadline) {
                 delay(100L)

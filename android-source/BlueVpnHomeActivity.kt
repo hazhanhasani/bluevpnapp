@@ -52,6 +52,7 @@ import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.dto.TestServiceMessage
 import com.v2ray.ang.R
 import com.v2ray.ang.core.CoreServiceManager
+import com.v2ray.ang.core.LauncherManager
 import com.v2ray.ang.bluevpn.BlueVpnAccountManager
 import com.v2ray.ang.bluevpn.BlueVpnBackgroundReliability
 import com.v2ray.ang.bluevpn.BlueVpnBackgroundOptimizer
@@ -87,7 +88,7 @@ import com.v2ray.ang.handler.SettingsManager
 import com.v2ray.ang.handler.SubscriptionUpdater
 import com.v2ray.ang.viewmodel.MainViewModel
 import com.v2ray.ang.util.Utils
-import com.v2ray.ang.util.MessageUtil
+import com.v2ray.ang.helper.MessageHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -311,7 +312,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
             if (coreStopRetryCount < 1) {
                 coreStopRetryCount += 1
-                CoreServiceManager.stopVService(this@BlueVpnHomeActivity)
+                LauncherManager.stopService(this@BlueVpnHomeActivity)
                 handler.postDelayed(this, 4_000L)
                 return
             }
@@ -334,7 +335,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             if (!userDisconnecting) return
 
             if (mainViewModel.isRunning.value == true) {
-                CoreServiceManager.stopVService(this@BlueVpnHomeActivity)
+                LauncherManager.stopService(this@BlueVpnHomeActivity)
             }
 
             attempt += 1
@@ -2044,7 +2045,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
             if (userDisconnecting) {
                 if (active) {
-                    CoreServiceManager.stopVService(this)
+                    LauncherManager.stopService(this)
                 } else {
                     userDisconnecting = false
                     disconnectRetry.reset()
@@ -3143,7 +3144,7 @@ private fun dpHome(value: Int): Int =
         handler.removeCallbacks(disconnectRetry)
         disconnectRetry.reset()
 
-        CoreServiceManager.stopVService(this)
+        LauncherManager.stopService(this)
         BlueVpnWarpKeepAliveService.stop(this)
         lifecycleScope.launch(Dispatchers.IO) { BlueVpnWarpEngine.stop() }
         BlueVpnPreferences.clearConnected(this)
@@ -3271,7 +3272,7 @@ private fun dpHome(value: Int): Int =
                 connectButton.isEnabled = false
                 updateConnectLabel("در حال پاک‌سازی")
             }
-            CoreServiceManager.stopVService(this)
+            LauncherManager.stopService(this)
             return
         }
         if (recoveryCleanupRequired && mainViewModel.isRunning.value != true) {
@@ -3280,7 +3281,7 @@ private fun dpHome(value: Int): Int =
 
         if (terminalFailureStopping && mainViewModel.isRunning.value == true) {
             hideConnectingOverlay()
-            CoreServiceManager.stopVService(this)
+            LauncherManager.stopService(this)
             connectButton.isEnabled = false
             updateConnectLabel("در حال توقف")
             statusText.text = "در حال آزادسازی اتصال قبلی"
@@ -3638,11 +3639,11 @@ private fun dpHome(value: Int): Int =
         // Use v2rayNG's own TestService for the exact entitlement-isolated GUIDs.
         // This tests all routes without importing/recompiling them in BlueVPN.
         MmkvManager.clearAllTestDelayResults(networkSweepGuids)
-        MessageUtil.sendMsg2TestService(
+        MessageHelper.sendMsg2TestService(
             this,
             TestServiceMessage(key = AppConfig.MSG_MEASURE_CONFIG_CANCEL),
         )
-        MessageUtil.sendMsg2TestService(
+        MessageHelper.sendMsg2TestService(
             this,
             TestServiceMessage(
                 key = AppConfig.MSG_MEASURE_CONFIG_START,
@@ -3662,7 +3663,7 @@ private fun dpHome(value: Int): Int =
         networkSweepInProgress = false
         networkSweepPollInFlight = false
         handler.removeCallbacks(networkSweepTicker)
-        MessageUtil.sendMsg2TestService(
+        MessageHelper.sendMsg2TestService(
             this,
             TestServiceMessage(key = AppConfig.MSG_MEASURE_CONFIG_CANCEL),
         )
@@ -4059,7 +4060,7 @@ private fun dpHome(value: Int): Int =
                 statusText.text = "در حال تغییر اتصال"
                 statusCaption.text = "در انتظار توقف کامل اتصال قبلی"
             }
-            CoreServiceManager.stopVService(this@BlueVpnHomeActivity)
+            LauncherManager.stopService(this@BlueVpnHomeActivity)
             handler.removeCallbacks(coreStopTimeout)
             handler.postDelayed(coreStopTimeout, 8_000L)
         } else {
@@ -4091,7 +4092,7 @@ private fun dpHome(value: Int): Int =
         // Xray and all protocol/transport semantics end-to-end.
         // Exact stock handoff: upstream startVService(context, guid) selects
         // the GUID itself and owns config generation/VpnService/Xray startup.
-        CoreServiceManager.startVService(this, guid)
+        LauncherManager.startService(this, guid)
         handler.postDelayed({
             if (!isFinishing && !isDestroyed) requestDashboardRefresh()
         }, 60L)
@@ -4404,7 +4405,7 @@ private fun dpHome(value: Int): Int =
         statusCaption.text = "$reason؛ سرویس اتصال متوقف شده و مسیر سالم دیگری بررسی می‌شود"
         updateConnectLabel("در حال بازیابی")
         connectButton.isEnabled = false
-        CoreServiceManager.stopVService(this)
+        LauncherManager.stopService(this)
     }
 
     private fun verifyTunnelThroughCore(reason: String) {
@@ -5033,7 +5034,7 @@ private fun dpHome(value: Int): Int =
             MmkvManager.encodeServerTestDelayMillis(failedGuid, -1L)
         }
 
-        CoreServiceManager.stopVService(this)
+        LauncherManager.stopService(this)
         val failedWasWarpBridge = failedGuid.isNotBlank() && BlueVpnWarpEngine.isBridgeGuid(failedGuid)
         if (failedWasWarpBridge && BlueVpnAccountManager.warpFallbackEnabled(this)) {
             BlueVpnWarpEngine.markFallback()
@@ -5127,7 +5128,7 @@ private fun dpHome(value: Int): Int =
         // mutation to race the still-running final candidate.
         terminalFailureStopping = mainViewModel.isRunning.value == true
         if (terminalFailureStopping) {
-            CoreServiceManager.stopVService(this)
+            LauncherManager.stopService(this)
         }
         if (BlueVpnWarpEngine.isRunning()) {
             lifecycleScope.launch(Dispatchers.IO) { BlueVpnWarpEngine.stop() }
@@ -5158,7 +5159,7 @@ private fun dpHome(value: Int): Int =
         networkSweepInProgress = false
         networkSweepPollInFlight = false
         handler.removeCallbacks(networkSweepTicker)
-        MessageUtil.sendMsg2TestService(
+        MessageHelper.sendMsg2TestService(
             this,
             TestServiceMessage(key = AppConfig.MSG_MEASURE_CONFIG_CANCEL),
         )

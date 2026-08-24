@@ -148,8 +148,8 @@ def main() -> None:
     # separately packaged Aether process and then use a local SOCKS ProfileItem
     # through that same stock v2rayNG VpnService/TUN owner.
     require("import com.v2ray.ang.core.CoreServiceManager" in home, "Home must import upstream CoreServiceManager")
-    require("CoreServiceManager.startVService(this, guid)" in home, "Home must start exact GUID through upstream v2rayNG")
-    require("CoreServiceManager.stopVService" in home, "Home must stop through upstream v2rayNG")
+    require("LauncherManager.startService(this, guid)" in home, "Home must start exact GUID through upstream v2rayNG")
+    require("LauncherManager.stopService" in home, "Home must stop through upstream v2rayNG")
     require("BlueVpnEngineManager" not in home + account, "legacy engine abstraction remains")
     require("beginWarpFreeConnection()" in home, "Free WARP routing entrypoint missing")
     require("BlueVpnWarpEngine.isBridgeGuid" in home, "WARP bridge is not isolated from subscription candidates")
@@ -175,7 +175,7 @@ def main() -> None:
     require('AETHER_COMMIT = "a26159b82a70048b459e0128213c71767abecb8a"' in aether_build, "Aether source is not pinned")
     require("Build pinned Aether WARP runtime" in workflow, "CI does not build Aether from pinned source")
     require("coreStartError" not in home, "Home still depends on patched MainViewModel diagnostics")
-    require("CoreServiceManager.stopVService(appContext)" in account, "Account must stop stock v2rayNG directly")
+    require("LauncherManager.stopService(appContext)" in account, "Account must stop stock v2rayNG directly")
 
     # Match stock MainActivity ordering: receiver/assets are ready before delayed work/ads.
     listen_at = home.find("mainViewModel.startListenBroadcast()")

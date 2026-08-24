@@ -20,12 +20,12 @@ class AndroidSystemIntegration478Tests(unittest.TestCase):
 
     def test_system_controller_cleans_free_and_premium_runtime(self):
         src = self.text('android-source/BlueVpnSystemController.kt')
-        self.assertIn('CoreServiceManager.stopVService(app)', src)
+        self.assertIn('LauncherManager.stopService(app)', src)
         self.assertIn('BlueVpnWarpKeepAliveService.stop(app)', src)
         self.assertIn('BlueVpnWarpEngine.stop()', src)
         self.assertIn('BlueVpnAccountManager.stopFreeSession', src)
         self.assertIn('BlueVpnWarpEngine.prepareAdaptive(app)', src)
-        self.assertIn('CoreServiceManager.startVService(app, prepared.guid)', src)
+        self.assertIn('LauncherManager.startService(app, prepared.guid)', src)
         self.assertIn('ACTION_START', src)
 
     def test_notification_actions_are_redirected_to_bluevpn_controller(self):

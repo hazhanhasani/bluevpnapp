@@ -9,6 +9,7 @@ import android.os.Build
 import android.provider.Settings
 import com.v2ray.ang.BuildConfig
 import com.v2ray.ang.core.CoreServiceManager
+import com.v2ray.ang.core.LauncherManager
 import com.v2ray.ang.dto.entities.SubscriptionItem
 import com.v2ray.ang.handler.MmkvManager
 import org.json.JSONArray
@@ -1734,7 +1735,7 @@ object BlueVpnAccountManager {
         val storage = freePrefs(appContext)
         if (!storage.getBoolean("session_active", false)) return false
         if (freeSessionRemainingMillis(appContext) > 0L) return false
-        runCatching { CoreServiceManager.stopVService(appContext) }
+        runCatching { LauncherManager.stopService(appContext) }
         runCatching { BlueVpnPreferences.clearConnected(appContext) }
         stopFreeSession(appContext, expired = false)
         stopFreeSession(appContext, expired = true)
@@ -1958,7 +1959,7 @@ object BlueVpnAccountManager {
 
     private fun enforceFreeBoundaryTransition(c: Context) {
         val appContext = c.applicationContext
-        runCatching { CoreServiceManager.stopVService(appContext) }
+        runCatching { LauncherManager.stopService(appContext) }
         runCatching { BlueVpnPreferences.clearConnected(appContext) }
         setEntitlementReconcilePending(appContext, true)
         runCatching { MmkvManager.setSelectServer("") }

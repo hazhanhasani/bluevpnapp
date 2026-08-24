@@ -6,7 +6,7 @@ import com.v2ray.ang.AppConfig
 import com.v2ray.ang.dto.TestServiceMessage
 import com.v2ray.ang.core.CoreServiceManager
 import com.v2ray.ang.handler.MmkvManager
-import com.v2ray.ang.util.MessageUtil
+import com.v2ray.ang.helper.MessageHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -324,11 +324,11 @@ object BlueVpnBackgroundOptimizer {
     ): Map<String, Long> {
         if (guids.isEmpty()) return emptyMap()
         MmkvManager.clearAllTestDelayResults(guids)
-        MessageUtil.sendMsg2TestService(
+        MessageHelper.sendMsg2TestService(
             context,
             TestServiceMessage(key = AppConfig.MSG_MEASURE_CONFIG_CANCEL),
         )
-        MessageUtil.sendMsg2TestService(
+        MessageHelper.sendMsg2TestService(
             context,
             TestServiceMessage(
                 key = AppConfig.MSG_MEASURE_CONFIG_START,
@@ -343,7 +343,7 @@ object BlueVpnBackgroundOptimizer {
             }
             val finished = rows.values.count { it != 0L }
             if (finished >= guids.size) {
-                MessageUtil.sendMsg2TestService(
+                MessageHelper.sendMsg2TestService(
                     context,
                     TestServiceMessage(key = AppConfig.MSG_MEASURE_CONFIG_CANCEL),
                 )
@@ -352,7 +352,7 @@ object BlueVpnBackgroundOptimizer {
             delay(POLL_MS)
         }
 
-        MessageUtil.sendMsg2TestService(
+        MessageHelper.sendMsg2TestService(
             context,
             TestServiceMessage(key = AppConfig.MSG_MEASURE_CONFIG_CANCEL),
         )

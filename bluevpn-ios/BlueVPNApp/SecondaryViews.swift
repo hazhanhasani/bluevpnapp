@@ -1,0 +1,9 @@
+import SwiftUI
+
+struct AccountView: View { @EnvironmentObject var store:BlueVPNStore; var body:some View { Form { Section("حساب کاربری") { LabeledContent("شماره",value:store.account.phone.isEmpty ? "وارد نشده":store.account.phone);LabeledContent("وضعیت",value:store.account.active ? "فعال":"مهمان") }; Section { Button("ورود یا ثبت‌نام"){}; Button("خرید و تمدید سرویس"){store.path.append(.plans)} } }.navigationTitle("حساب من") } }
+struct PlansView: View { var body:some View { ZStack{BlueBackground();ScrollView{VStack(spacing:18){Text("پلن‌های BlueVPN").font(.largeTitle.bold());plan("Premium یک‌ماهه","تمام لوکیشن‌ها • حجم نامحدود");plan("Premium سه‌ماهه","به‌صرفه‌تر • اولویت اتصال");plan("رایگان","WARP هوشمند • تبلیغات")}.padding()}}.navigationTitle("پلن‌ها") }
+    func plan(_ title:String,_ caption:String)->some View{GlassCard{VStack(alignment:.leading,spacing:12){Text(title).font(.title2.bold());Text(caption).foregroundStyle(.secondary);Button("انتخاب پلن"){}.buttonStyle(.borderedProminent).tint(BlueColors.accent)}}}
+}
+struct SupportView: View { @State var category="اتصال و سرورها";@State var message=""; var body:some View { Form { Picker("ظاهر برنامه",selection:$category){ForEach(["اشتراک و حساب","مالی و پرداخت","اتصال و سرورها","نمایندگان","سایر"],id:\.self){Text($0)}};TextEditor(text:$message).frame(height:180);Button("ارسال پیام"){} }.navigationTitle("پشتیبانی BlueVPN") } }
+struct SettingsView: View { @EnvironmentObject var store:BlueVPNStore; var body:some View { Form { Section("ظاهر برنامه") { Picker("پوسته",selection:Binding(get:{store.theme},set:{store.setTheme($0)})){Text("همراه دستگاه").tag(BlueVPNThemeMode.system);Text("روشن").tag(BlueVPNThemeMode.light);Text("تیره").tag(BlueVPNThemeMode.dark)} }; Section("BlueVPN") { Button("مکان‌ها"){store.path.append(.locations)};Button("پلن‌ها"){store.path.append(.plans)};Button("پشتیبانی"){store.path.append(.support)};LabeledContent("نسخه",value:"5.6.0") } }.navigationTitle("تنظیمات") } }
+

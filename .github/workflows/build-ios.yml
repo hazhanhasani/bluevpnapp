@@ -1,0 +1,17 @@
+name: Build BlueVPN iOS
+on:
+  workflow_dispatch:
+  push:
+    paths: ['bluevpn-ios/**','branding/app.json','version.json','scripts/validate_ios.py','.github/workflows/build-ios.yml']
+jobs:
+  build-ios:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with: { python-version: '3.13' }
+      - run: python scripts/sync_version.py --check && python scripts/validate_ios.py
+      - run: brew install xcodegen && xcodegen generate --spec bluevpn-ios/project.yml
+      - name: Compile unsigned simulator build
+        run: xcodebuild -project bluevpn-ios/BlueVPN.xcodeproj -scheme BlueVPN -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
+

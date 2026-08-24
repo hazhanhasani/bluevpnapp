@@ -131,6 +131,25 @@ def expected_files(version: str, version_code: int) -> dict[str, str]:
             "bluevpn-windows/Services/MediaAssetLoader.cs",
             [(r"BlueVPN-Windows-Media/[^\"]+", f"BlueVPN-Windows-Media/{version}")],
         ),
+        "bluevpn-ios/project.yml": replace(
+            "bluevpn-ios/project.yml",
+            [
+                (r"(?m)^    MARKETING_VERSION: .+$", f"    MARKETING_VERSION: {version}"),
+                (r"(?m)^    CURRENT_PROJECT_VERSION: .+$", f"    CURRENT_PROJECT_VERSION: {version_code}"),
+            ],
+        ),
+        "bluevpn-ios/BlueVPNApp/APIClient.swift": replace(
+            "bluevpn-ios/BlueVPNApp/APIClient.swift",
+            [(r'BlueVPN-iOS/[^"\s]+', f"BlueVPN-iOS/{version}")],
+        ),
+        "bluevpn-ios/BlueVPNApp/HomeView.swift": replace(
+            "bluevpn-ios/BlueVPNApp/HomeView.swift",
+            [(r'Text\("\d+\.\d+\.\d+"\)', f'Text("{version}")')],
+        ),
+        "bluevpn-ios/BlueVPNApp/SecondaryViews.swift": replace(
+            "bluevpn-ios/BlueVPNApp/SecondaryViews.swift",
+            [(r'LabeledContent\("نسخه",value:"[^"]+"\)', f'LabeledContent("نسخه",value:"{version}")')],
+        ),
         "bluevpn-gateway/agent.py": replace(
             "bluevpn-gateway/agent.py",
             [(r'(?m)^AGENT_VERSION = "[^"]+"', f'AGENT_VERSION = "{version}"')],

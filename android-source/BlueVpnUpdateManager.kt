@@ -309,14 +309,28 @@ object BlueVpnUpdateManager {
         val latestCode = config.optInt("latest_version_code", 0)
         val latestVersion = config.optString("latest_version", "")
         val apkUrl = selectApkAsset(config).url
-        val latestHasSemanticVersion =
-            latestVersion.any(Char::isDigit) && latestVersion.contains(".")
-        val newer = if (latestHasSemanticVersion) {
-            compareVersions(latestVersion, BuildConfig.VERSION_NAME) > 0
-        } else {
-            latestCode > BuildConfig.VERSION_CODE
-        }
+        val newer = remoteBuildIsNewer(latestVersion, latestCode)
         return newer && apkUrl.startsWith("http")
+    }
+
+    /**
+     * Android releases can legitimately keep the same user-facing semantic
+     * version while publishing a newer Beta build. Windows already compares its
+     * build number, but Android previously ignored latest_version_code whenever
+     * latest_version looked semantic. That made an authenticated Beta tester on
+     * 5.4.x miss a newer 5.4.x Beta APK. Semantic version wins when different;
+     * versionCode breaks an equal-name tie and remains the fallback for legacy
+     * non-semantic payloads.
+     */
+    private fun remoteBuildIsNewer(
+        latestVersion: String,
+        latestCode: Int,
+    ): Boolean {
+        val semantic = latestVersion.any(Char::isDigit) && latestVersion.contains(".")
+        if (!semantic) return latestCode > BuildConfig.VERSION_CODE
+        val comparison = compareVersions(latestVersion, BuildConfig.VERSION_NAME)
+        return comparison > 0 ||
+            (comparison == 0 && latestCode > BuildConfig.VERSION_CODE)
     }
 
     private fun applyRemoteConfig(
@@ -367,31 +381,8 @@ object BlueVpnUpdateManager {
             ),
         ) < 0
 
-        val latestHasSemanticVersion =
-            latestVersion.any(Char::isDigit) &&
-                latestVersion.contains(".")
-
-        val codeIsNewer =
-            latestCode > BuildConfig.VERSION_CODE
-
-        val nameComparison =
-            if (latestHasSemanticVersion) {
-                compareVersions(
-                    latestVersion,
-                    BuildConfig.VERSION_NAME,
-                )
-            } else {
-                0
-            }
-
         val updateAvailable =
-            (
-                if (latestHasSemanticVersion) {
-                    nameComparison > 0
-                } else {
-                    codeIsNewer
-                }
-                ) &&
+            remoteBuildIsNewer(latestVersion, latestCode) &&
                 apkUrl.startsWith("http")
 
         if (!updateAvailable) {

@@ -87,8 +87,8 @@ public partial class MainWindow : Window
 
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
-        MaxHeight = Math.Max(600, SystemParameters.WorkArea.Height);
-        Height = Math.Min(760, Math.Max(600, SystemParameters.WorkArea.Height - 18));
+        MaxHeight = Math.Max(560, SystemParameters.WorkArea.Height);
+        Height = Math.Min(760, Math.Max(560, SystemParameters.WorkArea.Height - 18));
         MaxWidth = Math.Max(620, SystemParameters.WorkArea.Width);
     }
 
@@ -231,15 +231,16 @@ public partial class MainWindow : Window
 
     private void ApplyAdCardHeight()
     {
-        // Keep campaign artwork in its native proportion on wide desktop windows.
-        // The previous 0.58 multiplier flattened a 116–160dp campaign into a tiny
-        // 76–96px strip, which also pulled the rows below it into the home content.
+        // HomeContentGrid uses a fixed 584-DIP design surface and its Viewbox scales
+        // the whole dashboard uniformly. Keep the artwork at its own 20:9/native
+        // ratio inside that surface: DPI or window resizing can no longer flatten
+        // the banner independently from the surrounding UI.
         var width = AdCard.ActualWidth;
-        if (width < 240) width = Math.Max(320, ActualWidth - 52);
+        if (width < 240) width = 440;
         var ratio = _adImageAspectRatio > 0.25 ? _adImageAspectRatio : _ads.BannerAspectRatio;
         var configuredFloor = Math.Clamp((double)_ads.BannerHeight, 116, 160);
         var ratioHeight = ratio > 0.25 ? width / ratio : configuredFloor;
-        AdCard.Height = Math.Clamp(ratioHeight, configuredFloor, 280);
+        AdCard.Height = Math.Clamp(ratioHeight, configuredFloor, 220);
     }
 
     private void AdCard_Click(object sender, MouseButtonEventArgs e)
@@ -1218,7 +1219,7 @@ public partial class MainWindow : Window
             message.Contains("مسیر پیش‌فرض", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("Administrator", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("WARP", StringComparison.OrdinalIgnoreCase))
-            return message.Length > 220 ? message[..220] + "…" : message;
+            return "مسیر TUN این سرور کامل نشد؛ BlueVPN مسیرهای جایگزین را بررسی کرد. دوباره تلاش کنید.";
         if (message.Contains("HttpClient.Timeout", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("configured HttpClient.Timeout", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||

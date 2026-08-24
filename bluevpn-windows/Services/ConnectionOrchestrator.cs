@@ -40,10 +40,22 @@ public sealed class ConnectionOrchestrator : IDisposable
         CancelConnectAttempt();
         await _connectGate.WaitAsync(ct).ConfigureAwait(false);
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        // Never leave the Windows shell on an unbounded connecting overlay.
+        // Three bounded candidates are enough to cover the live-ranked fast lane;
+        // a later explicit attempt gets a fresh ranking and quarantine history.
+        attempt.CancelAfter(TimeSpan.FromSeconds(72));
         lock (_connectSync) _activeConnectAttempt = attempt;
         try
         {
-            return await ConnectCoreAsync(account, progress, attempt.Token, preferredLocationKey).ConfigureAwait(false);
+            try
+            {
+                return await ConnectCoreAsync(account, progress, attempt.Token, preferredLocationKey).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+            {
+                StopRuntime();
+                throw new InvalidOperationException("اتصال در زمان مجاز کامل نشد؛ مسیرهای ناموفق کنار گذاشته شدند و تلاش بعدی با رتبه‌بندی تازه انجام می‌شود.", ex);
+            }
         }
         finally
         {
@@ -159,23 +171,31 @@ public sealed class ConnectionOrchestrator : IDisposable
         if (!aiRefresh.IsCompleted)
             _ = await Task.WhenAny(aiRefresh, Task.Delay(80, ct)).ConfigureAwait(false);
         ranked = _ai.Reorder(ranked);
+        // Preserve the eight-route standby queue for HA and subsequent retries;
+        // the 72-second attempt budget prevents a single click from waiting on
+        // all eight when the machine's TUN stack is unhealthy.
         var candidates = ranked.Where(x => x.ProbeLatencyMs < int.MaxValue).Take(8).ToList();
         if (candidates.Count == 0) candidates = ranked.Take(8).ToList();
 
         Exception? lastError = null;
+        var candidateIndex = 0;
         foreach (var endpoint in candidates)
         {
+            candidateIndex++;
             ct.ThrowIfCancellationRequested();
+            using var candidateBudget = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            candidateBudget.CancelAfter(TimeSpan.FromSeconds(24));
+            var candidateToken = candidateBudget.Token;
             try
             {
-                progress?.Report("اتصال به بهترین مسیر BlueVPN…");
+                progress?.Report($"اتصال به مسیر {candidateIndex} از {candidates.Count}…");
                 var config = XrayConfigBuilder.Build(endpoint, _settings);
-                await _xray.StartAsync(config, endpoint, ct).ConfigureAwait(false);
+                await _xray.StartAsync(config, endpoint, candidateToken).ConfigureAwait(false);
                 TunnelVerificationResult verified;
                 if (_xray.RoutingMode == "tun")
                 {
-                    progress?.Report("تأیید مسیر VPN ویندوز…");
-                    verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, false, Array.Empty<string>(), _settings.Tun.Name, ct).ConfigureAwait(false);
+                    progress?.Report($"تأیید TUN • مسیر {candidateIndex} از {candidates.Count}…");
+                    verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, false, Array.Empty<string>(), _settings.Tun.Name, candidateToken).ConfigureAwait(false);
                 }
                 else
                 {
@@ -184,11 +204,11 @@ public sealed class ConnectionOrchestrator : IDisposable
 
                 if (!verified.Success)
                 {
-                    progress?.Report("TUN کامل نشد؛ فعال‌سازی مسیر سازگار سریع…");
-                    verified = await _xray.FallbackToSystemProxyAsync(before, _settings.ProbeUrl, ct).ConfigureAwait(false);
+                    progress?.Report($"TUN مسیر {candidateIndex} آماده نشد؛ بررسی Windows Proxy…");
+                    verified = await _xray.FallbackToSystemProxyAsync(before, _settings.ProbeUrl, candidateToken).ConfigureAwait(false);
                 }
                 if (verified.Success)
-                    verified = await ConfirmStableTunnelAsync(before, verified, false, Array.Empty<string>(), ct).ConfigureAwait(false);
+                    verified = await ConfirmStableTunnelAsync(before, verified, false, Array.Empty<string>(), candidateToken).ConfigureAwait(false);
                 if (!verified.Success)
                     throw new InvalidOperationException($"اتصال سیستم کامل نشد: {verified.Detail}");
 
@@ -198,6 +218,15 @@ public sealed class ConnectionOrchestrator : IDisposable
                 LastVerification = verified;
                 _ai.StartConnectedSession(endpoint, verified, premium, warp: false);
                 return new ConnectionResult(true, premium, endpoint, ActiveEngine, verified);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                lastError = new TimeoutException($"مسیر {candidateIndex} در ۲۴ ثانیه آماده نشد.");
+                _ai.RecordFailure(endpoint, premium, lastError.Message);
+                _xray.Stop();
+                _verifiedConnected = false;
+                ActiveEndpoint = null;
+                progress?.Report($"مسیر {candidateIndex} پاسخ نداد؛ مسیر بعدی بررسی می‌شود…");
             }
             catch (OperationCanceledException)
             {

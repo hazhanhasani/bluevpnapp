@@ -5,7 +5,7 @@ def text(p): return (ROOT/p).read_text(encoding='utf-8')
 class WindowsUiUpdateRuntimeBuildfix503(unittest.TestCase):
     def test_ui_is_scrollable_and_power_is_vector(self):
         x=text('bluevpn-windows/MainWindow.xaml')
-        self.assertIn('x:Name="HomeScrollViewer"',x)
+        self.assertIn('x:Name="HomeFitViewbox"',x)
         self.assertIn('x:Name="PowerArc"',x)
         self.assertIn('x:Name="PowerStem"',x)
         self.assertNotIn('Content="⏻"',x)

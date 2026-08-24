@@ -255,12 +255,25 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             if (intent?.getIntExtra("key", 0) != AppConfig.MSG_STATE_START_FAILURE) return
             if (!failoverActive || userDisconnecting || terminalFailureStopping) return
 
-            val reason = intent.getStringExtra("content")
+            val upstreamReason = intent.getStringExtra("content")
                 ?.trim()
                 .orEmpty()
                 .ifBlank { "هسته اتصال نتوانست این مسیر را شروع کند" }
             handler.removeCallbacks(attemptTimeout)
-            failCurrentAndTryNext(reason)
+            failCurrentAndTryNext(normalizeCoreStartFailure(upstreamReason))
+        }
+    }
+
+    private fun normalizeCoreStartFailure(reason: String): String {
+        val compact = reason.replace(Regex("\\s+"), " ").trim()
+        val lower = compact.lowercase(Locale.US)
+        return when {
+            "failed to parse json" in lower ||
+                "parse json config" in lower ||
+                "invalid character" in lower ->
+                "کانفیگ این مسیر نامعتبر بود؛ مسیر از این نوبت کنار گذاشته شد و سرور بعدی بررسی می‌شود"
+            compact.isBlank() -> "هسته اتصال نتوانست این مسیر را شروع کند؛ سرور بعدی بررسی می‌شود"
+            else -> compact.take(180)
         }
     }
 
@@ -5090,9 +5103,20 @@ private fun dpHome(value: Int): Int =
             )
         }
 
+        // START_FAILURE can be broadcast a little before v2rayNG/Xray finishes
+        // releasing its process and TUN resources. Starting the next GUID after
+        // only 250 ms made one malformed JSON profile poison the entire queue:
+        // every following route hit the still-closing service and was marked
+        // failed as well. Config-parse failures therefore get a bounded drain
+        // window; the bad GUID remains quarantined and the next entitled route
+        // is still tried automatically.
+        val retryDelayMs = if (
+            reason.contains("کانفیگ این مسیر نامعتبر بود") ||
+            reason.contains("failed to parse json", ignoreCase = true)
+        ) 900L else 350L
         handler.postDelayed({
             if (failoverActive) startCurrentCandidate()
-        }, 250L)
+        }, retryDelayMs)
     }
 
     private fun finishFailoverWithError(reason: String? = null) {

@@ -9,10 +9,10 @@
     <RootNamespace>BlueVPN.Windows</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>bluevpn.ico</ApplicationIcon>
-    <Version>5.4.4</Version>
-    <AssemblyVersion>5.4.4.0</AssemblyVersion>
-    <FileVersion>5.4.4.0</FileVersion>
-    <InformationalVersion>5.4.4</InformationalVersion>
+    <Version>5.4.5</Version>
+    <AssemblyVersion>5.4.5.0</AssemblyVersion>
+    <FileVersion>5.4.5.0</FileVersion>
+    <InformationalVersion>5.4.5</InformationalVersion>
     <Platforms>AnyCPU</Platforms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>

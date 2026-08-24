@@ -99,6 +99,7 @@
     "test_warp_exit_policy_empty_483.py",
     "test_warp_iran_identity_recovery_482.py",
     "test_warp_off_smart_pool_4117.py",
+    "test_android_xray_json_failover_545.py",
     "test_windows_ai_speed_auth_508.py",
     "test_windows_android_ui_tun_4176.py",
     "test_windows_auth_ads_vps_parity_4180.py",

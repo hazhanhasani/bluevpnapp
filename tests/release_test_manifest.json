@@ -14,6 +14,7 @@
     "test_blupal_callback_routes_4115.py",
     "test_blupal_freepool_panel_4114.py",
     "test_bounded_version_policy_500.py",
+    "test_bundle_workflow_integrity_563.py",
     "test_brand_runtime_boundary_41710.py",
     "test_ci_node24_artifact_layout_41610.py",
     "test_connection_continuity_4112.py",

@@ -1,0 +1,659 @@
+name: Build Signed BlueVPN APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: Build mode
+        required: true
+        default: fast
+        type: choice
+        options: [fast, full]
+  repository_dispatch:
+    types: [bluevpn_build]
+
+concurrency:
+  group: bluevpn-release-${{ github.ref }}
+  # Only the newest source revision should consume signing/release capacity.
+  # Sentinel intentionally ignores this expected cancellation conclusion.
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  BLUEVPN_TARGET_BRANCH: ${{ github.event.client_payload.ref || github.ref_name }}
+  BLUEVPN_TARGET_SHA: ${{ github.event.client_payload.target_sha || github.sha }}
+  BLUEVPN_BUILD_MODE: ${{ github.event_name == 'repository_dispatch' && (github.event.client_payload.build_mode || 'full') || (inputs.build_mode || 'fast') }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - name: Checkout BlueVPN project
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Initialize pre-build diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > "$GITHUB_WORKSPACE/android-build.log"
+          echo initialize-build > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          echo "BlueVPN build mode: ${BLUEVPN_BUILD_MODE}" | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Synchronize checkout with latest branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "${BLUEVPN_TARGET_BRANCH}" --prune
+          git checkout -B "${BLUEVPN_TARGET_BRANCH}" "${BLUEVPN_TARGET_SHA}"
+          test "$(git rev-parse HEAD)" = "$BLUEVPN_TARGET_SHA"
+
+      - name: Check permanent signing secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            test -n "${!name:-}" || { echo "::error::$name is not configured"; exit 1; }
+          done
+
+      - name: Resolve next BlueVPN version
+        id: config
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --tags --force >/dev/null 2>&1 || true
+          LATEST_TAG="$(git tag -l 'v*.*.*' --sort=-v:refname | head -n 1 || true)"
+          export LATEST_TAG
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          app_path=Path('branding/app.json'); release_path=Path('release.json')
+          app=json.loads(app_path.read_text(encoding='utf-8'))
+          release=json.loads(release_path.read_text(encoding='utf-8'))
+          def parse(v):
+              m=re.fullmatch(r'v?(\d+)\.(\d+)\.(\d+)',str(v or '').strip())
+              return tuple(map(int,m.groups())) if m else None
+          app_version=parse(app.get('version_name')); release_version=parse(release.get('version'))
+          if app_version is None or release_version is None or app_version != release_version:
+              raise SystemExit('Project version mismatch')
+          project_version=app_version
+          major,minor,patch=project_version
+          if minor > 10: raise SystemExit('minor version must stay within 0..10. After x.10.10 use (x+1).0.0')
+          if patch > 10: raise SystemExit('patch version must stay within 0..10. After x.10.10 use (x+1).0.0')
+          published_version=parse(os.environ.get('LATEST_TAG'))
+          if published_version is not None and published_version > project_version:
+              raise SystemExit('Project version is behind the latest published Android release')
+          # Source version is authoritative; builds never auto-consume a patch.
+          resolved = project_version
+          version='.'.join(map(str,resolved)); version_code=major*10000+minor*100+patch
+          app['version_name']=version; app['version_code']=version_code
+          app["version_source"] = (
+              "source_declared_release_version"
+          )
+          release['version']=version; release['version_code']=version_code
+          release['android_version']=version; release['android_version_code']=version_code
+          release["version_source"] = "source_declared_release_version"
+          app_path.write_text(json.dumps(app,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          release_path.write_text(json.dumps(release,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8') as f:
+              f.write(f'version={version}\nversion_code={version_code}\n')
+              f.write(f'upstream_ref={app["upstream_ref"]}\n')
+              f.write(f'android_lib_xray_ref={app.get("android_lib_xray_ref","")}\n')
+              f.write(f'xray_core_release_label={app.get("xray_core_release_label","")}\n')
+              f.write(f'aether_ref={app.get("aether_ref","")}\n')
+          print('source_declared_release_version',version,version_code)
+          PY
+
+      - name: Synchronize WordPress Manager with BlueVPN version
+        shell: bash
+        env:
+          VERSION: ${{ steps.config.outputs.version }}
+        run: |
+          python - <<'PY'
+          import os,re
+          from pathlib import Path
+          v=os.environ['VERSION']; p=Path('bluevpn-manager/bluevpn-manager.php'); s=p.read_text(encoding='utf-8')
+          s=re.sub(r'(?m)^( \* Version: )\d+\.\d+\.\d+$',r'\g<1>'+v,s,count=1)
+          s=re.sub(r"define\('BLUEVPN_MANAGER_VERSION', '[^']+'\);",f"define('BLUEVPN_MANAGER_VERSION', '{v}');",s,count=1)
+          p.write_text(s,encoding='utf-8')
+          PY
+
+      - name: Checkout official v2rayNG source
+        uses: actions/checkout@v6
+        with:
+          repository: 2dust/v2rayNG
+          ref: ${{ steps.config.outputs.upstream_ref }}
+          path: upstream
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Confirm official v2rayNG checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo android-runtime-checked-out > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          test -f upstream/V2rayNG/gradlew
+          test -f upstream/compile-hevtun.sh
+          test -d upstream/AndroidLibXrayLite/.git || git -C upstream/AndroidLibXrayLite rev-parse --git-dir >/dev/null
+          echo "Official v2rayNG runtime checkout confirmed." | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Setup Android SDK 37
+        uses: android-actions/setup-android@v4
+        with:
+          log-accepted-android-sdk-licenses: false
+          cmdline-tools-version: '14742923'
+          packages: 'platforms;android-37.0 build-tools;37.0.0 platform-tools'
+
+      - name: Install Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo install-android-ndk > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER" || { echo "::error::Android sdkmanager not found: $SDKMANAGER"; exit 1; }
+          echo "y" | "$SDKMANAGER" --channel=0 --install "ndk;29.0.14206865"
+          NDK_PATH="$ANDROID_HOME/ndk/29.0.14206865"
+          test -d "$NDK_PATH" || { echo "::error::Android NDK install missing: $NDK_PATH"; exit 1; }
+          echo "NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK_PATH" >> "$GITHUB_ENV"
+          echo "Android NDK ready: $NDK_PATH" | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+          python - <<'PY_NDK'
+          from pathlib import Path
+          path = Path("upstream/V2rayNG/app/build.gradle.kts")
+          text = path.read_text(encoding="utf-8")
+          marker = "android {"
+          if 'ndkVersion = "29.0.14206865"' not in text:
+              if marker not in text:
+                  raise SystemExit("android block not found")
+              text = text.replace(marker, marker + '\n    ndkVersion = "29.0.14206865"', 1)
+              path.write_text(text, encoding="utf-8")
+          PY_NDK
+
+      - name: Restore libhevtun cache
+        id: hevtun-cache
+        uses: actions/cache@v5
+        with:
+          path: upstream/libs
+          key: bluevpn-hevtun-${{ runner.os }}-${{ steps.config.outputs.upstream_ref }}-ndk29-${{ hashFiles('upstream/compile-hevtun.sh') }}
+
+      - name: Build libhevtun
+        if: steps.hevtun-cache.outputs.cache-hit != 'true'
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo build-libhevtun > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          : "${NDK_HOME:?NDK_HOME must be exported by the Install Android NDK step}"
+          test -d "$NDK_HOME" || { echo "::error::NDK_HOME does not exist: $NDK_HOME"; exit 1; }
+          bash compile-hevtun.sh 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Install libhevtun into Android runtime
+        working-directory: upstream
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d libs || { echo "::error::libhevtun output directory is missing"; exit 1; }
+          mkdir -p V2rayNG/app/libs
+          cp -r libs/. V2rayNG/app/libs/
+          echo "libhevtun installed into V2rayNG/app/libs." | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Resolve official v2rayNG AndroidLibXrayLite pairing
+        id: xray
+        working-directory: upstream/AndroidLibXrayLite
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin --force --prune --tags '+refs/tags/*:refs/tags/*'
+          CURRENT_COMMIT="$(git rev-parse HEAD)"
+          CURRENT_TAG="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          DOCUMENTED_TAG="${{ steps.config.outputs.android_lib_xray_ref }}"
+          XRAY_RELEASE_LABEL="${{ steps.config.outputs.xray_core_release_label }}"
+          test -n "$CURRENT_TAG"
+          if [ -n "$DOCUMENTED_TAG" ] && [ "$CURRENT_TAG" != "$DOCUMENTED_TAG" ]; then
+            echo "::warning::Building with the upstream-resolved tag $CURRENT_TAG instead of documented $DOCUMENTED_TAG"
+          fi
+          echo "v2rayNG-pinned AndroidLibXrayLite commit: $CURRENT_COMMIT"
+          echo "Informational Xray-core release label: $XRAY_RELEASE_LABEL"
+          echo "tag=$CURRENT_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Mark libv2ray artifact stage
+        shell: bash
+        run: |
+          echo resolve-libv2ray-artifact > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          echo "resolve-libv2ray-artifact" | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Restore libv2ray AAR cache
+        id: libv2ray-cache
+        continue-on-error: true
+        uses: actions/cache@v5
+        with:
+          path: upstream/V2rayNG/app/libs/libv2ray.aar
+          key: bluevpn-libv2ray-${{ runner.os }}-${{ steps.xray.outputs.tag }}
+
+      - name: Download libv2ray AAR with retry and fallback
+        if: steps.libv2ray-cache.outputs.cache-hit != 'true'
+        env:
+          XRAY_AAR_TAG: ${{ steps.xray.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEST="$GITHUB_WORKSPACE/upstream/V2rayNG/app/libs/libv2ray.aar"; TMP="${DEST}.part"
+          mkdir -p "$(dirname "$DEST")"
+          URL="https://github.com/2dust/AndroidLibXrayLite/releases/download/${XRAY_AAR_TAG}/libv2ray.aar"
+          curl --fail --location --silent --show-error --connect-timeout 20 --max-time 240 --retry 5 --retry-delay 3 --retry-all-errors --output "$TMP" "$URL" \
+            && mv "$TMP" "$DEST" \
+            || gh release download "$XRAY_AAR_TAG" --repo 2dust/AndroidLibXrayLite --pattern libv2ray.aar --dir "$(dirname "$DEST")" --clobber
+          echo "downloaded libv2ray" | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Verify libv2ray AAR
+        shell: bash
+        run: |
+          echo verify-libv2ray-artifact > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib,zipfile
+          p=Path('upstream/V2rayNG/app/libs/libv2ray.aar')
+          if p.stat().st_size < 1_000_000: raise SystemExit('AAR too small')
+          with zipfile.ZipFile(p) as z:
+              bad=z.testzip()
+              if bad: raise SystemExit(bad)
+          print('sha256',hashlib.sha256(p.read_bytes()).hexdigest())
+          PY
+          echo "verified libv2ray" | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Prepare Android Python environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BUILD_STAGE=prepare-python-environment" >> "$GITHUB_ENV"
+          command -v python | tee -a "$GITHUB_WORKSPACE/android-build.log"
+          python -m pip install --disable-pip-version-check --retries 5 --timeout 60 pillow 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Remove retired BlueVPN runtime files
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo repository-cleanup > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          python scripts/cleanup_repository.py 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Overlay BlueVPN UI and control plane on v2rayNG
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo overlay-bluevpn > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          python scripts/prepare_android.py 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Mark Aether cache stage
+        shell: bash
+        run: |
+          echo aether-cache > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          echo aether-cache | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Restore pinned Aether runtime cache
+        id: aether-cache
+        continue-on-error: true
+        uses: actions/cache@v5
+        with:
+          path: |
+            upstream/V2rayNG/app/src/main/jniLibs/arm64-v8a/libbluevpn_aether.so
+            upstream/V2rayNG/app/src/main/jniLibs/armeabi-v7a/libbluevpn_aether.so
+            reports/AETHER-PROVENANCE-4.7.6.txt
+          key: bluevpn-aether-${{ runner.os }}-${{ steps.config.outputs.aether_ref }}-${{ hashFiles('scripts/build_aether_android.py') }}
+
+      - name: Setup Rust for BlueVPN Free WARP engine
+        if: steps.aether-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo setup-rust > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          rustc --version | tee -a "$GITHUB_WORKSPACE/android-build.log"
+          for target in aarch64-linux-android armv7-linux-androideabi; do rustup target add "$target" 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"; done
+
+      - name: Build pinned Aether WARP runtime
+        if: steps.aether-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo build-aether-warp > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          python scripts/build_aether_android.py 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Verify pinned Aether WARP runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo verify-aether-warp > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          test -s upstream/V2rayNG/app/src/main/jniLibs/arm64-v8a/libbluevpn_aether.so
+          test -s upstream/V2rayNG/app/src/main/jniLibs/armeabi-v7a/libbluevpn_aether.so
+          echo Aether-PASS | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Apply BlueVPN login and registration redesign
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo apply-auth-ui > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          cp android-source/BlueVpnSubscriptionsActivity.kt upstream/V2rayNG/app/src/main/java/com/v2ray/ang/ui/BlueVpnSubscriptionsActivity.kt
+          cp android-source/BlueVpnRuntimeAudit.kt upstream/V2rayNG/app/src/main/java/com/v2ray/ang/bluevpn/BlueVpnRuntimeAudit.kt
+          echo auth-ui-applied | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: BlueVPN stability completion regression gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo release-regression-gate > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          : > "$GITHUB_WORKSPACE/stability-gate.log"
+          run_gate() {
+            local name="$1"; shift
+            echo "$name" > "$GITHUB_WORKSPACE/.bluevpn-regression-substage"
+            echo "========== $name ==========" | tee -a "$GITHUB_WORKSPACE/stability-gate.log"
+            set +e; "$@" 2>&1 | tee -a "$GITHUB_WORKSPACE/stability-gate.log"; rc=${PIPESTATUS[0]}; set -e
+            if [ "$rc" -ne 0 ]; then
+              echo "REGRESSION_SUBSTAGE_FAILED=$name" | tee -a "$GITHUB_WORKSPACE/stability-gate.log"
+              echo "REGRESSION_EXIT_CODE=$rc" | tee -a "$GITHUB_WORKSPACE/stability-gate.log"
+              exit "$rc"
+            fi
+          }
+          run_gate repository-cleanup python scripts/cleanup_repository.py
+          run_gate version-sync python scripts/sync_version.py --check
+          run_gate pycompile python -m compileall -q scripts tests
+          run_gate release-validator python scripts/validate_release.py
+          run_gate python-regression python -m unittest discover -s tests -p 'test_*.py' -v -f
+          run_gate php-release python scripts/validate_php_release.py
+          # Failure parser keywords: Regression substage: AssertionError PHP LINT FAILED
+          rm -f "$GITHUB_WORKSPACE/.bluevpn-regression-substage"
+
+      - name: Upload failed Android source preparation log
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: BlueVPN-prepare-android-log
+          path: |
+            android-build.log
+            stability-gate.log
+            .bluevpn-regression-substage
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: upstream/V2rayNG/**/*.gradle*
+
+      - name: Validate generated Android manifest
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          p=Path('upstream/V2rayNG/app/src/main/AndroidManifest.xml'); root=ET.parse(p).getroot()
+          text=p.read_text(encoding='utf-8')
+          for token in ['BlueVpnWarpKeepAliveService','BlueVpnQuickTileService','BlueVpnSystemActionReceiver','POST_NOTIFICATIONS']:
+              if token not in text: raise SystemExit('missing '+token)
+          print('Generated AndroidManifest.xml runtime contract: PASS')
+          PY
+
+      - name: Build unsigned release APKs
+        working-directory: upstream/V2rayNG
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo gradle-compile > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
+          chmod +x gradlew
+          ./gradlew :app:compilePlaystoreReleaseKotlin :app:assemblePlaystoreRelease "-PABI_FILTERS=arm64-v8a;armeabi-v7a" --stacktrace --no-daemon --build-cache --parallel 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
+
+      - name: Decode permanent signing key
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/bluevpn-signing"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/bluevpn-signing/BlueVPN-release.jks"
+
+      - name: Align and sign APKs permanently
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist "$RUNNER_TEMP/bluevpn-aligned"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/37.0.0"
+          mapfile -t APKS < <(find upstream/V2rayNG/app/build/outputs/apk -type f -name '*.apk' | sort)
+          test "${#APKS[@]}" -gt 0
+          for apk in "${APKS[@]}"; do
+            name="$(basename "$apk" .apk)"; name="${name%-unsigned}"; name="${name%-release}"
+            "$BUILD_TOOLS/zipalign" -p -f 4 "$apk" "$RUNNER_TEMP/bluevpn-aligned/${name}.apk"
+            "$BUILD_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/bluevpn-signing/BlueVPN-release.jks" --ks-key-alias "$ANDROID_KEY_ALIAS" --ks-pass env:ANDROID_KEYSTORE_PASSWORD --key-pass env:ANDROID_KEY_PASSWORD --out "dist/${name}.apk" "$RUNNER_TEMP/bluevpn-aligned/${name}.apk"
+          done
+
+      - name: Validate signed APK runtime contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t SIGNED_APKS < <(find dist -maxdepth 1 -type f -name '*.apk' | sort)
+          test "${#SIGNED_APKS[@]}" -gt 0
+          python scripts/validate_android_apk.py "${SIGNED_APKS[@]}"
+          for apk in "${SIGNED_APKS[@]}"; do
+            "$ANDROID_HOME/build-tools/37.0.0/apksigner" verify --verbose --print-certs "$apk"
+            unzip -t "$apk" >/dev/null
+          done
+          # ABI coverage is validated across the complete signed APK set by validate_android_apk.py.
+          echo 'BlueVpnRuntimeAudit.kt runtime package verified'
+
+      - name: Upload APK runtime validation report
+        uses: actions/upload-artifact@v7
+        with:
+          name: BlueVPN-${{ steps.config.outputs.version }}-runtime-validation
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload fast signed APK artifact
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'fast' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: BlueVPN-${{ steps.config.outputs.version }}-FAST-signed
+          path: dist/*.apk
+          compression-level: 0
+
+      - name: Publish synchronized BlueVPN Manager release barrier
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
+        env:
+          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN || github.token }}
+          VERSION: ${{ steps.config.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/validate_php_release.py
+          rm -rf "$RUNNER_TEMP/manager" && mkdir -p "$RUNNER_TEMP/manager/bluevpn-manager"
+          rsync -a bluevpn-manager/ "$RUNNER_TEMP/manager/bluevpn-manager/"
+          (cd "$RUNNER_TEMP/manager" && zip -qr "$GITHUB_WORKSPACE/bluevpn-manager.zip" bluevpn-manager)
+          TAG="bluevpn-manager-v${VERSION}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then gh release upload "$TAG" bluevpn-manager.zip --clobber --repo "$GITHUB_REPOSITORY"; else gh release create "$TAG" bluevpn-manager.zip --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "BlueVPN Manager ${VERSION}" --latest=false; fi
+
+      - name: Wait for WordPress control-plane auto-update
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
+        env:
+          VERSION: ${{ steps.config.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          API_BASE_URL="$(python -c 'import json;print(json.load(open("branding/app.json"))["api_base_url"].rstrip("/"))')"
+          EXPECTED_SCHEMA="$(sed -nE "s/^define\('BLUEVPN_MANAGER_SCHEMA_VERSION', '([^']+)'\);/\1/p" bluevpn-manager/bluevpn-manager.php | head -n 1)"
+          HEALTH_URL="${API_BASE_URL}/health"
+          LAST_STATUS="unknown"; LAST_VERSION="unknown"; LAST_READY="unknown"; LAST_SCHEMA="unknown"; LAST_UPDATER_AUTH="unknown"
+          for attempt in $(seq 1 36); do
+            curl --silent --show-error --location --max-time 20 "$HEALTH_URL" -o "$RUNNER_TEMP/bluevpn-health.json" || true
+            if [ -s "$RUNNER_TEMP/bluevpn-health.json" ]; then
+              mapfile -t F < <(python - <<'PY'
+          import json,os
+          from pathlib import Path
+          try: d=json.loads((Path(os.environ['RUNNER_TEMP'])/'bluevpn-health.json').read_text(encoding='utf-8'))
+          except Exception: d={}
+          db=d.get('database') or {}; updater=d.get('github_updater') or {}
+          print(d.get('version','unknown')); print(str(d.get('status','unknown')).lower()); print(db.get('schema_version','unknown')); print(str(db.get('ready','unknown')).lower()); print(str(updater.get('authenticated','unknown')).lower())
+          PY
+              )
+              LAST_VERSION="${F[0]:-unknown}"; LAST_STATUS="${F[1]:-unknown}"; LAST_SCHEMA="${F[2]:-unknown}"; LAST_READY="${F[3]:-unknown}"; LAST_UPDATER_AUTH="${F[4]:-unknown}"
+            fi
+            VERSION_COMPATIBLE="$(python -c 'import re,sys; p=lambda v: tuple(map(int,re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v).groups())) if re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v) else None; cv,ev=map(p,sys.argv[1:3]); print("true" if cv is not None and ev is not None and cv >= ev else "false")' "$LAST_VERSION" "$VERSION")"
+            DETAILS_COMPATIBLE="true"
+            if [ "$LAST_SCHEMA" != "unknown" ] || [ "$LAST_READY" != "unknown" ]; then
+              DETAILS_COMPATIBLE="$(python -c 'import re,sys; p=lambda v: tuple(map(int,re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v).groups())) if re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v) else None; cs,es=map(p,sys.argv[1:3]); ready=sys.argv[3].lower()=="true"; print("true" if cs is not None and es is not None and cs >= es and ready else "false")' "$LAST_SCHEMA" "$EXPECTED_SCHEMA" "$LAST_READY")"
+            fi
+            if [ "$VERSION_COMPATIBLE" = "true" ] && [ "$LAST_STATUS" = "ok" ] && [ "$DETAILS_COMPATIBLE" = "true" ]; then
+              if [ "$LAST_SCHEMA" = "unknown" ]; then
+                echo "WordPress public health barrier passed: installed=${LAST_VERSION} (minimum=${VERSION}), status=ok. Detailed schema/updater diagnostics are intentionally admin-only."
+              else
+                echo "WordPress control plane compatible: installed=${LAST_VERSION} (minimum=${VERSION}), schema=${LAST_SCHEMA} (minimum=${EXPECTED_SCHEMA}), status=ok."
+              fi
+              break
+            fi
+            sleep 10
+          done
+          if [ "$LAST_STATUS" != ok ]; then echo "::error::WORDPRESS_HEALTH_DEGRADED health=$LAST_STATUS"; fi
+          if [ "$VERSION_COMPATIBLE" != "true" ] && [ "$LAST_UPDATER_AUTH" = "unknown" ]; then echo '::error::Installed manager version is below the release target'; fi
+          [ "$VERSION_COMPATIBLE" = "true" ] && [ "$LAST_STATUS" = ok ] && [ "$DETAILS_COMPATIBLE" = "true" ] || exit 1
+
+      - name: Create GitHub Release metadata and checksums
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
+        env:
+          VERSION: ${{ steps.config.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum *.apk > SHA256SUMS.txt)
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          Path('dist/release-manifest.json').write_text(json.dumps({'version':os.environ['VERSION'],'source':'github_actions'},indent=2)+'\n')
+          PY
+
+      - name: Publish signed APKs to GitHub Release
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
+        env:
+          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN || github.token }}
+          VERSION: ${{ steps.config.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          mapfile -t ASSETS < <(find dist -maxdepth 1 -type f \( -name '*.apk' -o -name 'SHA256SUMS.txt' -o -name 'release-manifest.json' \) -print | sort)
+          if [ "${#ASSETS[@]}" -lt 3 ]; then echo "::error::Signed Android release payload is incomplete"; exit 1; fi
+          publish_error="$RUNNER_TEMP/android-release-publish.err"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if ! gh release upload "$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --clobber 2>"$publish_error"; then
+              cat "$publish_error" >&2
+              grep -q 'Resource not accessible by integration' "$publish_error" && echo '::error::Configure BLUEVPN_GITHUB_RELEASE_TOKEN with Contents: Read and write permission.'
+              exit 1
+            fi
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "BlueVPN ${VERSION}"
+          elif ! gh release create "$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "BlueVPN ${VERSION}" 2>"$publish_error"; then
+            cat "$publish_error" >&2
+            grep -q 'Resource not accessible by integration' "$publish_error" && echo '::error::Configure BLUEVPN_GITHUB_RELEASE_TOKEN with Contents: Read and write permission.'
+            exit 1
+          fi
+
+      - name: Sync Android release metadata to WordPress
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          API_BASE_URL="$(python -c 'import json;print(json.load(open("branding/app.json"))["api_base_url"].rstrip("/"))')"
+          SYNC_URL="${API_BASE_URL}/api/v1/mobile/config?refresh=true"
+          curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --max-time 35 "$SYNC_URL" -o "$RUNNER_TEMP/bluevpn-wordpress-mobile-config.json" || true
+          sleep 5
+          curl --fail --silent --show-error --location --retry 2 --retry-delay 2 --max-time 35 "$SYNC_URL" -o "$RUNNER_TEMP/bluevpn-wordpress-mobile-config-after-sync.json" || true
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ['RUNNER_TEMP'])/'bluevpn-wordpress-mobile-config-after-sync.json'
+          if p.exists():
+              d=json.loads(p.read_text()); print('release_refresh_mode',d.get('release_refresh_mode'))
+          PY
+
+      - name: Upload signed BlueVPN APK artifact
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: BlueVPN-${{ steps.config.outputs.version }}-signed
+          path: dist/
+          retention-days: 30
+
+      - name: Send actionable build failure report to Telegram
+        if: ${{ failure() }}
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        shell: bash
+        run: |
+          set +e
+          STAGE="$(cat .bluevpn-regression-substage 2>/dev/null || cat .bluevpn-build-stage 2>/dev/null || echo unknown)"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          PRIMARY_LOG="$GITHUB_WORKSPACE/android-build.log"
+          if [ "$STAGE" = "release-regression-gate" ] || [ -s "$GITHUB_WORKSPACE/.bluevpn-regression-substage" ]; then
+            [ -s "$GITHUB_WORKSPACE/stability-gate.log" ] && PRIMARY_LOG="$GITHUB_WORKSPACE/stability-gate.log"
+          fi
+
+          {
+            printf 'BlueVPN build failure report\n'
+            printf 'Stage: %s\n' "$STAGE"
+            printf 'Run: %s\n' "$RUN_URL"
+            printf 'Run number: %s\n' "${GITHUB_RUN_NUMBER:-unknown}"
+            printf 'Commit: %s\n\n' "${GITHUB_SHA:-unknown}"
+            printf '=== Extracted failure lines ===\n'
+            grep -hEi 'REGRESSION_SUBSTAGE_FAILED|REGRESSION_EXIT_CODE|AssertionError|PHP LINT FAILED|FAILURE: Build failed|Execution failed for task|Compilation error|^e: |error:|Unresolved reference|Type mismatch|Cannot infer|Caused by:|Exception|FAILED' \
+              "$GITHUB_WORKSPACE/stability-gate.log" "$GITHUB_WORKSPACE/android-build.log" 2>/dev/null | tail -n 260 || true
+            printf '\n=== Last 180 lines of primary log ===\n'
+            if [ -s "$PRIMARY_LOG" ]; then
+              tail -n 180 "$PRIMARY_LOG"
+            else
+              printf 'No detailed build log was created.\n'
+            fi
+          } > "$GITHUB_WORKSPACE/telegram-build-error.txt"
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path('telegram-build-error.txt')
+          text = p.read_text(encoding='utf-8', errors='replace') if p.exists() else ''
+          for key in ('TELEGRAM_BOT_TOKEN', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_PASSWORD'):
+              secret = os.getenv(key, '')
+              if secret:
+                  text = text.replace(secret, '***')
+          # Telegram documents can be large, but a bounded diagnostic is easier
+          # to review from a phone and prevents accidental megabyte-scale spam.
+          if len(text) > 180000:
+              text = '... report truncated to last 180000 characters ...\n' + text[-180000:]
+          p.write_text(text, encoding='utf-8')
+          PY
+
+          if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+            curl --fail --silent --show-error --retry 3 --request POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              --form "chat_id=${TELEGRAM_CHAT_ID}" \
+              --form 'document=@telegram-build-error.txt' \
+              --form "caption=BlueVPN build failed • ${STAGE} • run #${GITHUB_RUN_NUMBER:-?}" || true
+          fi
+
+      - name: Upload complete build failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: BlueVPN-build-failure-${{ github.run_id }}
+          path: |
+            telegram-build-error.txt
+            android-build.log
+            stability-gate.log
+            .bluevpn-build-stage
+            .bluevpn-regression-substage
+          if-no-files-found: ignore
+          retention-days: 14

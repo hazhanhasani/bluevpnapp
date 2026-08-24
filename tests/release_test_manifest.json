@@ -21,6 +21,7 @@
     "test_entitlement_distribution_537.py",
     "test_connection_stability_warp_exhaustive_498.py",
     "test_cron_safety_sentinel_ui_4167.py",
+    "test_cross_platform_borderless_metrics_5410.py",
     "test_current_release.py",
     "test_deploy_bot_commit_version_gate_4108.py",
     "test_deploy_bot_project_root_4109.py",
@@ -109,6 +110,7 @@
     "test_windows_bounded_connect_failover_548.py",
     "test_windows_client_4157.py",
     "test_windows_coordinated_publish_4171.py",
+    "test_windows_dark_theme_contrast_549.py",
     "test_windows_direct_release_sync_4173.py",
     "test_windows_pending_stable_convergence_4172.py",
     "test_windows_public_route_label_buildfix_41710.py",
@@ -123,6 +125,7 @@
     "test_windows_ui_update_runtime_buildfix_503.py",
     "test_windows_update_storage_4179.py",
     "test_windows_v2rayn_warp_installer_4162.py",
-    "test_windows_xaml_compile_guard_509.py"
+    "test_windows_xaml_compile_guard_509.py",
+    "test_windows_adaptive_tun_5411.py"
   ]
 }

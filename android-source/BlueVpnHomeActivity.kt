@@ -1412,13 +1412,13 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             valueId: Int,
             iconColor: Int,
             bind: (TextView, TextView) -> Unit,
-        ): MaterialCardView {
-            val card = glassCard(
-                18,
-                palette.stroke,
-                palette.surfaceStrong,
-            ).apply {
-                elevation = dpHome(2).toFloat()
+        ): FrameLayout {
+            // Telemetry is one visual strip, not three actionable cards. Keeping
+            // borders/backgrounds here made Free and Premium homes look boxed-in
+            // and the faint light-theme strokes resembled broken separators.
+            val card = FrameLayout(this).apply {
+                setBackgroundColor(Color.TRANSPARENT)
+                elevation = 0f
             }
             val inner = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL

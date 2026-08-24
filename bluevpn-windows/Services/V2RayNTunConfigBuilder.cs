@@ -10,7 +10,7 @@ namespace BlueVPN.Windows.Services;
 /// </summary>
 public static class V2RayNTunConfigBuilder
 {
-    public static string Build(AppSettings settings, int localSocksPort, string remoteHost, IReadOnlyList<string> remoteIps)
+    public static string Build(AppSettings settings, int localSocksPort, string remoteHost, IReadOnlyList<string> remoteIps, string stack = "mixed")
     {
         var rules = new List<object>();
         // sing-box 1.13 removed inbound.sniff; sniffing is now a route action.
@@ -47,17 +47,18 @@ public static class V2RayNTunConfigBuilder
                     interface_name = settings.Tun.Name,
                     address = new[] { settings.Tun.GatewayV4, settings.Tun.GatewayV6 },
                     mtu = settings.Tun.Mtu,
+                    endpoint_independent_nat = true,
                     auto_route = true,
                     // auto_route owns the default route. strict_route is enabled so Windows
                     // multi-homed DNS/IPv6 traffic cannot bypass the BlueVPN TUN.
                     strict_route = true,
-                    stack = "system",
+                    stack,
                     route_exclude_address = routeExclusions
                 }
             },
             outbounds = new object[]
             {
-                new { type = "socks", tag = "xray-local", server = "127.0.0.1", server_port = localSocksPort, version = "5" },
+                new { type = "socks", tag = "xray-local", server = "127.0.0.1", server_port = localSocksPort, version = "5", udp_fragment = true },
                 new { type = "direct", tag = "direct" }
             },
             route = new

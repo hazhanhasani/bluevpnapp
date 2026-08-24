@@ -8,7 +8,7 @@
         <SolidColorBrush x:Key="BlueVpnSurface" Color="#FFFFFFFF" />
         <SolidColorBrush x:Key="BlueVpnSurfaceStrong" Color="#FFEEF2FA" />
         <SolidColorBrush x:Key="BlueVpnSurfaceSoft" Color="#FFE8EDF7" />
-        <SolidColorBrush x:Key="BlueVpnStroke" Color="#FFD9DFEC" />
+        <SolidColorBrush x:Key="BlueVpnStroke" Color="#FFC8D1E2" />
         <SolidColorBrush x:Key="BlueVpnText" Color="#FF141824" />
         <SolidColorBrush x:Key="BlueVpnTextSecondary" Color="#FF3E4758" />
         <SolidColorBrush x:Key="BlueVpnMuted" Color="#FF667085" />
@@ -46,6 +46,34 @@
             <Setter Property="Margin" Value="0,4,0,8"/>
         </Style>
 
+        <!-- Keep native editors and popup items on the same palette. Without
+             these setters Dark mode can inherit white text into a white popup. -->
+        <Style TargetType="ComboBox">
+            <Setter Property="Background" Value="{DynamicResource BlueVpnSurface}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BlueVpnText}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BlueVpnStroke}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="10,7"/>
+        </Style>
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="{DynamicResource BlueVpnSurface}"/>
+            <Setter Property="Foreground" Value="{DynamicResource BlueVpnText}"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Style.Triggers>
+                <Trigger Property="IsHighlighted" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource BlueVpnSurfaceStrong}"/>
+                    <Setter Property="Foreground" Value="{DynamicResource BlueVpnText}"/>
+                </Trigger>
+                <Trigger Property="IsSelected" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource BlueVpnBlue}"/>
+                    <Setter Property="Foreground" Value="White"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{DynamicResource BlueVpnText}"/>
+        </Style>
+
         <!-- Android Material-style rounded button, with no heavyweight shadow/effect. -->
         <Style TargetType="Button">
             <Setter Property="Background" Value="{DynamicResource BlueVpnSurfaceStrong}"/>
@@ -74,11 +102,13 @@
         </Style>
 
         <Style x:Key="BlueVpnMetricCardStyle" TargetType="Border">
-            <Setter Property="Background" Value="{DynamicResource BlueVpnSurface}"/>
-            <Setter Property="CornerRadius" Value="18"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource BlueVpnStroke}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="Margin" Value="4"/>
+            <!-- Download / duration / upload form a single telemetry strip in
+                 both Free and Premium; no individual card chrome. -->
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="CornerRadius" Value="0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Margin" Value="2"/>
             <Setter Property="Padding" Value="6"/>
         </Style>
     </Application.Resources>

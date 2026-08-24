@@ -13,7 +13,8 @@ public static class SystemTunnelVerifier
         bool requireWarp,
         IReadOnlyCollection<string> blockedCountries,
         string expectedTunnelName = "BlueVPN",
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        int timeoutSeconds = 12)
     {
         if (!before.Reachable || string.IsNullOrWhiteSpace(before.PublicIp))
             return new(false, "", "", "", "", "IP پایه قبل از VPN معتبر نیست؛ Connected تأیید نشد.");
@@ -21,7 +22,7 @@ public static class SystemTunnelVerifier
         var tunnelName = string.IsNullOrWhiteSpace(expectedTunnelName) ? "BlueVPN" : expectedTunnelName.Trim();
         // Wintun route installation is frequently slower on the first run (AV,
         // driver approval and Windows network classification all add latency).
-        var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(12);
+        var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 3, 20));
         ConnectivitySnapshot after = new(false, "", "", "", DateTimeOffset.UtcNow);
         RouteEvidence route = new(false, true, "", "", "no route evidence");
         string adapter = "";

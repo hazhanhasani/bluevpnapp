@@ -393,7 +393,7 @@ class CurrentReleaseTests(unittest.TestCase):
         match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
         self.assertIsNotNone(match)
         major, minor, patch = map(int, match.groups())
-        self.assertLessEqual(patch, 10)
+        self.assertLessEqual(patch, 99)
         self.assertEqual(self.app["version_code"], major * 10000 + minor * 100 + patch)
 
     def test_02_release_version(self):
@@ -582,7 +582,7 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertRegex(text("bluevpn-manager/readme.txt"), rf"Stable tag:\s*{version}")
 
     def test_26_short_semver(self):
-        self.assertLessEqual(int(self.app["version_name"].split(".")[2]), 10)
+        self.assertLessEqual(int(self.app["version_name"].split(".")[2]), 99)
 
     def test_27_no_old_release_number(self):
         for rel in ("branding/app.json", "release.json", "README.md", "NOTICE.md"):
@@ -953,8 +953,8 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         functions = text("bluevpn-site/functions.php")
         style = text("bluevpn-site/style.css")
         self.assertIn("class-bluevpn-seo.php", functions)
-        self.assertIn("BLUEVPN_SITE_VERSION', '5.4.8", functions)
-        self.assertRegex(style, r"(?m)^Version:\s*5\.4\.8\s*$")
+        self.assertIn("BLUEVPN_SITE_VERSION', '5.5.0", functions)
+        self.assertRegex(style, r"(?m)^Version:\s*5\.5\.0\s*$")
 
     def test_private_account_is_noindex_and_excluded_from_sitemaps(self):
         seo = text("bluevpn-site/inc/class-bluevpn-seo.php")

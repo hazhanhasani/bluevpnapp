@@ -172,7 +172,7 @@ object BlueVpnTheme {
             surface = Color.WHITE,
             surfaceStrong = Color.parseColor("#EEF2FA"),
             surfaceSoft = Color.parseColor("#E8EDF7"),
-            stroke = Color.parseColor("#D9DFEC"),
+            stroke = Color.parseColor("#C8D1E2"),
             textPrimary = Color.parseColor("#141824"),
             textSecondary = Color.parseColor("#525B6C"),
             textMuted = Color.parseColor("#818A9B"),

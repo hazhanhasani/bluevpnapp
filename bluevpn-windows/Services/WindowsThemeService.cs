@@ -40,6 +40,8 @@ public sealed class WindowsThemeService
             Set("BlueVpnText", "#FFF4F7FF");
             Set("BlueVpnTextSecondary", "#FFC1CBE0");
             Set("BlueVpnMuted", "#FF8E9AB2");
+            Set("BlueVpnBlue", "#FF5B86FF");
+            Set("BlueVpnBlue2", "#FF8AABFF");
             Set("BlueVpnCard", "#FF111A2D");
             Set("BlueVpnCard2", "#FF17233A");
         }
@@ -49,10 +51,12 @@ public sealed class WindowsThemeService
             Set("BlueVpnSurface", "#FFFFFFFF");
             Set("BlueVpnSurfaceStrong", "#FFEEF2FA");
             Set("BlueVpnSurfaceSoft", "#FFE8EDF7");
-            Set("BlueVpnStroke", "#FFD9DFEC");
+            Set("BlueVpnStroke", "#FFC8D1E2");
             Set("BlueVpnText", "#FF141824");
             Set("BlueVpnTextSecondary", "#FF3E4758");
             Set("BlueVpnMuted", "#FF667085");
+            Set("BlueVpnBlue", "#FF356DF1");
+            Set("BlueVpnBlue2", "#FF2455CC");
             Set("BlueVpnCard", "#FFFFFFFF");
             Set("BlueVpnCard2", "#FFEEF2FA");
         }

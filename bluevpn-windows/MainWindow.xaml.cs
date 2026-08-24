@@ -763,7 +763,7 @@ public partial class MainWindow : Window
                 ShowInTaskbar = false
             };
 
-            var root = new DockPanel { Margin = new Thickness(18), Background = Brushes.White };
+            var root = new DockPanel { Margin = new Thickness(18), Background = (Brush)FindResource("BlueVpnBg") };
             var title = new TextBlock
             {
                 Text = "لوکیشن موردنظر را انتخاب کنید",
@@ -805,9 +805,9 @@ public partial class MainWindow : Window
                     Height = 50,
                     Margin = new Thickness(0, 0, 0, 8),
                     Tag = location,
-                    Background = Brushes.White,
+                    Background = (Brush)FindResource("BlueVpnSurface"),
                     Foreground = (Brush)FindResource("BlueVpnText"),
-                    BorderBrush = new SolidColorBrush(Color.FromRgb(190, 205, 238)),
+                    BorderBrush = (Brush)FindResource("BlueVpnStroke"),
                     BorderThickness = new Thickness(1.2),
                     FontWeight = FontWeights.SemiBold,
                     FontSize = 14,
@@ -901,7 +901,7 @@ public partial class MainWindow : Window
             StatusDot.Fill = (Brush)FindResource("BlueVpnGreen");
             StatusOrb.Background = (Brush)FindResource("BlueVpnBlue");
             StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnBlue2");
-            OrbHalo.Background = new SolidColorBrush(Color.FromArgb(232, 235, 243, 255));
+            OrbHalo.Background = (Brush)FindResource("BlueVpnSurfaceSoft");
             var compatibilityProxy = result.Verification.AdapterName.Equals("Windows System Proxy", StringComparison.OrdinalIgnoreCase);
             ConnectionStatusText.Text = compatibilityProxy
                 ? "مسیر سازگار ویندوز برقرار شد"
@@ -1260,7 +1260,7 @@ public partial class MainWindow : Window
         OrbText.Text = "در حال اتصال…";
         StatusDot.Fill = (Brush)FindResource("BlueVpnBlue");
         StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnBlue2");
-        OrbHalo.Background = new SolidColorBrush(Color.FromArgb(228, 235, 250, 255));
+        OrbHalo.Background = (Brush)FindResource("BlueVpnSurfaceSoft");
         ServerStatusText.Text = "در حال بررسی مسیر و IP سیستم…";
     }
 
@@ -1273,7 +1273,7 @@ public partial class MainWindow : Window
         StatusDot.Fill = (Brush)FindResource("BlueVpnMuted");
         StatusOrb.Background = (Brush)FindResource("BlueVpnBlue");
         StatusOrb.BorderBrush = (Brush)FindResource("BlueVpnBlue2");
-        OrbHalo.Background = new SolidColorBrush(Color.FromArgb(221, 232, 248, 255));
+        OrbHalo.Background = (Brush)FindResource("BlueVpnSurfaceSoft");
         ConnectionStatusText.Text = "بهترین اتصال به‌صورت خودکار انتخاب می‌شود";
         EndpointText.Text = _preferredLocationLabel;
         EngineText.Text = string.IsNullOrWhiteSpace(_preferredLocationKey)

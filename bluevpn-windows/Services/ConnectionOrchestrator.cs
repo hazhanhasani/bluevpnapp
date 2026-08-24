@@ -194,12 +194,18 @@ public sealed class ConnectionOrchestrator : IDisposable
                 TunnelVerificationResult verified;
                 if (_xray.RoutingMode == "tun")
                 {
-                    progress?.Report($"تأیید TUN • مسیر {candidateIndex} از {candidates.Count}…");
-                    verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, false, Array.Empty<string>(), _settings.Tun.Name, candidateToken).ConfigureAwait(false);
+                    progress?.Report($"تأیید TUN {_xray.ActiveTunStack} • مسیر {candidateIndex} از {candidates.Count}…");
+                    verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, false, Array.Empty<string>(), _settings.Tun.Name, candidateToken, 6).ConfigureAwait(false);
                 }
                 else
                 {
                     verified = new TunnelVerificationResult(false, "", "", "", "", "TUN آماده نشد");
+                }
+
+                if (!verified.Success && await _xray.TryAlternateTunStackAsync(candidateToken).ConfigureAwait(false))
+                {
+                    progress?.Report($"آزمایش TUN {_xray.ActiveTunStack} • مسیر {candidateIndex} از {candidates.Count}…");
+                    verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, false, Array.Empty<string>(), _settings.Tun.Name, candidateToken, 6).ConfigureAwait(false);
                 }
 
                 if (!verified.Success)
@@ -265,7 +271,8 @@ public sealed class ConnectionOrchestrator : IDisposable
             warp,
             blocked,
             _settings.Tun.Name,
-            ct).ConfigureAwait(false);
+            ct,
+            5).ConfigureAwait(false);
         return confirmation.Success
             ? confirmation
             : confirmation with { Detail = $"تأیید دوم اتصال ناموفق بود: {Short(confirmation.Detail)}" };

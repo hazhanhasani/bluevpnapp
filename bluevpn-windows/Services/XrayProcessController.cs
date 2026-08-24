@@ -20,6 +20,12 @@ public sealed class XrayProcessController : IDisposable
     private readonly RuntimeLocator _runtime;
     private readonly AppSettings _settings;
     private readonly string _stateDir;
+    private string _singBoxPath = "";
+    private string _tunConfigPath = "";
+    private string _remoteHost = "";
+    private IReadOnlyList<string> _remoteIps = Array.Empty<string>();
+    private int _tunStackIndex;
+    private static readonly string[] TunStacks = ["mixed", "gvisor"];
 
     public XrayProcessController(RuntimeLocator runtime, AppSettings settings)
     {
@@ -31,6 +37,7 @@ public sealed class XrayProcessController : IDisposable
 
     public bool IsRunning => _xray.IsRunning && (_singBox.IsRunning || _systemProxy.IsActive);
     public string RoutingMode { get; private set; } = "none";
+    public string ActiveTunStack => RoutingMode == "tun" ? TunStacks[_tunStackIndex] : "none";
     public string RuntimeStatus() => _runtime.RuntimeStatus();
 
     public async Task StartAsync(string configJson, ProxyEndpoint endpoint, CancellationToken ct = default)
@@ -39,7 +46,7 @@ public sealed class XrayProcessController : IDisposable
         EnsureElevatedForTun();
         var bundle = _runtime.ResolveV2RayNBundle();
         var xray = bundle.XrayPath;
-        var singBox = bundle.SingBoxPath;
+        _singBoxPath = bundle.SingBoxPath;
         _ = bundle.WintunPath;
 
         var xrayConfig = Path.Combine(_stateDir, "xray-local-proxy.json");
@@ -60,10 +67,11 @@ public sealed class XrayProcessController : IDisposable
         if (!proxyTrace.Reachable || string.IsNullOrWhiteSpace(proxyTrace.PublicIp))
             throw new InvalidOperationException($"هسته Xray به سرور رسید ولی اینترنت از آن عبور نکرد: {proxyTrace.Error}");
 
-        var directIps = await ResolveEndpointIpsAsync(endpoint.Host, ct).ConfigureAwait(false);
-        var tunConfig = Path.Combine(_stateDir, "sing-box-v2rayn-tun.json");
-        await File.WriteAllTextAsync(tunConfig, V2RayNTunConfigBuilder.Build(_settings, XrayConfigBuilder.LocalSocksPort, endpoint.Host, directIps), ct).ConfigureAwait(false);
-        await _singBox.StartAsync(singBox, ["run", "-c", tunConfig], Path.GetDirectoryName(singBox), ct).ConfigureAwait(false);
+        _remoteHost = endpoint.Host;
+        _remoteIps = await ResolveEndpointIpsAsync(endpoint.Host, ct).ConfigureAwait(false);
+        _tunConfigPath = Path.Combine(_stateDir, "sing-box-v2rayn-tun.json");
+        _tunStackIndex = 0;
+        await StartTunStackAsync(TunStacks[_tunStackIndex], ct).ConfigureAwait(false);
         await Task.Delay(350, ct).ConfigureAwait(false);
         if (!_singBox.IsRunning)
         {
@@ -71,6 +79,25 @@ public sealed class XrayProcessController : IDisposable
             return;
         }
         RoutingMode = "tun";
+    }
+
+    public async Task<bool> TryAlternateTunStackAsync(CancellationToken ct = default)
+    {
+        if (!_xray.IsRunning || _tunStackIndex + 1 >= TunStacks.Length) return false;
+        _tunStackIndex++;
+        _singBox.Stop();
+        await Task.Delay(180, ct).ConfigureAwait(false);
+        await StartTunStackAsync(TunStacks[_tunStackIndex], ct).ConfigureAwait(false);
+        await Task.Delay(350, ct).ConfigureAwait(false);
+        RoutingMode = _singBox.IsRunning ? "tun" : "tun_unavailable";
+        return RoutingMode == "tun";
+    }
+
+    private async Task StartTunStackAsync(string stack, CancellationToken ct)
+    {
+        var json = V2RayNTunConfigBuilder.Build(_settings, XrayConfigBuilder.LocalSocksPort, _remoteHost, _remoteIps, stack);
+        await File.WriteAllTextAsync(_tunConfigPath, json, ct).ConfigureAwait(false);
+        await _singBox.StartAsync(_singBoxPath, ["run", "-c", _tunConfigPath], Path.GetDirectoryName(_singBoxPath), ct).ConfigureAwait(false);
     }
 
     public async Task<TunnelVerificationResult> FallbackToSystemProxyAsync(

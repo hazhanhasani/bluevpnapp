@@ -1,4 +1,6 @@
 import pathlib
+import base64
+import re
 import unittest
 
 
@@ -30,6 +32,14 @@ class PoolStaleWhileRevalidate538Tests(unittest.TestCase):
         self.assertIn("com.v2ray.ang.ui.main.MainViewModel", model)
         self.assertIn("MainRepository", model)
         self.assertIn('com.google.android.material:material:1.13.0', prepare)
+
+    def test_bluevpn_activities_use_material_components_theme(self):
+        prepare = (ROOT / "scripts/prepare_android.py").read_text()
+        encoded = re.search(r'BLUEVPN_HOME_THEME_B64 = "([^"]+)"', prepare).group(1)
+        theme = base64.b64decode(encoded).decode()
+        self.assertIn('parent="Theme.MaterialComponents.DayNight.NoActionBar"', theme)
+        self.assertNotIn('parent="AppThemeDayNight.NoActionBar"', theme)
+        self.assertGreaterEqual(prepare.count('android:theme="@style/BlueVpnHomeTheme"'), 5)
 
     def test_premium_readiness_accepts_same_entitlement_lkg(self):
         source = (ROOT / "android-source/BlueVpnAccountManager.kt").read_text()

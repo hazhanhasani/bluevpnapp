@@ -31,10 +31,10 @@ final class BlueTunnelCore {
     private weak var packetFlow:NEPacketTunnelFlow?; private let mode:String; private let configuration:[String:Any]
     init(packetFlow:NEPacketTunnelFlow?,mode:String,configuration:[String:Any]){self.packetFlow=packetFlow;self.mode=mode;self.configuration=configuration}
     func start(completion:@escaping(Error?)->Void){
-        // Fail closed: never report a fake connected state before the signed
-        // Xray/Aether XCFramework has attached to NEPacketTunnelFlow.
-        completion(TunnelError.runtimeNotEmbedded)
+        // Fail closed: runtime discovery is explicit. A release archive must
+        // pass scripts/validate_ios_runtime.py --require-embedded before signing.
+        guard BlueRuntimeContract.embeddedRuntimeAvailable else { completion(TunnelError.runtimeNotEmbedded); return }
+        completion(TunnelError.runtimeNotEmbedded) // adapter activation is added with the audited XCFramework API.
     }
     func stop(){}
 }
-

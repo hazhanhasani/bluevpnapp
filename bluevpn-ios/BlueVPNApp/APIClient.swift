@@ -1,17 +1,45 @@
 import Foundation
 
-actor APIClient {
-    static let shared = APIClient()
-    let base = URL(string: "https://bot.blluepanel.ir")!
-    private let session: URLSession = { let c = URLSessionConfiguration.ephemeral; c.timeoutIntervalForRequest = 12; c.timeoutIntervalForResource = 25; c.waitsForConnectivity = true; return URLSession(configuration: c) }()
-    func get<T: Decodable>(_ path: String, token: String? = nil, as: T.Type) async throws -> T {
-        var request = URLRequest(url: URL(string: path, relativeTo: base)!)
-        request.setValue("BlueVPN-iOS/5.6.1", forHTTPHeaderField: "User-Agent")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else { throw URLError(.badServerResponse) }
-        return try JSONDecoder().decode(T.self, from: data)
+enum APIError: LocalizedError {
+    case invalidResponse, server(Int, String), decoding(Error)
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse: return "پاسخ پنل معتبر نیست"
+        case let .server(_, message): return message
+        case .decoding: return "ساختار پاسخ پنل با برنامه سازگار نیست"
+        }
     }
 }
 
+actor APIClient {
+    static let shared = APIClient()
+    let base = URL(string: "https://bot.blluepanel.ir")!
+    private let session: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 12
+        configuration.timeoutIntervalForResource = 25
+        configuration.waitsForConnectivity = true
+        return URLSession(configuration: configuration)
+    }()
+    func get<T: Decodable>(_ path: String, token: String? = nil, as: T.Type) async throws -> T { try await request(path, method: "GET", token: token, body: Optional<String>.none, as: T.self) }
+    func post<Body: Encodable, T: Decodable>(_ path: String, token: String? = nil, body: Body, as: T.Type) async throws -> T { try await request(path, method: "POST", token: token, body: body, as: T.self) }
+    private func request<Body: Encodable, T: Decodable>(_ path: String, method: String, token: String?, body: Body?, as: T.Type) async throws -> T {
+        guard let url = URL(string: path, relativeTo: base) else { throw APIError.invalidResponse }
+        var request = URLRequest(url: url); request.httpMethod = method
+        request.setValue("BlueVPN-iOS/5.6.2", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(DeviceIdentity.shared.id, forHTTPHeaderField: "X-Device-ID")
+        if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let body { request.httpBody = try JSONEncoder().encode(body); request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+        guard 200..<300 ~= http.statusCode else { let detail = try? JSONDecoder().decode(APIErrorEnvelope.self, from: data); throw APIError.server(http.statusCode, detail?.detail?.message ?? "خطای پنل (\(http.statusCode))") }
+        do { return try JSONDecoder().decode(T.self, from: data) } catch { throw APIError.decoding(error) }
+    }
+}
+struct APIErrorEnvelope: Decodable { let detail: APIDetail? }
+struct APIDetail: Decodable { let code: String?; let message: String? }
+final class DeviceIdentity {
+    static let shared = DeviceIdentity(); let id: String
+    private init() { let key = "bluevpn_device_id"; if let saved = UserDefaults.standard.string(forKey:key), !saved.isEmpty { id=saved } else { id=UUID().uuidString.lowercased(); UserDefaults.standard.set(id,forKey:key) } }
+}

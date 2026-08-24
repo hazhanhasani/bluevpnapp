@@ -18,6 +18,7 @@ struct RootView: View {
                 switch route {
                 case .locations: LocationsView()
                 case .account: AccountView()
+                case .auth: AuthView()
                 case .plans: PlansView()
                 case .support: SupportView()
                 case .settings: SettingsView()
@@ -28,4 +29,3 @@ struct RootView: View {
         .preferredColorScheme(store.theme.colorScheme)
     }
 }
-

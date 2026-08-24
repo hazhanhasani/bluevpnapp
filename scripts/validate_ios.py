@@ -9,9 +9,11 @@ project=(ios/'project.yml').read_text(); tunnel=(ios/'PacketTunnel/PacketTunnelP
 assert f'MARKETING_VERSION: {version["version"]}' in project
 assert f'CURRENT_PROJECT_VERSION: {version["version_code"]}' in project
 assert 'packet-tunnel-provider' in project and 'NETunnelProviderManager' in (ios/'BlueVPNApp/VPNManager.swift').read_text()
+bundle_ids=re.findall(r'PRODUCT_BUNDLE_IDENTIFIER:\s*([^\s#]+)',project)
+assert bundle_ids == ['ir.blluepanel.bluevpn','ir.blluepanel.bluevpn.tunnel'], f'iOS bundle IDs drifted: {bundle_ids}'
+assert bundle_ids[1].startswith(bundle_ids[0]+'.'), 'Packet Tunnel bundle ID must be prefixed by parent app bundle ID'
 assert 'settings.ipv6Settings=nil' in tunnel and 'settings.mtu=1361' in tunnel
 for text in ['BlueVPN','آماده اتصال','انتخاب خودکار','دانلود','مدت اتصال','آپلود']:
     assert text in home, f'Android parity marker missing: {text}'
 assert 'runtimeNotEmbedded' in tunnel and 'Fail closed' in tunnel
 print(f'BlueVPN iOS validation PASS — {version["version"]} / SwiftUI + PacketTunnel')
-

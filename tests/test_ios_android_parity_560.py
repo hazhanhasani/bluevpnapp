@@ -6,9 +6,11 @@ class IOSAndroidParity560Tests(unittest.TestCase):
     def text(self,path): return (ROOT/path).read_text(encoding='utf-8')
     def test_ios_targets_version_and_tunnel_contract(self):
         version=json.loads(self.text('version.json')); project=self.text('bluevpn-ios/project.yml')
-        self.assertEqual(version['components']['ios'],'5.6.0')
-        self.assertIn('MARKETING_VERSION: 5.6.0',project); self.assertIn('CURRENT_PROJECT_VERSION: 50600',project)
+        self.assertEqual(version['components']['ios'],'5.6.1')
+        self.assertIn('MARKETING_VERSION: 5.6.1',project); self.assertIn('CURRENT_PROJECT_VERSION: 50601',project)
         self.assertIn('packet-tunnel-provider',project); self.assertIn('BlueVPNTunnel',project)
+        self.assertIn('PRODUCT_BUNDLE_IDENTIFIER: ir.blluepanel.bluevpn\n',project)
+        self.assertIn('PRODUCT_BUNDLE_IDENTIFIER: ir.blluepanel.bluevpn.tunnel',project)
     def test_android_home_and_location_information_architecture_is_present(self):
         home=self.text('bluevpn-ios/BlueVPNApp/HomeView.swift'); locations=self.text('bluevpn-ios/BlueVPNApp/LocationsView.swift')
         for marker in ('BlueVPN','آماده اتصال','انتخاب خودکار','دانلود','مدت اتصال','آپلود','حجم باقی‌مانده','زمان باقی‌مانده'): self.assertIn(marker,home)

@@ -5,8 +5,8 @@ options:
     iOS: "16.0"
 settings:
   base:
-    MARKETING_VERSION: 5.6.0
-    CURRENT_PROJECT_VERSION: 50600
+    MARKETING_VERSION: 5.6.1
+    CURRENT_PROJECT_VERSION: 50601
     SWIFT_VERSION: 5.10
     DEVELOPMENT_TEAM: $(DEVELOPMENT_TEAM)
     CODE_SIGN_STYLE: Automatic
@@ -14,6 +14,10 @@ targets:
   BlueVPN:
     type: application
     platform: iOS
+    settings:
+      base:
+        # Must be the exact lowercase prefix of the embedded Packet Tunnel ID.
+        PRODUCT_BUNDLE_IDENTIFIER: ir.blluepanel.bluevpn
     sources: [BlueVPNApp]
     resources: [Resources]
     info:
@@ -65,4 +69,3 @@ schemes:
       targets:
         BlueVPN: all
         BlueVPNTunnel: all
-

@@ -6,7 +6,7 @@ actor APIClient {
     private let session: URLSession = { let c = URLSessionConfiguration.ephemeral; c.timeoutIntervalForRequest = 12; c.timeoutIntervalForResource = 25; c.waitsForConnectivity = true; return URLSession(configuration: c) }()
     func get<T: Decodable>(_ path: String, token: String? = nil, as: T.Type) async throws -> T {
         var request = URLRequest(url: URL(string: path, relativeTo: base)!)
-        request.setValue("BlueVPN-iOS/5.6.0", forHTTPHeaderField: "User-Agent")
+        request.setValue("BlueVPN-iOS/5.6.1", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let (data, response) = try await session.data(for: request)

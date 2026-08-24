@@ -4,7 +4,13 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_Unified_UI {
     public static function init(): void {
         add_action('admin_enqueue_scripts', [self::class, 'enqueue_admin_assets'], 100);
+        add_action('admin_head', [self::class, 'enforce_mobile_viewport'], 999);
         add_filter('admin_body_class', [self::class, 'body_class']);
+    }
+
+    public static function enforce_mobile_viewport(): void {
+        if (!self::is_bluevpn_page()) return;
+        echo '<script>(function(){var h=document.head,m=h.querySelector("meta[name=viewport]");if(!m){m=document.createElement("meta");m.name="viewport";h.appendChild(m)}m.content="width=device-width,initial-scale=1,maximum-scale=5,viewport-fit=cover"}());</script>';
     }
 
     private static function page_slug(): string {

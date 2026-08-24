@@ -128,6 +128,7 @@ body.bluevpn-standalone-admin table a[href^="http"],body.bluevpn-standalone-admi
 @media(max-width:1280px){.bluevpn-sidebar{width:244px}.bluevpn-main{margin-right:244px}.bluevpn-content{padding:15px 14px 26px}.bluevpn-topbar{padding:9px 14px}.bvc-grid,.bvp-grid{grid-template-columns:repeat(auto-fit,minmax(200px,1fr))!important}}
 @media(max-width:900px) and (min-width:783px){.bluevpn-sidebar{width:224px}.bluevpn-main{margin-right:224px}.bluevpn-brand{padding-inline:12px}.bluevpn-nav-item{padding-inline:9px}.bluevpn-content{padding-inline:10px}}
 @media(max-width:782px){
+  html.bluevpn-standalone-html,body.bluevpn-standalone-admin,.bluevpn-admin-app,.bluevpn-main{width:100%!important;max-width:100%!important;min-width:0!important}
   .bluevpn-sidebar{width:min(86vw,280px)}.bluevpn-main{margin-right:0}.bluevpn-content{padding:12px 9px 22px}.bluevpn-topbar{min-height:58px;padding:8px 10px}.bluevpn-topbar h1{font-size:15px!important;max-width:58vw}.bluevpn-mobile-menu{width:36px;height:36px;flex-basis:36px}
   .bvc-grid,.bvp-grid{grid-template-columns:1fr!important;gap:8px!important}.bvc-card,.bvp-card,.bvb-card{padding:11px!important}.bvc-kpi strong{font-size:20px!important}.bvc-form-grid{grid-template-columns:1fr!important}
   body.bluevpn-standalone-admin .button,body.bluevpn-standalone-admin .button-primary,body.bluevpn-standalone-admin button,body.bluevpn-standalone-admin input[type=submit]{white-space:normal!important;min-height:34px!important}

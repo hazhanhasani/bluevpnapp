@@ -49,6 +49,8 @@
     "test_native_bitpin_plan_pricing_539.py",
     "test_android_locations_oem_ui_5311.py",
     "test_server_location_learning_542.py",
+    "test_admin_mobile_viewport_543.py",
+    "test_site_mobile_scale_motion_544.py",
     "test_native_cutover_runtime_fixes_4166.py",
     "test_native_network_adaptation_no_mahsa_499.py",
     "test_overlay_retired_core_cleanup_4101.py",

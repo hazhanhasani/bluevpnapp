@@ -28,7 +28,7 @@
       "tag": "warp-socks",
       "server": "127.0.0.1",
       "server_port": 1819,
-      "version": "5.4.2"
+      "version": "5.4.4"
     },
     {
       "type": "direct",

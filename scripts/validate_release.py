@@ -28,6 +28,7 @@ def between(text: str, start: str, end: str) -> str:
 
 
 def main() -> None:
+    contract = json.loads(read("version.json"))
     app = json.loads(read("branding/app.json"))
     release = json.loads(read("release.json"))
     home = read("android-source/BlueVpnHomeActivity.kt")
@@ -59,6 +60,13 @@ def main() -> None:
     require(0 <= minor <= 10, f"invalid minor version {minor}: BlueVPN requires 0..10")
     require(0 <= patch <= 10, f"invalid patch version {patch}: BlueVPN requires 0..10")
     expected_version_code = major * 10000 + minor * 100 + patch
+
+    require(str(contract.get("version", "")).strip() == version,
+            "branding version differs from version.json")
+    require(int(contract.get("version_code", -1)) == expected_version_code,
+            "version.json version_code mismatch")
+    require(all(str(value) == version for value in (contract.get("components") or {}).values()),
+            "version.json component version drift")
 
     require(int(app.get("version_code", -1)) == expected_version_code,
             f"app versionCode mismatch: expected {expected_version_code} for {version}")

@@ -17,6 +17,7 @@ def require(value: bool, message: str) -> None:
         raise AssertionError(message)
 
 def main() -> None:
+    contract = json.loads(read("version.json"))
     release = json.loads(read("release.json"))
     branding = json.loads(read("branding/app.json"))
     settings = json.loads(read("bluevpn-windows/appsettings.json"))
@@ -52,11 +53,15 @@ def main() -> None:
     require(version_match is not None, "invalid release version")
     _, minor, patch = map(int, version_match.groups())
     require(0 <= minor <= 10 and 0 <= patch <= 10, "BlueVPN release minor/patch must be 0..10")
-    require(version == "5.2.10", "this Windows migration must be release 5.2.10")
+    require(version == str(contract.get("version", "")).strip(), "release version differs from version.json")
+    require(int(release.get("version_code", -1)) == int(contract.get("version_code", -2)), "release version_code differs from version.json")
     require(str(branding.get("version_name", "")) == version, "branding version drift")
     require(str(release.get("windows_version", "")) == version, "release windows_version mismatch")
     require(str(settings.get("version", "")) == version, "Windows appsettings version mismatch")
     require(f"<Version>{version}</Version>" in project, "Windows csproj Version mismatch")
+    require(f"<AssemblyVersion>{version}.0</AssemblyVersion>" in project, "Windows csproj AssemblyVersion mismatch")
+    require(f"<FileVersion>{version}.0</FileVersion>" in project, "Windows csproj FileVersion mismatch")
+    require(f"<InformationalVersion>{version}</InformationalVersion>" in project, "Windows csproj InformationalVersion mismatch")
 
     require(re.search(r"(?<!@)\boperator\s*=", windows_blueai) is None, "Windows BlueAI uses reserved C# keyword operator as an unescaped payload identifier")
     require(windows_blueai.count("@operator =") >= 3, "Windows BlueAI operator JSON payload fields must use the escaped @operator identifier")
@@ -171,4 +176,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

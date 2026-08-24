@@ -362,6 +362,7 @@ jobs:
             fi
           }
           run_gate repository-cleanup python scripts/cleanup_repository.py
+          run_gate version-sync python scripts/sync_version.py --check
           run_gate pycompile python -m compileall -q scripts tests
           run_gate release-validator python scripts/validate_release.py
           run_gate python-regression python -m unittest discover -s tests -p 'test_*.py' -v -f

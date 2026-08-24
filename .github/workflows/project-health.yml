@@ -62,6 +62,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python scripts/sync_version.py --check
           python scripts/validate_release.py
           python scripts/validate_windows.py
           python scripts/validate_php_release.py

@@ -1,5 +1,5 @@
 #ifndef MyVersion
-  #define MyVersion "5.2.2"
+  #define MyVersion "5.3.0"
 #endif
 #ifndef MyRid
   #define MyRid "win-x64"

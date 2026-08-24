@@ -46,7 +46,9 @@ jobs:
           python-version: '3.13'
       - name: Validate Windows release contracts
         shell: pwsh
-        run: python scripts/validate_windows.py
+        run: |
+          python scripts/sync_version.py --check
+          python scripts/validate_windows.py
       - name: Setup .NET 10 LTS
         uses: actions/setup-dotnet@v5
         with:

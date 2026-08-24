@@ -10,10 +10,10 @@ def text(path: str) -> str:
 class Phase521ConnectionReleaseHardeningTests(unittest.TestCase):
     def test_release_contract(self):
         r=json.loads(text("release.json"))
-        self.assertEqual(r["version"],"5.2.2")
-        self.assertEqual(r["version_code"],50202)
-        self.assertEqual(r["android_version"],"5.2.2")
-        self.assertEqual(r["windows_version"],"5.2.2")
+        self.assertEqual(r["version"],"5.3.0")
+        self.assertEqual(r["version_code"],50300)
+        self.assertEqual(r["android_version"],"5.3.0")
+        self.assertEqual(r["windows_version"],"5.3.0")
         features=set(r.get("features",[]))
         for f in {
             "subscription-last-known-good-stale-if-error",

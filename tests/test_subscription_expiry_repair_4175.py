@@ -7,8 +7,8 @@ def text(p): return (ROOT/p).read_text()
 class SubscriptionExpiryRepair4175Tests(unittest.TestCase):
     def test_release(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'5.3.8')
-        self.assertEqual(r['version_code'],50308)
+        self.assertEqual(r['version'],'5.3.9')
+        self.assertEqual(r['version_code'],50309)
         self.assertIn('entitlement-expiry-ledger',r['features'])
         self.assertIn('legacy-non-grant-expiry-repair',r['features'])
         self.assertIn('android-server-remaining-seconds-countdown',r['features'])
@@ -20,7 +20,7 @@ class SubscriptionExpiryRepair4175Tests(unittest.TestCase):
         self.assertIn('intentional_grant',s)
         self.assertIn('target_expire',s)
         plugin=text('bluevpn-manager/bluevpn-manager.php')
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.30.0'",plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.31.0'",plugin)
 
     def test_non_grant_legacy_repair(self):
         s=text('bluevpn-manager/includes/class-bluevpn-providers.php')

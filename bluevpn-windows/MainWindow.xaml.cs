@@ -1272,7 +1272,7 @@ public partial class MainWindow : Window
             message.Contains("مسیر پیش‌فرض", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("Administrator", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("WARP", StringComparison.OrdinalIgnoreCase))
-            return "مسیر TUN این سرور کامل نشد؛ BlueVPN مسیرهای جایگزین را بررسی کرد. دوباره تلاش کنید.";
+            return "مسیر اتصال این سرور کامل نشد؛ BlueVPN مسیرهای جایگزین را بررسی کرد. دوباره تلاش کنید.";
         if (message.Contains("HttpClient.Timeout", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("configured HttpClient.Timeout", StringComparison.OrdinalIgnoreCase) ||
             message.Contains("timed out", StringComparison.OrdinalIgnoreCase) ||

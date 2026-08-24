@@ -10,10 +10,10 @@ def text(path: str) -> str:
 class Phase521ConnectionReleaseHardeningTests(unittest.TestCase):
     def test_release_contract(self):
         r=json.loads(text("release.json"))
-        self.assertEqual(r["version"],"5.5.4")
-        self.assertEqual(r["version_code"],50504)
-        self.assertEqual(r["android_version"],"5.5.4")
-        self.assertEqual(r["windows_version"],"5.5.4")
+        self.assertEqual(r["version"],"5.5.6")
+        self.assertEqual(r["version_code"],50506)
+        self.assertEqual(r["android_version"],"5.5.6")
+        self.assertEqual(r["windows_version"],"5.5.6")
         features=set(r.get("features",[]))
         for f in {
             "subscription-last-known-good-stale-if-error",
@@ -56,8 +56,9 @@ class Phase521ConnectionReleaseHardeningTests(unittest.TestCase):
         self.assertIn("var third = await ProbeOnceAsync",selector)
         self.assertIn("samples.Max() - samples.Min()",selector)
         self.assertIn("ConfirmStableTunnelAsync",conn)
+        self.assertIn("ConfirmStableXrayProxyAsync",conn)
         self.assertIn("Task.Delay(280, ct)",conn)
-        self.assertGreaterEqual(conn.count("ConfirmStableTunnelAsync"),3)
+        self.assertGreaterEqual(conn.count("ConfirmStableTunnelAsync"),2)
 
 
     def test_operational_diagnostics_and_noise_hardening(self):

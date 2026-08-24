@@ -157,13 +157,23 @@ def expected_files(version: str, version_code: int) -> dict[str, str]:
     return files
 
 
+def content_matches(path: str, expected: str) -> bool:
+    actual = (ROOT / path).read_text(encoding="utf-8")
+    if path.endswith(".json"):
+        try:
+            return json.loads(actual) == json.loads(expected)
+        except json.JSONDecodeError:
+            return False
+    return actual == expected
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Synchronize BlueVPN release versions")
     parser.add_argument("--check", action="store_true", help="fail instead of writing drifted files")
     args = parser.parse_args()
     version, version_code = load_contract()
     expected = expected_files(version, version_code)
-    drifted = [path for path, content in expected.items() if (ROOT / path).read_text(encoding="utf-8") != content]
+    drifted = [path for path, content in expected.items() if not content_matches(path, content)]
     if args.check:
         if drifted:
             raise SystemExit("version drift: " + ", ".join(drifted))

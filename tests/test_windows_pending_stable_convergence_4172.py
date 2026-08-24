@@ -7,7 +7,7 @@ def text(rel): return (ROOT/rel).read_text(encoding="utf-8")
 
 class WindowsPendingStableConvergence4172Tests(unittest.TestCase):
     def test_release_version(self):
-        r=json.loads(text("release.json")); self.assertEqual(r["version"],"5.3.0"); self.assertEqual(r["version_code"],50300)
+        r=json.loads(text("release.json")); self.assertEqual(r["version"],"5.3.1"); self.assertEqual(r["version_code"],50301)
     def test_pending_stable_intent_is_persisted_and_finalized(self):
         wm=text("bluevpn-manager/includes/class-bluevpn-windows-release-manager.php")
         self.assertIn("PENDING_STABLE_OPTION",wm)

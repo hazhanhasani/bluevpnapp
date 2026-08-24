@@ -52,7 +52,7 @@ def main() -> None:
     require(version_match is not None, "invalid release version")
     _, minor, patch = map(int, version_match.groups())
     require(0 <= minor <= 10 and 0 <= patch <= 10, "BlueVPN release minor/patch must be 0..10")
-    require(version == "5.2.5", "this Windows migration must be release 5.2.5")
+    require(version == "5.2.6", "this Windows migration must be release 5.2.6")
     require(str(branding.get("version_name", "")) == version, "branding version drift")
     require(str(release.get("windows_version", "")) == version, "release windows_version mismatch")
     require(str(settings.get("version", "")) == version, "Windows appsettings version mismatch")

@@ -13,6 +13,13 @@ class PoolStaleWhileRevalidate538Tests(unittest.TestCase):
         self.assertIn("continue", source)
         self.assertNotIn('raise RuntimeError(f"Pinned v2rayNG runtime file is missing', source)
 
+    def test_manifest_launcher_is_resolved_structurally(self):
+        source = (ROOT / "scripts/prepare_android.py").read_text()
+        self.assertIn('for tag in ("activity", "activity-alias")', source)
+        self.assertIn('"android.intent.category.LAUNCHER"', source)
+        self.assertIn('application.append(node)', source)
+        self.assertNotIn('Could not replace the MainActivity launcher block', source)
+
     def test_premium_readiness_accepts_same_entitlement_lkg(self):
         source = (ROOT / "android-source/BlueVpnAccountManager.kt").read_text()
         block = source.split("fun hasUsableCurrentEntitlementPool", 1)[1].split("fun entitlementSubscriptionGuids", 1)[0]

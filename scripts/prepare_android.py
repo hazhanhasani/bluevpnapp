@@ -431,11 +431,6 @@ def patch_manifest() -> None:
         f'android:scheme="{CONFIG["deep_link_scheme"]}"',
     )
 
-    launcher_pattern = re.compile(
-        r'\s*<activity\s+android:name="\.ui\.MainActivity".*?</activity>',
-        flags=re.DOTALL,
-    )
-
     launcher_replacement = (
         '\n        <activity\n'
         '            android:name=".ui.BlueVpnHomeActivity"\n'
@@ -476,9 +471,59 @@ def patch_manifest() -> None:
     )
 
     if 'android:name=".ui.BlueVpnHomeActivity"' not in text:
-        text, count = launcher_pattern.subn(launcher_replacement, text, count=1)
-        if count != 1:
-            raise RuntimeError("Could not replace the MainActivity launcher block")
+        # Resolve the launcher semantically instead of assuming a particular
+        # MainActivity package, attribute order, or paired closing tag. Official
+        # v2rayNG has changed all three across releases.
+        android_ns = "http://schemas.android.com/apk/res/android"
+        android_attr = lambda name: f"{{{android_ns}}}{name}"
+        ET.register_namespace("android", android_ns)
+        root = ET.fromstring(text)
+        application = root.find("application")
+        if application is None:
+            raise RuntimeError("Official v2rayNG manifest has no application node")
+
+        launcher_nodes = []
+        for tag in ("activity", "activity-alias"):
+            for node in application.findall(tag):
+                is_launcher = any(
+                    any(action.get(android_attr("name")) == "android.intent.action.MAIN"
+                        for action in intent.findall("action")) and
+                    any(category.get(android_attr("name")) in {
+                            "android.intent.category.LAUNCHER",
+                            "android.intent.category.LEANBACK_LAUNCHER",
+                        } for category in intent.findall("category"))
+                    for intent in node.findall("intent-filter")
+                )
+                if is_launcher:
+                    launcher_nodes.append(node)
+
+        if not launcher_nodes:
+            raise RuntimeError("Could not find the official v2rayNG launcher activity")
+
+        # Disable the original concrete activity without guessing its renamed
+        # class. Aliases can simply be removed. All launcher filters are removed
+        # before BlueVPN's entry points are appended.
+        for node in launcher_nodes:
+            if node.tag == "activity-alias":
+                application.remove(node)
+                continue
+            for intent in list(node.findall("intent-filter")):
+                node.remove(intent)
+            node.set(android_attr("enabled"), "false")
+            node.set(android_attr("exported"), "false")
+            node.set(android_attr("excludeFromRecents"), "true")
+
+        wrapper = ET.fromstring(
+            f'<application xmlns:android="{android_ns}">{launcher_replacement}</application>'
+        )
+        # The template's compatibility .ui.MainActivity entry is redundant now:
+        # the actual upstream launcher was retained and disabled above.
+        for node in list(wrapper):
+            if node.get(android_attr("name")) == ".ui.MainActivity":
+                wrapper.remove(node)
+        for node in list(wrapper):
+            application.append(node)
+        text = ET.tostring(root, encoding="unicode")
 
     # BlueVPN owns every customer-facing Android entry point. The upstream
     # widget and Tasker integration are external launcher/plugin surfaces that

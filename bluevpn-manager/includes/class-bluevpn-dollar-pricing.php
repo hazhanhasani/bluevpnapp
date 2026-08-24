@@ -4,7 +4,10 @@ if (!defined('ABSPATH')) exit;
 /** Native USD pricing for BlueVPN plans using Bitpin's USDT/IRT market. */
 final class BlueVPN_Dollar_Pricing {
     private const HOOK = 'bluevpn_dollar_pricing_hourly';
-    private const ENDPOINT = 'https://api.bitpin.org/v1/mkt/tickers/';
+    private const ENDPOINTS = [
+        'https://api.bitpin.market/api/v1/mkt/tickers/',
+        'https://api.bitpin.market/v1/mkt/markets/',
+    ];
     private const OPTION = 'bluevpn_dollar_pricing_settings';
     private const LOCK = 'bluevpn_dollar_pricing_lock';
 
@@ -88,19 +91,23 @@ final class BlueVPN_Dollar_Pricing {
 
     private static function fetch_rate(): float {
         $s = self::settings();
-        $response = wp_safe_remote_get(self::ENDPOINT, [
-            'timeout'=>(int)$s['timeout'], 'redirection'=>0,
-            'headers'=>['Accept'=>'application/json'],
-            'user-agent'=>'BlueVPN-Manager/'.BLUEVPN_MANAGER_VERSION,
-        ]);
-        if (is_wp_error($response)) throw new RuntimeException('اتصال به Bitpin ناموفق بود: '.$response->get_error_message());
-        $code = wp_remote_retrieve_response_code($response);
-        if ($code < 200 || $code >= 300) throw new RuntimeException('Bitpin با HTTP '.$code.' پاسخ داد.');
-        $data = json_decode(wp_remote_retrieve_body($response), true);
-        if (!is_array($data)) throw new RuntimeException('پاسخ Bitpin معتبر نیست.');
-        $rate = self::extract_rate($data);
-        if ($rate < 1000 || $rate > 10000000) throw new RuntimeException('نرخ USDT/IRT خارج از محدوده امن است.');
-        return $rate;
+        $errors = [];
+        foreach (self::ENDPOINTS as $endpoint) {
+            $response = wp_safe_remote_get($endpoint, [
+                'timeout'=>(int)$s['timeout'], 'redirection'=>0,
+                'headers'=>['Accept'=>'application/json'],
+                'user-agent'=>'BlueVPN-Manager/'.BLUEVPN_MANAGER_VERSION,
+            ]);
+            if (is_wp_error($response)) { $errors[]=$response->get_error_message(); continue; }
+            $code = wp_remote_retrieve_response_code($response);
+            if ($code < 200 || $code >= 300) { $errors[]='HTTP '.$code; continue; }
+            $data = json_decode(wp_remote_retrieve_body($response), true);
+            if (!is_array($data)) { $errors[]='JSON نامعتبر'; continue; }
+            $rate = self::extract_rate($data);
+            if ($rate >= 1000 && $rate <= 10000000) return $rate;
+            $errors[]='نرخ USDT/IRT نامعتبر';
+        }
+        throw new RuntimeException('دریافت نرخ Bitpin از همه مسیرهای امن ناموفق بود: '.implode(' | ', array_slice($errors, 0, count(self::ENDPOINTS))));
     }
 
     private static function extract_rate(array $data): float {
@@ -172,7 +179,7 @@ final class BlueVPN_Dollar_Pricing {
         if(isset($_GET['bvd_msg'])) echo '<div class="notice notice-success"><p>'.esc_html((string)wp_unslash($_GET['bvd_msg'])).'</p></div>';
         if(isset($_GET['bvd_error'])) echo '<div class="notice notice-error"><p>'.esc_html((string)wp_unslash($_GET['bvd_error'])).'</p></div>';
         echo '<div class="card" style="max-width:1000px"><p><strong>نرخ سالم فعلی:</strong> '.($rate>0?number_format_i18n($rate).' تومان':'هنوز دریافت نشده').'</p><p><strong>آخرین بروزرسانی:</strong> '.($last?esc_html(wp_date('Y-m-d H:i:s',$last)):'—').'</p>'.($error?'<p style="color:#b32d2e">'.esc_html($error).'</p>':'').'<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'.wp_nonce_field('bluevpn_dollar_refresh','_wpnonce',true,false).'<input type="hidden" name="action" value="bluevpn_dollar_refresh"><button class="button button-primary">دریافت نرخ و بروزرسانی الآن</button></form></div>';
-        echo '<div class="card" style="max-width:1000px"><h2>تنظیمات</h2><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'.wp_nonce_field('bluevpn_dollar_save_settings','_wpnonce',true,false).'<input type="hidden" name="action" value="bluevpn_dollar_save_settings"><label>تعدیل درصدی <input type="number" step="0.01" name="adjust_percent" value="'.esc_attr((string)$s['adjust_percent']).'"></label> &nbsp; <label>گردکردن <input type="number" min="1" name="round_to" value="'.(int)$s['round_to'].'"></label> &nbsp; <label>Timeout <input type="number" min="5" max="30" name="timeout" value="'.(int)$s['timeout'].'"></label> <button class="button">ذخیره</button></form><p><code>'.esc_html(self::ENDPOINT).'</code> ثابت و قفل‌شده است.</p></div>';
+        echo '<div class="card" style="max-width:1000px"><h2>تنظیمات</h2><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'.wp_nonce_field('bluevpn_dollar_save_settings','_wpnonce',true,false).'<input type="hidden" name="action" value="bluevpn_dollar_save_settings"><label>تعدیل درصدی <input type="number" step="0.01" name="adjust_percent" value="'.esc_attr((string)$s['adjust_percent']).'"></label> &nbsp; <label>گردکردن <input type="number" min="1" name="round_to" value="'.(int)$s['round_to'].'"></label> &nbsp; <label>Timeout <input type="number" min="5" max="30" name="timeout" value="'.(int)$s['timeout'].'"></label> <button class="button">ذخیره</button></form><p><code>'.esc_html(self::ENDPOINTS[0]).'</code> با مسیر پشتیبان امن فعال است.</p></div>';
         echo '<table class="widefat striped" style="max-width:1100px"><thead><tr><th>پلن</th><th>قیمت فعلی</th><th>USD</th><th>آخرین قیمت محاسبه‌شده</th><th>عملیات</th></tr></thead><tbody>';
         foreach($rows as $row){$id=(int)$row['id'];echo '<tr><td>#'.$id.' '.esc_html((string)$row['title']).'</td><td>'.number_format_i18n((int)$row['price_toman']).' تومان</td><td>'.(!empty($row['usd_managed'])?esc_html((string)$row['usd_price']).' USD':'دستی').'</td><td>'.(!empty($row['usd_last_price_toman'])?number_format_i18n((int)$row['usd_last_price_toman']).' تومان':'—').'</td><td><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">'.wp_nonce_field('bluevpn_dollar_save_plan_'.$id,'_wpnonce',true,false).'<input type="hidden" name="action" value="bluevpn_dollar_save_plan"><input type="hidden" name="plan_id" value="'.$id.'"><input type="number" min="0" step="0.000001" name="usd_price" value="'.esc_attr(!empty($row['usd_managed'])?(string)$row['usd_price']:'').'" placeholder="خالی = قیمت دستی"><button class="button">ذخیره</button></form></td></tr>';}
         echo '</tbody></table></div>'; BlueVPN_Unified_UI::shell_close();

@@ -27,8 +27,9 @@ class NativeBitpinPlanPricing539Tests(unittest.TestCase):
         self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.31.0", self.plugin)
 
     def test_bitpin_endpoint_is_fixed_and_ssrf_safe(self):
-        self.assertIn("private const ENDPOINT = 'https://api.bitpin.org/v1/mkt/tickers/'", self.pricing)
-        self.assertIn("wp_safe_remote_get(self::ENDPOINT", self.pricing)
+        self.assertIn("https://api.bitpin.market/api/v1/mkt/tickers/", self.pricing)
+        self.assertIn("https://api.bitpin.market/v1/mkt/markets/", self.pricing)
+        self.assertIn("wp_safe_remote_get($endpoint", self.pricing)
         self.assertIn("'redirection'=>0", self.pricing)
         self.assertNotIn("endpoint']", self.pricing)
 

@@ -295,7 +295,8 @@ jobs:
 
       - name: Publish Windows installers for website and auto-update
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN || github.token }}
+          BLUEVPN_RELEASE_PAT_CONFIGURED: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN != '' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -305,19 +306,36 @@ jobs:
           TITLE="BlueVPN Windows ${VERSION} Beta"
           NOTES="BlueVPN Windows ${VERSION}"$'\n'"BlueVPN-Windows-Channel: beta"$'\n'"BlueVPN-Windows-Channel-Authority: wordpress-manager"
           mapfile -t ASSETS < <(find windows-release -maxdepth 1 -type f -name "BlueVPN-*${VERSION}-win-*" -print | sort)
+          if [ "${#ASSETS[@]}" -ne 8 ]; then
+            echo "::error::Expected 8 Windows release assets, found ${#ASSETS[@]}"
+            exit 1
+          fi
+          publish_error="$RUNNER_TEMP/windows-release-publish.err"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+            if ! gh release upload "$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --clobber 2>"$publish_error"; then
+              cat "$publish_error" >&2
+              if grep -q 'Resource not accessible by integration' "$publish_error"; then
+                echo '::error::GitHub Actions token cannot update Releases. Configure repository secret BLUEVPN_GITHUB_RELEASE_TOKEN with Contents: Read and write permission.'
+              fi
+              exit 1
+            fi
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes "$NOTES" --latest=false
             RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .id)"
             printf '{"prerelease":true}\n' | gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --input - >/dev/null
           else
             ARGS=("$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES" --latest=false --prerelease)
-            gh release create "${ARGS[@]}"
+            if ! gh release create "${ARGS[@]}" 2>"$publish_error"; then
+              cat "$publish_error" >&2
+              if grep -q 'Resource not accessible by integration' "$publish_error"; then
+                echo '::error::GitHub Actions token cannot create Releases. Configure repository secret BLUEVPN_GITHUB_RELEASE_TOKEN with Contents: Read and write permission.'
+              fi
+              exit 1
+            fi
           fi
 
       - name: Verify public installer URLs
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN || github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -331,7 +349,7 @@ jobs:
         env:
           BLUEVPN_RELEASE_SYNC_SECRET: ${{ secrets.BLUEVPN_RELEASE_SYNC_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN || github.token }}
         shell: bash
         run: |
           set -euo pipefail

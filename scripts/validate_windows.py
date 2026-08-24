@@ -92,7 +92,9 @@ def main() -> None:
     require('public string DisplayName => "BlueVPN • مسیر امن"' in endpoint_model, "raw Windows subscription names can still reach UI")
     require('Text="BlueVPN Core"' in main and 'Text="v2rayN"' not in main, "Windows customer UI exposes upstream runtime branding")
     require('"BlueVPN Core"' in connection and 'ActiveEngine = "v2rayN' not in connection, "Windows connection status exposes upstream runtime branding")
-    require("ResolveV2RayNBundle()" in read("bluevpn-windows/Services/XrayProcessController.cs"), "premium controller can mix runtime files instead of one v2rayN bundle")
+    premium_controller = read("bluevpn-windows/Services/XrayProcessController.cs")
+    require("_runtime.ResolveXray()" in premium_controller, "premium controller does not resolve the pinned Xray core")
+    require("_singBox.StartAsync" not in premium_controller and "EnsureElevatedForTun" not in premium_controller, "premium Xray path still starts TUN/sing-box")
     require('!Find(tempRoot, "v2rayN.exe")' in runtime_update, "runtime updater does not validate the complete v2rayN application bundle")
 
     # System-wide connection truth, not process truth.
@@ -162,7 +164,7 @@ def main() -> None:
     require("ResolveUrl" in ads and "_settings.ApiBaseUrl.TrimEnd" in ads, "relative ad assets must resolve against BlueVPN API base")
     require("free_access" in models and "blocked_exit_countries" in models and "LoadMobilePolicySafeAsync" in connection, "Windows WARP must consume panel free_access policy")
     require("CaptureBaselineAsync" in connection and "IP اینترنت قبل از اتصال قابل تأیید نیست" in connection, "false CONNECTED baseline guard missing")
-    require("ip_cidr = ipCidrs" in v2rayn_tun and "ResolveEndpointIpsAsync" in read("bluevpn-windows/Services/XrayProcessController.cs"), "endpoint-aware TUN loop guard missing")
+    require('RoutingMode = "xray_ready"' in premium_controller and "FallbackToSystemProxyAsync" in connection, "Xray-only Windows proxy path missing")
     require("if (!candidate.AutoUpdate)" in main_cs and "if (userInitiated)" in main_cs and "_pendingUpdate = candidate" in main_cs, "Windows update channel semantics / deferred install missing")
 
     # 5.2.2 CI/release hardening: installers must be root-level artifacts and

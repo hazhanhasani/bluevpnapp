@@ -1,31 +1,21 @@
 using System.IO;
-using System.Net;
 using System.Net.Sockets;
-using System.Security.Principal;
 using BlueVPN.Windows.Models;
 
 namespace BlueVPN.Windows.Services;
 
 /// <summary>
-/// Xray is always the protocol core. sing-box is used only as the Windows TUN
-/// owner. If a particular Windows build/driver blocks TUN routing, BlueVPN falls
-/// back to the same Xray core through Windows system proxy instead of leaving the
-/// user with a fake "connected" state or no Internet.
+/// Xray is the sole protocol and routing core for normal Windows connections.
+/// BlueVPN exposes its verified local HTTP/SOCKS inbounds through Windows System
+/// Proxy and never starts sing-box/Wintun in this path.
 /// </summary>
 public sealed class XrayProcessController : IDisposable
 {
     private readonly ManagedCoreProcess _xray = new("xray");
-    private readonly ManagedCoreProcess _singBox = new("sing-box-tun");
     private readonly WindowsSystemProxyController _systemProxy = new();
     private readonly RuntimeLocator _runtime;
     private readonly AppSettings _settings;
     private readonly string _stateDir;
-    private string _singBoxPath = "";
-    private string _tunConfigPath = "";
-    private string _remoteHost = "";
-    private IReadOnlyList<string> _remoteIps = Array.Empty<string>();
-    private int _tunStackIndex;
-    private static readonly string[] TunStacks = ["mixed", "gvisor"];
 
     public XrayProcessController(RuntimeLocator runtime, AppSettings settings)
     {
@@ -35,19 +25,16 @@ public sealed class XrayProcessController : IDisposable
         Directory.CreateDirectory(_stateDir);
     }
 
-    public bool IsRunning => _xray.IsRunning && (_singBox.IsRunning || _systemProxy.IsActive);
+    public bool IsRunning => _xray.IsRunning && _systemProxy.IsActive;
     public string RoutingMode { get; private set; } = "none";
-    public string ActiveTunStack => RoutingMode == "tun" ? TunStacks[_tunStackIndex] : "none";
     public string RuntimeStatus() => _runtime.RuntimeStatus();
 
     public async Task StartAsync(string configJson, ProxyEndpoint endpoint, CancellationToken ct = default)
     {
         Stop();
-        EnsureElevatedForTun();
-        var bundle = _runtime.ResolveV2RayNBundle();
-        var xray = bundle.XrayPath;
-        _singBoxPath = bundle.SingBoxPath;
-        _ = bundle.WintunPath;
+        // Xray is the primary and only connection core. Normal connections do
+        // not start sing-box/Wintun and therefore do not require elevation.
+        var xray = _runtime.ResolveXray();
 
         var xrayConfig = Path.Combine(_stateDir, "xray-local-proxy.json");
         await File.WriteAllTextAsync(xrayConfig, configJson, ct).ConfigureAwait(false);
@@ -67,37 +54,7 @@ public sealed class XrayProcessController : IDisposable
         if (!proxyTrace.Reachable || string.IsNullOrWhiteSpace(proxyTrace.PublicIp))
             throw new InvalidOperationException($"هسته Xray به سرور رسید ولی اینترنت از آن عبور نکرد: {proxyTrace.Error}");
 
-        _remoteHost = endpoint.Host;
-        _remoteIps = await ResolveEndpointIpsAsync(endpoint.Host, ct).ConfigureAwait(false);
-        _tunConfigPath = Path.Combine(_stateDir, "sing-box-v2rayn-tun.json");
-        _tunStackIndex = 0;
-        await StartTunStackAsync(TunStacks[_tunStackIndex], ct).ConfigureAwait(false);
-        await Task.Delay(350, ct).ConfigureAwait(false);
-        if (!_singBox.IsRunning)
-        {
-            RoutingMode = "tun_unavailable";
-            return;
-        }
-        RoutingMode = "tun";
-    }
-
-    public async Task<bool> TryAlternateTunStackAsync(CancellationToken ct = default)
-    {
-        if (!_xray.IsRunning || _tunStackIndex + 1 >= TunStacks.Length) return false;
-        _tunStackIndex++;
-        _singBox.Stop();
-        await Task.Delay(180, ct).ConfigureAwait(false);
-        await StartTunStackAsync(TunStacks[_tunStackIndex], ct).ConfigureAwait(false);
-        await Task.Delay(350, ct).ConfigureAwait(false);
-        RoutingMode = _singBox.IsRunning ? "tun" : "tun_unavailable";
-        return RoutingMode == "tun";
-    }
-
-    private async Task StartTunStackAsync(string stack, CancellationToken ct)
-    {
-        var json = V2RayNTunConfigBuilder.Build(_settings, XrayConfigBuilder.LocalSocksPort, _remoteHost, _remoteIps, stack);
-        await File.WriteAllTextAsync(_tunConfigPath, json, ct).ConfigureAwait(false);
-        await _singBox.StartAsync(_singBoxPath, ["run", "-c", _tunConfigPath], Path.GetDirectoryName(_singBoxPath), ct).ConfigureAwait(false);
+        RoutingMode = "xray_ready";
     }
 
     public async Task<TunnelVerificationResult> FallbackToSystemProxyAsync(
@@ -105,9 +62,7 @@ public sealed class XrayProcessController : IDisposable
         string probeUrl,
         CancellationToken ct = default)
     {
-        // Remove broken TUN routes before enabling the compatibility path.
-        _singBox.Stop();
-        await Task.Delay(250, ct).ConfigureAwait(false);
+        // Enable the OS proxy only after Xray's own SOCKS egress was verified.
         if (!_xray.IsRunning)
             return new(false, "", "", "", "", "هسته Xray متوقف شده است.");
 
@@ -126,25 +81,8 @@ public sealed class XrayProcessController : IDisposable
     public void Stop()
     {
         _systemProxy.Restore();
-        // TUN owner first so Windows restores routes before Xray disappears.
-        _singBox.Stop();
         _xray.Stop();
         RoutingMode = "none";
-    }
-
-    private static async Task<IReadOnlyList<string>> ResolveEndpointIpsAsync(string host, CancellationToken ct)
-    {
-        if (IPAddress.TryParse(host, out var literal)) return [literal.ToString()];
-        try
-        {
-            var addresses = await Dns.GetHostAddressesAsync(host, ct).ConfigureAwait(false);
-            return addresses.Select(x => x.ToString()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-        }
-        catch
-        {
-            // process_name + domain direct rules remain as fallback.
-            return [];
-        }
     }
 
     private static async Task WaitForPortAsync(string host, int port, TimeSpan timeout, CancellationToken ct)
@@ -168,24 +106,9 @@ public sealed class XrayProcessController : IDisposable
         throw new InvalidOperationException($"پروکسی داخلی BlueVPN آماده نشد: {last?.Message ?? "port unavailable"}");
     }
 
-    private static void EnsureElevatedForTun()
-    {
-        if (!OperatingSystem.IsWindows()) return;
-        try
-        {
-            using var identity = WindowsIdentity.GetCurrent();
-            var principal = new WindowsPrincipal(identity);
-            if (!principal.IsInRole(WindowsBuiltInRole.Administrator))
-                throw new InvalidOperationException("برای فعال‌سازی VPN سراسری، BlueVPN باید با دسترسی Administrator اجرا شود.");
-        }
-        catch (InvalidOperationException) { throw; }
-        catch { /* app.manifest is the final elevation guard */ }
-    }
-
     public void Dispose()
     {
         Stop();
-        _singBox.Dispose();
         _xray.Dispose();
     }
 }

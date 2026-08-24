@@ -24,7 +24,7 @@ class WindowsBoundedConnectFailover548Tests(unittest.TestCase):
         self.assertIn("_ai.RecordFailure(endpoint, premium, lastError.Message)", self.orchestrator)
 
     def test_progress_is_visible_and_raw_diagnostics_are_not_on_overlay(self):
-        self.assertIn("تأیید TUN {_xray.ActiveTunStack} • مسیر {candidateIndex} از {candidates.Count}", self.orchestrator)
+        self.assertIn("فعال‌سازی Xray • مسیر {candidateIndex} از {candidates.Count}", self.orchestrator)
         self.assertIn("فقط اتصال تأییدشده نمایش داده می‌شود", self.xaml)
         self.assertIn("مسیر TUN این سرور کامل نشد", self.window)
 

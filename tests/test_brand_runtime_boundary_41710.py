@@ -7,11 +7,11 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 def text(rel):
     return (ROOT / rel).read_text(encoding="utf-8")
 
-class BrandRuntimeBoundary50500Tests(unittest.TestCase):
+class BrandRuntimeBoundary50501Tests(unittest.TestCase):
     def test_release_version(self):
         release = json.loads(text("release.json"))
-        self.assertEqual(release["version"], "5.5.0")
-        self.assertEqual(release["version_code"], 50500)
+        self.assertEqual(release["version"], "5.5.1")
+        self.assertEqual(release["version_code"], 50501)
 
     def test_quick_tile_never_uses_running_profile_name(self):
         src = text("android-source/BlueVpnQuickTileService.kt")
@@ -68,7 +68,7 @@ class BrandRuntimeBoundary50500Tests(unittest.TestCase):
         for name in ("v2rayN.exe", "xray.exe", "sing-box.exe", "wintun.dll"):
             self.assertIn(name, runtime)
             self.assertIn(name, updater)
-        self.assertIn("var bundle = _runtime.ResolveV2RayNBundle();", controller)
+        self.assertIn("var xray = _runtime.ResolveXray();", controller)
         self.assertIn("Required v2rayN application runtime missing", workflow)
 
 if __name__ == "__main__":

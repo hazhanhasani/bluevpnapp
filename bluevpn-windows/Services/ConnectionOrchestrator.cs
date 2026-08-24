@@ -192,27 +192,8 @@ public sealed class ConnectionOrchestrator : IDisposable
                 var config = XrayConfigBuilder.Build(endpoint, _settings);
                 await _xray.StartAsync(config, endpoint, candidateToken).ConfigureAwait(false);
                 TunnelVerificationResult verified;
-                if (_xray.RoutingMode == "tun")
-                {
-                    progress?.Report($"تأیید TUN {_xray.ActiveTunStack} • مسیر {candidateIndex} از {candidates.Count}…");
-                    verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, false, Array.Empty<string>(), _settings.Tun.Name, candidateToken, 6).ConfigureAwait(false);
-                }
-                else
-                {
-                    verified = new TunnelVerificationResult(false, "", "", "", "", "TUN آماده نشد");
-                }
-
-                if (!verified.Success && await _xray.TryAlternateTunStackAsync(candidateToken).ConfigureAwait(false))
-                {
-                    progress?.Report($"آزمایش TUN {_xray.ActiveTunStack} • مسیر {candidateIndex} از {candidates.Count}…");
-                    verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, false, Array.Empty<string>(), _settings.Tun.Name, candidateToken, 6).ConfigureAwait(false);
-                }
-
-                if (!verified.Success)
-                {
-                    progress?.Report($"TUN مسیر {candidateIndex} آماده نشد؛ بررسی Windows Proxy…");
-                    verified = await _xray.FallbackToSystemProxyAsync(before, _settings.ProbeUrl, candidateToken).ConfigureAwait(false);
-                }
+                progress?.Report($"فعال‌سازی Xray • مسیر {candidateIndex} از {candidates.Count}…");
+                var verified = await _xray.FallbackToSystemProxyAsync(before, _settings.ProbeUrl, candidateToken).ConfigureAwait(false);
                 if (verified.Success)
                     verified = await ConfirmStableTunnelAsync(before, verified, false, Array.Empty<string>(), candidateToken).ConfigureAwait(false);
                 if (!verified.Success)

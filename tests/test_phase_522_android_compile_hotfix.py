@@ -10,10 +10,10 @@ def text(rel: str) -> str:
 class AndroidCompileHotfix522Tests(unittest.TestCase):
     def test_release_is_522(self):
         r = json.loads(text("release.json"))
-        self.assertEqual(r["version"], "5.5.0")
-        self.assertEqual(r["version_code"], 50500)
-        self.assertEqual(r["android_version"], "5.5.0")
-        self.assertEqual(r["android_version_code"], 50500)
+        self.assertEqual(r["version"], "5.5.1")
+        self.assertEqual(r["version_code"], 50501)
+        self.assertEqual(r["android_version"], "5.5.1")
+        self.assertEqual(r["android_version_code"], 50501)
 
     def test_home_explicitly_imports_ircf_intelligence(self):
         home = text("android-source/BlueVpnHomeActivity.kt")

@@ -31,7 +31,8 @@ public sealed class RuntimeLocator
     public string BundledRoot => _bundledRoot;
     public string OverrideRoot => _overrideRoot;
 
-    public string ResolveXray() => ResolveV2RayNBundle().XrayPath;
+    // Xray system-proxy mode must not depend on optional sing-box/Wintun files.
+    public string ResolveXray() => ResolveExecutable("xray.exe");
     public string ResolveSingBox() => ResolveV2RayNBundle().SingBoxPath;
     public string ResolveWintun() => ResolveV2RayNBundle().WintunPath;
     public string ResolveV2rayN() => ResolveV2RayNBundle().V2RayNPath;

@@ -8,8 +8,8 @@ def text(path): return (ROOT/path).read_text(encoding='utf-8')
 class WindowsAiSpeedAuth508Tests(unittest.TestCase):
     def test_release_is_508(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'5.5.0')
-        self.assertEqual(r['version_code'],50500)
+        self.assertEqual(r['version'],'5.5.1')
+        self.assertEqual(r['version_code'],50501)
 
     def test_windows_blueai_is_real_closed_loop(self):
         ai=text('bluevpn-windows/Services/WindowsBlueAiService.cs')
@@ -40,7 +40,8 @@ class WindowsAiSpeedAuth508Tests(unittest.TestCase):
         self.assertIn('Take(8)',o)
         self.assertIn('ProbeOnceAsync(host, port, 900',selector)
         self.assertIn('TimeSpan.FromMilliseconds(timeoutMs)',selector)
-        self.assertIn('Task.Delay(350, ct)',xray)
+        self.assertIn('SnapshotViaSocksAsync',xray)
+        self.assertIn('RoutingMode = "xray_ready"',xray)
         self.assertIn('TimeSpan.FromSeconds(9)',verifier)
 
     def test_android_core_verification_uses_short_http_then_socks_budget(self):

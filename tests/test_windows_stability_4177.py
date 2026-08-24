@@ -8,8 +8,8 @@ def text(p): return (ROOT/p).read_text(encoding='utf-8')
 class WindowsStability4177Tests(unittest.TestCase):
     def test_release_version(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'5.5.0')
-        self.assertEqual(r['version_code'],50500)
+        self.assertEqual(r['version'],'5.5.1')
+        self.assertEqual(r['version_code'],50501)
 
     def test_ui_is_android_order_and_non_blocking_metrics(self):
         x=text('bluevpn-windows/MainWindow.xaml')
@@ -86,7 +86,8 @@ class WindowsStability4177Tests(unittest.TestCase):
         self.assertIn('ip_cidr = ipCidrs',tun)
         self.assertIn('domain = new[] { remoteHost }',tun)
         self.assertIn('process_name = new[] { "xray.exe" }',tun)
-        self.assertIn('ResolveEndpointIpsAsync',core)
+        self.assertIn('SnapshotViaSocksAsync',core)
+        self.assertNotIn('_singBox.StartAsync',core)
         self.assertIn('SnapshotViaSocksAsync',core)
 
     def test_warp_uses_panel_policy_and_validates_socks_before_tun(self):

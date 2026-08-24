@@ -17,9 +17,9 @@ class UnifiedComponentVersions4153Tests(unittest.TestCase):
         functions = text("bluevpn-site/functions.php")
 
         version = release["version"]
-        self.assertEqual(version, "5.5.0")
+        self.assertEqual(version, "5.5.1")
         self.assertEqual(branding["version_name"], version)
-        self.assertEqual(branding["version_code"], 50500)
+        self.assertEqual(branding["version_code"], 50501)
         self.assertIn("Version: " + version, manager)
         self.assertIn("BLUEVPN_MANAGER_VERSION', '" + version, manager)
         self.assertRegex(style, rf"(?m)^Version:\s*{re.escape(version)}\s*$")

@@ -40,7 +40,7 @@ public static class SystemTunnelVerifier
                 ? await ConnectivityProbe.SnapshotTraceAsync(probeUrl, ct).ConfigureAwait(false)
                 : await ConnectivityProbe.SnapshotAsync(probeUrl, ct).ConfigureAwait(false);
 
-            var adapterOk = adapter.Length > 0;
+            var adapterOk = adapter.Length > 0 || await TunnelProcessEvidenceAsync(ct).ConfigureAwait(false);
             // IPv4 route + changed public IP proves the user's primary Internet
             // path is going through BlueVPN. IPv6 safety stays diagnostic instead
             // of turning a healthy IPv4 tunnel into a false-negative on machines
@@ -106,6 +106,26 @@ public static class SystemTunnelVerifier
             after.Reachable ? "IP از مسیر سازگار BlueVPN تغییر نکرد." : "مسیر سازگار BlueVPN اینترنت معتبر نداد.");
     }
 
+    private static async Task<bool> TunnelProcessEvidenceAsync(CancellationToken ct)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "powershell.exe", UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true
+            };
+            psi.ArgumentList.Add("-NoProfile");
+            psi.ArgumentList.Add("-Command");
+            psi.ArgumentList.Add("(Get-Process sing-box,xray,warp-plus -ErrorAction SilentlyContinue).Count -gt 0");
+            using var p = Process.Start(psi);
+            if (p == null) return false;
+            var output = await p.StandardOutput.ReadToEndAsync(ct).ConfigureAwait(false);
+            await p.WaitForExitAsync(ct).ConfigureAwait(false);
+            return output.Trim().Equals("True", StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
     private static string FindTunnelAdapter(string expectedName)
     {
         try
@@ -115,7 +135,13 @@ public static class SystemTunnelVerifier
                 if (nic.OperationalStatus != OperationalStatus.Up) continue;
                 if (string.Equals(nic.Name, expectedName, StringComparison.OrdinalIgnoreCase) ||
                     nic.Name.StartsWith(expectedName + " ", StringComparison.OrdinalIgnoreCase) ||
-                    nic.Description.Contains(expectedName, StringComparison.OrdinalIgnoreCase)) return nic.Name;
+                    nic.Description.Contains(expectedName, StringComparison.OrdinalIgnoreCase) ||
+                    nic.Name.Contains("Wintun", StringComparison.OrdinalIgnoreCase) ||
+                    nic.Description.Contains("Wintun", StringComparison.OrdinalIgnoreCase) ||
+                    nic.Name.Contains("sing-box", StringComparison.OrdinalIgnoreCase) ||
+                    nic.Description.Contains("TUN", StringComparison.OrdinalIgnoreCase) ||
+                    nic.Name.Contains("BlueVPN-TUN", StringComparison.OrdinalIgnoreCase) ||
+                    nic.Description.Contains("WireGuard", StringComparison.OrdinalIgnoreCase)) return nic.Name;
             }
         }
         catch { }

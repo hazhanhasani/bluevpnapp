@@ -14,7 +14,7 @@ namespace BlueVPN.Windows.Services;
 /// </summary>
 public sealed class WindowsBlueAiService : IDisposable
 {
-    private const int AiSchemaVersion = 6;
+    private const int AiSchemaVersion = 8;
     private const int MaxCloudScores = 800;
     private static readonly TimeSpan HeartbeatInterval = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan RecommendationBudget = TimeSpan.FromMilliseconds(1400);
@@ -417,7 +417,14 @@ public sealed class WindowsBlueAiService : IDisposable
         // recovery strategy used by resilient clients: retry recent success
         // before a full rescan, but never override a dead live probe.
         var stickyBonus = endpoint.ProbeLatencyMs == int.MaxValue ? 0 : RecentSuccessBonus(endpoint);
-        return latencyScore * 68 + history * 32 + stickyBonus - jitterPenalty - samplePenalty;
+        return latencyScore * 55 + history * 30 + stickyBonus + SuccessRateBonus(endpoint) - jitterPenalty - samplePenalty;
+    }
+
+    private int SuccessRateBonus(ProxyEndpoint endpoint)
+    {
+        if (endpoint.ProbeSampleCount <= 0) return 0;
+        var rate = (double)endpoint.ProbeSuccessCount / endpoint.ProbeSampleCount;
+        return (int)Math.Clamp(rate * 600, 0, 600);
     }
 
     private int RecentSuccessBonus(ProxyEndpoint endpoint)

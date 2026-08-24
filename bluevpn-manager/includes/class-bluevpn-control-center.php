@@ -480,7 +480,7 @@ final class BlueVPN_Control_Center {
 
         echo '<div class="bvc-form-section"><div class="bvc-form-section-head"><strong>مشخصات اصلی</strong><small>اطلاعاتی که کاربر در اپ می‌بیند</small></div><div class="bvc-form-grid bvc-form-grid-compact">';
         self::input('title','عنوان پلن','',true);
-        self::input('price_toman','قیمت (تومان)','',true,'number');
+        self::input('usd_price','قیمت پلن (USD)','',true,'number');
         self::input('duration_days','اعتبار (روز)','30',true,'number');
         self::input('data_limit_gb','حجم (GB؛ صفر = نامحدود)','0',false,'number');
         self::input('device_limit','تعداد دستگاه','1',false,'number');
@@ -527,6 +527,7 @@ final class BlueVPN_Control_Center {
             echo '<span class="bvc-status-pill '.($active?'is-active':'is-inactive').'">'.($active?'فعال':'غیرفعال').'</span></header>';
 
             echo '<div class="bvc-plan-metrics">';
+            echo '<div><span>قیمت مبنا</span><strong>'.((int)($x['usd_managed']??0)===1&&(float)($x['usd_price']??0)>0?esc_html((string)$x['usd_price']).' <small>USD</small>':'تنظیم نشده').'</strong></div>';
             echo '<div><span>قیمت</span><strong>'.number_format((int)$x['price_toman']).' <small>تومان</small></strong></div>';
             echo '<div><span>اعتبار</span><strong>'.(int)$x['duration_days'].' <small>روز</small></strong></div>';
             echo '<div><span>حجم</span><strong>'.((int)$x['data_limit_gb']>0?(int)$x['data_limit_gb'].' GB':'نامحدود').'</strong></div>';
@@ -567,7 +568,7 @@ final class BlueVPN_Control_Center {
             wp_nonce_field('bluevpn_cc_save_plan_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_save_plan"><input type="hidden" name="plan_id" value="'.$id.'">';
             echo '<div class="bvc-form-grid">';
             echo '<label>عنوان<input name="title" value="'.esc_attr((string)$x['title']).'" required></label>';
-            echo '<label>قیمت تومان<input type="number" min="0" name="price_toman" value="'.(int)$x['price_toman'].'" required></label>';
+            echo '<label>قیمت USD<input type="number" min="0.000001" step="0.000001" name="usd_price" value="'.esc_attr((string)($x['usd_price']??'')).'" required></label>';
             echo '<label>اعتبار روز<input type="number" min="0" max="3650" name="duration_days" value="'.(int)$x['duration_days'].'" required></label>';
             echo '<label>حجم GB<input type="number" min="0" name="data_limit_gb" value="'.(int)$x['data_limit_gb'].'"></label>';
             echo '<label>تعداد دستگاه<input type="number" min="1" max="20" name="device_limit" value="'.(int)$x['device_limit'].'"></label>';
@@ -862,8 +863,9 @@ final class BlueVPN_Control_Center {
         $pg=max(0,(int)($_POST['panel_id']??0));$mz=max(0,(int)($_POST['marzban_panel_id']??0));$gc=max(0,(int)($_POST['guardcore_panel_id']??0));$services=self::posted_ids('guardcore_service_ids_selected','guardcore_service_ids');$groups=self::posted_ids('group_ids_selected','group_ids');$mzInbounds=self::posted_marzban_inbounds();$mode=sanitize_key((string)wp_unslash($_POST['multi_provider_quota_mode']??'split'));$mode=in_array($mode,['split','full'],true)?$mode:'split';$trafficMode=sanitize_key((string)wp_unslash($_POST['traffic_mode']??'provider_reported'));$trafficMode=$trafficMode==='gateway_metered'?'gateway_metered':'provider_reported';$gatewayReplicas=max(1,min(3,(int)($_POST['gateway_replica_count']??2)));$sourceIds=self::posted_ids('source_ids_selected','source_ids');
         foreach([[$pg,'pasarguard_panels','PasarGuard'],[$mz,'marzban_panels','Marzban'],[$gc,'guardcore_panels','GuardCore']] as [$panelId,$table,$label])if($panelId>0&&!$wpdb->get_var($wpdb->prepare('SELECT id FROM '.BlueVPN_DB::table($table).' WHERE id=%d',$panelId)))self::redirect('plans',$label.' انتخاب‌شده پیدا نشد.',true);
         if($gc>0){$g=$wpdb->get_row($wpdb->prepare('SELECT auth_mode FROM '.BlueVPN_DB::table('guardcore_panels').' WHERE id=%d',$gc),ARRAY_A);if($g&&($g['auth_mode']??'manual')!=='manual'&&!$services)self::redirect('plans','برای GuardCore خودکار حداقل یک Service ID وارد کن.',true);}
+        $usd=round(max(0,(float)($_POST['usd_price']??0)),6);try{$price=BlueVPN_Dollar_Pricing::quote_toman($usd);}catch(Throwable $e){self::redirect('plans',$e->getMessage(),true);}
         $data=[
-            'title'=>$title,'description'=>sanitize_textarea_field(wp_unslash($_POST['description']??'')),'price_toman'=>max(0,(int)($_POST['price_toman']??0)),
+            'title'=>$title,'description'=>sanitize_textarea_field(wp_unslash($_POST['description']??'')),'price_toman'=>$price,'usd_price'=>$usd,'usd_managed'=>1,'usd_last_price_toman'=>$price,'usd_updated_at'=>BlueVPN_Utils::now_mysql(),
             'duration_days'=>max(0,min(3650,(int)($_POST['duration_days']??0))),'data_limit_gb'=>max(0,(int)($_POST['data_limit_gb']??0)),'device_limit'=>max(1,min(20,(int)($_POST['device_limit']??1))),
             'sort_order'=>(int)($_POST['sort_order']??0),'active'=>isset($_POST['active'])?1:0,'panel_id'=>$pg?:null,'marzban_panel_id'=>$mz?:null,'guardcore_panel_id'=>$gc?:null,
             'group_ids_json'=>BlueVPN_Utils::json_encode($groups),'marzban_inbounds_json'=>BlueVPN_Utils::json_encode($mzInbounds),'guardcore_service_ids_json'=>BlueVPN_Utils::json_encode($services),'marzban_quota_mode'=>$mode,'multi_provider_quota_mode'=>$mode,'traffic_mode'=>$trafficMode,'gateway_replica_count'=>$gatewayReplicas,'source_ids_json'=>BlueVPN_Utils::json_encode($sourceIds),

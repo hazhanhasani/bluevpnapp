@@ -12,6 +12,9 @@ class NativeBitpinPlanPricing539Tests(unittest.TestCase):
         cls.plugin = (ROOT / "bluevpn-manager/bluevpn-manager.php").read_text()
         cls.db = (ROOT / "bluevpn-manager/includes/class-bluevpn-db.php").read_text()
         cls.api = (ROOT / "bluevpn-manager/includes/class-bluevpn-api.php").read_text()
+        cls.admin = (ROOT / "bluevpn-manager/includes/class-bluevpn-admin.php").read_text()
+        cls.control_center = (ROOT / "bluevpn-manager/includes/class-bluevpn-control-center.php").read_text()
+        cls.payments = (ROOT / "bluevpn-manager/includes/class-bluevpn-payments.php").read_text()
 
     def test_native_manager_owns_pricing_without_woocommerce(self):
         self.assertIn("BlueVPN_Dollar_Pricing::init()", self.plugin)
@@ -40,6 +43,19 @@ class NativeBitpinPlanPricing539Tests(unittest.TestCase):
         self.assertIn("price_toman", self.api)
         self.assertIn("'usd_managed'=>1", self.pricing)
         self.assertIn("'price_toman'=>$price", self.pricing)
+
+    def test_panel_uses_usd_as_the_only_editable_plan_price(self):
+        self.assertIn("self::input('usd_price','قیمت پلن (USD)'", self.control_center)
+        self.assertIn('name="usd_price"', self.admin)
+        self.assertNotIn('name="price_toman"', self.control_center)
+        self.assertNotIn('name="price_toman"', self.admin)
+        self.assertIn("BlueVPN_Dollar_Pricing::quote_toman($usd)", self.control_center)
+        self.assertIn("BlueVPN_Dollar_Pricing::quote_toman($usd)", self.admin)
+
+    def test_legacy_toman_only_plans_are_not_listed_or_purchasable(self):
+        rule = "usd_managed=1 AND usd_price>0"
+        self.assertIn(rule, self.api)
+        self.assertIn(rule, self.payments)
 
 
 if __name__ == "__main__":

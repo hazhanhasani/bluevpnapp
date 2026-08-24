@@ -127,6 +127,17 @@ final class BlueVPN_Dollar_Pricing {
         return max(0, (int)(round($price / $round) * $round));
     }
 
+    public static function quote_toman(float $usd): int {
+        if ($usd <= 0) throw new InvalidArgumentException('قیمت دلاری پلن باید بیشتر از صفر باشد.');
+        $rate = (float)get_option('bluevpn_dollar_last_rate', 0);
+        if ($rate <= 0) {
+            $rate = self::fetch_rate();
+            update_option('bluevpn_dollar_last_rate', $rate, false);
+            update_option('bluevpn_dollar_last_update', time(), false);
+        }
+        return self::calculated_price($usd, $rate, self::settings());
+    }
+
     private static function update_plan(int $id, float $usd, float $rate, array $s): bool {
         global $wpdb; $table = BlueVPN_DB::table('plans');
         $price = self::calculated_price($usd, $rate, $s);

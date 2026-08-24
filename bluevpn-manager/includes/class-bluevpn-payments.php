@@ -427,7 +427,7 @@ final class BlueVPN_Payments {
         global $wpdb;
         $planId=(int)($body['plan_id']??0);
         $pt=BlueVPN_DB::table('plans');
-        $plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$pt} WHERE id=%d AND active=1 AND deleted=0 LIMIT 1",$planId),ARRAY_A);
+        $plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$pt} WHERE id=%d AND active=1 AND deleted=0 AND usd_managed=1 AND usd_price>0 LIMIT 1",$planId),ARRAY_A);
         if(!$plan)throw new BlueVPN_Auth_Exception(404,'PLAN_NOT_FOUND','پلن پیدا نشد.');
 
         $pay=self::settings();

@@ -63,10 +63,12 @@ object BlueVpnSmartSelector {
         val backgroundEvidence =
             BlueVpnBackgroundOptimizer.evidence(context, candidate.guid)
 
-        var score = latency * 42 / 100
-        score += cloud * 14 / 100
-        score += personal * 14 / 100
-        score += freshness.coerceIn(0, 34) * 12 / 34
+        // Live delay is the primary truth. Cloud/history are tie-breakers and
+        // must never promote a slow or stale route over a measurably fast one.
+        var score = latency * 65 / 100
+        score += cloud * 8 / 100
+        score += personal * 9 / 100
+        score += freshness.coerceIn(0, 34) * 8 / 34
         score += routeAdjustment
         score += ircfAdjustment
         score += nativeNetworkAdjustment

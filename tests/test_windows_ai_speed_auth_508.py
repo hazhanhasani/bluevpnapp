@@ -8,8 +8,8 @@ def text(path): return (ROOT/path).read_text(encoding='utf-8')
 class WindowsAiSpeedAuth508Tests(unittest.TestCase):
     def test_release_is_508(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'5.3.5')
-        self.assertEqual(r['version_code'],50305)
+        self.assertEqual(r['version'],'5.3.7')
+        self.assertEqual(r['version_code'],50307)
 
     def test_windows_blueai_is_real_closed_loop(self):
         ai=text('bluevpn-windows/Services/WindowsBlueAiService.cs')
@@ -36,8 +36,8 @@ class WindowsAiSpeedAuth508Tests(unittest.TestCase):
         verifier=text('bluevpn-windows/Services/SystemTunnelVerifier.cs')
         self.assertIn('var baselineTask = ConnectivityProbe.CaptureBaselineAsync',o)
         self.assertIn('var mobileTask = LoadMobilePolicySafeAsync',o)
-        self.assertIn('_ai.Preselect(endpoints, 16)',o)
-        self.assertIn('Take(4)',o)
+        self.assertIn('_ai.Preselect(endpoints, Math.Min(48, endpoints.Count))',o)
+        self.assertIn('Take(8)',o)
         self.assertIn('ProbeOnceAsync(host, port, 900',selector)
         self.assertIn('TimeSpan.FromMilliseconds(timeoutMs)',selector)
         self.assertIn('Task.Delay(350, ct)',xray)
@@ -57,8 +57,9 @@ class WindowsAiSpeedAuth508Tests(unittest.TestCase):
         verifier=text('bluevpn-windows/Services/SystemTunnelVerifier.cs')
         self.assertIn('strict_route = true',tun)
         self.assertIn('strict_route = true',warp)
-        self.assertIn('route.Ipv6Safe && ipChanged',verifier)
-        self.assertIn('مسیر IPv6 فیزیکی هنوز خارج از BlueVPN فعال است',verifier)
+        self.assertIn('adapterOk && routeOk && ipChanged',verifier)
+        self.assertIn('v6safe={route.Ipv6Safe}',verifier)
+        self.assertNotIn('route.Ipv6Safe && ipChanged',verifier)
 
     def test_system_proxy_restore_keeps_backup_until_success(self):
         proxy=text('bluevpn-windows/Services/WindowsSystemProxyController.cs')

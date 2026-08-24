@@ -216,8 +216,37 @@ public sealed class BlueVpnApiClient : IDisposable
         return await GetRawAsync(account.Subscription.Url, ct);
     }
 
-    public Task<string> GetFreeSubscriptionAsync(CancellationToken ct = default) =>
-        GetRawAsync(_settings.FreeSubscriptionPath, ct);
+    public async Task<string> GetFreeSubscriptionAsync(FreeAccessConfig? policy = null, CancellationToken ct = default)
+    {
+        // Consume the same ordered multi-source contract as Android. Older
+        // panels/clients retain the curated path as a compatibility fallback.
+        var urls = (policy?.Subscriptions ?? [])
+            .OrderBy(x => x.Priority)
+            .Select(x => x.SubscriptionUrl.Trim())
+            .Where(x => x.Length > 0)
+            .Concat(string.IsNullOrWhiteSpace(policy?.SubscriptionUrl)
+                ? []
+                : new[] { policy!.SubscriptionUrl.Trim() })
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(100)
+            .ToList();
+        if (urls.Count == 0) urls.Add(_settings.FreeSubscriptionPath);
+
+        using var sourceGate = new SemaphoreSlim(8);
+        var tasks = urls.Select(async url =>
+        {
+            await sourceGate.WaitAsync(ct).ConfigureAwait(false);
+            try { return await GetRawAsync(url, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch { return ""; }
+            finally { sourceGate.Release(); }
+        }).ToArray();
+        var bodies = await Task.WhenAll(tasks).ConfigureAwait(false);
+        var usable = bodies.Where(x => !string.IsNullOrWhiteSpace(x)).ToArray();
+        if (usable.Length == 0)
+            throw new InvalidOperationException("هیچ‌یک از منابع رایگان پنل پاسخ معتبر ندادند.");
+        return string.Join("\n", usable);
+    }
 
     public async Task<MobileConfigResponse> GetMobileConfigAsync(CancellationToken ct = default)
     {

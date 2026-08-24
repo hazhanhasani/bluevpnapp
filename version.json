@@ -1,13 +1,13 @@
 {
-  "version": "5.3.5",
-  "version_code": 50305,
+  "version": "5.3.7",
+  "version_code": 50307,
   "name": "BlueVPN",
   "components": {
-    "android": "5.3.5",
-    "windows": "5.3.5",
-    "manager": "5.3.5",
-    "site": "5.3.5",
-    "theme": "5.3.5",
-    "release": "5.3.5"
+    "android": "5.3.7",
+    "windows": "5.3.7",
+    "manager": "5.3.7",
+    "site": "5.3.7",
+    "theme": "5.3.7",
+    "release": "5.3.7"
   }
 }

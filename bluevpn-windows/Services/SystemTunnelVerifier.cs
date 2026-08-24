@@ -19,7 +19,9 @@ public static class SystemTunnelVerifier
             return new(false, "", "", "", "", "IP پایه قبل از VPN معتبر نیست؛ Connected تأیید نشد.");
 
         var tunnelName = string.IsNullOrWhiteSpace(expectedTunnelName) ? "BlueVPN" : expectedTunnelName.Trim();
-        var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(6);
+        // Wintun route installation is frequently slower on the first run (AV,
+        // driver approval and Windows network classification all add latency).
+        var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(12);
         ConnectivitySnapshot after = new(false, "", "", "", DateTimeOffset.UtcNow);
         RouteEvidence route = new(false, true, "", "", "no route evidence");
         string adapter = "";
@@ -51,7 +53,11 @@ public static class SystemTunnelVerifier
             var warpOk = !requireWarp || after.Warp.Equals("on", StringComparison.OrdinalIgnoreCase) || after.Warp.Equals("plus", StringComparison.OrdinalIgnoreCase);
             var countryBlocked = blockedCountries.Any(x => x.Equals(after.Country, StringComparison.OrdinalIgnoreCase));
 
-            if (adapterOk && routeOk && route.Ipv6Safe && ipChanged && warpOk && !countryBlocked)
+            // A verified changed IPv4 egress through the TUN is authoritative.
+            // A leftover physical IPv6 default route is diagnostic: requiring
+            // it to disappear caused healthy IPv4 tunnels to be rejected on
+            // otherwise common dual-stack Windows installations.
+            if (adapterOk && routeOk && ipChanged && warpOk && !countryBlocked)
             {
                 consecutive++;
                 if (consecutive >= 2)
@@ -65,7 +71,6 @@ public static class SystemTunnelVerifier
         var reason = !after.Reachable ? "اینترنت از مسیر TUN پاسخ نداد"
             : string.IsNullOrWhiteSpace(adapter) ? $"آداپتور TUN اختصاصی {tunnelName} بالا نیامد"
             : !route.Ipv4ThroughTunnel ? $"مسیر IPv4 هنوز از BlueVPN عبور نمی‌کند ({route.Ipv4Alias})"
-            : !route.Ipv6Safe ? $"مسیر IPv6 فیزیکی هنوز خارج از BlueVPN فعال است ({route.Ipv6Alias})"
             : requireWarp && !(after.Warp.Equals("on", StringComparison.OrdinalIgnoreCase) || after.Warp.Equals("plus", StringComparison.OrdinalIgnoreCase)) ? "WARP در خروجی تأیید نشد"
             : blockedCountries.Any(x => x.Equals(after.Country, StringComparison.OrdinalIgnoreCase)) ? $"خروجی VPN در کشور مسدودشده {after.Country} است"
             : string.Equals(before.PublicIp, after.PublicIp, StringComparison.OrdinalIgnoreCase) ? "IP سیستم تغییر نکرد؛ مسیر TUN اعمال نشده است"

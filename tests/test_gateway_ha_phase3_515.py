@@ -11,8 +11,8 @@ class GatewayHaPhase3515Tests(unittest.TestCase):
 
     def test_release_and_schema_are_phase3(self):
         release = json.loads(self.text("release.json"))
-        self.assertEqual(release["version"], "5.3.5")
-        self.assertEqual(release["version_code"], 50305)
+        self.assertEqual(release["version"], "5.3.7")
+        self.assertEqual(release["version_code"], 50307)
         self.assertIn("gateway-ha-capacity-aware-placement", release["features"])
         plugin = self.text("bluevpn-manager/bluevpn-manager.php")
         self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.30.0'", plugin)
@@ -69,7 +69,7 @@ class GatewayHaPhase3515Tests(unittest.TestCase):
     def test_windows_already_tries_gateway_standby_candidates(self):
         orchestrator = self.text("bluevpn-windows/Services/ConnectionOrchestrator.cs")
         self.assertIn("var candidates = ranked.Where", orchestrator)
-        self.assertIn("Take(4)", orchestrator)
+        self.assertIn("Take(8)", orchestrator)
         self.assertIn("foreach (var endpoint in candidates)", orchestrator)
         self.assertIn("_ai.RecordFailure(endpoint", orchestrator)
 

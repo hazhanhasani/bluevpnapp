@@ -53,7 +53,7 @@ object BlueVpnProfileManager {
         val fingerprint: String,
     )
 
-    // Connection-affecting ProfileItem fields from pinned v2rayNG 2.2.6.
+    // Connection-affecting ProfileItem fields from pinned v2rayNG 2.3.5.
     // Remarks, description, subscriptionId and addedTime are intentionally
     // excluded because they are presentation/ownership metadata, not endpoint
     // identity. Keeping the transport-specific fields prevents false de-dupes.

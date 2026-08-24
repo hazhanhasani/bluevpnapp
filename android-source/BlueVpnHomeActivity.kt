@@ -2091,7 +2091,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                     handler.removeCallbacks(coreStopTimeout)
                     val guid = attemptedGuid
                     if (guid.isNotBlank()) {
-                        // v2rayNG 2.2.6 stops its core asynchronously. Keep a
+                        // v2rayNG 2.3.5 stops its core asynchronously. Keep a
                         // short drain window before starting the next hidden route.
                         handler.postDelayed({
                             if (failoverActive && attemptedGuid == guid && !userDisconnecting) {
@@ -4192,12 +4192,6 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun renderVerifyingState() {
-        if (premiumInstantUiEnabled()) {
-            renderPremiumInstantConnectedUi(
-                connectingLocation.text.toString().takeIf { it.isNotBlank() }
-            )
-            return
-        }
         if (failoverActive) {
             showConnectingOverlay(
                 title = "در حال تأیید اتصال",
@@ -4447,14 +4441,8 @@ private fun dpHome(value: Int): Int =
                     // single BlueVPN probe. Reality/WS/gRPC/TLS can need a longer
                     // warm-up on Iranian mobile networks, and public probe URLs can
                     // be filtered independently of the tunnel itself.
-                    if (premiumInstantUiEnabled()) {
-                        renderPremiumInstantConnectedUi(
-                            connectingLocation.text.toString().takeIf { it.isNotBlank() }
-                        )
-                    } else {
-                        statusText.text = "در حال تأیید اینترنت"
-                        statusCaption.text = "تست واقعی ${round + 1} از ۲"
-                    }
+                    statusText.text = "در حال تأیید اینترنت"
+                    statusCaption.text = "تست واقعی ${round + 1} از ۲"
                     mainViewModel.testCurrentServerRealPing()
                     handler.postDelayed({
                         if (

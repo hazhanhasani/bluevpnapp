@@ -10,8 +10,8 @@ public static class EndpointSelector
         IReadOnlyList<ProxyEndpoint> endpoints,
         CancellationToken ct = default)
     {
-        var limited = endpoints.Take(16).ToList();
-        using var gate = new SemaphoreSlim(16);
+        var limited = endpoints.Take(48).ToList();
+        using var gate = new SemaphoreSlim(24);
         var tasks = limited.Select(async endpoint =>
         {
             await gate.WaitAsync(ct).ConfigureAwait(false);

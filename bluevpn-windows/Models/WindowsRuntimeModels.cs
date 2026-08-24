@@ -119,7 +119,17 @@ public sealed class FreeAccessConfig
     [JsonPropertyName("engine_mode")] public string EngineMode { get; set; } = "warp_fallback_pool";
     [JsonPropertyName("legacy_pool_enabled")] public bool LegacyPoolEnabled { get; set; } = true;
     [JsonPropertyName("label")] public string Label { get; set; } = "اتصال رایگان WARP";
+    [JsonPropertyName("subscription_url")] public string SubscriptionUrl { get; set; } = "";
+    [JsonPropertyName("subscriptions")] public List<FreeSubscriptionSource> Subscriptions { get; set; } = [];
     [JsonPropertyName("warp")] public WarpRuntimePolicy Warp { get; set; } = new();
+}
+
+public sealed class FreeSubscriptionSource
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("subscription_url")] public string SubscriptionUrl { get; set; } = "";
+    [JsonPropertyName("priority")] public int Priority { get; set; }
 }
 
 public sealed class WarpRuntimePolicy

@@ -122,7 +122,7 @@ public sealed class WindowsBlueAiService : IDisposable
     public IReadOnlyList<ProxyEndpoint> Preselect(IReadOnlyList<ProxyEndpoint> endpoints, int limit = 16)
     {
         if (endpoints.Count <= limit || !Enabled) return endpoints;
-        limit = Math.Clamp(limit, 8, 24);
+        limit = Math.Clamp(limit, 8, 48);
         var scored = endpoints
             .Select((endpoint, index) => new { endpoint, index, score = HistoricalScore(endpoint) })
             .OrderByDescending(x => x.score)
@@ -148,9 +148,18 @@ public sealed class WindowsBlueAiService : IDisposable
     {
         if (!Enabled) return ranked;
         return ranked
-            .OrderByDescending(CombinedScore)
-            .ThenBy(x => x.ProbeLatencyMs)
+            .OrderBy(x => x.ProbeSuccessCount == 0)
+            .ThenBy(LiveQualityCost)
+            .ThenByDescending(HistoricalScore)
             .ToList();
+    }
+
+    private static long LiveQualityCost(ProxyEndpoint endpoint)
+    {
+        if (endpoint.ProbeLatencyMs == int.MaxValue) return long.MaxValue;
+        var jitter = endpoint.ProbeJitterMs == int.MaxValue ? 500 : Math.Clamp(endpoint.ProbeJitterMs, 0, 2_000);
+        var missed = Math.Max(0, endpoint.ProbeSampleCount - endpoint.ProbeSuccessCount);
+        return endpoint.ProbeLatencyMs + jitter * 2L + missed * 500L;
     }
 
     public void RecordFailure(ProxyEndpoint endpoint, bool premium, string reason)

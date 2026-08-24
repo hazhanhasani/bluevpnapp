@@ -659,7 +659,7 @@ def patch_system_notification() -> None:
             )
 
     # Never expose upstream/provider/channel remarks in Android system UI.
-    # v2rayNG 2.2.6 uses `.setContentTitle(currentConfig?.remarks)`, while
+    # v2rayNG 2.3.5 uses `.setContentTitle(currentConfig?.remarks)`, while
     # older builds used a fallback expression. Match both forms explicitly.
     title_patterns = (
         r'\.setContentTitle\(\s*currentConfig\?\.remarks\s*\)',
@@ -905,9 +905,9 @@ def add_source_notice() -> None:
     assets = APP / "src/main/assets"
     assets.mkdir(parents=True, exist_ok=True)
     (assets / "BLUEVPN_SOURCE.txt").write_text(
-        "BlueVPN Android is a branded/custom UI distribution built directly on the official v2rayNG 2.2.6 Android source under GNU GPL v3.\n"
+        "BlueVPN Android is a branded/custom UI distribution built directly on the official v2rayNG 2.3.5 Android source under GNU GPL v3.\n"
         "The runtime path (import, config generation, CoreServiceManager, CoreVpnService, TUN and Xray startup) remains v2rayNG-owned.\n"
-        "AndroidLibXrayLite is resolved from the exact v2rayNG 2.2.6 submodule (currently v26.7.5); v2rayNG 2.2.6 release notes label its Xray-core as v26.6.27. These are separate version namespaces.\n"
+        "AndroidLibXrayLite is resolved from the exact v2rayNG 2.3.5 submodule (currently v26.7.28); v2rayNG 2.3.5 release notes label its Xray-core as v26.7.28. These are separate version namespaces.\n"
         "BlueVPN adds its own account, location, entitlement, updater and UI layers. Premium remains on the stock v2rayNG/Xray runtime; Free can use the separately packaged Aether WARP process through a loopback SOCKS bridge.\n"
         "Aether source pin: https://github.com/CluvexStudio/Aether/tree/a26159b82a70048b459e0128213c71767abecb8a (AGPL-3.0). No Oblivion application code is copied into BlueVPN.\n"
         "Upstream source: https://github.com/2dust/v2rayNG\n",

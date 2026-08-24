@@ -136,7 +136,7 @@ public sealed class ConnectionOrchestrator : IDisposable
         progress?.Report(premium ? "دریافت اشتراک ویژه…" : "دریافت مسیرهای رایگان…");
         var text = premium && account is not null
             ? await _api.GetPremiumSubscriptionAsync(account, ct).ConfigureAwait(false)
-            : await _api.GetFreeSubscriptionAsync(ct).ConfigureAwait(false);
+            : await _api.GetFreeSubscriptionAsync(free, ct).ConfigureAwait(false);
 
         var endpoints = SubscriptionParser.Parse(text);
         if (!string.IsNullOrWhiteSpace(preferredLocationKey))
@@ -150,14 +150,17 @@ public sealed class ConnectionOrchestrator : IDisposable
         if (endpoints.Count == 0)
             throw new InvalidOperationException("هیچ کانفیگ قابل استفاده‌ای در اشتراک دریافت نشد.");
 
-        var shortlist = _ai.Preselect(endpoints, 16);
-        progress?.Report($"بررسی سریع {Math.Min(shortlist.Count, 16)} مسیر…");
+        // History/Cloud AI may reduce probe cost, but it must not hide the live
+        // best route. Probe a broad bounded pool and let measured reachability,
+        // latency and jitter win over predictions.
+        var shortlist = _ai.Preselect(endpoints, Math.Min(48, endpoints.Count));
+        progress?.Report($"بررسی زنده {shortlist.Count} مسیر…");
         var ranked = await EndpointSelector.RankAsync(shortlist, ct).ConfigureAwait(false);
         if (!aiRefresh.IsCompleted)
             _ = await Task.WhenAny(aiRefresh, Task.Delay(80, ct)).ConfigureAwait(false);
         ranked = _ai.Reorder(ranked);
-        var candidates = ranked.Where(x => x.ProbeLatencyMs < int.MaxValue).Take(4).ToList();
-        if (candidates.Count == 0) candidates = ranked.Take(4).ToList();
+        var candidates = ranked.Where(x => x.ProbeLatencyMs < int.MaxValue).Take(8).ToList();
+        if (candidates.Count == 0) candidates = ranked.Take(8).ToList();
 
         Exception? lastError = null;
         foreach (var endpoint in candidates)

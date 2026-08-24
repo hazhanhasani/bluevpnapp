@@ -45,8 +45,8 @@ public sealed class XrayProcessController : IDisposable
         var xrayConfig = Path.Combine(_stateDir, "xray-local-proxy.json");
         await File.WriteAllTextAsync(xrayConfig, configJson, ct).ConfigureAwait(false);
         await _xray.StartAsync(xray, ["run", "-c", xrayConfig], Path.GetDirectoryName(xray), ct).ConfigureAwait(false);
-        await WaitForPortAsync("127.0.0.1", XrayConfigBuilder.LocalSocksPort, TimeSpan.FromSeconds(4), ct).ConfigureAwait(false);
-        await WaitForPortAsync("127.0.0.1", XrayConfigBuilder.LocalHttpPort, TimeSpan.FromSeconds(3), ct).ConfigureAwait(false);
+        await WaitForPortAsync("127.0.0.1", XrayConfigBuilder.LocalSocksPort, TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
+        await WaitForPortAsync("127.0.0.1", XrayConfigBuilder.LocalHttpPort, TimeSpan.FromSeconds(8), ct).ConfigureAwait(false);
 
         // Validate Xray before touching the default route. Multiple Cloudflare
         // trace endpoints are raced by ConnectivityProbe, so a single filtered
@@ -55,7 +55,7 @@ public sealed class XrayProcessController : IDisposable
             _settings.ProbeUrl,
             "127.0.0.1",
             XrayConfigBuilder.LocalSocksPort,
-            TimeSpan.FromSeconds(3),
+            TimeSpan.FromSeconds(6),
             ct).ConfigureAwait(false);
         if (!proxyTrace.Reachable || string.IsNullOrWhiteSpace(proxyTrace.PublicIp))
             throw new InvalidOperationException($"هسته Xray به سرور رسید ولی اینترنت از آن عبور نکرد: {proxyTrace.Error}");

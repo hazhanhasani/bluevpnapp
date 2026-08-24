@@ -1142,13 +1142,14 @@ final class BlueVPN_Providers {
     private static function snapshot_load(int $customerId): array {
         $raw=get_option(self::snapshot_option($customerId),[]);return is_array($raw)?$raw:[];
     }
-    private static function snapshot_store(int $customerId,array $lines,array $errors=[],array $sourceStats=[]): void {
+    private static function snapshot_store(int $customerId,array $lines,array $errors=[],array $sourceStats=[],array $sourceLines=[]): void {
         if(!$lines)return;
         update_option(self::snapshot_option($customerId),[
             'lines'=>array_values($lines),
             'updated_at'=>time(),
             'errors'=>array_values($errors),
             'sources'=>$sourceStats,
+            'source_lines'=>$sourceLines,
         ],false);
     }
     private static function customer_source_entries(array $c): array {
@@ -1171,11 +1172,11 @@ final class BlueVPN_Providers {
     }
     public static function refresh_subscription_snapshot(int $customerId): array {
         global $wpdb;$t=BlueVPN_DB::table('customers');$c=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%d AND active=1 LIMIT 1",$customerId),ARRAY_A);if(!$c)return ['ok'=>false,'message'=>'customer not found'];
-        $sources=self::customer_source_entries($c);$lines=[];$seen=[];$errors=[];$successSources=0;$sourceStats=[];
+        $sources=self::customer_source_entries($c);$lines=[];$seen=[];$errors=[];$successSources=0;$sourceStats=[];$freshSourceLines=[];
         foreach($sources as $source){
             $provider=(string)($source['key']??'source');$type=(string)($source['type']??'url');$payload=(string)($source['payload']??'');$providerLines=[];
             if($type==='inline'){
-                $providerLines=self::subscription_lines($payload);$successSources++;
+                $providerLines=self::subscription_lines($payload);if($providerLines)$successSources++;
                 $sourceStats[$provider]=['ok'=>!empty($providerLines),'count'=>count($providerLines),'payload_hash'=>hash('sha256',$payload),'content_hash'=>hash('sha256',implode("\n",$providerLines)),'updated_at'=>time()];
                 if(!$providerLines)$errors[]=$provider.': inline source has no usable configs';
             }else{
@@ -1188,24 +1189,35 @@ final class BlueVPN_Providers {
                         $sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>$message];
                         continue;
                     }
-                    $successSources++;$providerLines=array_values((array)($manual['lines']??[]));
+                    $providerLines=array_values((array)($manual['lines']??[]));if($providerLines)$successSources++;
                     $sourceStats[$provider]=['ok'=>true,'count'=>count($providerLines),'url_hash'=>hash('sha256',$url),'content_hash'=>hash('sha256',implode("\n",$providerLines)),'updated_at'=>time()];
+                    if(!$providerLines)$errors[]=$provider.': source has no usable configs';
                 }else{
                     $r=wp_remote_get($url,['timeout'=>8,'redirection'=>2,'sslverify'=>true,'headers'=>['User-Agent'=>'BlueVPN-WordPress/'.BLUEVPN_MANAGER_VERSION,'Accept'=>'text/plain,*/*']]);
                     if(is_wp_error($r)){$errors[]=$provider.': '.$r->get_error_message();$sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>$r->get_error_message()];continue;}
                     $code=(int)wp_remote_retrieve_response_code($r);if($code>=400){$errors[]=$provider.': HTTP '.$code;$sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>'HTTP '.$code];continue;}
-                    $successSources++;$providerLines=self::subscription_lines((string)wp_remote_retrieve_body($r));$sourceStats[$provider]=['ok'=>true,'count'=>count($providerLines),'url_hash'=>hash('sha256',$url),'content_hash'=>hash('sha256',implode("\n",$providerLines)),'updated_at'=>time()];
+                    $providerLines=self::subscription_lines((string)wp_remote_retrieve_body($r));if($providerLines)$successSources++;$sourceStats[$provider]=['ok'=>!empty($providerLines),'count'=>count($providerLines),'url_hash'=>hash('sha256',$url),'content_hash'=>hash('sha256',implode("\n",$providerLines)),'updated_at'=>time()];if(!$providerLines)$errors[]=$provider.': source has no usable configs';
                 }
             }
+            if($providerLines)$freshSourceLines[$provider]=array_values($providerLines);
             foreach($providerLines as $line){$key=sha1($line);if(isset($seen[$key]))continue;$seen[$key]=1;$lines[]=$line;}
         }
         $old=self::snapshot_load($customerId);
-        // Never replace a complete last-good pool with a partial response caused
-        // by a temporarily unavailable panel. First bootstrap may use partial.
+        // Merge per-source last-known-good data. A failing provider cannot erase
+        // its previous configs, while a newly-added healthy provider is delivered
+        // immediately instead of being hidden behind an all-or-nothing snapshot.
         $complete=$successSources===count($sources)&&count($errors)===0;
-        if($lines&&($complete||empty($old['lines'])))self::snapshot_store($customerId,$lines,$errors,$sourceStats);
-        $effective=$complete||empty($old['lines'])?$lines:(array)$old['lines'];
-        $effectiveSources=$complete||empty($old['sources'])?$sourceStats:(array)($old['sources']??[]);
+        $oldSourceLines=is_array($old['source_lines']??null)?$old['source_lines']:[];
+        $effectiveSourceLines=$complete?$freshSourceLines:array_merge($oldSourceLines,$freshSourceLines);
+        $effective=[];$effectiveSeen=[];
+        foreach($effectiveSourceLines as $providerLines)foreach((array)$providerLines as $line){$key=sha1((string)$line);if(isset($effectiveSeen[$key]))continue;$effectiveSeen[$key]=1;$effective[]=(string)$line;}
+        // One-time migration from aggregate-only snapshots: preserve the old
+        // aggregate during a partial refresh, then naturally retire it after the
+        // first complete per-source refresh.
+        if(!$complete&&empty($oldSourceLines))foreach((array)($old['lines']??[]) as $line){$key=sha1((string)$line);if(isset($effectiveSeen[$key]))continue;$effectiveSeen[$key]=1;$effective[]=(string)$line;}
+        if(!$effective)$effective=$lines;
+        $effectiveSources=array_replace((array)($old['sources']??[]),$sourceStats);
+        if($effective)self::snapshot_store($customerId,$effective,$errors,$effectiveSources,$effectiveSourceLines);
         return ['ok'=>!empty($effective),'fresh'=>$complete,'lines'=>$effective,'sources'=>$effectiveSources,'errors'=>$errors];
     }
     public static function gateway_upstream_pool(int $customerId): array {
@@ -1239,13 +1251,25 @@ final class BlueVPN_Providers {
         $path=(string)(parse_url($_SERVER['REQUEST_URI']??'',PHP_URL_PATH)??'');if(!preg_match('~^/sub/([A-Za-z0-9_-]{10,100})/?$~',$path,$m))return;
         global $wpdb;$t=BlueVPN_DB::table('customers');$c=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE subscription_token=%s AND active=1 LIMIT 1",$m[1]),ARRAY_A);if(!$c){status_header(404);header('Content-Type: text/plain; charset=utf-8');echo 'subscription not found';exit;}
         $gateway=class_exists('BlueVPN_Gateway')&&BlueVPN_Gateway::is_gateway_metered_customer($c);
-        if($gateway&&!BlueVPN_Gateway::entitlement_allows($c)){status_header(403);header('Content-Type: text/plain; charset=utf-8');header('X-BlueVPN-Traffic-Mode: gateway_metered');echo 'subscription quota exhausted or expired';exit;}
+        if(!self::subscription_entitlement_allows($c)){status_header(403);header('Content-Type: text/plain; charset=utf-8');header('X-BlueVPN-Traffic-Mode: '.($gateway?'gateway_metered':'provider_reported'));echo 'subscription quota exhausted, inactive or expired';exit;}
         $age=0;$lines=[];
         if($gateway){$lines=BlueVPN_Gateway::gateway_subscription_lines($c);if(!$lines){status_header(503);header('Content-Type: text/plain; charset=utf-8');header('Retry-After: 20');header('X-BlueVPN-Traffic-Mode: gateway_metered');echo 'BlueVPN gateway unavailable';exit;}}
         else{$snapshot=self::snapshot_load((int)$c['id']);$age=!empty($snapshot['updated_at'])?time()-(int)$snapshot['updated_at']:PHP_INT_MAX;$lines=is_array($snapshot['lines']??null)?$snapshot['lines']:[];if(!$lines){$result=self::refresh_subscription_snapshot((int)$c['id']);$lines=(array)($result['lines']??[]);}elseif($age>self::SNAPSHOT_FRESH_SECONDS)self::request_background_snapshot((int)$c['id']);if(!$lines){status_header(502);header('Content-Type: text/plain; charset=utf-8');echo 'No usable configs';exit;}}
         header('Content-Type: text/plain; charset=utf-8');header('Cache-Control: private, max-age=60, stale-while-revalidate=300');header('profile-title: base64:'.base64_encode('BlueVPN'));header('profile-update-interval: 24');
         $expiry=!empty($c['subscription_expire'])?strtotime((string)$c['subscription_expire'].' UTC'):0;header('subscription-userinfo: upload=0; download='.(int)$c['used_traffic_bytes'].'; total='.(int)$c['data_limit_bytes'].'; expire='.(int)$expiry);header('X-BlueVPN-Expiry-Source: wordpress_mysql_entitlement');header('X-BlueVPN-Traffic-Mode: '.($gateway?'gateway_metered':'provider_reported'));header('X-BlueVPN-Config-Count: '.count($lines));header('X-BlueVPN-Snapshot-Age: '.($gateway?0:($age===PHP_INT_MAX?0:max(0,$age))));
         echo base64_encode(implode("\n",$lines)."\n");exit;
+    }
+
+    private static function subscription_entitlement_allows(array $c): bool {
+        if(!(int)($c['active']??0))return false;
+        $status=strtolower(trim((string)($c['subscription_status']??'inactive')))?:'inactive';
+        if(in_array($status,['disabled','expired','limited','blocked','deleted','revoked'],true))return false;
+        $expiry=!empty($c['subscription_expire'])?(strtotime((string)$c['subscription_expire'].' UTC')?:0):0;
+        if($expiry>0&&$expiry<=time()-120)return false;
+        $limit=max(0,(int)($c['data_limit_bytes']??0));$used=max(0,(int)($c['used_traffic_bytes']??0));
+        if($limit>0&&$used>=$limit)return false;
+        $providerUncertain=trim((string)($c['last_sync_error']??''))!==''&&!empty($c['plan_id']);
+        return $status==='active'||$providerUncertain;
     }
 
 

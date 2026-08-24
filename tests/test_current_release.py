@@ -403,9 +403,9 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertEqual(self.release["android_version_code"], self.app["version_code"])
 
     def test_03_official_pairing(self):
-        self.assertEqual(self.app["upstream_ref"], "2.2.6")
-        self.assertEqual(self.app["android_lib_xray_ref"], "v26.7.5")
-        self.assertEqual(self.app["xray_core_release_label"], "v26.6.27")
+        self.assertEqual(self.app["upstream_ref"], "2.3.5")
+        self.assertEqual(self.app["android_lib_xray_ref"], "v26.7.28")
+        self.assertEqual(self.app["xray_core_release_label"], "v26.7.28")
         self.assertNotIn("xray_ref", self.app)
         self.assertNotIn("sing_box_ref", self.app)
         self.assertEqual(self.app.get("free_engine"), "aether-warp-primary")
@@ -680,7 +680,7 @@ class CurrentReleaseTests(unittest.TestCase):
     def test_41_runtime_freeze_survives_sms_pattern_release(self):
         self.assertIn("CoreServiceManager.startVService(this, guid)", self.home)
         self.assertNotIn("BlueVpnEngineManager", self.home + self.account)
-        self.assertEqual(self.app["upstream_ref"], "2.2.6")
+        self.assertEqual(self.app["upstream_ref"], "2.3.5")
 
 
     def test_42_site_theme_version_and_updater_are_synchronized(self):
@@ -945,7 +945,7 @@ class BlueVPNElementorThemeTests(unittest.TestCase):
         footer = text("bluevpn-site/footer.php")
         self.assertIn("render_location('header')", header)
         self.assertIn("render_location('footer')", footer)
-        self.assertEqual(json.loads(text("branding/app.json"))["upstream_ref"], "2.2.6")
+        self.assertEqual(json.loads(text("branding/app.json"))["upstream_ref"], "2.3.5")
 
 
 class BlueVPNSiteSEOTests(unittest.TestCase):
@@ -953,8 +953,8 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         functions = text("bluevpn-site/functions.php")
         style = text("bluevpn-site/style.css")
         self.assertIn("class-bluevpn-seo.php", functions)
-        self.assertIn("BLUEVPN_SITE_VERSION', '5.3.5", functions)
-        self.assertRegex(style, r"(?m)^Version:\s*5\.3\.5\s*$")
+        self.assertIn("BLUEVPN_SITE_VERSION', '5.3.7", functions)
+        self.assertRegex(style, r"(?m)^Version:\s*5\.3\.7\s*$")
 
     def test_private_account_is_noindex_and_excluded_from_sitemaps(self):
         seo = text("bluevpn-site/inc/class-bluevpn-seo.php")
@@ -994,7 +994,7 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
     def test_seo_hardening_does_not_touch_android_runtime(self):
         app = json.loads(text("branding/app.json"))
         home = text("android-source/BlueVpnHomeActivity.kt")
-        self.assertEqual(app["upstream_ref"], "2.2.6")
+        self.assertEqual(app["upstream_ref"], "2.3.5")
         self.assertIn("CoreServiceManager.startVService(this, guid)", home)
         self.assertNotIn("BlueVpnEngineManager", home)
 

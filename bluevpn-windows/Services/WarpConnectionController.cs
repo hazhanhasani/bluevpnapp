@@ -58,9 +58,11 @@ public sealed class WarpConnectionController : IDisposable
                 await WaitForPortAsync("127.0.0.1", socksPort, TimeSpan.FromSeconds(startTimeout), token).ConfigureAwait(false);
                 progress?.Report("WARP • تأیید خروجی Cloudflare…");
                 trace = await ConnectivityProbe.SnapshotViaSocksAsync(_settings.ProbeUrl, "127.0.0.1", socksPort, traceTimeout, token).ConfigureAwait(false);
-                if (policy.RequireExitTrace && (!trace.Reachable || string.IsNullOrWhiteSpace(trace.PublicIp)))
+                // A listening SOCKS port is not a working WARP data plane. Never
+                // continue to TUN (or report connected) without real egress.
+                if (!trace.Reachable || string.IsNullOrWhiteSpace(trace.PublicIp))
                     throw new InvalidOperationException($"WARP اینترنت معتبر نداد: {trace.Error}");
-                if (trace.Reachable && !(trace.Warp.Equals("on", StringComparison.OrdinalIgnoreCase) || trace.Warp.Equals("plus", StringComparison.OrdinalIgnoreCase)))
+                if (!(trace.Warp.Equals("on", StringComparison.OrdinalIgnoreCase) || trace.Warp.Equals("plus", StringComparison.OrdinalIgnoreCase)))
                     throw new InvalidOperationException("Cloudflare مسیر WARP را تأیید نکرد.");
                 if (trace.Reachable && policy.BlockedExitCountries.Any(x => x.Equals(trace.Country, StringComparison.OrdinalIgnoreCase)))
                     throw new InvalidOperationException($"خروجی WARP در کشور مسدودشده {trace.Country} قرار گرفت.");

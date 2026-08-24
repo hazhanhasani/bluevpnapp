@@ -741,7 +741,9 @@ public partial class MainWindow : Window
             FooterStatus.Text = "در حال آماده‌سازی لیست لوکیشن‌ها…";
             var raw = _account?.Subscription.Active == true && !string.IsNullOrWhiteSpace(_account.Subscription.Url)
                 ? await _api.GetPremiumSubscriptionAsync(_account, _lifetimeCts.Token)
-                : await _api.GetFreeSubscriptionAsync(_lifetimeCts.Token);
+                : await _api.GetFreeSubscriptionAsync(
+                    (await _api.GetMobileConfigAsync(_lifetimeCts.Token)).FreeAccess,
+                    _lifetimeCts.Token);
             var endpoints = SubscriptionParser.Parse(raw);
             var locations = LocationCatalog.Available(endpoints);
 

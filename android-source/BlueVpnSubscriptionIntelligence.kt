@@ -109,7 +109,7 @@ object BlueVpnSubscriptionIntelligence {
                 val selectedFingerprint =
                     BlueVpnProfileManager.captureSelectedFingerprint(setOf(row.guid))
 
-                // Use the stock v2rayNG 2.2.6 fetch+parser as the only importer.
+                // Use the stock v2rayNG 2.3.5 fetch+parser as the only importer.
                 // A newly-created/empty managed row must not be suppressed merely
                 // because BlueVPN refreshed metadata a few seconds ago. This was
                 // the root cause of a valid 200-node Free subscription appearing

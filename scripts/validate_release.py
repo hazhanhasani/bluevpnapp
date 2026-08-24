@@ -136,9 +136,9 @@ def main() -> None:
             "active Free session is not clamped after a server-side limit reduction")
     require("BlueVpnAccountManager.mobileConfig(" in update_manager and "applyRemoteMobileConfig(appContext, response)" in account,
             "manual update check does not apply Free policy through canonical mobileConfig")
-    require(app["upstream_ref"] == "2.2.6", "production v2rayNG pin must be 2.2.6")
-    require(app["android_lib_xray_ref"] == "v26.7.5", "documented AndroidLibXrayLite tag must be v26.7.5")
-    require(app["xray_core_release_label"] == "v26.6.27", "v2rayNG 2.2.6 Xray-core release label must be v26.6.27")
+    require(app["upstream_ref"] == "2.3.5", "production v2rayNG pin must be 2.3.5")
+    require(app["android_lib_xray_ref"] == "v26.7.28", "documented AndroidLibXrayLite tag must be v26.7.28")
+    require(app["xray_core_release_label"] == "v26.7.28", "v2rayNG 2.3.5 Xray-core release label must be v26.7.28")
     require("xray_ref" not in app, "ambiguous xray_ref metadata must be removed")
     require("sing_box_ref" not in app, "sing-box pin must be removed")
     require(app.get("free_engine") == "aether-warp-primary", "Free engine metadata must select Aether/WARP")
@@ -391,7 +391,7 @@ def main() -> None:
     require(0 <= patch <= 10, "patch version exceeded BlueVPN short series")
 
     print(f"BlueVPN {version} validation: PASS")
-    print("runtime=v2rayNG-2.2.6 androidlib=v26.7.5 xray-release-label=v26.6.27 sing-box=removed")
+    print("runtime=v2rayNG-2.3.5 androidlib=v26.7.28 xray-release-label=v26.7.28 sing-box=removed")
     print("architecture=Free -> pinned Aether/WARP loopback SOCKS -> stock v2rayNG VpnService; Premium -> immutable stock v2rayNG/Xray")
 
 

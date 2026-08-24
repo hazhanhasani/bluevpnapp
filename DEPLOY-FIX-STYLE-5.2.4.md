@@ -1,4 +1,4 @@
-# BlueVPN v5.2.4 Style Sync Fix
+# BlueVPN v5.2.5 Style Sync Fix
 
 - Synced theme style.css version with Android/Manager/Release.
-- Theme version: 5.2.4
+- Theme version: 5.2.5

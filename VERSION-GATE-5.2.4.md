@@ -1,4 +1,4 @@
-# BlueVPN Version Gate 5.2.4
+# BlueVPN Version Gate 5.2.5
 
 Synchronized components:
 - Android
@@ -8,5 +8,5 @@ Synchronized components:
 - Theme
 - Release metadata
 
-Version: 5.2.4
-Version Code: 50204
+Version: 5.2.5
+Version Code: 50205

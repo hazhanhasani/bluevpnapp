@@ -117,7 +117,7 @@ def main() -> None:
     require('process_name = new[] { "aether.exe" }' in warp_config, "Aether process loop exclusion missing")
     require("auto_detect_interface = true" in warp_config and "strict_route = true" in warp_config and "auto_route = true" in warp_config, "sing-box WARP TUN hardening missing")
     require("VerifyAsync(before, _settings.ProbeUrl, true, blocked, ct)" in connection and "BlockedExitCountries" in connection and "RejectIrExit" in connection, "WARP validation / exit guard missing")
-    require("_settings.Warp.SocksPort" in warp and "SingBoxWarpConfigBuilder.Build(_settings, socksPort)" in warp, "WARP SOCKS port policy drift")
+    require("_settings.Warp.SocksPort" in warp and "SingBoxWarpConfigBuilder.Build(_settings, socksPort, enableIpv6)" in warp, "WARP SOCKS port policy drift")
 
     # Updates + installer.
     require("AppUpdateService" in main_cs and "RuntimeUpdateService" in main_cs, "Windows update services not wired")

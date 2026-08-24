@@ -335,7 +335,7 @@ object BlueVpnAccountManager {
             if (isEmpty()) addAll(setOf("h3","h2","h2_fragment","wireguard"))
         }
         val warpScanMode = warp.optString("scan_mode", "turbo").trim().lowercase().takeIf { it in setOf("turbo","balanced","thorough","stealth","ironclad") } ?: "turbo"
-        val warpIpMode = warp.optString("ip_mode", "auto").trim().lowercase().takeIf { it in setOf("auto","v4","dual") } ?: "auto"
+        val warpIpMode = warp.optString("ip_mode", "v4").trim().lowercase().takeIf { it in setOf("auto","v4","dual") } ?: "v4"
         val warpH2Enabled = warp.optBoolean("h2_enabled", true)
         val warpFragmentEnabled = warp.optBoolean("fragment_enabled", true)
         val warpFragmentSize = warp.optString("fragment_size", "8-24").trim().takeIf { it.matches(Regex("\\d{1,3}(-\\d{1,3})?")) } ?: "8-24"
@@ -599,7 +599,7 @@ object BlueVpnAccountManager {
             warpEndpointProbeSeconds = storage.getInt("warp_endpoint_probe_seconds", 5).coerceIn(3, 8),
             warpAllowedTransports = storage.getStringSet("warp_allowed_transports", setOf("h3","h2","h2_fragment","wireguard")).orEmpty().filter { it in setOf("h3","h2","h2_fragment","wireguard","gool") }.toSet().ifEmpty { setOf("h3","h2","h2_fragment","wireguard") },
             warpScanMode = storage.getString("warp_scan_mode", "turbo").orEmpty().takeIf { it in setOf("turbo","balanced","thorough","stealth","ironclad") } ?: "turbo",
-            warpIpMode = storage.getString("warp_ip_mode", "auto").orEmpty().takeIf { it in setOf("auto","v4","dual") } ?: "auto",
+            warpIpMode = storage.getString("warp_ip_mode", "v4").orEmpty().takeIf { it in setOf("auto","v4","dual") } ?: "v4",
             warpH2Enabled = storage.getBoolean("warp_h2_enabled", true),
             warpFragmentEnabled = storage.getBoolean("warp_fragment_enabled", true),
             warpFragmentSize = storage.getString("warp_fragment_size", "8-24").orEmpty().ifBlank { "8-24" },

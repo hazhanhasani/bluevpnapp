@@ -13,7 +13,9 @@ object BlueVpnWarpPolicy {
     fun effectiveIpMode(configured: String, ipv4: Boolean, ipv6: Boolean): String = when (configured) {
         "v4" -> "v4"
         "dual" -> "dual"
-        else -> if (ipv4 && ipv6) "dual" else "v4"
+        // Iranian ISPs often advertise an IPv6 capability that cannot reach the
+        // WARP edge. Auto therefore stays IPv4-first; dual is explicit opt-in.
+        else -> "v4"
     }
 
     fun candidateScore(successes: Int, failures: Int, consecutiveFailures: Int, latencyMs: Long, freshLkg: Boolean): Double {

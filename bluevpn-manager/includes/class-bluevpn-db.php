@@ -1261,7 +1261,7 @@ final class BlueVPN_DB {
             'free_warp_quick_reconnect' => true,
             'free_warp_allowed_transports' => ['h3','h2','h2_fragment','wireguard'],
             'free_warp_scan_mode' => 'turbo',
-            'free_warp_ip_mode' => 'auto',
+            'free_warp_ip_mode' => 'v4',
             'free_warp_h2_enabled' => true,
             'free_warp_fragment_enabled' => true,
             'free_warp_fragment_size' => '8-24',

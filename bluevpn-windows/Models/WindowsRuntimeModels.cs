@@ -159,7 +159,7 @@ public sealed class WarpRuntimePolicy
     [JsonPropertyName("quick_reconnect")] public bool QuickReconnect { get; set; } = true;
     [JsonPropertyName("allowed_transports")] public List<string> AllowedTransports { get; set; } = ["h3", "h2", "h2_fragment", "wireguard"];
     [JsonPropertyName("scan_mode")] public string ScanMode { get; set; } = "turbo";
-    [JsonPropertyName("ip_mode")] public string IpMode { get; set; } = "auto";
+    [JsonPropertyName("ip_mode")] public string IpMode { get; set; } = "v4";
     [JsonPropertyName("h2_enabled")] public bool H2Enabled { get; set; } = true;
     [JsonPropertyName("fragment_enabled")] public bool FragmentEnabled { get; set; } = true;
     [JsonPropertyName("fragment_size")] public string FragmentSize { get; set; } = "8-24";

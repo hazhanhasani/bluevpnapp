@@ -15,6 +15,7 @@ class WindowsWebView2AutoInstall557Tests(unittest.TestCase):
         self.assertIn('ArgumentList.Add("/install")', self.installer)
 
     def test_download_is_bounded_and_microsoft_only(self):
+        self.assertIn("using System.Net.Http;", self.installer)
         self.assertIn("AllowAutoRedirect = false", self.installer)
         self.assertIn("IsMicrosoftDownloadUri", self.installer)
         self.assertIn(".delivery.mp.microsoft.com", self.installer)

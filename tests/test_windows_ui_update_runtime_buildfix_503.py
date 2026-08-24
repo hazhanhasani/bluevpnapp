@@ -32,7 +32,9 @@ class WindowsUiUpdateRuntimeBuildfix503(unittest.TestCase):
     def test_warp_has_oblivion_style_transport_fallback(self):
         w=text('bluevpn-windows/Services/WarpConnectionController.cs')
         self.assertIn('BuildTransportOrder',w)
-        self.assertIn('WARP • اسکن و اتصال MASQUE',w)
+        self.assertIn('WARP • اتصال سریع MASQUE/HTTP3',w)
+        self.assertIn('masque-h2-fragment',w)
+        self.assertIn('WriteLastGoodTransport',w)
         self.assertIn('WARP • مسیر WireGuard جایگزین',w)
-        self.assertIn('BuildAetherArgs(policy, socksPort, useMasque)',w)
+        self.assertIn('BuildAetherArgs(policy, socksPort, transport)',w)
 if __name__=='__main__': unittest.main()

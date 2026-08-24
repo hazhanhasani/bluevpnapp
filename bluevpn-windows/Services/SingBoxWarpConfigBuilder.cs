@@ -4,7 +4,7 @@ namespace BlueVPN.Windows.Services;
 
 public static class SingBoxWarpConfigBuilder
 {
-    public static string Build(AppSettings settings, int socksPort = 1819)
+    public static string Build(AppSettings settings, int socksPort = 1819, bool enableIpv6 = false)
     {
         var config = new
         {
@@ -16,8 +16,11 @@ public static class SingBoxWarpConfigBuilder
                     type = "tun",
                     tag = "bluevpn-tun",
                     interface_name = settings.Tun.Name,
-                    address = new[] { settings.Tun.GatewayV4, settings.Tun.GatewayV6 },
-                    mtu = settings.Tun.Mtu,
+                    address = enableIpv6 ? new[] { settings.Tun.GatewayV4, settings.Tun.GatewayV6 } : new[] { settings.Tun.GatewayV4 },
+                    // 1361 is Cloudflare's recommended minimum IPv4 MASQUE MTU.
+                    // It avoids common mobile/ISP fragmentation without the severe
+                    // throughput loss of forcing the absolute QUIC minimum.
+                    mtu = Math.Clamp(settings.Tun.Mtu, 1361, 1400),
                     auto_route = true,
                     strict_route = true,
                     stack = "system",

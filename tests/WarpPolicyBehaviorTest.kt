@@ -19,7 +19,7 @@ fun main() {
     requireThat(!BlueVpnWarpPolicy.lkgFresh(20_000L, 9_000L, 2_000L), "stale LKG accepted")
     requireThat(!BlueVpnWarpPolicy.lkgFresh(8_000L, 9_000L, 2_000L), "future timestamp accepted")
 
-    requireThat(BlueVpnWarpPolicy.effectiveIpMode("auto", true, true) == "dual", "auto dual-stack behavior broken")
+    requireThat(BlueVpnWarpPolicy.effectiveIpMode("auto", true, true) == "v4", "auto must remain IPv4-first on restricted ISPs")
     requireThat(BlueVpnWarpPolicy.effectiveIpMode("auto", true, false) == "v4", "auto IPv4-only behavior broken")
     requireThat(BlueVpnWarpPolicy.effectiveIpMode("v4", true, true) == "v4", "explicit v4 ignored")
     println("WarpPolicyBehaviorTest PASS")

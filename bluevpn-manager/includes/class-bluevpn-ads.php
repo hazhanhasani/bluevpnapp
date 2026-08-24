@@ -635,7 +635,7 @@ final class BlueVPN_Ads {
         // the null-coalescing fallback used for validation is valid.
         $scanMode = sanitize_key((string)($settings['free_warp_scan_mode'] ?? 'turbo'));
         if (!in_array($scanMode, ['turbo','balanced','thorough','stealth','ironclad'], true)) $scanMode = 'turbo';
-        $ipMode = sanitize_key((string)($settings['free_warp_ip_mode'] ?? 'auto'));
+        $ipMode = sanitize_key((string)($settings['free_warp_ip_mode'] ?? 'v4'));
         if (!in_array($ipMode, ['auto','v4','dual'], true)) $ipMode = 'auto';
         $fragmentSize = (string)($settings['free_warp_fragment_size'] ?? '8-24');
         if (!preg_match('/^\d{1,3}(?:-\d{1,3})?$/', $fragmentSize)) $fragmentSize = '8-24';
@@ -1234,8 +1234,8 @@ final class BlueVPN_Ads {
         $s['free_warp_blocked_exit_countries'] = $blocked;
         $scanMode = sanitize_key((string)wp_unslash($_POST['free_warp_scan_mode'] ?? 'turbo'));
         $s['free_warp_scan_mode'] = in_array($scanMode, ['turbo','balanced','thorough','stealth','ironclad'], true) ? $scanMode : 'turbo';
-        $ipMode = sanitize_key((string)wp_unslash($_POST['free_warp_ip_mode'] ?? 'auto'));
-        $s['free_warp_ip_mode'] = in_array($ipMode, ['auto','v4','dual'], true) ? $ipMode : 'auto';
+        $ipMode = sanitize_key((string)wp_unslash($_POST['free_warp_ip_mode'] ?? 'v4'));
+        $s['free_warp_ip_mode'] = in_array($ipMode, ['auto','v4','dual'], true) ? $ipMode : 'v4';
         $s['free_warp_warm_timeout_seconds'] = max(4,min(12,(int)($_POST['free_warp_warm_timeout_seconds'] ?? 8)));
         $s['free_warp_cold_timeout_seconds'] = max(15,min(40,(int)($_POST['free_warp_cold_timeout_seconds'] ?? 30)));
         $s['free_warp_total_timeout_seconds'] = max(30,min(90,(int)($_POST['free_warp_total_timeout_seconds'] ?? 75)));

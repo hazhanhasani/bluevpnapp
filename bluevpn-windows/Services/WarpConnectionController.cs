@@ -13,6 +13,7 @@ public sealed class WarpConnectionController : IDisposable
     private readonly ManagedCoreProcess _aether = new("aether");
     private readonly ManagedCoreProcess _singBox = new("sing-box-warp");
     private readonly string _stateDir;
+    private readonly string _lastGoodTransportPath;
 
     public WarpConnectionController(AppSettings settings, RuntimeLocator runtime)
     {
@@ -20,6 +21,7 @@ public sealed class WarpConnectionController : IDisposable
         _runtime = runtime;
         _stateDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BlueVPN", "warp");
         Directory.CreateDirectory(_stateDir);
+        _lastGoodTransportPath = Path.Combine(_stateDir, "last-good-transport.txt");
     }
 
     public bool IsSupported => RuntimeInformation.ProcessArchitecture != System.Runtime.InteropServices.Architecture.Arm64 && File.Exists(_runtime.ResolveAether());
@@ -46,15 +48,20 @@ public sealed class WarpConnectionController : IDisposable
 
         ConnectivitySnapshot trace = new(false, "", "", "", DateTimeOffset.UtcNow, "WARP unavailable");
         Exception? transportError = null;
-        foreach (var transport in BuildTransportOrder(masqueAllowed, wireGuardAllowed))
+        foreach (var transport in BuildTransportOrder(policy, masqueAllowed, wireGuardAllowed, ReadLastGoodTransport()))
         {
             token.ThrowIfCancellationRequested();
             _aether.Stop();
-            var useMasque = transport == "masque";
-            progress?.Report(useMasque ? "WARP • اسکن و اتصال MASQUE…" : "WARP • مسیر WireGuard جایگزین…");
+            progress?.Report(transport switch
+            {
+                "masque-h3" => "WARP • اتصال سریع MASQUE/HTTP3…",
+                "masque-h2" => "WARP • مسیر MASQUE/HTTP2 برای شبکه محدود…",
+                "masque-h2-fragment" => "WARP • مسیر MASQUE/HTTP2 مقاوم…",
+                _ => "WARP • مسیر WireGuard جایگزین…"
+            });
             try
             {
-                await _aether.StartAsync(aether, BuildAetherArgs(policy, socksPort, useMasque), _stateDir, token).ConfigureAwait(false);
+                await _aether.StartAsync(aether, BuildAetherArgs(policy, socksPort, transport), _stateDir, token).ConfigureAwait(false);
                 await WaitForPortAsync("127.0.0.1", socksPort, TimeSpan.FromSeconds(startTimeout), token).ConfigureAwait(false);
                 progress?.Report("WARP • تأیید خروجی Cloudflare…");
                 trace = await ConnectivityProbe.SnapshotViaSocksAsync(_settings.ProbeUrl, "127.0.0.1", socksPort, traceTimeout, token).ConfigureAwait(false);
@@ -67,6 +74,7 @@ public sealed class WarpConnectionController : IDisposable
                 if (trace.Reachable && policy.BlockedExitCountries.Any(x => x.Equals(trace.Country, StringComparison.OrdinalIgnoreCase)))
                     throw new InvalidOperationException($"خروجی WARP در کشور مسدودشده {trace.Country} قرار گرفت.");
                 transportError = null;
+                WriteLastGoodTransport(transport);
                 break;
             }
             catch (OperationCanceledException) { throw; }
@@ -81,7 +89,10 @@ public sealed class WarpConnectionController : IDisposable
 
         progress?.Report("فعال‌سازی VPN سراسری…");
         var configPath = Path.Combine(_stateDir, "sing-box-warp.json");
-        await File.WriteAllTextAsync(configPath, SingBoxWarpConfigBuilder.Build(_settings, socksPort), token).ConfigureAwait(false);
+        // Iranian access networks frequently advertise unusable IPv6. Keep the
+        // device tunnel IPv4-only unless the panel explicitly opts into dual.
+        var enableIpv6 = policy.IpMode.Equals("dual", StringComparison.OrdinalIgnoreCase);
+        await File.WriteAllTextAsync(configPath, SingBoxWarpConfigBuilder.Build(_settings, socksPort, enableIpv6), token).ConfigureAwait(false);
         var sing = _runtime.ResolveSingBox();
         var work = Path.GetDirectoryName(sing) ?? _runtime.ActiveRuntimeRoot();
         await _singBox.StartAsync(sing, ["run", "-c", configPath], work, token).ConfigureAwait(false);
@@ -96,13 +107,23 @@ public sealed class WarpConnectionController : IDisposable
         _aether.Stop();
     }
 
-    private static string[] BuildAetherArgs(WarpRuntimePolicy policy, int socksPort, bool useMasque)
+    private static string[] BuildAetherArgs(WarpRuntimePolicy policy, int socksPort, string transport)
     {
         var args = new List<string> { "--bind", $"127.0.0.1:{socksPort}" };
 
         // Aether's known transport switch: MASQUE is optional; without it the
         // runtime can use its legacy/WireGuard path. Never invent unsupported CLI flags.
-        if (useMasque) args.Add("--masque");
+        if (transport.StartsWith("masque", StringComparison.Ordinal)) args.Add("--masque");
+        if (transport is "masque-h2" or "masque-h2-fragment") args.Add("--h2");
+        if (transport == "masque-h2-fragment")
+        {
+            args.Add("--fragment");
+            args.Add("--fragment-size");
+            args.Add(policy.FragmentSize);
+            args.Add("--fragment-delay");
+            args.Add(policy.FragmentDelay);
+        }
+        if (transport == "wireguard") args.Add("--wg");
 
         if (!policy.IpMode.Equals("dual", StringComparison.OrdinalIgnoreCase)) args.Add("-4");
 
@@ -119,13 +140,27 @@ public sealed class WarpConnectionController : IDisposable
     }
 
 
-    private static IReadOnlyList<string> BuildTransportOrder(bool masqueAllowed, bool wireGuardAllowed)
+    private static IReadOnlyList<string> BuildTransportOrder(WarpRuntimePolicy policy, bool masqueAllowed, bool wireGuardAllowed, string? lastGood)
     {
         var order = new List<string>();
-        if (masqueAllowed) order.Add("masque");
+        if (masqueAllowed && policy.AllowedTransports.Contains("h3", StringComparer.OrdinalIgnoreCase)) order.Add("masque-h3");
+        if (masqueAllowed && policy.H2Enabled && policy.AllowedTransports.Contains("h2", StringComparer.OrdinalIgnoreCase)) order.Add("masque-h2");
+        if (masqueAllowed && policy.H2Enabled && policy.FragmentEnabled && policy.AllowedTransports.Contains("h2_fragment", StringComparer.OrdinalIgnoreCase)) order.Add("masque-h2-fragment");
         if (wireGuardAllowed) order.Add("wireguard");
-        if (order.Count == 0) order.Add("masque");
+        if (order.Count == 0) order.Add("masque-h3");
+        if (policy.QuickReconnect && !string.IsNullOrWhiteSpace(lastGood) && order.Remove(lastGood)) order.Insert(0, lastGood);
         return order;
+    }
+
+    private string? ReadLastGoodTransport()
+    {
+        try { return File.Exists(_lastGoodTransportPath) ? File.ReadAllText(_lastGoodTransportPath).Trim() : null; }
+        catch { return null; }
+    }
+
+    private void WriteLastGoodTransport(string transport)
+    {
+        try { File.WriteAllText(_lastGoodTransportPath, transport); } catch { }
     }
 
     private static string NormalizeScanMode(string value) => value.ToLowerInvariant() switch

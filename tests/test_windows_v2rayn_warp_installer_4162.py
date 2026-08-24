@@ -8,8 +8,8 @@ def read(p): return (ROOT/p).read_text(encoding='utf-8')
 class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
     def test_release_contract(self):
         r=json.loads(read('release.json'))
-        self.assertEqual(r['version'],'5.5.7')
-        self.assertEqual(r['version_code'],50507)
+        self.assertEqual(r['version'],'5.5.9')
+        self.assertEqual(r['version_code'],50509)
         self.assertEqual(r['windows']['runtime_base'],'v2rayN')
         self.assertEqual(r['windows']['artifact'],'inno_setup_exe')
         self.assertTrue(r['windows']['warp_x64'])
@@ -73,7 +73,7 @@ class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
         w=read('bluevpn-windows/Services/WarpConnectionController.cs')
         ui=read('bluevpn-windows/MainWindow.xaml.cs')
         self.assertIn('_settings.Warp.SocksPort',w)
-        self.assertIn('SingBoxWarpConfigBuilder.Build(_settings, socksPort)',w)
+        self.assertIn('SingBoxWarpConfigBuilder.Build(_settings, socksPort, enableIpv6)',w)
         self.assertIn('TimeSpan.FromHours(4)',ui)
         self.assertIn('MaintenanceTimer_Tick',ui)
 

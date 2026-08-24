@@ -322,7 +322,10 @@ object BlueVpnPreferences {
 object BlueVpnLocationUtil {
 
     private const val CANDIDATE_CACHE_TTL_MS = 60_000L
-    private const val CONTEXT_STALE_GRACE_MS = 120_000L
+    // Keep the last non-empty local snapshot warm across normal app resumes.
+    // The stable entitlement key changes immediately on account/tier/source
+    // rotation, so extending this window cannot expose another pool.
+    private const val CONTEXT_STALE_GRACE_MS = 24L * 60L * 60L * 1_000L
 
     @Volatile
     private var candidateCacheAt = 0L

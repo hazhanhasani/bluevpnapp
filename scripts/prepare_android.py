@@ -34,16 +34,34 @@ UPSTREAM_RUNTIME_GUARD = (
     "src/main/java/com/v2ray/ang/handler/AngConfigManager.kt",
 )
 
+# MainViewModel moved/was split in newer official v2rayNG layouts. It is still
+# protected when present, but its absence must not abort the overlay before the
+# Kotlin build can resolve the actual upstream API. The three runtime owners
+# below are the mandatory immutable boundary.
+MANDATORY_UPSTREAM_RUNTIME_GUARD = (
+    "src/main/java/com/v2ray/ang/core/CoreServiceManager.kt",
+    "src/main/java/com/v2ray/ang/core/CoreConfigManager.kt",
+    "src/main/java/com/v2ray/ang/service/CoreVpnService.kt",
+)
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def snapshot_upstream_runtime() -> dict[str, str]:
     snapshot: dict[str, str] = {}
+    missing_mandatory = []
     for relative in UPSTREAM_RUNTIME_GUARD:
         path = APP / relative
         if not path.exists():
-            raise RuntimeError(f"Pinned v2rayNG runtime file is missing: {relative}")
+            if relative in MANDATORY_UPSTREAM_RUNTIME_GUARD:
+                missing_mandatory.append(relative)
+            continue
         snapshot[relative] = _sha256(path)
+    if missing_mandatory:
+        raise RuntimeError(
+            "Mandatory v2rayNG runtime file is missing: " +
+            ", ".join(missing_mandatory)
+        )
     return snapshot
 
 def assert_upstream_runtime_unchanged(snapshot: dict[str, str]) -> None:

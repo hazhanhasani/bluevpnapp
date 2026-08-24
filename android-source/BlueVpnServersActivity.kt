@@ -668,7 +668,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 BlueVpnRuntimeGate.subscriptionMutationActive() && entitlement.isFree ->
                     "در حال دریافت Pool رایگان… صفحه قفل نیست و پس از آماده‌شدن خودکار نمایش داده می‌شود"
                 candidateLoadInProgress && entitlement.isPremium ->
-                    "در حال خواندن Pool اختصاصی Premium…"
+                    "در حال آماده‌سازی اولین فهرست مکان‌ها…"
                 candidateLoadInProgress && entitlement.isFree ->
                     "در حال خواندن Pool رایگان…"
                 entitlement.isPremium ->

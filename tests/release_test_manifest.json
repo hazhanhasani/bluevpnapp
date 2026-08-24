@@ -53,6 +53,7 @@
     "test_phase_520_subscription_client_stability.py",
     "test_phase_521_connection_release_hardening.py",
     "test_phase_522_android_compile_hotfix.py",
+    "test_pool_stale_while_revalidate_538.py",
     "test_pre_gradle_python_4121.py",
     "test_pre_gradle_stage_hardening_4122.py",
     "test_pre_gradle_xray_download_4120.py",

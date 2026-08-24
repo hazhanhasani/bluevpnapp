@@ -925,7 +925,10 @@ object BlueVpnAccountManager {
      * refresh when a safe current pool is already usable.
      */
     fun hasUsableCurrentEntitlementPool(c: Context): Boolean = when {
-        premiumEntitlementActive(c) -> currentPremiumServerGuids(c).isNotEmpty()
+        // During a provider refresh v2rayNG may temporarily clear the exact
+        // subscription list. The same-account/source LKG is still entitlement
+        // isolated and must keep Connect ready instead of blocking on network I/O.
+        premiumEntitlementActive(c) -> preferredServerGuids(c).isNotEmpty()
         isFreeMode(c) -> usableServerGuids(enabledFreeSubscriptionGuids(c)).isNotEmpty()
         else -> false
     }

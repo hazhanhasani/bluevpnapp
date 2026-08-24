@@ -20,6 +20,8 @@ class WindowsAdaptiveTun5411Tests(unittest.TestCase):
         self.assertIn("فعال‌سازی Xray", source)
         self.assertIn("FallbackToSystemProxyAsync", source)
         self.assertNotIn("TryAlternateTunStackAsync", source)
+        self.assertNotIn("TunnelVerificationResult verified;", source)
+        self.assertEqual(source.count("var verified = await _xray.FallbackToSystemProxyAsync"), 1)
 
 if __name__ == "__main__":
     unittest.main()

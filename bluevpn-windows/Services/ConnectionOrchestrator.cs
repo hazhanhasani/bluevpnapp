@@ -191,7 +191,6 @@ public sealed class ConnectionOrchestrator : IDisposable
                 progress?.Report($"اتصال به مسیر {candidateIndex} از {candidates.Count}…");
                 var config = XrayConfigBuilder.Build(endpoint, _settings);
                 await _xray.StartAsync(config, endpoint, candidateToken).ConfigureAwait(false);
-                TunnelVerificationResult verified;
                 progress?.Report($"فعال‌سازی Xray • مسیر {candidateIndex} از {candidates.Count}…");
                 var verified = await _xray.FallbackToSystemProxyAsync(before, _settings.ProbeUrl, candidateToken).ConfigureAwait(false);
                 if (verified.Success)

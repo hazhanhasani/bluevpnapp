@@ -31,7 +31,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-AGENT_VERSION = "5.5.1"
+AGENT_VERSION = "5.5.2"
 XRAY_SCHEMES = {"vless", "vmess", "trojan", "ss"}
 BRIDGE_SCHEMES = {"hysteria2", "hy2", "tuic"}
 LOG = logging.getLogger("bluevpn-gateway")

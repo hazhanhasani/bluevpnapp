@@ -1420,7 +1420,7 @@ html,body,.bv-site-frame,.bv-home-v5{max-width:100%;overflow-x:hidden}
 .bv-offline [data-buy-plan]{filter:saturate(.75);}
 .bv-offline [data-bv-network-status]{pointer-events:none;}
 
-/* BlueVPN 5.5.1 — true mobile scale and lightweight motion for the whole theme. */
+/* BlueVPN 5.5.2 — true mobile scale and lightweight motion for the whole theme. */
 @media(max-width:760px){
   html,body.bluevpn-site{width:100%;max-width:100%;overflow-x:hidden}
   body.bluevpn-site{font-size:14px;line-height:1.85}

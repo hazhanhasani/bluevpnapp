@@ -102,6 +102,19 @@ public sealed class TapsellConfig
     [JsonPropertyName("free_only")] public bool FreeOnly { get; set; } = true;
     [JsonPropertyName("disabled_reason")] public string DisabledReason { get; set; } = "";
     [JsonPropertyName("placements")] public Dictionary<string, TapsellPlacementConfig> Placements { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    [JsonPropertyName("windows_web")] public TapsellWindowsWebConfig WindowsWeb { get; set; } = new();
+}
+
+public sealed class TapsellWindowsWebConfig
+{
+    [JsonPropertyName("enabled")] public bool Enabled { get; set; }
+    [JsonPropertyName("placement_id")] public string PlacementId { get; set; } = "";
+    [JsonPropertyName("script_html")] public string ScriptHtml { get; set; } = "";
+    [JsonPropertyName("free_only")] public bool FreeOnly { get; set; } = true;
+    [JsonPropertyName("min_interval_seconds")] public int MinIntervalSeconds { get; set; } = 300;
+    [JsonPropertyName("daily_cap")] public int DailyCap { get; set; } = 10;
+    [JsonPropertyName("every_slides")] public int EverySlides { get; set; } = 3;
+    [JsonPropertyName("height")] public int Height { get; set; } = 146;
 }
 
 public sealed class TapsellPlacementConfig

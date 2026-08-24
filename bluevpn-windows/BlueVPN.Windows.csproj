@@ -9,14 +9,15 @@
     <RootNamespace>BlueVPN.Windows</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>bluevpn.ico</ApplicationIcon>
-    <Version>5.5.2</Version>
-    <AssemblyVersion>5.5.2.0</AssemblyVersion>
-    <FileVersion>5.5.2.0</FileVersion>
-    <InformationalVersion>5.5.2</InformationalVersion>
+    <Version>5.5.4</Version>
+    <AssemblyVersion>5.5.4.0</AssemblyVersion>
+    <FileVersion>5.5.4.0</FileVersion>
+    <InformationalVersion>5.5.4</InformationalVersion>
     <Platforms>AnyCPU</Platforms>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4129.50" />
     <Compile Remove="SmokeConfigGenerator\**\*.cs" />
     <None Include="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="runtime\**\*" CopyToOutputDirectory="PreserveNewest" />

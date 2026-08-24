@@ -42,6 +42,7 @@ public partial class MainWindow : Window
     private DateTimeOffset _lastByteSample = DateTimeOffset.UtcNow;
     private int _adIndex;
     private double _adImageAspectRatio;
+    private bool _tapsellWebInitialized;
     private UpdateCandidate? _pendingUpdate;
     private long? _remainingSecondsAtSnapshot;
     private DateTimeOffset _accountSnapshotAt = DateTimeOffset.UtcNow;
@@ -144,7 +145,7 @@ public partial class MainWindow : Window
 
         _adTimer.Stop();
         var items = _ads.BannerItems;
-        if (_ads.BannerAutoplay && items.Count > 1)
+        if ((_ads.BannerAutoplay && items.Count > 1) || _ads.WindowsWeb.Enabled)
         {
             _adTimer.Interval = TimeSpan.FromMilliseconds(_ads.BannerIntervalMs);
             _adTimer.Start();
@@ -154,7 +155,11 @@ public partial class MainWindow : Window
     private async Task AdvanceAdAsync()
     {
         var items = _ads.BannerItems;
-        if (items.Count == 0) return;
+        if (items.Count == 0)
+        {
+            await ShowCurrentAdAsync();
+            return;
+        }
         if (_adIndex >= items.Count - 1 && !_ads.BannerLoop)
         {
             _adTimer.Stop();
@@ -167,6 +172,12 @@ public partial class MainWindow : Window
     private async Task ShowCurrentAdAsync()
     {
         var items = _ads.BannerItems;
+        var premium = _account?.Subscription.Active == true;
+        if (_ads.TryReserveWindowsWebImpression(premium, items.Count == 0) && await ShowTapsellWebAdAsync())
+            return;
+
+        TapsellWebView.Visibility = Visibility.Collapsed;
+        AdCard.Cursor = Cursors.Hand;
         if (items.Count == 0)
         {
             AdCard.Visibility = Visibility.Collapsed;
@@ -220,6 +231,48 @@ public partial class MainWindow : Window
             MediaAssetLoader.Preload(nextImage);
         }
         MediaAssetLoader.Trim();
+    }
+
+    private async Task<bool> ShowTapsellWebAdAsync()
+    {
+        var cfg = _ads.WindowsWeb;
+        try
+        {
+            if (!_tapsellWebInitialized)
+            {
+                await TapsellWebView.EnsureCoreWebView2Async();
+                if (TapsellWebView.CoreWebView2 is null) return false;
+                TapsellWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+                TapsellWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+                TapsellWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                TapsellWebView.CoreWebView2.Settings.IsWebMessageEnabled = false;
+                _tapsellWebInitialized = true;
+            }
+
+            var html = "<!doctype html><html dir=\"rtl\"><head><meta charset=\"utf-8\">" +
+                "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>" +
+                "html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#071328}" +
+                "#bluevpn-ad{width:100%;height:100%;display:flex;align-items:center;justify-content:center}" +
+                ".bluevpn-ad-label{position:fixed;left:8px;top:6px;z-index:2147483647;color:#fff;background:#66000000;border-radius:9px;padding:3px 7px;font:9px sans-serif}" +
+                "iframe,img{max-width:100%;max-height:100%;border:0}</style></head><body>" +
+                "<span class=\"bluevpn-ad-label\">تبلیغ</span><div id=\"bluevpn-ad\">" + cfg.ScriptHtml +
+                "</div></body></html>";
+
+            AdCard.Tag = null;
+            AdImage.Source = null;
+            AdFallbackPanel.Visibility = Visibility.Collapsed;
+            AdCard.Visibility = Visibility.Visible;
+            AdCard.Cursor = Cursors.Arrow;
+            AdCard.Height = Math.Clamp(cfg.Height, 90, 220);
+            TapsellWebView.Visibility = Visibility.Visible;
+            TapsellWebView.NavigateToString(html);
+            return true;
+        }
+        catch
+        {
+            TapsellWebView.Visibility = Visibility.Collapsed;
+            return false;
+        }
     }
 
 

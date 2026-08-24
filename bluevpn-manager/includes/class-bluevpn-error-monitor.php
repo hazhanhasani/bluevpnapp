@@ -306,6 +306,19 @@ final class BlueVPN_Error_Monitor {
         $kind = sanitize_key((string)($body['kind'] ?? 'js_error'));
         $message = sanitize_text_field((string)($body['message'] ?? 'JavaScript runtime error'));
         $stack = self::truncate(sanitize_textarea_field((string)($body['stack'] ?? '')), 1800);
+        // Chromium may reject a superseded Navigation/View Transition with no
+        // source location or stack. It is browser lifecycle noise, not a panel
+        // runtime failure. Keep this server-side guard for clients with cached JS.
+        $normalizedMessage = strtolower(trim($message));
+        if ($kind === 'unhandledrejection' && $stack === '' &&
+            in_array($normalizedMessage, [
+                'transition was aborted because of invalid state',
+                'transition aborted because of invalid state',
+                'view transition was aborted because of invalid state',
+                'navigation transition was aborted because of invalid state',
+            ], true)) {
+            return new WP_REST_Response(null, 204);
+        }
         $component = str_contains(strtolower($file), 'bluevpn-manager') || str_contains(strtolower($page), '/wp-admin/') ? 'admin_ui' : 'site_theme';
         self::report('browser', $component, 'warning', $kind === 'unhandledrejection' ? 'JS_UNHANDLED_REJECTION' : 'JS_RUNTIME_ERROR', $message, [
             'file' => $file, 'line' => (int)($body['line'] ?? 0), 'column' => (int)($body['column'] ?? 0), 'page' => $page, 'stack' => $stack,

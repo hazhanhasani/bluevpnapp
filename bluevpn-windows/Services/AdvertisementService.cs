@@ -17,6 +17,11 @@ public sealed class AdvertisementService
     private readonly AppSettings _settings;
     private readonly Random _random = new();
     private readonly string _cachePath;
+    private readonly string _windowsWebStatePath;
+    private int _windowsWebSlideCounter;
+    private int _windowsWebDailyCount;
+    private DateOnly _windowsWebDay = DateOnly.FromDateTime(DateTime.Now);
+    private DateTimeOffset _windowsWebLastShown = DateTimeOffset.MinValue;
 
     public AdvertisementService(BlueVpnApiClient api, AppSettings settings)
     {
@@ -27,7 +32,9 @@ public sealed class AdvertisementService
             "BlueVPN",
             "cache");
         _cachePath = Path.Combine(cacheRoot, "mobile-config.json");
+        _windowsWebStatePath = Path.Combine(cacheRoot, "tapsell-windows-state.json");
         Current = LoadCached();
+        LoadWindowsWebState();
     }
 
     public MobileConfigResponse Current { get; private set; }
@@ -138,11 +145,54 @@ public sealed class AdvertisementService
     public int StoryMaxVideoSeconds => Math.Clamp(Current.FreeStoryAds.MaxVideoSeconds, 5, 60);
 
     /// <summary>
-    /// Tapsell's current Mediation payload is a mobile-SDK contract. Windows WPF
-    /// deliberately reports that fact instead of silently pretending a zone was
-    /// shown. A separate web-publisher placement is required for a real Windows ad.
+    /// Android uses Tapsell Mediation. Windows consumes the separately configured
+    /// Web Publisher script and never treats an Android zone id as a web placement.
     /// </summary>
     public bool HasMobileOnlyThirdPartyAds => Current.Tapsell.Enabled;
+
+    public TapsellWindowsWebConfig WindowsWeb => Current.Tapsell.WindowsWeb;
+
+    public bool TryReserveWindowsWebImpression(bool premium, bool noFirstPartyBanner)
+    {
+        var cfg = WindowsWeb;
+        if (!cfg.Enabled || string.IsNullOrWhiteSpace(cfg.ScriptHtml) || (cfg.FreeOnly && premium)) return false;
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; }
+        _windowsWebSlideCounter++;
+        if (!noFirstPartyBanner && _windowsWebSlideCounter % Math.Clamp(cfg.EverySlides, 1, 20) != 0) return false;
+        if (cfg.DailyCap > 0 && _windowsWebDailyCount >= Math.Clamp(cfg.DailyCap, 1, 1000)) return false;
+        if ((DateTimeOffset.Now - _windowsWebLastShown).TotalSeconds < Math.Clamp(cfg.MinIntervalSeconds, 0, 86400)) return false;
+        _windowsWebDailyCount++;
+        _windowsWebLastShown = DateTimeOffset.Now;
+        SaveWindowsWebState();
+        return true;
+    }
+
+    private void LoadWindowsWebState()
+    {
+        try
+        {
+            if (!File.Exists(_windowsWebStatePath)) return;
+            var state = JsonSerializer.Deserialize<WindowsWebAdState>(File.ReadAllText(_windowsWebStatePath), AppSettings.JsonOptions());
+            if (state is null || state.Day != DateOnly.FromDateTime(DateTime.Now)) return;
+            _windowsWebDay = state.Day;
+            _windowsWebDailyCount = Math.Max(0, state.DailyCount);
+            _windowsWebLastShown = state.LastShown;
+        }
+        catch { }
+    }
+
+    private void SaveWindowsWebState()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(_windowsWebStatePath);
+            if (!string.IsNullOrWhiteSpace(dir)) Directory.CreateDirectory(dir);
+            File.WriteAllText(_windowsWebStatePath, JsonSerializer.Serialize(
+                new WindowsWebAdState(_windowsWebDay, _windowsWebDailyCount, _windowsWebLastShown), AppSettings.JsonOptions()));
+        }
+        catch { }
+    }
 
     public string ResolveUrl(string value)
     {
@@ -209,4 +259,6 @@ public sealed class AdvertisementService
         !string.IsNullOrWhiteSpace(item.MediaUrl) ||
         !string.IsNullOrWhiteSpace(item.Title) ||
         !string.IsNullOrWhiteSpace(item.Subtitle);
+
+    private sealed record WindowsWebAdState(DateOnly Day, int DailyCount, DateTimeOffset LastShown);
 }

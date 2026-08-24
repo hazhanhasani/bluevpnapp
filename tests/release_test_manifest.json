@@ -126,6 +126,8 @@
     "test_windows_update_storage_4179.py",
     "test_windows_v2rayn_warp_installer_4162.py",
     "test_windows_xaml_compile_guard_509.py",
-    "test_windows_adaptive_tun_5411.py"
+    "test_windows_adaptive_tun_5411.py",
+    "test_windows_tapsell_web_553.py",
+    "test_admin_transition_rejection_554.py"
   ]
 }

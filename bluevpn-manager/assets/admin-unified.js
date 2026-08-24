@@ -7,7 +7,14 @@ function bvAdminReport(kind,message,file='',line=0,column=0,stack=''){
   fetch(bvMon.monitorEndpoint,{method:'POST',credentials:'same-origin',keepalive:true,headers:{'Content-Type':'application/json'},body:JSON.stringify({token:bvMon.monitorToken,kind,message:String(message||'Admin JavaScript error').slice(0,1200),file:String(file||'').slice(0,900),line:Number(line||0),column:Number(column||0),stack:String(stack||'').slice(0,1800),page:location.href.split('#')[0]})}).catch(()=>{});
 }
 window.addEventListener('error',e=>bvAdminReport('js_error',e.message,e.filename,e.lineno,e.colno,e.error?.stack||''));
-window.addEventListener('unhandledrejection',e=>{const r=e.reason;bvAdminReport('unhandledrejection',r?.message||String(r||'Unhandled promise rejection'),'',0,0,r?.stack||'')});
+function bvIsBenignBrowserCancellation(reason){
+  const name=String(reason?.name||'').toLowerCase(),message=String(reason?.message||reason||'').trim().toLowerCase(),stack=String(reason?.stack||'').trim();
+  if(name==='aborterror')return true;
+  if(stack)return false;
+  return message==='transition was aborted because of invalid state' ||
+    /^(view |navigation )?transition (was )?aborted( because of invalid state)?$/.test(message);
+}
+window.addEventListener('unhandledrejection',e=>{const r=e.reason;if(bvIsBenignBrowserCancellation(r)){e.preventDefault();return}bvAdminReport('unhandledrejection',r?.message||String(r||'Unhandled promise rejection'),'',0,0,r?.stack||'')});
 document.documentElement.classList.add('bluevpn-standalone-html');
 const q=(s)=>document.querySelector(s);
 const sidebar=q('#bluevpnSidebar'), overlay=q('#bluevpnSidebarOverlay');

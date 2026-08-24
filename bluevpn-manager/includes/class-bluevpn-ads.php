@@ -580,6 +580,16 @@ final class BlueVPN_Ads {
             'standard_banner_size' => $bannerSize,
             'standard_banner_every_slides' => max(1, min(10, (int)($settings['tapsell_standard_banner_every_slides'] ?? 3))),
             'reward_fullscreen_suppression_seconds' => max(0, min(3600, (int)($settings['tapsell_reward_fullscreen_suppression_seconds'] ?? 300))),
+            'windows_web' => [
+                'enabled' => !empty($settings['tapsell_windows_web_enabled']) && trim((string)($settings['tapsell_windows_web_script_html'] ?? '')) !== '',
+                'placement_id' => mb_substr(trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')), 0, 200),
+                'script_html' => (string)($settings['tapsell_windows_web_script_html'] ?? ''),
+                'free_only' => !array_key_exists('tapsell_windows_web_free_only', $settings) || !empty($settings['tapsell_windows_web_free_only']),
+                'min_interval_seconds' => max(0, min(86400, (int)($settings['tapsell_windows_web_min_interval_seconds'] ?? 300))),
+                'daily_cap' => max(0, min(1000, (int)($settings['tapsell_windows_web_daily_cap'] ?? 10))),
+                'every_slides' => max(1, min(20, (int)($settings['tapsell_windows_web_every_slides'] ?? 3))),
+                'height' => max(90, min(220, (int)($settings['tapsell_windows_web_height'] ?? 146))),
+            ],
             'build_embed_required' => true,
             'disabled_reason' => $enabled
                 ? ''
@@ -941,6 +951,14 @@ final class BlueVPN_Ads {
             : 'BANNER_320_50';
         $s['tapsell_standard_banner_every_slides'] = max(1, min(10, (int)($_POST['tapsell_standard_banner_every_slides'] ?? 3)));
         $s['tapsell_reward_fullscreen_suppression_seconds'] = max(0, min(3600, (int)($_POST['tapsell_reward_fullscreen_suppression_seconds'] ?? 300)));
+        $s['tapsell_windows_web_enabled'] = isset($_POST['tapsell_windows_web_enabled']);
+        $s['tapsell_windows_web_placement_id'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_windows_web_placement_id'] ?? '')), 0, 200);
+        $s['tapsell_windows_web_script_html'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_windows_web_script_html'] ?? '')), 0, 20000);
+        $s['tapsell_windows_web_free_only'] = isset($_POST['tapsell_windows_web_free_only']);
+        $s['tapsell_windows_web_min_interval_seconds'] = max(0, min(86400, (int)($_POST['tapsell_windows_web_min_interval_seconds'] ?? 300)));
+        $s['tapsell_windows_web_daily_cap'] = max(0, min(1000, (int)($_POST['tapsell_windows_web_daily_cap'] ?? 10)));
+        $s['tapsell_windows_web_every_slides'] = max(1, min(20, (int)($_POST['tapsell_windows_web_every_slides'] ?? 3)));
+        $s['tapsell_windows_web_height'] = max(90, min(220, (int)($_POST['tapsell_windows_web_height'] ?? 146)));
         BlueVPN_DB::save_settings($s);
         self::redirect('ads', 'تنظیمات تبلیغات ذخیره شد.');
     }
@@ -1278,6 +1296,17 @@ final class BlueVPN_Ads {
         echo '</div>';
 
         echo '<div class="bvc-note" style="margin-top:12px">Tapsell فقط برای پلن رایگان است. در Premium هیچ Request/Preload/Show از Tapsell انجام نمی‌شود و فقط بنرهای اختصاصی BlueVPN باقی می‌مانند. هر جایگاه را جداگانه می‌توانید خاموش کنید؛ Zone ID خاموش‌شده پاک نمی‌شود.</div>';
+        echo '<h3 style="margin:18px 0 10px">Tapsell Web برای Windows</h3>';
+        echo '<div class="bvc-note" style="margin-bottom:12px">در پنل ناشر وب Tapsell روی «دریافت کد اسکریپت» بزنید و کل کد جایگاه را اینجا قرار دهید. این بخش مستقل از Mediation اندروید است و بدون Build مجدد از Mobile Config روی Windows اعمال می‌شود.</div><div class="bvc-form-grid">';
+        self::checkbox('tapsell_windows_web_enabled', 'فعال‌سازی جایگاه وب در Windows', !empty($s['tapsell_windows_web_enabled']));
+        self::checkbox('tapsell_windows_web_free_only', 'فقط کاربران رایگان', !array_key_exists('tapsell_windows_web_free_only', $s) || !empty($s['tapsell_windows_web_free_only']));
+        self::text('tapsell_windows_web_placement_id', 'شناسه جایگاه وب', (string)($s['tapsell_windows_web_placement_id'] ?? ''));
+        self::number('tapsell_windows_web_min_interval_seconds', 'حداقل فاصله نمایش Windows (ثانیه)', (int)($s['tapsell_windows_web_min_interval_seconds'] ?? 300), 0, 86400);
+        self::number('tapsell_windows_web_daily_cap', 'سقف روزانه Windows (۰=نامحدود)', (int)($s['tapsell_windows_web_daily_cap'] ?? 10), 0, 1000);
+        self::number('tapsell_windows_web_every_slides', 'نمایش بعد از چند بنر داخلی', (int)($s['tapsell_windows_web_every_slides'] ?? 3), 1, 20);
+        self::number('tapsell_windows_web_height', 'ارتفاع جایگاه Windows', (int)($s['tapsell_windows_web_height'] ?? 146), 90, 220);
+        echo '</div>';
+        self::textarea('tapsell_windows_web_script_html', 'کد کامل اسکریپت جایگاه Tapsell Web', (string)($s['tapsell_windows_web_script_html'] ?? ''));
         echo '<h3 style="margin:18px 0 10px">جایگاه‌های توزیع‌شده Tapsell</h3>';
 
         $tapsellZones = self::tapsell_zones($s);
@@ -1472,5 +1501,6 @@ final class BlueVPN_Ads {
     private static function text(string $name, string $label, string $value): void { echo '<label>' . esc_html($label) . '<input type="text" name="' . esc_attr($name) . '" value="' . esc_attr($value) . '"></label>'; }
     private static function number(string $name, string $label, int $value, int $min, int $max): void { echo '<label>' . esc_html($label) . '<input type="number" name="' . esc_attr($name) . '" min="' . $min . '" max="' . $max . '" value="' . $value . '"></label>'; }
     private static function checkbox(string $name, string $label, bool $checked): void { echo '<label><input type="checkbox" name="' . esc_attr($name) . '" value="1" ' . checked($checked, true, false) . '> ' . esc_html($label) . '</label>'; }
+    private static function textarea(string $name, string $label, string $value): void { echo '<label style="display:block;margin-top:12px">' . esc_html($label) . '<textarea name="' . esc_attr($name) . '" rows="7" style="width:100%;direction:ltr;font-family:monospace">' . esc_textarea($value) . '</textarea></label>'; }
     private static function mini_form(string $action, string $nonce, string $id, string $label, bool $danger = false): void { echo '<form style="display:inline-block;margin:2px" method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field($nonce); echo '<input type="hidden" name="action" value="' . esc_attr($action) . '"><input type="hidden" name="id" value="' . esc_attr($id) . '"><button class="button' . ($danger ? ' button-link-delete' : '') . '">' . esc_html($label) . '</button></form>'; }
 }

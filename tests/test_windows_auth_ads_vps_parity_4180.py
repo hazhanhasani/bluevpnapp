@@ -41,7 +41,8 @@ class WindowsAuthAdsVpsParity4180(unittest.TestCase):
         self.assertIn('[JsonPropertyName("tapsell")]', model)
         self.assertIn('TapsellConfig', model)
         self.assertIn('HasMobileOnlyThirdPartyAds', ads)
-        self.assertIn('separate web-publisher placement', ads)
+        self.assertIn('separately configured', ads)
+        self.assertIn('Web Publisher script', ads)
 
 if __name__ == '__main__':
     unittest.main()

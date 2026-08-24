@@ -36,9 +36,11 @@ class WindowsPurchaseSupportTheme513Tests(unittest.TestCase):
         self.assertIn('ui-preferences.json', theme)
         self.assertIn('{DynamicResource BlueVpnBg}', xaml)
 
-        # Tapsell for Windows is deliberately deferred in this release.
-        self.assertNotIn('Tapsell', xaml)
-        self.assertNotIn('tapsell', code.lower())
+        # Third-party branding stays out of customer-facing text while the
+        # publisher script runs in its isolated WebView2 surface.
+        self.assertNotIn('Text="Tapsell', xaml)
+        self.assertIn('ShowTapsellWebAdAsync', code)
+        self.assertIn('EnsureCoreWebView2Async', code)
 
 
 if __name__ == '__main__':

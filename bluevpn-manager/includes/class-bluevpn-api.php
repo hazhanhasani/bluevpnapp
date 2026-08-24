@@ -608,7 +608,12 @@ final class BlueVPN_API {
             global $wpdb;
             $t=BlueVPN_DB::table('server_locations');
             $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE config_key=%s LIMIT 1",$key),ARRAY_A);
-            if(!$row) throw new BlueVPN_Auth_Exception(404,'SERVER_LOCATION_NOT_FOUND','مکان این سرور هنوز توسط منبع مورد اعتماد ثبت نشده است.');
+            if(!$row){
+                $now=BlueVPN_Utils::now_mysql();
+                $inserted=$wpdb->insert($t,['config_key'=>$key,'country_code'=>$cc,'source'=>'client_trace','confidence'=>85,'verified_at'=>$now,'updated_at'=>$now]);
+                if($inserted===false) throw new BlueVPN_Auth_Exception(500,'SERVER_LOCATION_SAVE_FAILED','ذخیره مکان تأییدشده سرور ناموفق بود.');
+                $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE config_key=%s LIMIT 1",$key),ARRAY_A);
+            }
             $stored=strtolower(trim((string)($row['country_code']??'')));
             if($stored==='' || $stored!==$cc) throw new BlueVPN_Auth_Exception(409,'SERVER_LOCATION_MISMATCH','کشور گزارش‌شده با مکان ثبت‌شده سرور مطابقت ندارد.');
             $now=BlueVPN_Utils::now_mysql();

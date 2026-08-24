@@ -20,6 +20,9 @@ class AndroidLocationsOemUi5311Tests(unittest.TestCase):
         self.assertIn("background = rounded(android.graphics.Color.TRANSPARENT, 15)", self.source)
         self.assertIn("rippleColor = ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)", self.source)
 
+    def test_unknown_routes_remain_auto_only_not_fake_manual_locations(self):
+        self.assertIn('if (location.key == "unknown") return@mapNotNull null', self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

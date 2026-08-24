@@ -695,6 +695,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             .groupBy { it.location.key }
             .mapNotNull { (_, servers) ->
                 val location = servers.firstOrNull()?.location ?: return@mapNotNull null
+                // A config containing only an IP or a generic remark has no
+                // trustworthy country before its first successful exit trace.
+                // Keep those routes available to automatic selection, but never
+                // present "unknown" as if it were a manually selectable country.
+                if (location.key == "unknown") return@mapNotNull null
                 val usable = servers.count { !BlueVpnPreferences.isSessionInactive(this, it.guid) }
                 LocationGroup(
                     location = location,

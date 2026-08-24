@@ -58,6 +58,13 @@ class NativeBitpinPlanPricing539Tests(unittest.TestCase):
         self.assertIn(rule, self.api)
         self.assertIn(rule, self.payments)
 
+    def test_upgrade_clears_stale_404_and_retries_on_a_dedicated_hook(self):
+        self.assertIn("migrate_legacy_endpoint_error()", self.pricing)
+        self.assertIn("str_contains($error, 'HTTP 404')", self.pricing)
+        self.assertIn("delete_option('bluevpn_dollar_last_error')", self.pricing)
+        self.assertIn("bluevpn_dollar_pricing_upgrade_refresh", self.pricing)
+        self.assertIn("wp_schedule_single_event(time() + 15", self.pricing)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,7 @@ if (!defined('ABSPATH')) exit;
 /** Native USD pricing for BlueVPN plans using Bitpin's USDT/IRT market. */
 final class BlueVPN_Dollar_Pricing {
     private const HOOK = 'bluevpn_dollar_pricing_hourly';
+    private const UPGRADE_HOOK = 'bluevpn_dollar_pricing_upgrade_refresh';
     private const ENDPOINTS = [
         'https://api.bitpin.market/api/v1/mkt/tickers/',
         'https://api.bitpin.market/v1/mkt/markets/',
@@ -13,17 +14,35 @@ final class BlueVPN_Dollar_Pricing {
 
     public static function init(): void {
         add_action(self::HOOK, [self::class, 'cron']);
+        add_action(self::UPGRADE_HOOK, [self::class, 'cron']);
         add_action('admin_menu', [self::class, 'menu'], 40);
         add_action('admin_post_bluevpn_dollar_save_settings', [self::class, 'save_settings']);
         add_action('admin_post_bluevpn_dollar_save_plan', [self::class, 'save_plan']);
         add_action('admin_post_bluevpn_dollar_refresh', [self::class, 'manual_refresh']);
         self::ensure_schedule();
+        self::migrate_legacy_endpoint_error();
     }
 
     public static function activate(): void { self::ensure_schedule(); }
     public static function deactivate(): void { wp_clear_scheduled_hook(self::HOOK); }
     public static function ensure_schedule(): void {
         if (!wp_next_scheduled(self::HOOK)) wp_schedule_event(time() + 300, 'hourly', self::HOOK);
+    }
+
+    private static function migrate_legacy_endpoint_error(): void {
+        $marker = 'bluevpn_dollar_endpoint_migration_version';
+        if ((string)get_option($marker, '') === BLUEVPN_MANAGER_VERSION) return;
+        $error = (string)get_option('bluevpn_dollar_last_error', '');
+        if (str_contains($error, 'HTTP 404') || str_contains($error, 'api.bitpin.org')) {
+            delete_option('bluevpn_dollar_last_error');
+            if (class_exists('BlueVPN_Error_Monitor')) {
+                BlueVPN_Error_Monitor::resolve_matching('external_http', 'bitpin', 'BITPIN_RATE_FETCH_FAILED');
+            }
+        }
+        if (!wp_next_scheduled(self::UPGRADE_HOOK)) {
+            wp_schedule_single_event(time() + 15, self::UPGRADE_HOOK);
+        }
+        update_option($marker, BLUEVPN_MANAGER_VERSION, false);
     }
 
     private static function settings(): array {

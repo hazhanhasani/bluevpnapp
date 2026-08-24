@@ -13,8 +13,8 @@ class GatewaySafeRollout518Tests(unittest.TestCase):
 
     def test_release_and_schema_contract(self):
         release = json.loads(self.text("release.json"))
-        self.assertEqual(release["version"], "5.4.0")
-        self.assertEqual(release["version_code"], 50400)
+        self.assertEqual(release["version"], "5.4.1")
+        self.assertEqual(release["version_code"], 50401)
         for feature in (
             "gateway-config-generation",
             "gateway-agent-apply-ack",
@@ -63,7 +63,7 @@ class GatewaySafeRollout518Tests(unittest.TestCase):
 
     def test_agent_ack_is_after_successful_apply_and_persisted(self):
         agent = self.text("bluevpn-gateway/agent.py")
-        self.assertIn('AGENT_VERSION = "5.4.0"', agent)
+        self.assertIn('AGENT_VERSION = "5.4.1"', agent)
         for token in (
             "def _mark_config_applied",
             'self.state["applied_config_generation"]',

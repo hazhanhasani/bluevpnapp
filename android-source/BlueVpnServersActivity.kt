@@ -73,9 +73,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private lateinit var refreshButton: MaterialButton
     private lateinit var entitlementSubtitle: TextView
     private lateinit var automaticSubtitle: TextView
-    private lateinit var allTabButton: MaterialButton
-    private lateinit var favoritesTabButton: MaterialButton
-    private lateinit var recentTabButton: MaterialButton
+    private lateinit var allTabButton: TextView
+    private lateinit var favoritesTabButton: TextView
+    private lateinit var recentTabButton: TextView
     private var selectedTab = LocationTab.ALL
     private var query = ""
     private var firstResume = true
@@ -594,8 +594,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         applyTab(recentTabButton, selectedTab == LocationTab.RECENT)
     }
 
-    private fun applyTab(button: MaterialButton, active: Boolean) {
-        button.backgroundTintList = ColorStateList.valueOf(if (active) palette.accent else android.graphics.Color.TRANSPARENT)
+    private fun applyTab(button: TextView, active: Boolean) {
+        button.background = rounded(if (active) palette.accent else android.graphics.Color.TRANSPARENT, 18)
         button.setTextColor(if (active) android.graphics.Color.WHITE else palette.textSecondary)
     }
 
@@ -897,15 +897,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         content.addView(availabilityView)
         row.addView(content, LinearLayout.LayoutParams(0, -1, 1f))
 
-        val favoriteButton = MaterialButton(this).apply {
+        val favoriteButton = TextView(this).apply {
             text = if (group.favorite) "★" else "☆"
             textSize = 18f
-            minWidth = 0; minimumWidth = 0; minHeight = 0; minimumHeight = 0
-            insetTop = 0; insetBottom = 0
-            setPadding(0, 0, 0, 0)
-            isAllCaps = false
-            cornerRadius = dp(15)
-            backgroundTintList = ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            background = rounded(android.graphics.Color.TRANSPARENT, 15)
             setTextColor(if (group.favorite) palette.accent else palette.textMuted)
             contentDescription = if (group.favorite) "حذف از علاقه‌مندی" else "افزودن به علاقه‌مندی"
             BlueVpnUiGuard.bind(this) {
@@ -1025,13 +1022,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         refreshButton.text = "تازه‌سازی"
     }
 
-    private fun tabButton(label: String, action: () -> Unit): MaterialButton = MaterialButton(this).apply {
+    private fun tabButton(label: String, action: () -> Unit): TextView = TextView(this).apply {
         text = label
         textSize = 11f
-        isAllCaps = false
-        insetTop = 0
-        insetBottom = 0
-        cornerRadius = dp(18)
+        gravity = Gravity.CENTER
+        includeFontPadding = false
+        background = rounded(android.graphics.Color.TRANSPARENT, 18)
+        setTextColor(palette.textSecondary)
+        isClickable = true
+        isFocusable = true
         BlueVpnUiGuard.bind(this) { action() }
     }
 
@@ -1053,6 +1052,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private fun card(radius: Int, fill: Int, stroke: Int): MaterialCardView = MaterialCardView(this).apply {
         this.radius = dp(radius).toFloat()
         cardElevation = 0f
+        rippleColor = ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)
         setCardBackgroundColor(fill)
         strokeColor = stroke
         strokeWidth = dp(1)

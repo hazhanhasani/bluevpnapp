@@ -14,7 +14,9 @@ on:
 
 concurrency:
   group: bluevpn-release-${{ github.ref }}
-  cancel-in-progress: true
+  # A second deploy request must queue behind the active signed build. Cancelling
+  # midway produces no failed step/log and can leave the deploy bot waiting.
+  cancel-in-progress: false
 
 permissions:
   contents: write

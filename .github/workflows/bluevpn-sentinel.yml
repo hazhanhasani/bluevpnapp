@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   report-failure:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion != 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion != 'success' && github.event.workflow_run.conclusion != 'cancelled') }}
     runs-on: ubuntu-latest
     steps:
       - name: Collect failed jobs, annotations and logs
@@ -43,7 +43,7 @@ jobs:
           echo "Workflow: ${WORKFLOW_NAME}" >> /tmp/report.txt
           echo "Run: ${RUN_ID}" >> /tmp/report.txt
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" --paginate \
-            --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped") | "JOB: \(.name) => \(.conclusion) id=\(.id)"' >> /tmp/report.txt 2>/dev/null || true
+            --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != "cancelled") | "JOB: \(.name) => \(.conclusion) id=\(.id)"' >> /tmp/report.txt 2>/dev/null || true
           gh api "repos/${GITHUB_REPOSITORY}/check-runs?check_suite_id=${{ github.event.workflow_run.check_suite_id }}" \
             --jq '.check_runs[]?.output.annotations_url' 2>/dev/null | while read -r u; do
               [ -n "$u" ] || continue

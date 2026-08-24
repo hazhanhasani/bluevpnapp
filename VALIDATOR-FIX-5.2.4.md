@@ -1,7 +1,7 @@
-# BlueVPN v5.2.6 Validator Fix
+# BlueVPN v5.2.10 Validator Fix
 
 Updated static release validators to match the synchronized release version.
 
-- Release: 5.2.6
-- Windows migration validator: 5.2.6
+- Release: 5.2.10
+- Windows migration validator: 5.2.10
 - Plugin stable tag expectation updated

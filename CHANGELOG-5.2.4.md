@@ -1,4 +1,4 @@
-# BlueVPN 5.2.6
+# BlueVPN 5.2.10
 
 - Improved Windows TUN adapter detection.
 - Added additional route reliability checks.

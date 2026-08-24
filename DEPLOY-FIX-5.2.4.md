@@ -1,5 +1,5 @@
-# BlueVPN v5.2.6 Deploy Fix
+# BlueVPN v5.2.10 Deploy Fix
 
 - Synced branding/app.json version with release.json
-- branding: 5.2.6 / 50206
-- release: 5.2.6 / 50206
+- branding: 5.2.10 / 50210
+- release: 5.2.10 / 50210

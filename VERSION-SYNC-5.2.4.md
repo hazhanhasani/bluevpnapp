@@ -1,9 +1,9 @@
-# BlueVPN v5.2.6 Version Sync
+# BlueVPN v5.2.10 Version Sync
 
 All detected project version references were synchronized to:
 
-- Version: 5.2.6
-- Version Code: 50206
+- Version: 5.2.10
+- Version Code: 50210
 
 Checked components:
 - Android

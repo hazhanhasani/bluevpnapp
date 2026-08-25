@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: bluevpn-project-health-${{ github.ref }}
@@ -69,3 +70,38 @@ jobs:
           python scripts/validate_php_release.py
       - name: Full Python regression suite
         run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+  fanout-main-builds:
+    name: Start every BlueVPN workflow
+    needs: full-static-regression-gate
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch all build, release and external-health workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_SHA: ${{ github.sha }}
+          TARGET_REF: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Fan-out source: ${TARGET_REF}@${TARGET_SHA}"
+
+          # Android builds on every accepted main update. Keep this fan-out in
+          # fast mode; the dedicated release workflows below own their releases.
+          gh workflow run build-apk.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF" -f build_mode=fast
+
+          # Platform build pipelines.
+          gh workflow run build-windows.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
+          gh workflow run build-ios.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
+
+          # WordPress Manager and site/theme release pipelines. Manager receives
+          # the exact source SHA so its updater artifact is tied to this update.
+          gh workflow run bluevpn-manager-release.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF" \
+            -f target_sha="$TARGET_SHA" -f request_id="main-push-${GITHUB_RUN_ID}"
+          gh workflow run bluevpn-site-theme-release.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
+
+          # Re-probe production after every accepted source update.
+          gh workflow run external-health.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
+
+          echo 'All BlueVPN build/release workflows dispatched.'

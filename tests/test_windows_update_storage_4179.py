@@ -14,7 +14,7 @@ class WindowsUpdateStorage4179Tests(unittest.TestCase):
         app = json.loads(text("branding/app.json"))
         release = json.loads(text("release.json"))
         self.assertEqual(app["version_name"], "5.7.10")
-        self.assertEqual(app["version_code"], 50709)
+        self.assertEqual(app["version_code"], 50710)
         self.assertEqual(release["version"], "5.7.10")
         self.assertEqual(release["windows_version"], "5.7.10")
 

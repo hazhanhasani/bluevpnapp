@@ -14,7 +14,7 @@ class GatewayOneClickEnrollment5110Tests(unittest.TestCase):
     def test_release_and_schema_contract(self):
         r=json.loads(self.text("release.json"))
         self.assertEqual(r["version"],"5.7.10")
-        self.assertEqual(r["version_code"],50709)
+        self.assertEqual(r["version_code"],50710)
         for f in (
             "gateway-one-click-enrollment","gateway-one-time-bootstrap-token","gateway-enrollment-expiry",
             "gateway-agent-package-from-manager","gateway-dual-secret-rotation-grace",

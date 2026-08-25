@@ -12,7 +12,7 @@ class GatewayAutopilotMigration519Tests(unittest.TestCase):
     def test_release_contract(self):
         r=json.loads(self.text("release.json"))
         self.assertEqual(r["version"],"5.7.10")
-        self.assertEqual(r["version_code"],50709)
+        self.assertEqual(r["version_code"],50710)
         for f in ("gateway-autopilot-default-on","gateway-telemetry-auto-capacity","gateway-auto-drain-recovery","gateway-graceful-drain","gateway-zero-downtime-session-handoff","gateway-handoff-target-ack-gate","gateway-handoff-overlap-window"):
             self.assertIn(f,r["features"])
         self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.31.0'",self.text("bluevpn-manager/bluevpn-manager.php"))

@@ -10,7 +10,7 @@ class WindowsClient4162Tests(unittest.TestCase):
         release = json.loads(text("release.json")); branding = json.loads(text("branding/app.json"))
         self.assertEqual(release["version"], "5.7.10")
         self.assertEqual(release["windows_version"], "5.7.10")
-        self.assertEqual(release["windows_version_code"], 50709)
+        self.assertEqual(release["windows_version_code"], 50710)
         self.assertEqual(branding["version_name"], "5.7.10")
         self.assertIn("<Version>5.7.10</Version>", text("bluevpn-windows/BlueVPN.Windows.csproj"))
 

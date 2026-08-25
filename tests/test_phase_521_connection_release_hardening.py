@@ -11,7 +11,7 @@ class Phase521ConnectionReleaseHardeningTests(unittest.TestCase):
     def test_release_contract(self):
         r=json.loads(text("release.json"))
         self.assertEqual(r["version"],"5.7.10")
-        self.assertEqual(r["version_code"],50709)
+        self.assertEqual(r["version_code"],50710)
         self.assertEqual(r["android_version"],"5.7.10")
         self.assertEqual(r["windows_version"],"5.7.10")
         features=set(r.get("features",[]))

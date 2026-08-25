@@ -11,9 +11,9 @@ class AndroidCompileHotfix522Tests(unittest.TestCase):
     def test_release_is_522(self):
         r = json.loads(text("release.json"))
         self.assertEqual(r["version"], "5.7.10")
-        self.assertEqual(r["version_code"], 50709)
+        self.assertEqual(r["version_code"], 50710)
         self.assertEqual(r["android_version"], "5.7.10")
-        self.assertEqual(r["android_version_code"], 50709)
+        self.assertEqual(r["android_version_code"], 50710)
 
     def test_home_explicitly_imports_ircf_intelligence(self):
         home = text("android-source/BlueVpnHomeActivity.kt")

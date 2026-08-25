@@ -9,7 +9,7 @@ class WindowsAiSpeedAuth508Tests(unittest.TestCase):
     def test_release_is_508(self):
         r=json.loads(text('release.json'))
         self.assertEqual(r['version'],'5.7.10')
-        self.assertEqual(r['version_code'],50709)
+        self.assertEqual(r['version_code'],50710)
 
     def test_windows_blueai_is_real_closed_loop(self):
         ai=text('bluevpn-windows/Services/WindowsBlueAiService.cs')

@@ -83,7 +83,7 @@ class ManualCustomersCRM4151Tests(unittest.TestCase):
         self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.31.0'", plugin)
         self.assertEqual(release["version"], "5.7.10")
         self.assertEqual(branding["version_name"], "5.7.10")
-        self.assertEqual(branding["version_code"], 50709)
+        self.assertEqual(branding["version_code"], 50710)
 
 if __name__ == "__main__":
     unittest.main()

@@ -14,7 +14,7 @@ class GatewaySafeRollout518Tests(unittest.TestCase):
     def test_release_and_schema_contract(self):
         release = json.loads(self.text("release.json"))
         self.assertEqual(release["version"], "5.7.10")
-        self.assertEqual(release["version_code"], 50709)
+        self.assertEqual(release["version_code"], 50710)
         for feature in (
             "gateway-config-generation",
             "gateway-agent-apply-ack",

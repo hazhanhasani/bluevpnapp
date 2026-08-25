@@ -8,7 +8,7 @@ class SubscriptionExpiryRepair4175Tests(unittest.TestCase):
     def test_release(self):
         r=json.loads(text('release.json'))
         self.assertEqual(r['version'],'5.7.10')
-        self.assertEqual(r['version_code'],50709)
+        self.assertEqual(r['version_code'],50710)
         self.assertIn('entitlement-expiry-ledger',r['features'])
         self.assertIn('legacy-non-grant-expiry-repair',r['features'])
         self.assertIn('android-server-remaining-seconds-countdown',r['features'])

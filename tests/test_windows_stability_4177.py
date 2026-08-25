@@ -9,7 +9,7 @@ class WindowsStability4177Tests(unittest.TestCase):
     def test_release_version(self):
         r=json.loads(text('release.json'))
         self.assertEqual(r['version'],'5.7.10')
-        self.assertEqual(r['version_code'],50709)
+        self.assertEqual(r['version_code'],50710)
 
     def test_ui_is_android_order_and_non_blocking_metrics(self):
         x=text('bluevpn-windows/MainWindow.xaml')

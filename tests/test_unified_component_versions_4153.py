@@ -19,7 +19,7 @@ class UnifiedComponentVersions4153Tests(unittest.TestCase):
         version = release["version"]
         self.assertEqual(version, "5.7.10")
         self.assertEqual(branding["version_name"], version)
-        self.assertEqual(branding["version_code"], 50709)
+        self.assertEqual(branding["version_code"], 50710)
         self.assertIn("Version: " + version, manager)
         self.assertIn("BLUEVPN_MANAGER_VERSION', '" + version, manager)
         self.assertRegex(style, rf"(?m)^Version:\s*{re.escape(version)}\s*$")

@@ -9,7 +9,7 @@ class WindowsAndroidUiTun4176Tests(unittest.TestCase):
     def test_release(self):
         r=json.loads(read('release.json'))
         self.assertEqual(r['version'],'5.7.10')
-        self.assertEqual(r['version_code'],50709)
+        self.assertEqual(r['version_code'],50710)
 
     def test_windows_home_matches_android_surface_order(self):
         x=read('bluevpn-windows/MainWindow.xaml')

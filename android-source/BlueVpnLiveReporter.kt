@@ -6,6 +6,7 @@ import android.os.PowerManager
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Low-power verified live-session reporter.
@@ -28,6 +29,7 @@ object BlueVpnLiveReporter {
     private const val IDLE_DELAY_SECONDS = 30L
 
     private val started = AtomicBoolean(false)
+    private val consecutiveProofFailures = AtomicInteger(0)
     private val executor = Executors.newSingleThreadScheduledExecutor {
         Thread(it, "bluevpn-live-reporter").apply {
             isDaemon = true
@@ -80,9 +82,12 @@ object BlueVpnLiveReporter {
         val health = BlueVpnIntelligenceCore.observeHealth(
             context = app,
             guid = selectedGuid,
-            pingMs = latency?.averageMs ?: 0L,
-            jitterMs = latency?.jitterMs ?: 0L,
-            packetLossX100 = latency?.packetLossX100 ?: 0,
+            // A complete end-to-end probe failure is not a perfect 0 ms sample.
+            // The old fallback made a dead Xray transport score 100/100 forever,
+            // so Home kept displaying CONNECTED while no traffic could pass.
+            pingMs = latency?.averageMs ?: 12_000L,
+            jitterMs = latency?.jitterMs ?: 2_000L,
+            packetLossX100 = latency?.packetLossX100 ?: 10_000,
         )
         if (health.shouldWarmFailover && selectedGuid.isNotBlank()) {
             // Health telemetry is advisory while a VPN transport is alive.
@@ -93,8 +98,9 @@ object BlueVpnLiveReporter {
                 selectedGuid,
                 "PREDICTIVE_DEGRADATION_OBSERVED:${health.reason}",
             )
-            // A future connect may avoid this route, but the current connection
-            // is preserved. Hard recovery is owned by transport-liveness checks.
+            // A future connect may avoid this route. Quality-only evidence does
+            // not mutate a running transport; hard proof failure is handled by
+            // the separate consecutive-failure gate below.
         }
 
         BlueVpnAi.heartbeat(
@@ -109,6 +115,21 @@ object BlueVpnLiveReporter {
             downloadBytes = rx,
             uploadBytes = tx,
         )
+
+        // Keep quality degradation non-destructive, but do not leave a tunnel
+        // that cannot pass any end-to-end proof displayed as CONNECTED forever.
+        // Three complete failures span multiple reporter intervals and are
+        // materially different from one high-ping/loss sample.
+        val hardFailureStreak = if (latency == null) {
+            consecutiveProofFailures.incrementAndGet()
+        } else {
+            consecutiveProofFailures.set(0)
+            0
+        }
+        if (hardFailureStreak >= 3) {
+            consecutiveProofFailures.set(0)
+            BlueVpnSystemController.recoverDeadTunnel(app)
+        }
     }
 
     private fun nextDelaySeconds(app: Context): Long {

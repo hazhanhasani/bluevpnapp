@@ -486,8 +486,17 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             }
         }
         if (::automaticSubtitle.isInitialized) {
+            val activeAutoLocation = if (BlueVpnPreferences.smartBalance(this)) {
+                MmkvManager.getSelectServer().orEmpty()
+                    .takeIf { it.isNotBlank() }
+                    ?.let { MmkvManager.decodeServerConfig(it) }
+                    ?.let { BlueVpnLocationUtil.detect(it.remarks, it.server) }
+                    ?.takeIf { it.key != "unknown" }
+            } else null
             automaticSubtitle.text = when (entitlement.tier) {
-                BlueVpnPlanTier.PREMIUM -> "بهترین اتصال داخل لوکیشن با پینگ، سابقه و سلامت شبکه انتخاب می‌شود"
+                BlueVpnPlanTier.PREMIUM -> activeAutoLocation?.let {
+                    "فعال • مسیر فعلی ${it.flag} ${it.title} • جابه‌جایی خودکار هنگام افت واقعی"
+                } ?: "بهترین اتصال با پینگ، سابقه و سلامت شبکه انتخاب می‌شود"
                 BlueVpnPlanTier.FREE -> "بهترین سرور رایگان • هر اتصال ${entitlement.sessionMinutes} دقیقه"
                 BlueVpnPlanTier.UNAVAILABLE -> "برای دریافت سرورها تازه‌سازی کنید یا اشتراک تهیه کنید"
             }
@@ -956,7 +965,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             Toast.makeText(this, entitlement.connectionNotice, Toast.LENGTH_LONG).show()
             return
         }
-        val changed = !BlueVpnPreferences.smartBalance(this)
+        val currentGuid = MmkvManager.getSelectServer().orEmpty()
+        // Tapping AUTO is also an explicit request to re-evaluate an already
+        // automatic session, so Home must rebuild the live candidate queue.
+        val changed = true
+        // Commit AUTO before ranking and explicitly invalidate the previous
+        // sticky choice. Otherwise the old manually selected location can win
+        // again and the UI appears to have two active modes at once.
+        BlueVpnPreferences.setAutomaticSelection(this)
+        BlueVpnSmartSelector.resetForAutomaticSelection(this, currentGuid)
         val cachedPool = BlueVpnLocationUtil.cachedCandidates(this)
         if (cachedPool.isEmpty()) {
             Toast.makeText(this, "Pool هنوز آماده نیست؛ در حال بارگذاری سرورها", Toast.LENGTH_SHORT).show()
@@ -966,10 +983,18 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         // Ranking reads historical/AI/MMKV metadata. Keep that work off the UI
         // thread; only commit the chosen GUID after the worker returns.
         lifecycleScope.launch(Dispatchers.Default) {
-            val decision = BlueVpnSmartSelector.decide(
+            val ranked = BlueVpnSmartSelector.connectionOrder(
                 this@BlueVpnServersActivity,
                 cachedPool,
             )
+            val best = ranked.firstOrNull()
+            val decision = best?.let {
+                BlueVpnSmartSelector.recordAutomaticConnectionChoice(
+                    this@BlueVpnServersActivity,
+                    it,
+                    ranked.size,
+                )
+            }
             withContext(Dispatchers.Main) {
                 if (isFinishing || isDestroyed) return@withContext
                 if (decision == null) {
@@ -981,7 +1006,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     loadCandidates(force = true)
                     return@withContext
                 }
-                BlueVpnPreferences.setAutomaticSelection(this@BlueVpnServersActivity)
                 if (!BlueVpnRuntimeGate.connectionActive(this@BlueVpnServersActivity)) {
                     MmkvManager.setSelectServer(decision.candidate.guid)
                 }

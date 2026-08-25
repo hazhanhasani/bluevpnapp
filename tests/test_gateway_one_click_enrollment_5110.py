@@ -13,8 +13,8 @@ class GatewayOneClickEnrollment5110Tests(unittest.TestCase):
 
     def test_release_and_schema_contract(self):
         r=json.loads(self.text("release.json"))
-        self.assertEqual(r["version"],"5.7.0")
-        self.assertEqual(r["version_code"],50700)
+        self.assertEqual(r["version"],"5.7.1")
+        self.assertEqual(r["version_code"],50701)
         for f in (
             "gateway-one-click-enrollment","gateway-one-time-bootstrap-token","gateway-enrollment-expiry",
             "gateway-agent-package-from-manager","gateway-dual-secret-rotation-grace",
@@ -63,7 +63,7 @@ class GatewayOneClickEnrollment5110Tests(unittest.TestCase):
 
     def test_agent_persists_rotated_credential_atomically(self):
         agent=self.text("bluevpn-gateway/agent.py")
-        self.assertIn('AGENT_VERSION = "5.7.0"',agent)
+        self.assertIn('AGENT_VERSION = "5.7.1"',agent)
         for token in (
             "def _persist_credentials","def _apply_credential_update","os.fsync","os.chmod(tmp,0o600)",
             "os.replace(tmp,self.config_path)","credential_generation","self._apply_credential_update(response)",

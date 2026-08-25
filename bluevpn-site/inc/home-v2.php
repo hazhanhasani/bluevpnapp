@@ -1,7 +1,8 @@
 <?php if (!defined('ABSPATH')) exit; ?>
 <?php
-$bundled_home_image = BLUEVPN_SITE_URL . '/assets/images/app-home-connection-clean.png';
-$bundled_locations_image = BLUEVPN_SITE_URL . '/assets/images/app-locations-clean.png';
+$bundled_home_image = BLUEVPN_SITE_URL . '/assets/images/app-home-connection-clean.webp';
+$bundled_locations_image = BLUEVPN_SITE_URL . '/assets/images/app-locations-clean.webp';
+$hero_art = BLUEVPN_SITE_URL . '/assets/images/visuals/bluevpn-shield-globe.webp';
 $hero_image = !empty($shots['home_explicit']) ? $shots['home_explicit'] : $bundled_home_image;
 $locations_image = !empty($shots['locations_explicit']) ? $shots['locations_explicit'] : $bundled_locations_image;
 $account_image = $shots['account'] ?? '';
@@ -20,11 +21,12 @@ $support_image = $shots['support'] !== '' ? $shots['support'] : BLUEVPN_SITE_URL
       </div>
       <div class="bv5-proof"><span><b>✓</b> اتصال یک‌لمسی</span><span><b>✓</b> لوکیشن هوشمند</span><span><b>✓</b> Free + Premium</span></div>
     </div>
-    <div class="bv5-hero-product" data-bv-reveal>
+    <div class="bv5-hero-product" data-bv-reveal data-bv-parallax>
       <div class="bv5-ring r1"></div><div class="bv5-ring r2"></div>
-      <figure><img src="<?php echo esc_url($hero_image); ?>" alt="صفحه اتصال واقعی BlueVPN" loading="eager" decoding="async"></figure>
+      <div class="bv5-hero-art"><img src="<?php echo esc_url($hero_art); ?>" alt="سپر محافظ شبکه جهانی BlueVPN" fetchpriority="high" decoding="async" width="900" height="900"></div>
+      <figure class="bv5-hero-phone"><img src="<?php echo esc_url($hero_image); ?>" alt="صفحه اتصال واقعی BlueVPN" loading="eager" decoding="async"></figure>
       <span class="bv5-chip c1"><i></i> متصل</span>
-      <span class="bv5-chip c2">⚡ انتخاب هوشمند</span>
+      <span class="bv5-chip c2"><?php echo bluevpn_site_icon('radar'); ?> انتخاب هوشمند</span>
     </div>
   </div>
 </section>
@@ -36,8 +38,8 @@ $support_image = $shots['support'] !== '' ? $shots['support'] : BLUEVPN_SITE_URL
    <span class="bv5-operator-chip"><img src="<?php echo esc_url(BLUEVPN_SITE_URL . '/assets/images/operator-mci.jpg'); ?>" alt="لوگوی همراه اول" loading="lazy"><span>همراه اول</span></span>
    <span class="bv5-operator-chip"><img src="<?php echo esc_url(BLUEVPN_SITE_URL . '/assets/images/operator-irancell.png'); ?>" alt="لوگوی ایرانسل" loading="lazy"><span>ایرانسل</span></span>
    <span class="bv5-operator-chip"><img src="<?php echo esc_url(BLUEVPN_SITE_URL . '/assets/images/operator-rightel.png'); ?>" alt="لوگوی رایتل" loading="lazy"><span>رایتل</span></span>
-   <span class="bv5-tech-chip"><span class="bv5-tech-icon" aria-hidden="true">A</span>Android</span>
-   <span class="bv5-tech-chip"><span class="bv5-wifi-icon" aria-hidden="true">◔</span>Wi‑Fi</span>
+   <span class="bv5-tech-chip"><?php echo bluevpn_site_icon('android'); ?>Android</span>
+   <span class="bv5-tech-chip"><?php echo bluevpn_site_icon('radar'); ?>Wi‑Fi</span>
    <span class="bv5-tech-chip">IPv4 / IPv6</span>
   </div>
  </div>
@@ -47,10 +49,10 @@ $support_image = $shots['support'] !== '' ? $shots['support'] : BLUEVPN_SITE_URL
  <div class="bv-shell">
   <header class="bv5-heading" data-bv-reveal><span>BlueVPN را قبل از شروع بشناس</span><h2>هر چیزی که برای اتصال لازم داری،<br>همان‌جا جلوی چشمت است.</h2><p>بعد از اتصال می‌توانی سرعت، مدت اتصال، لوکیشن فعال و وضعیت اشتراکت را همان لحظه ببینی.</p></header>
   <div class="bv5-feature-row">
-   <article data-bv-reveal><strong>01</strong><div class="ico">⚡</div><h3>اتصال سریع</h3><p>اپ را باز کن، دکمه اتصال را بزن و آنلاین شو.</p></article>
-   <article data-bv-reveal><strong>02</strong><div class="ico">◎</div><h3>انتخاب هوشمند</h3><p>اگر نخواهی دستی انتخاب کنی، BlueVPN بهترین گزینه در دسترس را برایت پیدا می‌کند.</p></article>
-   <article data-bv-reveal><strong>03</strong><div class="ico">◈</div><h3>حساب یکپارچه</h3><p>اشتراکت را ببین، تمدید کن و درخواست پشتیبانی را از حساب خودت پیگیری کن.</p></article>
-   <article data-bv-reveal><strong>04</strong><div class="ico">↻</div><h3>بروزرسانی کنترل‌شده</h3><p>وقتی نسخه تازه‌ای منتشر شود، از مسیر رسمی BlueVPN به نسخه جدید دسترسی داری.</p></article>
+   <article data-bv-reveal><strong>01</strong><div class="ico"><?php echo bluevpn_site_icon('bolt'); ?></div><h3>اتصال سریع</h3><p>اپ را باز کن، دکمه اتصال را بزن و آنلاین شو.</p></article>
+   <article data-bv-reveal><strong>02</strong><div class="ico"><?php echo bluevpn_site_icon('radar'); ?></div><h3>انتخاب هوشمند</h3><p>اگر نخواهی دستی انتخاب کنی، BlueVPN بهترین گزینه در دسترس را برایت پیدا می‌کند.</p></article>
+   <article data-bv-reveal><strong>03</strong><div class="ico"><?php echo bluevpn_site_icon('account'); ?></div><h3>حساب یکپارچه</h3><p>اشتراکت را ببین، تمدید کن و درخواست پشتیبانی را از حساب خودت پیگیری کن.</p></article>
+   <article data-bv-reveal><strong>04</strong><div class="ico"><?php echo bluevpn_site_icon('refresh'); ?></div><h3>بروزرسانی کنترل‌شده</h3><p>وقتی نسخه تازه‌ای منتشر شود، از مسیر رسمی BlueVPN به نسخه جدید دسترسی داری.</p></article>
   </div>
  </div>
 </section>
@@ -72,7 +74,7 @@ $support_image = $shots['support'] !== '' ? $shots['support'] : BLUEVPN_SITE_URL
      <span>لوکیشن‌ها</span>
      <h2>لوکیشن دلخواهت را انتخاب کن؛<br>یا بگذار BlueVPN انتخاب کند.</h2>
      <p>کشورها و پینگ هر مسیر را ببین و با یک لمس انتخاب کن. برای اتصال سریع‌تر هم می‌توانی «انتخاب هوشمند» را روشن بگذاری.</p>
-     <div class="bv5-pills"><span>🇩🇪 آلمان</span><span>🇹🇷 ترکیه</span><span>🇳🇱 هلند</span><span>🇺🇸 آمریکا</span><span>🇨🇦 کانادا</span><span>🌐 خودکار</span></div>
+     <div class="bv5-pills"><span><i>DE</i> آلمان</span><span><i>TR</i> ترکیه</span><span><i>NL</i> هلند</span><span><i>US</i> آمریکا</span><span><i>CA</i> کانادا</span><span><?php echo bluevpn_site_icon('radar'); ?> خودکار</span></div>
    </div>
  </div>
 </section>
@@ -102,7 +104,7 @@ $support_image = $shots['support'] !== '' ? $shots['support'] : BLUEVPN_SITE_URL
 <section class="bv5-section bv5-journey">
  <div class="bv-shell">
   <header class="bv5-heading compact" data-bv-reveal><span>شروع کار</span><h2>فقط سه قدم تا اتصال.</h2></header>
-  <div class="bv5-steps"><article data-bv-reveal><b>01</b><div>◉</div><h3>ورود</h3><p>وارد BlueVPN شو و وضعیت حسابت را ببین.</p></article><article data-bv-reveal><b>02</b><div>◎</div><h3>انتخاب</h3><p>انتخاب هوشمند را بزن یا کشور دلخواهت را انتخاب کن.</p></article><article data-bv-reveal><b>03</b><div>⚡</div><h3>اتصال</h3><p>دکمه اتصال را بزن و استفاده را شروع کن.</p></article></div>
+  <div class="bv5-steps"><article data-bv-reveal><b>01</b><div><?php echo bluevpn_site_icon('login'); ?></div><h3>ورود</h3><p>وارد BlueVPN شو و وضعیت حسابت را ببین.</p></article><article data-bv-reveal><b>02</b><div><?php echo bluevpn_site_icon('location'); ?></div><h3>انتخاب</h3><p>انتخاب هوشمند را بزن یا کشور دلخواهت را انتخاب کن.</p></article><article data-bv-reveal><b>03</b><div><?php echo bluevpn_site_icon('bolt'); ?></div><h3>اتصال</h3><p>دکمه اتصال را بزن و استفاده را شروع کن.</p></article></div>
  </div>
 </section>
 

@@ -45,9 +45,6 @@ object BlueVpnSystemController {
         BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.PREDICTIVE_FAILOVER)
         if (!BlueVpnIntelligenceCore.claimPredictiveFailover(app)) return
 
-        // Compatibility entry point only. Predictive/quality telemetry must not
-        // stop a live VPN. Record the current route as degraded so the *next*
-        // explicit reconnect can prefer another candidate.
         val current = com.v2ray.ang.handler.MmkvManager.getSelectServer().orEmpty()
         if (current.isNotBlank()) {
             BlueVpnRouteIntelligence.recordFailure(
@@ -67,6 +64,42 @@ object BlueVpnSystemController {
             BlueVpnWarpEngine.stop()
             BlueVpnPreferences.clearConnected(app)
             delay(450L)
+            start(app)
+        }
+    }
+
+    /** Recover only after repeated complete end-to-end proof failures. */
+    fun recoverDeadTunnel(context: Context) {
+        val app = context.applicationContext
+        if (!BlueVpnIntelligenceCore.claimPredictiveFailover(app)) return
+        scope.launch {
+            val current = com.v2ray.ang.handler.MmkvManager.getSelectServer().orEmpty()
+            if (current.isNotBlank()) {
+                BlueVpnPreferences.markServerFailure(app, current)
+                BlueVpnRouteIntelligence.recordFailure(app, current, "END_TO_END_PROOF_FAILED")
+            }
+            if (BlueVpnPreferences.selectionMode(app) == BlueVpnSelectionMode.AUTO) {
+                val candidates = BlueVpnLocationUtil.cachedCandidates(app)
+                BlueVpnSmartSelector.connectionOrder(app, candidates)
+                    .firstOrNull { scored ->
+                        scored.candidate.guid != current &&
+                            !BlueVpnPreferences.failedRecently(app, scored.candidate.guid) &&
+                            !BlueVpnRouteIntelligence.isCoolingDown(app, scored.candidate.guid)
+                    }
+                    ?.let { replacement ->
+                        BlueVpnSmartSelector.recordAutomaticConnectionChoice(
+                            app,
+                            replacement,
+                            candidates.size,
+                        )
+                        com.v2ray.ang.handler.MmkvManager.setSelectServer(replacement.candidate.guid)
+                    }
+            }
+            LauncherManager.stopService(app)
+            BlueVpnWarpKeepAliveService.stop(app)
+            BlueVpnWarpEngine.stop()
+            BlueVpnPreferences.clearConnected(app)
+            delay(350L)
             start(app)
         }
     }

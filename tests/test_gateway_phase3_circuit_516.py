@@ -9,7 +9,7 @@ class GatewayPhase3Circuit516Tests(unittest.TestCase):
 
     def test_release_contract(self):
         r=json.loads(self.text("release.json"))
-        self.assertEqual(r["version"],"5.7.0"); self.assertEqual(r["version_code"],50700)
+        self.assertEqual(r["version"],"5.7.1"); self.assertEqual(r["version_code"],50701)
         for token in ("gateway-circuit-breaker-hysteresis","gateway-local-quota-lease-fail-closed","gateway-hysteria2-singbox-sidecar","free-source-sentinel-single-owner"):
             self.assertIn(token,r["features"])
 

@@ -4,7 +4,9 @@ const motionRoot=document.documentElement;
 const reducedMotion=window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches===true;
 const compactMobile=window.matchMedia?.('(max-width: 760px)')?.matches===true;
 const saveData=navigator.connection?.saveData===true;
-const lightweightMotion=reducedMotion||compactMobile||saveData;
+// Mobile is no longer treated as "no animation". It gets short transform-only
+// motion; only an explicit accessibility/data-saving preference disables it.
+const lightweightMotion=reducedMotion||saveData;
 if(!lightweightMotion)motionRoot.classList.add('bv-motion');
 else motionRoot.classList.add('bv-mobile-motion-lite');
 const motionFailSafe=window.setTimeout(()=>motionRoot.classList.remove('bv-motion'),lightweightMotion?0:2500);
@@ -53,7 +55,17 @@ if(token()){try{await showDashboard()}catch(e){if(['AUTH_REQUIRED','INVALID_SESS
 function menu(){const b=$('[data-bv-menu]'),p=$('[data-bv-menu-panel]');if(!b||!p)return;const close=()=>{p.classList.remove('is-open');b.classList.remove('is-open');b.setAttribute('aria-expanded','false')};b.onclick=()=>{const open=p.classList.toggle('is-open');b.classList.toggle('is-open',open);b.setAttribute('aria-expanded',open?'true':'false')};$$('a',p).forEach(a=>a.addEventListener('click',close));document.addEventListener('click',e=>{if(!p.contains(e.target)&&!b.contains(e.target))close()})}
 function headerState(){const h=$('[data-bv-header]');if(!h)return;const sync=()=>h.classList.toggle('is-scrolled',window.scrollY>14);sync();window.addEventListener('scroll',sync,{passive:true})}
 function reveal(){const els=$$('[data-bv-reveal]');if(!els.length){motionRoot.classList.remove('bv-motion');window.clearTimeout(motionFailSafe);return}if(lightweightMotion||!('IntersectionObserver'in window)){els.forEach(x=>x.classList.add('is-visible'));motionRoot.classList.remove('bv-motion');window.clearTimeout(motionFailSafe);return}const io=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('is-visible');io.unobserve(e.target)}}),{threshold:.12,rootMargin:'0px 0px -35px 0px'});els.forEach(x=>io.observe(x));window.setTimeout(()=>{els.forEach(x=>x.classList.add('is-visible'));motionRoot.classList.remove('bv-motion');window.clearTimeout(motionFailSafe)},1800)}
+function premiumMotion(){
+  if(lightweightMotion)return;
+  const stage=$('[data-bv-parallax]');
+  if(stage&&!compactMobile){
+    let frame=0;
+    stage.addEventListener('pointermove',e=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{const r=stage.getBoundingClientRect(),x=(e.clientX-r.left)/r.width-.5,y=(e.clientY-r.top)/r.height-.5;stage.style.setProperty('--px',(x*10).toFixed(2)+'px');stage.style.setProperty('--py',(y*8).toFixed(2)+'px')})},{passive:true});
+    stage.addEventListener('pointerleave',()=>{stage.style.setProperty('--px','0px');stage.style.setProperty('--py','0px')});
+  }
+  $$('.bv5-feature-row,.bv5-metrics,.bv5-steps,.bv5-plan-cards').forEach(group=>[...group.children].forEach((el,i)=>el.style.setProperty('--delay',`${Math.min(i*85,340)}ms`)));
+}
 function accordion(){const root=$('[data-bv-accordion]');if(!root)return;$$('article',root).forEach(item=>{const btn=$('button',item);if(!btn)return;btn.addEventListener('click',()=>{const open=item.classList.contains('is-open');$$('article',root).forEach(x=>x.classList.remove('is-open'));if(!open)item.classList.add('is-open')})})}
 function networkStatus(){const el=$('[data-bv-network-status]');if(!el)return;let wasOffline=!navigator.onLine;const sync=()=>{const offline=!navigator.onLine;document.documentElement.classList.toggle('bv-offline',offline);el.classList.toggle('is-visible',offline);el.setAttribute('aria-hidden',offline?'false':'true');if(!offline&&wasOffline)toast('اتصال اینترنت دوباره برقرار شد.');wasOffline=offline};window.addEventListener('online',sync);window.addEventListener('offline',sync);sync()}
-document.addEventListener('DOMContentLoaded',()=>{menu();headerState();reveal();accordion();networkStatus();initPlansPage();initAccount()});
+document.addEventListener('DOMContentLoaded',()=>{menu();headerState();premiumMotion();reveal();accordion();networkStatus();initPlansPage();initAccount()});
 })();

@@ -1,7 +1,7 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-define('BLUEVPN_SITE_VERSION', '5.7.0');
+define('BLUEVPN_SITE_VERSION', '5.7.1');
 
 define('BLUEVPN_SITE_DIR', get_template_directory());
 define('BLUEVPN_SITE_URL', get_template_directory_uri());
@@ -31,6 +31,26 @@ function bluevpn_site_visual_url(string $file): string {
     return BLUEVPN_SITE_URL . '/assets/images/illustrations/' . $safe;
 }
 
+/** Lightweight outline icon system; avoids emoji/platform-dependent glyphs. */
+function bluevpn_site_icon(string $name, string $label = ''): string {
+    $paths = [
+        'bolt' => '<path d="M13 2 4.8 13h6.1L10 22l8.2-12h-6.1L13 2Z"/>',
+        'radar' => '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 4v3m8 5h-3m-5 8v-3m-8-5h3"/>',
+        'account' => '<circle cx="12" cy="8" r="4"/><path d="M4.5 21c.7-4.1 3.2-6 7.5-6s6.8 1.9 7.5 6"/>',
+        'refresh' => '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M18.2 9A7 7 0 0 0 6 6.4L4 9m16 6-2 2.6A7 7 0 0 1 5.8 15"/>',
+        'shield' => '<path d="M12 2.5 20 6v5.5c0 5-3.2 8.4-8 10-4.8-1.6-8-5-8-10V6l8-3.5Z"/><path d="m8.5 12 2.2 2.2 4.8-5"/>',
+        'location' => '<path d="M20 10c0 5.4-8 12-8 12S4 15.4 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/>',
+        'login' => '<path d="M10 4H5v16h5m4-4 4-4-4-4m4 4H9"/>',
+        'support' => '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><path d="M4 13H2v5h4v-5H4Zm16 0h2v5h-4v-5h2Zm0 5c0 2-2 3-5 3"/>',
+        'windows' => '<path d="m3 5 8-1v8H3V5Zm10-1 8-1v9h-8V4ZM3 14h8v8l-8-1v-7Zm10 0h8v9l-8-1v-8Z"/>',
+        'android' => '<path d="M6 9h12v10H6V9Zm2-3-2-3m10 3 2-3M5 9a7 7 0 0 1 14 0M4 10v7m16-7v7M9 19v3m6-3v3"/>',
+        'check' => '<path d="m5 12 4.2 4.2L19 6.5"/>',
+    ];
+    $path = $paths[$name] ?? $paths['shield'];
+    $aria = $label === '' ? ' aria-hidden="true"' : ' role="img" aria-label="' . esc_attr($label) . '"';
+    return '<svg class="bv-icon bv-icon-' . esc_attr($name) . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"' . $aria . '>' . $path . '</svg>';
+}
+
 
 function bluevpn_site_app_screenshot_url(string $slot = 'home'): string {
     $map = [
@@ -46,8 +66,8 @@ function bluevpn_site_app_screenshot_url(string $slot = 'home'): string {
         if (is_string($url) && $url !== '') return $url;
     }
     $fallbacks = [
-        'home' => BLUEVPN_SITE_URL . '/assets/images/app-home-connection-clean.png',
-        'locations' => BLUEVPN_SITE_URL . '/assets/images/app-locations-clean.png',
+        'home' => BLUEVPN_SITE_URL . '/assets/images/app-home-connection-clean.webp',
+        'locations' => BLUEVPN_SITE_URL . '/assets/images/app-locations-clean.webp',
         'support' => BLUEVPN_SITE_URL . '/assets/images/app-support-real.jpg',
     ];
     return $fallbacks[$slot] ?? '';

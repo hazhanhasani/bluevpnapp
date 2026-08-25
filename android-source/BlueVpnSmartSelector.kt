@@ -28,6 +28,44 @@ object BlueVpnSmartSelector {
     private const val KEY_LAST_AT = "last_at"
     private const val KEY_LAST_AUTO_GUID = "last_auto_guid"
     private const val KEY_LAST_AUTO_IDENTITY = "last_auto_identity"
+    private const val KEY_AUTO_AVOID_GUID = "auto_avoid_guid"
+    private const val KEY_AUTO_AVOID_UNTIL = "auto_avoid_until"
+    private const val AUTO_RESELECT_AVOID_MS = 2 * 60 * 1000L
+
+    /**
+     * Starts a genuinely fresh AUTO decision. The previous manual/current route
+     * remains in the pool as a last-resort fallback, but cannot immediately win
+     * again merely because it owns stale success/sticky history.
+     */
+    fun resetForAutomaticSelection(context: Context, currentGuid: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .remove(KEY_LAST_AUTO_GUID)
+            .remove(KEY_LAST_AUTO_IDENTITY)
+            .remove(KEY_LAST_GUID)
+            .remove(KEY_LAST_REASON)
+            .remove(KEY_LAST_SCORE)
+            .remove(KEY_LAST_AT)
+            .putString(KEY_AUTO_AVOID_GUID, currentGuid.trim())
+            .putLong(
+                KEY_AUTO_AVOID_UNTIL,
+                if (currentGuid.isBlank()) 0L else System.currentTimeMillis() + AUTO_RESELECT_AVOID_MS,
+            )
+            .apply()
+    }
+
+    private fun applyFreshAutoPreference(
+        context: Context,
+        ranked: List<ScoredCandidate>,
+    ): List<ScoredCandidate> {
+        if (ranked.size < 2) return ranked
+        val storage = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val avoidGuid = storage.getString(KEY_AUTO_AVOID_GUID, "").orEmpty()
+        val avoidUntil = storage.getLong(KEY_AUTO_AVOID_UNTIL, 0L)
+        if (avoidGuid.isBlank() || avoidUntil <= System.currentTimeMillis()) return ranked
+        val alternatives = ranked.filterNot { it.candidate.guid == avoidGuid }
+        val avoided = ranked.filter { it.candidate.guid == avoidGuid }
+        return if (alternatives.isEmpty()) ranked else alternatives + avoided
+    }
 
     private fun delayScore(delay: Long): Int = when {
         delay in 1..35 -> 100
@@ -200,7 +238,7 @@ object BlueVpnSmartSelector {
         context: Context,
         candidates: List<BlueVpnLocationUtil.Candidate>,
     ): List<ScoredCandidate> {
-        val ranked = rankTrusted(context, candidates)
+        val ranked = applyFreshAutoPreference(context, rankTrusted(context, candidates))
         recordShadowComparison(context, ranked)
         if (ranked.size < 2) return ranked
         val recovery = BlueVpnNetworkRecoveryManager.recoveryWindowActive(context)
@@ -229,7 +267,7 @@ object BlueVpnSmartSelector {
         context: Context,
         candidates: List<BlueVpnLocationUtil.Candidate>,
     ): List<ScoredCandidate> {
-        val ranked = rank(context, candidates)
+        val ranked = applyFreshAutoPreference(context, rank(context, candidates))
         recordShadowComparison(context, ranked)
         if (ranked.size < 2) return ranked
 

@@ -71,6 +71,45 @@
   .bv-shell{width:min(100% - 28px,var(--shell))}.bv-announcement-inner{font-size:9px}.bv-announcement-inner>span{max-width:55%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bv-nav{height:68px;gap:11px}.bv-brand-text{font-size:25px}.bv-nav-account{padding:9px 12px;font-size:11px}.bv-menu{top:96px;left:14px;right:14px}.bv-hero{min-height:auto;padding:70px 0 70px}.bv-hero-copy h1{font-size:52px;letter-spacing:-3px}.bv-hero-copy>p{font-size:14px}.bv-hero-actions .bv-btn{width:100%}.bv-hero-proof{grid-template-columns:1fr}.bv-hero-proof>div{display:flex;align-items:center;justify-content:space-between;padding:10px 2px}.bv-product-stage{min-height:430px}.bv-app-shell{width:94%;padding:19px;border-radius:30px;transform:none}.bv-stage-card{display:none}.bv-connect-orb-wrap{height:165px}.bv-connect-orb{width:100px;height:100px}.bv-tech-strip-inner{justify-content:flex-start;overflow-x:auto;white-space:nowrap;min-height:58px;padding:0 3px}.bv-section{padding:75px 0}.bv-section-heading h2{font-size:36px}.bv-bento{grid-template-columns:1fr}.bv-bento-main{grid-column:auto;min-height:500px;padding:28px}.bv-bento-card{padding:26px}.bv-locations-stack{right:28px;left:28px;bottom:28px}.bv-locations-stack>div:nth-child(2),.bv-locations-stack>div:nth-child(3){margin-inline:0}.bv-network-copy h2{font-size:38px}.bv-network-visual-pro{min-height:360px;border-radius:28px}.bv-map-label{display:none}.bv-map-center{width:90px;height:90px}.bv-how-grid{grid-template-columns:1fr}.bv-how-grid article{min-height:230px}.bv-step-icon{margin:28px 0 17px}.bv-premium-card{padding:34px 23px;border-radius:30px}.bv-premium-copy h2{font-size:37px}.bv-premium-actions{flex-direction:column}.bv-premium-visual{min-height:240px}.bv-pcard{width:230px;height:145px}.bv-faq-copy h2{font-size:36px}.bv-subhero{padding:72px 0 62px}.bv-subhero h1{font-size:45px;letter-spacing:-2.6px}.bv-plan-orbit{height:300px}.bv-p-orbit.one{width:280px;height:280px}.bv-p-orbit.two{width:205px;height:205px}.bv-plans{grid-template-columns:1fr}.bv-value-strip-grid{grid-template-columns:1fr}.bv-value-strip-grid>div{border-left:0;border-bottom:1px solid rgba(255,255,255,.05)}.bv-download-device{width:250px;height:370px}.bv-device-logo{margin-top:43px}.bv-download-facts{grid-template-columns:1fr}.bv-install-steps{grid-template-columns:1fr}.bv-support-cards{grid-template-columns:1fr}.bv-account-page{padding:68px 0 78px}.bv-account-intro h1{font-size:46px}.bv-auth-shell{padding:22px;border-radius:25px}.bv-auth-actions{grid-template-columns:1fr}.bv-account-stats{grid-template-columns:1fr}.bv-dashboard-grid{grid-template-columns:1fr}.bv-footer-cta{flex-direction:column;text-align:center}.bv-footer-main{grid-template-columns:1fr 1fr;gap:28px}.bv-footer-about{grid-column:1/-1}.bv-footer-bottom{flex-direction:column;text-align:center}.bv-footer-cta h2{font-size:31px}
 }
 
+/* BlueVPN 5.7.0 — visual system refresh: responsive, animated, asset-led. */
+:root{--bv-cobalt:#236cff;--bv-cyan:#3edcff;--bv-ink:#071326;--bv-radius-xl:34px;--bv-ease:cubic-bezier(.2,.78,.25,1)}
+.bv-icon{display:inline-block;width:1.35em;height:1.35em;flex:none;vertical-align:-.28em}
+.bv5-hero{position:relative;isolation:isolate;overflow:hidden;background:radial-gradient(circle at 75% 42%,rgba(35,108,255,.16),transparent 31%),linear-gradient(145deg,#f8fbff 0%,#eef5ff 53%,#fff 100%)}
+.bv5-hero:before{content:"";position:absolute;inset:0;z-index:-1;opacity:.4;background-image:linear-gradient(rgba(37,102,232,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(37,102,232,.05) 1px,transparent 1px);background-size:54px 54px;mask-image:linear-gradient(to bottom,#000,transparent 88%)}
+.bv5-hero-grid{align-items:center;gap:clamp(24px,5vw,78px)}
+.bv5-copy{position:relative;z-index:3}.bv5-copy h1{max-width:720px;text-wrap:balance}.bv5-copy h1 em{background:linear-gradient(100deg,#175cff,#22bde8);-webkit-background-clip:text;background-clip:text;color:transparent}
+.bv5-eyebrow{box-shadow:0 12px 30px rgba(19,80,184,.08);background:rgba(255,255,255,.72);backdrop-filter:blur(12px)}
+.bv5-hero-product{--px:0px;--py:0px;min-height:630px;perspective:1100px;transition:transform .8s var(--bv-ease)}
+.bv5-hero-art{position:absolute;inset:2% -2% auto auto;width:min(590px,94%);z-index:1;transform:translate3d(var(--px),var(--py),0);filter:drop-shadow(0 34px 46px rgba(16,73,184,.28));animation:bv-float-art 6s ease-in-out infinite}
+.bv5-hero-art img{display:block;width:100%;height:auto}
+.bv5-hero-phone{z-index:3!important;width:min(250px,43%)!important;right:auto!important;left:1%!important;bottom:1%!important;top:auto!important;transform:rotate(-5deg) translate3d(calc(var(--px) * -.6),calc(var(--py) * -.6),0)!important;box-shadow:0 35px 70px rgba(3,23,58,.28)!important}
+.bv5-chip{z-index:5;display:inline-flex;align-items:center;gap:7px;box-shadow:0 15px 36px rgba(21,73,161,.16)}.bv5-chip .bv-icon{width:15px;height:15px}
+.bv5-chip.c2{top:19%;left:0}.bv5-chip.c1{right:4%;bottom:16%}
+.bv5-ring{animation:bv-ring-breathe 4.8s ease-in-out infinite!important}
+.bv5-feature-row article,.bv5-steps article,.bv5-metrics article,.bv5-plan-cards article{position:relative;overflow:hidden;transition:transform .45s var(--bv-ease),box-shadow .45s var(--bv-ease),border-color .3s ease;transition-delay:var(--delay,0ms)}
+.bv5-feature-row article:before,.bv5-steps article:before{content:"";position:absolute;width:150px;height:150px;border-radius:50%;background:radial-gradient(circle,rgba(47,126,255,.11),transparent 68%);left:-60px;top:-65px;transition:transform .45s var(--bv-ease)}
+.bv5-feature-row article:hover,.bv5-steps article:hover,.bv5-plan-cards article:hover{transform:translateY(-9px);box-shadow:0 28px 60px rgba(18,56,115,.14)}
+.bv5-feature-row article:hover:before,.bv5-steps article:hover:before{transform:scale(1.45)}
+.bv5-feature-row .ico,.bv5-steps article>div{display:grid;place-items:center;width:54px;height:54px;border-radius:18px;color:#fff;background:linear-gradient(145deg,#1f69ff,#2bc6ec);box-shadow:0 15px 30px rgba(35,108,255,.24)}
+.bv5-feature-row .ico .bv-icon,.bv5-steps .bv-icon{width:25px;height:25px}
+.bv5-pills span{display:inline-flex!important;align-items:center;gap:7px}.bv5-pills i{display:grid;place-items:center;width:31px;height:31px;border-radius:10px;background:linear-gradient(145deg,#e8f0ff,#fff);border:1px solid #dce7fa;color:#2555a4;font-size:9px;font-style:normal;font-weight:900}.bv5-pills .bv-icon{color:#2672ff;width:21px;height:21px}
+.bv5-device figure,.bv5-locations-device figure{box-shadow:0 35px 80px rgba(8,34,80,.18);transition:transform .6s var(--bv-ease)}.bv5-device:hover figure{transform:translateY(-8px) rotate(1deg)}.bv5-locations-device:hover figure{transform:translateY(-8px) rotate(-1deg)}
+.bv-btn{position:relative;overflow:hidden}.bv-btn:after{content:"";position:absolute;inset:-70% auto -70% -45%;width:26%;transform:rotate(20deg);background:linear-gradient(90deg,transparent,rgba(255,255,255,.5),transparent);transition:left .7s var(--bv-ease)}.bv-btn:hover:after{left:125%}
+html.bv-motion [data-bv-reveal]{opacity:0;transform:translateY(26px) scale(.985);transition:opacity .7s var(--bv-ease),transform .7s var(--bv-ease);transition-delay:var(--delay,0ms)}html.bv-motion [data-bv-reveal].is-visible{opacity:1;transform:none}
+@keyframes bv-float-art{0%,100%{translate:0 0}50%{translate:0 -12px}}@keyframes bv-ring-breathe{0%,100%{opacity:.28;scale:.98}50%{opacity:.58;scale:1.04}}
+@media(max-width:1020px){.bv5-hero-grid{grid-template-columns:1fr 1fr}.bv5-hero-product{min-height:520px}.bv5-feature-row{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:760px){
+ body.bluevpn-site .bv5-hero{padding:38px 0 22px}
+ body.bluevpn-site .bv5-copy{text-align:center}body.bluevpn-site .bv5-copy h1{font-size:clamp(33px,10vw,46px)}body.bluevpn-site .bv5-copy>p{font-size:13px}
+ body.bluevpn-site .bv5-hero-product{min-height:390px;margin-top:8px}.bv5-hero-art{width:min(410px,100%);inset:2% 0 auto}.bv5-hero-phone{width:min(155px,39%)!important;left:2%!important;bottom:0!important}
+ body.bluevpn-site .bv5-feature-row{grid-template-columns:1fr}.bv5-feature-row article,.bv5-steps article,.bv5-metrics article{padding:22px!important;text-align:right}.bv5-feature-row article:hover,.bv5-steps article:hover,.bv5-plan-cards article:hover{transform:none}
+ body.bluevpn-site .bv5-screen-grid,body.bluevpn-site .bv5-locations-layout{grid-template-columns:1fr;gap:32px}.bv5-locations-copy{order:-1}.bv5-device,.bv5-locations-device{min-height:410px!important}
+ body.bluevpn-site .bv5-pills{justify-content:center}.bv5-chip.c2{top:12%}.bv5-chip.c1{right:2%;bottom:12%}
+ html.bv-motion [data-bv-reveal]{transform:translateY(16px);transition-duration:.55s}
+}
+@media(max-width:390px){body.bluevpn-site .bv-shell{width:calc(100% - 22px)}.bv5-hero-product{min-height:340px!important}.bv5-hero-phone{width:132px!important}.bv5-chip{font-size:7px!important}.bv5-proof{font-size:9px}.bv5-pills span{font-size:10px}}
+@media(prefers-reduced-motion:reduce){.bv5-hero-art,.bv5-ring{animation:none!important}.bv5-feature-row article,.bv5-steps article,.bv5-plan-cards article,.bv5-device figure,.bv5-locations-device figure{transition:none!important}}
+
 /* =====================================================================
    BlueVPN Site 1.0.3 — product-grade public UI
    The selectors below intentionally layer on top of the previous theme
@@ -1420,7 +1459,7 @@ html,body,.bv-site-frame,.bv-home-v5{max-width:100%;overflow-x:hidden}
 .bv-offline [data-buy-plan]{filter:saturate(.75);}
 .bv-offline [data-bv-network-status]{pointer-events:none;}
 
-/* BlueVPN 5.7.0 — true mobile scale and lightweight motion for the whole theme. */
+/* BlueVPN 5.7.1 — true mobile scale and lightweight motion for the whole theme. */
 @media(max-width:760px){
   html,body.bluevpn-site{width:100%;max-width:100%;overflow-x:hidden}
   body.bluevpn-site{font-size:14px;line-height:1.85}

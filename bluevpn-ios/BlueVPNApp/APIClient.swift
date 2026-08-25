@@ -13,7 +13,7 @@ enum APIError: LocalizedError {
 
 actor APIClient {
     static let shared = APIClient()
-    let base = URL(string: "https://bot.blluepanel.ir")!
+    let base = URL(string: "https://blluepanel.ir")!
     private let session: URLSession = {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 12

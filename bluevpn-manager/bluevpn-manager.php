@@ -7,7 +7,7 @@
  * Requires at least: 6.2
  * Requires PHP: 8.0
  * Text Domain: bluevpn-manager
- * Update URI: https://bot.blluepanel.ir/bluevpn-manager
+ * Update URI: https://blluepanel.ir/bluevpn-manager
  */
 
 if (!defined('ABSPATH')) {

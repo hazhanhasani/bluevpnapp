@@ -803,8 +803,8 @@
   "theme_version": "5.7.9",
   "windows_version": "5.7.9",
   "windows_version_code": 50709,
-  "ios_version": "5.6.1",
-  "ios_version_code": 50601,
+  "ios_version": "5.7.9",
+  "ios_version_code": 50709,
   "windows": {
     "status": "beta",
     "framework": "net10.0-windows",

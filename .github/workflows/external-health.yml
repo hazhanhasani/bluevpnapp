@@ -19,7 +19,7 @@ jobs:
     steps:
       - name: Probe public and database-backed health
         env:
-          BLUEVPN_BASE_URL: https://bot.blluepanel.ir
+          BLUEVPN_BASE_URL: https://blluepanel.ir
         shell: bash
         run: |
           set -euo pipefail

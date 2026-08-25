@@ -19,14 +19,14 @@ jobs:
     steps:
       - name: Probe public and database-backed health
         env:
-          BLUEVPN_BASE_URL: https://blluepanel.ir
+          BLUEVPN_BASE_URLS: https://blluepanel.ir,https://bot.blluepanel.ir
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import json, os, time, urllib.request
-          base=os.environ['BLUEVPN_BASE_URL'].rstrip('/')
-          urls=[base+'/health', base+'/wp-json/bluevpn-system/v1/health']
+          bases=[value.strip().rstrip('/') for value in os.environ['BLUEVPN_BASE_URLS'].split(',') if value.strip()]
+          urls=[base+path for base in bases for path in ('/health','/wp-json/bluevpn-system/v1/health')]
           errors=[]
           for url in urls:
               last=None

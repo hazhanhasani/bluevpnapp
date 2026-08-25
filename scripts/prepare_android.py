@@ -155,6 +155,10 @@ def patch_build_gradle() -> None:
     )
 
     api_value = CONFIG.get("api_base_url", "").rstrip("/")
+    api_values = [str(value).rstrip("/") for value in CONFIG.get("api_base_urls", []) if str(value).strip()]
+    if api_value and api_value not in api_values:
+        api_values.insert(0, api_value)
+    api_values_csv = ",".join(dict.fromkeys(api_values))
     configured_tapsell_app_id = str(CONFIG.get("tapsell_app_id", "")).strip()
     tapsell_app_id = configured_tapsell_app_id or TAPSELL_TEST_APP_ID
     tapsell_test_fallback = configured_tapsell_app_id == ""
@@ -168,6 +172,11 @@ def patch_build_gradle() -> None:
             "BLUEVPN_API_BASE_URL",
             '\n        buildConfigField("String", "BLUEVPN_API_BASE_URL", "\\"'
             + api_value + '\\"")',
+        ),
+        (
+            "BLUEVPN_API_BASE_URLS",
+            '\n        buildConfigField("String", "BLUEVPN_API_BASE_URLS", "\\"'
+            + api_values_csv + '\\"")',
         ),
         (
             "BLUEVPN_TAPSELL_APP_ID",

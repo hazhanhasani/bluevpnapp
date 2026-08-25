@@ -9,6 +9,7 @@ public sealed class AppSettings
     [JsonPropertyName("app_name")] public string AppName { get; set; } = "BlueVPN";
     [JsonPropertyName("version")] public string Version { get; set; } = "";
     [JsonPropertyName("api_base_url")] public string ApiBaseUrl { get; set; } = "";
+    [JsonPropertyName("api_base_urls")] public List<string> ApiBaseUrls { get; set; } = [];
     [JsonPropertyName("free_subscription_path")] public string FreeSubscriptionPath { get; set; } = "/wp-json/bluevpn/v1/free/curated?limit=100";
     [JsonPropertyName("mobile_config_path")] public string MobileConfigPath { get; set; } = "/wp-json/bluevpn/v1/mobile/config";
     [JsonPropertyName("windows_update_path")] public string WindowsUpdatePath { get; set; } = "/wp-json/bluevpn/v1/windows/update";
@@ -30,6 +31,13 @@ public sealed class AppSettings
         return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions())
             ?? throw new InvalidOperationException("BlueVPN appsettings.json is invalid.");
     }
+
+    public IReadOnlyList<string> ControlPlaneBases() => ApiBaseUrls
+        .Prepend(ApiBaseUrl)
+        .Select(value => value?.Trim().TrimEnd('/') ?? "")
+        .Where(value => Uri.TryCreate(value, UriKind.Absolute, out var uri) && uri.Scheme == Uri.UriSchemeHttps)
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 
     public static JsonSerializerOptions JsonOptions() => new()
     {

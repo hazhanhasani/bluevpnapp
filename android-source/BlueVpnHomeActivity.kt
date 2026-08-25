@@ -4548,7 +4548,7 @@ private fun dpHome(value: Int): Int =
                 add("https://cp.cloudflare.com/generate_204")
                 add("http://connectivitycheck.gstatic.com/generate_204")
                 add("https://1.1.1.1/cdn-cgi/trace")
-                add("${BuildConfig.BLUEVPN_API_BASE_URL.trimEnd('/')}/health")
+                BlueVpnAccountManager.apiBaseUrls().forEach { base -> add("$base/health") }
                 if (!BlueVpnPerformance.isLowEnd(this@BlueVpnHomeActivity)) {
                     add("https://check-host.net/cdn-cgi/trace")
                 }

@@ -239,6 +239,14 @@ object BlueVpnAccountManager {
     fun apiBaseUrl() =
         BuildConfig.BLUEVPN_API_BASE_URL.trimEnd('/')
 
+    fun apiBaseUrls(): List<String> =
+        BuildConfig.BLUEVPN_API_BASE_URLS
+            .split(',')
+            .map { it.trim().trimEnd('/') }
+            .filter { it.startsWith("https://") }
+            .distinct()
+            .ifEmpty { listOf(apiBaseUrl()) }
+
     fun mobileConfig(c: Context, force: Boolean = false): Result<JSONObject> = runCatching {
         val appContext = c.applicationContext
         val now = android.os.SystemClock.elapsedRealtime()
@@ -2802,8 +2810,30 @@ object BlueVpnAccountManager {
         auth: Boolean,
         accessOverride: String? = null,
     ): JSONObject {
+        val bases = if (method == "GET") apiBaseUrls() else listOf(apiBaseUrl())
+        var lastError: ApiException? = null
+        for (base in bases) {
+            try {
+                return requestAgainstBase(c, method, path, body, auth, accessOverride, base)
+            } catch (error: ApiException) {
+                lastError = error
+                if (error.status != 0 && error.status !in listOf(502, 503, 504)) throw error
+            }
+        }
+        throw lastError ?: ApiException(0, "CONTROL_PLANE_UNAVAILABLE", "سرور BlueVPN در دسترس نیست.")
+    }
+
+    private fun requestAgainstBase(
+        c: Context,
+        method: String,
+        path: String,
+        body: JSONObject?,
+        auth: Boolean,
+        accessOverride: String?,
+        baseUrl: String,
+    ): JSONObject {
         val connection =
-            URL(apiBaseUrl() + path)
+            URL(baseUrl + path)
                 .openConnection() as HttpURLConnection
 
         try {

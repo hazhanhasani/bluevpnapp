@@ -77,6 +77,8 @@ def expected_files(version: str, version_code: int) -> dict[str, str]:
                 "theme_version": version,
                 "windows_version": version,
                 "windows_version_code": version_code,
+                "ios_version": version,
+                "ios_version_code": version_code,
             },
         ),
         "branding/app.json": json_file(
@@ -114,6 +116,10 @@ def expected_files(version: str, version_code: int) -> dict[str, str]:
         ),
         "bluevpn-site/style.css": replace(
             "bluevpn-site/style.css", [(r"(?m)^Version: .+$", f"Version: {version}")]
+        ),
+        "bluevpn-site/assets/css/site.css": replace(
+            "bluevpn-site/assets/css/site.css",
+            [(r"BlueVPN \d+\.\d+\.\d+ —", f"BlueVPN {version} —")],
         ),
         "bluevpn-windows/installer/BlueVPN.iss": replace(
             "bluevpn-windows/installer/BlueVPN.iss",

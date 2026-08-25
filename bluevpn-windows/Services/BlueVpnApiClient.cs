@@ -11,10 +11,10 @@ namespace BlueVPN.Windows.Services;
 
 public sealed class BlueVpnApiClient : IDisposable
 {
-    private readonly HttpClient _directHttp;
-    private readonly HttpClient _systemProxyHttp;
-    private readonly HttpClient _rawDirectHttp;
-    private readonly HttpClient _rawProxyHttp;
+    private readonly HttpClient[] _directHttp;
+    private readonly HttpClient[] _systemProxyHttp;
+    private readonly HttpClient[] _rawDirectHttp;
+    private readonly HttpClient[] _rawProxyHttp;
     private readonly AppSettings _settings;
     private string _token = "";
     private Account? _cachedAccount;
@@ -23,7 +23,8 @@ public sealed class BlueVpnApiClient : IDisposable
     public BlueVpnApiClient(AppSettings settings)
     {
         _settings = settings;
-        var baseAddress = new Uri(settings.ApiBaseUrl.TrimEnd('/') + "/");
+        var baseAddresses = settings.ControlPlaneBases().Select(value => new Uri(value + "/")).ToArray();
+        if (baseAddresses.Length == 0) throw new InvalidOperationException("No valid HTTPS BlueVPN control-plane domain is configured.");
 
         // A VPN client must not depend on a stale Windows system proxy. Previous
         // v2rayN/other proxy clients can leave WinINET proxy state pointing to a
@@ -31,10 +32,10 @@ public sealed class BlueVpnApiClient : IDisposable
         // an SSL/TLS failure while ordinary direct Internet access is healthy.
         // Prefer a clean direct control-plane path, then retry once through the
         // Windows proxy for networks where a legitimate system proxy is required.
-        _directHttp = CreateHttpClient(baseAddress, settings.Version, useSystemProxy: false);
-        _systemProxyHttp = CreateHttpClient(baseAddress, settings.Version, useSystemProxy: true);
-        _rawDirectHttp = CreateHttpClient(baseAddress, settings.Version, useSystemProxy: false, allowAutoRedirect: false);
-        _rawProxyHttp = CreateHttpClient(baseAddress, settings.Version, useSystemProxy: true, allowAutoRedirect: false);
+        _directHttp = baseAddresses.Select(uri => CreateHttpClient(uri, settings.Version, useSystemProxy: false)).ToArray();
+        _systemProxyHttp = baseAddresses.Select(uri => CreateHttpClient(uri, settings.Version, useSystemProxy: true)).ToArray();
+        _rawDirectHttp = baseAddresses.Select(uri => CreateHttpClient(uri, settings.Version, useSystemProxy: false, allowAutoRedirect: false)).ToArray();
+        _rawProxyHttp = baseAddresses.Select(uri => CreateHttpClient(uri, settings.Version, useSystemProxy: true, allowAutoRedirect: false)).ToArray();
 
         var restored = WindowsSessionStore.Load();
         if (restored is not null)
@@ -357,7 +358,7 @@ public sealed class BlueVpnApiClient : IDisposable
         if (string.IsNullOrWhiteSpace(_token) || request.RequestUri is null) return;
         var baseUri = new Uri(_settings.ApiBaseUrl.TrimEnd('/') + "/");
         var target = request.RequestUri.IsAbsoluteUri ? request.RequestUri : new Uri(baseUri, request.RequestUri);
-        if (Uri.Compare(target, baseUri, UriComponents.SchemeAndServer, UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) == 0)
+        if (_settings.ControlPlaneBases().Select(value => new Uri(value + "/")).Any(allowed => Uri.Compare(target, allowed, UriComponents.SchemeAndServer, UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) == 0))
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);
     }
 
@@ -390,38 +391,24 @@ public sealed class BlueVpnApiClient : IDisposable
     private async Task<HttpResponseMessage> SendWithTransportFallbackAsync(Func<HttpRequestMessage> requestFactory, CancellationToken ct, bool allowTransportFallback = true)
     {
         Exception? directError = null;
-        try
+        foreach (var client in allowTransportFallback ? _directHttp : _directHttp.Take(1))
         {
-            using var request = requestFactory();
-            ApplyAuthorization(request);
-            return await _directHttp.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex) when (IsRetryableTransportFailure(ex))
-        {
-            directError = ex;
+            try { using var request = requestFactory(); ApplyAuthorization(request); return await client.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) when (IsRetryableTransportFailure(ex)) { directError = ex; }
         }
 
         if (!allowTransportFallback)
             throw FriendlyTransportException(directError, directError ?? new HttpRequestException("Control-plane request failed."));
 
-        try
+        Exception? proxyError = null;
+        foreach (var client in _systemProxyHttp)
         {
-            using var request = requestFactory();
-            ApplyAuthorization(request);
-            return await _systemProxyHttp.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false);
+            try { using var request = requestFactory(); ApplyAuthorization(request); return await client.SendAsync(request, HttpCompletionOption.ResponseContentRead, ct).ConfigureAwait(false); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) when (IsRetryableTransportFailure(ex)) { proxyError = ex; }
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (Exception ex) when (IsRetryableTransportFailure(ex))
-        {
-            throw FriendlyTransportException(directError, ex);
-        }
+        throw FriendlyTransportException(directError, proxyError ?? directError ?? new HttpRequestException("Control-plane request failed."));
     }
 
     private static bool IsRetryableTransportFailure(Exception ex) =>
@@ -514,7 +501,7 @@ public sealed class BlueVpnApiClient : IDisposable
     private async Task<HttpResponseMessage> SendRawAsync(Uri target, CancellationToken ct)
     {
         Exception? first = null;
-        foreach (var client in new[] { _rawDirectHttp, _rawProxyHttp })
+        foreach (var client in _rawDirectHttp.Concat(_rawProxyHttp))
         {
             try
             {
@@ -550,9 +537,6 @@ public sealed class BlueVpnApiClient : IDisposable
     // finally: dispose HTTP clients only when the API client itself is disposed.
     public void Dispose()
     {
-        _directHttp.Dispose();
-        _systemProxyHttp.Dispose();
-        _rawDirectHttp.Dispose();
-        _rawProxyHttp.Dispose();
+        foreach (var client in _directHttp.Concat(_systemProxyHttp).Concat(_rawDirectHttp).Concat(_rawProxyHttp)) client.Dispose();
     }
 }

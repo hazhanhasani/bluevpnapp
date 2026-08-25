@@ -11,7 +11,7 @@ class GatewayHaPhase3515Tests(unittest.TestCase):
 
     def test_release_and_schema_are_phase3(self):
         release = json.loads(self.text("release.json"))
-        self.assertEqual(release["version"], "5.7.9")
+        self.assertEqual(release["version"], "5.7.10")
         self.assertEqual(release["version_code"], 50709)
         self.assertIn("gateway-ha-capacity-aware-placement", release["features"])
         plugin = self.text("bluevpn-manager/bluevpn-manager.php")

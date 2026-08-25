@@ -8,7 +8,7 @@ def read(p): return (ROOT/p).read_text(encoding='utf-8')
 class WindowsV2rayNWarpInstaller4162(unittest.TestCase):
     def test_release_contract(self):
         r=json.loads(read('release.json'))
-        self.assertEqual(r['version'],'5.7.9')
+        self.assertEqual(r['version'],'5.7.10')
         self.assertEqual(r['version_code'],50709)
         self.assertEqual(r['windows']['runtime_base'],'v2rayN')
         self.assertEqual(r['windows']['artifact'],'inno_setup_exe')

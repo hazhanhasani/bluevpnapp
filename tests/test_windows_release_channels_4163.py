@@ -8,7 +8,7 @@ def text(rel): return (ROOT / rel).read_text(encoding='utf-8')
 class WindowsReleaseChannels4163(unittest.TestCase):
     def test_release_and_schema_versions(self):
         release=json.loads(text('release.json'))
-        self.assertEqual(release['version'],'5.7.9')
+        self.assertEqual(release['version'],'5.7.10')
         self.assertEqual(release['version_code'],50709)
         self.assertEqual(release['windows']['release_authority'],'wordpress_manager')
         plugin=text('bluevpn-manager/bluevpn-manager.php')

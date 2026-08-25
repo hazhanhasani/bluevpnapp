@@ -8,7 +8,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 class CiNode24ArtifactLayout50709Tests(unittest.TestCase):
     def test_release_version(self):
         release = json.loads((ROOT / 'release.json').read_text(encoding='utf-8'))
-        self.assertEqual(release['version'], '5.7.9')
+        self.assertEqual(release['version'], '5.7.10')
         self.assertEqual(release['version_code'], 50709)
 
     def test_no_deprecated_cache_or_artifact_generations(self):

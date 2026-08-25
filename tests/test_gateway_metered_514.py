@@ -12,7 +12,7 @@ class GatewayMetered514Tests(unittest.TestCase):
 
     def test_release_schema_and_gateway_tables_are_authoritative(self):
         release = json.loads(self.text("release.json"))
-        self.assertEqual(release["version"], "5.7.9")
+        self.assertEqual(release["version"], "5.7.10")
         self.assertEqual(release["version_code"], 50709)
         plugin = self.text("bluevpn-manager/bluevpn-manager.php")
         self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.31.0'", plugin)

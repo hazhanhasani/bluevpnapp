@@ -6,7 +6,7 @@
   --radius:28px;--radius-lg:42px;--shell:1200px
 }
 
-/* BlueVPN 5.7.9 — global visual-system, safe-area and responsive correction. */
+/* BlueVPN 5.7.10 — global visual-system, safe-area and responsive correction. */
 .bv-announcement{display:none!important}
 html,body.bluevpn-site{max-width:100%;overflow-x:clip}
 body.bluevpn-site{font-size:15px}
@@ -1560,7 +1560,7 @@ html,body,.bv-site-frame,.bv-home-v5{max-width:100%;overflow-x:hidden}
 .bv-offline [data-buy-plan]{filter:saturate(.75);}
 .bv-offline [data-bv-network-status]{pointer-events:none;}
 
-/* BlueVPN 5.7.9 — true mobile scale and lightweight motion for the whole theme. */
+/* BlueVPN 5.7.10 — true mobile scale and lightweight motion for the whole theme. */
 @media(max-width:760px){
   html,body.bluevpn-site{width:100%;max-width:100%;overflow-x:hidden}
   body.bluevpn-site{font-size:14px;line-height:1.85}
@@ -1619,7 +1619,7 @@ html,body,.bv-site-frame,.bv-home-v5{max-width:100%;overflow-x:hidden}
   body.bluevpn-site .bv-header,body.bluevpn-site .bv5-chip,body.bluevpn-site .bv-stage-card{backdrop-filter:none;-webkit-backdrop-filter:none}
 }
 
-/* BlueVPN 5.7.9 — final cascade guard: applies to the complete theme. */
+/* BlueVPN 5.7.10 — final cascade guard: applies to the complete theme. */
 .bv-announcement{display:none!important}
 html,body.bluevpn-site,.bv-site-frame,.bv-site-frame>main{max-width:100%!important;overflow-x:clip!important}
 body.bluevpn-site .bv-shell{width:min(1120px,calc(100% - 80px))!important;max-width:100%!important;min-width:0!important;margin-inline:auto!important;padding-inline:0!important}

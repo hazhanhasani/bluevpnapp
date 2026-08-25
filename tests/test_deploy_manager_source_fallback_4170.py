@@ -11,9 +11,9 @@ class DeployManagerSourceFallback4170Tests(unittest.TestCase):
     def test_release_version(self):
         release = json.loads(text('release.json'))
         branding = json.loads(text('branding/app.json'))
-        self.assertEqual(release['version'], '5.7.9')
+        self.assertEqual(release['version'], '5.7.10')
         self.assertEqual(release['version_code'], 50709)
-        self.assertEqual(branding['version_name'], '5.7.9')
+        self.assertEqual(branding['version_name'], '5.7.10')
         self.assertEqual(branding['version_code'], 50709)
 
     def test_manager_installs_from_validated_project_tree_before_release_dependency(self):

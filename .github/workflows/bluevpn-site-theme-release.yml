@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout latest main branch
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 2
       - name: Read and validate theme version
@@ -92,7 +92,7 @@ jobs:
           gh release download "bluevpn-site-v${THEME_VERSION}" --repo "$GITHUB_REPOSITORY" --pattern "bluevpn-site-theme-v${THEME_VERSION}.zip" --dir verify-theme --clobber
           unzip -t "verify-theme/bluevpn-site-theme-v${THEME_VERSION}.zip" >/dev/null
       - name: Upload theme build artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: BlueVPN-Site-${{ steps.theme.outputs.version }}
           path: bluevpn-site-theme-v${{ steps.theme.outputs.version }}.zip

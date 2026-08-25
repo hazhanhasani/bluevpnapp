@@ -5,20 +5,20 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-class CiNode24ArtifactLayout50604Tests(unittest.TestCase):
+class CiNode24ArtifactLayout50605Tests(unittest.TestCase):
     def test_release_version(self):
         release = json.loads((ROOT / 'release.json').read_text(encoding='utf-8'))
-        self.assertEqual(release['version'], '5.6.4')
-        self.assertEqual(release['version_code'], 50604)
+        self.assertEqual(release['version'], '5.6.5')
+        self.assertEqual(release['version_code'], 50605)
 
     def test_no_deprecated_cache_or_artifact_generations(self):
         workflows = '\n'.join(p.read_text(encoding='utf-8') for p in (ROOT / '.github/workflows').glob('*.yml'))
         self.assertNotIn('actions/cache@v4', workflows)
         self.assertNotIn('actions/upload-artifact@v6', workflows)
         self.assertNotIn('actions/download-artifact@v6', workflows)
-        self.assertIn('actions/cache@v5', workflows)
-        self.assertIn('actions/upload-artifact@v7', workflows)
-        self.assertIn('actions/download-artifact@v8', workflows)
+        self.assertIn('actions/cache@caa296126883cff596d87d8935842f9db880ef25', workflows)
+        self.assertIn('actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a', workflows)
+        self.assertIn('actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c', workflows)
 
     def test_windows_setup_is_uploaded_from_artifact_root(self):
         workflow = (ROOT / '.github/workflows/build-windows.yml').read_text(encoding='utf-8')

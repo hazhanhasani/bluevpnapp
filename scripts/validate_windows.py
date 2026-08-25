@@ -171,8 +171,8 @@ def main() -> None:
     # Node.js 20-generation cache/artifact actions must not remain.
     require('dist/BlueVPN-Setup-*.exe' in workflow, "Windows Setup must upload from dist root")
     require('Normalize Windows release payload layout' in workflow, "Windows publish job must normalize artifact layout")
-    require('actions/upload-artifact@v7' in workflow, "Windows upload-artifact must use v7")
-    require('actions/download-artifact@v8' in workflow, "Windows download-artifact must use v8")
+    require('actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' in workflow, "Windows upload-artifact must use v7")
+    require('actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' in workflow, "Windows download-artifact must use v8")
 
     print(f"BlueVPN Windows validation PASS — {version} / v2rayN + WARP + Installer")
 

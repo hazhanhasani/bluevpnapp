@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Sockets;
 using BlueVPN.Windows.Models;
 
@@ -77,14 +78,54 @@ public static class EndpointSelector
 
     private static async Task<int> ProbeOnceAsync(string host, int port, int timeoutMs, CancellationToken ct)
     {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromMilliseconds(timeoutMs));
+            IPAddress[] addresses = IPAddress.TryParse(host, out var literal)
+                ? [literal]
+                : await Dns.GetHostAddressesAsync(host, timeout.Token).ConfigureAwait(false);
+            if (addresses.Length == 0) return int.MaxValue;
+
+            // Happy-Eyeballs-style probing: race one address from each family.
+            // A broken/slow IPv6 route must not make a healthy dual-stack node
+            // appear dead or inflate its score by the DNS/TCP timeout.
+            var preferred = addresses
+                .GroupBy(address => address.AddressFamily)
+                .Select(group => group.First())
+                .Take(2)
+                .ToArray();
+            var attempts = preferred.Select(address => ConnectAddressAsync(address, port, timeout.Token)).ToList();
+            while (attempts.Count > 0)
+            {
+                var completed = await Task.WhenAny(attempts).ConfigureAwait(false);
+                attempts.Remove(completed);
+                var latency = await completed.ConfigureAwait(false);
+                if (latency != int.MaxValue)
+                {
+                    timeout.Cancel();
+                    return latency;
+                }
+            }
+            return int.MaxValue;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return int.MaxValue;
+        }
+    }
+
+    private static async Task<int> ConnectAddressAsync(IPAddress address, int port, CancellationToken ct)
+    {
         var sw = Stopwatch.StartNew();
         try
         {
-            using var client = new TcpClient();
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(TimeSpan.FromMilliseconds(timeoutMs));
-            await client.ConnectAsync(host, port, timeout.Token).ConfigureAwait(false);
-            sw.Stop();
+            using var client = new TcpClient(address.AddressFamily);
+            await client.ConnectAsync(address, port, ct).ConfigureAwait(false);
             return (int)Math.Clamp(sw.ElapsedMilliseconds, 1, 60_000);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)

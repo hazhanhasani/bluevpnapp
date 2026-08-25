@@ -183,6 +183,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var verificationRound = 0
     private var existingSessionCheckInProgress = false
     private var existingSessionRetryCount = 0
+    private var backgroundedAtElapsed = 0L
     private var lastVerifiedLatency = 0L
     private var serversOpenedWhileActive = false
     private var liveLocationSwitch = false
@@ -2252,6 +2253,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     }
 
     override fun onStop() {
+        backgroundedAtElapsed = SystemClock.elapsedRealtime()
         if (freeStoryGateActive && !isChangingConfigurations && !isFinishing) {
             // The ad may be dismissed when Home/Recent Apps is used, but the
             // already-verified VPN session must stay connected.
@@ -2355,6 +2357,29 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         // repeating account/UI refresh work here doubled MMKV/JSON reads during
         // the first visible frame. Only later foreground resumes need this path.
         if (!initialResume) {
+            val backgroundDuration = if (backgroundedAtElapsed > 0L) {
+                SystemClock.elapsedRealtime() - backgroundedAtElapsed
+            } else 0L
+            backgroundedAtElapsed = 0L
+            if (
+                backgroundDuration >= 15_000L &&
+                mainViewModel.isRunning.value == true &&
+                !failoverActive &&
+                !userDisconnecting
+            ) {
+                // Some Android vendors keep VpnService/Xray in RUNNING while
+                // the data plane freezes during Doze. Re-prove real egress after
+                // wake and permit one clean restart after repeated probe failure.
+                connectionVerified = false
+                handler.postDelayed({
+                    if (!isFinishing && !isDestroyed && mainViewModel.isRunning.value == true) {
+                        verifyExistingRunningSession(
+                            preserveServiceOnFailure = true,
+                            forceRecoveryOnFailure = true,
+                        )
+                    }
+                }, 350L)
+            }
             if (!BlueVpnAccountManager.premiumEntitlementActive(this)) {
                 val policyNow = SystemClock.elapsedRealtime()
                 if (policyNow - lastForegroundFreePolicySyncAt > 30_000L) {
@@ -4231,6 +4256,7 @@ private fun dpHome(value: Int): Int =
 
     private fun verifyExistingRunningSession(
         preserveServiceOnFailure: Boolean = false,
+        forceRecoveryOnFailure: Boolean = false,
     ) {
         // Existing-session verification is only valid for a stable, non-terminal
         // running service. A probe launched just before the final failover error
@@ -4319,12 +4345,14 @@ private fun dpHome(value: Int): Int =
                         ) {
                             verifyExistingRunningSession(
                                 preserveServiceOnFailure = preserveServiceOnFailure,
+                                forceRecoveryOnFailure = forceRecoveryOnFailure,
                             )
                         }
                     }, 1_800L)
                 } else {
                     recoverUnverifiedExistingSession(
-                        "اتصال قبلی Xray اجرا بود اما اینترنت واقعی تأیید نشد"
+                        "اتصال قبلی Xray اجرا بود اما اینترنت واقعی تأیید نشد",
+                        forceRestart = forceRecoveryOnFailure,
                     )
                 }
             }
@@ -4356,7 +4384,10 @@ private fun dpHome(value: Int): Int =
         refreshVerifiedExitLocation()
     }
 
-    private fun recoverUnverifiedExistingSession(reason: String) {
+    private fun recoverUnverifiedExistingSession(
+        reason: String,
+        forceRestart: Boolean = false,
+    ) {
         if (
             userDisconnecting ||
             terminalFailureStopping ||
@@ -4376,6 +4407,7 @@ private fun dpHome(value: Int): Int =
                 (!freeWarp || BlueVpnWarpEngine.isRunning())
 
         if (transportAlive) {
+            if (!forceRestart) {
             // End-to-end HTTP/RTT probes are noisy on Iranian mobile networks.
             // They may lower route confidence, but they are not permission to
             // destroy a live TUN/Aether session. Keep traffic uninterrupted.
@@ -4405,7 +4437,8 @@ private fun dpHome(value: Int): Int =
                     verifyExistingRunningSession(preserveServiceOnFailure = true)
                 }
             }, 15_000L)
-            return
+                return
+            }
         }
 
         // Hard recovery is only allowed after actual transport death.

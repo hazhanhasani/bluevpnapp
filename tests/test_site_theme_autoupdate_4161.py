@@ -42,5 +42,11 @@ class SiteThemeAutoUpdate4161Tests(unittest.TestCase):
         self.assertIn("'timeout' => 1", updater)
         self.assertNotIn("'timeout' => 0.01", updater)
 
+    def test_github_reads_retry_transient_transport_failures_once(self):
+        updater = text("bluevpn-site/inc/class-bluevpn-site-updater.php")
+        self.assertIn("$timeouts = [6, 10, 15]", updater)
+        self.assertIn("[408, 425, 429, 500, 502, 503, 504]", updater)
+        self.assertIn("X-BlueVPN-Sentinel-Transient", updater)
+
 if __name__ == '__main__':
     unittest.main()

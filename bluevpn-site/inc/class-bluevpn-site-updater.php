@@ -242,16 +242,35 @@ final class BlueVPN_Site_Updater {
     }
 
     private static function fetch_json(string $url) {
-        $response = wp_remote_get($url, [
-            'timeout' => 15,
-            'redirection' => 5,
-            'headers' => self::request_headers(false),
-        ]);
-        if (is_wp_error($response)) return $response;
-        $code = (int)wp_remote_retrieve_response_code($response);
-        if ($code < 200 || $code >= 300) return new WP_Error('bluevpn_theme_github_http', 'خطای سرویس بروزرسانی: HTTP ' . $code);
-        $decoded = json_decode((string)wp_remote_retrieve_body($response), true);
-        return is_array($decoded) ? $decoded : new WP_Error('bluevpn_theme_github_json', 'پاسخ سرویس بروزرسانی پوسته معتبر نیست.');
+        $timeouts = [6, 10, 15];
+        $retryable = [408, 425, 429, 500, 502, 503, 504];
+        $lastError = null;
+
+        foreach ($timeouts as $attempt => $timeout) {
+            $headers = self::request_headers(false);
+            // Sentinel must report an outage only after the bounded retry budget
+            // is exhausted, rather than paging once for every transient attempt.
+            if ($attempt < count($timeouts) - 1) $headers['X-BlueVPN-Sentinel-Transient'] = '1';
+            $response = wp_remote_get($url, [
+                'timeout' => $timeout,
+                'redirection' => 5,
+                'headers' => $headers,
+            ]);
+            if (is_wp_error($response)) {
+                $lastError = $response;
+            } else {
+                $code = (int)wp_remote_retrieve_response_code($response);
+                if ($code >= 200 && $code < 300) {
+                    $decoded = json_decode((string)wp_remote_retrieve_body($response), true);
+                    return is_array($decoded) ? $decoded : new WP_Error('bluevpn_theme_github_json', 'پاسخ سرویس بروزرسانی پوسته معتبر نیست.');
+                }
+                $lastError = new WP_Error('bluevpn_theme_github_http', 'خطای سرویس بروزرسانی: HTTP ' . $code);
+                if (!in_array($code, $retryable, true)) return $lastError;
+            }
+            if ($attempt < count($timeouts) - 1) sleep($attempt + 1);
+        }
+
+        return $lastError ?: new WP_Error('bluevpn_theme_github_unavailable', 'سرویس بروزرسانی GitHub در دسترس نیست.');
     }
 
     /**

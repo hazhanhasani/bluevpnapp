@@ -164,8 +164,14 @@ public partial class MainWindow : Window
         }
         if (_adIndex >= items.Count - 1 && !_ads.BannerLoop)
         {
-            _adTimer.Stop();
-            return;
+            // Keep the cadence alive for the independently scheduled Tapsell
+            // Web placement. Previously a single non-looping BlueVPN banner
+            // stopped the timer before every_slides could ever be reached.
+            if (!_ads.WindowsWeb.Enabled)
+            {
+                _adTimer.Stop();
+                return;
+            }
         }
         _adIndex = (_adIndex + 1) % items.Count;
         await ShowCurrentAdAsync();
@@ -176,7 +182,12 @@ public partial class MainWindow : Window
         var items = _ads.BannerItems;
         var premium = _account?.Subscription.Active == true;
         if (_ads.TryReserveWindowsWebImpression(premium, items.Count == 0) && await ShowTapsellWebAdAsync())
+        {
+            // Failed WebView/provider loads must not consume the daily cap or
+            // impose the minimum interval on the next recovery attempt.
+            _ads.ConfirmWindowsWebImpression();
             return;
+        }
 
         TapsellWebView.Visibility = Visibility.Collapsed;
         TapsellLoadingPanel.Visibility = Visibility.Collapsed;

@@ -162,10 +162,17 @@ public sealed class AdvertisementService
         if (!noFirstPartyBanner && _windowsWebSlideCounter % Math.Clamp(cfg.EverySlides, 1, 20) != 0) return false;
         if (cfg.DailyCap > 0 && _windowsWebDailyCount >= Math.Clamp(cfg.DailyCap, 1, 1000)) return false;
         if ((DateTimeOffset.Now - _windowsWebLastShown).TotalSeconds < Math.Clamp(cfg.MinIntervalSeconds, 0, 86400)) return false;
+        return true;
+    }
+
+    /// <summary>Persist frequency limits only after the provider rendered an ad.</summary>
+    public void ConfirmWindowsWebImpression()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; }
         _windowsWebDailyCount++;
         _windowsWebLastShown = DateTimeOffset.Now;
         SaveWindowsWebState();
-        return true;
     }
 
     private void LoadWindowsWebState()

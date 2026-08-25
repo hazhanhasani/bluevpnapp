@@ -31,5 +31,14 @@ class WindowsTapsellWeb553Tests(unittest.TestCase):
         self.assertIn("catch", main[main.index("ShowTapsellWebAdAsync"):])
         self.assertIn("return false", main[main.index("ShowTapsellWebAdAsync"):])
 
+    def test_windows_schedule_survives_single_banner_and_counts_only_rendered_ads(self):
+        service = (ROOT / "bluevpn-windows/Services/AdvertisementService.cs").read_text(encoding="utf-8")
+        main = (ROOT / "bluevpn-windows/MainWindow.xaml.cs").read_text(encoding="utf-8")
+        reserve = service[service.index("public bool TryReserveWindowsWebImpression"):service.index("private void LoadWindowsWebState")]
+        self.assertIn("ConfirmWindowsWebImpression", reserve)
+        self.assertLess(reserve.index("return true;"), reserve.index("_windowsWebDailyCount++"))
+        self.assertIn("if (!_ads.WindowsWeb.Enabled)", main)
+        self.assertIn("_ads.ConfirmWindowsWebImpression();", main)
+
 if __name__ == "__main__":
     unittest.main()

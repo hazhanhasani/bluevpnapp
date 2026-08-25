@@ -135,7 +135,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         contentDescription = "تبلیغات BlueVPN"
         // Campaign rotation is controlled by the panel/autoplay schedule.
         // Users may open the current campaign but cannot swipe the carousel.
-        setOnClickListener { performClick() }
+        setOnClickListener { openCurrentCampaign() }
     }
 
     fun start() {
@@ -728,10 +728,9 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         tapsellHost.visibility = View.GONE
     }
 
-    override fun performClick(): Boolean {
-        super.performClick()
-        if (tapsellShowing) return true
-        val item = items.getOrNull(currentIndex) ?: return true
+    private fun openCurrentCampaign() {
+        if (tapsellShowing) return
+        val item = items.getOrNull(currentIndex) ?: return
         BlueVpnAdActionRouter.open(
             context = context,
             action = item.targetAction,
@@ -739,7 +738,6 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             fallbackUrl = item.targetUrl,
             source = "banner:${item.id}",
         )
-        return true
     }
 
     private fun safeUrl(value: String): String {

@@ -1,0 +1,68 @@
+# Generated / local
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.log
+*.tmp
+*.bak
+.DS_Store
+.idea/
+.vscode/
+
+# Android / Gradle
+upstream/
+sing-box-core/
+android-source/generated/
+.gradle/
+**/build/
+*.apk
+*.aab
+*.apks
+
+# Release packaging
+*.zip
+dist/
+
+# Local secrets
+.env
+.env.*
+!.env.example
+
+# BlueVPN repository hygiene
+.pytest_cache/
+**/__pycache__/
+*.py[cod]
+*.log
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+.gradle/
+.idea/
+local.properties
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+BUILD-AND-TEST-*.md
+CHANGED-FILES-*.md
+ROOT-CAUSE-*.md
+BUILD_FIX_*_FA.md
+FINAL_RELEASE_*_FA.md
+VALIDATION_*_FA.txt
+FIX_REPORT_FA.txt
+UPDATE-*.txt
+NETWORK_RECOVERY_UPDATE.txt
+reports/
+README.txt
+README_FA.txt
+README_PLATFORM_FA.txt
+
+# Windows / .NET
+bluevpn-windows/bin/
+bluevpn-windows/obj/
+bluevpn-windows/runtime/xray.exe
+bluevpn-windows/runtime/wintun.dll
+bluevpn-windows/runtime/geoip.dat
+bluevpn-windows/runtime/geosite.dat
+*.pdb

@@ -33,6 +33,36 @@ public sealed class RuntimeLocator
 
     // Xray system-proxy mode must not depend on optional sing-box/Wintun files.
     public string ResolveXray() => ResolveExecutable("xray.exe");
+    public IReadOnlyList<string> ResolveXrayCandidates()
+    {
+        var result = new List<string>();
+        var active = ActiveOverrideDirectory();
+        if (!string.IsNullOrWhiteSpace(active))
+        {
+            var updated = FindFirst(active, "xray.exe");
+            if (updated is not null) result.Add(updated);
+        }
+        var bundled = FindFirst(_bundledRoot, "xray.exe");
+        if (bundled is not null && !result.Contains(bundled, StringComparer.OrdinalIgnoreCase)) result.Add(bundled);
+        if (result.Count == 0) throw new FileNotFoundException("xray.exe در Runtime ویندوز BlueVPN پیدا نشد.");
+        return result;
+    }
+
+    public void RejectOverrideContaining(string executable, string reason)
+    {
+        try
+        {
+            var full = Path.GetFullPath(executable);
+            var root = Path.GetFullPath(_overrideRoot) + Path.DirectorySeparatorChar;
+            if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return;
+            var versionDir = Directory.EnumerateDirectories(_overrideRoot)
+                .OrderByDescending(x => x.Length)
+                .FirstOrDefault(x => full.StartsWith(Path.GetFullPath(x) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+            if (versionDir is null) return;
+            File.WriteAllText(Path.Combine(versionDir, ".rejected"), $"{DateTimeOffset.UtcNow:O}\n{reason}");
+        }
+        catch { }
+    }
     public string ResolveSingBox() => ResolveV2RayNBundle().SingBoxPath;
     public string ResolveWintun() => ResolveV2RayNBundle().WintunPath;
     public string ResolveV2rayN() => ResolveV2RayNBundle().V2RayNPath;
@@ -136,6 +166,7 @@ public sealed class RuntimeLocator
     {
         try
         {
+            if (File.Exists(Path.Combine(dir, ".rejected"))) return false;
             if (!File.Exists(Path.Combine(dir, ".validated"))) return false;
             var manifestPath = Path.Combine(dir, ".manifest.json");
             if (!File.Exists(manifestPath)) return false;

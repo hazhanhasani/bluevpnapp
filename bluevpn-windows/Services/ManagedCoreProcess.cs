@@ -19,6 +19,7 @@ public sealed class ManagedCoreProcess : IDisposable
 
     public bool IsRunning => _process is { HasExited: false };
     public int? ProcessId => IsRunning ? _process!.Id : null;
+    public string LogPath => _logPath;
 
     public async Task StartAsync(string executable, IEnumerable<string> args, string? workingDirectory = null, CancellationToken ct = default)
     {
@@ -49,8 +50,33 @@ public sealed class ManagedCoreProcess : IDisposable
         if (_process.HasExited)
         {
             var code = _process.ExitCode;
-            throw new InvalidOperationException($"{_name} بلافاصله متوقف شد (code={code}). جزئیات: {_logPath}");
+            throw new InvalidOperationException($"{_name} بلافاصله متوقف شد (code={code}). {ReadLogTail()}");
         }
+    }
+
+    public static async Task ValidateAsync(
+        string executable,
+        IEnumerable<string> args,
+        string? workingDirectory = null,
+        CancellationToken ct = default)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = executable,
+            WorkingDirectory = workingDirectory ?? Path.GetDirectoryName(executable) ?? AppContext.BaseDirectory,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
+        };
+        foreach (var arg in args) psi.ArgumentList.Add(arg);
+        using var process = Process.Start(psi) ?? throw new InvalidOperationException("آزمون هسته شروع نشد.");
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
+        var stderrTask = process.StandardError.ReadToEndAsync(ct);
+        await process.WaitForExitAsync(ct).ConfigureAwait(false);
+        var output = $"{await stderrTask.ConfigureAwait(false)}\n{await stdoutTask.ConfigureAwait(false)}".Trim();
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException($"کانفیگ یا Runtime هسته معتبر نیست (code={process.ExitCode}): {Compact(output)}");
     }
 
     public void Stop()
@@ -84,6 +110,25 @@ public sealed class ManagedCoreProcess : IDisposable
             }
         }
         catch { }
+    }
+
+    private string ReadLogTail()
+    {
+        try
+        {
+            if (!File.Exists(_logPath)) return "لاگ هسته تولید نشد.";
+            var lines = File.ReadLines(_logPath).TakeLast(8).Select(Compact).Where(x => x.Length > 0);
+            var tail = string.Join(" | ", lines);
+            return tail.Length > 0 ? tail : "لاگ هسته خالی است.";
+        }
+        catch { return $"جزئیات در {_logPath}"; }
+    }
+
+    private static string Compact(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "";
+        var compact = string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return compact.Length <= 700 ? compact : compact[^700..];
     }
 
     public void Dispose() => Stop();

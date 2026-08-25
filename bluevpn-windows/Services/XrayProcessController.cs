@@ -34,11 +34,33 @@ public sealed class XrayProcessController : IDisposable
         Stop();
         // Xray is the primary and only connection core. Normal connections do
         // not start sing-box/Wintun and therefore do not require elevation.
-        var xray = _runtime.ResolveXray();
-
         var xrayConfig = Path.Combine(_stateDir, "xray-local-proxy.json");
         await File.WriteAllTextAsync(xrayConfig, configJson, ct).ConfigureAwait(false);
-        await _xray.StartAsync(xray, ["run", "-c", xrayConfig], Path.GetDirectoryName(xray), ct).ConfigureAwait(false);
+        var xray = _runtime.ResolveXray();
+        var candidates = new[] { xray }.Concat(_runtime.ResolveXrayCandidates())
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+        var failures = new List<string>();
+        var started = false;
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                var workDir = Path.GetDirectoryName(candidate);
+                await ManagedCoreProcess.ValidateAsync(candidate, ["run", "-test", "-c", xrayConfig], workDir, ct).ConfigureAwait(false);
+                await _xray.StartAsync(candidate, ["run", "-c", xrayConfig], workDir, ct).ConfigureAwait(false);
+                started = true;
+                break;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _xray.Stop();
+                failures.Add($"{Path.GetFileName(Path.GetDirectoryName(candidate))}: {ex.Message}");
+                _runtime.RejectOverrideContaining(candidate, ex.Message);
+            }
+        }
+        if (!started)
+            throw new InvalidOperationException($"هیچ Runtime سالمی برای Xray اجرا نشد. {string.Join(" || ", failures)}");
         await WaitForPortAsync("127.0.0.1", XrayConfigBuilder.LocalSocksPort, TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
         await WaitForPortAsync("127.0.0.1", XrayConfigBuilder.LocalHttpPort, TimeSpan.FromSeconds(8), ct).ConfigureAwait(false);
 

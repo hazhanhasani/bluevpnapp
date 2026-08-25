@@ -1,0 +1,121 @@
+name: BlueVPN Sentinel
+
+on:
+  workflow_run:
+    workflows:
+      - Build Signed BlueVPN APK
+      - Build BlueVPN Windows
+      - Build BlueVPN iOS
+      - Release BlueVPN Manager
+      - Release BlueVPN Site Theme
+      - BlueVPN Project Health
+      - BlueVPN External Health
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  checks: read
+  contents: read
+
+concurrency:
+  group: bluevpn-sentinel-${{ github.event.workflow_run.id || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  report-failure:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion != 'success' && github.event.workflow_run.conclusion != 'cancelled') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect failed jobs, annotations and logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+        shell: bash
+        run: |
+          set +e
+          : > /tmp/report.txt
+          if [ -z "${RUN_ID:-}" ]; then
+            echo 'Manual Sentinel self-test; no workflow_run payload.' >> /tmp/report.txt
+            exit 0
+          fi
+          echo "Workflow: ${WORKFLOW_NAME}" >> /tmp/report.txt
+          echo "Run: ${RUN_ID}" >> /tmp/report.txt
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RUN_ID}/jobs?per_page=100" --paginate \
+            --jq '.jobs[] | select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != "cancelled") | "JOB: \(.name) => \(.conclusion) id=\(.id)"' >> /tmp/report.txt 2>/dev/null || true
+          gh api "repos/${GITHUB_REPOSITORY}/check-runs?check_suite_id=${{ github.event.workflow_run.check_suite_id }}" \
+            --jq '.check_runs[]?.output.annotations_url' 2>/dev/null | while read -r u; do
+              [ -n "$u" ] || continue
+              gh api "$u" --jq '.[] | select(.annotation_level=="failure" or .annotation_level=="warning") | "ANNOTATION: \(.annotation_level) \(.path):\(.start_line) \(.message)"' >> /tmp/report.txt 2>/dev/null || true
+            done
+          echo '--- failed log excerpt ---' >> /tmp/report.txt
+          gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --log-failed 2>/dev/null | tail -n 80 >> /tmp/report.txt || true
+
+      - name: Redact report before external delivery
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('/tmp/report.txt')
+          s=p.read_text(encoding='utf-8',errors='replace') if p.exists() else ''
+          patterns=[
+            r'(?i)(authorization\s*[:=]\s*)(?:bearer\s+)?[^\s]+',
+            r'(?i)(token|secret|password|api[_-]?key)\s*[:=]\s*[^\s,;]+',
+            r'https://api\.telegram\.org/bot[^/\s]+',
+          ]
+          for pat in patterns: s=re.sub(pat, lambda m: (m.group(1) if m.lastindex else '')+'<redacted>', s)
+          p.write_text(s[:6500],encoding='utf-8')
+          PY
+
+      - name: Send Telegram alert
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+        shell: bash
+        run: |
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo 'Telegram secrets are missing.' >&2
+            exit 1
+          fi
+          python - <<'PY'
+          import html, os, urllib.parse, urllib.request, urllib.error, time
+          from pathlib import Path
+          report=Path('/tmp/report.txt').read_text(encoding='utf-8',errors='replace')
+          title=html.escape(os.getenv('WORKFLOW_NAME') or 'BlueVPN workflow')
+          url=os.getenv('RUN_URL') or ''
+          link=f'\n<a href="{html.escape(url, quote=True)}">مشاهده Run در GitHub</a>' if url else ''
+
+          # Telegram rejects malformed HTML. Never slice after adding <pre> tags;
+          # chunk the raw report first, then escape each complete chunk.
+          max_chunk=2800
+          chunks=[report[i:i+max_chunk] for i in range(0,len(report),max_chunk)] or ['(no log excerpt)']
+          endpoint='https://api.telegram.org/bot'+os.environ['TELEGRAM_BOT_TOKEN']+'/sendMessage'
+          for index,chunk in enumerate(chunks[:3],1):
+              prefix=f'🚨 <b>BlueVPN Sentinel</b>\nWorkflow: <code>{title}</code>\n' if index==1 else f'🚨 <b>BlueVPN Sentinel</b> ({index}/{min(len(chunks),3)})\n'
+              suffix=link if index==min(len(chunks),3) else ''
+              text=prefix+'<pre>'+html.escape(chunk)+'</pre>'+suffix
+              payload={'chat_id':os.environ['TELEGRAM_CHAT_ID'],'text':text,'parse_mode':'HTML','disable_web_page_preview':'true'}
+              data=urllib.parse.urlencode(payload).encode()
+              last=None
+              for attempt in range(3):
+                  try:
+                      req=urllib.request.Request(endpoint,data=data)
+                      body=urllib.request.urlopen(req,timeout=30).read().decode('utf-8','replace')
+                      if '"ok":true' in body.replace(' ',''):
+                          last=None; break
+                      last=body
+                  except urllib.error.HTTPError as e:
+                      last=e.read().decode('utf-8','replace')
+                      # If Telegram still rejects HTML, retry once as plain text.
+                      if e.code==400:
+                          plain=(prefix.replace('<b>','').replace('</b>','').replace('<code>','').replace('</code>','')+chunk+'\n'+url)[:3800]
+                          data=urllib.parse.urlencode({'chat_id':os.environ['TELEGRAM_CHAT_ID'],'text':plain,'disable_web_page_preview':'true'}).encode()
+                  time.sleep(attempt+1)
+              if last is not None:
+                  raise SystemExit('Telegram delivery failed: '+last[:800])
+          PY

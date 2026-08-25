@@ -26,141 +26,35 @@ jobs:
 
           updater = Path('bluevpn-manager/includes/class-bluevpn-github-updater.php')
           s = updater.read_text(encoding='utf-8')
-          marker = '''    /**
-           * @return array|WP_Error|null Normalized release, error, or null when no plugin release exists.
-           */
-          public static function latest_release(bool $force = false) {
-          '''
-          helper = r'''    /**
-           * Resolve the newest stable Manager release through tag refs, then fetch
-           * that release by its exact tag. GitHub's releases collection can lag
-           * behind a just-published component release even while the tag-specific
-           * endpoint is already consistent.
-           *
-           * @return array|WP_Error|null
-           */
-          private static function latest_release_from_refs() {
-              $s = self::settings();
-              $prefix = (string)$s['tag_prefix'];
-              $url = 'https://api.github.com/repos/' . rawurlencode((string)$s['owner']) . '/' . rawurlencode((string)$s['repo']) . '/git/matching-refs/tags/' . rawurlencode($prefix);
-              $response = wp_remote_get($url, [
-                  'timeout' => 12,
-                  'redirection' => 3,
-                  'headers' => self::request_headers(false),
-              ]);
-              if (is_wp_error($response)) return $response;
+          helper = "    /**\n     * Resolve the newest stable Manager release through tag refs, then fetch\n     * that release by its exact tag. GitHub's releases collection can lag\n     * behind a just-published component release even while the tag-specific\n     * endpoint is already consistent.\n     *\n     * @return array|WP_Error|null\n     */\n    private static function latest_release_from_refs() {\n        $s = self::settings();\n        $prefix = (string)$s['tag_prefix'];\n        $url = 'https://api.github.com/repos/' . rawurlencode((string)$s['owner']) . '/' . rawurlencode((string)$s['repo']) . '/git/matching-refs/tags/' . rawurlencode($prefix);\n        $response = wp_remote_get($url, [\n            'timeout' => 12,\n            'redirection' => 3,\n            'headers' => self::request_headers(false),\n        ]);\n        if (is_wp_error($response)) return $response;\n\n        $status = (int)wp_remote_retrieve_response_code($response);\n        if ($status !== 200) {\n            return new WP_Error('bluevpn_github_refs_http', 'GitHub Manager tag refs HTTP ' . $status);\n        }\n\n        $refs = json_decode(wp_remote_retrieve_body($response), true);\n        if (!is_array($refs)) {\n            return new WP_Error('bluevpn_github_refs_json', 'پاسخ GitHub Manager tag refs معتبر نیست.');\n        }\n\n        $refPrefix = 'refs/tags/' . $prefix;\n        $versions = [];\n        foreach ($refs as $row) {\n            if (!is_array($row)) continue;\n            $ref = (string)($row['ref'] ?? '');\n            if ($ref === '' || strpos($ref, $refPrefix) !== 0) continue;\n            $version = substr($ref, strlen($refPrefix));\n            if (!preg_match('/^\\d+\\.\\d+\\.\\d+$/', $version)) continue;\n            $versions[$version] = true;\n        }\n        if (!$versions) return null;\n\n        $versions = array_keys($versions);\n        usort($versions, static fn($a, $b) => version_compare($b, $a));\n\n        // A tag can exist moments before its Release object is published.\n        // Walk only a bounded set of newest tags and confirm each through the\n        // exact Release endpoint, which also validates the expected ZIP asset.\n        foreach (array_slice($versions, 0, 12) as $version) {\n            $release = self::release_by_version((string)$version, 1);\n            if (is_array($release)) return $release;\n            if (is_wp_error($release)) return $release;\n        }\n        return null;\n    }\n\n"
+          signature = '    public static function latest_release(bool $force = false) {'
+          sig_at = s.index(signature)
+          doc_at = s.rfind('    /**', 0, sig_at)
+          if doc_at < 0:
+              raise SystemExit('latest_release doc marker not found')
+          s = s[:doc_at] + helper + s[doc_at:]
 
-              $status = (int)wp_remote_retrieve_response_code($response);
-              if ($status !== 200) {
-                  return new WP_Error('bluevpn_github_refs_http', 'GitHub Manager tag refs HTTP ' . $status);
-              }
-
-              $refs = json_decode(wp_remote_retrieve_body($response), true);
-              if (!is_array($refs)) {
-                  return new WP_Error('bluevpn_github_refs_json', 'پاسخ GitHub Manager tag refs معتبر نیست.');
-              }
-
-              $refPrefix = 'refs/tags/' . $prefix;
-              $versions = [];
-              foreach ($refs as $row) {
-                  if (!is_array($row)) continue;
-                  $ref = (string)($row['ref'] ?? '');
-                  if ($ref === '' || strpos($ref, $refPrefix) !== 0) continue;
-                  $version = substr($ref, strlen($refPrefix));
-                  if (!preg_match('/^\d+\.\d+\.\d+$/', $version)) continue;
-                  $versions[$version] = true;
-              }
-              if (!$versions) return null;
-
-              $versions = array_keys($versions);
-              usort($versions, static fn($a, $b) => version_compare($b, $a));
-
-              // A tag can exist moments before its Release object is published.
-              // Walk only a bounded set of newest tags and confirm each through the
-              // exact Release endpoint, which also validates the expected ZIP asset.
-              foreach (array_slice($versions, 0, 12) as $version) {
-                  $release = self::release_by_version((string)$version, 1);
-                  if (is_array($release)) return $release;
-                  if (is_wp_error($release)) return $release;
-              }
-              return null;
-          }
-
-              /**
-           * @return array|WP_Error|null Normalized release, error, or null when no plugin release exists.
-           */
-          public static function latest_release(bool $force = false) {
-          '''
-          if marker not in s:
-              raise SystemExit('latest_release marker not found')
-          s = s.replace(marker, helper, 1)
-
-          old_tail = '''        if (!$candidates) {
-              set_site_transient(self::CACHE_KEY, 'none', self::CACHE_TTL);
-              return null;
-          }
-
-          usort($candidates, static fn($a, $b) => version_compare($b['version'], $a['version']));
-          $latest = $candidates[0];
-          $latest['version'] = self::effective_version($latest);
-          set_site_transient(self::CACHE_KEY, $latest, self::CACHE_TTL);
-          return $latest;
-          '''
-          new_tail = '''        $latest = null;
-          if ($candidates) {
-              usort($candidates, static fn($a, $b) => version_compare($b['version'], $a['version']));
-              $latest = $candidates[0];
-              $latest['version'] = self::effective_version($latest);
-          }
-
-          // Do not spend extra GitHub requests while the releases collection is
-          // already advertising a semantic update. If it has no Manager entry,
-          // or only reports the installed/older version, verify the newest tag
-          // through matching refs + the exact Release endpoint. This recovers
-          // from GitHub collection lag without turning every poll into 3 calls.
-          $needsRefFallback = !is_array($latest)
-              || version_compare(self::base_version($latest), BLUEVPN_MANAGER_VERSION, '<=');
-          if ($needsRefFallback) {
-              $fallback = self::latest_release_from_refs();
-              if (is_array($fallback)) {
-                  if (!is_array($latest) || version_compare(self::base_version($fallback), self::base_version($latest), '>=')) {
-                      $latest = $fallback;
-                  }
-              } elseif (is_wp_error($fallback) && !is_array($latest)) {
-                  return $fallback;
-              }
-          }
-
-          if (!is_array($latest)) {
-              set_site_transient(self::CACHE_KEY, 'none', self::CACHE_TTL);
-              return null;
-          }
-
-          set_site_transient(self::CACHE_KEY, $latest, self::CACHE_TTL);
-          return $latest;
-          '''
-          if old_tail not in s:
-              raise SystemExit('latest_release candidate tail not found')
-          updater.write_text(s.replace(old_tail, new_tail, 1), encoding='utf-8')
+          sig_at = s.index(signature)
+          tail_start = s.index('        if (!$candidates) {', sig_at)
+          normalize_at = s.index('    private static function normalize_exact_release', tail_start)
+          old_return = '        return $latest;\n'
+          tail_end = s.rfind(old_return, tail_start, normalize_at)
+          if tail_end < 0:
+              raise SystemExit('latest_release tail return not found')
+          tail_end += len(old_return)
+          new_tail = "        $latest = null;\n        if ($candidates) {\n            usort($candidates, static fn($a, $b) => version_compare($b['version'], $a['version']));\n            $latest = $candidates[0];\n            $latest['version'] = self::effective_version($latest);\n        }\n\n        // Do not spend extra GitHub requests while the releases collection is\n        // already advertising a semantic update. If it has no Manager entry,\n        // or only reports the installed/older version, verify the newest tag\n        // through matching refs + the exact Release endpoint. This recovers\n        // from GitHub collection lag without turning every poll into 3 calls.\n        $needsRefFallback = !is_array($latest)\n            || version_compare(self::base_version($latest), BLUEVPN_MANAGER_VERSION, '<=');\n        if ($needsRefFallback) {\n            $fallback = self::latest_release_from_refs();\n            if (is_array($fallback)) {\n                if (!is_array($latest) || version_compare(self::base_version($fallback), self::base_version($latest), '>=')) {\n                    $latest = $fallback;\n                }\n            } elseif (is_wp_error($fallback) && !is_array($latest)) {\n                return $fallback;\n            }\n        }\n\n        if (!is_array($latest)) {\n            set_site_transient(self::CACHE_KEY, 'none', self::CACHE_TTL);\n            return null;\n        }\n\n        set_site_transient(self::CACHE_KEY, $latest, self::CACHE_TTL);\n        return $latest;\n"
+          s = s[:tail_start] + new_tail + s[tail_end:]
+          updater.write_text(s, encoding='utf-8')
 
           test_file = Path('tests/test_deploy_manager_source_fallback_4170.py')
           t = test_file.read_text(encoding='utf-8')
-          insert_before = "    def test_project_root_accepts_wrappers_and_normalizes_versioned_manager_folder(self):\n"
-          regression = '''    def test_manager_release_collection_lag_falls_back_to_tag_refs(self):
-              updater = text('bluevpn-manager/includes/class-bluevpn-github-updater.php')
-              self.assertIn('private static function latest_release_from_refs', updater)
-              self.assertIn('/git/matching-refs/tags/', updater)
-              self.assertIn('release_by_version((string)$version, 1)', updater)
-              self.assertIn('$needsRefFallback', updater)
-              self.assertIn("version_compare(self::base_version($latest), BLUEVPN_MANAGER_VERSION, '<=')", updater)
-              self.assertIn("version_compare(self::base_version($fallback), self::base_version($latest), '>=')", updater)
-
-          '''
-          if regression.strip() in t:
+          marker = '    def test_project_root_accepts_wrappers_and_normalizes_versioned_manager_folder(self):\n'
+          regression = '    def test_manager_release_collection_lag_falls_back_to_tag_refs(self):\n        updater = text(\'bluevpn-manager/includes/class-bluevpn-github-updater.php\')\n        self.assertIn(\'private static function latest_release_from_refs\', updater)\n        self.assertIn(\'/git/matching-refs/tags/\', updater)\n        self.assertIn(\'release_by_version((string)$version, 1)\', updater)\n        self.assertIn(\'$needsRefFallback\', updater)\n        self.assertIn("version_compare(self::base_version($latest), BLUEVPN_MANAGER_VERSION, \'<=\')", updater)\n        self.assertIn("version_compare(self::base_version($fallback), self::base_version($latest), \'>=\')", updater)\n\n'
+          if 'test_manager_release_collection_lag_falls_back_to_tag_refs' in t:
               raise SystemExit('regression test already present unexpectedly')
-          if insert_before not in t:
+          if marker not in t:
               raise SystemExit('test insertion marker not found')
-          test_file.write_text(t.replace(insert_before, regression + insert_before, 1), encoding='utf-8')
+          test_file.write_text(t.replace(marker, regression + marker, 1), encoding='utf-8')
           PY
 
       - name: Restore canonical health workflow

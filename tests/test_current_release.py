@@ -1303,6 +1303,16 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("تطبیق هوشمند", cc)
 
 
+    def test_backup_cron_self_heals_before_48_hour_health_warning(self):
+        production = text("bluevpn-manager/includes/class-bluevpn-production.php")
+        self.assertIn("BACKUP_RECOVERY_STALE_AFTER = 108000", production)
+        self.assertIn("BACKUP_RECOVERY_THROTTLE = 21600", production)
+        self.assertIn("private static function ensure_backup_recovery", production)
+        self.assertIn("wp_schedule_single_event(time() + 60, self::BACKUP_HOOK)", production)
+        self.assertIn("BlueVPN_Utils::kick_wp_cron()", production)
+        self.assertIn("self::ensure_backup_recovery();", production)
+        self.assertIn("delete_option(self::BACKUP_RECOVERY_OPTION)", production)
+
     def test_98_missing_provider_repair_does_not_renew_entitlement(self):
         providers = text("bluevpn-manager/includes/class-bluevpn-providers.php")
         repair = block(providers, "public static function repair_customer_missing_providers", "public static function repairable_customer_count")

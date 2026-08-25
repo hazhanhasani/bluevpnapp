@@ -148,7 +148,7 @@ def expected_files(version: str, version_code: int) -> dict[str, str]:
         ),
         "bluevpn-ios/BlueVPNApp/SecondaryViews.swift": replace(
             "bluevpn-ios/BlueVPNApp/SecondaryViews.swift",
-            [(r'LabeledContent\("نسخه",value:"[^"]+"\)', f'LabeledContent("نسخه",value:"{version}")')],
+            [(r'LabeledContent\("نسخه",\s*value:\s*"[^"]+"\)', f'LabeledContent("نسخه", value: "{version}")')],
         ),
         "bluevpn-gateway/agent.py": replace(
             "bluevpn-gateway/agent.py",

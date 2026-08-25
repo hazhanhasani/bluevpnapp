@@ -26,7 +26,7 @@ actor APIClient {
     private func request<Body: Encodable, T: Decodable>(_ path: String, method: String, token: String?, body: Body?, as: T.Type) async throws -> T {
         guard let url = URL(string: path, relativeTo: base) else { throw APIError.invalidResponse }
         var request = URLRequest(url: url); request.httpMethod = method
-        request.setValue("BlueVPN-iOS/5.6.6", forHTTPHeaderField: "User-Agent")
+        request.setValue("BlueVPN-iOS/5.6.7", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(DeviceIdentity.shared.id, forHTTPHeaderField: "X-Device-ID")
         if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }

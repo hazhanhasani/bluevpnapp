@@ -36,8 +36,8 @@ jobs:
             build 2>&1 | tee diagnostics/xcodebuild-ios.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            grep -E -i '(^|[[:space:]])(error:|fatal error:)|SwiftCompile|CompileSwift|BUILD FAILED|The following build commands failed' \
-              diagnostics/xcodebuild-ios.log | tail -n 120 > diagnostics/xcodebuild-errors.txt || true
+            grep -E -i ':[0-9]+:[0-9]+: (fatal )?error:|(^|[[:space:]])(fatal )?error:|BUILD FAILED|The following build commands failed' \
+              diagnostics/xcodebuild-ios.log | tail -n 80 > diagnostics/xcodebuild-errors.txt || true
             if [ ! -s diagnostics/xcodebuild-errors.txt ]; then
               tail -n 160 diagnostics/xcodebuild-ios.log > diagnostics/xcodebuild-errors.txt
             fi

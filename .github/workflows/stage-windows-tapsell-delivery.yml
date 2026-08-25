@@ -27,113 +27,81 @@ jobs:
 
           service = Path('bluevpn-windows/Services/AdvertisementService.cs')
           s = service.read_text(encoding='utf-8')
-          s = s.replace(
-              '    private DateTimeOffset _windowsWebLastShown = DateTimeOffset.MinValue;\n',
-              '    private DateTimeOffset _windowsWebLastShown = DateTimeOffset.MinValue;\n'
-              '    private DateTimeOffset _windowsWebLastAttempt = DateTimeOffset.MinValue;\n'
-              '    private const int WindowsWebStateSchema = 2;\n',
-              1,
-          )
+          marker = '    private DateTimeOffset _windowsWebLastShown = DateTimeOffset.MinValue;\n'
+          if marker not in s:
+              raise SystemExit('Windows Web state field marker not found')
+          s = s.replace(marker, marker + '    private DateTimeOffset _windowsWebLastAttempt = DateTimeOffset.MinValue;\n    private const int WindowsWebStateSchema = 2;\n', 1)
 
-          old = '''    public bool TryReserveWindowsWebImpression(bool premium, bool noFirstPartyBanner)
-              {
-                  var cfg = WindowsWeb;
-                  // The WordPress bridge is a complete ad document and therefore does not
-                  // need ScriptHtml to be duplicated in the mobile-config payload. Older
-                  // builds required ScriptHtml unconditionally, so a perfectly valid
-                  // HTTPS bridge was rejected before WebView2 navigation even started.
-                  var hasHttpsBridge = Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
-                                       bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
-                  var hasRenderableSource = hasHttpsBridge || !string.IsNullOrWhiteSpace(cfg.ScriptHtml);
-                  if (!cfg.Enabled || !hasRenderableSource || (cfg.FreeOnly && premium)) return false;
-                  var today = DateOnly.FromDateTime(DateTime.Now);
-                  if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; }
-                  _windowsWebSlideCounter++;
-                  if (!noFirstPartyBanner && _windowsWebSlideCounter % Math.Clamp(cfg.EverySlides, 1, 20) != 0) return false;
-                  if (cfg.DailyCap > 0 && _windowsWebDailyCount >= Math.Clamp(cfg.DailyCap, 1, 1000)) return false;
-                  if ((DateTimeOffset.Now - _windowsWebLastShown).TotalSeconds < Math.Clamp(cfg.MinIntervalSeconds, 0, 86400)) return false;
-                  _windowsWebDailyCount++;
-                  _windowsWebLastShown = DateTimeOffset.Now;
-                  SaveWindowsWebState();
-                  return true;
-              }
-          '''
-          new = '''    public bool TryReserveWindowsWebImpression(bool premium, bool noFirstPartyBanner)
-              {
-                  var cfg = WindowsWeb;
-                  // Eligibility is intentionally separate from accounting. A failed
-                  // WebView/provider load must never consume daily cap or start the
-                  // successful-impression cooldown.
-                  var hasHttpsBridge = Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
-                                       bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
-                  var hasRenderableSource = hasHttpsBridge || !string.IsNullOrWhiteSpace(cfg.ScriptHtml);
-                  if (!cfg.Enabled || !hasRenderableSource || (cfg.FreeOnly && premium)) return false;
-                  var today = DateOnly.FromDateTime(DateTime.Now);
-                  if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; _windowsWebLastShown = DateTimeOffset.MinValue; }
-                  _windowsWebSlideCounter++;
-                  if (!noFirstPartyBanner && _windowsWebSlideCounter % Math.Clamp(cfg.EverySlides, 1, 20) != 0) return false;
-                  if (cfg.DailyCap > 0 && _windowsWebDailyCount >= Math.Clamp(cfg.DailyCap, 1, 1000)) return false;
-                  if ((DateTimeOffset.Now - _windowsWebLastShown).TotalSeconds < Math.Clamp(cfg.MinIntervalSeconds, 0, 86400)) return false;
+          start = s.index('    public bool TryReserveWindowsWebImpression(bool premium, bool noFirstPartyBanner)')
+          end = s.index('    private void LoadWindowsWebState()', start)
+          replacement = '''    public bool TryReserveWindowsWebImpression(bool premium, bool noFirstPartyBanner)
+          {
+              var cfg = WindowsWeb;
+              // Eligibility is intentionally separate from accounting. A failed
+              // WebView/provider load must never consume daily cap or start the
+              // successful-impression cooldown.
+              var hasHttpsBridge = Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
+                                   bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
+              var hasRenderableSource = hasHttpsBridge || !string.IsNullOrWhiteSpace(cfg.ScriptHtml);
+              if (!cfg.Enabled || !hasRenderableSource || (cfg.FreeOnly && premium)) return false;
+              var today = DateOnly.FromDateTime(DateTime.Now);
+              if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; _windowsWebLastShown = DateTimeOffset.MinValue; }
+              _windowsWebSlideCounter++;
+              if (!noFirstPartyBanner && _windowsWebSlideCounter % Math.Clamp(cfg.EverySlides, 1, 20) != 0) return false;
+              if (cfg.DailyCap > 0 && _windowsWebDailyCount >= Math.Clamp(cfg.DailyCap, 1, 1000)) return false;
+              if ((DateTimeOffset.Now - _windowsWebLastShown).TotalSeconds < Math.Clamp(cfg.MinIntervalSeconds, 0, 86400)) return false;
 
-                  // With no first-party banners the timer can revisit this slot every few
-                  // seconds. Keep failed provider/network attempts bounded without
-                  // pretending they were impressions.
-                  if ((DateTimeOffset.Now - _windowsWebLastAttempt).TotalSeconds < 20) return false;
-                  _windowsWebLastAttempt = DateTimeOffset.Now;
-                  return true;
+              // Do not hammer the provider when there is no first-party banner,
+              // but never count a failed request as an impression.
+              if ((DateTimeOffset.Now - _windowsWebLastAttempt).TotalSeconds < 20) return false;
+              _windowsWebLastAttempt = DateTimeOffset.Now;
+              return true;
+          }
+
+          public void MarkWindowsWebImpressionShown()
+          {
+              var today = DateOnly.FromDateTime(DateTime.Now);
+              if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; }
+              _windowsWebDailyCount++;
+              _windowsWebLastShown = DateTimeOffset.Now;
+              SaveWindowsWebState();
+          }
+
+          public IReadOnlyList<string> WindowsWebBridgeCandidates()
+          {
+              var cfg = WindowsWeb;
+              var candidates = new List<string>();
+              string pathAndQuery = "";
+
+              if (Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
+                  bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+              {
+                  candidates.Add(bridge.ToString());
+                  pathAndQuery = bridge.PathAndQuery;
               }
 
-              public void MarkWindowsWebImpressionShown()
+              if (!string.IsNullOrWhiteSpace(pathAndQuery))
               {
-                  var today = DateOnly.FromDateTime(DateTime.Now);
-                  if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; }
-                  _windowsWebDailyCount++;
-                  _windowsWebLastShown = DateTimeOffset.Now;
-                  SaveWindowsWebState();
-              }
-
-              public IReadOnlyList<string> WindowsWebBridgeCandidates()
-              {
-                  var cfg = WindowsWeb;
-                  var candidates = new List<string>();
-                  string pathAndQuery = "";
-
-                  if (Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
-                      bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+                  foreach (var baseUrl in _settings.ControlPlaneBases())
                   {
-                      candidates.Add(bridge.ToString());
-                      pathAndQuery = bridge.PathAndQuery;
+                      if (!Uri.TryCreate(baseUrl.TrimEnd('/') + pathAndQuery, UriKind.Absolute, out var candidate) ||
+                          !candidate.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) continue;
+                      if (!candidates.Contains(candidate.ToString(), StringComparer.OrdinalIgnoreCase))
+                          candidates.Add(candidate.ToString());
                   }
-
-                  if (!string.IsNullOrWhiteSpace(pathAndQuery))
-                  {
-                      foreach (var baseUrl in _settings.ControlPlaneBases())
-                      {
-                          if (!Uri.TryCreate(baseUrl.TrimEnd('/') + pathAndQuery, UriKind.Absolute, out var candidate) ||
-                              !candidate.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) continue;
-                          if (!candidates.Contains(candidate.ToString(), StringComparer.OrdinalIgnoreCase))
-                              candidates.Add(candidate.ToString());
-                      }
-                  }
-
-                  return candidates;
               }
+
+              return candidates;
+          }
+
           '''
-          # Dedent eight spaces introduced solely by YAML block indentation.
-          old = '\n'.join(line[8:] if line.startswith('        ') else line for line in old.splitlines()) + '\n'
-          new = '\n'.join(line[8:] if line.startswith('        ') else line for line in new.splitlines()) + '\n'
+          service.write_text(s[:start] + replacement + s[end:], encoding='utf-8')
+          s = service.read_text(encoding='utf-8')
+          old = '            if (state is null || state.Day != DateOnly.FromDateTime(DateTime.Now)) return;\n            _windowsWebDay = state.Day;\n'
+          new = '            // Schema 1 counted attempts before render success. Ignore it once\n            // so old false reservations cannot suppress the repaired client.\n            if (state is null || state.Schema < WindowsWebStateSchema || state.Day != DateOnly.FromDateTime(DateTime.Now)) return;\n            _windowsWebDay = state.Day;\n'
           if old not in s:
-              raise SystemExit('AdvertisementService reservation block not found')
+              raise SystemExit('Windows Web legacy state marker not found')
           s = s.replace(old, new, 1)
-          s = s.replace(
-              '            if (state is null || state.Day != DateOnly.FromDateTime(DateTime.Now)) return;\n'
-              '            _windowsWebDay = state.Day;\n',
-              '            // Schema 1 counted attempts before render success. Ignore it once\n'
-              '            // so old false reservations cannot suppress the repaired client.\n'
-              '            if (state is null || state.Schema < WindowsWebStateSchema || state.Day != DateOnly.FromDateTime(DateTime.Now)) return;\n'
-              '            _windowsWebDay = state.Day;\n',
-              1,
-          )
           s = s.replace(
               '                new WindowsWebAdState(_windowsWebDay, _windowsWebDailyCount, _windowsWebLastShown), AppSettings.JsonOptions()));\n',
               '                new WindowsWebAdState(WindowsWebStateSchema, _windowsWebDay, _windowsWebDailyCount, _windowsWebLastShown), AppSettings.JsonOptions()));\n',
@@ -148,116 +116,82 @@ jobs:
 
           main = Path('bluevpn-windows/MainWindow.xaml.cs')
           s = main.read_text(encoding='utf-8')
-          old = '''        if (_ads.TryReserveWindowsWebImpression(premium, items.Count == 0) && await ShowTapsellWebAdAsync())
-              return;
-          '''
-          new = '''        if (_ads.TryReserveWindowsWebImpression(premium, items.Count == 0) && await ShowTapsellWebAdAsync())
-              {
-                  _ads.MarkWindowsWebImpressionShown();
-                  return;
-              }
-          '''
-          old = '\n'.join(line[8:] if line.startswith('        ') else line for line in old.splitlines()) + '\n'
-          new = '\n'.join(line[8:] if line.startswith('        ') else line for line in new.splitlines()) + '\n'
+          old = '        if (_ads.TryReserveWindowsWebImpression(premium, items.Count == 0) && await ShowTapsellWebAdAsync())\n            return;\n'
+          new = '        if (_ads.TryReserveWindowsWebImpression(premium, items.Count == 0) && await ShowTapsellWebAdAsync())\n        {\n            _ads.MarkWindowsWebImpressionShown();\n            return;\n        }\n'
           if old not in s:
-              raise SystemExit('ShowCurrentAd reservation block not found')
+              raise SystemExit('ShowCurrentAd reservation marker not found')
           s = s.replace(old, new, 1)
 
-          old = '''            var address = Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
-                            bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-                  ? bridge.ToString()
-                  : await WebView2RuntimeInstaller.WriteAdDocumentAsync(html, _lifetimeCts.Token);
-              if (!await NavigateTapsellAsync(address, _lifetimeCts.Token))
+          nav_start = s.index('            var address = Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&')
+          nav_end_marker = '            if (!await WaitForTapsellContentAsync(_lifetimeCts.Token))\n                return false;\n'
+          nav_end = s.index(nav_end_marker, nav_start) + len(nav_end_marker)
+          nav = '''            var rendered = false;
+          foreach (var address in _ads.WindowsWebBridgeCandidates())
+          {
+              if (!await NavigateTapsellAsync(address, _lifetimeCts.Token)) continue;
+              if (await WaitForTapsellContentAsync(_lifetimeCts.Token))
               {
-                  TapsellWebView.Visibility = Visibility.Collapsed;
-                  TapsellLoadingPanel.Visibility = Visibility.Collapsed;
-                  AdProviderLabel.Visibility = Visibility.Collapsed;
-                  return false;
+                  rendered = true;
+                  break;
               }
-              if (!await WaitForTapsellContentAsync(_lifetimeCts.Token))
-                  return false;
-          '''
-          new = '''            var rendered = false;
-              foreach (var address in _ads.WindowsWebBridgeCandidates())
-              {
-                  if (!await NavigateTapsellAsync(address, _lifetimeCts.Token)) continue;
-                  if (await WaitForTapsellContentAsync(_lifetimeCts.Token))
-                  {
-                      rendered = true;
-                      break;
-                  }
-              }
+          }
 
-              // Keep the old local-document path only as a final compatibility
-              // fallback. Real WordPress origins are preferred because publisher
-              // validation can reject synthetic/local origins.
-              if (!rendered && !string.IsNullOrWhiteSpace(cfg.ScriptHtml))
-              {
-                  var localAddress = await WebView2RuntimeInstaller.WriteAdDocumentAsync(html, _lifetimeCts.Token);
-                  if (await NavigateTapsellAsync(localAddress, _lifetimeCts.Token))
-                      rendered = await WaitForTapsellContentAsync(_lifetimeCts.Token);
-              }
+          // Keep the old local-document path only as a final compatibility
+          // fallback. Real WordPress origins are preferred because publisher
+          // validation can reject synthetic/local origins.
+          if (!rendered && !string.IsNullOrWhiteSpace(cfg.ScriptHtml))
+          {
+              var localAddress = await WebView2RuntimeInstaller.WriteAdDocumentAsync(html, _lifetimeCts.Token);
+              if (await NavigateTapsellAsync(localAddress, _lifetimeCts.Token))
+                  rendered = await WaitForTapsellContentAsync(_lifetimeCts.Token);
+          }
 
-              if (!rendered)
-              {
-                  TapsellWebView.Visibility = Visibility.Collapsed;
-                  TapsellLoadingPanel.Visibility = Visibility.Collapsed;
-                  AdProviderLabel.Visibility = Visibility.Collapsed;
-                  return false;
-              }
-          '''
-          old = '\n'.join(line[8:] if line.startswith('        ') else line for line in old.splitlines()) + '\n'
-          new = '\n'.join(line[8:] if line.startswith('        ') else line for line in new.splitlines()) + '\n'
-          if old not in s:
-              raise SystemExit('Tapsell navigation block not found')
-          s = s.replace(old, new, 1)
+          if (!rendered)
+          {
+              TapsellWebView.Visibility = Visibility.Collapsed;
+              TapsellLoadingPanel.Visibility = Visibility.Collapsed;
+              AdProviderLabel.Visibility = Visibility.Collapsed;
+              return false;
+          }
+'''
+          s = s[:nav_start] + nav + s[nav_end:]
 
-          old = '''            var result = await TapsellWebView.CoreWebView2.ExecuteScriptAsync(
-                  "(()=>{const r=document.getElementById('bluevpn-ad')||document.getElementById('bluevpn-tapsell-root')||document.body;if(!r)return false;" +
-                  "const nodes=[...r.querySelectorAll('iframe,img,video,canvas,object,embed')];" +
-                  "return nodes.some(n=>{const b=n.getBoundingClientRect(),s=getComputedStyle(n);" +
-                  "return b.width>20&&b.height>20&&s.display!=='none'&&s.visibility!=='hidden';});})()");
-          '''
-          new = '''            var result = await TapsellWebView.CoreWebView2.ExecuteScriptAsync(
-                  "(()=>{const r=document.getElementById('bluevpn-ad')||document.getElementById('bluevpn-tapsell-root')||document.body;if(!r)return false;" +
-                  "const visible=n=>{if(!n||!n.getBoundingClientRect)return false;const b=n.getBoundingClientRect(),s=getComputedStyle(n);" +
-                  "return b.width>20&&b.height>20&&s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity||1)>0;};" +
-                  "const media=[...r.querySelectorAll('iframe,img,video,canvas,object,embed')];if(media.some(visible))return true;" +
-                  "const nodes=[...r.querySelectorAll('*')].filter(n=>!['SCRIPT','STYLE','LINK','META','NOSCRIPT'].includes(n.tagName));" +
-                  "if(nodes.some(n=>visible(n)&&(((n.innerText||'').trim().length>0)||(getComputedStyle(n).backgroundImage||'none')!=='none')))return true;" +
-                  "const hosts=nodes.filter(n=>n.shadowRoot);return hosts.some(h=>visible(h)&&[...h.shadowRoot.querySelectorAll('*')].some(visible));})()");
-          '''
-          old = '\n'.join(line[8:] if line.startswith('        ') else line for line in old.splitlines()) + '\n'
-          new = '\n'.join(line[8:] if line.startswith('        ') else line for line in new.splitlines()) + '\n'
-          if old not in s:
-              raise SystemExit('Tapsell content detector block not found')
-          s = s.replace(old, new, 1)
+          detector_start = s.index('            var result = await TapsellWebView.CoreWebView2.ExecuteScriptAsync(', s.index('private async Task<bool> WaitForTapsellContentAsync'))
+          detector_end = s.index('            if (string.Equals(result?.Trim(), "true", StringComparison.OrdinalIgnoreCase)) return true;', detector_start)
+          detector = '''            var result = await TapsellWebView.CoreWebView2.ExecuteScriptAsync(
+              "(()=>{const r=document.getElementById('bluevpn-ad')||document.getElementById('bluevpn-tapsell-root')||document.body;if(!r)return false;" +
+              "const visible=n=>{if(!n||!n.getBoundingClientRect)return false;const b=n.getBoundingClientRect(),s=getComputedStyle(n);" +
+              "return b.width>20&&b.height>20&&s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity||1)>0;};" +
+              "const media=[...r.querySelectorAll('iframe,img,video,canvas,object,embed')];if(media.some(visible))return true;" +
+              "const nodes=[...r.querySelectorAll('*')].filter(n=>!['SCRIPT','STYLE','LINK','META','NOSCRIPT'].includes(n.tagName));" +
+              "if(nodes.some(n=>visible(n)&&(((n.innerText||'').trim().length>0)||(getComputedStyle(n).backgroundImage||'none')!=='none')))return true;" +
+              "const hosts=nodes.filter(n=>n.shadowRoot);return hosts.some(h=>visible(h)&&[...h.shadowRoot.querySelectorAll('*')].some(visible));})()");
+'''
+          s = s[:detector_start] + detector + s[detector_end:]
           main.write_text(s, encoding='utf-8')
 
           test = Path('tests/test_windows_tapsell_web_553.py')
           s = test.read_text(encoding='utf-8')
           needle = '\nif __name__ == "__main__":\n    unittest.main()\n'
           addition = '''
-              def test_windows_bridge_failover_and_success_only_accounting(self):
-                  service = (ROOT / "bluevpn-windows/Services/AdvertisementService.cs").read_text(encoding="utf-8")
-                  reserve = service[service.index("public bool TryReserveWindowsWebImpression"):service.index("public void MarkWindowsWebImpressionShown")]
-                  self.assertNotIn("_windowsWebDailyCount++", reserve)
-                  self.assertNotIn("SaveWindowsWebState()", reserve)
-                  self.assertIn("WindowsWebBridgeCandidates", service)
-                  self.assertIn("_settings.ControlPlaneBases()", service)
-                  self.assertIn("WindowsWebStateSchema = 2", service)
-                  main = (ROOT / "bluevpn-windows/MainWindow.xaml.cs").read_text(encoding="utf-8")
-                  self.assertIn("_ads.MarkWindowsWebImpressionShown();", main)
-                  self.assertIn("foreach (var address in _ads.WindowsWebBridgeCandidates())", main)
-                  detector = main[main.index("private async Task<bool> WaitForTapsellContentAsync"):main.index("private static string ShortUiError")]
-                  self.assertIn("backgroundImage", detector)
-                  self.assertIn("shadowRoot", detector)
-          '''
-          addition = '\n'.join(line[12:] if line.startswith('            ') else line for line in addition.splitlines()) + '\n'
+    def test_windows_bridge_failover_and_success_only_accounting(self):
+        service = (ROOT / "bluevpn-windows/Services/AdvertisementService.cs").read_text(encoding="utf-8")
+        reserve = service[service.index("public bool TryReserveWindowsWebImpression"):service.index("public void MarkWindowsWebImpressionShown")]
+        self.assertNotIn("_windowsWebDailyCount++", reserve)
+        self.assertNotIn("SaveWindowsWebState()", reserve)
+        self.assertIn("WindowsWebBridgeCandidates", service)
+        self.assertIn("_settings.ControlPlaneBases()", service)
+        self.assertIn("WindowsWebStateSchema = 2", service)
+        main = (ROOT / "bluevpn-windows/MainWindow.xaml.cs").read_text(encoding="utf-8")
+        self.assertIn("_ads.MarkWindowsWebImpressionShown();", main)
+        self.assertIn("foreach (var address in _ads.WindowsWebBridgeCandidates())", main)
+        detector = main[main.index("private async Task<bool> WaitForTapsellContentAsync"):main.index("private static string ShortUiError")]
+        self.assertIn("backgroundImage", detector)
+        self.assertIn("shadowRoot", detector)
+'''
           if needle not in s:
               raise SystemExit('Windows Tapsell test insertion marker not found')
-          s = s.replace(needle, addition + needle, 1)
-          test.write_text(s, encoding='utf-8')
+          test.write_text(s.replace(needle, addition + needle, 1), encoding='utf-8')
           PY
 
       - name: Restore canonical workflow tree

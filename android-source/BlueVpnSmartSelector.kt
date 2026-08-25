@@ -144,7 +144,31 @@ object BlueVpnSmartSelector {
             context,
             maxOf(baseConfidence, intelligence.confidence).coerceIn(0, 98),
         )
-        return ScoredCandidate(candidate, score, confidence, evidence)
+        // Rank by a conservative lower bound, not an optimistic point estimate.
+        // Unknown and weakly evidenced routes can still be explored later in the
+        // failover list, but cannot beat a proven route on a noisy cloud score.
+        val uncertaintyPenalty = ((100 - confidence) * 12 / 100) +
+            if (candidate.delay <= 0L) 6 else 0
+        val robustScore = (score - uncertaintyPenalty).coerceIn(0, 100)
+        return ScoredCandidate(
+            candidate,
+            robustScore,
+            confidence,
+            "$evidence • اطمینان $confidence٪",
+        )
+    }
+
+    private fun diversifyFailover(ranked: List<ScoredCandidate>): List<ScoredCandidate> {
+        if (ranked.size < 3) return ranked
+        val primary = ranked.first()
+        val selected = mutableListOf(primary)
+        val seenServers = mutableSetOf(primary.candidate.profile.server.lowercase(Locale.ROOT))
+        ranked.drop(1).forEach { item ->
+            val server = item.candidate.profile.server.lowercase(Locale.ROOT)
+            if (server.isNotBlank() && seenServers.add(server)) selected += item
+        }
+        ranked.drop(1).forEach { item -> if (item !in selected) selected += item }
+        return selected
     }
 
     /** Score one arbitrary candidate with one entitlement resolution. */
@@ -249,12 +273,12 @@ object BlueVpnSmartSelector {
             latencyToleranceMs = if (recovery) 180L else 60L,
         )
         if (sticky != null && sticky.candidate.guid != ranked.first().candidate.guid) {
-            return buildList {
+            return diversifyFailover(buildList {
                 add(sticky)
                 ranked.forEach { if (it.candidate.guid != sticky.candidate.guid) add(it) }
-            }
+            })
         }
-        return ranked
+        return diversifyFailover(ranked)
     }
 
     /**
@@ -283,12 +307,12 @@ object BlueVpnSmartSelector {
             latencyToleranceMs = if (recovery) 180L else 60L,
         )
         if (sticky != null && sticky.candidate.guid != ranked.first().candidate.guid) {
-            return buildList {
+            return diversifyFailover(buildList {
                 add(sticky)
                 ranked.forEach { if (it.candidate.guid != sticky.candidate.guid) add(it) }
-            }
+            })
         }
-        return ranked
+        return diversifyFailover(ranked)
     }
 
     fun recordAutomaticConnectionChoice(

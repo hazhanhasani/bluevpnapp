@@ -952,9 +952,10 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
     def test_seo_hardening_is_loaded_and_versioned(self):
         functions = text("bluevpn-site/functions.php")
         style = text("bluevpn-site/style.css")
+        version = json.loads(text("release.json"))["version"]
         self.assertIn("class-bluevpn-seo.php", functions)
-        self.assertIn("BLUEVPN_SITE_VERSION', '5.8.1", functions)
-        self.assertRegex(style, r"(?m)^Version:\s*5\.8\.1\s*$")
+        self.assertIn(f"BLUEVPN_SITE_VERSION', '{version}", functions)
+        self.assertRegex(style, rf"(?m)^Version:\s*{re.escape(version)}\s*$")
 
     def test_private_account_is_noindex_and_excluded_from_sitemaps(self):
         seo = text("bluevpn-site/inc/class-bluevpn-seo.php")

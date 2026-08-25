@@ -131,7 +131,14 @@ public sealed class WindowsBlueAiService : IDisposable
 
         var explore = Math.Min(4, limit / 4);
         var chosen = scored.Take(limit - explore).Select(x => x.endpoint).ToList();
-        foreach (var row in scored.AsEnumerable().Reverse())
+        // Explore routes with the least personal evidence instead of selecting
+        // the historically worst routes. This keeps discovery without making a
+        // bad server the default merely because it sits at the tail.
+        foreach (var row in scored
+            .Where(x => !chosen.Contains(x.endpoint))
+            .OrderBy(x => PersonalSampleCount(x.endpoint))
+            .ThenByDescending(x => x.score)
+            .ThenBy(x => x.index))
         {
             if (chosen.Contains(row.endpoint)) continue;
             chosen.Add(row.endpoint);
@@ -147,11 +154,12 @@ public sealed class WindowsBlueAiService : IDisposable
     public IReadOnlyList<ProxyEndpoint> Reorder(IReadOnlyList<ProxyEndpoint> ranked)
     {
         if (!Enabled) return ranked;
-        return ranked
+        var ordered = ranked
             .OrderBy(x => x.ProbeSuccessCount == 0)
             .ThenBy(LiveQualityCost)
             .ThenByDescending(HistoricalScore)
             .ToList();
+        return DiversifyHosts(ordered);
     }
 
     private static long LiveQualityCost(ProxyEndpoint endpoint)
@@ -159,7 +167,30 @@ public sealed class WindowsBlueAiService : IDisposable
         if (endpoint.ProbeLatencyMs == int.MaxValue) return long.MaxValue;
         var jitter = endpoint.ProbeJitterMs == int.MaxValue ? 500 : Math.Clamp(endpoint.ProbeJitterMs, 0, 2_000);
         var missed = Math.Max(0, endpoint.ProbeSampleCount - endpoint.ProbeSuccessCount);
-        return endpoint.ProbeLatencyMs + jitter * 2L + missed * 500L;
+        var uncertainty = Math.Max(0, 3 - endpoint.ProbeSuccessCount) * 220L;
+        return endpoint.ProbeLatencyMs + jitter * 2L + missed * 500L + uncertainty;
+    }
+
+    private static IReadOnlyList<ProxyEndpoint> DiversifyHosts(IReadOnlyList<ProxyEndpoint> ranked)
+    {
+        if (ranked.Count < 3) return ranked;
+        var result = new List<ProxyEndpoint> { ranked[0] };
+        var hosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ranked[0].Host };
+        foreach (var endpoint in ranked.Skip(1))
+            if (!string.IsNullOrWhiteSpace(endpoint.Host) && hosts.Add(endpoint.Host)) result.Add(endpoint);
+        foreach (var endpoint in ranked.Skip(1))
+            if (!result.Contains(endpoint)) result.Add(endpoint);
+        return result;
+    }
+
+    private int PersonalSampleCount(ProxyEndpoint endpoint)
+    {
+        lock (_sync)
+        {
+            return _state.Personal.TryGetValue(Fingerprint(endpoint), out var row)
+                ? row.Successes + row.Failures
+                : 0;
+        }
     }
 
     public void RecordFailure(ProxyEndpoint endpoint, bool premium, string reason)

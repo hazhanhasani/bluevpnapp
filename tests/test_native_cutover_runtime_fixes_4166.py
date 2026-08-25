@@ -7,8 +7,8 @@ def text(rel): return (ROOT/rel).read_text(encoding='utf-8')
 class NativeCutoverRuntimeFixes4166(unittest.TestCase):
     def test_release_version(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'5.8.1')
-        self.assertEqual(r['version_code'],50801)
+        self.assertEqual(r['version'],'5.8.2')
+        self.assertEqual(r['version_code'],50802)
         self.assertEqual(json.loads(text('branding/app.json'))['control_plane'],'wordpress_mysql_native')
 
     def test_ads_payload_has_no_foreign_free_pool_locals(self):

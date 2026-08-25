@@ -22,6 +22,8 @@ public sealed class AdvertisementService
     private int _windowsWebDailyCount;
     private DateOnly _windowsWebDay = DateOnly.FromDateTime(DateTime.Now);
     private DateTimeOffset _windowsWebLastShown = DateTimeOffset.MinValue;
+    private DateTimeOffset _windowsWebLastAttempt = DateTimeOffset.MinValue;
+    private const int WindowsWebStateSchema = 2;
 
     public AdvertisementService(BlueVpnApiClient api, AppSettings settings)
     {
@@ -155,24 +157,61 @@ public sealed class AdvertisementService
     public bool TryReserveWindowsWebImpression(bool premium, bool noFirstPartyBanner)
     {
         var cfg = WindowsWeb;
-        // The WordPress bridge is a complete ad document and therefore does not
-        // need ScriptHtml to be duplicated in the mobile-config payload. Older
-        // builds required ScriptHtml unconditionally, so a perfectly valid
-        // HTTPS bridge was rejected before WebView2 navigation even started.
+        // Eligibility is intentionally separate from accounting. A failed
+        // WebView/provider load must never consume daily cap or start the
+        // successful-impression cooldown.
         var hasHttpsBridge = Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
                              bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
         var hasRenderableSource = hasHttpsBridge || !string.IsNullOrWhiteSpace(cfg.ScriptHtml);
         if (!cfg.Enabled || !hasRenderableSource || (cfg.FreeOnly && premium)) return false;
         var today = DateOnly.FromDateTime(DateTime.Now);
-        if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; }
+        if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; _windowsWebLastShown = DateTimeOffset.MinValue; }
         _windowsWebSlideCounter++;
         if (!noFirstPartyBanner && _windowsWebSlideCounter % Math.Clamp(cfg.EverySlides, 1, 20) != 0) return false;
         if (cfg.DailyCap > 0 && _windowsWebDailyCount >= Math.Clamp(cfg.DailyCap, 1, 1000)) return false;
         if ((DateTimeOffset.Now - _windowsWebLastShown).TotalSeconds < Math.Clamp(cfg.MinIntervalSeconds, 0, 86400)) return false;
+
+        // Do not hammer the provider when there is no first-party banner,
+        // but never count a failed request as an impression.
+        if ((DateTimeOffset.Now - _windowsWebLastAttempt).TotalSeconds < 20) return false;
+        _windowsWebLastAttempt = DateTimeOffset.Now;
+        return true;
+    }
+
+    public void MarkWindowsWebImpressionShown()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; }
         _windowsWebDailyCount++;
         _windowsWebLastShown = DateTimeOffset.Now;
         SaveWindowsWebState();
-        return true;
+    }
+
+    public IReadOnlyList<string> WindowsWebBridgeCandidates()
+    {
+        var cfg = WindowsWeb;
+        var candidates = new List<string>();
+        string pathAndQuery = "";
+
+        if (Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
+            bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            candidates.Add(bridge.ToString());
+            pathAndQuery = bridge.PathAndQuery;
+        }
+
+        if (!string.IsNullOrWhiteSpace(pathAndQuery))
+        {
+            foreach (var baseUrl in _settings.ControlPlaneBases())
+            {
+                if (!Uri.TryCreate(baseUrl.TrimEnd('/') + pathAndQuery, UriKind.Absolute, out var candidate) ||
+                    !candidate.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!candidates.Contains(candidate.ToString(), StringComparer.OrdinalIgnoreCase))
+                    candidates.Add(candidate.ToString());
+            }
+        }
+
+        return candidates;
     }
 
     private void LoadWindowsWebState()
@@ -181,7 +220,9 @@ public sealed class AdvertisementService
         {
             if (!File.Exists(_windowsWebStatePath)) return;
             var state = JsonSerializer.Deserialize<WindowsWebAdState>(File.ReadAllText(_windowsWebStatePath), AppSettings.JsonOptions());
-            if (state is null || state.Day != DateOnly.FromDateTime(DateTime.Now)) return;
+            // Schema 1 counted attempts before render success. Ignore it once
+            // so old false reservations cannot suppress the repaired client.
+            if (state is null || state.Schema < WindowsWebStateSchema || state.Day != DateOnly.FromDateTime(DateTime.Now)) return;
             _windowsWebDay = state.Day;
             _windowsWebDailyCount = Math.Max(0, state.DailyCount);
             _windowsWebLastShown = state.LastShown;
@@ -196,7 +237,7 @@ public sealed class AdvertisementService
             var dir = Path.GetDirectoryName(_windowsWebStatePath);
             if (!string.IsNullOrWhiteSpace(dir)) Directory.CreateDirectory(dir);
             File.WriteAllText(_windowsWebStatePath, JsonSerializer.Serialize(
-                new WindowsWebAdState(_windowsWebDay, _windowsWebDailyCount, _windowsWebLastShown), AppSettings.JsonOptions()));
+                new WindowsWebAdState(WindowsWebStateSchema, _windowsWebDay, _windowsWebDailyCount, _windowsWebLastShown), AppSettings.JsonOptions()));
         }
         catch { }
     }
@@ -267,5 +308,5 @@ public sealed class AdvertisementService
         !string.IsNullOrWhiteSpace(item.Title) ||
         !string.IsNullOrWhiteSpace(item.Subtitle);
 
-    private sealed record WindowsWebAdState(DateOnly Day, int DailyCount, DateTimeOffset LastShown);
+    private sealed record WindowsWebAdState(int Schema, DateOnly Day, int DailyCount, DateTimeOffset LastShown);
 }

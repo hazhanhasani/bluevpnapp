@@ -11,7 +11,9 @@ permissions:
 
 concurrency:
   group: bluevpn-project-health-${{ github.ref }}
-  cancel-in-progress: true
+  # Every main update owns a fan-out. Do not cancel an older update before it
+  # has had a chance to start all of its build/release workflows.
+  cancel-in-progress: false
 
 jobs:
   full-static-regression-gate:
@@ -73,7 +75,6 @@ jobs:
 
   fanout-main-builds:
     name: Start every BlueVPN workflow
-    needs: full-static-regression-gate
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     steps:
@@ -87,8 +88,8 @@ jobs:
           set -euo pipefail
           echo "Fan-out source: ${TARGET_REF}@${TARGET_SHA}"
 
-          # Android builds on every accepted main update. Keep this fan-out in
-          # fast mode; the dedicated release workflows below own their releases.
+          # Android build starts on every main update. Full Android publication
+          # remains a separate release decision; version is source-authoritative.
           gh workflow run build-apk.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF" -f build_mode=fast
 
           # Platform build pipelines.
@@ -101,7 +102,7 @@ jobs:
             -f target_sha="$TARGET_SHA" -f request_id="main-push-${GITHUB_RUN_ID}"
           gh workflow run bluevpn-site-theme-release.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
 
-          # Re-probe production after every accepted source update.
+          # Re-probe production on every main update as well.
           gh workflow run external-health.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
 
           echo 'All BlueVPN build/release workflows dispatched.'

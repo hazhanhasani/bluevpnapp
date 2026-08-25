@@ -176,7 +176,10 @@ public partial class MainWindow : Window
         var items = _ads.BannerItems;
         var premium = _account?.Subscription.Active == true;
         if (_ads.TryReserveWindowsWebImpression(premium, items.Count == 0) && await ShowTapsellWebAdAsync())
+        {
+            _ads.MarkWindowsWebImpressionShown();
             return;
+        }
 
         TapsellWebView.Visibility = Visibility.Collapsed;
         TapsellLoadingPanel.Visibility = Visibility.Collapsed;
@@ -284,19 +287,34 @@ public partial class MainWindow : Window
             AdFallbackPanel.Visibility = Visibility.Collapsed;
             TapsellLoadingPanel.Visibility = Visibility.Visible;
             AdProviderLabel.Visibility = Visibility.Visible;
-            var address = Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
-                          bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-                ? bridge.ToString()
-                : await WebView2RuntimeInstaller.WriteAdDocumentAsync(html, _lifetimeCts.Token);
-            if (!await NavigateTapsellAsync(address, _lifetimeCts.Token))
+            var rendered = false;
+            foreach (var address in _ads.WindowsWebBridgeCandidates())
+            {
+                if (!await NavigateTapsellAsync(address, _lifetimeCts.Token)) continue;
+                if (await WaitForTapsellContentAsync(_lifetimeCts.Token))
+                {
+                    rendered = true;
+                    break;
+                }
+            }
+
+            // Keep the old local-document path only as a final compatibility
+            // fallback. Real WordPress origins are preferred because publisher
+            // validation can reject synthetic/local origins.
+            if (!rendered && !string.IsNullOrWhiteSpace(cfg.ScriptHtml))
+            {
+                var localAddress = await WebView2RuntimeInstaller.WriteAdDocumentAsync(html, _lifetimeCts.Token);
+                if (await NavigateTapsellAsync(localAddress, _lifetimeCts.Token))
+                    rendered = await WaitForTapsellContentAsync(_lifetimeCts.Token);
+            }
+
+            if (!rendered)
             {
                 TapsellWebView.Visibility = Visibility.Collapsed;
                 TapsellLoadingPanel.Visibility = Visibility.Collapsed;
                 AdProviderLabel.Visibility = Visibility.Collapsed;
                 return false;
             }
-            if (!await WaitForTapsellContentAsync(_lifetimeCts.Token))
-                return false;
             TapsellLoadingPanel.Visibility = Visibility.Collapsed;
             TapsellWebView.Visibility = Visibility.Visible;
             return true;
@@ -338,9 +356,12 @@ public partial class MainWindow : Window
             await Task.Delay(350, ct);
             var result = await TapsellWebView.CoreWebView2.ExecuteScriptAsync(
                 "(()=>{const r=document.getElementById('bluevpn-ad')||document.getElementById('bluevpn-tapsell-root')||document.body;if(!r)return false;" +
-                "const nodes=[...r.querySelectorAll('iframe,img,video,canvas,object,embed')];" +
-                "return nodes.some(n=>{const b=n.getBoundingClientRect(),s=getComputedStyle(n);" +
-                "return b.width>20&&b.height>20&&s.display!=='none'&&s.visibility!=='hidden';});})()");
+                "const visible=n=>{if(!n||!n.getBoundingClientRect)return false;const b=n.getBoundingClientRect(),s=getComputedStyle(n);" +
+                "return b.width>20&&b.height>20&&s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity||1)>0;};" +
+                "const media=[...r.querySelectorAll('iframe,img,video,canvas,object,embed')];if(media.some(visible))return true;" +
+                "const nodes=[...r.querySelectorAll('*')].filter(n=>!['SCRIPT','STYLE','LINK','META','NOSCRIPT'].includes(n.tagName));" +
+                "if(nodes.some(n=>visible(n)&&(((n.innerText||'').trim().length>0)||(getComputedStyle(n).backgroundImage||'none')!=='none')))return true;" +
+                "const hosts=nodes.filter(n=>n.shadowRoot);return hosts.some(h=>visible(h)&&[...h.shadowRoot.querySelectorAll('*')].some(visible));})()");
             if (string.Equals(result?.Trim(), "true", StringComparison.OrdinalIgnoreCase)) return true;
         }
         FooterStatus.Text = "تپسل محتوای قابل نمایش برنگرداند؛ بنر BlueVPN جایگزین شد.";

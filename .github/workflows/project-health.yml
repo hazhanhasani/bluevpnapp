@@ -1,170 +1,93 @@
-name: BlueVPN Project Health
+name: BlueVPN Backup Self-Heal Repair
 
 on:
   push:
-  pull_request:
-  workflow_dispatch:
+    branches:
+      - automation/backup-self-heal-5810
 
 permissions:
   contents: write
-  actions: write
-
-concurrency:
-  group: bluevpn-project-health-${{ github.ref }}
-  # Every main update owns a release fan-out. Do not cancel an older update
-  # before it has resolved its release version and dispatched every platform.
-  cancel-in-progress: false
 
 jobs:
-  full-static-regression-gate:
+  build-validated-tree:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-      - name: Install validation helpers
-        run: python -m pip install --disable-pip-version-check pyyaml
-      - name: Reject merge-conflict markers
+        with:
+          fetch-depth: 0
+
+      - name: Apply backup self-heal repair
         shell: bash
         run: |
           set -euo pipefail
-          if grep -RInE '^(<<<<<<<|=======|>>>>>>>)' --exclude-dir=.git --exclude='*.log' .; then
-            echo '::error::Merge conflict marker found in project source.'
-            exit 1
-          fi
-      - name: PHP syntax — Manager and Theme
-        shell: bash
-        run: |
-          set -euo pipefail
-          while IFS= read -r -d '' file; do php -l "$file" >/dev/null || { echo "::error file=$file::PHP syntax failed"; exit 1; }; done < <(find bluevpn-manager bluevpn-site -type f -name '*.php' -print0)
-      - name: Python syntax
-        run: python -m compileall -q scripts tests
-      - name: JavaScript syntax — Manager and Theme
-        shell: bash
-        run: |
-          set -euo pipefail
-          while IFS= read -r -d '' file; do node --check "$file" >/dev/null || { echo "::error file=$file::JavaScript syntax failed"; exit 1; }; done < <(find bluevpn-manager bluevpn-site -type f -name '*.js' -print0)
-      - name: JSON YAML XML and XAML syntax
-        shell: bash
-        run: |
           python - <<'PY'
           from pathlib import Path
-          import json, sys, yaml, xml.etree.ElementTree as ET
-          errors=[]
-          for p in Path('.').rglob('*'):
-              if not p.is_file() or '.git' in p.parts: continue
-              try:
-                  if p.suffix.lower()=='.json': json.loads(p.read_text(encoding='utf-8'))
-                  elif p.suffix.lower() in ('.yml','.yaml'): yaml.safe_load(p.read_text(encoding='utf-8'))
-                  elif p.suffix.lower() in ('.xml','.xaml'): ET.parse(p)
-              except Exception as e: errors.append(f'{p}: {e}')
-          if errors:
-              for e in errors[:100]: print(f'::error::{e}')
-              sys.exit(1)
+
+          p = Path('bluevpn-manager/includes/class-bluevpn-production.php')
+          s = p.read_text(encoding='utf-8')
+
+          old = "    private const BACKUP_OPTION = 'bluevpn_manager_last_backup';\n    private const RESTORE_OPTION = 'bluevpn_manager_last_restore';\n"
+          new = "    private const BACKUP_OPTION = 'bluevpn_manager_last_backup';\n    private const BACKUP_RECOVERY_OPTION = 'bluevpn_manager_backup_recovery_kick_at';\n    private const BACKUP_RECOVERY_STALE_AFTER = 108000; // 30 hours.\n    private const BACKUP_RECOVERY_THROTTLE = 21600; // 6 hours.\n    private const RESTORE_OPTION = 'bluevpn_manager_last_restore';\n"
+          if old not in s: raise SystemExit('backup constants marker not found')
+          s = s.replace(old, new, 1)
+
+          old = "        self::ensure_native_control_plane();\n        self::ensure_schedule();\n    }\n\n    public static function activate(): void {\n        self::ensure_native_control_plane();\n        self::ensure_schedule();\n    }\n"
+          new = "        self::ensure_native_control_plane();\n        self::ensure_schedule();\n        self::ensure_backup_recovery();\n    }\n\n    public static function activate(): void {\n        self::ensure_native_control_plane();\n        self::ensure_schedule();\n        self::ensure_backup_recovery();\n    }\n"
+          if old not in s: raise SystemExit('init/activate marker not found')
+          s = s.replace(old, new, 1)
+
+          marker = "    public static function unschedule(): void {\n"
+          helper = "    private static function ensure_backup_recovery(): void {\n        $last = self::backup_status();\n        $lastTs = !empty($last['created_at']) ? strtotime((string)$last['created_at']) : false;\n        $fresh = !empty($last['ok']) && $lastTs && $lastTs > time() - self::BACKUP_RECOVERY_STALE_AFTER;\n        if ($fresh) {\n            delete_option(self::BACKUP_RECOVERY_OPTION);\n            return;\n        }\n\n        $lastKick = (int)get_option(self::BACKUP_RECOVERY_OPTION, 0);\n        if ($lastKick > time() - self::BACKUP_RECOVERY_THROTTLE) return;\n\n        $next = wp_next_scheduled(self::BACKUP_HOOK);\n        if (!$next || $next > time() + 10 * MINUTE_IN_SECONDS) {\n            wp_schedule_single_event(time() + 60, self::BACKUP_HOOK);\n        }\n        update_option(self::BACKUP_RECOVERY_OPTION, time(), false);\n        BlueVPN_Utils::kick_wp_cron();\n    }\n\n"
+          if marker not in s: raise SystemExit('unschedule marker not found')
+          s = s.replace(marker, helper + marker, 1)
+
+          old = "    public static function cron_backup(): void {\n        try { self::create_backup('scheduled'); }\n        catch (Throwable $e) {\n"
+          new = "    public static function cron_backup(): void {\n        try {\n            self::create_backup('scheduled');\n            delete_option(self::BACKUP_RECOVERY_OPTION);\n        }\n        catch (Throwable $e) {\n"
+          if old not in s: raise SystemExit('cron backup marker not found')
+          s = s.replace(old, new, 1)
+          p.write_text(s, encoding='utf-8')
+
+          t = Path('tests/test_current_release.py')
+          ts = t.read_text(encoding='utf-8')
+          marker = "    def test_98_missing_provider_repair_does_not_renew_entitlement(self):\n"
+          regression = "    def test_backup_cron_self_heals_before_48_hour_health_warning(self):\n        production = text(\"bluevpn-manager/includes/class-bluevpn-production.php\")\n        self.assertIn(\"BACKUP_RECOVERY_STALE_AFTER = 108000\", production)\n        self.assertIn(\"BACKUP_RECOVERY_THROTTLE = 21600\", production)\n        self.assertIn(\"private static function ensure_backup_recovery\", production)\n        self.assertIn(\"wp_schedule_single_event(time() + 60, self::BACKUP_HOOK)\", production)\n        self.assertIn(\"BlueVPN_Utils::kick_wp_cron()\", production)\n        self.assertIn(\"self::ensure_backup_recovery();\", production)\n        self.assertIn(\"delete_option(self::BACKUP_RECOVERY_OPTION)\", production)\n\n"
+          if 'test_backup_cron_self_heals_before_48_hour_health_warning' in ts:
+              raise SystemExit('backup regression already present')
+          if marker not in ts: raise SystemExit('test marker not found')
+          t.write_text(ts.replace(marker, regression + marker, 1), encoding='utf-8')
           PY
-      - name: BlueVPN release validators
+
+      - name: Restore canonical health workflow
         shell: bash
         run: |
           set -euo pipefail
+          git fetch origin main
+          git checkout origin/main -- .github/workflows/project-health.yml
+
+      - name: Validate repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check pyyaml
+          php -l bluevpn-manager/includes/class-bluevpn-production.php
+          python scripts/sync_version.py --check
           python scripts/validate_bundle_integrity.py
-          python scripts/sync_version.py --check
           python scripts/validate_release.py
-          python scripts/validate_windows.py
           python scripts/validate_php_release.py
-      - name: Full Python regression suite
-        run: python -m unittest discover -s tests -p 'test_*.py' -v
+          python -m unittest discover -s tests -p 'test_current_release.py'
+          python -m unittest discover -s tests -p 'test_*.py'
 
-  fanout-main-builds:
-    name: Version and publish every BlueVPN component
-    needs: full-static-regression-gate
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout exact main update
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          ref: main
-          fetch-depth: 2
-
-      - name: Resolve one release version for the whole project
-        id: release
-        env:
-          SOURCE_SHA: ${{ github.sha }}
+      - name: Commit validated tree
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA" || {
-            echo '::error::main advanced before this update could own its release; the newer main update will publish instead.'
-            exit 1
-          }
-
-          CURRENT_VERSION="$(python -c 'import json;print(json.load(open("version.json"))["version"])')"
-          PREVIOUS_VERSION="$(git show HEAD^:version.json 2>/dev/null | python -c 'import json,sys; print(json.load(sys.stdin)["version"])' || true)"
-
-          # If the uploaded project already carries a real forward version bump,
-          # preserve it. Otherwise reproduce the old bot behaviour: one real
-          # source update consumes exactly one bounded BlueVPN release version.
-          if [ -n "$PREVIOUS_VERSION" ] && [ "$CURRENT_VERSION" = "$PREVIOUS_VERSION" ]; then
-            python scripts/bump_version.py
-            NEW_VERSION="$(python -c 'import json;print(json.load(open("version.json"))["version"])')"
-            git config user.name 'bluevpn-release-bot'
-            git config user.email 'bluevpn-release-bot@users.noreply.github.com'
-            git add -A
-            git commit -m "release(auto): BlueVPN ${NEW_VERSION} for ${SOURCE_SHA:0:12}"
-            git push origin HEAD:main
-          elif [ -n "$PREVIOUS_VERSION" ]; then
-            python - "$PREVIOUS_VERSION" "$CURRENT_VERSION" <<'PY'
-          import re,sys
-          def parse(v):
-              m=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)',v)
-              if not m: raise SystemExit(f'invalid version: {v}')
-              return tuple(map(int,m.groups()))
-          previous,current=map(parse,sys.argv[1:])
-          if current <= previous:
-              raise SystemExit(f'BlueVPN version must move forward: {previous} -> {current}')
-          if current[1] > 10 or current[2] > 10:
-              raise SystemExit('BlueVPN minor/patch must stay within 0..10')
-          PY
-          fi
-
-          RELEASE_SHA="$(git rev-parse HEAD)"
-          RELEASE_VERSION="$(python -c 'import json;print(json.load(open("version.json"))["version"])')"
-          RELEASE_CODE="$(python -c 'import json;print(json.load(open("version.json"))["version_code"])')"
-          python scripts/sync_version.py --check
-          echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
-          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "version_code=$RELEASE_CODE" >> "$GITHUB_OUTPUT"
-          echo "BlueVPN release owner: $SOURCE_SHA -> $RELEASE_SHA -> $RELEASE_VERSION/$RELEASE_CODE"
-
-      - name: Dispatch Android full publication at exact release SHA
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
-          TARGET_REF: main
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
-            -f event_type='bluevpn_build' \
-            -F 'client_payload[ref]'="$TARGET_REF" \
-            -F 'client_payload[target_sha]'="$RELEASE_SHA" \
-            -F 'client_payload[build_mode]'='full'
-
-      - name: Dispatch Windows iOS Manager Theme and health
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-          TARGET_REF: main
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Fan-out release: ${RELEASE_VERSION}@${RELEASE_SHA}"
-
-          gh workflow run build-windows.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
-          gh workflow run build-ios.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
-          gh workflow run bluevpn-manager-release.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF" \
-            -f target_sha="$RELEASE_SHA" -f request_id="main-release-${GITHUB_RUN_ID}"
-          gh workflow run bluevpn-site-theme-release.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
-          gh workflow run external-health.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
-
-          echo 'All BlueVPN build/release workflows dispatched from one release version.'
+          find . -type d -name __pycache__ -prune -exec rm -rf {} +
+          find . -type f -name '*.pyc' -delete
+          git config user.name 'bluevpn-release-bot'
+          git config user.email 'bluevpn-release-bot@users.noreply.github.com'
+          git add bluevpn-manager/includes/class-bluevpn-production.php tests/test_current_release.py .github/workflows/project-health.yml
+          git diff --cached --check
+          git diff --cached --quiet && { echo 'No staged repair'; exit 1; }
+          git commit -m 'fix(manager): self-heal stale backup cron [skip ci]'
+          git push origin HEAD:automation/backup-self-heal-5810

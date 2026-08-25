@@ -110,7 +110,7 @@ public sealed class TapsellWindowsWebConfig
     [JsonPropertyName("enabled")] public bool Enabled { get; set; }
     [JsonPropertyName("placement_id")] public string PlacementId { get; set; } = "";
     [JsonPropertyName("script_html")] public string ScriptHtml { get; set; } = "";
-    [JsonPropertyName("free_only")] public bool FreeOnly { get; set; } = true;
+    [JsonPropertyName("free_only")] public bool FreeOnly { get; set; }
     [JsonPropertyName("min_interval_seconds")] public int MinIntervalSeconds { get; set; } = 300;
     [JsonPropertyName("daily_cap")] public int DailyCap { get; set; } = 10;
     [JsonPropertyName("every_slides")] public int EverySlides { get; set; } = 3;

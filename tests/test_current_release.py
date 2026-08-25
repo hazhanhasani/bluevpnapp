@@ -123,7 +123,7 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("BlueVpnEntitlement.resolveUi(this).isFree", support)
 
         self.assertIn("fun placementEligible(", manager)
-        self.assertIn("if (!BlueVpnEntitlement.resolveUi(context).isFree) return false", manager)
+        self.assertIn('policy.type != "standard_banner"', manager)
 
     def test_00_reward_claim_is_server_authoritative_and_idempotent(self):
         api = text("bluevpn-manager/includes/class-bluevpn-api.php")
@@ -953,8 +953,8 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         functions = text("bluevpn-site/functions.php")
         style = text("bluevpn-site/style.css")
         self.assertIn("class-bluevpn-seo.php", functions)
-        self.assertIn("BLUEVPN_SITE_VERSION', '5.7.4", functions)
-        self.assertRegex(style, r"(?m)^Version:\s*5\.7\.4\s*$")
+        self.assertIn("BLUEVPN_SITE_VERSION', '5.7.6", functions)
+        self.assertRegex(style, r"(?m)^Version:\s*5\.7\.6\s*$")
 
     def test_private_account_is_noindex_and_excluded_from_sitemaps(self):
         seo = text("bluevpn-site/inc/class-bluevpn-seo.php")

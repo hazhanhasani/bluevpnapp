@@ -14,6 +14,29 @@ public static class WebView2RuntimeInstaller
     public static string UserDataFolder => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "BlueVPN", "WebView2", "Tapsell");
+    public static string ContentFolder => Path.Combine(UserDataFolder, "content");
+    public const string VirtualHost = "ads.bluevpn.local";
+
+    public static async Task<string> WriteAdDocumentAsync(string html, CancellationToken ct = default)
+    {
+        Directory.CreateDirectory(ContentFolder);
+        var fileName = $"placement-{Guid.NewGuid():N}.html";
+        var finalPath = Path.Combine(ContentFolder, fileName);
+        var temporaryPath = finalPath + ".tmp";
+        await File.WriteAllTextAsync(temporaryPath, html, new System.Text.UTF8Encoding(false), ct).ConfigureAwait(false);
+        File.Move(temporaryPath, finalPath, overwrite: true);
+
+        // Keep this per-user cache tiny. Old documents may otherwise accumulate
+        // after every carousel rotation.
+        foreach (var old in Directory.EnumerateFiles(ContentFolder, "placement-*.html")
+                     .Where(path => !path.Equals(finalPath, StringComparison.OrdinalIgnoreCase))
+                     .OrderByDescending(File.GetLastWriteTimeUtc)
+                     .Skip(3))
+        {
+            try { File.Delete(old); } catch { }
+        }
+        return $"https://{VirtualHost}/{fileName}";
+    }
 
     /// <summary>
     /// WebView2's WPF default places EBWebView beside the executable. That is
@@ -25,6 +48,7 @@ public static class WebView2RuntimeInstaller
         ct.ThrowIfCancellationRequested();
         var folder = UserDataFolder;
         Directory.CreateDirectory(folder);
+        Directory.CreateDirectory(ContentFolder);
         var accessProbe = Path.Combine(folder, $".write-{Guid.NewGuid():N}");
         await File.WriteAllTextAsync(accessProbe, "ok", ct).ConfigureAwait(false);
         File.Delete(accessProbe);

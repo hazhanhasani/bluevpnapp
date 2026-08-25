@@ -534,6 +534,9 @@ final class BlueVPN_Ads {
                 'surface' => (string)$meta['surface'],
                 'min_interval_seconds' => $interval,
                 'daily_cap' => $cap,
+                // Only the banner mixed into the BlueVPN carousel is allowed
+                // for Premium. All other Tapsell surfaces remain free-only.
+                'free_only' => $type !== 'standard_banner',
             ];
         }
 
@@ -584,7 +587,7 @@ final class BlueVPN_Ads {
                 'enabled' => !empty($settings['tapsell_windows_web_enabled']) && trim((string)($settings['tapsell_windows_web_script_html'] ?? '')) !== '',
                 'placement_id' => mb_substr(trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')), 0, 200),
                 'script_html' => (string)($settings['tapsell_windows_web_script_html'] ?? ''),
-                'free_only' => !array_key_exists('tapsell_windows_web_free_only', $settings) || !empty($settings['tapsell_windows_web_free_only']),
+                'free_only' => false,
                 'min_interval_seconds' => max(0, min(86400, (int)($settings['tapsell_windows_web_min_interval_seconds'] ?? 300))),
                 'daily_cap' => max(0, min(1000, (int)($settings['tapsell_windows_web_daily_cap'] ?? 10))),
                 'every_slides' => max(1, min(20, (int)($settings['tapsell_windows_web_every_slides'] ?? 3))),
@@ -954,7 +957,9 @@ final class BlueVPN_Ads {
         $s['tapsell_windows_web_enabled'] = isset($_POST['tapsell_windows_web_enabled']);
         $s['tapsell_windows_web_placement_id'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_windows_web_placement_id'] ?? '')), 0, 200);
         $s['tapsell_windows_web_script_html'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_windows_web_script_html'] ?? '')), 0, 20000);
-        $s['tapsell_windows_web_free_only'] = isset($_POST['tapsell_windows_web_free_only']);
+        // The Windows web banner is a carousel slide and is intentionally
+        // available on both Free and Premium. Do not make other placements premium.
+        $s['tapsell_windows_web_free_only'] = false;
         $s['tapsell_windows_web_min_interval_seconds'] = max(0, min(86400, (int)($_POST['tapsell_windows_web_min_interval_seconds'] ?? 300)));
         $s['tapsell_windows_web_daily_cap'] = max(0, min(1000, (int)($_POST['tapsell_windows_web_daily_cap'] ?? 10)));
         $s['tapsell_windows_web_every_slides'] = max(1, min(20, (int)($_POST['tapsell_windows_web_every_slides'] ?? 3)));
@@ -1295,11 +1300,11 @@ final class BlueVPN_Ads {
         self::number('tapsell_standard_banner_every_slides', 'نمایش Standard Banner بعد از چند بنر BlueVPN', (int)($s['tapsell_standard_banner_every_slides'] ?? 3), 1, 10);
         echo '</div>';
 
-        echo '<div class="bvc-note" style="margin-top:12px">Tapsell فقط برای پلن رایگان است. در Premium هیچ Request/Preload/Show از Tapsell انجام نمی‌شود و فقط بنرهای اختصاصی BlueVPN باقی می‌مانند. هر جایگاه را جداگانه می‌توانید خاموش کنید؛ Zone ID خاموش‌شده پاک نمی‌شود.</div>';
+        echo '<div class="bvc-note" style="margin-top:12px">فقط Standard Banner که داخل اسلایدر تبلیغات BlueVPN قرار می‌گیرد برای هر دو پلن رایگان و Premium نمایش داده می‌شود. تمام جایگاه‌های دیگر Tapsell شامل تمام‌صفحه، ویدیویی، جایزه‌ای، Native و Pre-roll همچنان فقط مخصوص پلن رایگان هستند.</div>';
         echo '<h3 style="margin:18px 0 10px">Tapsell Web برای Windows</h3>';
         echo '<div class="bvc-note" style="margin-bottom:12px">در پنل ناشر وب Tapsell روی «دریافت کد اسکریپت» بزنید و کل کد جایگاه را اینجا قرار دهید. این بخش مستقل از Mediation اندروید است و بدون Build مجدد از Mobile Config روی Windows اعمال می‌شود.</div><div class="bvc-form-grid">';
         self::checkbox('tapsell_windows_web_enabled', 'فعال‌سازی جایگاه وب در Windows', !empty($s['tapsell_windows_web_enabled']));
-        self::checkbox('tapsell_windows_web_free_only', 'فقط کاربران رایگان', !array_key_exists('tapsell_windows_web_free_only', $s) || !empty($s['tapsell_windows_web_free_only']));
+        echo '<div class="bvc-note">این جایگاه فقط به‌صورت اسلاید کنار بنرهای BlueVPN نمایش داده می‌شود و برای Free و Premium فعال است.</div>';
         self::text('tapsell_windows_web_placement_id', 'شناسه جایگاه وب', (string)($s['tapsell_windows_web_placement_id'] ?? ''));
         self::number('tapsell_windows_web_min_interval_seconds', 'حداقل فاصله نمایش Windows (ثانیه)', (int)($s['tapsell_windows_web_min_interval_seconds'] ?? 300), 0, 86400);
         self::number('tapsell_windows_web_daily_cap', 'سقف روزانه Windows (۰=نامحدود)', (int)($s['tapsell_windows_web_daily_cap'] ?? 10), 0, 1000);

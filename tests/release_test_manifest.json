@@ -140,6 +140,8 @@
     "test_ios_swiftpm_concurrency_buildfix_5611.py",
     "test_workflow_action_sha_pinning_565.py",
     "test_ios_failure_diagnostics_566.py",
-    "test_ios_audited_xray_core_568.py"
+    "test_ios_audited_xray_core_568.py",
+    "test_tapsell_slider_premium_575.py",
+    "test_windows_theme_tapsell_render_576.py"
   ]
 }

@@ -251,26 +251,39 @@ public partial class MainWindow : Window
                 TapsellWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
                 TapsellWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
                 TapsellWebView.CoreWebView2.Settings.IsWebMessageEnabled = false;
+                TapsellWebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                    WebView2RuntimeInstaller.VirtualHost,
+                    WebView2RuntimeInstaller.ContentFolder,
+                    CoreWebView2HostResourceAccessKind.Allow);
                 _tapsellWebInitialized = true;
             }
 
             var html = "<!doctype html><html dir=\"rtl\"><head><meta charset=\"utf-8\">" +
                 "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>" +
-                "html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#071328}" +
-                "#bluevpn-ad{width:100%;height:100%;display:flex;align-items:center;justify-content:center}" +
+                "html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}" +
+                "#bluevpn-ad{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:transparent}" +
+                "#bluevpn-loading{position:fixed;inset:0;display:grid;place-items:center;color:#8e9ab2;font:12px sans-serif}" +
                 ".bluevpn-ad-label{position:fixed;left:8px;top:6px;z-index:2147483647;color:#fff;background:#66000000;border-radius:9px;padding:3px 7px;font:9px sans-serif}" +
-                "iframe,img{max-width:100%;max-height:100%;border:0}</style></head><body>" +
-                "<span class=\"bluevpn-ad-label\">تبلیغ</span><div id=\"bluevpn-ad\">" + cfg.ScriptHtml +
-                "</div></body></html>";
+                "iframe,img,video,canvas{max-width:100%;max-height:100%;border:0}</style></head><body>" +
+                "<div id=\"bluevpn-loading\">در حال دریافت تبلیغ…</div><span class=\"bluevpn-ad-label\">تبلیغ</span>" +
+                "<div id=\"bluevpn-ad\">" + cfg.ScriptHtml + "</div>" +
+                "<script>new MutationObserver(function(){var a=document.getElementById('bluevpn-ad');" +
+                "if(a&&a.querySelector(':scope > :not(script):not(style)'))document.getElementById('bluevpn-loading').style.display='none';" +
+                "}).observe(document.getElementById('bluevpn-ad'),{childList:true,subtree:true});</script></body></html>";
 
             AdCard.Tag = null;
             AdImage.Source = null;
-            AdFallbackPanel.Visibility = Visibility.Collapsed;
             AdCard.Visibility = Visibility.Visible;
             AdCard.Cursor = Cursors.Arrow;
             AdCard.Height = Math.Clamp(cfg.Height, 90, 220);
+            TapsellWebView.Visibility = Visibility.Collapsed;
+            AdFallbackPanel.Visibility = Visibility.Visible;
+            var address = await WebView2RuntimeInstaller.WriteAdDocumentAsync(html, _lifetimeCts.Token);
+            TapsellWebView.CoreWebView2.Navigate(address);
+            if (!await WaitForTapsellContentAsync(_lifetimeCts.Token))
+                return false;
+            AdFallbackPanel.Visibility = Visibility.Collapsed;
             TapsellWebView.Visibility = Visibility.Visible;
-            TapsellWebView.NavigateToString(html);
             return true;
         }
         catch (Exception ex)
@@ -279,6 +292,23 @@ public partial class MainWindow : Window
             FooterStatus.Text = $"تبلیغ وب بارگذاری نشد؛ بنر BlueVPN نمایش داده می‌شود. {ShortUiError(ex.Message)}";
             return false;
         }
+    }
+
+    private async Task<bool> WaitForTapsellContentAsync(CancellationToken ct)
+    {
+        if (TapsellWebView.CoreWebView2 is null) return false;
+        for (var attempt = 0; attempt < 24; attempt++)
+        {
+            await Task.Delay(350, ct);
+            var result = await TapsellWebView.CoreWebView2.ExecuteScriptAsync(
+                "(()=>{const r=document.getElementById('bluevpn-ad');if(!r)return false;" +
+                "const nodes=[...r.querySelectorAll('iframe,img,video,canvas,object,embed')];" +
+                "return nodes.some(n=>{const b=n.getBoundingClientRect(),s=getComputedStyle(n);" +
+                "return b.width>20&&b.height>20&&s.display!=='none'&&s.visibility!=='hidden';});})()");
+            if (string.Equals(result?.Trim(), "true", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        FooterStatus.Text = "تپسل محتوای قابل نمایش برنگرداند؛ بنر BlueVPN جایگزین شد.";
+        return false;
     }
 
     private static string ShortUiError(string value)

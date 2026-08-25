@@ -5,21 +5,21 @@
         WindowStartupLocation="CenterOwner" WindowStyle="None" AllowsTransparency="True"
         Background="Transparent" FlowDirection="RightToLeft" ShowInTaskbar="False"
         UseLayoutRounding="True" SnapsToDevicePixels="True">
-    <Border CornerRadius="26" Background="#FF0C111C" BorderBrush="#FF253957" BorderThickness="1" Padding="14">
+    <Border CornerRadius="26" Background="{DynamicResource BlueVpnSurface}" BorderBrush="{DynamicResource BlueVpnStroke}" BorderThickness="1" Padding="14">
         <Grid>
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
             <Grid Grid.Row="0" Margin="4,2,4,12">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <StackPanel><TextBlock Text="BlueVPN" FontWeight="Bold" FontSize="17" Foreground="White"/><TextBlock Text="پیشنهاد ویژه" Foreground="#FF91A3BE" FontSize="11"/></StackPanel>
+                <StackPanel><TextBlock Text="BlueVPN" FontWeight="Bold" FontSize="17" Foreground="{DynamicResource BlueVpnText}"/><TextBlock Text="پیشنهاد ویژه" Foreground="{DynamicResource BlueVpnMuted}" FontSize="11"/></StackPanel>
                 <Button Grid.Column="1" x:Name="CloseButton" Content="×" Click="Close_Click" Width="34" Height="34" FontSize="20"/>
             </Grid>
-            <Border Grid.Row="1" Background="#FF080D16" CornerRadius="18" ClipToBounds="True">
+            <Border Grid.Row="1" Background="{DynamicResource BlueVpnSurfaceStrong}" CornerRadius="18" ClipToBounds="True">
                 <Grid>
                     <Image x:Name="StoryImage" Stretch="UniformToFill" Visibility="Collapsed" RenderOptions.BitmapScalingMode="HighQuality"/>
                     <MediaElement x:Name="StoryVideo" Stretch="UniformToFill" LoadedBehavior="Manual" UnloadedBehavior="Stop"
                                   ScrubbingEnabled="True" Visibility="Collapsed" MediaOpened="StoryVideo_MediaOpened"
                                   MediaEnded="StoryVideo_MediaEnded" MediaFailed="StoryVideo_MediaFailed"/>
-                    <TextBlock x:Name="LoadingText" Text="در حال بارگذاری…" Foreground="#FF91A3BE" FontSize="12"
+                    <TextBlock x:Name="LoadingText" Text="در حال بارگذاری…" Foreground="{DynamicResource BlueVpnMuted}" FontSize="12"
                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     <Border VerticalAlignment="Bottom" Background="#B9000000" Padding="18,22,18,18">
                         <StackPanel><TextBlock x:Name="StoryTitle" Foreground="White" FontSize="21" FontWeight="Bold" TextWrapping="Wrap"/>

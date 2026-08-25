@@ -425,8 +425,12 @@ object BlueVpnTapsellManager {
         loaded: Config,
         after: (() -> Unit)? = null,
         onUnavailable: (() -> Unit)? = null,
+        allowPremiumStandardBanner: Boolean = false,
     ) {
-        if (!loaded.hasAnyPlacement || !BlueVpnEntitlement.resolveUi(context).isFree) {
+        if (
+            !loaded.hasAnyPlacement ||
+            (!BlueVpnEntitlement.resolveUi(context).isFree && !allowPremiumStandardBanner)
+        ) {
             onUnavailable?.invoke()
             return
         }
@@ -742,8 +746,7 @@ object BlueVpnTapsellManager {
     ) {
         if (
             activity.isFinishing ||
-            activity.isDestroyed ||
-            !BlueVpnEntitlement.resolveUi(activity).isFree
+            activity.isDestroyed
         ) {
             onUnavailable?.invoke()
             return
@@ -755,7 +758,6 @@ object BlueVpnTapsellManager {
                 !loaded.enabled ||
                 !policy.enabled ||
                 !placementEligible(activity, policy) ||
-                !BlueVpnEntitlement.resolveUi(activity).isFree ||
                 !buildAppIdMatches(activity, loaded)
             ) {
                 onUnavailable?.invoke()
@@ -899,8 +901,7 @@ object BlueVpnTapsellManager {
     ) {
         if (
             activity.isFinishing ||
-            activity.isDestroyed ||
-            !BlueVpnEntitlement.resolveUi(activity).isFree
+            activity.isDestroyed
         ) {
             host.visibility = View.GONE
             onUnavailable?.invoke()
@@ -913,7 +914,6 @@ object BlueVpnTapsellManager {
                 !loaded.enabled ||
                 !policy.enabled ||
                 !placementEligible(activity, policy) ||
-                !BlueVpnEntitlement.resolveUi(activity).isFree ||
                 !buildAppIdMatches(activity, loaded)
             ) {
                 host.visibility = View.GONE
@@ -925,12 +925,6 @@ object BlueVpnTapsellManager {
                 context = activity.applicationContext,
                 loaded = loaded,
                 after = {
-                    if (!BlueVpnEntitlement.resolveUi(activity).isFree) {
-                        host.visibility = View.GONE
-                        onUnavailable?.invoke()
-                        return@ensureInitialized
-                    }
-
                     val container = BannerContainer(activity)
                     host.removeAllViews()
                     host.addView(container)
@@ -948,8 +942,7 @@ object BlueVpnTapsellManager {
                                     main.post {
                                         if (
                                             activity.isFinishing ||
-                                            activity.isDestroyed ||
-                                            !BlueVpnEntitlement.resolveUi(activity).isFree
+                                            activity.isDestroyed
                                         ) {
                                             host.visibility = View.GONE
                                             runCatching { Tapsell.destroyBannerAd(adId) }
@@ -1023,6 +1016,7 @@ object BlueVpnTapsellManager {
                     }
                 },
                 onUnavailable = onUnavailable,
+                allowPremiumStandardBanner = true,
             )
         }
     }
@@ -1325,7 +1319,13 @@ object BlueVpnTapsellManager {
         policy: PlacementPolicy,
     ): Boolean {
         if (!policy.enabled || policy.zoneId.isBlank()) return false
-        if (!BlueVpnEntitlement.resolveUi(context).isFree) return false
+        // Premium may request only the Standard Banner embedded in the BlueVPN
+        // carousel. Every fullscreen, rewarded, native and pre-roll placement
+        // remains strictly free-only.
+        if (
+            !BlueVpnEntitlement.resolveUi(context).isFree &&
+            policy.type != "standard_banner"
+        ) return false
 
         val storage = context.applicationContext
             .getSharedPreferences(PREFS, Context.MODE_PRIVATE)

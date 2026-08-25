@@ -1216,7 +1216,7 @@ final class BlueVPN_DB {
             'tapsell_windows_web_enabled' => false,
             'tapsell_windows_web_placement_id' => '',
             'tapsell_windows_web_script_html' => '',
-            'tapsell_windows_web_free_only' => true,
+            'tapsell_windows_web_free_only' => false,
             'tapsell_windows_web_min_interval_seconds' => 300,
             'tapsell_windows_web_daily_cap' => 10,
             'tapsell_windows_web_every_slides' => 3,

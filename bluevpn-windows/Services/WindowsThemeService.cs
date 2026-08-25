@@ -44,6 +44,8 @@ public sealed class WindowsThemeService
             Set("BlueVpnBlue2", "#FF8AABFF");
             Set("BlueVpnCard", "#FF111A2D");
             Set("BlueVpnCard2", "#FF17233A");
+            Set("BlueVpnOverlay", "#99000000");
+            Set("BlueVpnAdBg", "#FF071328");
         }
         else
         {
@@ -59,6 +61,8 @@ public sealed class WindowsThemeService
             Set("BlueVpnBlue2", "#FF2455CC");
             Set("BlueVpnCard", "#FFFFFFFF");
             Set("BlueVpnCard2", "#FFEEF2FA");
+            Set("BlueVpnOverlay", "#66000000");
+            Set("BlueVpnAdBg", "#FF071328");
         }
         window.Background = Get("BlueVpnBg");
         root.Background = Get("BlueVpnBg");

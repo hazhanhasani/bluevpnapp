@@ -288,18 +288,12 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         val standard = tapsell?.optJSONObject("placements")
             ?.optJSONObject("standard_banner")
         tapsellStandardEnabled =
-            BlueVpnEntitlement.resolveUi(context).isFree &&
             tapsell?.optBoolean("enabled", false) == true &&
             standard?.optBoolean("enabled", false) == true
         tapsellEverySlides = tapsell
             ?.optInt("standard_banner_every_slides", 3)
             ?.coerceIn(1, 10)
             ?: 3
-
-        if (!BlueVpnEntitlement.resolveUi(context).isFree) {
-            tapsellStandardEnabled = false
-            hideTapsellBanner()
-        }
 
         if (persist) {
             cachePrefs.edit().putString("mobile_config", root.toString()).apply()

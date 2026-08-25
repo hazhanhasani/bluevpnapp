@@ -155,7 +155,14 @@ public sealed class AdvertisementService
     public bool TryReserveWindowsWebImpression(bool premium, bool noFirstPartyBanner)
     {
         var cfg = WindowsWeb;
-        if (!cfg.Enabled || string.IsNullOrWhiteSpace(cfg.ScriptHtml) || (cfg.FreeOnly && premium)) return false;
+        // The WordPress bridge is a complete ad document and therefore does not
+        // need ScriptHtml to be duplicated in the mobile-config payload. Older
+        // builds required ScriptHtml unconditionally, so a perfectly valid
+        // HTTPS bridge was rejected before WebView2 navigation even started.
+        var hasHttpsBridge = Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
+                             bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
+        var hasRenderableSource = hasHttpsBridge || !string.IsNullOrWhiteSpace(cfg.ScriptHtml);
+        if (!cfg.Enabled || !hasRenderableSource || (cfg.FreeOnly && premium)) return false;
         var today = DateOnly.FromDateTime(DateTime.Now);
         if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; }
         _windowsWebSlideCounter++;

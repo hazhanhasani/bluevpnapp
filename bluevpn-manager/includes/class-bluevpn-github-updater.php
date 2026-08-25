@@ -390,6 +390,61 @@ final class BlueVPN_GitHub_Updater {
     }
 
     /**
+     * Resolve the newest stable Manager release through tag refs, then fetch
+     * that release by its exact tag. GitHub's releases collection can lag
+     * behind a just-published component release even while the tag-specific
+     * endpoint is already consistent.
+     *
+     * @return array|WP_Error|null
+     */
+    private static function latest_release_from_refs() {
+        $s = self::settings();
+        $prefix = (string)$s['tag_prefix'];
+        $url = 'https://api.github.com/repos/' . rawurlencode((string)$s['owner']) . '/' . rawurlencode((string)$s['repo']) . '/git/matching-refs/tags/' . rawurlencode($prefix);
+        $response = wp_remote_get($url, [
+            'timeout' => 12,
+            'redirection' => 3,
+            'headers' => self::request_headers(false),
+        ]);
+        if (is_wp_error($response)) return $response;
+
+        $status = (int)wp_remote_retrieve_response_code($response);
+        if ($status !== 200) {
+            return new WP_Error('bluevpn_github_refs_http', 'GitHub Manager tag refs HTTP ' . $status);
+        }
+
+        $refs = json_decode(wp_remote_retrieve_body($response), true);
+        if (!is_array($refs)) {
+            return new WP_Error('bluevpn_github_refs_json', 'پاسخ GitHub Manager tag refs معتبر نیست.');
+        }
+
+        $refPrefix = 'refs/tags/' . $prefix;
+        $versions = [];
+        foreach ($refs as $row) {
+            if (!is_array($row)) continue;
+            $ref = (string)($row['ref'] ?? '');
+            if ($ref === '' || strpos($ref, $refPrefix) !== 0) continue;
+            $version = substr($ref, strlen($refPrefix));
+            if (!preg_match('/^\d+\.\d+\.\d+$/', $version)) continue;
+            $versions[$version] = true;
+        }
+        if (!$versions) return null;
+
+        $versions = array_keys($versions);
+        usort($versions, static fn($a, $b) => version_compare($b, $a));
+
+        // A tag can exist moments before its Release object is published.
+        // Walk only a bounded set of newest tags and confirm each through the
+        // exact Release endpoint, which also validates the expected ZIP asset.
+        foreach (array_slice($versions, 0, 12) as $version) {
+            $release = self::release_by_version((string)$version, 1);
+            if (is_array($release)) return $release;
+            if (is_wp_error($release)) return $release;
+        }
+        return null;
+    }
+
+    /**
      * @return array|WP_Error|null Normalized release, error, or null when no plugin release exists.
      */
     public static function latest_release(bool $force = false) {
@@ -480,14 +535,36 @@ final class BlueVPN_GitHub_Updater {
             $candidates[] = $candidate;
         }
 
-        if (!$candidates) {
+        $latest = null;
+        if ($candidates) {
+            usort($candidates, static fn($a, $b) => version_compare($b['version'], $a['version']));
+            $latest = $candidates[0];
+            $latest['version'] = self::effective_version($latest);
+        }
+
+        // Do not spend extra GitHub requests while the releases collection is
+        // already advertising a semantic update. If it has no Manager entry,
+        // or only reports the installed/older version, verify the newest tag
+        // through matching refs + the exact Release endpoint. This recovers
+        // from GitHub collection lag without turning every poll into 3 calls.
+        $needsRefFallback = !is_array($latest)
+            || version_compare(self::base_version($latest), BLUEVPN_MANAGER_VERSION, '<=');
+        if ($needsRefFallback) {
+            $fallback = self::latest_release_from_refs();
+            if (is_array($fallback)) {
+                if (!is_array($latest) || version_compare(self::base_version($fallback), self::base_version($latest), '>=')) {
+                    $latest = $fallback;
+                }
+            } elseif (is_wp_error($fallback) && !is_array($latest)) {
+                return $fallback;
+            }
+        }
+
+        if (!is_array($latest)) {
             set_site_transient(self::CACHE_KEY, 'none', self::CACHE_TTL);
             return null;
         }
 
-        usort($candidates, static fn($a, $b) => version_compare($b['version'], $a['version']));
-        $latest = $candidates[0];
-        $latest['version'] = self::effective_version($latest);
         set_site_transient(self::CACHE_KEY, $latest, self::CACHE_TTL);
         return $latest;
     }

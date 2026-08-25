@@ -1,89 +1,170 @@
-name: BlueVPN Manager Release Discovery Repair
+name: BlueVPN Project Health
 
 on:
   push:
-    branches:
-      - automation/manager-release-discovery-repair
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
+
+concurrency:
+  group: bluevpn-project-health-${{ github.ref }}
+  # Every main update owns a release fan-out. Do not cancel an older update
+  # before it has resolved its release version and dispatched every platform.
+  cancel-in-progress: false
 
 jobs:
-  build-validated-tree:
+  full-static-regression-gate:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          fetch-depth: 0
-
-      - name: Apply Manager release discovery repair
+      - name: Install validation helpers
+        run: python -m pip install --disable-pip-version-check pyyaml
+      - name: Reject merge-conflict markers
         shell: bash
         run: |
           set -euo pipefail
+          if grep -RInE '^(<<<<<<<|=======|>>>>>>>)' --exclude-dir=.git --exclude='*.log' .; then
+            echo '::error::Merge conflict marker found in project source.'
+            exit 1
+          fi
+      - name: PHP syntax — Manager and Theme
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do php -l "$file" >/dev/null || { echo "::error file=$file::PHP syntax failed"; exit 1; }; done < <(find bluevpn-manager bluevpn-site -type f -name '*.php' -print0)
+      - name: Python syntax
+        run: python -m compileall -q scripts tests
+      - name: JavaScript syntax — Manager and Theme
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do node --check "$file" >/dev/null || { echo "::error file=$file::JavaScript syntax failed"; exit 1; }; done < <(find bluevpn-manager bluevpn-site -type f -name '*.js' -print0)
+      - name: JSON YAML XML and XAML syntax
+        shell: bash
+        run: |
           python - <<'PY'
           from pathlib import Path
-
-          updater = Path('bluevpn-manager/includes/class-bluevpn-github-updater.php')
-          s = updater.read_text(encoding='utf-8')
-          helper = "    /**\n     * Resolve the newest stable Manager release through tag refs, then fetch\n     * that release by its exact tag. GitHub's releases collection can lag\n     * behind a just-published component release even while the tag-specific\n     * endpoint is already consistent.\n     *\n     * @return array|WP_Error|null\n     */\n    private static function latest_release_from_refs() {\n        $s = self::settings();\n        $prefix = (string)$s['tag_prefix'];\n        $url = 'https://api.github.com/repos/' . rawurlencode((string)$s['owner']) . '/' . rawurlencode((string)$s['repo']) . '/git/matching-refs/tags/' . rawurlencode($prefix);\n        $response = wp_remote_get($url, [\n            'timeout' => 12,\n            'redirection' => 3,\n            'headers' => self::request_headers(false),\n        ]);\n        if (is_wp_error($response)) return $response;\n\n        $status = (int)wp_remote_retrieve_response_code($response);\n        if ($status !== 200) {\n            return new WP_Error('bluevpn_github_refs_http', 'GitHub Manager tag refs HTTP ' . $status);\n        }\n\n        $refs = json_decode(wp_remote_retrieve_body($response), true);\n        if (!is_array($refs)) {\n            return new WP_Error('bluevpn_github_refs_json', 'پاسخ GitHub Manager tag refs معتبر نیست.');\n        }\n\n        $refPrefix = 'refs/tags/' . $prefix;\n        $versions = [];\n        foreach ($refs as $row) {\n            if (!is_array($row)) continue;\n            $ref = (string)($row['ref'] ?? '');\n            if ($ref === '' || strpos($ref, $refPrefix) !== 0) continue;\n            $version = substr($ref, strlen($refPrefix));\n            if (!preg_match('/^\\d+\\.\\d+\\.\\d+$/', $version)) continue;\n            $versions[$version] = true;\n        }\n        if (!$versions) return null;\n\n        $versions = array_keys($versions);\n        usort($versions, static fn($a, $b) => version_compare($b, $a));\n\n        // A tag can exist moments before its Release object is published.\n        // Walk only a bounded set of newest tags and confirm each through the\n        // exact Release endpoint, which also validates the expected ZIP asset.\n        foreach (array_slice($versions, 0, 12) as $version) {\n            $release = self::release_by_version((string)$version, 1);\n            if (is_array($release)) return $release;\n            if (is_wp_error($release)) return $release;\n        }\n        return null;\n    }\n\n"
-          signature = '    public static function latest_release(bool $force = false) {'
-          sig_at = s.index(signature)
-          doc_at = s.rfind('    /**', 0, sig_at)
-          if doc_at < 0:
-              raise SystemExit('latest_release doc marker not found')
-          s = s[:doc_at] + helper + s[doc_at:]
-
-          sig_at = s.index(signature)
-          tail_start = s.index('        if (!$candidates) {', sig_at)
-          normalize_at = s.index('    private static function normalize_exact_release', tail_start)
-          old_return = '        return $latest;\n'
-          tail_end = s.rfind(old_return, tail_start, normalize_at)
-          if tail_end < 0:
-              raise SystemExit('latest_release tail return not found')
-          tail_end += len(old_return)
-          new_tail = "        $latest = null;\n        if ($candidates) {\n            usort($candidates, static fn($a, $b) => version_compare($b['version'], $a['version']));\n            $latest = $candidates[0];\n            $latest['version'] = self::effective_version($latest);\n        }\n\n        // Do not spend extra GitHub requests while the releases collection is\n        // already advertising a semantic update. If it has no Manager entry,\n        // or only reports the installed/older version, verify the newest tag\n        // through matching refs + the exact Release endpoint. This recovers\n        // from GitHub collection lag without turning every poll into 3 calls.\n        $needsRefFallback = !is_array($latest)\n            || version_compare(self::base_version($latest), BLUEVPN_MANAGER_VERSION, '<=');\n        if ($needsRefFallback) {\n            $fallback = self::latest_release_from_refs();\n            if (is_array($fallback)) {\n                if (!is_array($latest) || version_compare(self::base_version($fallback), self::base_version($latest), '>=')) {\n                    $latest = $fallback;\n                }\n            } elseif (is_wp_error($fallback) && !is_array($latest)) {\n                return $fallback;\n            }\n        }\n\n        if (!is_array($latest)) {\n            set_site_transient(self::CACHE_KEY, 'none', self::CACHE_TTL);\n            return null;\n        }\n\n        set_site_transient(self::CACHE_KEY, $latest, self::CACHE_TTL);\n        return $latest;\n"
-          s = s[:tail_start] + new_tail + s[tail_end:]
-          updater.write_text(s, encoding='utf-8')
-
-          test_file = Path('tests/test_deploy_manager_source_fallback_4170.py')
-          t = test_file.read_text(encoding='utf-8')
-          marker = '    def test_project_root_accepts_wrappers_and_normalizes_versioned_manager_folder(self):\n'
-          regression = '    def test_manager_release_collection_lag_falls_back_to_tag_refs(self):\n        updater = text(\'bluevpn-manager/includes/class-bluevpn-github-updater.php\')\n        self.assertIn(\'private static function latest_release_from_refs\', updater)\n        self.assertIn(\'/git/matching-refs/tags/\', updater)\n        self.assertIn(\'release_by_version((string)$version, 1)\', updater)\n        self.assertIn(\'$needsRefFallback\', updater)\n        self.assertIn("version_compare(self::base_version($latest), BLUEVPN_MANAGER_VERSION, \'<=\')", updater)\n        self.assertIn("version_compare(self::base_version($fallback), self::base_version($latest), \'>=\')", updater)\n\n'
-          if 'test_manager_release_collection_lag_falls_back_to_tag_refs' in t:
-              raise SystemExit('regression test already present unexpectedly')
-          if marker not in t:
-              raise SystemExit('test insertion marker not found')
-          test_file.write_text(t.replace(marker, regression + marker, 1), encoding='utf-8')
+          import json, sys, yaml, xml.etree.ElementTree as ET
+          errors=[]
+          for p in Path('.').rglob('*'):
+              if not p.is_file() or '.git' in p.parts: continue
+              try:
+                  if p.suffix.lower()=='.json': json.loads(p.read_text(encoding='utf-8'))
+                  elif p.suffix.lower() in ('.yml','.yaml'): yaml.safe_load(p.read_text(encoding='utf-8'))
+                  elif p.suffix.lower() in ('.xml','.xaml'): ET.parse(p)
+              except Exception as e: errors.append(f'{p}: {e}')
+          if errors:
+              for e in errors[:100]: print(f'::error::{e}')
+              sys.exit(1)
           PY
-
-      - name: Restore canonical health workflow
+      - name: BlueVPN release validators
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main
-          git checkout origin/main -- .github/workflows/project-health.yml
-
-      - name: Validate repair
-        shell: bash
-        run: |
-          set -euo pipefail
-          php -l bluevpn-manager/includes/class-bluevpn-github-updater.php
+          python scripts/validate_bundle_integrity.py
+          python scripts/sync_version.py --check
+          python scripts/validate_release.py
+          python scripts/validate_windows.py
           python scripts/validate_php_release.py
-          python -m unittest discover -s tests -p 'test_deploy_manager_source_fallback_4170.py'
-          python -m unittest discover -s tests -p 'test_current_release.py'
-          python -m unittest discover -s tests -p 'test_*.py'
+      - name: Full Python regression suite
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
 
-      - name: Commit validated tree
+  fanout-main-builds:
+    name: Version and publish every BlueVPN component
+    needs: full-static-regression-gate
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact main update
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: main
+          fetch-depth: 2
+
+      - name: Resolve one release version for the whole project
+        id: release
+        env:
+          SOURCE_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          find . -type d -name __pycache__ -prune -exec rm -rf {} +
-          find . -type f -name '*.pyc' -delete
-          git config user.name 'bluevpn-release-bot'
-          git config user.email 'bluevpn-release-bot@users.noreply.github.com'
-          git add bluevpn-manager/includes/class-bluevpn-github-updater.php tests/test_deploy_manager_source_fallback_4170.py .github/workflows/project-health.yml
-          git diff --cached --check
-          git diff --cached --quiet && { echo 'No staged repair'; exit 1; }
-          git commit -m 'fix(manager): recover releases through exact manager tags [skip ci]'
-          git push origin HEAD:automation/manager-release-discovery-repair
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA" || {
+            echo '::error::main advanced before this update could own its release; the newer main update will publish instead.'
+            exit 1
+          }
+
+          CURRENT_VERSION="$(python -c 'import json;print(json.load(open("version.json"))["version"])')"
+          PREVIOUS_VERSION="$(git show HEAD^:version.json 2>/dev/null | python -c 'import json,sys; print(json.load(sys.stdin)["version"])' || true)"
+
+          # If the uploaded project already carries a real forward version bump,
+          # preserve it. Otherwise reproduce the old bot behaviour: one real
+          # source update consumes exactly one bounded BlueVPN release version.
+          if [ -n "$PREVIOUS_VERSION" ] && [ "$CURRENT_VERSION" = "$PREVIOUS_VERSION" ]; then
+            python scripts/bump_version.py
+            NEW_VERSION="$(python -c 'import json;print(json.load(open("version.json"))["version"])')"
+            git config user.name 'bluevpn-release-bot'
+            git config user.email 'bluevpn-release-bot@users.noreply.github.com'
+            git add -A
+            git commit -m "release(auto): BlueVPN ${NEW_VERSION} for ${SOURCE_SHA:0:12}"
+            git push origin HEAD:main
+          elif [ -n "$PREVIOUS_VERSION" ]; then
+            python - "$PREVIOUS_VERSION" "$CURRENT_VERSION" <<'PY'
+          import re,sys
+          def parse(v):
+              m=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)',v)
+              if not m: raise SystemExit(f'invalid version: {v}')
+              return tuple(map(int,m.groups()))
+          previous,current=map(parse,sys.argv[1:])
+          if current <= previous:
+              raise SystemExit(f'BlueVPN version must move forward: {previous} -> {current}')
+          if current[1] > 10 or current[2] > 10:
+              raise SystemExit('BlueVPN minor/patch must stay within 0..10')
+          PY
+          fi
+
+          RELEASE_SHA="$(git rev-parse HEAD)"
+          RELEASE_VERSION="$(python -c 'import json;print(json.load(open("version.json"))["version"])')"
+          RELEASE_CODE="$(python -c 'import json;print(json.load(open("version.json"))["version_code"])')"
+          python scripts/sync_version.py --check
+          echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$RELEASE_CODE" >> "$GITHUB_OUTPUT"
+          echo "BlueVPN release owner: $SOURCE_SHA -> $RELEASE_SHA -> $RELEASE_VERSION/$RELEASE_CODE"
+
+      - name: Dispatch Android full publication at exact release SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          TARGET_REF: main
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
+            -f event_type='bluevpn_build' \
+            -F 'client_payload[ref]'="$TARGET_REF" \
+            -F 'client_payload[target_sha]'="$RELEASE_SHA" \
+            -F 'client_payload[build_mode]'='full'
+
+      - name: Dispatch Windows iOS Manager Theme and health
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+          TARGET_REF: main
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Fan-out release: ${RELEASE_VERSION}@${RELEASE_SHA}"
+
+          gh workflow run build-windows.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
+          gh workflow run build-ios.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
+          gh workflow run bluevpn-manager-release.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF" \
+            -f target_sha="$RELEASE_SHA" -f request_id="main-release-${GITHUB_RUN_ID}"
+          gh workflow run bluevpn-site-theme-release.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
+          gh workflow run external-health.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
+
+          echo 'All BlueVPN build/release workflows dispatched from one release version.'

@@ -22,4 +22,36 @@ jobs:
         run: python scripts/validate_ios_runtime.py --require-embedded
       - run: brew install xcodegen && xcodegen generate --spec bluevpn-ios/project.yml
       - name: Compile unsigned simulator build
-        run: xcodebuild -project bluevpn-ios/BlueVPN.xcodeproj -scheme BlueVPN -sdk iphonesimulator -configuration Debug CODE_SIGNING_ALLOWED=NO build
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          mkdir -p diagnostics
+          xcodebuild \
+            -project bluevpn-ios/BlueVPN.xcodeproj \
+            -scheme BlueVPN \
+            -sdk iphonesimulator \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee diagnostics/xcodebuild-ios.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E -i '(^|[[:space:]])(error:|fatal error:)|SwiftCompile|CompileSwift|BUILD FAILED|The following build commands failed' \
+              diagnostics/xcodebuild-ios.log | tail -n 120 > diagnostics/xcodebuild-errors.txt || true
+            if [ ! -s diagnostics/xcodebuild-errors.txt ]; then
+              tail -n 160 diagnostics/xcodebuild-ios.log > diagnostics/xcodebuild-errors.txt
+            fi
+            echo 'BLUEVPN_IOS_BUILD_DIAGNOSTIC_BEGIN'
+            cat diagnostics/xcodebuild-errors.txt
+            echo 'BLUEVPN_IOS_BUILD_DIAGNOSTIC_END'
+            echo "::error title=BlueVPN iOS compile failed::xcodebuild failed with exit code ${status}; see the diagnostic excerpt and artifact."
+            exit "$status"
+          fi
+      - name: Upload iOS build diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: BlueVPN-iOS-build-diagnostics
+          path: diagnostics/
+          if-no-files-found: ignore
+          retention-days: 14

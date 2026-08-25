@@ -134,6 +134,7 @@
     "test_windows_xray_proxy_confirmation_556.py",
     "test_windows_webview2_autoinstall_557.py",
     "test_ios_android_parity_560.py",
-    "test_workflow_action_sha_pinning_565.py"
+    "test_workflow_action_sha_pinning_565.py",
+    "test_ios_failure_diagnostics_566.py"
   ]
 }

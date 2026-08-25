@@ -5,6 +5,7 @@ on:
     workflows:
       - Build Signed BlueVPN APK
       - Build BlueVPN Windows
+      - Build BlueVPN iOS
       - Release BlueVPN Manager
       - Release BlueVPN Site Theme
       - BlueVPN Project Health

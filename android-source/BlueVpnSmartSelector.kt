@@ -162,9 +162,9 @@ object BlueVpnSmartSelector {
         if (ranked.size < 3) return ranked
         val primary = ranked.first()
         val selected = mutableListOf(primary)
-        val seenServers = mutableSetOf(primary.candidate.profile.server.lowercase(Locale.ROOT))
+        val seenServers = mutableSetOf(primary.candidate.profile.server.orEmpty().lowercase())
         ranked.drop(1).forEach { item ->
-            val server = item.candidate.profile.server.lowercase(Locale.ROOT)
+            val server = item.candidate.profile.server.orEmpty().lowercase()
             if (server.isNotBlank() && seenServers.add(server)) selected += item
         }
         ranked.drop(1).forEach { item -> if (item !in selected) selected += item }

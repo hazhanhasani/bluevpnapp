@@ -1840,7 +1840,7 @@ BLUEVPN_ASKPASS_CHECK;
         $deleteFile = $root . '/.bluevpn-delete';
         if (is_file($deleteFile)) {
             foreach (preg_split('/\r?\n/', (string)file_get_contents($deleteFile)) ?: [] as $line) {
-                $line = trim(str_replace('\\', '/', $line));
+                $line = self::canonical_repo_path($line);
                 if ($line === '' || str_starts_with($line, '#')) continue;
                 if (self::safe_repo_path($line) && !self::protected_path($line)) $deletions[] = $line;
             }
@@ -1849,7 +1849,7 @@ BLUEVPN_ASKPASS_CHECK;
         $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS));
         foreach ($it as $file) {
             if (!$file->isFile()) continue;
-            $rel = str_replace('\\', '/', substr($file->getPathname(), strlen($root) + 1));
+            $rel = self::canonical_repo_path(substr($file->getPathname(), strlen($root) + 1));
             if ($rel === '.bluevpn-delete' || str_starts_with($rel, '__MACOSX/') || str_starts_with($rel, '.git/')) continue;
             if (self::repository_junk_path($rel)) continue;
             if (!self::safe_repo_path($rel) || self::protected_path($rel)) continue;
@@ -1938,6 +1938,14 @@ BLUEVPN_ASKPASS_CHECK;
         $batch = [];
         $flush = static function () use (&$batch, &$treeSha, $s): void {
             if (!$batch) return;
+            foreach ($batch as $item) {
+                $path = (string)($item['path'] ?? '');
+                if (!self::safe_repo_path($path) || $path !== self::canonical_repo_path($path)) {
+                    throw new RuntimeException(
+                        'DEPLOY_TREE_PATH_INVALID: ' . wp_json_encode($path, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)
+                    );
+                }
+            }
             $created = self::gh(
                 'POST',
                 self::repo_path($s) . '/git/trees',
@@ -2135,9 +2143,20 @@ BLUEVPN_ASKPASS_CHECK;
         return $files;
     }
 
+    private static function canonical_repo_path(string $path): string {
+        $path = trim(str_replace('\\', '/', $path));
+        while (str_starts_with($path, './')) $path = substr($path, 2);
+        $path = (string)preg_replace('#/+#', '/', $path);
+        return trim($path, '/');
+    }
+
     private static function safe_repo_path(string $path): bool {
-        $path = str_replace('\\', '/', trim($path));
-        return $path !== '' && !str_starts_with($path, '/') && !preg_match('#(^|/)\.\.(/|$)#', $path) && !preg_match('#^[A-Za-z]:/#', $path);
+        if ($path === '' || $path !== self::canonical_repo_path($path)) return false;
+        if (preg_match('#^[A-Za-z]:/#', $path) || preg_match('/[\x00-\x1F\x7F]/', $path)) return false;
+        foreach (explode('/', $path) as $component) {
+            if ($component === '' || $component === '.' || $component === '..' || strlen($component) > 255) return false;
+        }
+        return strlen($path) <= 4096;
     }
 
     private static function protected_path(string $path): bool {

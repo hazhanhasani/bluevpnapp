@@ -12,6 +12,8 @@ class BlueAiFinalBoss582Tests(unittest.TestCase):
         self.assertIn("robustScore", source)
         self.assertIn("diversifyFailover", source)
         self.assertIn("seenServers", source)
+        self.assertEqual(source.count("profile.server.orEmpty().lowercase()"), 2)
+        self.assertNotIn("profile.server.lowercase(Locale.ROOT)", source)
 
     def test_windows_explores_unknown_not_historically_worst_routes(self):
         source = (ROOT / "bluevpn-windows/Services/WindowsBlueAiService.cs").read_text(encoding="utf-8")

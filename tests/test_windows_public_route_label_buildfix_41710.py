@@ -4,7 +4,7 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-class WindowsPublicRouteLabelBuildFix50802Tests(unittest.TestCase):
+class WindowsPublicRouteLabelBuildFix50804Tests(unittest.TestCase):
     def test_public_route_label_helper_exists_for_connect_ui(self):
         src = (ROOT / "bluevpn-windows/MainWindow.xaml.cs").read_text(encoding="utf-8")
         self.assertEqual(src.count("PublicRouteLabel(\"ویژه\", result.Verification.Country)"), 1)

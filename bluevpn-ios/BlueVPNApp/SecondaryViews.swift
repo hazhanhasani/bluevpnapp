@@ -148,7 +148,7 @@ struct SettingsView: View {
                 Button("مکان‌ها") { store.path.append(.locations) }
                 Button("پلن‌ها") { store.path.append(.plans) }
                 Button("پشتیبانی") { store.path.append(.support) }
-                LabeledContent("نسخه", value: "5.8.2")
+                LabeledContent("نسخه", value: "5.8.4")
             }
         }
         .navigationTitle("تنظیمات")

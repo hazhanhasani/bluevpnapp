@@ -36,5 +36,13 @@ class DeployBotProjectRoot4109(unittest.TestCase):
                  s.index("private static function deploy_extracted_via_git")]
         self.assertIn("$cleanupRoot = isset($extractRoot) ? $extractRoot : $root",deploy)
 
+    def test_git_tree_paths_are_canonicalized_and_preflighted(self):
+        s=self.text("bluevpn-manager/includes/class-bluevpn-telegram-bot.php")
+        self.assertIn("private static function canonical_repo_path",s)
+        self.assertIn("DEPLOY_TREE_PATH_INVALID",s)
+        self.assertIn("$path !== self::canonical_repo_path($path)",s)
+        self.assertIn("$component === '.'",s)
+        self.assertIn("strlen($component) > 255",s)
+
 if __name__=="__main__":
     unittest.main()

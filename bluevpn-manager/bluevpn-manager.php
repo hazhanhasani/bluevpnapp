@@ -45,6 +45,7 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-admin.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-app-release-manager.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-windows-release-manager.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-github-updater.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-github-http-resilience.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-telegram-bot.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-error-monitor.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-support.php';
@@ -104,6 +105,7 @@ add_action('init', function () {
 
 add_action('plugins_loaded', function () {
     BlueVPN_DB::maybe_upgrade();
+    BlueVPN_GitHub_HTTP_Resilience::init();
     BlueVPN_SMS_Notifications::init();
     BlueVPN_Manual_Customers::init();
     BlueVPN_Unified_UI::init();

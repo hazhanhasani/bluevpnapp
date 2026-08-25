@@ -17,13 +17,26 @@ REPOSITORY="$(read_lock libxray_repository)"
 LIBXRAY_COMMIT="$(read_lock libxray_commit)"
 LICENSE_SHA="$(read_lock libxray_license_sha256)"
 XRAY_COMMIT="$(read_lock xray_core_commit)"
+XRAY_MODULE_VERSION="$(read_lock xray_core_module_version)"
 
 rm -rf "$WORK"
 git clone --filter=blob:none --no-checkout "$REPOSITORY" "$WORK"
 git -C "$WORK" checkout --detach "$LIBXRAY_COMMIT"
-test "$(git -C "$WORK" rev-parse HEAD)" = "$LIBXRAY_COMMIT"
-test "$(shasum -a 256 "$WORK/LICENSE" | awk '{print $1}')" = "$LICENSE_SHA"
-grep -q "$XRAY_COMMIT" "$WORK/go.mod"
+ACTUAL_LIBXRAY_COMMIT="$(git -C "$WORK" rev-parse HEAD)"
+ACTUAL_LICENSE_SHA="$(shasum -a 256 "$WORK/LICENSE" | awk '{print $1}')"
+ACTUAL_XRAY_MODULE="$(cd "$WORK" && go list -m -f '{{.Version}}' github.com/xtls/xray-core)"
+if [[ "$ACTUAL_LIBXRAY_COMMIT" != "$LIBXRAY_COMMIT" ]]; then
+  echo "::error title=BlueXrayCore audit failed::libXray commit mismatch; expected=$LIBXRAY_COMMIT actual=$ACTUAL_LIBXRAY_COMMIT"
+  exit 41
+fi
+if [[ "$ACTUAL_LICENSE_SHA" != "$LICENSE_SHA" ]]; then
+  echo "::error title=BlueXrayCore audit failed::license SHA-256 mismatch; expected=$LICENSE_SHA actual=$ACTUAL_LICENSE_SHA"
+  exit 42
+fi
+if [[ "$ACTUAL_XRAY_MODULE" != "$XRAY_MODULE_VERSION" || "$ACTUAL_XRAY_MODULE" != *"${XRAY_COMMIT:0:12}" ]]; then
+  echo "::error title=BlueXrayCore audit failed::Xray module mismatch; expected=$XRAY_MODULE_VERSION commit=$XRAY_COMMIT actual=$ACTUAL_XRAY_MODULE"
+  exit 43
+fi
 
 (cd "$WORK" && python3 build/main.py apple go)
 test -d "$WORK/LibXray.xcframework"

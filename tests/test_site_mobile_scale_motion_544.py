@@ -12,7 +12,7 @@ class SiteMobileScaleMotion544Tests(unittest.TestCase):
         cls.js = (ROOT / "bluevpn-site/assets/js/site.js").read_text()
 
     def test_mobile_uses_compact_typography_sections_and_visuals(self):
-        self.assertIn("BlueVPN 5.6.9 — true mobile scale", self.css)
+        self.assertIn("BlueVPN 5.6.10 — true mobile scale", self.css)
         self.assertIn("font-size:34px", self.css)
         self.assertIn(".bv5-section,body.bluevpn-site .bv-section{padding:48px 0}", self.css)
         self.assertIn(".bv5-device{min-height:390px}", self.css)

@@ -30,7 +30,7 @@ class IOSControlPlanePoolCache569Tests(unittest.TestCase):
         tunnel = self.text("bluevpn-ios/PacketTunnel/PacketTunnelProvider.swift")
         self.assertIn('"subscription_text": subscriptionText', manager)
         self.assertIn('configuration["subscription_text"]', tunnel)
-        self.assertIn("runtime.convertSubscription(value)", tunnel)
+        self.assertIn("SwiftyXray.xrayShareLinkToJson", tunnel)
 
     def test_connected_state_requires_real_egress_change(self):
         manager = self.text("bluevpn-ios/BlueVPNApp/VPNManager.swift")

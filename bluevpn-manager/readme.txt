@@ -1,6 +1,6 @@
 === BlueVPN Manager ===
-Version: 5.6.9
-Stable tag: 5.6.9
+Version: 5.6.10
+Stable tag: 5.6.10
 Requires PHP: 8.0
 
 == 5.2.2 ==

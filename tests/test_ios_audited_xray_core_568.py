@@ -14,25 +14,25 @@ class IOSAuditedXrayCoreTests(unittest.TestCase):
         self.assertRegex(lock["xray_core_commit"], r"^[0-9a-f]{40}$")
         self.assertEqual(lock["api_version"], 2)
         self.assertEqual(lock["bluevpn_abi"], 1)
+        self.assertRegex(lock["bridge_commit"], r"^[0-9a-f]{40}$")
+        self.assertRegex(lock["binary_checksum"], r"^[0-9a-f]{64}$")
 
-    def test_build_verifies_source_license_and_architectures(self):
+    def test_build_verifies_source_license_and_module_pin(self):
         build = (ROOT / "scripts/build_ios_xray_core.sh").read_text()
         validator = (ROOT / "scripts/validate_ios_runtime.py").read_text()
         self.assertIn('checkout --detach "$LIBXRAY_COMMIT"', build)
         self.assertIn('shasum -a 256 "$WORK/LICENSE"', build)
-        self.assertIn("SupportedArchitectures", validator)
-        self.assertIn("{'arm64','x86_64'}", validator)
+        self.assertIn('ACTUAL_XRAY_MODULE', build)
+        self.assertIn('bridge_commit', validator)
 
-    def test_packet_tunnel_uses_real_libxray_api_and_fails_closed_without_bridge(self):
-        adapter = (ROOT / "bluevpn-ios/PacketTunnel/BlueXrayRuntime.swift").read_text()
+    def test_packet_tunnel_uses_pinned_public_socketpair_bridge(self):
         tunnel = (ROOT / "bluevpn-ios/PacketTunnel/PacketTunnelProvider.swift").read_text()
-        self.assertIn("CGoInvoke", adapter)
-        self.assertIn("CGoFree", adapter)
-        for method in ("testXray", "runXray", "stopXray", "convertShareLinksToXrayJson"):
-            self.assertIn(method, adapter)
-        self.assertIn("BluePacketBridge.embedded", tunnel)
-        self.assertIn("packetBridgeNotEmbedded", tunnel)
-        self.assertIn("static let embedded = false", tunnel)
+        project = (ROOT / "bluevpn-ios/project.yml").read_text()
+        self.assertIn("import SwiftyXrayKit", tunnel)
+        self.assertIn("XrayBridge(packetFlow:packetFlow)", tunnel)
+        self.assertIn("preset:.mobile", tunnel)
+        self.assertIn("revision: 3c5405521ae547de110f6ea65df00b1c05f6a0bc", project)
+        self.assertNotIn("value(forKey:", tunnel)
 
 
 if __name__ == "__main__":

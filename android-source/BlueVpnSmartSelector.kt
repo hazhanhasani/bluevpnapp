@@ -3,6 +3,7 @@ package com.v2ray.ang.bluevpn
 import android.content.Context
 import android.os.SystemClock
 import com.v2ray.ang.handler.MmkvManager
+import java.util.Locale
 
 /** A deterministic local selector. Cloud BlueAI is an optional signal, never a dependency. */
 object BlueVpnSmartSelector {
@@ -162,9 +163,11 @@ object BlueVpnSmartSelector {
         if (ranked.size < 3) return ranked
         val primary = ranked.first()
         val selected = mutableListOf(primary)
-        val seenServers = mutableSetOf(primary.candidate.profile.server.lowercase(Locale.ROOT))
+        val seenServers = mutableSetOf(
+            primary.candidate.profile.server.orEmpty().trim().lowercase(Locale.ROOT)
+        )
         ranked.drop(1).forEach { item ->
-            val server = item.candidate.profile.server.lowercase(Locale.ROOT)
+            val server = item.candidate.profile.server.orEmpty().trim().lowercase(Locale.ROOT)
             if (server.isNotBlank() && seenServers.add(server)) selected += item
         }
         ranked.drop(1).forEach { item -> if (item !in selected) selected += item }

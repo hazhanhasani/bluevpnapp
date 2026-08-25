@@ -8,8 +8,8 @@ def read(path): return (ROOT/path).read_text(encoding='utf-8')
 class WindowsAndroidUiTun4176Tests(unittest.TestCase):
     def test_release(self):
         r=json.loads(read('release.json'))
-        self.assertEqual(r['version'],'5.8.9')
-        self.assertEqual(r['version_code'],50809)
+        self.assertEqual(r['version'],'5.8.10')
+        self.assertEqual(r['version_code'],50810)
 
     def test_windows_home_matches_android_surface_order(self):
         x=read('bluevpn-windows/MainWindow.xaml')

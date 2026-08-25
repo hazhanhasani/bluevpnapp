@@ -143,6 +143,7 @@
     "test_ios_audited_xray_core_568.py",
     "test_tapsell_slider_premium_575.py",
     "test_windows_theme_tapsell_render_576.py",
-    "test_tapsell_premium_carousel_windows_bridge_577.py"
+    "test_tapsell_premium_carousel_windows_bridge_577.py",
+    "test_android_premium_tapsell_locked_carousel_578.py"
   ]
 }

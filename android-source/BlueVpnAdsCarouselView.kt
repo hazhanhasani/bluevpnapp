@@ -12,7 +12,6 @@ import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
 import android.view.View.MeasureSpec
 import android.view.ViewGroup
@@ -28,7 +27,6 @@ import java.security.MessageDigest
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
@@ -50,7 +48,6 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     private val titleView = TextView(context)
     private val subtitleView = TextView(context)
     private val actionView = TextView(context)
-    private val dots = LinearLayout(context)
     private val badgeView = TextView(context)
     private val tapsellHost = FrameLayout(context)
     private var items: List<AdItem> = emptyList()
@@ -69,9 +66,6 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     private var desiredHeightPx = 0
     private var hasRenderedContent = false
     private var lastFetchAt = 0L
-    private var touchDownX = 0f
-    private var touchDownY = 0f
-    private var touchMoved = false
 
     private val cachePrefs = context.applicationContext.getSharedPreferences(
         "bluevpn_ads_carousel_cache",
@@ -101,8 +95,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             !tapsellShowing &&
             !tapsellLoading &&
             ownSlidesSinceTapsell >= tapsellEverySlides &&
-            activity != null &&
-            BlueVpnEntitlement.resolveUi(context).isFree
+            activity != null
         ) {
             showTapsellBanner(activity)
             return@Runnable
@@ -140,7 +133,9 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         isClickable = true
         isFocusable = true
         contentDescription = "تبلیغات BlueVPN"
-        setOnTouchListener { _, event -> handleTouch(event) }
+        // Campaign rotation is controlled by the panel/autoplay schedule.
+        // Users may open the current campaign but cannot swipe the carousel.
+        setOnClickListener { performClick() }
     }
 
     fun start() {
@@ -233,10 +228,6 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         copy.addView(subtitleView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(2) })
         copy.addView(actionView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(30)).apply { topMargin = dp(8) })
         addView(copy, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-
-        dots.orientation = LinearLayout.HORIZONTAL
-        dots.gravity = Gravity.CENTER
-        addView(dots, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(20), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(4) })
 
         tapsellHost.apply {
             visibility = View.GONE
@@ -400,7 +391,6 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             BlueVpnAdActionRouter.defaultButtonText(destination.action)
         }
         actionView.visibility = if (destination.isActionable()) View.VISIBLE else View.GONE
-        renderDots()
         if (item.imageUrl.isBlank()) {
             dropBrokenCurrentItem(item.id)
             return
@@ -642,25 +632,6 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     }
 
 
-    private fun renderDots() {
-        dots.removeAllViews()
-        if (items.size < 2) {
-            dots.visibility = View.GONE
-            return
-        }
-        dots.visibility = View.VISIBLE
-        items.forEachIndexed { index, _ ->
-            dots.addView(View(context).apply {
-                background = rounded(
-                    if (index == currentIndex) Color.WHITE else Color.argb(105, 255, 255, 255),
-                    999f,
-                    Color.TRANSPARENT,
-                )
-            }, LinearLayout.LayoutParams(if (index == currentIndex) dp(16) else dp(6), dp(6)).apply { marginStart = dp(3); marginEnd = dp(3) })
-        }
-    }
-
-
     private fun dropBrokenCurrentItem(expectedId: String) {
         val remaining = items.filterNot { it.id == expectedId }
         items = remaining
@@ -755,42 +726,6 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         tapsellShowing = false
         tapsellHost.removeAllViews()
         tapsellHost.visibility = View.GONE
-    }
-
-    private fun handleTouch(event: MotionEvent): Boolean {
-        if (tapsellShowing) return false
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                touchDownX = event.rawX
-                touchDownY = event.rawY
-                touchMoved = false
-                handler.removeCallbacks(slideRunnable)
-                return true
-            }
-            MotionEvent.ACTION_MOVE -> {
-                if (abs(event.rawX - touchDownX) > dp(12) || abs(event.rawY - touchDownY) > dp(12)) touchMoved = true
-                return true
-            }
-            MotionEvent.ACTION_UP -> {
-                val dx = event.rawX - touchDownX
-                if (touchMoved && abs(dx) >= dp(44) && items.size > 1) {
-                    val delta = if (dx > 0) -1 else 1
-                    var next = currentIndex + delta
-                    if (next < 0) next = if (loop) items.lastIndex else 0
-                    if (next > items.lastIndex) next = if (loop) 0 else items.lastIndex
-                    showItem(next, animate = true)
-                } else {
-                    performClick()
-                }
-                scheduleNext()
-                return true
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                scheduleNext()
-                return true
-            }
-        }
-        return false
     }
 
     override fun performClick(): Boolean {

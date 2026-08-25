@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "artifact": "BlueXrayCore.xcframework",
+  "module": "LibXray",
+  "libxray_repository": "https://github.com/XTLS/libXray.git",
+  "libxray_commit": "68119ddec6a16ea635838af0e9e11fd93316812c",
+  "libxray_license_sha256": "992cf88a505936a11bd0fff17b7842abd9411e8da41fd69f22f47ae915e9d198",
+  "xray_core_commit": "5ca6f4b7d4dc20a881d4330e498892697627ec0c",
+  "api_version": 2,
+  "bluevpn_abi": 1,
+  "minimum_ios": "16.0"
+}

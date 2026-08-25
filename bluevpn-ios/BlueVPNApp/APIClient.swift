@@ -22,11 +22,26 @@ actor APIClient {
         return URLSession(configuration: configuration)
     }()
     func get<T: Decodable>(_ path: String, token: String? = nil, as: T.Type) async throws -> T { try await request(path, method: "GET", token: token, body: Optional<String>.none, as: T.self) }
+    func text(from absoluteURL: String, token: String? = nil) async throws -> String {
+        guard let url=URL(string:absoluteURL),url.scheme=="https",let host=url.host?.lowercased(),Self.isPublicHost(host) else { throw APIError.invalidResponse }
+        var request=URLRequest(url:url);request.setValue("BlueVPN-iOS/5.6.9",forHTTPHeaderField:"User-Agent");request.setValue("text/plain,*/*;q=0.8",forHTTPHeaderField:"Accept")
+        if let token,!token.isEmpty{request.setValue("Bearer \(token)",forHTTPHeaderField:"Authorization")}
+        let (data,response)=try await session.data(for:request)
+        guard let http=response as? HTTPURLResponse,200..<300 ~= http.statusCode,let text=String(data:data,encoding:.utf8),!text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else {throw APIError.invalidResponse}
+        return text
+    }
+    private static func isPublicHost(_ host:String)->Bool {
+        if host=="localhost" || host=="::1" || host.hasSuffix(".local"){return false}
+        let blocked=["10.","127.","169.254.","192.168."]
+        if blocked.contains(where:host.hasPrefix){return false}
+        if host.hasPrefix("172."),let second=Int(host.split(separator:".").dropFirst().first ?? ""),16...31 ~= second{return false}
+        return true
+    }
     func post<Body: Encodable, T: Decodable>(_ path: String, token: String? = nil, body: Body, as: T.Type) async throws -> T { try await request(path, method: "POST", token: token, body: body, as: T.self) }
     private func request<Body: Encodable, T: Decodable>(_ path: String, method: String, token: String?, body: Body?, as: T.Type) async throws -> T {
         guard let url = URL(string: path, relativeTo: base) else { throw APIError.invalidResponse }
         var request = URLRequest(url: url); request.httpMethod = method
-        request.setValue("BlueVPN-iOS/5.6.7", forHTTPHeaderField: "User-Agent")
+        request.setValue("BlueVPN-iOS/5.6.9", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(DeviceIdentity.shared.id, forHTTPHeaderField: "X-Device-ID")
         if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }

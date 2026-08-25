@@ -1,3 +1,4 @@
+import Foundation
 import NetworkExtension
 import Network
 
@@ -20,21 +21,42 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) { core?.stop();core=nil;completionHandler() }
 }
 
-enum TunnelError: LocalizedError { case invalidConfiguration, runtimeNotEmbedded
-    var errorDescription:String? { switch self { case .invalidConfiguration:return "تنظیمات اتصال iOS ناقص است";case .runtimeNotEmbedded:return "هسته iOS باید در مرحله امضای نهایی Embed شود" } }
+enum TunnelError: LocalizedError { case invalidConfiguration, runtimeNotEmbedded, packetBridgeNotEmbedded
+    var errorDescription:String? { switch self { case .invalidConfiguration:return "تنظیمات اتصال iOS ناقص است";case .runtimeNotEmbedded:return "هسته iOS باید در مرحله امضای نهایی Embed شود";case .packetBridgeNotEmbedded:return "Packet Bridge ممیزی‌شده iOS هنوز Embed نشده است" } }
 }
 
 /// Stable boundary for the forthcoming signed Xray/Aether XCFramework. Keeping
 /// packet handling behind one adapter prevents UI/control-plane drift and lets
 /// App Store builds swap the audited native runtime without touching screens.
 final class BlueTunnelCore {
-    private weak var packetFlow:NEPacketTunnelFlow?; private let mode:String; private let configuration:[String:Any]
+    private weak var packetFlow:NEPacketTunnelFlow?; private let mode:String; private let configuration:[String:Any];private let runtime=BlueXrayRuntime()
     init(packetFlow:NEPacketTunnelFlow?,mode:String,configuration:[String:Any]){self.packetFlow=packetFlow;self.mode=mode;self.configuration=configuration}
     func start(completion:@escaping(Error?)->Void){
-        // Fail closed: runtime discovery is explicit. A release archive must
-        // pass scripts/validate_ios_runtime.py --require-embedded before signing.
+        // Fail closed unless both the audited Xray runtime and packet bridge exist.
         guard BlueRuntimeContract.embeddedRuntimeAvailable else { completion(TunnelError.runtimeNotEmbedded); return }
-        completion(TunnelError.runtimeNotEmbedded) // adapter activation is added with the audited XCFramework API.
+        Task {
+            do {
+                let xrayJSON = try await resolveXrayConfiguration()
+                try runtime.validate(configuration: xrayJSON)
+                guard BluePacketBridge.embedded, packetFlow != nil else { throw TunnelError.packetBridgeNotEmbedded }
+                try runtime.run(configuration: xrayJSON)
+                completion(nil)
+            } catch { runtime.stop();completion(error) }
+        }
     }
-    func stop(){}
+    func stop(){runtime.stop()}
+    private func resolveXrayConfiguration() async throws -> String {
+        if let value=configuration["xray_json"] as? String,!value.isEmpty{return value}
+        if let value=configuration["subscription_text"] as? String,!value.isEmpty{return try runtime.convertSubscription(value)}
+        guard mode=="xray",let raw=configuration["subscription_url"] as? String,let url=URL(string:raw),url.scheme=="https" else {throw BlueXrayError.configurationUnavailable}
+        let (data,response)=try await URLSession.shared.data(from:url)
+        guard (response as? HTTPURLResponse)?.statusCode==200,let text=String(data:data,encoding:.utf8),!text.isEmpty else {throw BlueXrayError.configurationUnavailable}
+        return try runtime.convertSubscription(text)
+    }
+}
+
+enum BluePacketBridge {
+    // Public NetworkExtension APIs expose NEPacketTunnelFlow, not a TUN fd.
+    // This remains false until the separately audited packet-flow bridge is linked.
+    static let embedded = false
 }

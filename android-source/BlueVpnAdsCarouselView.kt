@@ -697,8 +697,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     private fun scheduleNext() {
         handler.removeCallbacks(slideRunnable)
         val canRotateOwn = items.size > 1
-        val canRotateTapsell = tapsellStandardEnabled &&
-            BlueVpnEntitlement.resolveUi(context).isFree
+        val canRotateTapsell = tapsellStandardEnabled
         if (running && autoplay && (canRotateOwn || canRotateTapsell)) {
             handler.postDelayed(slideRunnable, intervalMs)
         }
@@ -708,8 +707,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         if (
             tapsellLoading ||
             tapsellShowing ||
-            !tapsellStandardEnabled ||
-            !BlueVpnEntitlement.resolveUi(context).isFree
+            !tapsellStandardEnabled
         ) {
             scheduleNext()
             return

@@ -179,6 +179,8 @@ public partial class MainWindow : Window
             return;
 
         TapsellWebView.Visibility = Visibility.Collapsed;
+        TapsellLoadingPanel.Visibility = Visibility.Collapsed;
+        AdProviderLabel.Visibility = Visibility.Collapsed;
         AdCard.Cursor = Cursors.Hand;
         if (items.Count == 0)
         {
@@ -276,21 +278,55 @@ public partial class MainWindow : Window
             AdCard.Visibility = Visibility.Visible;
             AdCard.Cursor = Cursors.Arrow;
             AdCard.Height = Math.Clamp(cfg.Height, 90, 220);
-            TapsellWebView.Visibility = Visibility.Collapsed;
-            AdFallbackPanel.Visibility = Visibility.Visible;
-            var address = await WebView2RuntimeInstaller.WriteAdDocumentAsync(html, _lifetimeCts.Token);
-            TapsellWebView.CoreWebView2.Navigate(address);
+            // WebView must participate in layout while the provider script is
+            // loading; a Collapsed WebView gives ad iframes a zero viewport.
+            TapsellWebView.Visibility = Visibility.Visible;
+            AdFallbackPanel.Visibility = Visibility.Collapsed;
+            TapsellLoadingPanel.Visibility = Visibility.Visible;
+            AdProviderLabel.Visibility = Visibility.Visible;
+            var address = Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
+                          bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+                ? bridge.ToString()
+                : await WebView2RuntimeInstaller.WriteAdDocumentAsync(html, _lifetimeCts.Token);
+            if (!await NavigateTapsellAsync(address, _lifetimeCts.Token))
+            {
+                TapsellWebView.Visibility = Visibility.Collapsed;
+                TapsellLoadingPanel.Visibility = Visibility.Collapsed;
+                AdProviderLabel.Visibility = Visibility.Collapsed;
+                return false;
+            }
             if (!await WaitForTapsellContentAsync(_lifetimeCts.Token))
                 return false;
-            AdFallbackPanel.Visibility = Visibility.Collapsed;
+            TapsellLoadingPanel.Visibility = Visibility.Collapsed;
             TapsellWebView.Visibility = Visibility.Visible;
             return true;
         }
         catch (Exception ex)
         {
             TapsellWebView.Visibility = Visibility.Collapsed;
+            TapsellLoadingPanel.Visibility = Visibility.Collapsed;
+            AdProviderLabel.Visibility = Visibility.Collapsed;
             FooterStatus.Text = $"تبلیغ وب بارگذاری نشد؛ بنر BlueVPN نمایش داده می‌شود. {ShortUiError(ex.Message)}";
             return false;
+        }
+    }
+
+    private async Task<bool> NavigateTapsellAsync(string address, CancellationToken ct)
+    {
+        if (TapsellWebView.CoreWebView2 is null) return false;
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Completed(object? _, CoreWebView2NavigationCompletedEventArgs args) => completion.TrySetResult(args.IsSuccess);
+        TapsellWebView.CoreWebView2.NavigationCompleted += Completed;
+        try
+        {
+            TapsellWebView.CoreWebView2.Navigate(address);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(12));
+            return await completion.Task.WaitAsync(timeout.Token);
+        }
+        finally
+        {
+            TapsellWebView.CoreWebView2.NavigationCompleted -= Completed;
         }
     }
 
@@ -301,13 +337,15 @@ public partial class MainWindow : Window
         {
             await Task.Delay(350, ct);
             var result = await TapsellWebView.CoreWebView2.ExecuteScriptAsync(
-                "(()=>{const r=document.getElementById('bluevpn-ad');if(!r)return false;" +
+                "(()=>{const r=document.getElementById('bluevpn-ad')||document.getElementById('bluevpn-tapsell-root')||document.body;if(!r)return false;" +
                 "const nodes=[...r.querySelectorAll('iframe,img,video,canvas,object,embed')];" +
                 "return nodes.some(n=>{const b=n.getBoundingClientRect(),s=getComputedStyle(n);" +
                 "return b.width>20&&b.height>20&&s.display!=='none'&&s.visibility!=='hidden';});})()");
             if (string.Equals(result?.Trim(), "true", StringComparison.OrdinalIgnoreCase)) return true;
         }
         FooterStatus.Text = "تپسل محتوای قابل نمایش برنگرداند؛ بنر BlueVPN جایگزین شد.";
+        TapsellLoadingPanel.Visibility = Visibility.Collapsed;
+        AdProviderLabel.Visibility = Visibility.Collapsed;
         return false;
     }
 

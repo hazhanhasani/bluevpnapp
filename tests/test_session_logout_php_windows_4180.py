@@ -11,10 +11,10 @@ class SessionLogoutPhpWindows4180Tests(unittest.TestCase):
     def test_release_version(self):
         r=json.loads(text('release.json'))
         b=json.loads(text('branding/app.json'))
-        self.assertEqual(r['version'],'5.7.11')
-        self.assertEqual(r['version_code'],50711)
-        self.assertEqual(b['version_name'],'5.7.11')
-        self.assertEqual(b['version_code'],50711)
+        self.assertEqual(r['version'],'5.8.0')
+        self.assertEqual(r['version_code'],50800)
+        self.assertEqual(b['version_name'],'5.8.0')
+        self.assertEqual(b['version_code'],50800)
 
     def test_php_optional_warp_fields_never_read_unguarded(self):
         ads=text('bluevpn-manager/includes/class-bluevpn-ads.php')

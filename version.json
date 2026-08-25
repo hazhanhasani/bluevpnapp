@@ -1,14 +1,14 @@
 {
-  "version": "5.7.11",
-  "version_code": 50711,
+  "version": "5.8.0",
+  "version_code": 50800,
   "name": "BlueVPN",
   "components": {
-    "android": "5.7.11",
-    "ios": "5.7.11",
-    "windows": "5.7.11",
-    "manager": "5.7.11",
-    "site": "5.7.11",
-    "theme": "5.7.11",
-    "release": "5.7.11"
+    "android": "5.8.0",
+    "ios": "5.8.0",
+    "windows": "5.8.0",
+    "manager": "5.8.0",
+    "site": "5.8.0",
+    "theme": "5.8.0",
+    "release": "5.8.0"
   }
 }

@@ -12,10 +12,10 @@ def text(path: str) -> str:
 class Phase520SubscriptionClientStabilityTests(unittest.TestCase):
     def test_release_contract(self):
         release = json.loads(text("release.json"))
-        self.assertEqual(release["version"], "5.7.11")
-        self.assertEqual(release["version_code"], 50711)
-        self.assertEqual(release["android_version"], "5.7.11")
-        self.assertEqual(release["windows_version"], "5.7.11")
+        self.assertEqual(release["version"], "5.8.0")
+        self.assertEqual(release["version_code"], 50800)
+        self.assertEqual(release["android_version"], "5.8.0")
+        self.assertEqual(release["windows_version"], "5.8.0")
         features = set(release.get("features", []))
         for feature in {
             "subscription-custom-port-safe-validation",

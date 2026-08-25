@@ -1,0 +1,30 @@
+name: BlueVPN Full Source Export
+
+on:
+  push:
+    branches:
+      - fix/windows-tapsell-github-timeout-587
+
+permissions:
+  contents: read
+
+jobs:
+  export-full-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 1
+
+      - name: Upload complete source tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: bluevpnapp-full-source
+          path: |
+            .
+            !.git/**
+          include-hidden-files: true
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 1

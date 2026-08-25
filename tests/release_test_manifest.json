@@ -133,6 +133,7 @@
     "test_windows_combobox_dark_template_555.py",
     "test_windows_xray_proxy_confirmation_556.py",
     "test_windows_webview2_autoinstall_557.py",
+    "test_windows_webview2_userdata_574.py",
     "test_ios_android_parity_560.py",
     "test_ios_control_plane_pool_cache_569.py",
     "test_ios_packet_bridge_recovery_5610.py",

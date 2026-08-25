@@ -11,6 +11,28 @@ public static class WebView2RuntimeInstaller
 {
     private const string BootstrapperUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
     private static readonly SemaphoreSlim Gate = new(1, 1);
+    public static string UserDataFolder => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "BlueVPN", "WebView2", "Tapsell");
+
+    /// <summary>
+    /// WebView2's WPF default places EBWebView beside the executable. That is
+    /// read-only after an MSI/Inno install under Program Files. Always create a
+    /// per-user environment so ads work without elevation.
+    /// </summary>
+    public static async Task<CoreWebView2Environment> CreatePerUserEnvironmentAsync(CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var folder = UserDataFolder;
+        Directory.CreateDirectory(folder);
+        var accessProbe = Path.Combine(folder, $".write-{Guid.NewGuid():N}");
+        await File.WriteAllTextAsync(accessProbe, "ok", ct).ConfigureAwait(false);
+        File.Delete(accessProbe);
+        return await CoreWebView2Environment.CreateAsync(
+            browserExecutableFolder: null,
+            userDataFolder: folder,
+            options: null).ConfigureAwait(false);
+    }
 
     public static async Task<bool> EnsureInstalledAsync(IProgress<string>? progress = null, CancellationToken ct = default)
     {

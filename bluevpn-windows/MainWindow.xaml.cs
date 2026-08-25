@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Threading;
 using BlueVPN.Windows.Models;
 using BlueVPN.Windows.Services;
+using Microsoft.Web.WebView2.Core;
 
 namespace BlueVPN.Windows;
 
@@ -43,6 +44,7 @@ public partial class MainWindow : Window
     private int _adIndex;
     private double _adImageAspectRatio;
     private bool _tapsellWebInitialized;
+    private CoreWebView2Environment? _tapsellWebEnvironment;
     private UpdateCandidate? _pendingUpdate;
     private long? _remainingSecondsAtSnapshot;
     private DateTimeOffset _accountSnapshotAt = DateTimeOffset.UtcNow;
@@ -242,7 +244,8 @@ public partial class MainWindow : Window
             {
                 var installProgress = new Progress<string>(text => FooterStatus.Text = text);
                 if (!await WebView2RuntimeInstaller.EnsureInstalledAsync(installProgress, _lifetimeCts.Token)) return false;
-                await TapsellWebView.EnsureCoreWebView2Async();
+                _tapsellWebEnvironment = await WebView2RuntimeInstaller.CreatePerUserEnvironmentAsync(_lifetimeCts.Token);
+                await TapsellWebView.EnsureCoreWebView2Async(_tapsellWebEnvironment);
                 if (TapsellWebView.CoreWebView2 is null) return false;
                 TapsellWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;
                 TapsellWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
@@ -270,11 +273,19 @@ public partial class MainWindow : Window
             TapsellWebView.NavigateToString(html);
             return true;
         }
-        catch
+        catch (Exception ex)
         {
             TapsellWebView.Visibility = Visibility.Collapsed;
+            FooterStatus.Text = $"تبلیغ وب بارگذاری نشد؛ بنر BlueVPN نمایش داده می‌شود. {ShortUiError(ex.Message)}";
             return false;
         }
+    }
+
+    private static string ShortUiError(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "";
+        var compact = string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        return compact.Length <= 120 ? compact : compact[..120] + "…";
     }
 
 

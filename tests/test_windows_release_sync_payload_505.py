@@ -5,11 +5,11 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 def text(rel): return (ROOT/rel).read_text(encoding='utf-8')
 
-class WindowsReleaseSyncPayload50710Tests(unittest.TestCase):
+class WindowsReleaseSyncPayload50711Tests(unittest.TestCase):
     def test_release_version(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'5.7.10')
-        self.assertEqual(r['version_code'],50710)
+        self.assertEqual(r['version'],'5.7.11')
+        self.assertEqual(r['version_code'],50711)
 
     def test_workflow_pushes_complete_signed_windows_metadata(self):
         wf=text('.github/workflows/build-windows.yml')

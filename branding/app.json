@@ -1,8 +1,8 @@
 {
     "app_name": "BlueVPN",
     "application_id": "ir.blluepanel.bluevpn",
-    "version_name": "5.7.10",
-    "version_code": 50710,
+    "version_name": "5.7.11",
+    "version_code": 50711,
     "deep_link_scheme": "bluevpn",
     "api_base_url": "https://blluepanel.ir",
     "website_url": "https://blluepanel.ir",
@@ -27,5 +27,9 @@
     "windows_installer": "inno-setup",
     "windows_auto_update": true,
     "windows_release_channels": "wordpress_managed_stable_beta",
-    "control_plane": "wordpress_mysql_native"
+    "control_plane": "wordpress_mysql_native",
+    "api_base_urls": [
+        "https://blluepanel.ir",
+        "https://bot.blluepanel.ir"
+    ]
 }

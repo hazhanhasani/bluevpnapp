@@ -1,12 +1,6 @@
 name: Build BlueVPN iOS
 on:
   workflow_dispatch:
-    inputs:
-      require_xray_runtime:
-        description: Fail unless the signed BlueXrayCore XCFramework is present
-        required: false
-        default: false
-        type: boolean
   push:
     paths: ['bluevpn-ios/**','branding/app.json','version.json','scripts/validate_ios.py','.github/workflows/build-ios.yml']
 jobs:
@@ -30,6 +24,8 @@ jobs:
             -sdk iphonesimulator \
             -configuration Debug \
             CODE_SIGNING_ALLOWED=NO \
+            SWIFT_VERSION=5 \
+            SWIFT_STRICT_CONCURRENCY=minimal \
             build 2>&1 | tee diagnostics/xcodebuild-ios.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
@@ -41,6 +37,9 @@ jobs:
             echo 'BLUEVPN_IOS_BUILD_DIAGNOSTIC_BEGIN'
             cat diagnostics/xcodebuild-errors.txt
             echo 'BLUEVPN_IOS_BUILD_DIAGNOSTIC_END'
+            while IFS= read -r line; do
+              echo "::error title=BlueVPN iOS compiler::$line"
+            done < diagnostics/xcodebuild-errors.txt
             echo "::error title=BlueVPN iOS compile failed::xcodebuild failed with exit code ${status}; see the diagnostic excerpt and artifact."
             exit "$status"
           fi

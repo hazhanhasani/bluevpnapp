@@ -136,6 +136,7 @@
     "test_ios_android_parity_560.py",
     "test_ios_control_plane_pool_cache_569.py",
     "test_ios_packet_bridge_recovery_5610.py",
+    "test_ios_swiftpm_concurrency_buildfix_5611.py",
     "test_workflow_action_sha_pinning_565.py",
     "test_ios_failure_diagnostics_566.py",
     "test_ios_audited_xray_core_568.py"

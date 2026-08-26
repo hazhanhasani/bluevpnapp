@@ -21,7 +21,9 @@ BlueVPN is a multi-platform VPN project with Android, Windows and iOS clients, a
 
 ## Architecture contract
 
-BlueVPN uses a **hidden-route location architecture**: users select a public location, while the eligible internal routes behind that location remain hidden from the public UI. BlueVPN selects the best eligible internal route according to entitlement, health and runtime policy. Free and Premium route pools remain isolated.
+BlueVPN uses a **hidden-route location architecture**: users select a public location, while the eligible internal routes behind that location remain hidden from the public UI. BlueVPN selects the best eligible internal route according to entitlement, health and runtime policy.
+
+**Free/Premium isolation is a hard architecture rule:** free and paid route pools, entitlement state, route identity and runtime selection remain isolated so a free-session fallback cannot silently become a Premium route and a Premium entitlement cannot be downgraded into a free route without an explicit policy decision.
 
 See [docs/architecture.md](docs/architecture.md) for the full component and data-flow model.
 

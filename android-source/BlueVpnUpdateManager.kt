@@ -222,6 +222,11 @@ object BlueVpnUpdateManager {
                     }
                 }
             }.onFailure { error ->
+                BlueVpnRuntimeAudit.record(
+                    activity.applicationContext,
+                    BlueVpnRuntimeAudit.Event.UPDATE_CHECK_FAILED,
+                    error.javaClass.simpleName,
+                )
                 activity.runOnUiThread {
                     showStoredBlockIfNeeded(activity)
 

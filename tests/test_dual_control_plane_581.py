@@ -78,6 +78,34 @@ class DualControlPlane581Tests(unittest.TestCase):
         self.assertNotIn("postDelayed(attemptTimeout, 12_000L)", home)
         self.assertNotIn("postDelayed(verificationTimeout, 28_000L)", home)
 
+    def test_android_manager_exposes_bounded_connection_policy_controls(self):
+        cc = (ROOT / "bluevpn-manager/includes/class-bluevpn-control-center.php").read_text(encoding="utf-8")
+        for key in (
+            "android_recovery_window_seconds",
+            "android_connection_gate_wait_ms",
+            "android_candidate_start_timeout_seconds",
+            "android_verification_timeout_seconds",
+        ):
+            self.assertIn(key, cc)
+        self.assertIn("max(15,min(180", cc)
+        self.assertIn("max(500,min(8000", cc)
+        self.assertIn("max(6,min(20", cc)
+        self.assertIn("max(10,min(45", cc)
+
+    def test_android_runtime_audit_has_actionable_privacy_safe_taxonomy(self):
+        audit = (ROOT / "android-source/BlueVpnRuntimeAudit.kt").read_text(encoding="utf-8")
+        account = (ROOT / "android-source/BlueVpnAccountManager.kt").read_text(encoding="utf-8")
+        updater = (ROOT / "android-source/BlueVpnUpdateManager.kt").read_text(encoding="utf-8")
+        home = (ROOT / "android-source/BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
+        for event in ("API_PRIMARY_FAILED", "API_FAILOVER_USED", "UPDATE_CHECK_FAILED", "VPN_VERIFICATION_FAILED"):
+            self.assertIn(event, audit)
+        self.assertIn("Event.API_PRIMARY_FAILED", account)
+        self.assertIn("Event.API_FAILOVER_USED", account)
+        self.assertIn("Event.UPDATE_CHECK_FAILED", updater)
+        self.assertIn("Event.VPN_VERIFICATION_FAILED", home)
+        self.assertIn('replace(Regex("https?://', audit)
+        self.assertIn('"<ip>"', audit)
+
     def test_health_monitor_probes_both_domains(self):
         workflow = (ROOT / ".github/workflows/external-health.yml").read_text(encoding="utf-8")
         for domain in DOMAINS:

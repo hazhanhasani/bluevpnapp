@@ -315,6 +315,11 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             return@Runnable
         }
         verificationDeadlineGuid = ""
+        BlueVpnRuntimeAudit.record(
+            applicationContext,
+            BlueVpnRuntimeAudit.Event.VPN_VERIFICATION_FAILED,
+            "verification_timeout",
+        )
         failCurrentAndTryNext(
             "تأیید اینترنت این مسیر در زمان مجاز کامل نشد؛ سرور بعدی بررسی می‌شود"
         )

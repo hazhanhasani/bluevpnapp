@@ -2822,10 +2822,23 @@ object BlueVpnAccountManager {
                 val retryable = error.status == 0 || error.status in listOf(502, 503, 504)
                 if (!retryable) throw error
                 if (index < bases.lastIndex) {
+                    val safeRoute = path.substringBefore('?')
+                    if (index == 0) {
+                        BlueVpnRuntimeAudit.record(
+                            c.applicationContext,
+                            BlueVpnRuntimeAudit.Event.API_PRIMARY_FAILED,
+                            "${method.uppercase(Locale.ROOT)}:$safeRoute:${error.status}",
+                        )
+                    }
+                    BlueVpnRuntimeAudit.record(
+                        c.applicationContext,
+                        BlueVpnRuntimeAudit.Event.API_FAILOVER_USED,
+                        "${method.uppercase(Locale.ROOT)}:$safeRoute:${index + 1}",
+                    )
                     BlueVpnRuntimeAudit.record(
                         c.applicationContext,
                         BlueVpnRuntimeAudit.Event.CONTROL_PLANE_FAILOVER,
-                        "${method.uppercase(Locale.ROOT)}:${path.substringBefore('?')}:${index + 1}",
+                        "${method.uppercase(Locale.ROOT)}:$safeRoute:${index + 1}",
                     )
                 }
             }

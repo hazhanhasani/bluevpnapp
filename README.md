@@ -19,6 +19,12 @@ BlueVPN is a multi-platform VPN project with Android, Windows and iOS clients, a
 | Release tooling | `scripts/` | Versioning, preparation, validation and build helpers |
 | Regression gates | `tests/` | Static and behavioral release checks |
 
+## Architecture contract
+
+BlueVPN uses a **hidden-route location architecture**: users select a public location, while the eligible internal routes behind that location remain hidden from the public UI. BlueVPN selects the best eligible internal route according to entitlement, health and runtime policy. Free and Premium route pools remain isolated.
+
+See [docs/architecture.md](docs/architecture.md) for the full component and data-flow model.
+
 ## Versioning
 
 `version.json` is the canonical project version. All shipped components are expected to remain synchronized with it.

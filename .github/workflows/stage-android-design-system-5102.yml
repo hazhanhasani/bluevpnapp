@@ -1,5 +1,6 @@
 name: Stage Android Design System 5.10.2
 
+# Validation-only workflow; never shipped to main.
 on:
   push:
     branches:
@@ -35,13 +36,12 @@ jobs:
 
           home = Path('android-source/BlueVpnHomeActivity.kt')
           text = home.read_text(encoding='utf-8')
-          for anchor, addition in [
-              ('import com.v2ray.ang.bluevpn.BlueVpnTheme\n', 'import com.v2ray.ang.bluevpn.BlueVpnTheme\nimport com.v2ray.ang.bluevpn.BlueVpnTypography\nimport com.v2ray.ang.bluevpn.BlueVpnSpacing\nimport com.v2ray.ang.bluevpn.BlueVpnRadius\n'),
-          ]:
-              if 'import com.v2ray.ang.bluevpn.BlueVpnTypography' not in text:
-                  if anchor not in text:
-                      raise SystemExit('theme import anchor missing')
-                  text = text.replace(anchor, addition, 1)
+          anchor = 'import com.v2ray.ang.bluevpn.BlueVpnTheme\n'
+          addition = 'import com.v2ray.ang.bluevpn.BlueVpnTheme\nimport com.v2ray.ang.bluevpn.BlueVpnTypography\nimport com.v2ray.ang.bluevpn.BlueVpnSpacing\nimport com.v2ray.ang.bluevpn.BlueVpnRadius\n'
+          if 'import com.v2ray.ang.bluevpn.BlueVpnTypography' not in text:
+              if anchor not in text:
+                  raise SystemExit('theme import anchor missing')
+              text = text.replace(anchor, addition, 1)
 
           old = '''        text = value\n        textSize = sizeSp\n        setTextColor(color)\n        this.gravity = gravity\n        includeFontPadding = false\n        if (bold) typeface = Typeface.DEFAULT_BOLD\n'''
           new = '''        text = value\n        textSize = BlueVpnTypography.resolve(sizeSp)\n        setTextColor(color)\n        this.gravity = gravity\n        includeFontPadding = false\n        typeface = BlueVpnTypography.typeface(bold)\n        textDirection = View.TEXT_DIRECTION_FIRST_STRONG_RTL\n        textLocale = Locale("fa", "IR")\n        setLineSpacing(0f, 1.04f)\n'''
@@ -53,11 +53,9 @@ jobs:
           text = text.replace('radius = dpHome(radiusDp).toFloat()', 'radius = dpHome(BlueVpnRadius.resolve(radiusDp)).toFloat()', 1)
           text = text.replace('cornerRadius = dpHome(radiusDp).toFloat()', 'cornerRadius = dpHome(BlueVpnRadius.resolve(radiusDp)).toFloat()', 1)
           text = text.replace('cornerRadius = dpHome(16)', 'cornerRadius = dpHome(BlueVpnRadius.control)', 1)
-
           page_padding = 'setPadding(dpHome(18), dpHome(8), dpHome(18), dpHome(14))'
           if page_padding in text:
               text = text.replace(page_padding, 'setPadding(dpHome(BlueVpnSpacing.pageHorizontal), dpHome(BlueVpnSpacing.sm), dpHome(BlueVpnSpacing.pageHorizontal), dpHome(14))', 1)
-
           home.write_text(text, encoding='utf-8')
 
           test = Path('tests/test_runtime_theme_github_fix_4169.py')

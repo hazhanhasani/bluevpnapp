@@ -68,7 +68,7 @@ jobs:
           unzip -t "bluevpn-site-theme-v${THEME_VERSION}.zip" >/dev/null
       - name: Publish or refresh GitHub theme release
         env:
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
           THEME_VERSION: ${{ steps.theme.outputs.version }}
         shell: bash
         run: |
@@ -82,7 +82,7 @@ jobs:
           fi
       - name: Verify published theme updater contract
         env:
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
           THEME_VERSION: ${{ steps.theme.outputs.version }}
         shell: bash
         run: |

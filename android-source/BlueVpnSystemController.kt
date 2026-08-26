@@ -58,6 +58,14 @@ object BlueVpnSystemController {
     fun restart(context: Context) {
         val app = context.applicationContext
         BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.VPN_RESTART_REQUEST)
+        if (!isRunning() && BlueVpnRuntimeGate.otherVpnActive(app)) {
+            BlueVpnRuntimeAudit.record(
+                app,
+                BlueVpnRuntimeAudit.Event.SYSTEM_START_REQUEST,
+                "blocked_other_vpn",
+            )
+            return
+        }
         scope.launch {
             LauncherManager.stopService(app)
             BlueVpnWarpKeepAliveService.stop(app)
@@ -71,6 +79,17 @@ object BlueVpnSystemController {
     /** Recover only after repeated complete end-to-end proof failures. */
     fun recoverDeadTunnel(context: Context) {
         val app = context.applicationContext
+        // Recovery is never permission to take ownership away from another VPN.
+        // This covers stale/background recovery callbacks after the user switched
+        // to a different VPN application.
+        if (!isRunning() && BlueVpnRuntimeGate.otherVpnActive(app)) {
+            BlueVpnRuntimeAudit.record(
+                app,
+                BlueVpnRuntimeAudit.Event.SYSTEM_START_REQUEST,
+                "recovery_blocked_other_vpn",
+            )
+            return
+        }
         if (!BlueVpnIntelligenceCore.claimPredictiveFailover(app)) return
         scope.launch {
             val current = com.v2ray.ang.handler.MmkvManager.getSelectServer().orEmpty()
@@ -107,6 +126,19 @@ object BlueVpnSystemController {
     fun start(context: Context) {
         val app = context.applicationContext
         BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.SYSTEM_START_REQUEST)
+
+        // Android allows only one active VPN owner. If another app currently owns
+        // a VPN transport, starting BlueVPN would tear that session down. Never
+        // perform that takeover from a background/system path.
+        if (!isRunning() && BlueVpnRuntimeGate.otherVpnActive(app)) {
+            BlueVpnRuntimeAudit.record(
+                app,
+                BlueVpnRuntimeAudit.Event.SYSTEM_START_REQUEST,
+                "blocked_other_vpn",
+            )
+            return
+        }
+
         // Android requires an Activity to grant VPN consent the first time.
         if (VpnService.prepare(app) != null) {
             openHomeForConsent(app)

@@ -155,24 +155,39 @@ public sealed class AdvertisementService
     public bool TryReserveWindowsWebImpression(bool premium, bool noFirstPartyBanner)
     {
         var cfg = WindowsWeb;
-        // The WordPress bridge is a complete ad document and therefore does not
-        // need ScriptHtml to be duplicated in the mobile-config payload. Older
-        // builds required ScriptHtml unconditionally, so a perfectly valid
-        // HTTPS bridge was rejected before WebView2 navigation even started.
+        // Eligibility is checked before navigation, but an impression is committed
+        // only after WebView2 proves that provider content actually rendered.
         var hasHttpsBridge = Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
                              bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
         var hasRenderableSource = hasHttpsBridge || !string.IsNullOrWhiteSpace(cfg.ScriptHtml);
         if (!cfg.Enabled || !hasRenderableSource || (cfg.FreeOnly && premium)) return false;
+
         var today = DateOnly.FromDateTime(DateTime.Now);
-        if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; }
+        if (today != _windowsWebDay)
+        {
+            _windowsWebDay = today;
+            _windowsWebDailyCount = 0;
+            _windowsWebLastShown = DateTimeOffset.MinValue;
+        }
+
         _windowsWebSlideCounter++;
         if (!noFirstPartyBanner && _windowsWebSlideCounter % Math.Clamp(cfg.EverySlides, 1, 20) != 0) return false;
         if (cfg.DailyCap > 0 && _windowsWebDailyCount >= Math.Clamp(cfg.DailyCap, 1, 1000)) return false;
         if ((DateTimeOffset.Now - _windowsWebLastShown).TotalSeconds < Math.Clamp(cfg.MinIntervalSeconds, 0, 86400)) return false;
+        return true;
+    }
+
+    public void CommitWindowsWebImpression()
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        if (today != _windowsWebDay)
+        {
+            _windowsWebDay = today;
+            _windowsWebDailyCount = 0;
+        }
         _windowsWebDailyCount++;
         _windowsWebLastShown = DateTimeOffset.Now;
         SaveWindowsWebState();
-        return true;
     }
 
     private void LoadWindowsWebState()

@@ -141,7 +141,7 @@ subprocess.run(["python", "scripts/sync_version.py"], check=True)
 # Synchronize test assertions and other current release markers while leaving workflow history intact.
 paths = subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0")
 for raw in paths:
-    if not raw or raw.startswith(".github/workflows/"):
+    if not raw or raw.startswith(".github/workflows/") or raw == "tests/release_test_manifest.json":
         continue
     p = Path(raw)
     try:

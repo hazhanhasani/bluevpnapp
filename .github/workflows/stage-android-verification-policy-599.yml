@@ -19,7 +19,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply Android verification policy patch
-        run: python scripts/stage_android_verification_policy_599.py
+        run: |
+          python scripts/stage_android_verification_policy_599.py
+          python scripts/fix_android_verification_regressions_599.py
 
       - name: PHP syntax
         run: php -l bluevpn-manager/includes/class-bluevpn-api.php
@@ -33,7 +35,9 @@ jobs:
           python scripts/validate_php_release.py
 
       - name: Targeted Android policy regression
-        run: python -m unittest tests.test_dual_control_plane_581
+        run: |
+          python -m unittest tests.test_dual_control_plane_581
+          python -m unittest tests.test_premium_verification_recovery_4102
 
       - name: Full regression suite
         run: python -m unittest discover -s tests -p 'test_*.py'
@@ -41,7 +45,7 @@ jobs:
       - name: Freeze validated production tree
         run: |
           set -euo pipefail
-          rm -f scripts/stage_android_verification_policy_599.py .github/workflows/stage-android-verification-policy-599.yml
+          rm -f scripts/stage_android_verification_policy_599.py scripts/fix_android_verification_regressions_599.py .github/workflows/stage-android-verification-policy-599.yml
           git config user.name bluevpn-validation-bot
           git config user.email bluevpn-validation-bot@users.noreply.github.com
           git add -A

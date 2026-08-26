@@ -281,9 +281,10 @@ public partial class MainWindow : Window
             AdCard.Visibility = Visibility.Visible;
             AdCard.Cursor = Cursors.Arrow;
             AdCard.Height = Math.Clamp(cfg.Height, 90, 220);
-            // WebView must participate in layout while the provider script is
-            // loading; a Collapsed WebView gives ad iframes a zero viewport.
-            TapsellWebView.Visibility = Visibility.Visible;
+            // Keep the WebView in layout while the provider loads so ad iframes
+            // receive a real viewport, but do not expose the native white surface.
+            // It becomes visible only after provider content is positively detected.
+            TapsellWebView.Visibility = Visibility.Hidden;
             AdFallbackPanel.Visibility = Visibility.Collapsed;
             TapsellLoadingPanel.Visibility = Visibility.Visible;
             AdProviderLabel.Visibility = Visibility.Visible;
@@ -299,7 +300,12 @@ public partial class MainWindow : Window
                 return false;
             }
             if (!await WaitForTapsellContentAsync(_lifetimeCts.Token))
+            {
+                TapsellWebView.Visibility = Visibility.Collapsed;
+                TapsellLoadingPanel.Visibility = Visibility.Collapsed;
+                AdProviderLabel.Visibility = Visibility.Collapsed;
                 return false;
+            }
             TapsellLoadingPanel.Visibility = Visibility.Collapsed;
             TapsellWebView.Visibility = Visibility.Visible;
             return true;

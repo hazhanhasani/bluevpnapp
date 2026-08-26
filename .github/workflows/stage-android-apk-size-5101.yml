@@ -1,0 +1,129 @@
+name: Stage Android APK Size 5.10.1
+
+on:
+  push:
+    branches:
+      - automation/android-apk-size-5101
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-freeze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout staging branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+
+      - name: Apply Android release size optimization
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > scripts/optimize_android_release.py <<'PY'
+          from __future__ import annotations
+
+          import argparse
+          from pathlib import Path
+
+
+          def optimize(path: Path) -> None:
+              text = path.read_text(encoding="utf-8")
+              original = text
+              if "isMinifyEnabled = false" in text:
+                  text = text.replace(
+                      "isMinifyEnabled = false",
+                      "isMinifyEnabled = true\n            isShrinkResources = true",
+                      1,
+                  )
+              elif "isMinifyEnabled = true" in text and "isShrinkResources = true" not in text:
+                  text = text.replace(
+                      "isMinifyEnabled = true",
+                      "isMinifyEnabled = true\n            isShrinkResources = true",
+                      1,
+                  )
+              if "isMinifyEnabled = true" not in text:
+                  raise SystemExit("release minify flag not found")
+              if "isShrinkResources = true" not in text:
+                  raise SystemExit("release resource shrink flag not found")
+              if "isUniversalApk = abiFilterList.isNullOrEmpty()" not in text:
+                  raise SystemExit("ABI split contract changed upstream")
+              if text != original:
+                  path.write_text(text, encoding="utf-8")
+              print(f"Android release optimizer PASS: {path}")
+
+
+          def main() -> None:
+              parser = argparse.ArgumentParser()
+              parser.add_argument(
+                  "--path",
+                  default="upstream/V2rayNG/app/build.gradle.kts",
+              )
+              args = parser.parse_args()
+              optimize(Path(args.path))
+
+
+          if __name__ == "__main__":
+              main()
+          PY
+
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('.github/workflows/build-apk.yml')
+          text = path.read_text(encoding='utf-8')
+          needle = '          python scripts/prepare_android.py 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"\n'
+          addition = needle + '          python scripts/optimize_android_release.py 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"\n'
+          if 'python scripts/optimize_android_release.py' not in text:
+              if needle not in text:
+                  raise SystemExit('prepare_android workflow hook not found')
+              text = text.replace(needle, addition, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('tests/test_apk_runtime_gate_494.py')
+          text = path.read_text(encoding='utf-8')
+          needle = '        self.assertIn("Validate signed APK runtime contract",s)\n'
+          addition = needle + '''        self.assertIn("python scripts/optimize_android_release.py",s)\n        optimizer=(ROOT/"scripts/optimize_android_release.py").read_text()\n        self.assertIn("isMinifyEnabled = true",optimizer)\n        self.assertIn("isShrinkResources = true",optimizer)\n        self.assertIn("isUniversalApk = abiFilterList.isNullOrEmpty()",optimizer)\n'''
+          if 'isShrinkResources = true' not in text:
+              if needle not in text:
+                  raise SystemExit('APK runtime test insertion point not found')
+              text = text.replace(needle, addition, 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Validate optimizer against upstream build file
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            https://raw.githubusercontent.com/2dust/v2rayNG/2.3.5/V2rayNG/app/build.gradle.kts \
+            -o /tmp/upstream-build.gradle.kts
+          python scripts/optimize_android_release.py --path /tmp/upstream-build.gradle.kts
+          grep -F 'isMinifyEnabled = true' /tmp/upstream-build.gradle.kts
+          grep -F 'isShrinkResources = true' /tmp/upstream-build.gradle.kts
+          grep -F 'isUniversalApk = abiFilterList.isNullOrEmpty()' /tmp/upstream-build.gradle.kts
+
+      - name: Version contract
+        run: python scripts/sync_version.py --check
+
+      - name: Targeted APK regression
+        run: python -m unittest tests.test_apk_runtime_gate_494 -v
+
+      - name: Full regression suite
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Freeze validated production tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name bluevpn-validation-bot
+          git config user.email bluevpn-validation-bot@users.noreply.github.com
+          git rm .github/workflows/stage-android-apk-size-5101.yml
+          git add scripts/optimize_android_release.py .github/workflows/build-apk.yml tests/test_apk_runtime_gate_494.py
+          git diff --cached --check
+          git commit -m 'build(android): shrink release APK downloads [skip ci]'
+          git push origin HEAD:automation/android-apk-size-5101

@@ -1,0 +1,111 @@
+name: BlueVPN One-Time Version Sync
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/force-version-51007.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  sync-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Replace BlueVPN version references everywhere
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          old_new = (
+              ("5.8.6", "5.10.7"),
+              ("50806", "51007"),
+              ("5.10.6", "5.10.7"),
+              ("51006", "51007"),
+          )
+          self_path = ".github/workflows/force-version-51007.yml"
+          paths = subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0")
+          changed = []
+
+          for rel in paths:
+              if not rel or rel == self_path:
+                  continue
+              p = Path(rel)
+              try:
+                  raw = p.read_bytes()
+                  text = raw.decode("utf-8")
+              except (UnicodeDecodeError, OSError):
+                  continue
+
+              updated = text
+              for old, new in old_new:
+                  updated = updated.replace(old, new)
+
+              if updated != text:
+                  p.write_text(updated, encoding="utf-8", newline="")
+                  changed.append(rel)
+
+          print(f"Updated {len(changed)} tracked text files")
+          for rel in changed:
+              print(rel)
+
+          leftovers = []
+          for rel in paths:
+              if not rel or rel == self_path:
+                  continue
+              p = Path(rel)
+              try:
+                  text = p.read_bytes().decode("utf-8")
+              except (UnicodeDecodeError, OSError):
+                  continue
+              for old, _ in old_new:
+                  if old in text:
+                      leftovers.append((rel, old))
+
+          if leftovers:
+              raise SystemExit("Leftover old version references: " + repr(leftovers[:50]))
+          PY
+
+      - name: Verify canonical version contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          version = json.loads(Path("version.json").read_text(encoding="utf-8"))
+          release = json.loads(Path("release.json").read_text(encoding="utf-8"))
+          branding = json.loads(Path("branding/app.json").read_text(encoding="utf-8"))
+
+          assert version["version"] == "5.10.7"
+          assert version["version_code"] == 51007
+          assert release["version"] == "5.10.7"
+          assert release["version_code"] == 51007
+          assert branding["version_name"] == "5.10.7"
+          assert branding["version_code"] == 51007
+          print("Canonical version contract is 5.10.7 / 51007")
+          PY
+
+      - name: Remove one-time workflow and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/force-version-51007.yml
+          git config user.name "bluevpn-version-bot"
+          git config user.email "bluevpn-version-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && { echo "No changes to commit"; exit 0; }
+          git commit -m "release: sync BlueVPN 5.10.7 across repository [skip ci]"
+          git push origin HEAD:main

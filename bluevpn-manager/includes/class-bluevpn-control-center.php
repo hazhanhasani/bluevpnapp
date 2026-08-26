@@ -712,11 +712,15 @@ final class BlueVPN_Control_Center {
         echo '<div class="bvc-card"><h2>سیاست بروزرسانی</h2><p>Build شدن APK با انتشار عمومی یکی نیست. Beta Testerها همان بررسی و دانلود خودکار Stable را دارند؛ Auto Update هر کانال مستقل است. Beta Force فقط روی همان Release آزمایشی اثر می‌گذارد و Force نسخه Stable برای همه کاربران است.</p><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
         wp_nonce_field('bluevpn_cc_save_app_update_policy');echo '<input type="hidden" name="action" value="bluevpn_cc_save_app_update_policy"><div class="bvc-form-grid">';
         self::input('owner','GitHub Owner',$cfg['owner'],true);self::input('repo','Repository',$cfg['repo'],true);self::input('minimum_version','حداقل نسخه قابل استفاده',$s['minimum_version'],true);self::input('support_url','لینک پشتیبانی',$s['support_url']);self::input('title_override','عنوان آپدیت (اختیاری)',$cfg['title_override']);self::textarea('message_override','متن آپدیت (اختیاری)',$cfg['message_override']);
+        self::input('android_recovery_window_seconds','پنجره Recovery شبکه (ثانیه)',(int)($s['android_recovery_window_seconds']??60),true);
+        self::input('android_connection_gate_wait_ms','انتظار Runtime Gate (میلی‌ثانیه)',(int)($s['android_connection_gate_wait_ms']??2500),true);
+        self::input('android_candidate_start_timeout_seconds','مهلت شروع هر سرور (ثانیه)',(int)($s['android_candidate_start_timeout_seconds']??12),true);
+        self::input('android_verification_timeout_seconds','مهلت تأیید اینترنت (ثانیه)',(int)($s['android_verification_timeout_seconds']??28),true);
         echo '<label><input type="checkbox" name="app_auto_sync" value="1" '.checked(!empty($cfg['auto_sync']),true,false).'> Sync خودکار Releaseهای GitHub</label>';
         echo '<label><input type="checkbox" name="auto_update_stable" value="1" '.checked(!empty($s['auto_update_stable']),true,false).'> دانلود خودکار Stable برای کاربران عادی</label>';
         echo '<label><input type="checkbox" name="auto_update_beta" value="1" '.checked(!empty($s['auto_update_beta']),true,false).'> 🧪 دانلود خودکار Beta برای آزمایش‌کنندگان</label>';
         echo '<label><input type="checkbox" name="maintenance" value="1" '.checked(!empty($s['maintenance']),true,false).'> حالت تعمیرات</label>';
-        echo '</div>';submit_button('ذخیره سیاست بروزرسانی','primary','submit',false);echo '</form></div>';
+        echo '</div><p class="bvc-note">سیاست اتصال Android در خود اپ نیز محدود می‌شود: Recovery بین ۱۵–۱۸۰ ثانیه، Runtime Gate بین ۵۰۰–۸۰۰۰ms، شروع سرور بین ۶–۲۰ ثانیه و تأیید اینترنت بین ۱۰–۴۵ ثانیه.</p>';submit_button('ذخیره سیاست بروزرسانی','primary','submit',false);echo '</form></div>';
 
         echo '<div class="bvc-card"><h2>اتوماسیون انتشار</h2><div class="bvc-grid"><div><strong>① Build</strong><p>Deploy Bot/GitHub APK را می‌سازد.</p></div><div><strong>② Beta</strong><p>WordPress نسخه جدید را خودکار Beta ثبت می‌کند؛ فقط Beta Testerها می‌بینند.</p></div><div><strong>③ Stable</strong><p>دکمه اصلی «انتشار رسمی Android + Windows» نسخه هم‌نام را روی هر دو پلتفرم Stable می‌کند؛ گزینه «فقط Android» برای انتشار مستقل باقی مانده است.</p></div></div>';
         echo '<p><strong>API:</strong></p><div class="bvc-code">'.self::esc(untrailingslashit(home_url('/')).'/api/v1/mobile/config').'</div>';
@@ -1127,6 +1131,10 @@ final class BlueVPN_Control_Center {
         $s=BlueVPN_DB::settings();
         $min=sanitize_text_field(wp_unslash($_POST['minimum_version']??'0.0.0'));if(!preg_match('/^\d+\.\d+\.\d+$/',$min))$min='0.0.0';
         $s['minimum_version']=$min;$s['support_url']=esc_url_raw(wp_unslash($_POST['support_url']??''));$s['auto_update_stable']=isset($_POST['auto_update_stable']);$s['auto_update_beta']=isset($_POST['auto_update_beta']);$s['auto_update']=$s['auto_update_stable'];$s['maintenance']=isset($_POST['maintenance']);
+        $s['android_recovery_window_seconds']=max(15,min(180,(int)($_POST['android_recovery_window_seconds']??60)));
+        $s['android_connection_gate_wait_ms']=max(500,min(8000,(int)($_POST['android_connection_gate_wait_ms']??2500)));
+        $s['android_candidate_start_timeout_seconds']=max(6,min(20,(int)($_POST['android_candidate_start_timeout_seconds']??12)));
+        $s['android_verification_timeout_seconds']=max(10,min(45,(int)($_POST['android_verification_timeout_seconds']??28)));
         BlueVPN_DB::save_settings($s);BlueVPN_App_Release_Manager::ensure_schedule();
         self::redirect('app','سیاست بروزرسانی اپ ذخیره شد.');
     }

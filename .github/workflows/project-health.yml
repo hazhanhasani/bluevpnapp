@@ -120,23 +120,32 @@ jobs:
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "Validated version upgrade: $PREVIOUS -> $CURRENT"
 
-      - name: Validate dedicated GitHub Release token
+      - name: Pin release tags to validated source SHA
         if: ${{ steps.version.outputs.changed == 'true' }}
         env:
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
+          VERSION: ${{ steps.version.outputs.current }}
+          SOURCE_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::error::Missing repository secret BLUEVPN_GITHUB_RELEASE_TOKEN. Create a fine-grained PAT for this repository with Contents: Read and write, then save it under that exact secret name."
-            exit 1
-          fi
-          CAN_PUSH="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.permissions.push // false')"
-          if [ "$CAN_PUSH" != "true" ]; then
-            echo "::error::BLUEVPN_GITHUB_RELEASE_TOKEN exists but does not have repository Contents write permission."
-            exit 1
-          fi
-          echo "Dedicated GitHub Release token preflight: PASS"
+          git config user.name "bluevpn-release-bot"
+          git config user.email "bluevpn-release-bot@users.noreply.github.com"
+          git fetch --tags --force
+
+          for TAG in "v${VERSION}" "bluevpn-manager-v${VERSION}" "bluevpn-windows-v${VERSION}" "bluevpn-site-v${VERSION}"; do
+            if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+              EXISTING="$(git rev-list -n 1 "${TAG}")"
+              if [ "$EXISTING" != "$SOURCE_SHA" ]; then
+                echo "::error::Release tag ${TAG} already points to ${EXISTING}, expected ${SOURCE_SHA}."
+                exit 1
+              fi
+              echo "Tag ${TAG} already pinned to validated source."
+            else
+              git tag "${TAG}" "$SOURCE_SHA"
+              git push origin "refs/tags/${TAG}"
+              echo "Pinned ${TAG} -> ${SOURCE_SHA}"
+            fi
+          done
 
       - name: Dispatch every BlueVPN release target at exact SHA
         if: ${{ steps.version.outputs.changed == 'true' }}

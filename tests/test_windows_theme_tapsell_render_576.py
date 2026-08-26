@@ -18,6 +18,15 @@ class WindowsThemeTapsellRender576Tests(unittest.TestCase):
         self.assertIn('Background="{DynamicResource BlueVpnSurface}"', story)
         self.assertIn('Set("BlueVpnOverlay"', theme)
 
+        # Theme is a process/window contract, not a MainWindow-only paint pass.
+        # Embedded WebView2 surfaces must never flash their default white canvas,
+        # and native title bars must follow the selected BlueVPN palette.
+        self.assertIn('WEBVIEW2_DEFAULT_BACKGROUND_COLOR', theme)
+        self.assertIn('DefaultBackgroundColor = System.Drawing.Color.Transparent', theme)
+        self.assertIn('EventManager.RegisterClassHandler', theme)
+        self.assertIn('Application.Current.Windows', theme)
+        self.assertIn('DwmSetWindowAttribute', theme)
+
     def test_tapsell_uses_real_https_origin_and_waits_for_rendered_media(self):
         main = (ROOT / "bluevpn-windows/MainWindow.xaml.cs").read_text(encoding="utf-8")
         installer = (ROOT / "bluevpn-windows/Services/WebView2RuntimeInstaller.cs").read_text(encoding="utf-8")

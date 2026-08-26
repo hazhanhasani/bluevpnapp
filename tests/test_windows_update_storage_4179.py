@@ -13,10 +13,10 @@ class WindowsUpdateStorage4179Tests(unittest.TestCase):
     def test_release_is_4179(self):
         app = json.loads(text("branding/app.json"))
         release = json.loads(text("release.json"))
-        self.assertEqual(app["version_name"], "5.10.6")
-        self.assertEqual(app["version_code"], 51006)
-        self.assertEqual(release["version"], "5.10.6")
-        self.assertEqual(release["windows_version"], "5.10.6")
+        self.assertEqual(app["version_name"], "5.8.6")
+        self.assertEqual(app["version_code"], 50806)
+        self.assertEqual(release["version"], "5.8.6")
+        self.assertEqual(release["windows_version"], "5.8.6")
 
     def test_update_candidate_carries_asset_size(self):
         models = text("bluevpn-windows/Models/WindowsRuntimeModels.cs")

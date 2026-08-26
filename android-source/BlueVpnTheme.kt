@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Typeface
 import android.graphics.Paint
 import android.graphics.RadialGradient
 import android.graphics.Shader
@@ -285,52 +284,4 @@ class BlueVpnDynamicBackgroundView(context: Context) : View(context) {
         canvas.drawCircle(cx, cy, radius, paint)
         paint.shader = null
     }
-}
-
-
-/** Zero-asset BlueVPN design tokens. Keep typography in the system font stack
- * so Persian glyphs stay native and no font binary increases APK/update size. */
-object BlueVpnTypography {
-    const val micro = 8.5f
-    const val caption = 10f
-    const val bodySmall = 10.5f
-    const val body = 11.5f
-    const val label = 12.5f
-    const val titleSmall = 15f
-    const val title = 20f
-    const val hero = 22f
-    const val brand = 31f
-
-    private val scale = floatArrayOf(micro, caption, bodySmall, body, label, titleSmall, title, hero, brand)
-    private val regularFace: Typeface by lazy { Typeface.create("sans-serif", Typeface.NORMAL) }
-    private val mediumFace: Typeface by lazy { Typeface.create("sans-serif-medium", Typeface.NORMAL) }
-
-    fun resolve(requestedSp: Float): Float =
-        scale.minByOrNull { kotlin.math.abs(it - requestedSp) } ?: requestedSp
-
-    fun typeface(emphasized: Boolean): Typeface = if (emphasized) mediumFace else regularFace
-}
-
-object BlueVpnSpacing {
-    const val xxs = 2
-    const val xs = 4
-    const val sm = 8
-    const val md = 12
-    const val lg = 16
-    const val pageHorizontal = 18
-    const val xl = 24
-}
-
-object BlueVpnRadius {
-    const val small = 12
-    const val control = 16
-    const val card = 18
-    const val elevatedCard = 22
-    const val dialog = 24
-    const val large = 28
-    const val pill = 54
-
-    private val scale = intArrayOf(small, control, card, elevatedCard, dialog, large, pill)
-    fun resolve(requestedDp: Int): Int =
-        scale.minByOrNull { kotlin.math.abs(it - requestedDp) } ?: requestedDp
 }

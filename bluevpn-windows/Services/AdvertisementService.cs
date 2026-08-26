@@ -1,6 +1,5 @@
 using System.IO;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using BlueVPN.Windows.Models;
 
 namespace BlueVPN.Windows.Services;
@@ -23,8 +22,6 @@ public sealed class AdvertisementService
     private int _windowsWebDailyCount;
     private DateOnly _windowsWebDay = DateOnly.FromDateTime(DateTime.Now);
     private DateTimeOffset _windowsWebLastShown = DateTimeOffset.MinValue;
-    private DateTimeOffset _windowsWebLastAttempt = DateTimeOffset.MinValue;
-    private const int WindowsWebStateSchema = 2;
 
     public AdvertisementService(BlueVpnApiClient api, AppSettings settings)
     {
@@ -149,118 +146,33 @@ public sealed class AdvertisementService
 
     /// <summary>
     /// Android uses Tapsell Mediation. Windows consumes the separately configured
-    /// Tapsell Web Publisher script and never treats an Android zone id as a web placement.
-    /// The Windows publisher code may be delivered by Tapsell through mediaad.org.
+    /// Web Publisher script and never treats an Android zone id as a web placement.
     /// </summary>
     public bool HasMobileOnlyThirdPartyAds => Current.Tapsell.Enabled;
 
     public TapsellWindowsWebConfig WindowsWeb => Current.Tapsell.WindowsWeb;
 
-    /// <summary>
-    /// Tapsell's Windows/Web publisher snippet can contain a MediaAd loader such as
-    /// https://s1.mediaad.org/serve/blluepanel.ir/loader.js. The segment between
-    /// /serve/ and /loader.js is the publisher origin and must be preferred by the
-    /// embedded browser. Loading the same snippet first on bot.blluepanel.ir or a
-    /// synthetic local host can legitimately produce an empty placement.
-    /// </summary>
-    public string WindowsWebPublisherHost()
-    {
-        var html = WindowsWeb.ScriptHtml ?? "";
-        if (string.IsNullOrWhiteSpace(html)) return "";
-        var match = Regex.Match(
-            html,
-            "https://s\\d+\\.mediaad\\.org/serve/(?<publisher>[^/\\\"'<>\\s]+)/loader\\.js",
-            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        if (!match.Success) return "";
-        var host = Uri.UnescapeDataString(match.Groups["publisher"].Value).Trim().Trim('.');
-        return Uri.CheckHostName(host) == UriHostNameType.Unknown ? "" : host.ToLowerInvariant();
-    }
-
     public bool TryReserveWindowsWebImpression(bool premium, bool noFirstPartyBanner)
     {
         var cfg = WindowsWeb;
-        // Eligibility is intentionally separate from accounting. A failed
-        // WebView/provider load must never consume daily cap or start the
-        // successful-impression cooldown.
+        // The WordPress bridge is a complete ad document and therefore does not
+        // need ScriptHtml to be duplicated in the mobile-config payload. Older
+        // builds required ScriptHtml unconditionally, so a perfectly valid
+        // HTTPS bridge was rejected before WebView2 navigation even started.
         var hasHttpsBridge = Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
                              bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
         var hasRenderableSource = hasHttpsBridge || !string.IsNullOrWhiteSpace(cfg.ScriptHtml);
         if (!cfg.Enabled || !hasRenderableSource || (cfg.FreeOnly && premium)) return false;
         var today = DateOnly.FromDateTime(DateTime.Now);
-        if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; _windowsWebLastShown = DateTimeOffset.MinValue; }
+        if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; }
         _windowsWebSlideCounter++;
         if (!noFirstPartyBanner && _windowsWebSlideCounter % Math.Clamp(cfg.EverySlides, 1, 20) != 0) return false;
         if (cfg.DailyCap > 0 && _windowsWebDailyCount >= Math.Clamp(cfg.DailyCap, 1, 1000)) return false;
         if ((DateTimeOffset.Now - _windowsWebLastShown).TotalSeconds < Math.Clamp(cfg.MinIntervalSeconds, 0, 86400)) return false;
-
-        // Do not hammer the provider when there is no first-party banner,
-        // but never count a failed request as an impression.
-        if ((DateTimeOffset.Now - _windowsWebLastAttempt).TotalSeconds < 20) return false;
-        _windowsWebLastAttempt = DateTimeOffset.Now;
-        return true;
-    }
-
-    public void MarkWindowsWebImpressionShown()
-    {
-        var today = DateOnly.FromDateTime(DateTime.Now);
-        if (today != _windowsWebDay) { _windowsWebDay = today; _windowsWebDailyCount = 0; }
         _windowsWebDailyCount++;
         _windowsWebLastShown = DateTimeOffset.Now;
         SaveWindowsWebState();
-    }
-
-    public IReadOnlyList<string> WindowsWebBridgeCandidates()
-    {
-        var cfg = WindowsWeb;
-        var candidates = new List<string>();
-        var derived = new List<Uri>();
-        Uri? bridge = null;
-        string pathAndQuery = "";
-
-        if (Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var parsedBridge) &&
-            parsedBridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
-        {
-            bridge = parsedBridge;
-            pathAndQuery = parsedBridge.PathAndQuery;
-        }
-
-        if (!string.IsNullOrWhiteSpace(pathAndQuery))
-        {
-            foreach (var baseUrl in _settings.ControlPlaneBases())
-            {
-                if (!Uri.TryCreate(baseUrl.TrimEnd('/') + pathAndQuery, UriKind.Absolute, out var candidate) ||
-                    !candidate.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) continue;
-                if (!derived.Any(x => x.ToString().Equals(candidate.ToString(), StringComparison.OrdinalIgnoreCase)))
-                    derived.Add(candidate);
-            }
-        }
-
-        var publisherHost = WindowsWebPublisherHost();
-        if (!string.IsNullOrWhiteSpace(publisherHost))
-        {
-            // The Tapsell/MediaAd loader is publisher-origin aware. Prefer only the
-            // real registered publisher host first; this avoids wasting a full ad
-            // timeout on bot.blluepanel.ir before trying blluepanel.ir.
-            foreach (var candidate in derived.Where(x => x.IdnHost.Equals(publisherHost, StringComparison.OrdinalIgnoreCase)))
-                candidates.Add(candidate.ToString());
-            if (bridge is not null && bridge.IdnHost.Equals(publisherHost, StringComparison.OrdinalIgnoreCase) &&
-                !candidates.Contains(bridge.ToString(), StringComparer.OrdinalIgnoreCase))
-                candidates.Add(bridge.ToString());
-
-            // If a publisher host is explicitly encoded in the official snippet,
-            // do not intentionally run it first on a different origin. The caller
-            // remains fail-open and will use BlueVPN's own banner if the canonical
-            // publisher endpoint is unavailable.
-            return candidates;
-        }
-
-        if (bridge is not null) candidates.Add(bridge.ToString());
-        foreach (var candidate in derived)
-        {
-            if (!candidates.Contains(candidate.ToString(), StringComparer.OrdinalIgnoreCase))
-                candidates.Add(candidate.ToString());
-        }
-        return candidates;
+        return true;
     }
 
     private void LoadWindowsWebState()
@@ -269,9 +181,7 @@ public sealed class AdvertisementService
         {
             if (!File.Exists(_windowsWebStatePath)) return;
             var state = JsonSerializer.Deserialize<WindowsWebAdState>(File.ReadAllText(_windowsWebStatePath), AppSettings.JsonOptions());
-            // Schema 1 counted attempts before render success. Ignore it once
-            // so old false reservations cannot suppress the repaired client.
-            if (state is null || state.Schema < WindowsWebStateSchema || state.Day != DateOnly.FromDateTime(DateTime.Now)) return;
+            if (state is null || state.Day != DateOnly.FromDateTime(DateTime.Now)) return;
             _windowsWebDay = state.Day;
             _windowsWebDailyCount = Math.Max(0, state.DailyCount);
             _windowsWebLastShown = state.LastShown;
@@ -286,7 +196,7 @@ public sealed class AdvertisementService
             var dir = Path.GetDirectoryName(_windowsWebStatePath);
             if (!string.IsNullOrWhiteSpace(dir)) Directory.CreateDirectory(dir);
             File.WriteAllText(_windowsWebStatePath, JsonSerializer.Serialize(
-                new WindowsWebAdState(WindowsWebStateSchema, _windowsWebDay, _windowsWebDailyCount, _windowsWebLastShown), AppSettings.JsonOptions()));
+                new WindowsWebAdState(_windowsWebDay, _windowsWebDailyCount, _windowsWebLastShown), AppSettings.JsonOptions()));
         }
         catch { }
     }
@@ -357,5 +267,5 @@ public sealed class AdvertisementService
         !string.IsNullOrWhiteSpace(item.Title) ||
         !string.IsNullOrWhiteSpace(item.Subtitle);
 
-    private sealed record WindowsWebAdState(int Schema, DateOnly Day, int DailyCount, DateTimeOffset LastShown);
+    private sealed record WindowsWebAdState(DateOnly Day, int DailyCount, DateTimeOffset LastShown);
 }

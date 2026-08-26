@@ -31,12 +31,7 @@ class PremiumVerificationRecovery4102(unittest.TestCase):
     def test_candidate_verification_has_absolute_deadline(self):
         s=self.text("android-source/BlueVpnHomeActivity.kt")
         self.assertIn("private val verificationTimeout = Runnable",s)
-        self.assertIn(
-            "handler.postDelayed(verificationTimeout, BlueVpnNetworkRecoveryManager.policy(this).verificationTimeoutMs)",
-            s,
-        )
-        recovery=self.text("android-source/BlueVpnNetworkRecoveryManager.kt")
-        self.assertIn("coerceIn(10_000L, 45_000L)", recovery)
+        self.assertIn("handler.postDelayed(verificationTimeout, 28_000L)",s)
         self.assertIn("verificationDeadlineGuid != attemptedGuid",s)
         self.assertIn(
             "تأیید اینترنت این مسیر در زمان مجاز کامل نشد؛ سرور بعدی بررسی می‌شود",

@@ -27,13 +27,6 @@ object BlueVpnRuntimeAudit {
         NETWORK_CHANGE,
         RUNTIME_FAILURE,
         RUNTIME_GATE_RECOVERY,
-        CONTROL_PLANE_FAILOVER,
-        CONTROL_PLANE_FAILURE,
-        API_PRIMARY_FAILED,
-        API_FAILOVER_USED,
-        UPDATE_CHECK_FAILED,
-        VPN_VERIFICATION_FAILED,
-        CONNECTION_PHASE,
     }
 
     private fun prefs(context: Context) =

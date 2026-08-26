@@ -124,15 +124,6 @@ for rel in RETIRED_DIRS:
         shutil.rmtree(path)
         removed.append(rel + "/")
 
-# The Android release job calls this cleanup after the pinned v2rayNG checkout
-# exists and again immediately before Gradle. Keep the release-size policy in
-# that already-authoritative hook so no extra workflow mutation is required.
-android_gradle = ROOT / "upstream" / "V2rayNG" / "app" / "build.gradle.kts"
-if android_gradle.is_file():
-    from optimize_android_release import optimize
-
-    optimize(android_gradle)
-
 print("BlueVPN repository workspace cleanup complete.")
 if removed:
     print("Removed retired/stale paths:")

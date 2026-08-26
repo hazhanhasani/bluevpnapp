@@ -6,14 +6,11 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
-  actions: write
+  contents: read
 
 concurrency:
   group: bluevpn-project-health-${{ github.ref }}
-  # Every main update owns a release fan-out. Do not cancel an older update
-  # before it has resolved its release version and dispatched every platform.
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   full-static-regression-gate:
@@ -72,99 +69,3 @@ jobs:
           python scripts/validate_php_release.py
       - name: Full Python regression suite
         run: python -m unittest discover -s tests -p 'test_*.py' -v
-
-  fanout-main-builds:
-    name: Version and publish every BlueVPN component
-    needs: full-static-regression-gate
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout exact main update
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
-        with:
-          ref: main
-          fetch-depth: 2
-
-      - name: Resolve one release version for the whole project
-        id: release
-        env:
-          SOURCE_SHA: ${{ github.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$SOURCE_SHA" || {
-            echo '::error::main advanced before this update could own its release; the newer main update will publish instead.'
-            exit 1
-          }
-
-          CURRENT_VERSION="$(python -c 'import json;print(json.load(open("version.json"))["version"])')"
-          PREVIOUS_VERSION="$(git show HEAD^:version.json 2>/dev/null | python -c 'import json,sys; print(json.load(sys.stdin)["version"])' || true)"
-
-          # If the uploaded project already carries a real forward version bump,
-          # preserve it. Otherwise reproduce the old bot behaviour: one real
-          # source update consumes exactly one bounded BlueVPN release version.
-          if [ -n "$PREVIOUS_VERSION" ] && [ "$CURRENT_VERSION" = "$PREVIOUS_VERSION" ]; then
-            python scripts/bump_version.py
-            NEW_VERSION="$(python -c 'import json;print(json.load(open("version.json"))["version"])')"
-            git config user.name 'bluevpn-release-bot'
-            git config user.email 'bluevpn-release-bot@users.noreply.github.com'
-            git add -A
-            git commit -m "release(auto): BlueVPN ${NEW_VERSION} for ${SOURCE_SHA:0:12}"
-            git push origin HEAD:main
-          elif [ -n "$PREVIOUS_VERSION" ]; then
-            python - "$PREVIOUS_VERSION" "$CURRENT_VERSION" <<'PY'
-          import re,sys
-          def parse(v):
-              m=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)',v)
-              if not m: raise SystemExit(f'invalid version: {v}')
-              return tuple(map(int,m.groups()))
-          previous,current=map(parse,sys.argv[1:])
-          if current <= previous:
-              raise SystemExit(f'BlueVPN version must move forward: {previous} -> {current}')
-          if current[1] > 10 or current[2] > 10:
-              raise SystemExit('BlueVPN minor/patch must stay within 0..10')
-          PY
-          fi
-
-          RELEASE_SHA="$(git rev-parse HEAD)"
-          RELEASE_VERSION="$(python -c 'import json;print(json.load(open("version.json"))["version"])')"
-          RELEASE_CODE="$(python -c 'import json;print(json.load(open("version.json"))["version_code"])')"
-          python scripts/sync_version.py --check
-          echo "sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
-          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
-          echo "version_code=$RELEASE_CODE" >> "$GITHUB_OUTPUT"
-          echo "BlueVPN release owner: $SOURCE_SHA -> $RELEASE_SHA -> $RELEASE_VERSION/$RELEASE_CODE"
-
-      - name: Dispatch Android full publication at exact release SHA
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
-          TARGET_REF: main
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
-            -f event_type='bluevpn_build' \
-            -F 'client_payload[ref]'="$TARGET_REF" \
-            -F 'client_payload[target_sha]'="$RELEASE_SHA" \
-            -F 'client_payload[build_mode]'='full'
-
-      - name: Dispatch Windows iOS Manager Theme and health
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-          TARGET_REF: main
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "Fan-out release: ${RELEASE_VERSION}@${RELEASE_SHA}"
-
-          gh workflow run build-windows.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
-          gh workflow run build-ios.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
-          gh workflow run bluevpn-manager-release.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF" \
-            -f target_sha="$RELEASE_SHA" -f request_id="main-release-${GITHUB_RUN_ID}"
-          gh workflow run bluevpn-site-theme-release.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
-          gh workflow run external-health.yml --repo "$GITHUB_REPOSITORY" --ref "$TARGET_REF"
-
-          echo 'All BlueVPN build/release workflows dispatched from one release version.'

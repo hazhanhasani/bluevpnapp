@@ -148,7 +148,6 @@
     "test_dual_control_plane_581.py",
     "test_blueai_final_boss_582.py",
     "test_upstream_connection_quality_585.py",
-    "test_windows_tapsell_github_resilience_587.py",
-    "test_windows_tapsell_mediaad_origin_595.py"
+    "test_windows_tapsell_github_resilience_587.py"
   ]
 }

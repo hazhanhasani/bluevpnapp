@@ -18,22 +18,9 @@ class WindowsThemeTapsellRender576Tests(unittest.TestCase):
         self.assertIn('Background="{DynamicResource BlueVpnSurface}"', story)
         self.assertIn('Set("BlueVpnOverlay"', theme)
 
-        # Theme is a process/window contract, not a MainWindow-only paint pass.
-        # Embedded WebView2 surfaces must never flash their default white canvas,
-        # and native title bars must follow the selected BlueVPN palette.
-        self.assertIn('WEBVIEW2_DEFAULT_BACKGROUND_COLOR', theme)
-        self.assertIn('DefaultBackgroundColor = System.Drawing.Color.Transparent', theme)
-        self.assertIn('EventManager.RegisterClassHandler', theme)
-        self.assertIn('Application.Current.Windows', theme)
-        self.assertIn('DwmSetWindowAttribute', theme)
-
     def test_tapsell_uses_real_https_origin_and_waits_for_rendered_media(self):
         main = (ROOT / "bluevpn-windows/MainWindow.xaml.cs").read_text(encoding="utf-8")
         installer = (ROOT / "bluevpn-windows/Services/WebView2RuntimeInstaller.cs").read_text(encoding="utf-8")
-        guard = (ROOT / "bluevpn-manager/includes/class-bluevpn-tapsell-web-guard.php").read_text(encoding="utf-8")
-        bootstrap = (ROOT / "bluevpn-manager/bluevpn-manager.php").read_text(encoding="utf-8")
-        manifest = (ROOT / "bluevpn-manager/release_php_manifest.json").read_text(encoding="utf-8")
-
         self.assertIn("SetVirtualHostNameToFolderMapping", main)
         self.assertIn("WriteAdDocumentAsync", main)
         self.assertIn("WaitForTapsellContentAsync", main)
@@ -41,20 +28,6 @@ class WindowsThemeTapsellRender576Tests(unittest.TestCase):
         self.assertNotIn("NavigateToString(html)", main)
         self.assertIn('VirtualHost = "ads.bluevpn.local"', installer)
         self.assertIn("Directory.CreateDirectory(ContentFolder)", installer)
-
-        # Provider loading/error shells must never count as a rendered impression.
-        self.assertIn("visibility:hidden", guard)
-        self.assertIn("data-bluevpn-rendered", guard)
-        self.assertIn("querySelectorAll('iframe,img,video,canvas,object,embed')", guard)
-        self.assertIn("مشکلی پیش آمده", guard)
-        self.assertIn("نمایش نسخه مرورگر", guard)
-
-        # A valid real-origin bridge is authoritative; do not retry the same
-        # publisher script through the synthetic local WebView document.
-        self.assertIn("prefer_https_bridge", guard)
-        self.assertIn("['script_html'] = ''", guard)
-        self.assertIn("BlueVPN_Tapsell_Web_Guard::init();", bootstrap)
-        self.assertIn("includes/class-bluevpn-tapsell-web-guard.php", manifest)
 
 
 if __name__ == "__main__":

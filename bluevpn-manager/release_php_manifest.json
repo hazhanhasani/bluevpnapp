@@ -30,7 +30,6 @@
     "includes/class-bluevpn-sms-otp.php",
     "includes/class-bluevpn-subscription-sources.php",
     "includes/class-bluevpn-support.php",
-    "includes/class-bluevpn-tapsell-web-guard.php",
     "includes/class-bluevpn-telegram-bot.php",
     "includes/class-bluevpn-unified-ui.php",
     "includes/class-bluevpn-utils.php",

@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BlueVPN Manager
  * Description: هسته حساب کاربری، اشتراک، پرداخت، پشتیبانی آنلاین و API سرویس BlueVPN.
- * Version: 5.10.6
+ * Version: 5.8.6
  * Author: BlueVPN
  * Requires at least: 6.2
  * Requires PHP: 8.0
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('BLUEVPN_MANAGER_VERSION', '5.10.6');
+define('BLUEVPN_MANAGER_VERSION', '5.8.6');
 define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.31.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
@@ -27,7 +27,6 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-sms-otp.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-sms-notifications.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-manual-customers.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-ads.php';
-require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-tapsell-web-guard.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-free-sources.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-ai.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-ai-ops.php';
@@ -104,22 +103,6 @@ add_action('init', function () {
     }
 }, 99);
 
-// A final dark-surface contract is intentionally enqueued after every BlueVPN
-// admin stylesheet. Several legacy screens still emit page-local light CSS;
-// the late stylesheet safely normalizes those surfaces without editing each
-// historical renderer independently.
-add_action('admin_enqueue_scripts', function () {
-    if (!class_exists('BlueVPN_Unified_UI') || !BlueVPN_Unified_UI::is_bluevpn_page()) {
-        return;
-    }
-    wp_enqueue_style(
-        'bluevpn-admin-dark-contract',
-        BLUEVPN_MANAGER_URL . 'assets/admin-dark-contract.css',
-        ['bluevpn-unified-admin'],
-        BLUEVPN_MANAGER_VERSION
-    );
-}, 999);
-
 add_action('plugins_loaded', function () {
     BlueVPN_DB::maybe_upgrade();
     BlueVPN_GitHub_HTTP_Resilience::init();
@@ -127,7 +110,6 @@ add_action('plugins_loaded', function () {
     BlueVPN_Manual_Customers::init();
     BlueVPN_Unified_UI::init();
     BlueVPN_Frontend::init();
-    BlueVPN_Tapsell_Web_Guard::init();
     BlueVPN_Ads::init();
     BlueVPN_Free_Sources::init();
     BlueVPN_AI::init();

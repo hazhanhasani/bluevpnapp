@@ -1,5 +1,4 @@
 from pathlib import Path
-import importlib.util
 import json
 import unittest
 
@@ -28,29 +27,6 @@ class PreGradleStageHardening4122(unittest.TestCase):
         wf=(ROOT/'.github/workflows/build-apk.yml').read_text()
         self.assertNotIn('dtolnay/rust-toolchain@stable', wf)
         self.assertIn('rustup target add "$target"', wf)
-
-    def test_account_mmkv_iterators_are_hardened_before_r8(self):
-        module_path = ROOT/'scripts/harden_android_locations.py'
-        spec = importlib.util.spec_from_file_location('bluevpn_location_hardener', module_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-
-        original=(ROOT/'android-source/BlueVpnAccountManager.kt').read_text()
-        patched=module.harden_account_manager(original)
-
-        self.assertIn('BLUEVPN_NULL_SAFE_MMKV_BOUNDARY_V5105', patched)
-        self.assertIn('private fun safeDecodedSubscriptions(): List<SubscriptionItem>', patched)
-        self.assertIn('private fun safeDecodedServerGuids(subscriptionGuid: String): List<String>', patched)
-        self.assertEqual(patched.count('MmkvManager.decodeSubscriptions()'), 1)
-        self.assertEqual(
-            patched.count('val raw = runCatching { MmkvManager.decodeServerList(subscriptionGuid) }.getOrNull()'),
-            1,
-        )
-        self.assertNotIn('MmkvManager.decodeSubscriptions()\n            .asSequence()', patched)
-        self.assertIn('safeDecodedSubscriptions()\n            .asSequence()', patched)
-        self.assertIn('mapNotNull { it as? SubscriptionItem }', patched)
-        self.assertIn('(it as? String)?.trim()?.takeIf', patched)
-        self.assertEqual(module.harden_account_manager(patched), patched)
 
 if __name__ == '__main__':
     unittest.main()

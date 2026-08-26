@@ -294,7 +294,6 @@ object BlueVpnAccountManager {
      */
     fun applyRemoteMobileConfig(c: Context, config: JSONObject): Boolean {
         val appContext = c.applicationContext
-        BlueVpnNetworkRecoveryManager.applyRemotePolicy(appContext, config)
         val free = config.optJSONObject("free_access") ?: return false
         val storage = freePrefs(appContext)
         val sources = free.optJSONArray("subscriptions") ?: JSONArray()
@@ -2811,36 +2810,14 @@ object BlueVpnAccountManager {
         auth: Boolean,
         accessOverride: String? = null,
     ): JSONObject {
-        val bases = apiBaseUrls()
-        val requestId = if (method != "GET") UUID.randomUUID().toString() else null
+        val bases = if (method == "GET") apiBaseUrls() else listOf(apiBaseUrl())
         var lastError: ApiException? = null
-        for ((index, base) in bases.withIndex()) {
+        for (base in bases) {
             try {
-                return requestAgainstBase(c, method, path, body, auth, accessOverride, base, requestId)
+                return requestAgainstBase(c, method, path, body, auth, accessOverride, base)
             } catch (error: ApiException) {
                 lastError = error
-                val retryable = error.status == 0 || error.status in listOf(502, 503, 504)
-                if (!retryable) throw error
-                if (index < bases.lastIndex) {
-                    val safeRoute = path.substringBefore('?')
-                    if (index == 0) {
-                        BlueVpnRuntimeAudit.record(
-                            c.applicationContext,
-                            BlueVpnRuntimeAudit.Event.API_PRIMARY_FAILED,
-                            "${method.uppercase(Locale.ROOT)}:$safeRoute:${error.status}",
-                        )
-                    }
-                    BlueVpnRuntimeAudit.record(
-                        c.applicationContext,
-                        BlueVpnRuntimeAudit.Event.API_FAILOVER_USED,
-                        "${method.uppercase(Locale.ROOT)}:$safeRoute:${index + 1}",
-                    )
-                    BlueVpnRuntimeAudit.record(
-                        c.applicationContext,
-                        BlueVpnRuntimeAudit.Event.CONTROL_PLANE_FAILOVER,
-                        "${method.uppercase(Locale.ROOT)}:$safeRoute:${index + 1}",
-                    )
-                }
+                if (error.status != 0 && error.status !in listOf(502, 503, 504)) throw error
             }
         }
         throw lastError ?: ApiException(0, "CONTROL_PLANE_UNAVAILABLE", "سرور BlueVPN در دسترس نیست.")
@@ -2854,7 +2831,6 @@ object BlueVpnAccountManager {
         auth: Boolean,
         accessOverride: String?,
         baseUrl: String,
-        requestId: String?,
     ): JSONObject {
         val connection =
             URL(baseUrl + path)
@@ -2893,9 +2869,6 @@ object BlueVpnAccountManager {
                 "application/json; charset=utf-8"
             )
             connection.setRequestProperty("Accept-Charset", "utf-8")
-            if (!requestId.isNullOrBlank()) {
-                connection.setRequestProperty("X-BlueVPN-Request-ID", requestId)
-            }
             connection.setRequestProperty(
                 "X-Device-ID",
                 deviceId(c)

@@ -11,10 +11,10 @@ class DeployManagerSourceFallback4170Tests(unittest.TestCase):
     def test_release_version(self):
         release = json.loads(text('release.json'))
         branding = json.loads(text('branding/app.json'))
-        self.assertEqual(release['version'], '5.10.6')
-        self.assertEqual(release['version_code'], 51006)
-        self.assertEqual(branding['version_name'], '5.10.6')
-        self.assertEqual(branding['version_code'], 51006)
+        self.assertEqual(release['version'], '5.8.6')
+        self.assertEqual(release['version_code'], 50806)
+        self.assertEqual(branding['version_name'], '5.8.6')
+        self.assertEqual(branding['version_code'], 50806)
 
     def test_manager_installs_from_validated_project_tree_before_release_dependency(self):
         bot = text('bluevpn-manager/includes/class-bluevpn-telegram-bot.php')
@@ -39,15 +39,6 @@ class DeployManagerSourceFallback4170Tests(unittest.TestCase):
         bot = text('bluevpn-manager/includes/class-bluevpn-telegram-bot.php')
         self.assertIn('manager_version_at_commit', bot)
         self.assertIn('install_latest_now($targetManagerVersion)', bot)
-
-    def test_manager_release_collection_lag_falls_back_to_tag_refs(self):
-        updater = text('bluevpn-manager/includes/class-bluevpn-github-updater.php')
-        self.assertIn('private static function latest_release_from_refs', updater)
-        self.assertIn('/git/matching-refs/tags/', updater)
-        self.assertIn('release_by_version((string)$version, 1)', updater)
-        self.assertIn('$needsRefFallback', updater)
-        self.assertIn("version_compare(self::base_version($latest), BLUEVPN_MANAGER_VERSION, '<=')", updater)
-        self.assertIn("version_compare(self::base_version($fallback), self::base_version($latest), '>=')", updater)
 
     def test_project_root_accepts_wrappers_and_normalizes_versioned_manager_folder(self):
         bot = text('bluevpn-manager/includes/class-bluevpn-telegram-bot.php')

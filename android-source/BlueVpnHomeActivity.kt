@@ -62,9 +62,6 @@ import com.v2ray.ang.bluevpn.BlueVpnDynamicBackgroundView
 import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnTheme
-import com.v2ray.ang.bluevpn.BlueVpnTypography
-import com.v2ray.ang.bluevpn.BlueVpnSpacing
-import com.v2ray.ang.bluevpn.BlueVpnRadius
 import com.v2ray.ang.bluevpn.BlueVpnConnectionMode
 import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnIntelligenceCore
@@ -77,7 +74,6 @@ import com.v2ray.ang.bluevpn.BlueVpnUpdateManager
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
 import com.v2ray.ang.bluevpn.BlueVpnRouteIntelligence
-import com.v2ray.ang.bluevpn.BlueVpnRuntimeAudit
 import com.v2ray.ang.bluevpn.BlueVpnRuntimeGate
 import com.v2ray.ang.bluevpn.BlueVpnWarpEngine
 import com.v2ray.ang.bluevpn.BlueVpnWarpKeepAliveService
@@ -319,11 +315,6 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             return@Runnable
         }
         verificationDeadlineGuid = ""
-        BlueVpnRuntimeAudit.record(
-            applicationContext,
-            BlueVpnRuntimeAudit.Event.VPN_VERIFICATION_FAILED,
-            "verification_timeout",
-        )
         failCurrentAndTryNext(
             "تأیید اینترنت این مسیر در زمان مجاز کامل نشد؛ سرور بعدی بررسی می‌شود"
         )
@@ -803,7 +794,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
-            setPadding(dpHome(BlueVpnSpacing.pageHorizontal), dpHome(BlueVpnSpacing.sm), dpHome(BlueVpnSpacing.pageHorizontal), dpHome(14))
+            setPadding(dpHome(18), dpHome(8), dpHome(18), dpHome(14))
         }
         root.addView(
             content,
@@ -964,7 +955,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 isAllCaps = false
                 insetTop = 0
                 insetBottom = 0
-                cornerRadius = dpHome(BlueVpnRadius.control)
+                cornerRadius = dpHome(16)
                 setTextColor(palette.textSecondary)
                 backgroundTintList = ColorStateList.valueOf(palette.surfaceStrong)
                 strokeColor = ColorStateList.valueOf(palette.stroke)
@@ -1665,7 +1656,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             text = label
             textSize = 10.5f
             setTextColor(Color.parseColor("#E3EDFF"))
-            typeface = BlueVpnTypography.typeface(true)
+            typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             isClickable = true
             isFocusable = true
@@ -1685,14 +1676,11 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         gravity: Int = Gravity.START or Gravity.CENTER_VERTICAL,
     ): AppCompatTextView = AppCompatTextView(this).apply {
         text = value
-        textSize = BlueVpnTypography.resolve(sizeSp)
+        textSize = sizeSp
         setTextColor(color)
         this.gravity = gravity
         includeFontPadding = false
-        typeface = BlueVpnTypography.typeface(bold)
-        textDirection = View.TEXT_DIRECTION_FIRST_STRONG_RTL
-        textLocale = Locale("fa", "IR")
-        setLineSpacing(0f, 1.04f)
+        if (bold) typeface = Typeface.DEFAULT_BOLD
     }
 
     private fun glassCard(
@@ -1700,7 +1688,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         stroke: Int,
         fill: Int,
     ): MaterialCardView = MaterialCardView(this).apply {
-        radius = dpHome(BlueVpnRadius.resolve(radiusDp)).toFloat()
+        radius = dpHome(radiusDp).toFloat()
         setCardBackgroundColor(fill)
         cardElevation = 0f
         strokeWidth = dpHome(1)
@@ -1717,7 +1705,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         GradientDrawable.Orientation.TL_BR,
         colors,
     ).apply {
-        cornerRadius = dpHome(BlueVpnRadius.resolve(radiusDp)).toFloat()
+        cornerRadius = dpHome(radiusDp).toFloat()
         if (stroke != null) setStroke(dpHome(1), stroke)
     }
 
@@ -4147,7 +4135,7 @@ private fun dpHome(value: Int): Int =
             if (!isFinishing && !isDestroyed) requestDashboardRefresh()
         }, 60L)
         handler.removeCallbacks(attemptTimeout)
-        handler.postDelayed(attemptTimeout, BlueVpnNetworkRecoveryManager.policy(this).candidateStartTimeoutMs)
+        handler.postDelayed(attemptTimeout, 12_000L)
     }
 
     private fun scheduleConnectionVerification() {
@@ -4162,7 +4150,7 @@ private fun dpHome(value: Int): Int =
         if (verificationDeadlineGuid != attemptedGuid) {
             verificationDeadlineGuid = attemptedGuid
             handler.removeCallbacks(verificationTimeout)
-            handler.postDelayed(verificationTimeout, BlueVpnNetworkRecoveryManager.policy(this).verificationTimeoutMs)
+            handler.postDelayed(verificationTimeout, 28_000L)
         }
 
         // Ask the same upstream v2rayNG core for its native delay proof in

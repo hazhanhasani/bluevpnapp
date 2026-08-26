@@ -5,9 +5,6 @@ final class BlueVPN_Production {
     public const BACKUP_HOOK = 'bluevpn_daily_private_backup';
     private const BACKUP_RETENTION = 7;
     private const BACKUP_OPTION = 'bluevpn_manager_last_backup';
-    private const BACKUP_RECOVERY_OPTION = 'bluevpn_manager_backup_recovery_kick_at';
-    private const BACKUP_RECOVERY_STALE_AFTER = 108000; // 30 hours.
-    private const BACKUP_RECOVERY_THROTTLE = 21600; // 6 hours.
     private const RESTORE_OPTION = 'bluevpn_manager_last_restore';
     private const CONTROL_PLANE_OPTION = 'bluevpn_manager_control_plane_mode';
     private const NATIVE_CONTROL_PLANE = 'wordpress_mysql_native';
@@ -21,13 +18,11 @@ final class BlueVPN_Production {
         add_action(self::NATIVE_RECONCILE_HOOK, [self::class, 'reconcile_legacy_paid_orders_once']);
         self::ensure_native_control_plane();
         self::ensure_schedule();
-        self::ensure_backup_recovery();
     }
 
     public static function activate(): void {
         self::ensure_native_control_plane();
         self::ensure_schedule();
-        self::ensure_backup_recovery();
     }
 
     public static function native_control_plane(): bool {
@@ -151,26 +146,6 @@ final class BlueVPN_Production {
         }
     }
 
-    private static function ensure_backup_recovery(): void {
-        $last = self::backup_status();
-        $lastTs = !empty($last['created_at']) ? strtotime((string)$last['created_at']) : false;
-        $fresh = !empty($last['ok']) && $lastTs && $lastTs > time() - self::BACKUP_RECOVERY_STALE_AFTER;
-        if ($fresh) {
-            delete_option(self::BACKUP_RECOVERY_OPTION);
-            return;
-        }
-
-        $lastKick = (int)get_option(self::BACKUP_RECOVERY_OPTION, 0);
-        if ($lastKick > time() - self::BACKUP_RECOVERY_THROTTLE) return;
-
-        $next = wp_next_scheduled(self::BACKUP_HOOK);
-        if (!$next || $next > time() + 10 * MINUTE_IN_SECONDS) {
-            wp_schedule_single_event(time() + 60, self::BACKUP_HOOK);
-        }
-        update_option(self::BACKUP_RECOVERY_OPTION, time(), false);
-        BlueVPN_Utils::kick_wp_cron();
-    }
-
     public static function unschedule(): void {
         $ts = wp_next_scheduled(self::BACKUP_HOOK);
         while ($ts) {
@@ -280,10 +255,7 @@ final class BlueVPN_Production {
     }
 
     public static function cron_backup(): void {
-        try {
-            self::create_backup('scheduled');
-            delete_option(self::BACKUP_RECOVERY_OPTION);
-        }
+        try { self::create_backup('scheduled'); }
         catch (Throwable $e) {
             update_option(self::BACKUP_OPTION, ['ok'=>false,'error'=>$e->getMessage(),'reason'=>'scheduled','created_at'=>BlueVPN_Utils::iso_now()], false);
             BlueVPN_Error_Monitor::legacy_error_log('BlueVPN scheduled backup: '.$e->getMessage());

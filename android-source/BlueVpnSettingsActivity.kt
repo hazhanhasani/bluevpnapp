@@ -1,16 +1,11 @@
 package com.v2ray.ang.ui
 
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
@@ -29,9 +24,7 @@ import com.v2ray.ang.bluevpn.BlueVpnAccountManager
 import com.v2ray.ang.bluevpn.BlueVpnBackgroundReliability
 import com.v2ray.ang.bluevpn.BlueVpnBackgroundOptimizer
 import com.v2ray.ang.bluevpn.BlueVpnEntitlement
-import com.v2ray.ang.bluevpn.BlueVpnNetworkRecoveryManager
 import com.v2ray.ang.bluevpn.BlueVpnPalette
-import com.v2ray.ang.bluevpn.BlueVpnRuntimeGate
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnThemeMode
 import com.v2ray.ang.bluevpn.BlueVpnUpdateManager
@@ -184,29 +177,14 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
         )
 
         sectionLabel(content, "برنامه")
-        val updateStatus = BlueVpnUpdateManager.status(this)
-        val updateChannelTitle = if (updateStatus.releaseChannel == "beta") "Beta" else "Stable"
         content.addView(
             settingRow(
                 title = "بررسی بروزرسانی",
-                value = "${BuildConfig.VERSION_NAME} • $updateChannelTitle",
-                description = when {
-                    updateStatus.updateAvailable && updateStatus.latestVersion.isNotBlank() ->
-                        "نسخه ${updateStatus.latestVersion} آماده دریافت است"
-                    updateStatus.releaseChannel == "beta" && updateStatus.betaTester ->
-                        "نسخه نصب‌شده آخرین Beta ثبت‌شده است"
-                    else -> "نسخه نصب‌شده آخرین Stable ثبت‌شده است"
-                },
+                value = BuildConfig.VERSION_NAME,
+                description = "دریافت آخرین نسخه BlueVPN",
             ) {
                 BlueVpnUpdateManager.check(this, force = true, showStatus = true)
             },
-        )
-        content.addView(
-            settingRow(
-                title = "عیب‌یابی BlueVPN",
-                value = "اجرای تست",
-                description = "بررسی شبکه، هر دو API، وضعیت اتصال و کانال بروزرسانی",
-            ) { showDiagnostics() },
         )
         content.addView(
             settingRow(
@@ -332,79 +310,6 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
         }
         card.addView(row)
         return card
-    }
-
-    private fun showDiagnostics() {
-        if (isFinishing || isDestroyed) return
-        Toast.makeText(this, "در حال بررسی وضعیت BlueVPN…", Toast.LENGTH_SHORT).show()
-        lifecycleScope.launch {
-            val report = withContext(Dispatchers.IO) { buildDiagnosticReport() }
-            if (isFinishing || isDestroyed) return@launch
-            AlertDialog.Builder(this@BlueVpnSettingsActivity)
-                .setTitle("گزارش عیب‌یابی BlueVPN")
-                .setMessage(report)
-                .setPositiveButton("کپی گزارش") { _, _ ->
-                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                    clipboard?.setPrimaryClip(ClipData.newPlainText("BlueVPN diagnostics", report))
-                    Toast.makeText(this@BlueVpnSettingsActivity, "گزارش کپی شد", Toast.LENGTH_SHORT).show()
-                }
-                .setNegativeButton("بستن", null)
-                .show()
-        }
-    }
-
-    private fun buildDiagnosticReport(): String {
-        val cm = getSystemService(ConnectivityManager::class.java)
-        val network = cm?.activeNetwork
-        val capabilities = network?.let { cm.getNetworkCapabilities(it) }
-        val networkType = when {
-            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true -> "Wi-Fi"
-            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true -> "Mobile"
-            capabilities?.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) == true -> "Ethernet"
-            capabilities != null -> "Other"
-            else -> "Offline"
-        }
-        val validated = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
-        val phase = BlueVpnRuntimeGate.connectionPhase(this).name
-        val connectionPolicy = BlueVpnNetworkRecoveryManager.policy(this)
-        val account = BlueVpnAccountManager.snapshot(this)
-        val update = BlueVpnUpdateManager.status(this)
-        val apiRows = BlueVpnAccountManager.apiBaseUrls().joinToString("\n") { base ->
-            val result = runCatching {
-                val connection = URL(base.trimEnd('/') + "/health").openConnection() as HttpURLConnection
-                try {
-                    connection.requestMethod = "GET"
-                    connection.connectTimeout = 3_500
-                    connection.readTimeout = 3_500
-                    connection.instanceFollowRedirects = false
-                    connection.setRequestProperty("Accept", "application/json")
-                    val code = connection.responseCode
-                    if (code in 200..399) "OK ($code)" else "HTTP $code"
-                } finally {
-                    connection.disconnect()
-                }
-            }.getOrElse { "FAILED (${it.javaClass.simpleName})" }
-            "• $base: $result"
-        }
-        val channel = if (update.releaseChannel == "beta") "Beta" else "Stable"
-        val latest = update.latestVersion.ifBlank { "نامشخص" }
-        return buildString {
-            appendLine("BlueVPN ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
-            appendLine("Channel: $channel${if (update.betaTester) " • tester" else ""}")
-            appendLine("Latest known: $latest${if (update.updateAvailable) " • update available" else ""}")
-            appendLine("Network: $networkType • validated=${if (validated) "yes" else "no"}")
-            appendLine("Connection phase: $phase")
-            appendLine("Recovery window: ${connectionPolicy.recoveryWindowMs / 1_000L}s")
-            appendLine("Connection gate wait: ${connectionPolicy.connectionGateWaitMs}ms")
-            appendLine("Candidate start timeout: ${connectionPolicy.candidateStartTimeoutMs / 1_000L}s")
-            appendLine("Verification timeout: ${connectionPolicy.verificationTimeoutMs / 1_000L}s")
-            appendLine("Account session: ${if (account.email.isNotBlank()) "signed-in" else "guest"}")
-            appendLine("Entitlement: ${if (account.subscriptionActive) "premium" else "free"}")
-            appendLine("Control plane:")
-            append(apiRows)
-            appendLine()
-            append("No token, email, subscription URL or secret is included.")
-        }
     }
 
     private fun showBackgroundReliability() {

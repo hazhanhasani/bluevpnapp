@@ -14,11 +14,8 @@ import android.os.SystemClock
  * and UI-driven connect operations all share one source of truth.
  */
 object BlueVpnRuntimeGate {
-    enum class ConnectionPhase { IDLE, PREPARING, CONNECTING, VERIFYING, CONNECTED, RECOVERING, FAILED }
-
     private const val PREFS = "bluevpn_runtime_gate"
     private const val KEY_CONNECTION_ACTIVE = "connection_active"
-    private const val KEY_CONNECTION_PHASE = "connection_phase"
     private const val KEY_CONNECTION_STARTED_AT = "connection_started_at"
     private const val KEY_CONNECTION_OWNER_PID = "connection_owner_pid"
 
@@ -45,7 +42,6 @@ object BlueVpnRuntimeGate {
             .putBoolean(KEY_CONNECTION_ACTIVE, false)
             .remove(KEY_CONNECTION_STARTED_AT)
             .remove(KEY_CONNECTION_OWNER_PID)
-            .putString(KEY_CONNECTION_PHASE, ConnectionPhase.IDLE.name)
             .apply()
         runCatching {
             BlueVpnRuntimeAudit.record(
@@ -59,35 +55,12 @@ object BlueVpnRuntimeGate {
 
     fun subscriptionMutationActive(): Boolean = subscriptionMutationActive
 
-    fun connectionPhase(context: Context): ConnectionPhase {
-        if (!connectionActive(context)) return ConnectionPhase.IDLE
-        return runCatching {
-            ConnectionPhase.valueOf(prefs(context).getString(KEY_CONNECTION_PHASE, ConnectionPhase.CONNECTED.name).orEmpty())
-        }.getOrDefault(ConnectionPhase.CONNECTED)
-    }
-
-    private fun setPhase(context: Context, phase: ConnectionPhase, detail: String = "") {
-        prefs(context).edit().putString(KEY_CONNECTION_PHASE, phase.name).apply()
-        runCatching {
-            BlueVpnRuntimeAudit.record(
-                context.applicationContext,
-                BlueVpnRuntimeAudit.Event.CONNECTION_PHASE,
-                if (detail.isBlank()) phase.name else "${phase.name}:$detail",
-            )
-        }
-    }
-
-    fun markConnecting(context: Context) = setPhase(context, ConnectionPhase.CONNECTING)
-    fun markVerifying(context: Context) = setPhase(context, ConnectionPhase.VERIFYING)
-    fun markRecovering(context: Context, detail: String = "network_change") = setPhase(context, ConnectionPhase.RECOVERING, detail)
-    fun markFailed(context: Context, detail: String = "runtime") = setPhase(context, ConnectionPhase.FAILED, detail)
-
     /**
      * Acquire connection ownership.  A subscription import that already started
      * gets a short grace period to finish; after that the caller can retry from
      * the UI instead of racing against MMKV replacement.
      */
-    fun beginConnection(context: Context, timeoutMs: Long = BlueVpnNetworkRecoveryManager.connectionGateWaitMs(context)): Boolean {
+    fun beginConnection(context: Context, timeoutMs: Long = 2_500L): Boolean {
         val deadline = SystemClock.elapsedRealtime() + timeoutMs.coerceIn(0L, 8_000L)
         synchronized(monitor) {
             while (subscriptionMutationActive) {
@@ -105,9 +78,7 @@ object BlueVpnRuntimeGate {
                 .putBoolean(KEY_CONNECTION_ACTIVE, true)
                 .putLong(KEY_CONNECTION_STARTED_AT, System.currentTimeMillis())
                 .putInt(KEY_CONNECTION_OWNER_PID, Process.myPid())
-                .putString(KEY_CONNECTION_PHASE, ConnectionPhase.PREPARING.name)
                 .apply()
-            setPhase(context, ConnectionPhase.PREPARING)
             return true
         }
     }
@@ -120,9 +91,7 @@ object BlueVpnRuntimeGate {
                 .putBoolean(KEY_CONNECTION_ACTIVE, true)
                 .putLong(KEY_CONNECTION_STARTED_AT, System.currentTimeMillis())
                 .putInt(KEY_CONNECTION_OWNER_PID, Process.myPid())
-                .putString(KEY_CONNECTION_PHASE, ConnectionPhase.CONNECTED.name)
                 .apply()
-            setPhase(context, ConnectionPhase.CONNECTED)
             monitor.notifyAll()
         }
     }
@@ -134,9 +103,7 @@ object BlueVpnRuntimeGate {
                 .putBoolean(KEY_CONNECTION_ACTIVE, false)
                 .remove(KEY_CONNECTION_STARTED_AT)
                 .remove(KEY_CONNECTION_OWNER_PID)
-                .putString(KEY_CONNECTION_PHASE, ConnectionPhase.IDLE.name)
                 .apply()
-            setPhase(context, ConnectionPhase.IDLE)
             monitor.notifyAll()
         }
     }

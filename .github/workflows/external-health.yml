@@ -17,44 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Kick WordPress cron through dual control plane
-        env:
-          BLUEVPN_BASE_URLS: https://blluepanel.ir,https://bot.blluepanel.ir
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import os, time, urllib.parse, urllib.request
-
-          bases=[value.strip().rstrip('/') for value in os.environ['BLUEVPN_BASE_URLS'].split(',') if value.strip()]
-          errors=[]
-          for base in bases:
-              doing=f'{time.time():.22f}'
-              url=base+'/wp-cron.php?doing_wp_cron='+urllib.parse.quote(doing, safe='')
-              try:
-                  req=urllib.request.Request(
-                      url,
-                      data=b'',
-                      method='POST',
-                      headers={
-                          'User-Agent':'BlueVPN-External-Cron/5.9.0',
-                          'Cache-Control':'no-cache',
-                          'X-BlueVPN-Internal-Cron':'1',
-                      },
-                  )
-                  with urllib.request.urlopen(req, timeout=20) as r:
-                      r.read(256)
-                  print(url, 'CRON PASS')
-                  break
-              except Exception as e:
-                  errors.append(f'{url}: {e}')
-          else:
-              # Cron driving is a recovery helper. Keep the authoritative health
-              # probes below responsible for failing the workflow, but surface why
-              # neither control-plane host could execute scheduled WordPress work.
-              print('::warning::WordPress cron kick failed on both control-plane domains: ' + ' | '.join(errors))
-          PY
-
       - name: Probe public and database-backed health
         env:
           BLUEVPN_BASE_URLS: https://blluepanel.ir,https://bot.blluepanel.ir
@@ -70,7 +32,7 @@ jobs:
               last=None
               for attempt in range(3):
                   try:
-                      req=urllib.request.Request(url, headers={'User-Agent':'BlueVPN-External-Health/5.9.0'})
+                      req=urllib.request.Request(url, headers={'User-Agent':'BlueVPN-External-Health/5.1.4'})
                       with urllib.request.urlopen(req, timeout=20) as r:
                           data=json.loads(r.read().decode('utf-8'))
                       if data.get('status')!='ok':

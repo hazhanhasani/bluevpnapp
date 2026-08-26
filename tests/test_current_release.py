@@ -535,12 +535,7 @@ class CurrentReleaseTests(unittest.TestCase):
         exact = block(self.home, "private fun startExactCandidateCore", "private fun scheduleConnectionVerification")
         self.assertIn("LauncherManager.startService(this, guid)", exact)
         self.assertNotIn("MmkvManager.setSelectServer(guid)", exact)
-        self.assertIn(
-            "BlueVpnNetworkRecoveryManager.policy(this).candidateStartTimeoutMs",
-            exact,
-        )
-        recovery = (ROOT / "android-source/BlueVpnNetworkRecoveryManager.kt").read_text(encoding="utf-8")
-        self.assertIn("coerceIn(6_000L, 20_000L)", recovery)
+        self.assertIn("handler.postDelayed(attemptTimeout, 12_000L)", exact)
 
     def test_16_location_util_does_not_reject_v2rayng_profiles(self):
         usable = block(self.location, "fun isUsable(", "fun invalidateCache()")
@@ -1307,16 +1302,6 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("smart_assign_patterns((array)($r['patterns']??[]),false)", cc)
         self.assertIn("تطبیق هوشمند", cc)
 
-
-    def test_backup_cron_self_heals_before_48_hour_health_warning(self):
-        production = text("bluevpn-manager/includes/class-bluevpn-production.php")
-        self.assertIn("BACKUP_RECOVERY_STALE_AFTER = 108000", production)
-        self.assertIn("BACKUP_RECOVERY_THROTTLE = 21600", production)
-        self.assertIn("private static function ensure_backup_recovery", production)
-        self.assertIn("wp_schedule_single_event(time() + 60, self::BACKUP_HOOK)", production)
-        self.assertIn("BlueVPN_Utils::kick_wp_cron()", production)
-        self.assertIn("self::ensure_backup_recovery();", production)
-        self.assertIn("delete_option(self::BACKUP_RECOVERY_OPTION)", production)
 
     def test_98_missing_provider_repair_does_not_renew_entitlement(self):
         providers = text("bluevpn-manager/includes/class-bluevpn-providers.php")

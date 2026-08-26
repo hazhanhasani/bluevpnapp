@@ -24,7 +24,9 @@ concurrency:
 
 jobs:
   report-failure:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion != 'success' && github.event.workflow_run.conclusion != 'cancelled') }}
+    # Only real failures deserve an alert. Ignore success, cancelled, skipped,
+    # neutral and stale runs so housekeeping/cancellation never creates noise.
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(fromJSON('["failure","timed_out","action_required","startup_failure"]'), github.event.workflow_run.conclusion) }}
     runs-on: ubuntu-latest
     steps:
       - name: Collect failed jobs, annotations and logs

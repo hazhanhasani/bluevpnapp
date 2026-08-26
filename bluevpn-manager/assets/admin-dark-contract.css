@@ -1,0 +1,197 @@
+/* BlueVPN Admin Dark Surface Contract
+ * Final, high-specificity safety net for legacy WordPress/admin markup.
+ * Keep this file loaded after admin-unified.css so page-local legacy styles
+ * cannot reintroduce white surfaces inside the standalone Control Center.
+ */
+
+body.bluevpn-standalone-admin {
+    color-scheme: dark;
+}
+
+/* Legacy endpoint/code/read-only surfaces. */
+body.bluevpn-standalone-admin .bvp-endpoint,
+body.bluevpn-standalone-admin .bvp-code,
+body.bluevpn-standalone-admin .bvc-code,
+body.bluevpn-standalone-admin .bvb-code,
+body.bluevpn-standalone-admin pre {
+    box-sizing: border-box !important;
+    background: #070b12 !important;
+    color: #9ff8d8 !important;
+    border: 1px solid var(--bvu-line) !important;
+    border-radius: 10px !important;
+    box-shadow: none !important;
+}
+
+body.bluevpn-standalone-admin .bvp-endpoint {
+    direction: ltr !important;
+    text-align: left !important;
+    unicode-bidi: isolate !important;
+    padding: 10px 11px !important;
+    word-break: break-word !important;
+    overflow-wrap: anywhere !important;
+}
+
+/* Status blocks used by old Manager screens. */
+body.bluevpn-standalone-admin .bvp-check {
+    background: rgba(19, 28, 46, .78) !important;
+    color: #cbd5e1 !important;
+    border: 1px solid var(--bvu-line) !important;
+    box-shadow: none !important;
+}
+body.bluevpn-standalone-admin .bvp-check.ok,
+body.bluevpn-standalone-admin .bvc-success {
+    background: rgba(16, 185, 129, .07) !important;
+    color: #6ee7b7 !important;
+    border-color: rgba(52, 211, 153, .18) !important;
+}
+body.bluevpn-standalone-admin .bvp-check.bad,
+body.bluevpn-standalone-admin .bvc-danger {
+    background: rgba(251, 113, 133, .06) !important;
+    color: #fda4af !important;
+    border-color: rgba(251, 113, 133, .18) !important;
+}
+
+/* Provider/access picker still had legacy #fff/#f8fafc declarations. */
+body.bluevpn-standalone-admin .bvc-access-picker {
+    background: rgba(14, 22, 38, .82) !important;
+    color: var(--bvu-text) !important;
+    border-color: var(--bvu-line) !important;
+}
+body.bluevpn-standalone-admin .bvc-access-chip {
+    background: #0b1220 !important;
+    color: #dbeafe !important;
+    border-color: rgba(148, 163, 184, .13) !important;
+}
+body.bluevpn-standalone-admin .bvc-access-chip:has(input:checked) {
+    background: rgba(16, 185, 129, .07) !important;
+    color: #d1fae5 !important;
+    border-color: rgba(52, 211, 153, .24) !important;
+}
+body.bluevpn-standalone-admin .bvc-access-status,
+body.bluevpn-standalone-admin .bvc-access-chip small,
+body.bluevpn-standalone-admin .bvc-access-picker small {
+    color: #7f8da3 !important;
+}
+
+/* Complete WordPress form-control coverage, including types missed by the
+ * original stylesheet and native read-only/disabled states. */
+body.bluevpn-standalone-admin input:not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=button]):not([type=reset]):not([type=color]),
+body.bluevpn-standalone-admin textarea,
+body.bluevpn-standalone-admin select {
+    background: #0b1220 !important;
+    color: #e5edf6 !important;
+    border-color: rgba(148, 163, 184, .13) !important;
+    box-shadow: none !important;
+    caret-color: #6ee7b7 !important;
+}
+body.bluevpn-standalone-admin input[readonly],
+body.bluevpn-standalone-admin textarea[readonly],
+body.bluevpn-standalone-admin input:disabled,
+body.bluevpn-standalone-admin textarea:disabled,
+body.bluevpn-standalone-admin select:disabled {
+    background: #080e19 !important;
+    color: #8fa0b7 !important;
+    border-color: rgba(148, 163, 184, .09) !important;
+    opacity: 1 !important;
+    -webkit-text-fill-color: #8fa0b7 !important;
+}
+body.bluevpn-standalone-admin input::placeholder,
+body.bluevpn-standalone-admin textarea::placeholder {
+    color: #5f7087 !important;
+    opacity: 1 !important;
+}
+body.bluevpn-standalone-admin select option,
+body.bluevpn-standalone-admin select optgroup {
+    background: #0b1220 !important;
+    color: #e5edf6 !important;
+}
+body.bluevpn-standalone-admin input:-webkit-autofill,
+body.bluevpn-standalone-admin input:-webkit-autofill:hover,
+body.bluevpn-standalone-admin input:-webkit-autofill:focus {
+    -webkit-text-fill-color: #e5edf6 !important;
+    -webkit-box-shadow: 0 0 0 1000px #0b1220 inset !important;
+    box-shadow: 0 0 0 1000px #0b1220 inset !important;
+}
+
+/* Generic WordPress containers used by less-modernized BlueVPN pages. */
+body.bluevpn-standalone-admin .postbox,
+body.bluevpn-standalone-admin .card,
+body.bluevpn-standalone-admin .stuffbox,
+body.bluevpn-standalone-admin .wp-filter,
+body.bluevpn-standalone-admin .metabox-holder .postbox,
+body.bluevpn-standalone-admin .widgets-holder-wrap {
+    background: rgba(14, 22, 38, .78) !important;
+    color: var(--bvu-text) !important;
+    border-color: var(--bvu-line) !important;
+    box-shadow: none !important;
+}
+body.bluevpn-standalone-admin .postbox-header,
+body.bluevpn-standalone-admin .handlediv,
+body.bluevpn-standalone-admin .hndle {
+    background: rgba(19, 28, 46, .72) !important;
+    color: #e2e8f0 !important;
+    border-color: var(--bvu-line) !important;
+}
+body.bluevpn-standalone-admin .form-table,
+body.bluevpn-standalone-admin .form-table tbody,
+body.bluevpn-standalone-admin .form-table tr,
+body.bluevpn-standalone-admin .form-table th,
+body.bluevpn-standalone-admin .form-table td {
+    background: transparent !important;
+    color: #cbd5e1 !important;
+    border-color: var(--bvu-line) !important;
+}
+body.bluevpn-standalone-admin .description,
+body.bluevpn-standalone-admin .howto,
+body.bluevpn-standalone-admin .help,
+body.bluevpn-standalone-admin .form-table p.description {
+    color: #7f8da3 !important;
+}
+
+/* Tabs, filters and list navigation can otherwise inherit WordPress light UI. */
+body.bluevpn-standalone-admin .nav-tab-wrapper,
+body.bluevpn-standalone-admin .subsubsub,
+body.bluevpn-standalone-admin .tablenav,
+body.bluevpn-standalone-admin .wp-list-table {
+    border-color: var(--bvu-line) !important;
+}
+body.bluevpn-standalone-admin .nav-tab {
+    background: rgba(19, 28, 46, .72) !important;
+    color: #94a3b8 !important;
+    border-color: var(--bvu-line) !important;
+}
+body.bluevpn-standalone-admin .nav-tab:hover,
+body.bluevpn-standalone-admin .nav-tab-active,
+body.bluevpn-standalone-admin .nav-tab-active:hover {
+    background: rgba(16, 185, 129, .08) !important;
+    color: #6ee7b7 !important;
+    border-color: rgba(52, 211, 153, .20) !important;
+}
+body.bluevpn-standalone-admin table.widefat tbody tr,
+body.bluevpn-standalone-admin table.wp-list-table tbody tr,
+body.bluevpn-standalone-admin .alternate,
+body.bluevpn-standalone-admin .striped > tbody > :nth-child(odd) {
+    background: transparent !important;
+}
+body.bluevpn-standalone-admin table.widefat tbody tr:hover,
+body.bluevpn-standalone-admin table.wp-list-table tbody tr:hover {
+    background: rgba(255, 255, 255, .018) !important;
+}
+
+/* Native browser affordances should opt into the same dark palette. */
+body.bluevpn-standalone-admin input[type=date],
+body.bluevpn-standalone-admin input[type=time],
+body.bluevpn-standalone-admin input[type=datetime-local],
+body.bluevpn-standalone-admin input[type=month],
+body.bluevpn-standalone-admin input[type=week] {
+    color-scheme: dark !important;
+}
+
+@media (max-width: 782px) {
+    body.bluevpn-standalone-admin .bvp-endpoint,
+    body.bluevpn-standalone-admin pre {
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        white-space: pre-wrap !important;
+    }
+}

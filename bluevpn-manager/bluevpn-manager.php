@@ -104,6 +104,22 @@ add_action('init', function () {
     }
 }, 99);
 
+// A final dark-surface contract is intentionally enqueued after every BlueVPN
+// admin stylesheet. Several legacy screens still emit page-local light CSS;
+// the late stylesheet safely normalizes those surfaces without editing each
+// historical renderer independently.
+add_action('admin_enqueue_scripts', function () {
+    if (!class_exists('BlueVPN_Unified_UI') || !BlueVPN_Unified_UI::is_bluevpn_page()) {
+        return;
+    }
+    wp_enqueue_style(
+        'bluevpn-admin-dark-contract',
+        BLUEVPN_MANAGER_URL . 'assets/admin-dark-contract.css',
+        ['bluevpn-unified-admin'],
+        BLUEVPN_MANAGER_VERSION
+    );
+}, 999);
+
 add_action('plugins_loaded', function () {
     BlueVPN_DB::maybe_upgrade();
     BlueVPN_GitHub_HTTP_Resilience::init();

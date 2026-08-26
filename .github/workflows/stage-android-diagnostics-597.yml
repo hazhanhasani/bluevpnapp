@@ -19,7 +19,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply Android diagnostics patch
-        run: python scripts/stage_android_diagnostics_597.py
+        run: |
+          python scripts/stage_android_diagnostics_597.py
+          python scripts/fix_android_diagnostics_test_597.py
 
       - name: Release validators
         run: |
@@ -38,7 +40,7 @@ jobs:
       - name: Freeze validated production tree
         run: |
           set -euo pipefail
-          rm -f scripts/stage_android_diagnostics_597.py .github/workflows/stage-android-diagnostics-597.yml
+          rm -f scripts/stage_android_diagnostics_597.py scripts/fix_android_diagnostics_test_597.py .github/workflows/stage-android-diagnostics-597.yml
           git config user.name bluevpn-validation-bot
           git config user.email bluevpn-validation-bot@users.noreply.github.com
           git add -A

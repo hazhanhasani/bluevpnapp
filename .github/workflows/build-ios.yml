@@ -2,12 +2,16 @@ name: Build BlueVPN iOS
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     paths: ['bluevpn-ios/**','branding/app.json','version.json','scripts/validate_ios.py','.github/workflows/build-ios.yml']
 jobs:
   build-ios:
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: main
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with: { python-version: '3.13' }
       - run: python scripts/sync_version.py --check && python scripts/validate_ios.py && python scripts/validate_ios_runtime.py

@@ -297,8 +297,7 @@ jobs:
 
       - name: Publish Windows installers for website and auto-update
         env:
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
-          BLUEVPN_RELEASE_PAT_CONFIGURED: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN != '' }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -325,7 +324,7 @@ jobs:
             RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .id)"
             printf '{"prerelease":true}\n' | gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --input - >/dev/null
           else
-            ARGS=("$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TITLE" --notes "$NOTES" --latest=false --prerelease)
+            ARGS=("$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes "$NOTES" --latest=false --prerelease)
             if ! gh release create "${ARGS[@]}" 2>"$publish_error"; then
               cat "$publish_error" >&2
               if grep -q 'Resource not accessible by integration' "$publish_error"; then
@@ -337,7 +336,7 @@ jobs:
 
       - name: Verify public installer URLs
         env:
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -351,7 +350,7 @@ jobs:
         env:
           BLUEVPN_RELEASE_SYNC_SECRET: ${{ secrets.BLUEVPN_RELEASE_SYNC_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail

@@ -8,8 +8,8 @@ def text(p): return (ROOT/p).read_text(encoding='utf-8')
 class WindowsStability4177Tests(unittest.TestCase):
     def test_release_version(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'5.10.5')
-        self.assertEqual(r['version_code'],51005)
+        self.assertEqual(r['version'],'5.10.6')
+        self.assertEqual(r['version_code'],51006)
 
     def test_ui_is_android_order_and_non_blocking_metrics(self):
         x=text('bluevpn-windows/MainWindow.xaml')

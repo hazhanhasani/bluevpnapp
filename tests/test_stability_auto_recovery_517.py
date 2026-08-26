@@ -8,6 +8,17 @@ def text(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 class StabilityAutoRecovery517Tests(unittest.TestCase):
+    def test_connection_engine_v2_exposes_explicit_phases_and_recovery(self):
+        gate = (ROOT / "android-source/BlueVpnRuntimeGate.kt").read_text(encoding="utf-8")
+        recovery = (ROOT / "android-source/BlueVpnNetworkRecoveryManager.kt").read_text(encoding="utf-8")
+        audit = (ROOT / "android-source/BlueVpnRuntimeAudit.kt").read_text(encoding="utf-8")
+        for phase in ("IDLE", "PREPARING", "CONNECTING", "VERIFYING", "CONNECTED", "RECOVERING", "FAILED"):
+            self.assertIn(phase, gate)
+        self.assertIn("markRecovering", recovery)
+        self.assertIn("physical_network_lost", recovery)
+        self.assertIn("CONNECTION_PHASE", audit)
+        self.assertIn("CONTROL_PLANE_FAILOVER", audit)
+
     def test_release_is_517(self):
         r = json.loads(text("release.json"))
         self.assertEqual(r["version"], "5.9.5")

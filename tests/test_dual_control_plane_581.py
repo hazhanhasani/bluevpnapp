@@ -20,6 +20,17 @@ class DualControlPlane581Tests(unittest.TestCase):
         self.assertIn('"BLUEVPN_API_BASE_URLS"', prepare)
         self.assertIn("BuildConfig.BLUEVPN_API_BASE_URLS", account)
         self.assertIn("requestAgainstBase", account)
+        self.assertIn("val bases = apiBaseUrls()", account)
+        self.assertIn("X-BlueVPN-Request-ID", account)
+        self.assertIn("UUID.randomUUID().toString()", account)
+
+    def test_manager_deduplicates_mutating_failover_requests(self):
+        api = (ROOT / "bluevpn-manager/includes/class-bluevpn-api.php").read_text(encoding="utf-8")
+        self.assertIn("idempotency_pre_dispatch", api)
+        self.assertIn("x-bluevpn-request-id", api.lower())
+        self.assertIn("IDEMPOTENCY_CONFLICT", api)
+        self.assertIn("X-BlueVPN-Idempotent-Replay", api)
+        self.assertIn("10 * MINUTE_IN_SECONDS", api)
 
     def test_windows_and_ios_use_both_domains(self):
         settings = (ROOT / "bluevpn-windows/Services/AppSettings.cs").read_text(encoding="utf-8")

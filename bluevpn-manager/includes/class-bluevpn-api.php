@@ -4,6 +4,7 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_API {
     public static function init(): void {
         add_action('rest_api_init', [self::class, 'register_routes']);
+        add_filter('rest_pre_dispatch', [self::class, 'idempotency_pre_dispatch'], 10, 3);
         add_filter('rest_post_dispatch', [self::class, 'headers'], 10, 3);
     }
     public static function register_routes(): void {
@@ -50,8 +51,59 @@ final class BlueVPN_API {
             $response->header('Content-Language','fa-IR'); $response->header('X-BlueVPN-Timezone','Asia/Tehran'); $response->header('X-BlueVPN-Calendar','jalali');
             $headers = $response->get_headers();
             if (($headers['X-BlueVPN-Raw'] ?? '') !== '1') $response->header('Cache-Control','no-store');
+            self::remember_idempotent_response($response, $request);
         }
         return $response;
+    }
+
+    /**
+     * Android retries the exact same mutating request on the secondary control
+     * plane only after a transport/502/503/504 failure. Both domains terminate
+     * on this WordPress database, so a short-lived replay record makes that
+     * failover at-most-once from the application's point of view.
+     */
+    private static function idempotency_context(WP_REST_Request $request): ?array {
+        if (strtoupper($request->get_method()) !== 'POST') return null;
+        $route = (string)$request->get_route();
+        if (!str_starts_with($route, '/bluevpn/')) return null;
+        $requestId = trim((string)$request->get_header('x-bluevpn-request-id'));
+        if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._:-]{15,95}$/', $requestId)) return null;
+        $device = trim((string)$request->get_header('x-device-id'));
+        $key = 'bluevpn_idem_' . substr(hash('sha256', $requestId . '|' . $device . '|' . $route), 0, 48);
+        $fingerprint = hash('sha256', $route . '|' . (string)$request->get_body());
+        return [$key, $fingerprint];
+    }
+
+    public static function idempotency_pre_dispatch($result,$server,$request){
+        if ($result !== null || !($request instanceof WP_REST_Request)) return $result;
+        $ctx = self::idempotency_context($request);
+        if ($ctx === null) return $result;
+        [$key,$fingerprint] = $ctx;
+        $saved = get_transient($key);
+        if (!is_array($saved)) return $result;
+        if (!hash_equals((string)($saved['fingerprint'] ?? ''), $fingerprint)) {
+            return self::ok(['detail'=>['code'=>'IDEMPOTENCY_CONFLICT','message'=>'شناسه درخواست قبلاً برای عملیات دیگری استفاده شده است.']],409);
+        }
+        $response = new WP_REST_Response($saved['data'] ?? [], (int)($saved['status'] ?? 200));
+        foreach ((array)($saved['headers'] ?? []) as $name=>$value) $response->header((string)$name,(string)$value);
+        $response->header('X-BlueVPN-Idempotent-Replay','1');
+        return $response;
+    }
+
+    private static function remember_idempotent_response($response, WP_REST_Request $request): void {
+        $ctx = self::idempotency_context($request);
+        if ($ctx === null || !is_object($response) || !method_exists($response,'get_status') || !method_exists($response,'get_data')) return;
+        $status = (int)$response->get_status();
+        // Never freeze transient infrastructure failures; the secondary domain
+        // must still get a chance to execute the operation.
+        if ($status >= 500) return;
+        [$key,$fingerprint] = $ctx;
+        set_transient($key,[
+            'fingerprint'=>$fingerprint,
+            'status'=>$status,
+            'data'=>$response->get_data(),
+            'headers'=>method_exists($response,'get_headers') ? $response->get_headers() : [],
+        ],10 * MINUTE_IN_SECONDS);
     }
     private static function ok(array $data,int $status=200): WP_REST_Response { return new WP_REST_Response($data,$status); }
     private static function fail(BlueVPN_Auth_Exception $e): WP_REST_Response { return self::ok(['detail'=>array_merge(['code'=>$e->error_code,'message'=>$e->getMessage()],$e->extra)],$e->http_status); }

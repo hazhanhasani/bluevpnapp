@@ -4135,7 +4135,7 @@ private fun dpHome(value: Int): Int =
             if (!isFinishing && !isDestroyed) requestDashboardRefresh()
         }, 60L)
         handler.removeCallbacks(attemptTimeout)
-        handler.postDelayed(attemptTimeout, 12_000L)
+        handler.postDelayed(attemptTimeout, BlueVpnNetworkRecoveryManager.policy(this).candidateStartTimeoutMs)
     }
 
     private fun scheduleConnectionVerification() {
@@ -4150,7 +4150,7 @@ private fun dpHome(value: Int): Int =
         if (verificationDeadlineGuid != attemptedGuid) {
             verificationDeadlineGuid = attemptedGuid
             handler.removeCallbacks(verificationTimeout)
-            handler.postDelayed(verificationTimeout, 28_000L)
+            handler.postDelayed(verificationTimeout, BlueVpnNetworkRecoveryManager.policy(this).verificationTimeoutMs)
         }
 
         // Ask the same upstream v2rayNG core for its native delay proof in

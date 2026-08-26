@@ -68,6 +68,15 @@ class DualControlPlane581Tests(unittest.TestCase):
         self.assertIn("BlueVpnNetworkRecoveryManager.connectionGateWaitMs(context)", runtime)
         self.assertIn("Recovery window:", settings)
         self.assertIn("Connection gate wait:", settings)
+        self.assertIn("candidate_start_timeout_seconds", api)
+        self.assertIn("verification_timeout_seconds", api)
+        self.assertIn("coerceIn(6_000L, 20_000L)", recovery)
+        self.assertIn("coerceIn(10_000L, 45_000L)", recovery)
+        home = (ROOT / "android-source/BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("candidateStartTimeoutMs", home)
+        self.assertIn("verificationTimeoutMs", home)
+        self.assertNotIn("postDelayed(attemptTimeout, 12_000L)", home)
+        self.assertNotIn("postDelayed(verificationTimeout, 28_000L)", home)
 
     def test_health_monitor_probes_both_domains(self):
         workflow = (ROOT / ".github/workflows/external-health.yml").read_text(encoding="utf-8")

@@ -286,6 +286,8 @@ final class BlueVPN_API {
                 // create infinite recovery windows or connection-gate stalls.
                 'recovery_window_seconds'=>max(15,min(180,(int)($s['android_recovery_window_seconds'] ?? 60))),
                 'connection_gate_wait_ms'=>max(500,min(8000,(int)($s['android_connection_gate_wait_ms'] ?? 2500))),
+                'candidate_start_timeout_seconds'=>max(6,min(20,(int)($s['android_candidate_start_timeout_seconds'] ?? 12))),
+                'verification_timeout_seconds'=>max(10,min(45,(int)($s['android_verification_timeout_seconds'] ?? 28))),
             ],
             'github_repository'=>(string)($s['github_repository']??''),
             'github_error'=>(string)($s['github_error']??''),

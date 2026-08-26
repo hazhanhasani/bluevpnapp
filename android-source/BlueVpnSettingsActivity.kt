@@ -396,6 +396,8 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
             appendLine("Connection phase: $phase")
             appendLine("Recovery window: ${connectionPolicy.recoveryWindowMs / 1_000L}s")
             appendLine("Connection gate wait: ${connectionPolicy.connectionGateWaitMs}ms")
+            appendLine("Candidate start timeout: ${connectionPolicy.candidateStartTimeoutMs / 1_000L}s")
+            appendLine("Verification timeout: ${connectionPolicy.verificationTimeoutMs / 1_000L}s")
             appendLine("Account session: ${if (account.email.isNotBlank()) "signed-in" else "guest"}")
             appendLine("Entitlement: ${if (account.subscriptionActive) "premium" else "free"}")
             appendLine("Control plane:")

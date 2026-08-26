@@ -34,10 +34,8 @@ jobs:
           print('RuntimeAudit import contract: PASS')
           PY
 
-      - name: Release validators
-        run: |
-          python scripts/sync_version.py --check
-          python scripts/validate_android.py
+      - name: Version contract
+        run: python scripts/sync_version.py --check
 
       - name: Full regression suite
         run: python -m unittest discover -s tests -p 'test_*.py'

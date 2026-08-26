@@ -158,9 +158,12 @@ jobs:
           set -euo pipefail
           echo "BlueVPN coordinated release: ${VERSION}@${SOURCE_SHA}"
 
-          # Android full publication is the authoritative product release. It also
-          # publishes the synchronized Manager package and waits for WordPress
-          # control-plane convergence before publishing v${VERSION}.
+          # Manager owns its plugin Release. Android waits for this Release and
+          # for WordPress control-plane convergence before publishing v${VERSION}.
+          gh workflow run bluevpn-manager-release.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f target_sha="$SOURCE_SHA" \
+            -f request_id="version-${VERSION}-${GITHUB_RUN_ID}"
+
           gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
             -f event_type='bluevpn_build' \
             -F 'client_payload[ref]'='main' \
@@ -175,4 +178,4 @@ jobs:
           gh workflow run bluevpn-site-theme-release.yml --repo "$GITHUB_REPOSITORY" --ref main \
             -f target_sha="$SOURCE_SHA"
 
-          echo "Dispatched Android, Manager barrier, Windows, iOS and Site Theme for BlueVPN ${VERSION}."
+          echo "Dispatched Manager, Android, Windows, iOS and Site Theme for BlueVPN ${VERSION}."

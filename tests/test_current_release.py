@@ -535,7 +535,12 @@ class CurrentReleaseTests(unittest.TestCase):
         exact = block(self.home, "private fun startExactCandidateCore", "private fun scheduleConnectionVerification")
         self.assertIn("LauncherManager.startService(this, guid)", exact)
         self.assertNotIn("MmkvManager.setSelectServer(guid)", exact)
-        self.assertIn("handler.postDelayed(attemptTimeout, 12_000L)", exact)
+        self.assertIn(
+            "BlueVpnNetworkRecoveryManager.policy(this).candidateStartTimeoutMs",
+            exact,
+        )
+        recovery = (ROOT / "android-source/BlueVpnNetworkRecoveryManager.kt").read_text(encoding="utf-8")
+        self.assertIn("coerceIn(6_000L, 20_000L)", recovery)
 
     def test_16_location_util_does_not_reject_v2rayng_profiles(self):
         usable = block(self.location, "fun isUsable(", "fun invalidateCache()")

@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/release-51010.yml'
+      - 'scripts/release_51010.py'
 
 permissions:
   contents: write

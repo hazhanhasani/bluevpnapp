@@ -35,26 +35,12 @@ final class BlueVPN_Ads {
      * synthetic local hosts can therefore return an empty placement.
      */
     public static function serve_windows_tapsell(): void {
-        $settings = BlueVPN_DB::settings();
-        $enabled = !empty($settings['tapsell_windows_web_enabled']);
-        $script = trim((string)($settings['tapsell_windows_web_script_html'] ?? ''));
+        // Tapsell Web authorization is issued for blluepanel.ir, not the bot
+        // control-plane host. Keep this legacy endpoint as a compatibility
+        // redirect so cached/older Windows clients still land on the approved
+        // publisher origin before Mediaad loader execution.
         nocache_headers();
-        header('Content-Type: text/html; charset=utf-8');
-        header("Content-Security-Policy: default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' https: data: blob:; frame-src https:; connect-src https: wss:;");
-        header('Referrer-Policy: strict-origin-when-cross-origin');
-        if (!$enabled || $script === '') {
-            status_header(404);
-            echo '<!doctype html><html><body></body></html>';
-            exit;
-        }
-        echo '<!doctype html><html dir="rtl"><head><meta charset="utf-8">';
-        echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
-        echo '<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}';
-        echo 'body{display:flex;align-items:center;justify-content:center}iframe,img,video,canvas{max-width:100%;max-height:100%;border:0}</style>';
-        echo '</head><body><div id="bluevpn-tapsell-root" style="width:100%;height:100%">';
-        // Script is administrator-supplied publisher code and must remain raw.
-        echo $script; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-        echo '</div></body></html>';
+        wp_redirect('https://blluepanel.ir/?bluevpn_tapsell_windows=1', 302, 'BlueVPN');
         exit;
     }
 
@@ -618,7 +604,7 @@ final class BlueVPN_Ads {
                 'enabled' => !empty($settings['tapsell_windows_web_enabled']) && trim((string)($settings['tapsell_windows_web_script_html'] ?? '')) !== '',
                 'placement_id' => mb_substr(trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')), 0, 200),
                 'script_html' => (string)($settings['tapsell_windows_web_script_html'] ?? ''),
-                'bridge_url' => admin_url('admin-post.php?action=bluevpn_windows_tapsell'),
+                'bridge_url' => 'https://blluepanel.ir/?bluevpn_tapsell_windows=1',
                 'free_only' => false,
                 'min_interval_seconds' => max(0, min(86400, (int)($settings['tapsell_windows_web_min_interval_seconds'] ?? 300))),
                 'daily_cap' => max(0, min(1000, (int)($settings['tapsell_windows_web_daily_cap'] ?? 10))),

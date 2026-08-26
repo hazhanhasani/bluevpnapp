@@ -16,15 +16,14 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       SOURCE_SHA: 9cb9e74ef2fea25e9f593ae16f808626cbbc0f67
+
     steps:
-      - name: Dispatch exact validated 5.10.10 source
+      - name: Dispatch remaining exact 5.10.10 targets
         shell: bash
         run: |
           set -euo pipefail
 
-          gh workflow run bluevpn-manager-release.yml --repo "$GITHUB_REPOSITORY" --ref main             -f target_sha="$SOURCE_SHA"             -f request_id="version-5.10.10-${GITHUB_RUN_ID}"
-
-          gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches"             -f event_type='bluevpn_build'             -F 'client_payload[ref]'='main'             -F 'client_payload[target_sha]'="$SOURCE_SHA"             -F 'client_payload[build_mode]'='full'
+          gh workflow run build-apk.yml --repo "$GITHUB_REPOSITORY" --ref main             -f build_mode=full             -f target_sha="$SOURCE_SHA"
 
           gh workflow run build-windows.yml --repo "$GITHUB_REPOSITORY" --ref main             -f target_sha="$SOURCE_SHA"
 
@@ -32,4 +31,4 @@ jobs:
 
           gh workflow run bluevpn-site-theme-release.yml --repo "$GITHUB_REPOSITORY" --ref main             -f target_sha="$SOURCE_SHA"
 
-          echo "Dispatched all BlueVPN 5.10.10 targets from $SOURCE_SHA"
+          echo "Dispatched Android, Windows, iOS and Theme from $SOURCE_SHA"

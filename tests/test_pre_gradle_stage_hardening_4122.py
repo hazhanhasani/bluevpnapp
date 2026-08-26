@@ -42,7 +42,10 @@ class PreGradleStageHardening4122(unittest.TestCase):
         self.assertIn('private fun safeDecodedSubscriptions(): List<SubscriptionItem>', patched)
         self.assertIn('private fun safeDecodedServerGuids(subscriptionGuid: String): List<String>', patched)
         self.assertEqual(patched.count('MmkvManager.decodeSubscriptions()'), 1)
-        self.assertEqual(patched.count('MmkvManager.decodeServerList('), 1)
+        self.assertEqual(
+            patched.count('val raw = runCatching { MmkvManager.decodeServerList(subscriptionGuid) }.getOrNull()'),
+            1,
+        )
         self.assertNotIn('MmkvManager.decodeSubscriptions()\n            .asSequence()', patched)
         self.assertIn('safeDecodedSubscriptions()\n            .asSequence()', patched)
         self.assertIn('mapNotNull { it as? SubscriptionItem }', patched)

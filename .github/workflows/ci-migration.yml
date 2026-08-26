@@ -1,0 +1,67 @@
+name: BlueVPN CI Migration
+
+on:
+  push:
+    branches:
+      - fix/unified-ci-mmkv-vpn-coexistence
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+timeout-minutes: 30
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout migration branch
+        uses: actions/checkout@v6
+        with:
+          ref: fix/unified-ci-mmkv-vpn-coexistence
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install migration parser
+        run: python -m pip install --disable-pip-version-check 'ruamel.yaml>=0.18,<0.19'
+
+      - name: Generate unified workflow and Android coexistence guard
+        run: python scripts/migrate_bluevpn_unified_pipeline.py
+
+      - name: Validate generated YAML
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from ruamel.yaml import YAML
+          p=Path('.github/workflows/bluevpn.yml')
+          doc=YAML(typ='safe').load(p.read_text(encoding='utf-8'))
+          assert isinstance(doc, dict) and isinstance(doc.get('jobs'), dict)
+          assert ':app:compilePlaystoreReleaseKotlin' in p.read_text(encoding='utf-8')
+          assert len(list(Path('.github/workflows').glob('*.y*ml'))) == 1
+          PY
+
+      - name: Run Python regression suite
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Run release validators
+        run: |
+          python scripts/validate_release.py
+          python scripts/validate_php_release.py
+
+      - name: Commit unified pipeline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No migration changes to commit.'
+            exit 0
+          fi
+          git commit -m 'ci: unify BlueVPN pipeline and enforce VPN coexistence [skip ci]'
+          git push origin HEAD:fix/unified-ci-mmkv-vpn-coexistence

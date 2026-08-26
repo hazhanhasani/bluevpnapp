@@ -7,8 +7,8 @@ ROOT = Path(__file__).resolve().parents[1]
 class WindowsStoryAdReadiness4178Tests(unittest.TestCase):
     def test_version(self):
         r=json.loads((ROOT/'release.json').read_text())
-        self.assertEqual(r['version'],'5.10.2')
-        self.assertEqual(r['version_code'],51002)
+        self.assertEqual(r['version'],'5.10.3')
+        self.assertEqual(r['version_code'],51003)
 
     def test_media_ready_is_runtime_gate_not_dead_field(self):
         s=(ROOT/'bluevpn-windows/StoryAdWindow.xaml.cs').read_text()

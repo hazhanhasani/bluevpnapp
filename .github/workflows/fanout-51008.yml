@@ -15,33 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE_SHA: bbd527ef71f6c997b9129f82900544f210dd5ab4
+      SOURCE_SHA: ${{ github.sha }}
       VERSION: 5.10.8
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
-
-      - name: Pin 5.10.8 release tags
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "bluevpn-release-bot"
-          git config user.email "bluevpn-release-bot@users.noreply.github.com"
-          git fetch --tags --force
-          for TAG in "v${VERSION}" "bluevpn-manager-v${VERSION}" "bluevpn-windows-v${VERSION}" "bluevpn-site-v${VERSION}"; do
-            if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
-              EXISTING="$(git rev-list -n 1 "${TAG}")"
-              test "$EXISTING" = "$SOURCE_SHA" || {
-                echo "::error::${TAG} points to ${EXISTING}, expected ${SOURCE_SHA}"
-                exit 1
-              }
-            else
-              git tag "${TAG}" "$SOURCE_SHA"
-              git push origin "refs/tags/${TAG}"
-            fi
-          done
 
       - name: Dispatch all 5.10.8 release targets
         shell: bash

@@ -8,8 +8,8 @@ def text(rel): return (ROOT/rel).read_text(encoding='utf-8')
 class WindowsDirectReleaseSync4173Tests(unittest.TestCase):
     def test_release_version(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'5.9.5')
-        self.assertEqual(r['version_code'],50905)
+        self.assertEqual(r['version'],'5.9.6')
+        self.assertEqual(r['version_code'],50906)
 
     def test_signed_direct_push_endpoint_exists(self):
         api=text('bluevpn-manager/includes/class-bluevpn-api.php')

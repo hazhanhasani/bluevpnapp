@@ -21,8 +21,8 @@ class StabilityAutoRecovery517Tests(unittest.TestCase):
 
     def test_release_is_517(self):
         r = json.loads(text("release.json"))
-        self.assertEqual(r["version"], "5.9.5")
-        self.assertEqual(r["version_code"], 50905)
+        self.assertEqual(r["version"], "5.9.6")
+        self.assertEqual(r["version_code"], 50906)
         self.assertIn("sentinel-self-option-false-positive-fix", r["features"])
         self.assertIn("bot-stale-job-watchdog-auto-unlock", r["features"])
         self.assertIn("manager-first-boot-mu-rollback-guard", r["features"])

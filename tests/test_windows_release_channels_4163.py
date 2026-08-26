@@ -62,7 +62,8 @@ class WindowsReleaseChannels4163(unittest.TestCase):
         wf=text('.github/workflows/build-windows.yml')
         self.assertIn('WINDOWS_CHANNEL="beta"', wf)
         self.assertIn('BlueVPN-Windows-Channel-Authority: wordpress-manager', wf)
-        self.assertIn('"prerelease":true', wf)
+        self.assertIn('--draft --prerelease --latest=false', wf)
+        self.assertIn('-F draft=false -F prerelease=true', wf)
         mgr=text('bluevpn-manager/includes/class-bluevpn-windows-release-manager.php')
         self.assertIn(":'beta';", mgr)
 

@@ -27,6 +27,7 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-sms-otp.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-sms-notifications.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-manual-customers.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-ads.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-tapsell-web-guard.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-free-sources.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-ai.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-ai-ops.php';
@@ -110,6 +111,7 @@ add_action('plugins_loaded', function () {
     BlueVPN_Manual_Customers::init();
     BlueVPN_Unified_UI::init();
     BlueVPN_Frontend::init();
+    BlueVPN_Tapsell_Web_Guard::init();
     BlueVPN_Ads::init();
     BlueVPN_Free_Sources::init();
     BlueVPN_AI::init();

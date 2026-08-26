@@ -1,8 +1,8 @@
 {
     "app_name": "BlueVPN",
     "application_id": "ir.blluepanel.bluevpn",
-    "version_name": "5.10.7",
-    "version_code": 51007,
+    "version_name": "5.10.8",
+    "version_code": 51008,
     "deep_link_scheme": "bluevpn",
     "api_base_url": "https://blluepanel.ir",
     "website_url": "https://blluepanel.ir",

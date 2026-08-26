@@ -56,7 +56,7 @@ jobs:
           sha256sum bluevpn-manager.zip > bluevpn-manager.zip.sha256
       - name: Publish or refresh GitHub Release
         env:
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.meta.outputs.version }}
         shell: bash
         run: |
@@ -64,13 +64,13 @@ jobs:
           TAG="bluevpn-manager-v${VERSION}"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" bluevpn-manager.zip bluevpn-manager.zip.sha256 --repo "$GITHUB_REPOSITORY" --clobber
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "BlueVPN Manager ${VERSION}" --notes "Request: ${REQUEST_ID}" --latest=false
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "BlueVPN Manager ${VERSION}" --notes "Request: ${REQUEST_ID}" --latest=false
           else
-            gh release create "$TAG" bluevpn-manager.zip bluevpn-manager.zip.sha256 --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "BlueVPN Manager ${VERSION}" --notes "Request: ${REQUEST_ID}" --latest=false
+            gh release create "$TAG" bluevpn-manager.zip bluevpn-manager.zip.sha256 --repo "$GITHUB_REPOSITORY" --title "BlueVPN Manager ${VERSION}" --notes "Request: ${REQUEST_ID}" --latest=false
           fi
       - name: Verify published updater contract
         env:
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.meta.outputs.version }}
         shell: bash
         run: |

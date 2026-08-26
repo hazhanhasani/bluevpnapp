@@ -2,17 +2,12 @@ name: Build BlueVPN Windows
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - 'bluevpn-windows/**'
-      - 'branding/app.json'
-      - 'release.json'
-      - 'third_party/V2RAYN.md'
-      - 'third_party/AETHER_WINDOWS.md'
-      - 'scripts/validate_windows.py'
-      - '.github/workflows/build-windows.yml'
-  release:
-    types: [published]
+    inputs:
+      target_sha:
+        description: Exact source SHA/ref to build
+        required: false
+        default: main
+        type: string
 
 permissions:
   contents: write
@@ -42,8 +37,11 @@ jobs:
       DOTNET_CLI_TELEMETRY_OPTOUT: '1'
       DOTNET_NOLOGO: '1'
     steps:
-      - name: Checkout BlueVPN
+      - name: Checkout exact BlueVPN release source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.target_sha || 'main' }}
+          fetch-depth: 0
       - name: Setup Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
         with:

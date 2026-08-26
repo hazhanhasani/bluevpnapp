@@ -72,6 +72,9 @@ object BlueVpnNetworkRecoveryManager {
                         BlueVpnRuntimeAudit.Event.NETWORK_CHANGE,
                         "lost"
                     )
+                    if (BlueVpnRuntimeGate.connectionActive(app)) {
+                        BlueVpnRuntimeGate.markRecovering(app, "physical_network_lost")
+                    }
                 }
             }
         }

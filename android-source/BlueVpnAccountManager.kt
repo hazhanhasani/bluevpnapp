@@ -2810,14 +2810,23 @@ object BlueVpnAccountManager {
         auth: Boolean,
         accessOverride: String? = null,
     ): JSONObject {
-        val bases = if (method == "GET") apiBaseUrls() else listOf(apiBaseUrl())
+        val bases = apiBaseUrls()
+        val requestId = if (method != "GET") UUID.randomUUID().toString() else null
         var lastError: ApiException? = null
-        for (base in bases) {
+        for ((index, base) in bases.withIndex()) {
             try {
-                return requestAgainstBase(c, method, path, body, auth, accessOverride, base)
+                return requestAgainstBase(c, method, path, body, auth, accessOverride, base, requestId)
             } catch (error: ApiException) {
                 lastError = error
-                if (error.status != 0 && error.status !in listOf(502, 503, 504)) throw error
+                val retryable = error.status == 0 || error.status in listOf(502, 503, 504)
+                if (!retryable) throw error
+                if (index < bases.lastIndex) {
+                    BlueVpnRuntimeAudit.record(
+                        c.applicationContext,
+                        BlueVpnRuntimeAudit.Event.CONTROL_PLANE_FAILOVER,
+                        "${method.uppercase(Locale.ROOT)}:${path.substringBefore('?')}:${index + 1}",
+                    )
+                }
             }
         }
         throw lastError ?: ApiException(0, "CONTROL_PLANE_UNAVAILABLE", "سرور BlueVPN در دسترس نیست.")
@@ -2831,6 +2840,7 @@ object BlueVpnAccountManager {
         auth: Boolean,
         accessOverride: String?,
         baseUrl: String,
+        requestId: String?,
     ): JSONObject {
         val connection =
             URL(baseUrl + path)
@@ -2869,6 +2879,9 @@ object BlueVpnAccountManager {
                 "application/json; charset=utf-8"
             )
             connection.setRequestProperty("Accept-Charset", "utf-8")
+            if (!requestId.isNullOrBlank()) {
+                connection.setRequestProperty("X-BlueVPN-Request-ID", requestId)
+            }
             connection.setRequestProperty(
                 "X-Device-ID",
                 deviceId(c)

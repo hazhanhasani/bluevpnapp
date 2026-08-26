@@ -44,8 +44,8 @@ class WindowsSitePlatform4160Tests(unittest.TestCase):
         workflow = text('.github/workflows/build-windows.yml')
         self.assertIn('BlueVPN-Windows-Channel: beta', workflow)
         self.assertIn('BlueVPN-Windows-Channel-Authority: wordpress-manager', workflow)
-        self.assertIn('\"prerelease\":true', workflow)
-        self.assertIn('--prerelease)', workflow)
+        self.assertIn('--draft --prerelease --latest=false', workflow)
+        self.assertIn('-F draft=false -F prerelease=true', workflow)
         self.assertIn('WINDOWS_CHANNEL="beta"', workflow)
         self.assertIn('releases/tags/${TAG}', workflow)
 

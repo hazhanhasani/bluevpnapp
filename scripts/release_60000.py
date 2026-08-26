@@ -2,9 +2,9 @@ from pathlib import Path
 import json
 import subprocess
 
-OLD_VERSION = "5.10.10"
+OLD_VERSION = "6.0.0"
 NEW_VERSION = "6.0.0"
-OLD_CODE = "51010"
+OLD_CODE = "60000"
 NEW_CODE = "60000"
 
 def replace_once(path: str, old: str, new: str) -> None:

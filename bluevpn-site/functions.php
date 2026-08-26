@@ -1,7 +1,7 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-define('BLUEVPN_SITE_VERSION', '5.10.10');
+define('BLUEVPN_SITE_VERSION', '6.0.0');
 
 define('BLUEVPN_SITE_DIR', get_template_directory());
 define('BLUEVPN_SITE_URL', get_template_directory_uri());
@@ -187,9 +187,15 @@ add_filter('body_class', static function($classes){ $classes[] = 'bluevpn-site-v
 function bluevpn_site_windows_tapsell_bridge(): void {
     if ((string)($_GET['bluevpn_tapsell_windows'] ?? '') !== '1') return;
 
-    $slot = sanitize_text_field((string)wp_unslash($_GET['slot'] ?? ''));
-    if ($slot !== '' && strpos($slot, 'mediaad-') !== 0 && preg_match('/^[A-Za-z0-9_-]{2,120}$/', $slot)) {
-        $slot = 'mediaad-' . $slot;
+    $slotRaw = html_entity_decode((string)wp_unslash($_GET['slot'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $slot = '';
+    if (preg_match('/mediaad-[A-Za-z0-9_-]{2,120}/', $slotRaw, $slotMatch)) {
+        $slot = (string)$slotMatch[0];
+    } else {
+        $plainSlot = trim(wp_strip_all_tags($slotRaw));
+        if ($plainSlot !== '' && preg_match('/^[A-Za-z0-9_-]{2,120}$/', $plainSlot)) {
+            $slot = str_starts_with($plainSlot, 'mediaad-') ? $plainSlot : 'mediaad-' . $plainSlot;
+        }
     }
 
     nocache_headers();

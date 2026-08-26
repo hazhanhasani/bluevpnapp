@@ -40,11 +40,23 @@ final class BlueVPN_Ads {
         // redirect so cached/older Windows clients still land on the approved
         // publisher origin before Mediaad loader execution.
         $settings = BlueVPN_DB::settings();
-        $slot = mb_substr(trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')), 0, 200);
+        $slot = self::normalize_windows_web_placement_id((string)($settings['tapsell_windows_web_placement_id'] ?? ''));
         $target = add_query_arg(['bluevpn_tapsell_windows'=>'1','slot'=>$slot], 'https://blluepanel.ir/');
         nocache_headers();
         wp_redirect($target, 302, 'BlueVPN');
         exit;
+    }
+
+    private static function normalize_windows_web_placement_id(string $value): string {
+        $value = html_entity_decode(trim((string)$value), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        if (preg_match('/mediaad-[A-Za-z0-9_-]{2,120}/', $value, $m)) {
+            return (string)$m[0];
+        }
+        $plain = trim(wp_strip_all_tags($value));
+        if ($plain !== '' && preg_match('/^[A-Za-z0-9_-]{2,120}$/', $plain)) {
+            return str_starts_with($plain, 'mediaad-') ? $plain : 'mediaad-' . $plain;
+        }
+        return '';
     }
 
     private static function guard(string $nonce): void {
@@ -576,6 +588,9 @@ final class BlueVPN_Ads {
             $placements,
             static fn($row) => !empty($row['enabled'])
         );
+        $windowsWebPlacementId = self::normalize_windows_web_placement_id(
+            (string)($settings['tapsell_windows_web_placement_id'] ?? '')
+        );
         $enabled = $masterEnabled && $hasAnyCredential && !empty($enabledPlacements);
         $bannerSize = strtoupper(trim((string)($settings['tapsell_standard_banner_size'] ?? 'BANNER_320_50')));
         if (!preg_match('/^BANNER_[A-Z0-9_]{3,32}$/', $bannerSize)) {
@@ -604,10 +619,10 @@ final class BlueVPN_Ads {
             'standard_banner_every_slides' => max(1, min(10, (int)($settings['tapsell_standard_banner_every_slides'] ?? 3))),
             'reward_fullscreen_suppression_seconds' => max(0, min(3600, (int)($settings['tapsell_reward_fullscreen_suppression_seconds'] ?? 300))),
             'windows_web' => [
-                'enabled' => !empty($settings['tapsell_windows_web_enabled']) && trim((string)($settings['tapsell_windows_web_script_html'] ?? '')) !== '' && trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')) !== '',
-                'placement_id' => mb_substr(trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')), 0, 200),
+                'enabled' => !empty($settings['tapsell_windows_web_enabled']) && $windowsWebPlacementId !== '',
+                'placement_id' => $windowsWebPlacementId,
                 'script_html' => (string)($settings['tapsell_windows_web_script_html'] ?? ''),
-                'bridge_url' => add_query_arg(['bluevpn_tapsell_windows'=>'1','slot'=>mb_substr(trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')),0,200)], 'https://blluepanel.ir/'),
+                'bridge_url' => add_query_arg(['bluevpn_tapsell_windows'=>'1','slot'=>$windowsWebPlacementId], 'https://blluepanel.ir/'),
                 'free_only' => false,
                 'min_interval_seconds' => max(0, min(86400, (int)($settings['tapsell_windows_web_min_interval_seconds'] ?? 300))),
                 'daily_cap' => max(0, min(1000, (int)($settings['tapsell_windows_web_daily_cap'] ?? 10))),
@@ -976,7 +991,9 @@ final class BlueVPN_Ads {
         $s['tapsell_standard_banner_every_slides'] = max(1, min(10, (int)($_POST['tapsell_standard_banner_every_slides'] ?? 3)));
         $s['tapsell_reward_fullscreen_suppression_seconds'] = max(0, min(3600, (int)($_POST['tapsell_reward_fullscreen_suppression_seconds'] ?? 300)));
         $s['tapsell_windows_web_enabled'] = isset($_POST['tapsell_windows_web_enabled']);
-        $s['tapsell_windows_web_placement_id'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_windows_web_placement_id'] ?? '')), 0, 200);
+        $s['tapsell_windows_web_placement_id'] = self::normalize_windows_web_placement_id(
+            (string)wp_unslash($_POST['tapsell_windows_web_placement_id'] ?? '')
+        );
         $s['tapsell_windows_web_script_html'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_windows_web_script_html'] ?? '')), 0, 20000);
         // The Windows web banner is a carousel slide and is intentionally
         // available on both Free and Premium. Do not make other placements premium.

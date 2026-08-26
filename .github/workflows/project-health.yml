@@ -120,6 +120,24 @@ jobs:
           echo "changed=true" >> "$GITHUB_OUTPUT"
           echo "Validated version upgrade: $PREVIOUS -> $CURRENT"
 
+      - name: Validate dedicated GitHub Release token
+        if: ${{ steps.version.outputs.changed == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Missing repository secret BLUEVPN_GITHUB_RELEASE_TOKEN. Create a fine-grained PAT for this repository with Contents: Read and write, then save it under that exact secret name."
+            exit 1
+          fi
+          CAN_PUSH="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.permissions.push // false')"
+          if [ "$CAN_PUSH" != "true" ]; then
+            echo "::error::BLUEVPN_GITHUB_RELEASE_TOKEN exists but does not have repository Contents write permission."
+            exit 1
+          fi
+          echo "Dedicated GitHub Release token preflight: PASS"
+
       - name: Dispatch every BlueVPN release target at exact SHA
         if: ${{ steps.version.outputs.changed == 'true' }}
         env:

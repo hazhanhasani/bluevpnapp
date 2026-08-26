@@ -464,7 +464,7 @@ jobs:
           path: dist/*.apk
           compression-level: 0
 
-      - name: Publish synchronized BlueVPN Manager release barrier
+      - name: Wait for independent BlueVPN Manager release
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -473,12 +473,24 @@ jobs:
         run: |
           set -euo pipefail
           echo manager-release-barrier > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
-          python scripts/validate_php_release.py
-          rm -rf "$RUNNER_TEMP/manager" && mkdir -p "$RUNNER_TEMP/manager/bluevpn-manager"
-          rsync -a bluevpn-manager/ "$RUNNER_TEMP/manager/bluevpn-manager/"
-          (cd "$RUNNER_TEMP/manager" && zip -qr "$GITHUB_WORKSPACE/bluevpn-manager.zip" bluevpn-manager)
           TAG="bluevpn-manager-v${VERSION}"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then gh release upload "$TAG" bluevpn-manager.zip --clobber --repo "$GITHUB_REPOSITORY"; else gh release create "$TAG" bluevpn-manager.zip --repo "$GITHUB_REPOSITORY" --title "BlueVPN Manager ${VERSION}" --latest=false; fi
+          for attempt in $(seq 1 60); do
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              rm -rf "$RUNNER_TEMP/manager-release-check"
+              mkdir -p "$RUNNER_TEMP/manager-release-check"
+              if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern bluevpn-manager.zip --dir "$RUNNER_TEMP/manager-release-check" --clobber >/dev/null 2>&1; then
+                unzip -t "$RUNNER_TEMP/manager-release-check/bluevpn-manager.zip" >/dev/null
+                unzip -p "$RUNNER_TEMP/manager-release-check/bluevpn-manager.zip" bluevpn-manager/bluevpn-manager.php | grep -F "Version: ${VERSION}" >/dev/null
+                echo "Independent BlueVPN Manager release is ready: $TAG"
+                break
+              fi
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              echo "::error::Timed out waiting for independent BlueVPN Manager release $TAG"
+              exit 1
+            fi
+            sleep 5
+          done
 
       - name: Wait for WordPress control-plane auto-update
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}

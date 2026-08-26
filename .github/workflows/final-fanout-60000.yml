@@ -1,0 +1,36 @@
+name: BlueVPN Final Fanout 6.0.0
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/final-fanout-60000.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: 1d199879272e28bbdc69b366a1b221b844568a92
+
+    steps:
+      - name: Dispatch exact BlueVPN 6.0.0 targets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh workflow run bluevpn-manager-release.yml --repo "$GITHUB_REPOSITORY" --ref main             -f target_sha="$SOURCE_SHA"             -f request_id="version-6.0.0-${GITHUB_RUN_ID}"
+
+          gh workflow run build-apk.yml --repo "$GITHUB_REPOSITORY" --ref main             -f build_mode=full             -f target_sha="$SOURCE_SHA"
+
+          gh workflow run build-windows.yml --repo "$GITHUB_REPOSITORY" --ref main             -f target_sha="$SOURCE_SHA"
+
+          gh workflow run build-ios.yml --repo "$GITHUB_REPOSITORY" --ref main             -f target_sha="$SOURCE_SHA"
+
+          gh workflow run bluevpn-site-theme-release.yml --repo "$GITHUB_REPOSITORY" --ref main             -f target_sha="$SOURCE_SHA"
+
+          echo "Dispatched Manager, Android, Windows, iOS and Theme from $SOURCE_SHA"

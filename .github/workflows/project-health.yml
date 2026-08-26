@@ -75,7 +75,7 @@ jobs:
   release-fanout:
     name: Fan out coordinated version release
     needs: full-static-regression-gate
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     concurrency:
       group: bluevpn-version-fanout-main

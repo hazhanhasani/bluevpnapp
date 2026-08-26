@@ -1,61 +1,70 @@
 # BlueVPN
 
-BlueVPN is the source repository for the BlueVPN Android client and its WordPress control plane.
+[![Project Health](https://github.com/hazhanhasani/bluevpnapp/actions/workflows/project-health.yml/badge.svg)](https://github.com/hazhanhasani/bluevpnapp/actions/workflows/project-health.yml)
+[![Android](https://github.com/hazhanhasani/bluevpnapp/actions/workflows/build-apk.yml/badge.svg)](https://github.com/hazhanhasani/bluevpnapp/actions/workflows/build-apk.yml)
+[![Windows](https://github.com/hazhanhasani/bluevpnapp/actions/workflows/build-windows.yml/badge.svg)](https://github.com/hazhanhasani/bluevpnapp/actions/workflows/build-windows.yml)
 
-## Architecture
+BlueVPN is a multi-platform VPN project with Android, Windows and iOS clients, a WordPress control plane, a site theme, and managed gateway tooling. The repository also contains the release validators and CI/CD orchestration required to publish synchronized builds.
 
-- **Android client:** BlueVPN UI on the pinned v2rayNG/Xray runtime.
-- **Windows client:** installed .NET 10 WPF BlueVPN UI with a verified official v2rayN runtime bundle, Xray/sing-box TUN routing, automatic app/runtime updates, and Aether/WARP on Windows x64.
-- **Premium:** managed subscription routes provisioned by BlueVPN Manager.
-- **Free:** Aether/WARP loopback transport with policy-controlled fallback.
-- **Free/Premium isolation:** free and paid pools, entitlement state, route identity and runtime selection are kept separate.
-- **Control plane:** WordPress + MySQL via `bluevpn-manager`.
-- **Website:** `bluevpn-site`.
-- **Hidden location architecture:** internal routes stay hidden from the public UI; users select a location while BlueVPN chooses the best eligible internal route.
-- **CI/CD:** GitHub Actions validates release metadata, prepares/builds Android, compiles/publishes Windows x64+ARM64, validates v2rayN TUN configs, creates installers, and feeds every workflow result into the independent BlueVPN Sentinel. A full-project syntax/regression gate and a scheduled external WordPress/MySQL health probe provide additional coverage.
+## Components
 
-## Repository layout
+| Component | Repository path | Purpose |
+| --- | --- | --- |
+| Android | `android-source/` | BlueVPN overlay on the pinned v2rayNG/Xray runtime |
+| Windows | `bluevpn-windows/` | .NET/WPF client and Windows runtime integration |
+| iOS | `bluevpn-ios/` | Swift client |
+| Manager | `bluevpn-manager/` | WordPress control-plane plugin |
+| Site | `bluevpn-site/` | WordPress theme/site integration |
+| Gateway | `bluevpn-gateway/` | Managed gateway agent and installer |
+| Release tooling | `scripts/` | Versioning, preparation, validation and build helpers |
+| Regression gates | `tests/` | Static and behavioral release checks |
 
-```text
-.github/workflows/   GitHub Actions
-android-source/      Canonical Android overlay
-bluevpn-windows/     Windows WPF client + v2rayN/WARP runtime integration + installer
-branding/            App branding/version metadata
-bluevpn-manager/     WordPress control-plane plugin
-bluevpn-site/        WordPress theme
-scripts/             Build/release tooling
-tests/               Regression/release gates
-third_party/         Required third-party provenance/notes
-release.json         Canonical release metadata
-README.md            Canonical repository readme
-LICENSE              License
-NOTICE.md            Required notices
-```
+## Versioning
 
-## Release rules
+`version.json` is the canonical project version. All shipped components are expected to remain synchronized with it.
 
-`branding/app.json`, `release.json`, Android, BlueVPN Manager, BlueVPN Site and BlueVPN Windows metadata must remain synchronized.
-
-Versioning:
+BlueVPN uses bounded semantic-style versions:
 
 ```text
-X.Y.Z where 0 <= Y <= 10 and 0 <= Z <= 10
+X.Y.Z
+0 <= Y <= 10
+0 <= Z <= 10
 ```
 
-After `X.Y.10`, the next release is `X.(Y+1).0`. After `X.10.10`, the next release is `(X+1).0.0`. Invalid forms such as `4.18.0` are rejected by release validation.
+After `X.Y.10`, the next version is `X.(Y+1).0`. After `X.10.10`, the next version is `(X+1).0.0`.
 
-Generated build reports, caches, temporary diagnostics and historical one-off notes are excluded from Git. CI output belongs in GitHub Actions artifacts.
+Do not hand-edit component versions independently. The release pipeline validates synchronization and performs the project-wide bump.
 
-## Build
+## Documentation
 
-The supported build path is GitHub Actions. `scripts/prepare_android.py` applies the BlueVPN Android overlay to the pinned upstream source before Gradle compilation.
+Start at **[docs/README.md](docs/README.md)**.
+
+- [Architecture](docs/architecture.md)
+- [Release process](docs/release-process.md)
+- [Android](docs/android.md)
+- [Windows](docs/windows.md)
+- [iOS](docs/ios.md)
+- [WordPress control plane](docs/control-plane.md)
+- [Gateway](docs/gateway.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Security](docs/security.md)
+- [Contribution guide](CONTRIBUTING.md)
+- [Wiki source pages](docs/wiki/Home.md)
+
+## Supported build path
+
+GitHub Actions is the authoritative release path. Android is prepared from the pinned upstream source and the canonical BlueVPN overlay before Gradle compilation. Windows, iOS, Manager and Theme releases are dispatched from the central Project Health workflow.
+
+For repository validation, the Project Health gate checks syntax, release metadata, the release-test manifest, and the Python regression suite before publishing fan-out is allowed.
+
+## Repository hygiene
+
+Generated APKs, installers, caches, temporary diagnostics and one-off release notes do not belong in the repository root. Build outputs are retained as GitHub Actions artifacts or GitHub Releases. Historical files removed from the working tree remain available through Git history.
 
 ## Security
 
-Never commit production secrets, API tokens, signing keystores, WordPress credentials or `.env` files.
+Never commit production secrets, API tokens, signing keys, WordPress credentials, subscription URLs, private endpoints or `.env` files. See [docs/security.md](docs/security.md).
 
-## Repository policy
+## License
 
-A **full platform deployment** is authoritative: the BlueVPN deployment bot mirrors the uploaded platform and removes obsolete/generated tracked files that are not part of the current project.
-
-A **Manager-only deployment** updates only `bluevpn-manager/` and never performs repository-wide cleanup.
+See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).

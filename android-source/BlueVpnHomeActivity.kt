@@ -5050,17 +5050,84 @@ private fun dpHome(value: Int): Int =
         }
     }
 
+    private enum class ConnectionFailureClass {
+        CONFIG_INVALID,
+        DNS,
+        TLS_HANDSHAKE,
+        CORE_START_TIMEOUT,
+        SERVER_UNREACHABLE,
+        EGRESS_VERIFICATION,
+        UNKNOWN,
+    }
+
+    private data class ConnectionFailurePolicy(
+        val failureClass: ConnectionFailureClass,
+        val hardPenalty: Boolean,
+        val retryDelayMs: Long,
+    )
+
+    private fun classifyConnectionFailure(reason: String): ConnectionFailurePolicy {
+        val lower = reason.lowercase(Locale.US)
+        val failureClass = when {
+            "کانفیگ این مسیر نامعتبر" in reason ||
+                "کانفیگ از pool فعال خارج شده" in lower ||
+                "failed to parse json" in lower ||
+                "parse json config" in lower ||
+                "invalid character" in lower -> ConnectionFailureClass.CONFIG_INVALID
+            "تأیید اینترنت" in reason ||
+                "تست واقعی اینترنت" in reason ||
+                "اینترنت واقعی" in reason ||
+                "verification" in lower -> ConnectionFailureClass.EGRESS_VERIFICATION
+            "هسته xray در زمان مجاز شروع نشد" in lower -> ConnectionFailureClass.CORE_START_TIMEOUT
+            "dns" in lower ||
+                "no such host" in lower ||
+                "name resolution" in lower ||
+                "unknownhost" in lower ||
+                "lookup " in lower -> ConnectionFailureClass.DNS
+            "tls" in lower ||
+                "ssl" in lower ||
+                "handshake" in lower ||
+                "x509" in lower ||
+                "certificate" in lower -> ConnectionFailureClass.TLS_HANDSHAKE
+            "connection refused" in lower ||
+                "connection reset" in lower ||
+                "network is unreachable" in lower ||
+                "network unreachable" in lower ||
+                "no route to host" in lower ||
+                "dial tcp" in lower ||
+                "i/o timeout" in lower -> ConnectionFailureClass.SERVER_UNREACHABLE
+            else -> ConnectionFailureClass.UNKNOWN
+        }
+        return when (failureClass) {
+            ConnectionFailureClass.CONFIG_INVALID -> ConnectionFailurePolicy(failureClass, true, 900L)
+            ConnectionFailureClass.DNS -> ConnectionFailurePolicy(failureClass, false, 650L)
+            ConnectionFailureClass.TLS_HANDSHAKE -> ConnectionFailurePolicy(failureClass, true, 700L)
+            ConnectionFailureClass.CORE_START_TIMEOUT -> ConnectionFailurePolicy(failureClass, true, 600L)
+            ConnectionFailureClass.SERVER_UNREACHABLE -> ConnectionFailurePolicy(failureClass, true, 450L)
+            ConnectionFailureClass.EGRESS_VERIFICATION -> ConnectionFailurePolicy(failureClass, false, 350L)
+            ConnectionFailureClass.UNKNOWN -> ConnectionFailurePolicy(failureClass, false, 500L)
+        }
+    }
+
     private fun failCurrentAndTryNext(reason: String) {
         if (!failoverActive || userDisconnecting) return
 
         lastCandidateFailureReason = reason.trim().ifBlank { "اتصال فعلی پاسخ نداد" }
+        val failurePolicy = classifyConnectionFailure(lastCandidateFailureReason)
         val failedGuid = attemptedGuid
-        lifecycleScope.launch(Dispatchers.IO) {
-            BlueVpnAi.recordFailure(
-                this@BlueVpnHomeActivity,
-                failedGuid,
-                reason,
-            )
+        BlueVpnRuntimeAudit.record(
+            applicationContext,
+            BlueVpnRuntimeAudit.Event.VPN_FAILURE_CLASSIFIED,
+            "${failurePolicy.failureClass.name}:${if (failurePolicy.hardPenalty) "hard" else "soft"}",
+        )
+        if (failurePolicy.hardPenalty) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                BlueVpnAi.recordFailure(
+                    this@BlueVpnHomeActivity,
+                    failedGuid,
+                    reason,
+                )
+            }
         }
 
         handler.removeCallbacks(requestPing)
@@ -5070,20 +5137,22 @@ private fun dpHome(value: Int): Int =
         verificationDeadlineGuid = ""
 
         if (failedGuid.isNotBlank()) {
-            // Hard quarantine for this connect cycle. The next explicit connect
-            // attempt clears only this temporary flag, while failedRecently()
-            // keeps a short-lived score penalty so the same route is not picked
-            // first again immediately.
+            // Every failed candidate leaves the current connection cycle so the
+            // queue advances. Only route-specific failures poison persistent
+            // scoring/history. DNS and egress-proof failures are frequently
+            // physical-network or probe-target noise and therefore stay soft.
             BlueVpnPreferences.markSessionInactive(this, failedGuid)
-            BlueVpnPreferences.markServerFailure(this, failedGuid)
-            BlueVpnRouteIntelligence.recordFailure(this, failedGuid, reason)
-            BlueVpnIntelligenceCore.resolveDecision(
-                context = this,
-                guid = failedGuid,
-                success = false,
-                failureReason = reason,
-            )
-            MmkvManager.encodeServerTestDelayMillis(failedGuid, -1L)
+            if (failurePolicy.hardPenalty) {
+                BlueVpnPreferences.markServerFailure(this, failedGuid)
+                BlueVpnRouteIntelligence.recordFailure(this, failedGuid, reason)
+                BlueVpnIntelligenceCore.resolveDecision(
+                    context = this,
+                    guid = failedGuid,
+                    success = false,
+                    failureReason = reason,
+                )
+                MmkvManager.encodeServerTestDelayMillis(failedGuid, -1L)
+            }
         }
 
         LauncherManager.stopService(this)
@@ -5149,10 +5218,7 @@ private fun dpHome(value: Int): Int =
         // failed as well. Config-parse failures therefore get a bounded drain
         // window; the bad GUID remains quarantined and the next entitled route
         // is still tried automatically.
-        val retryDelayMs = if (
-            reason.contains("کانفیگ این مسیر نامعتبر بود") ||
-            reason.contains("failed to parse json", ignoreCase = true)
-        ) 900L else 350L
+        val retryDelayMs = failurePolicy.retryDelayMs
         handler.postDelayed({
             if (failoverActive) startCurrentCandidate()
         }, retryDelayMs)

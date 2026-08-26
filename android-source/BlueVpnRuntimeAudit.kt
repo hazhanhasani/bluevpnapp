@@ -33,6 +33,7 @@ object BlueVpnRuntimeAudit {
         API_FAILOVER_USED,
         UPDATE_CHECK_FAILED,
         VPN_VERIFICATION_FAILED,
+        VPN_FAILURE_CLASSIFIED,
         CONNECTION_PHASE,
     }
 

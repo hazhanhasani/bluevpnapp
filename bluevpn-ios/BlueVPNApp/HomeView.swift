@@ -3,7 +3,7 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject var store: BlueVPNStore
     var body: some View { ZStack { BlueBackground(); ScrollView(showsIndicators: false) { VStack(spacing: 18) {
-        HStack { Button { store.path.append(.account) } label: { Image(systemName: "person").font(.title2).frame(width: 54,height:54).background(.thinMaterial).clipShape(RoundedRectangle(cornerRadius:18)) }; Spacer(); Text("5.9.4").foregroundStyle(.secondary); Button { store.path.append(.settings) } label: { Image(systemName:"line.3.horizontal").font(.title2).frame(width:54,height:54).background(.thinMaterial).clipShape(RoundedRectangle(cornerRadius:18)) } }
+        HStack { Button { store.path.append(.account) } label: { Image(systemName: "person").font(.title2).frame(width: 54,height:54).background(.thinMaterial).clipShape(RoundedRectangle(cornerRadius:18)) }; Spacer(); Text("5.9.5").foregroundStyle(.secondary); Button { store.path.append(.settings) } label: { Image(systemName:"line.3.horizontal").font(.title2).frame(width:54,height:54).background(.thinMaterial).clipShape(RoundedRectangle(cornerRadius:18)) } }
         Text("BlueVPN").font(.system(size: 42, weight: .bold, design: .rounded)).italic().foregroundStyle(BlueColors.accent)
         Text(store.account.active ? "فعال • اشتراک \(store.account.tier == .premium ? "Premium" : "رایگان") • \(store.account.locations) لوکیشن" : "حالت مهمان • اتصال رایگان").foregroundStyle(.secondary)
         VStack(spacing:8) { HStack(spacing:10) { Circle().fill(statusColor).frame(width:13,height:13); Text(store.statusTitle).font(.title.bold()) }; Text(store.statusCaption).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center) }

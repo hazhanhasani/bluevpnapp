@@ -6,8 +6,8 @@ class IOSAndroidParity560Tests(unittest.TestCase):
     def text(self,path): return (ROOT/path).read_text(encoding='utf-8')
     def test_ios_targets_version_and_tunnel_contract(self):
         version=json.loads(self.text('version.json')); project=self.text('bluevpn-ios/project.yml')
-        self.assertEqual(version['components']['ios'],'5.9.4')
-        self.assertIn('MARKETING_VERSION: 5.9.4',project); self.assertIn('CURRENT_PROJECT_VERSION: 50904',project)
+        self.assertEqual(version['components']['ios'],'5.9.5')
+        self.assertIn('MARKETING_VERSION: 5.9.5',project); self.assertIn('CURRENT_PROJECT_VERSION: 50905',project)
         self.assertIn('packet-tunnel-provider',project); self.assertIn('BlueVPNTunnel',project)
         self.assertIn('PRODUCT_BUNDLE_IDENTIFIER: ir.blluepanel.bluevpn\n',project)
         self.assertIn('PRODUCT_BUNDLE_IDENTIFIER: ir.blluepanel.bluevpn.tunnel',project)

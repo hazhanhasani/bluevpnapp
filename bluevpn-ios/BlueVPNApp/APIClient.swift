@@ -25,7 +25,7 @@ actor APIClient {
     func get<T: Decodable>(_ path: String, token: String? = nil, as: T.Type) async throws -> T { try await request(path, method: "GET", token: token, body: Optional<String>.none, as: T.self) }
     func text(from absoluteURL: String, token: String? = nil) async throws -> String {
         guard let url=URL(string:absoluteURL),url.scheme=="https",let host=url.host?.lowercased(),Self.isPublicHost(host) else { throw APIError.invalidResponse }
-        var request=URLRequest(url:url);request.setValue("BlueVPN-iOS/5.9.4",forHTTPHeaderField:"User-Agent");request.setValue("text/plain,*/*;q=0.8",forHTTPHeaderField:"Accept")
+        var request=URLRequest(url:url);request.setValue("BlueVPN-iOS/5.9.5",forHTTPHeaderField:"User-Agent");request.setValue("text/plain,*/*;q=0.8",forHTTPHeaderField:"Accept")
         if let token,!token.isEmpty{request.setValue("Bearer \(token)",forHTTPHeaderField:"Authorization")}
         let (data,response)=try await session.data(for:request)
         guard let http=response as? HTTPURLResponse,200..<300 ~= http.statusCode,let text=String(data:data,encoding:.utf8),!text.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else {throw APIError.invalidResponse}
@@ -55,7 +55,7 @@ actor APIClient {
     private func request<Body: Encodable, T: Decodable>(_ path: String, base: URL, method: String, token: String?, body: Body?, as: T.Type) async throws -> T {
         guard let url = URL(string: path, relativeTo: base) else { throw APIError.invalidResponse }
         var request = URLRequest(url: url); request.httpMethod = method
-        request.setValue("BlueVPN-iOS/5.9.4", forHTTPHeaderField: "User-Agent")
+        request.setValue("BlueVPN-iOS/5.9.5", forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue(DeviceIdentity.shared.id, forHTTPHeaderField: "X-Device-ID")
         if let token, !token.isEmpty { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }

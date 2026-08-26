@@ -40,6 +40,16 @@ class RuntimeThemeGithubFix4169(unittest.TestCase):
         self.assertIn("TEXT_DIRECTION_FIRST_STRONG_RTL", home)
         self.assertIn("BlueVpnRadius.resolve(radiusDp)", home)
 
+    def test_android_location_pool_is_hardened_before_r8(self):
+        hardener = text("scripts/harden_android_locations.py")
+        optimizer = text("scripts/optimize_android_release.py")
+        self.assertIn("BLUEVPN_NULL_SAFE_LOCATION_POOL_V5103", hardener)
+        self.assertIn("Iterable<*>", hardener)
+        self.assertIn("runCatching { MmkvManager.decodeServerConfig(guid) }.getOrNull()", hardener)
+        self.assertIn("BLUEVPN_LOCATION_STALE_CACHE_FALLBACK_V5103", hardener)
+        self.assertIn("harden_android_locations", optimizer)
+        self.assertIn("harden_android_locations()", optimizer)
+
     def test_windows_workflow_uses_node24_ready_artifact_actions(self):
         s = text(".github/workflows/build-windows.yml")
         self.assertNotIn("actions/upload-artifact@v4", s)

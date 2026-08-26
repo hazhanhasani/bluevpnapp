@@ -40,6 +40,12 @@ def optimize(path: Path) -> None:
         path.write_text(text, encoding="utf-8")
     print(f"BlueVPN Android release optimizer PASS: {path}")
 
+    # The same authoritative pre-Gradle hook also hardens the location pool.
+    # It patches both the overlay source and the generated upstream copy when
+    # present, keeping R8 builds safe from null/corrupt MMKV rows.
+    from harden_android_locations import apply as harden_android_locations
+    harden_android_locations()
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()

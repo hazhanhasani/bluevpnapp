@@ -70,9 +70,11 @@ def harden_account_manager(text: str) -> str:
     if server_list_reads == 0:
         raise RuntimeError("AccountManager server-list MMKV anchors not found")
 
-    # Rewrite consumers first. Helpers are injected afterwards so their one raw
-    # MMKV call remains the single audited boundary instead of recursively
-    # rewriting itself.
+    # Rewrite consumers first. Helpers are injected afterwards so their raw
+    # MMKV calls remain the only audited boundaries instead of recursively
+    # rewriting themselves. Two decodeServerList overloads are used by the
+    # pinned v2rayNG source: one accepts a subscription GUID and one accepts a
+    # list of SubscriptionItem rows. Keep both overloads type-safe.
     text = text.replace(raw_subscriptions, "safeDecodedSubscriptions()")
     text = text.replace(raw_server_list, "safeDecodedServerGuids(")
 
@@ -97,6 +99,17 @@ def harden_account_manager(text: str) -> str:
             ?.mapNotNull { (it as? String)?.trim()?.takeIf { guid -> guid.isNotEmpty() } }
             .orEmpty()
     }
+
+    // v2rayNG also exposes a batch overload used by subscription refresh. The
+    // previous hardener accidentally redirected this List<SubscriptionItem>
+    // call to the String-only wrapper and broke Kotlin compilation. Mirror the
+    // overload and sanitize its result at the same MMKV boundary.
+    private fun safeDecodedServerGuids(subscriptionRows: List<SubscriptionItem>): List<String> {
+        val raw = runCatching { MmkvManager.decodeServerList(subscriptionRows) }.getOrNull()
+        return (raw as? Iterable<*>)
+            ?.mapNotNull { (it as? String)?.trim()?.takeIf { guid -> guid.isNotEmpty() } }
+            .orEmpty()
+    }
 '''
     text = text.replace(anchor, helpers, 1)
 
@@ -115,13 +128,12 @@ def harden_account_manager(text: str) -> str:
     if readiness in text:
         text = text.replace(readiness, readiness_compat, 1)
 
-    # There must be exactly one raw read of each kind now: inside the defensive
-    # helper itself. Any extra raw read means a future caller bypassed the guard.
+    # Exactly one raw subscription read and two executable server-list reads
+    # should remain inside the defensive helpers. The additional server-list
+    # token is the non-executable compatibility comment above.
     if text.count(raw_subscriptions) != 1:
         raise RuntimeError("unsafe decodeSubscriptions() call survived AccountManager hardening")
-    if text.count(raw_server_list) != 2:
-        # One executable raw read lives in safeDecodedServerGuids(); the second
-        # occurrence is the non-executable compatibility comment above.
+    if text.count(raw_server_list) != 3:
         raise RuntimeError("unexpected decodeServerList() contract count after AccountManager hardening")
     return text
 

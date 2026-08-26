@@ -174,3 +174,40 @@ add_action('admin_notices', 'bluevpn_site_admin_notice');
 
 // BlueVPN Site 5.2.2 cache/debug marker.
 add_filter('body_class', static function($classes){ $classes[] = 'bluevpn-site-v4-16-9'; return $classes; });
+
+
+/**
+ * Tapsell Web bridge for the Windows client.
+ *
+ * The publisher authorization was issued for blluepanel.ir. The Mediaad loader
+ * must therefore execute inside a real document whose origin is blluepanel.ir;
+ * loading the same script from bot.blluepanel.ir would still present the wrong
+ * publisher origin to the ad network.
+ */
+function bluevpn_site_windows_tapsell_bridge(): void {
+    if ((string)($_GET['bluevpn_tapsell_windows'] ?? '') !== '1') return;
+
+    nocache_headers();
+    header('Content-Type: text/html; charset=utf-8');
+    header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+    header("Pragma: no-cache");
+    header("Content-Security-Policy: default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://s1.mediaad.org https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' https: data: blob:; frame-src https:; connect-src https: wss:;");
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header('X-Robots-Tag: noindex, nofollow, noarchive');
+
+    echo '<!doctype html><html dir="rtl"><head><meta charset="utf-8">';
+    echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
+    echo '<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}';
+    echo 'body{display:block}iframe,img,video,canvas,object,embed{max-width:100%;max-height:100%;border:0}</style>';
+    echo '</head><body><div id="bluevpn-tapsell-root" style="width:100%;height:100%"></div>';
+    // Exact publisher loader approved for blluepanel.ir.
+    echo '<script type="text/javascript">(function (){';
+    echo 'const head=document.getElementsByTagName("head")[0];';
+    echo 'const script=document.createElement("script");';
+    echo 'script.type="text/javascript";script.async=true;';
+    echo 'script.src="https://s1.mediaad.org/serve/blluepanel.ir/loader.js";';
+    echo 'head.appendChild(script);';
+    echo '})();</script></body></html>';
+    exit;
+}
+add_action('template_redirect', 'bluevpn_site_windows_tapsell_bridge', 0);

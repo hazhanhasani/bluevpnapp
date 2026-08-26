@@ -1,7 +1,7 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-define('BLUEVPN_SITE_VERSION', '5.10.9');
+define('BLUEVPN_SITE_VERSION', '5.10.10');
 
 define('BLUEVPN_SITE_DIR', get_template_directory());
 define('BLUEVPN_SITE_URL', get_template_directory_uri());
@@ -187,6 +187,11 @@ add_filter('body_class', static function($classes){ $classes[] = 'bluevpn-site-v
 function bluevpn_site_windows_tapsell_bridge(): void {
     if ((string)($_GET['bluevpn_tapsell_windows'] ?? '') !== '1') return;
 
+    $slot = sanitize_text_field((string)wp_unslash($_GET['slot'] ?? ''));
+    if ($slot !== '' && strpos($slot, 'mediaad-') !== 0 && preg_match('/^[A-Za-z0-9_-]{2,120}$/', $slot)) {
+        $slot = 'mediaad-' . $slot;
+    }
+
     nocache_headers();
     header('Content-Type: text/html; charset=utf-8');
     header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
@@ -195,17 +200,27 @@ function bluevpn_site_windows_tapsell_bridge(): void {
     header('Referrer-Policy: strict-origin-when-cross-origin');
     header('X-Robots-Tag: noindex, nofollow, noarchive');
 
-    echo '<!doctype html><html dir="rtl"><head><meta charset="utf-8">';
+    if (!preg_match('/^mediaad-[A-Za-z0-9_-]{2,120}$/', $slot)) {
+        status_header(400);
+        echo '<!doctype html><html><body style="margin:0;background:transparent" data-bluevpn-loader-state="invalid_slot"></body></html>';
+        exit;
+    }
+
+    echo '<!doctype html><html dir="rtl" data-bluevpn-loader-state="loading"><head><meta charset="utf-8">';
     echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
-    echo '<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}';
-    echo 'body{display:block}iframe,img,video,canvas,object,embed{max-width:100%;max-height:100%;border:0}</style>';
-    echo '</head><body><div id="bluevpn-tapsell-root" style="width:100%;height:100%"></div>';
-    // Exact publisher loader approved for blluepanel.ir.
+    echo '<style>html,body,#bluevpn-tapsell-root{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}';
+    echo '#bluevpn-tapsell-root{display:flex;align-items:center;justify-content:center}';
+    echo '[id^="mediaad-"]{width:100%;height:100%;display:flex;align-items:center;justify-content:center}';
+    echo 'iframe,img,video,canvas,object,embed{max-width:100%;max-height:100%;border:0}</style>';
+    echo '</head><body><div id="bluevpn-tapsell-root"><div id="' . esc_attr($slot) . '"></div></div>';
     echo '<script type="text/javascript">(function (){';
-    echo 'const head=document.getElementsByTagName("head")[0];';
-    echo 'const script=document.createElement("script");';
-    echo 'script.type="text/javascript";script.async=true;';
+    echo 'const root=document.documentElement;const head=document.getElementsByTagName("head")[0];';
+    echo 'const script=document.createElement("script");script.type="text/javascript";script.async=true;';
     echo 'script.src="https://s1.mediaad.org/serve/blluepanel.ir/loader.js";';
+    echo 'const timeout=setTimeout(function(){root.dataset.bluevpnLoaderState="timeout";},15000);';
+    echo 'script.onload=function(){clearTimeout(timeout);root.dataset.bluevpnLoaderState="loaded";';
+    echo 'setTimeout(function(){if(typeof window.mediaad==="undefined"&&typeof window.ma==="undefined"){root.dataset.bluevpnLoaderState="not_initialized";}},5000);};';
+    echo 'script.onerror=function(){clearTimeout(timeout);root.dataset.bluevpnLoaderState="load_error";};';
     echo 'head.appendChild(script);';
     echo '})();</script></body></html>';
     exit;

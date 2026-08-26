@@ -2,9 +2,9 @@ from pathlib import Path
 import json
 import subprocess
 
-OLD_VERSION = "5.10.9"
+OLD_VERSION = "5.10.10"
 NEW_VERSION = "5.10.10"
-OLD_CODE = "51009"
+OLD_CODE = "51010"
 NEW_CODE = "51010"
 
 # Tapsell Windows: follow the official Web Script contract. The approved

@@ -39,8 +39,11 @@ final class BlueVPN_Ads {
         // control-plane host. Keep this legacy endpoint as a compatibility
         // redirect so cached/older Windows clients still land on the approved
         // publisher origin before Mediaad loader execution.
+        $settings = BlueVPN_DB::settings();
+        $slot = mb_substr(trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')), 0, 200);
+        $target = add_query_arg(['bluevpn_tapsell_windows'=>'1','slot'=>$slot], 'https://blluepanel.ir/');
         nocache_headers();
-        wp_redirect('https://blluepanel.ir/?bluevpn_tapsell_windows=1', 302, 'BlueVPN');
+        wp_redirect($target, 302, 'BlueVPN');
         exit;
     }
 
@@ -601,7 +604,7 @@ final class BlueVPN_Ads {
             'standard_banner_every_slides' => max(1, min(10, (int)($settings['tapsell_standard_banner_every_slides'] ?? 3))),
             'reward_fullscreen_suppression_seconds' => max(0, min(3600, (int)($settings['tapsell_reward_fullscreen_suppression_seconds'] ?? 300))),
             'windows_web' => [
-                'enabled' => !empty($settings['tapsell_windows_web_enabled']) && trim((string)($settings['tapsell_windows_web_script_html'] ?? '')) !== '',
+                'enabled' => !empty($settings['tapsell_windows_web_enabled']) && trim((string)($settings['tapsell_windows_web_script_html'] ?? '')) !== '' && trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')) !== '',
                 'placement_id' => mb_substr(trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')), 0, 200),
                 'script_html' => (string)($settings['tapsell_windows_web_script_html'] ?? ''),
                 'bridge_url' => 'https://blluepanel.ir/?bluevpn_tapsell_windows=1',

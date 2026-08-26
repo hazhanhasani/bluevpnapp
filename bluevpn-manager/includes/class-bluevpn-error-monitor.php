@@ -372,6 +372,9 @@ final class BlueVPN_Error_Monitor {
 
         try {
             if (class_exists('BlueVPN_Production')) {
+                // Sentinel itself is already running, so WP-Cron is alive enough
+                // to perform a bounded recovery attempt for a stale daily backup.
+                BlueVPN_Production::recover_stale_backup_if_needed();
                 $health = BlueVPN_Production::health_summary();
                 foreach ((array)($health['checks'] ?? []) as $name => $row) {
                     $component = (string)$name;

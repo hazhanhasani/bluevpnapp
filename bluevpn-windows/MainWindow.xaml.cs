@@ -250,6 +250,7 @@ public partial class MainWindow : Window
                 var installProgress = new Progress<string>(text => FooterStatus.Text = text);
                 if (!await WebView2RuntimeInstaller.EnsureInstalledAsync(installProgress, _lifetimeCts.Token)) return false;
                 _tapsellWebEnvironment = await WebView2RuntimeInstaller.CreatePerUserEnvironmentAsync(_lifetimeCts.Token);
+                TapsellWebView.DefaultBackgroundColor = System.Drawing.Color.Transparent;
                 await TapsellWebView.EnsureCoreWebView2Async(_tapsellWebEnvironment);
                 if (TapsellWebView.CoreWebView2 is null) return false;
                 TapsellWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;
@@ -281,10 +282,10 @@ public partial class MainWindow : Window
             AdCard.Visibility = Visibility.Visible;
             AdCard.Cursor = Cursors.Arrow;
             AdCard.Height = Math.Clamp(cfg.Height, 90, 220);
-            // Keep the WebView in layout while the provider loads so ad iframes
-            // receive a real viewport, but do not expose the native white surface.
-            // It becomes visible only after provider content is positively detected.
-            TapsellWebView.Visibility = Visibility.Hidden;
+            // CompositionControl remains visible so Mediaad receives a real viewport.
+            // The WPF loading panel is above it and hides the web surface until the
+            // official mediaad-* widget contains renderable provider content.
+            TapsellWebView.Visibility = Visibility.Visible;
             AdFallbackPanel.Visibility = Visibility.Collapsed;
             TapsellLoadingPanel.Visibility = Visibility.Visible;
             AdProviderLabel.Visibility = Visibility.Visible;

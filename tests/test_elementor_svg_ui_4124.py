@@ -38,7 +38,7 @@ class ElementorSvgUi4124Tests(unittest.TestCase):
         src=(ROOT/'bluevpn-site/inc/elementor/widgets.php').read_text()
         for name in ['bluevpn-global-shield.svg','bluevpn-premium-cards.svg']:
             self.assertIn(name, src)
-        self.assertIn("BLUEVPN_SITE_VERSION', '5.10.0", (ROOT/'bluevpn-site/functions.php').read_text())
+        self.assertIn("BLUEVPN_SITE_VERSION', '5.10.1", (ROOT/'bluevpn-site/functions.php').read_text())
 
 if __name__ == '__main__':
     unittest.main()

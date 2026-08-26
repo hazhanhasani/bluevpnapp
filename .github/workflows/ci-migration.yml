@@ -1,0 +1,59 @@
+name: BlueVPN CI Migration
+
+on:
+  push: {}
+  workflow_dispatch: {}
+
+jobs:
+  migrate:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+
+      - name: Install migration parser
+        run: python -m pip install --disable-pip-version-check 'ruamel.yaml>=0.18,<0.19'
+
+      - name: Generate unified workflow and Android coexistence guard
+        run: python scripts/migrate_bluevpn_unified_pipeline.py
+
+      - name: Validate generated YAML
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from ruamel.yaml import YAML
+          p=Path('.github/workflows/bluevpn.yml')
+          doc=YAML(typ='safe').load(p.read_text(encoding='utf-8'))
+          assert isinstance(doc, dict) and isinstance(doc.get('jobs'), dict)
+          assert ':app:compilePlaystoreReleaseKotlin' in p.read_text(encoding='utf-8')
+          assert len(list(Path('.github/workflows').glob('*.y*ml'))) == 1
+          PY
+
+      - name: Run Python regression suite
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Run release validators
+        run: |
+          python scripts/validate_release.py
+          python scripts/validate_php_release.py
+
+      - name: Commit unified pipeline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No migration changes to commit.'
+            exit 0
+          fi
+          git commit -m 'ci: unify BlueVPN pipeline and enforce VPN coexistence [skip ci]'
+          git push origin "HEAD:${GITHUB_REF_NAME}"

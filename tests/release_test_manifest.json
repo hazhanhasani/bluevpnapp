@@ -2,6 +2,7 @@
   "schema": 1,
   "authoritative": true,
   "tests": [
+    "test_android_foreign_vpn_coexistence.py",
     "test_android_notification_controls_484.py",
     "test_android_system_integration_478.py",
     "test_apk_runtime_gate_494.py",

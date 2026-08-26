@@ -8,8 +8,11 @@ class WindowsTapsellMediaAdPublisherOrigin595Tests(unittest.TestCase):
     def test_windows_extracts_mediaad_publisher_from_official_tapsell_snippet(self):
         service = (ROOT / "bluevpn-windows/Services/AdvertisementService.cs").read_text(encoding="utf-8")
         self.assertIn("WindowsWebPublisherHost", service)
-        self.assertIn("mediaad\\.org/serve/", service)
-        self.assertIn("loader\\.js", service)
+        # AdvertisementService uses a regular C# string literal. Therefore the
+        # regex escapes that reach System.Text.RegularExpressions (\d, \.) are
+        # represented by doubled backslashes in the C# source file.
+        self.assertIn("mediaad\\\\.org/serve/", service)
+        self.assertIn("loader\\\\.js", service)
         self.assertIn("Uri.CheckHostName", service)
 
     def test_windows_prioritizes_exact_registered_publisher_origin(self):

@@ -14,6 +14,98 @@ LOCATION_MARKER = "// BLUEVPN_NULL_SAFE_LOCATION_POOL_V5103"
 ACCOUNT_MARKER = "// BLUEVPN_NULL_SAFE_MMKV_BOUNDARY_V5105"
 
 
+def _replace_kotlin_calls(text: str, call: str, replacement: str) -> tuple[str, int]:
+    """Replace exact executable Kotlin call-sites while skipping comments/strings.
+
+    This deliberately avoids str.replace() over an entire source file. The old
+    AccountManager hardener rewrote every textual MMKV occurrence and accidentally
+    changed the generic element type seen by Kotlin. We only rewrite real code
+    tokens and leave comments/string literals untouched.
+    """
+    out: list[str] = []
+    i = 0
+    changed = 0
+    n = len(text)
+    state = "code"
+
+    while i < n:
+        if state == "code":
+            if text.startswith("//", i):
+                state = "line_comment"
+                out.append("//")
+                i += 2
+                continue
+            if text.startswith("/*", i):
+                state = "block_comment"
+                out.append("/*")
+                i += 2
+                continue
+            if text.startswith('"""', i):
+                state = "triple_string"
+                out.append('"""')
+                i += 3
+                continue
+            if text[i] == '"':
+                state = "string"
+                out.append(text[i])
+                i += 1
+                continue
+            if text[i] == "'":
+                state = "char"
+                out.append(text[i])
+                i += 1
+                continue
+            if text.startswith(call, i):
+                out.append(replacement)
+                i += len(call)
+                changed += 1
+                continue
+            out.append(text[i])
+            i += 1
+            continue
+
+        if state == "line_comment":
+            out.append(text[i])
+            if text[i] == "\n":
+                state = "code"
+            i += 1
+            continue
+
+        if state == "block_comment":
+            if text.startswith("*/", i):
+                out.append("*/")
+                i += 2
+                state = "code"
+            else:
+                out.append(text[i])
+                i += 1
+            continue
+
+        if state == "triple_string":
+            if text.startswith('"""', i):
+                out.append('"""')
+                i += 3
+                state = "code"
+            else:
+                out.append(text[i])
+                i += 1
+            continue
+
+        if state in {"string", "char"}:
+            ch = text[i]
+            out.append(ch)
+            i += 1
+            if ch == "\\" and i < n:
+                out.append(text[i])
+                i += 1
+                continue
+            if (state == "string" and ch == '"') or (state == "char" and ch == "'"):
+                state = "code"
+            continue
+
+    return "".join(out), changed
+
+
 def harden_location_util(text: str) -> str:
     if LOCATION_MARKER in text:
         return text
@@ -53,7 +145,7 @@ def harden_location_util(text: str) -> str:
 
 
 def harden_account_manager(text: str) -> str:
-    """Make AccountManager's raw MMKV collections safe before any sequence iteration."""
+    """Sanitize MMKV collections without changing AccountManager's Kotlin types."""
     if ACCOUNT_MARKER in text:
         return text
 
@@ -61,51 +153,49 @@ def harden_account_manager(text: str) -> str:
     if anchor not in text:
         raise RuntimeError("BlueVpnAccountManager anchor not found")
 
+    # v2rayNG 2.3.5 declares decodeSubscriptions(): List<SubscriptionCache>.
+    # SubscriptionCache owns both `.guid` and `.subscription`; changing this to
+    # SubscriptionItem is exactly what caused the 5.10.5 compile regression.
+    cache_import = "import com.v2ray.ang.dto.SubscriptionCache"
+    if cache_import not in text:
+        import_anchor = "import com.v2ray.ang.dto.SubscriptionItem"
+        if import_anchor not in text:
+            raise RuntimeError("SubscriptionItem import anchor not found")
+        text = text.replace(import_anchor, import_anchor + "\n" + cache_import, 1)
+
     raw_subscriptions = "MmkvManager.decodeSubscriptions()"
     raw_server_list = "MmkvManager.decodeServerList("
-    subscription_reads = text.count(raw_subscriptions)
-    server_list_reads = text.count(raw_server_list)
-    if subscription_reads == 0:
-        raise RuntimeError("AccountManager subscription MMKV anchors not found")
-    if server_list_reads == 0:
-        raise RuntimeError("AccountManager server-list MMKV anchors not found")
 
-    # Rewrite consumers first. Helpers are injected afterwards so their raw
-    # MMKV calls remain the only audited boundaries instead of recursively
-    # rewriting themselves. Two decodeServerList overloads are used by the
-    # pinned v2rayNG source: one accepts a subscription GUID and one accepts a
-    # list of SubscriptionItem rows. Keep both overloads type-safe.
-    text = text.replace(raw_subscriptions, "safeDecodedSubscriptions()")
-    text = text.replace(raw_server_list, "safeDecodedServerGuids(")
+    text, subscription_reads = _replace_kotlin_calls(
+        text,
+        raw_subscriptions,
+        "safeDecodedSubscriptions()",
+    )
+    text, server_list_reads = _replace_kotlin_calls(
+        text,
+        raw_server_list,
+        "safeDecodedServerGuids(",
+    )
+    if subscription_reads == 0:
+        raise RuntimeError("AccountManager subscription MMKV call-sites not found")
+    if server_list_reads == 0:
+        raise RuntimeError("AccountManager server-list MMKV call-sites not found")
 
     helpers = r'''object BlueVpnAccountManager {
     // BLUEVPN_NULL_SAFE_MMKV_BOUNDARY_V5105
-    // v2rayNG's MMKV APIs are Kotlin platform boundaries. During a concurrent
-    // subscription import an OEM/runtime may briefly expose a null row despite
-    // the declared generic type. Never let such a row reach Sequence/Iterator.
-    private fun safeDecodedSubscriptions(): List<SubscriptionItem> {
+    // Preserve the exact upstream generic contract: SubscriptionCache exposes
+    // both `guid` and `subscription`, which AccountManager consumers require.
+    private fun safeDecodedSubscriptions(): List<SubscriptionCache> {
         val raw = runCatching { MmkvManager.decodeSubscriptions() }.getOrNull()
         return (raw as? Iterable<*>)
-            ?.mapNotNull { it as? SubscriptionItem }
+            ?.mapNotNull { it as? SubscriptionCache }
             .orEmpty()
     }
 
-    // Preserve source order and duplicates; only invalid/null/blank GUID values
-    // are removed. This keeps routing semantics unchanged while closing the
-    // platform-null iterator crash boundary.
+    // Pinned v2rayNG 2.3.5 exposes decodeServerList(subscriptionId: String).
+    // Keep the signature exact and remove only invalid/null/blank GUID rows.
     private fun safeDecodedServerGuids(subscriptionGuid: String): List<String> {
         val raw = runCatching { MmkvManager.decodeServerList(subscriptionGuid) }.getOrNull()
-        return (raw as? Iterable<*>)
-            ?.mapNotNull { (it as? String)?.trim()?.takeIf { guid -> guid.isNotEmpty() } }
-            .orEmpty()
-    }
-
-    // v2rayNG also exposes a batch overload used by subscription refresh. The
-    // previous hardener accidentally redirected this List<SubscriptionItem>
-    // call to the String-only wrapper and broke Kotlin compilation. Mirror the
-    // overload and sanitize its result at the same MMKV boundary.
-    private fun safeDecodedServerGuids(subscriptionRows: List<SubscriptionItem>): List<String> {
-        val raw = runCatching { MmkvManager.decodeServerList(subscriptionRows) }.getOrNull()
         return (raw as? Iterable<*>)
             ?.mapNotNull { (it as? String)?.trim()?.takeIf { guid -> guid.isNotEmpty() } }
             .orEmpty()
@@ -113,28 +203,19 @@ def harden_account_manager(text: str) -> str:
 '''
     text = text.replace(anchor, helpers, 1)
 
-    # Keep the historical readiness assertion recognizable without restoring an
-    # unsafe raw MMKV read. The legacy regression checks for this exact semantic
-    # expression inside installFreeSubscriptions; the executable path remains
-    # safeDecodedServerGuids(...), which is the audited boundary above.
-    readiness = """        return installedGuids.isNotEmpty() && installedGuids.any { subscriptionGuid ->
-            runCatching { safeDecodedServerGuids(subscriptionGuid).isNotEmpty() }.getOrDefault(false)
-        }"""
-    readiness_compat = """        return installedGuids.isNotEmpty() && installedGuids.any { subscriptionGuid ->
-            // Legacy readiness contract: MmkvManager.decodeServerList(subscriptionGuid).isNotEmpty()
-            // Execution intentionally goes through the null-safe MMKV boundary.
-            runCatching { safeDecodedServerGuids(subscriptionGuid).isNotEmpty() }.getOrDefault(false)
-        }"""
-    if readiness in text:
-        text = text.replace(readiness, readiness_compat, 1)
-
-    # Exactly one raw subscription read and two executable server-list reads
-    # should remain inside the defensive helpers. The additional server-list
-    # token is the non-executable compatibility comment above.
-    if text.count(raw_subscriptions) != 1:
+    # The only raw calls left must be the two audited helper boundaries above.
+    executable_probe = text.replace(helpers, "", 1)
+    if raw_subscriptions in executable_probe:
         raise RuntimeError("unsafe decodeSubscriptions() call survived AccountManager hardening")
-    if text.count(raw_server_list) != 3:
-        raise RuntimeError("unexpected decodeServerList() contract count after AccountManager hardening")
+    # Comments may legitimately mention the API; verify executable calls by
+    # asking the lexical rewriter whether anything remains outside the helper.
+    _, leftover_server_calls = _replace_kotlin_calls(
+        executable_probe,
+        raw_server_list,
+        "__UNEXPECTED_SERVER_LIST_CALL__(",
+    )
+    if leftover_server_calls != 0:
+        raise RuntimeError("unsafe decodeServerList() call survived AccountManager hardening")
     return text
 
 

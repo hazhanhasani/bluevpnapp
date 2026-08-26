@@ -594,6 +594,7 @@ object BlueVpnTapsellManager {
             // context during load, while still working for Tapsell's own network.
             Tapsell.requestInterstitialAd(
                 policy.zoneId,
+                activity,
                 object : RequestResultListener {
                     override fun onSuccess(adId: String) {
                         main.post {
@@ -776,6 +777,7 @@ object BlueVpnTapsellManager {
                     runCatching {
                         Tapsell.requestRewardedAd(
                             policy.zoneId,
+                            activity,
                             object : RequestResultListener {
                                 override fun onSuccess(adId: String) {
                                     main.post {
@@ -937,6 +939,7 @@ object BlueVpnTapsellManager {
                         Tapsell.requestBannerAd(
                             policy.zoneId,
                             bannerSize,
+                            activity,
                             object : RequestResultListener {
                                 override fun onSuccess(adId: String) {
                                     main.post {

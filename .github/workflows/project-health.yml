@@ -76,7 +76,9 @@ jobs:
   fanout-main-builds:
     name: Version and publish every BlueVPN component
     needs: full-static-regression-gate
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    # Never fan out again for the version-bump commit created by this workflow.
+    # That bot commit is an implementation detail of the original source push.
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && !startsWith(github.event.head_commit.message, 'release(auto):') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact main update

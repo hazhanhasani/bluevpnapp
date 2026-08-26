@@ -2,14 +2,12 @@ name: Release BlueVPN Site Theme
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'bluevpn-site/**'
-      - 'branding/app.json'
-      - 'release.json'
-      - 'bluevpn-manager/bluevpn-manager.php'
-      - '.github/workflows/bluevpn-site-theme-release.yml'
+    inputs:
+      target_sha:
+        description: Exact source SHA/ref to publish
+        required: false
+        default: main
+        type: string
 
 permissions:
   contents: write
@@ -18,9 +16,10 @@ jobs:
   release-theme:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout latest main branch
+      - name: Checkout exact release source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
+          ref: ${{ inputs.target_sha || 'main' }}
           fetch-depth: 2
       - name: Read and validate theme version
         id: theme

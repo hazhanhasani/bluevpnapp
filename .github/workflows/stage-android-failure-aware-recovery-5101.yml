@@ -1,0 +1,54 @@
+name: Stage Android Failure Aware Recovery 5.10.1
+
+on:
+  push:
+    branches:
+      - automation/android-failure-aware-recovery-5101
+    paths:
+      - 'scripts/stage_android_failure_aware_recovery_5101.py'
+      - '.github/workflows/stage-android-failure-aware-recovery-5101.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-freeze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout staging branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: automation/android-failure-aware-recovery-5101
+          fetch-depth: 0
+
+      - name: Apply failure-aware recovery patch
+        run: python scripts/stage_android_failure_aware_recovery_5101.py
+
+      - name: Version contract
+        run: python scripts/sync_version.py --check
+
+      - name: Targeted Android recovery regression
+        run: python -m unittest tests.test_android_xray_json_failover_545
+
+      - name: Full regression suite
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Freeze validated production tree
+        env:
+          BRANCH: automation/android-failure-aware-recovery-5101
+        run: |
+          rm -f scripts/stage_android_failure_aware_recovery_5101.py
+          rm -f .github/workflows/stage-android-failure-aware-recovery-5101.yml
+          git config user.name bluevpn-validation-bot
+          git config user.email bluevpn-validation-bot@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m 'feat(android): make recovery failure-aware [skip ci]'
+          git fetch origin main
+          changed="$(git diff --name-only origin/main HEAD)"
+          printf '%s\n' "$changed"
+          test "$(printf '%s\n' "$changed" | sed '/^$/d' | wc -l)" -eq 3
+          printf '%s\n' "$changed" | grep -Fx 'android-source/BlueVpnHomeActivity.kt'
+          printf '%s\n' "$changed" | grep -Fx 'android-source/BlueVpnRuntimeAudit.kt'
+          printf '%s\n' "$changed" | grep -Fx 'tests/test_android_xray_json_failover_545.py'
+          git push origin "HEAD:${BRANCH}"

@@ -45,6 +45,17 @@ import java.security.MessageDigest
 import java.util.zip.ZipFile
 
 object BlueVpnUpdateManager {
+    data class UpdateStatus(
+        val installedVersion: String,
+        val installedCode: Int,
+        val releaseChannel: String,
+        val betaTester: Boolean,
+        val latestVersion: String,
+        val latestCode: Int,
+        val updateAvailable: Boolean,
+        val autoUpdate: Boolean,
+    )
+
     private data class ApkAsset(
         val url: String,
         val sha256: String = "",
@@ -58,6 +69,7 @@ object BlueVpnUpdateManager {
     private const val KEY_SUPPORT_URL = "remote_support_url"
     private const val KEY_UPDATE_URL = "remote_update_url"
     private const val KEY_UPDATE_VERSION = "remote_update_version"
+    private const val KEY_UPDATE_CODE = "remote_update_code"
     private const val KEY_UPDATE_SHA256 = "remote_update_sha256"
     private const val KEY_UPDATE_SIZE = "remote_update_size"
     private const val KEY_AUTO_UPDATE = "remote_auto_update"
@@ -90,6 +102,24 @@ object BlueVpnUpdateManager {
     private var activeDownloadDialog: Dialog? = null
     private var activeDownloadProgress: ProgressBar? = null
     private var activeDownloadStatus: TextView? = null
+
+    fun status(context: Context): UpdateStatus {
+        val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val latestVersion = preferences.getString(KEY_UPDATE_VERSION, "").orEmpty()
+        val latestCode = preferences.getInt(KEY_UPDATE_CODE, 0)
+        val channel = preferences.getString(KEY_RELEASE_CHANNEL, "stable")
+            .orEmpty().trim().lowercase().let { if (it == "beta") "beta" else "stable" }
+        return UpdateStatus(
+            installedVersion = BuildConfig.VERSION_NAME,
+            installedCode = BuildConfig.VERSION_CODE,
+            releaseChannel = channel,
+            betaTester = preferences.getBoolean(KEY_BETA_TESTER, false),
+            latestVersion = latestVersion,
+            latestCode = latestCode,
+            updateAvailable = latestVersion.isNotBlank() && remoteBuildIsNewer(latestVersion, latestCode),
+            autoUpdate = preferences.getBoolean(KEY_AUTO_UPDATE, true),
+        )
+    }
 
     fun check(
         activity: Activity,
@@ -411,6 +441,7 @@ object BlueVpnUpdateManager {
             .putString(KEY_SUPPORT_URL, supportUrl)
             .putString(KEY_UPDATE_URL, apkUrl)
             .putString(KEY_UPDATE_VERSION, latestVersion)
+            .putInt(KEY_UPDATE_CODE, latestCode)
             .putString(KEY_UPDATE_SHA256, apkAsset.sha256)
             .putLong(KEY_UPDATE_SIZE, apkAsset.sizeBytes)
             .apply()

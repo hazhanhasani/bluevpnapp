@@ -50,7 +50,8 @@ jobs:
           git config user.email bluevpn-validation-bot@users.noreply.github.com
           git add -A
           git diff --cached --check
-          test "$(git diff --cached --name-only | wc -l)" -eq 1
-          test "$(git diff --cached --name-only)" = "android-source/BlueVpnHomeActivity.kt"
           git commit -m 'fix(android): restore RuntimeAudit compile import [skip ci]'
+          git fetch origin main
+          test "$(git diff --name-only origin/main HEAD | wc -l)" -eq 1
+          test "$(git diff --name-only origin/main HEAD)" = "android-source/BlueVpnHomeActivity.kt"
           git push origin "HEAD:${BRANCH}"

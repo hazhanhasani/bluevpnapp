@@ -176,7 +176,10 @@ public partial class MainWindow : Window
         var items = _ads.BannerItems;
         var premium = _account?.Subscription.Active == true;
         if (_ads.TryReserveWindowsWebImpression(premium, items.Count == 0) && await ShowTapsellWebAdAsync())
+        {
+            _ads.CommitWindowsWebImpression();
             return;
+        }
 
         TapsellWebView.Visibility = Visibility.Collapsed;
         TapsellLoadingPanel.Visibility = Visibility.Collapsed;
@@ -337,10 +340,15 @@ public partial class MainWindow : Window
         {
             await Task.Delay(350, ct);
             var result = await TapsellWebView.CoreWebView2.ExecuteScriptAsync(
-                "(()=>{const r=document.getElementById('bluevpn-ad')||document.getElementById('bluevpn-tapsell-root')||document.body;if(!r)return false;" +
-                "const nodes=[...r.querySelectorAll('iframe,img,video,canvas,object,embed')];" +
-                "return nodes.some(n=>{const b=n.getBoundingClientRect(),s=getComputedStyle(n);" +
-                "return b.width>20&&b.height>20&&s.display!=='none'&&s.visibility!=='hidden';});})()");
+                "(()=>{const root=document.getElementById('bluevpn-ad')||document.getElementById('bluevpn-tapsell-root')||document.body;if(!root)return false;" +
+                "const visible=n=>{if(!(n instanceof Element))return false;const b=n.getBoundingClientRect(),s=getComputedStyle(n);" +
+                "return b.width>20&&b.height>20&&s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity||1)>0;};" +
+                "const rendered=n=>{if(!visible(n))return false;const s=getComputedStyle(n);" +
+                "if(['IFRAME','IMG','VIDEO','CANVAS','OBJECT','EMBED'].includes(n.tagName))return true;" +
+                "if(s.backgroundImage&&s.backgroundImage!=='none')return true;" +
+                "if(n.id&&n.id.startsWith('mediaad-')&&(n.childElementCount>0||n.textContent.trim().length>0))return true;" +
+                "if(n.shadowRoot){for(const c of n.shadowRoot.querySelectorAll('*'))if(rendered(c))return true;}return false;};" +
+                "for(const n of root.querySelectorAll('*'))if(rendered(n))return true;return false;})()");
             if (string.Equals(result?.Trim(), "true", StringComparison.OrdinalIgnoreCase)) return true;
         }
         FooterStatus.Text = "تپسل محتوای قابل نمایش برنگرداند؛ بنر BlueVPN جایگزین شد.";

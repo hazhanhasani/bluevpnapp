@@ -41,6 +41,18 @@ class DualControlPlane581Tests(unittest.TestCase):
         for domain in DOMAINS:
             self.assertIn(domain, ios)
 
+    def test_android_settings_exposes_privacy_safe_dual_domain_diagnostics(self):
+        settings = (ROOT / "android-source/BlueVpnSettingsActivity.kt").read_text(encoding="utf-8")
+        updater = (ROOT / "android-source/BlueVpnUpdateManager.kt").read_text(encoding="utf-8")
+        self.assertIn("عیب‌یابی BlueVPN", settings)
+        self.assertIn("BlueVpnAccountManager.apiBaseUrls()", settings)
+        self.assertIn("trimEnd('/') + \"/health\"", settings)
+        self.assertIn("BlueVpnRuntimeGate.connectionPhase", settings)
+        self.assertIn("No token, email, subscription URL or secret is included.", settings)
+        self.assertIn("data class UpdateStatus", updater)
+        self.assertIn("fun status(context: Context): UpdateStatus", updater)
+        self.assertIn("KEY_UPDATE_CODE", updater)
+
     def test_health_monitor_probes_both_domains(self):
         workflow = (ROOT / ".github/workflows/external-health.yml").read_text(encoding="utf-8")
         for domain in DOMAINS:

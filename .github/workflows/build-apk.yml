@@ -9,6 +9,11 @@ on:
         default: fast
         type: choice
         options: [fast, full]
+      target_sha:
+        description: Exact BlueVPN source SHA (optional)
+        required: false
+        default: ''
+        type: string
   repository_dispatch:
     types: [bluevpn_build]
 
@@ -23,7 +28,7 @@ permissions:
 
 env:
   BLUEVPN_TARGET_BRANCH: ${{ github.event.client_payload.ref || github.ref_name }}
-  BLUEVPN_TARGET_SHA: ${{ github.event.client_payload.target_sha || github.sha }}
+  BLUEVPN_TARGET_SHA: ${{ inputs.target_sha || github.event.client_payload.target_sha || github.sha }}
   BLUEVPN_BUILD_MODE: ${{ github.event_name == 'repository_dispatch' && (github.event.client_payload.build_mode || 'full') || (inputs.build_mode || 'fast') }}
 
 jobs:

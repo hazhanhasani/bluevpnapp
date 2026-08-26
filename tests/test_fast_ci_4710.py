@@ -59,7 +59,7 @@ class FastCi4710Tests(unittest.TestCase):
 
     def test_fast_mode_uploads_signed_apk_before_wordpress_barrier(self):
         upload = WORKFLOW.index('- name: Upload fast signed APK artifact')
-        manager = WORKFLOW.index('- name: Publish synchronized BlueVPN Manager release barrier')
+        manager = WORKFLOW.index('- name: Wait for independent BlueVPN Manager release')
         wordpress = WORKFLOW.index('- name: Wait for WordPress control-plane auto-update')
         self.assertLess(upload, manager)
         self.assertLess(upload, wordpress)
@@ -68,7 +68,7 @@ class FastCi4710Tests(unittest.TestCase):
 
     def test_production_only_steps_are_full_mode(self):
         for name in [
-            'Publish synchronized BlueVPN Manager release barrier',
+            'Wait for independent BlueVPN Manager release',
             'Wait for WordPress control-plane auto-update',
             'Create GitHub Release metadata and checksums',
             'Publish signed APKs to GitHub Release',

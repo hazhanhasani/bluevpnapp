@@ -1,0 +1,58 @@
+name: Stage Android RuntimeAudit Import Fix 5.10.0
+
+on:
+  push:
+    branches:
+      - automation/android-runtimeaudit-import-fix-5100
+    paths:
+      - 'scripts/stage_android_runtimeaudit_import_fix_5100.py'
+      - '.github/workflows/stage-android-runtimeaudit-import-fix-5100.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-freeze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout staging branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: automation/android-runtimeaudit-import-fix-5100
+          fetch-depth: 0
+
+      - name: Apply minimal compiler repair
+        run: python scripts/stage_android_runtimeaudit_import_fix_5100.py
+
+      - name: Verify exact import contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          text = Path('android-source/BlueVpnHomeActivity.kt').read_text(encoding='utf-8')
+          assert text.count('import com.v2ray.ang.bluevpn.BlueVpnRuntimeAudit') == 1
+          assert 'BlueVpnRuntimeAudit.Event.VPN_VERIFICATION_FAILED' in text
+          print('RuntimeAudit import contract: PASS')
+          PY
+
+      - name: Release validators
+        run: |
+          python scripts/sync_version.py --check
+          python scripts/validate_android.py
+
+      - name: Full regression suite
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Freeze validated production tree
+        env:
+          BRANCH: automation/android-runtimeaudit-import-fix-5100
+        run: |
+          rm -f scripts/stage_android_runtimeaudit_import_fix_5100.py
+          rm -f .github/workflows/stage-android-runtimeaudit-import-fix-5100.yml
+          git config user.name bluevpn-validation-bot
+          git config user.email bluevpn-validation-bot@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          test "$(git diff --cached --name-only | wc -l)" -eq 1
+          test "$(git diff --cached --name-only)" = "android-source/BlueVpnHomeActivity.kt"
+          git commit -m 'fix(android): restore RuntimeAudit compile import [skip ci]'
+          git push origin "HEAD:${BRANCH}"

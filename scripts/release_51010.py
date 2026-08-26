@@ -58,6 +58,27 @@ if old_bridge not in ads:
     raise SystemExit("Windows Tapsell bridge URL marker not found")
 ads_path.write_text(ads.replace(old_bridge, new_bridge, 1), encoding="utf-8")
 
+ads = ads.replace(
+    "                'enabled' => !empty($settings['tapsell_windows_web_enabled']) && trim((string)($settings['tapsell_windows_web_script_html'] ?? '')) !== '',",
+    "                'enabled' => !empty($settings['tapsell_windows_web_enabled']) && trim((string)($settings['tapsell_windows_web_script_html'] ?? '')) !== '' && trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')) !== '',",
+    1,
+)
+legacy_old = """        nocache_headers();
+        wp_redirect('https://blluepanel.ir/?bluevpn_tapsell_windows=1', 302, 'BlueVPN');
+        exit;
+"""
+legacy_new = """        $settings = BlueVPN_DB::settings();
+        $slot = mb_substr(trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')), 0, 200);
+        $target = add_query_arg(['bluevpn_tapsell_windows'=>'1','slot'=>$slot], 'https://blluepanel.ir/');
+        nocache_headers();
+        wp_redirect($target, 302, 'BlueVPN');
+        exit;
+"""
+if legacy_old not in ads:
+    raise SystemExit("legacy Tapsell redirect block not found")
+ads = ads.replace(legacy_old, legacy_new, 1)
+ads_path.write_text(ads, encoding="utf-8")
+
 site_path = Path("bluevpn-site/functions.php")
 site = site_path.read_text(encoding="utf-8")
 start = site.index("function bluevpn_site_windows_tapsell_bridge(): void {")

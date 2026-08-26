@@ -7,6 +7,152 @@ NEW_VERSION = "5.10.10"
 OLD_CODE = "51009"
 NEW_CODE = "51010"
 
+# Tapsell Windows: follow the official Web Script contract. The approved
+# publisher origin is blluepanel.ir, the page must contain the exact mediaad-*
+# widget before loader.js executes, and WPF must use the composition control so
+# a loading overlay can coexist with an actively-rendering WebView.
+xaml_path = Path("bluevpn-windows/MainWindow.xaml")
+xaml = xaml_path.read_text(encoding="utf-8")
+old_webview = '<wv2:WebView2 x:Name="TapsellWebView" Visibility="Collapsed" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>'
+new_webview = '<wv2:WebView2CompositionControl x:Name="TapsellWebView" Visibility="Collapsed" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>'
+if old_webview not in xaml:
+    raise SystemExit("standard Tapsell WebView2 control not found")
+xaml_path.write_text(xaml.replace(old_webview, new_webview, 1), encoding="utf-8")
+
+main_path = Path("bluevpn-windows/MainWindow.xaml.cs")
+main = main_path.read_text(encoding="utf-8")
+main = main.replace(
+"""                _tapsellWebEnvironment = await WebView2RuntimeInstaller.CreatePerUserEnvironmentAsync(_lifetimeCts.Token);
+                await TapsellWebView.EnsureCoreWebView2Async(_tapsellWebEnvironment);
+""",
+"""                _tapsellWebEnvironment = await WebView2RuntimeInstaller.CreatePerUserEnvironmentAsync(_lifetimeCts.Token);
+                TapsellWebView.DefaultBackgroundColor = System.Drawing.Color.Transparent;
+                await TapsellWebView.EnsureCoreWebView2Async(_tapsellWebEnvironment);
+""",
+1,
+)
+old_visibility = """            // Keep the WebView in layout while the provider loads so ad iframes
+            // receive a real viewport, but do not expose the native white surface.
+            // It becomes visible only after provider content is positively detected.
+            TapsellWebView.Visibility = Visibility.Hidden;
+            AdFallbackPanel.Visibility = Visibility.Collapsed;
+            TapsellLoadingPanel.Visibility = Visibility.Visible;
+"""
+new_visibility = """            // CompositionControl remains visible so Mediaad receives a real viewport.
+            // The WPF loading panel is above it and hides the web surface until the
+            // official mediaad-* widget contains renderable provider content.
+            TapsellWebView.Visibility = Visibility.Visible;
+            AdFallbackPanel.Visibility = Visibility.Collapsed;
+            TapsellLoadingPanel.Visibility = Visibility.Visible;
+"""
+if old_visibility not in main:
+    raise SystemExit("Tapsell hidden-loading block not found")
+main = main.replace(old_visibility, new_visibility, 1)
+main_path.write_text(main, encoding="utf-8")
+
+ads_path = Path("bluevpn-manager/includes/class-bluevpn-ads.php")
+ads = ads_path.read_text(encoding="utf-8")
+old_bridge = "                'bridge_url' => 'https://blluepanel.ir/?bluevpn_tapsell_windows=1',"
+new_bridge = "                'bridge_url' => add_query_arg(['bluevpn_tapsell_windows'=>'1','slot'=>mb_substr(trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')),0,200)], 'https://blluepanel.ir/'),"
+if old_bridge not in ads:
+    raise SystemExit("Windows Tapsell bridge URL marker not found")
+ads_path.write_text(ads.replace(old_bridge, new_bridge, 1), encoding="utf-8")
+
+site_path = Path("bluevpn-site/functions.php")
+site = site_path.read_text(encoding="utf-8")
+start = site.index("function bluevpn_site_windows_tapsell_bridge(): void {")
+hook = "add_action('template_redirect', 'bluevpn_site_windows_tapsell_bridge', 0);"
+end = site.index(hook, start)
+replacement = r'''function bluevpn_site_windows_tapsell_bridge(): void {
+    if ((string)($_GET['bluevpn_tapsell_windows'] ?? '') !== '1') return;
+
+    $slot = sanitize_text_field((string)wp_unslash($_GET['slot'] ?? ''));
+    if ($slot !== '' && strpos($slot, 'mediaad-') !== 0 && preg_match('/^[A-Za-z0-9_-]{2,120}$/', $slot)) {
+        $slot = 'mediaad-' . $slot;
+    }
+
+    nocache_headers();
+    header('Content-Type: text/html; charset=utf-8');
+    header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+    header("Pragma: no-cache");
+    header("Content-Security-Policy: default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://s1.mediaad.org https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' https: data: blob:; frame-src https:; connect-src https: wss:;");
+    header('Referrer-Policy: strict-origin-when-cross-origin');
+    header('X-Robots-Tag: noindex, nofollow, noarchive');
+
+    if (!preg_match('/^mediaad-[A-Za-z0-9_-]{2,120}$/', $slot)) {
+        status_header(400);
+        echo '<!doctype html><html><body style="margin:0;background:transparent" data-bluevpn-loader-state="invalid_slot"></body></html>';
+        exit;
+    }
+
+    echo '<!doctype html><html dir="rtl" data-bluevpn-loader-state="loading"><head><meta charset="utf-8">';
+    echo '<meta name="viewport" content="width=device-width,initial-scale=1">';
+    echo '<style>html,body,#bluevpn-tapsell-root{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}';
+    echo '#bluevpn-tapsell-root{display:flex;align-items:center;justify-content:center}';
+    echo '[id^="mediaad-"]{width:100%;height:100%;display:flex;align-items:center;justify-content:center}';
+    echo 'iframe,img,video,canvas,object,embed{max-width:100%;max-height:100%;border:0}</style>';
+    echo '</head><body><div id="bluevpn-tapsell-root"><div id="' . esc_attr($slot) . '"></div></div>';
+    echo '<script type="text/javascript">(function (){';
+    echo 'const root=document.documentElement;const head=document.getElementsByTagName("head")[0];';
+    echo 'const script=document.createElement("script");script.type="text/javascript";script.async=true;';
+    echo 'script.src="https://s1.mediaad.org/serve/blluepanel.ir/loader.js";';
+    echo 'const timeout=setTimeout(function(){root.dataset.bluevpnLoaderState="timeout";},15000);';
+    echo 'script.onload=function(){clearTimeout(timeout);root.dataset.bluevpnLoaderState="loaded";';
+    echo 'setTimeout(function(){if(typeof window.mediaad==="undefined"&&typeof window.ma==="undefined"){root.dataset.bluevpnLoaderState="not_initialized";}},5000);};';
+    echo 'script.onerror=function(){clearTimeout(timeout);root.dataset.bluevpnLoaderState="load_error";};';
+    echo 'head.appendChild(script);';
+    echo '})();</script></body></html>';
+    exit;
+}
+'''
+site = site[:start] + replacement + site[end:]
+site_path.write_text(site, encoding="utf-8")
+
+# Strengthen existing regression contracts instead of adding another ad test file.
+t576_path = Path("tests/test_windows_theme_tapsell_render_576.py")
+t576 = t576_path.read_text(encoding="utf-8")
+needle = '        self.assertIn("ExecuteScriptAsync", main)\n'
+extra = (
+    '        self.assertIn("WebView2CompositionControl", (ROOT / "bluevpn-windows/MainWindow.xaml").read_text(encoding="utf-8"))\n'
+    '        self.assertIn("TapsellWebView.DefaultBackgroundColor = System.Drawing.Color.Transparent", main)\n'
+    '        self.assertIn("TapsellWebView.Visibility = Visibility.Visible", main)\n'
+)
+if extra not in t576:
+    if needle not in t576:
+        raise SystemExit("Tapsell render regression insertion point not found")
+    t576 = t576.replace(needle, needle + extra, 1)
+t576_path.write_text(t576, encoding="utf-8")
+
+t577_path = Path("tests/test_tapsell_premium_carousel_windows_bridge_577.py")
+t577 = t577_path.read_text(encoding="utf-8")
+t577 = t577.replace(
+    '        self.assertIn("\'bridge_url\' => \'https://blluepanel.ir/?bluevpn_tapsell_windows=1\'", ads)\n',
+    '        self.assertIn("\'bridge_url\' => add_query_arg", ads)\n'
+    '        self.assertIn("\'slot\'=>mb_substr", ads)\n'
+)
+insert_point = '        self.assertIn("serve_windows_tapsell", ads)\n'
+site_asserts = (
+    '        site = (ROOT / "bluevpn-site/functions.php").read_text(encoding="utf-8")\n'
+    '        self.assertIn("mediaad-", site)\n'
+    '        self.assertIn("bluevpnLoaderState", site)\n'
+    '        self.assertIn("s1.mediaad.org/serve/blluepanel.ir/loader.js", site)\n'
+)
+if site_asserts not in t577:
+    t577 = t577.replace(insert_point, insert_point + site_asserts, 1)
+t577_path.write_text(t577, encoding="utf-8")
+
+# The backup self-healing regression is a shipped test and must be in the
+# authoritative release manifest.
+manifest_path = Path("tests/release_test_manifest.json")
+manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+tests = list(manifest.get("tests") or [])
+backup_test = "test_backup_self_healing_51010.py"
+if backup_test not in tests:
+    tests.append(backup_test)
+manifest["tests"] = sorted(tests)
+manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 production = Path("bluevpn-manager/includes/class-bluevpn-production.php")
 p = production.read_text(encoding="utf-8")
 

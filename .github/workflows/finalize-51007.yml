@@ -1,0 +1,83 @@
+name: BlueVPN Finalize 5.10.7 Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/finalize-51007.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout exact release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify and pin 5.10.7 release tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(python -c 'import json;print(json.load(open("version.json"))["version"])')"
+          test "$VERSION" = "5.10.7"
+          SOURCE_SHA="$GITHUB_SHA"
+
+          git config user.name "bluevpn-release-bot"
+          git config user.email "bluevpn-release-bot@users.noreply.github.com"
+          git fetch --tags --force
+
+          for TAG in "v$VERSION" "bluevpn-manager-v$VERSION" "bluevpn-windows-v$VERSION" "bluevpn-site-v$VERSION"; do
+            if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+              EXISTING="$(git rev-list -n 1 "$TAG")"
+              test "$EXISTING" = "$SOURCE_SHA" || {
+                echo "::error::$TAG already points to $EXISTING, expected $SOURCE_SHA"
+                exit 1
+              }
+            else
+              git tag "$TAG" "$SOURCE_SHA"
+              git push origin "refs/tags/$TAG"
+            fi
+            echo "$TAG -> $SOURCE_SHA"
+          done
+
+      - name: Clean temporary probe releases
+        shell: bash
+        run: |
+          set +e
+          for TAG in             "bluevpn-release-probe-33017135590"             "bluevpn-asset-probe-33017194470"             "bluevpn-stale-sha-probe-33017249333"; do
+            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes >/dev/null 2>&1
+            git push origin ":refs/tags/$TAG" >/dev/null 2>&1
+          done
+          exit 0
+
+      - name: Dispatch coordinated 5.10.7 builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$GITHUB_SHA"
+
+          gh api --method POST "repos/$GITHUB_REPOSITORY/dispatches"             -f event_type='bluevpn_build'             -F 'client_payload[ref]'='main'             -F 'client_payload[target_sha]'="$SOURCE_SHA"             -F 'client_payload[build_mode]'='full'
+
+          gh workflow run build-windows.yml --repo "$GITHUB_REPOSITORY" --ref main             -f target_sha="$SOURCE_SHA"
+          gh workflow run build-ios.yml --repo "$GITHUB_REPOSITORY" --ref main             -f target_sha="$SOURCE_SHA"
+          gh workflow run bluevpn-site-theme-release.yml --repo "$GITHUB_REPOSITORY" --ref main             -f target_sha="$SOURCE_SHA"
+
+      - name: Remove one-time finalize workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "bluevpn-release-bot"
+          git config user.email "bluevpn-release-bot@users.noreply.github.com"
+          git pull --ff-only origin main
+          rm -f .github/workflows/finalize-51007.yml
+          git add .github/workflows/finalize-51007.yml
+          git commit -m "chore(ci): remove one-time 5.10.7 finalize [skip ci]"
+          git push origin HEAD:main

@@ -28,6 +28,6 @@ class FreeStoryVideoRender4125(unittest.TestCase):
 
     def test_latest_theme_is_bundled(self):
         s=(ROOT/'bluevpn-site/style.css').read_text()
-        self.assertIn('Version: 5.9.1',s)
+        self.assertIn('Version: 5.9.2',s)
 
 if __name__ == '__main__': unittest.main()

@@ -277,7 +277,7 @@ final class BlueVPN_GitHub_Updater {
 
     private static function api_url(): string {
         $s = self::settings();
-        return 'https://api.github.com/repos/' . rawurlencode($s['owner']) . '/' . rawurlencode($s['repo']) . '/releases?per_page=30';
+        return 'https://api.github.com/repos/' . rawurlencode($s['owner']) . '/' . rawurlencode($s['repo']) . '/releases?per_page=100';
     }
 
     private static function github_token(): string {

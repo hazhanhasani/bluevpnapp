@@ -24,9 +24,7 @@ concurrency:
 
 jobs:
   report-failure:
-    # Alert only for real failures from main. PR/feature-branch failures belong in
-    # their checks and must not page Telegram or create notification noise.
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.head_branch == 'main' && contains(fromJSON('["failure","timed_out","action_required","startup_failure"]'), github.event.workflow_run.conclusion)) }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion != 'success' && github.event.workflow_run.conclusion != 'cancelled') }}
     runs-on: ubuntu-latest
     steps:
       - name: Collect failed jobs, annotations and logs
@@ -92,6 +90,8 @@ jobs:
           url=os.getenv('RUN_URL') or ''
           link=f'\n<a href="{html.escape(url, quote=True)}">مشاهده Run در GitHub</a>' if url else ''
 
+          # Telegram rejects malformed HTML. Never slice after adding <pre> tags;
+          # chunk the raw report first, then escape each complete chunk.
           max_chunk=2800
           chunks=[report[i:i+max_chunk] for i in range(0,len(report),max_chunk)] or ['(no log excerpt)']
           endpoint='https://api.telegram.org/bot'+os.environ['TELEGRAM_BOT_TOKEN']+'/sendMessage'
@@ -111,6 +111,7 @@ jobs:
                       last=body
                   except urllib.error.HTTPError as e:
                       last=e.read().decode('utf-8','replace')
+                      # If Telegram still rejects HTML, retry once as plain text.
                       if e.code==400:
                           plain=(prefix.replace('<b>','').replace('</b>','').replace('<code>','').replace('</code>','')+chunk+'\n'+url)[:3800]
                           data=urllib.parse.urlencode({'chat_id':os.environ['TELEGRAM_CHAT_ID'],'text':plain,'disable_web_page_preview':'true'}).encode()

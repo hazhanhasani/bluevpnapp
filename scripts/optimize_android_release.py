@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 
 
 def optimize(path: Path) -> None:
@@ -39,6 +40,14 @@ def optimize(path: Path) -> None:
     if text != original:
         path.write_text(text, encoding="utf-8")
     print(f"BlueVPN Android release optimizer PASS: {path}")
+
+    # The optimizer is imported directly by regression tests as well as executed
+    # as a script by CI. Make the sibling hardening helper importable in both
+    # modes without depending on the caller's current working directory.
+    script_dir = Path(__file__).resolve().parent
+    script_dir_text = str(script_dir)
+    if script_dir_text not in sys.path:
+        sys.path.insert(0, script_dir_text)
 
     # The same authoritative pre-Gradle hook also hardens the location pool.
     # It patches both the overlay source and the generated upstream copy when

@@ -1,0 +1,27 @@
+name: BlueVPN Stale SHA Release Probe
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/stale-sha-release-probe.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Create release targeting old 5.10.7 kickoff SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="bluevpn-stale-sha-probe-${GITHUB_RUN_ID}"
+          printf 'probe\n' > probe.txt
+          gh release create "$TAG" probe.txt --repo "$GITHUB_REPOSITORY" \
+            --target "6700386648d2d1f070ac3f7672bb29243200eb7d" \
+            --title "BlueVPN stale SHA probe" --latest=false
+          echo "STALE_SHA_RELEASE_PROBE=PASS"

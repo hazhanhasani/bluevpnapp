@@ -65,6 +65,22 @@ jobs:
             test -n "${!name:-}" || { echo "::error::$name is not configured"; exit 1; }
           done
 
+      - name: Check GitHub Release token
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
+        env:
+          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::Missing BLUEVPN_GITHUB_RELEASE_TOKEN. Add a fine-grained PAT with Contents: Read and write for this repository."
+            exit 1
+          fi
+          test "$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.permissions.push // false')" = "true" || {
+            echo "::error::BLUEVPN_GITHUB_RELEASE_TOKEN does not have repository Contents write permission."
+            exit 1
+          }
+
       - name: Resolve next BlueVPN version
         id: config
         shell: bash
@@ -244,7 +260,7 @@ jobs:
         if: steps.libv2ray-cache.outputs.cache-hit != 'true'
         env:
           XRAY_AAR_TAG: ${{ steps.xray.outputs.tag }}
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -467,7 +483,7 @@ jobs:
       - name: Publish synchronized BlueVPN Manager release barrier
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
           VERSION: ${{ steps.config.outputs.version }}
         shell: bash
         run: |
@@ -541,7 +557,7 @@ jobs:
       - name: Publish signed APKs to GitHub Release
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
           VERSION: ${{ steps.config.outputs.version }}
         shell: bash
         run: |

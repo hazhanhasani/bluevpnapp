@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: bluevpn-project-health-${{ github.ref }}
@@ -69,3 +70,82 @@ jobs:
           python scripts/validate_php_release.py
       - name: Full Python regression suite
         run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+
+  release-fanout:
+    name: Fan out coordinated version release
+    needs: full-static-regression-gate
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: bluevpn-version-fanout-main
+      cancel-in-progress: false
+    steps:
+      - name: Checkout exact validated source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+
+      - name: Detect a real BlueVPN version upgrade
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          CURRENT="$(python -c 'import json;print(json.load(open("version.json"))["version"])')"
+          PREVIOUS="$(git show HEAD^:version.json 2>/dev/null | python -c 'import json,sys; print(json.load(sys.stdin)["version"])' 2>/dev/null || true)"
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$PREVIOUS" ] || [ "$CURRENT" = "$PREVIOUS" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No version upgrade detected: previous=${PREVIOUS:-none}, current=$CURRENT"
+            exit 0
+          fi
+
+          python - "$PREVIOUS" "$CURRENT" <<'PY'
+          import re,sys
+          def parse(v):
+              m=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)',v)
+              if not m:
+                  raise SystemExit(f'invalid BlueVPN version: {v}')
+              return tuple(map(int,m.groups()))
+          old,new=map(parse,sys.argv[1:3])
+          if new <= old:
+              raise SystemExit(f'BlueVPN version must increase: {old} -> {new}')
+          if new[1] > 10 or new[2] > 10:
+              raise SystemExit('BlueVPN minor/patch must remain within 0..10')
+          PY
+
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "Validated version upgrade: $PREVIOUS -> $CURRENT"
+
+      - name: Dispatch every BlueVPN release target at exact SHA
+        if: ${{ steps.version.outputs.changed == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          VERSION: ${{ steps.version.outputs.current }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BlueVPN coordinated release: ${VERSION}@${SOURCE_SHA}"
+
+          # Android full publication is the authoritative product release. It also
+          # publishes the synchronized Manager package and waits for WordPress
+          # control-plane convergence before publishing v${VERSION}.
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" \
+            -f event_type='bluevpn_build' \
+            -F 'client_payload[ref]'='main' \
+            -F 'client_payload[target_sha]'="$SOURCE_SHA" \
+            -F 'client_payload[build_mode]'='full'
+
+          # Every other platform consumes the exact same validated source SHA.
+          gh workflow run build-windows.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f target_sha="$SOURCE_SHA"
+          gh workflow run build-ios.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f target_sha="$SOURCE_SHA"
+          gh workflow run bluevpn-site-theme-release.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f target_sha="$SOURCE_SHA"
+
+          echo "Dispatched Android, Manager barrier, Windows, iOS and Site Theme for BlueVPN ${VERSION}."

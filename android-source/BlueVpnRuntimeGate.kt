@@ -1,18 +1,15 @@
 package com.v2ray.ang.bluevpn
 
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
 import android.os.Process
 import android.os.SystemClock
-import com.v2ray.ang.core.CoreServiceManager
 
 /**
  * Serializes BlueVPN subscription mutation and VPN connection lifecycles.
  *
- * v2rayNG rewrites subscription server GUIDs during import. That is safe while
+ * v2rayNG rewrites subscription server GUIDs during import.  That is safe while
  * idle, but it must never happen while a candidate is starting or while Xray is
- * using the currently selected profile. This gate is intentionally owned by
+ * using the currently selected profile.  This gate is intentionally owned by
  * BlueVPN rather than upstream so WordPress/account refreshes, Free-pool repair
  * and UI-driven connect operations all share one source of truth.
  */
@@ -60,26 +57,6 @@ object BlueVpnRuntimeGate {
         return false
     }
 
-    /**
-     * True only when Android reports a VPN transport but BlueVPN does not own a
-     * running VPN session. Android permits only one active VpnService per user;
-     * starting BlueVPN in this state would revoke/replace the user's other VPN.
-     * Background recovery and system actions must therefore fail closed.
-     */
-    fun otherVpnActive(context: Context): Boolean {
-        val app = context.applicationContext
-        if (connectionActive(app) || CoreServiceManager.isRunning() || BlueVpnWarpEngine.isRunning()) {
-            return false
-        }
-        val cm = app.getSystemService(ConnectivityManager::class.java) ?: return false
-        return runCatching {
-            cm.allNetworks.any { network ->
-                cm.getNetworkCapabilities(network)
-                    ?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
-            }
-        }.getOrDefault(false)
-    }
-
     fun subscriptionMutationActive(): Boolean = subscriptionMutationActive
 
     fun connectionPhase(context: Context): ConnectionPhase {
@@ -106,33 +83,13 @@ object BlueVpnRuntimeGate {
     fun markFailed(context: Context, detail: String = "runtime") = setPhase(context, ConnectionPhase.FAILED, detail)
 
     /**
-     * Acquire connection ownership. A subscription import that already started
+     * Acquire connection ownership.  A subscription import that already started
      * gets a short grace period to finish; after that the caller can retry from
      * the UI instead of racing against MMKV replacement.
-     *
-     * This is also the final ownership boundary for every UI connect flow. If a
-     * different VPN currently owns Android's VPN transport, fail before BlueVPN
-     * can claim its runtime gate or start a VpnService. That guarantees an
-     * automatic/recovery path cannot disconnect the user's existing VPN.
      */
     fun beginConnection(context: Context, timeoutMs: Long = BlueVpnNetworkRecoveryManager.connectionGateWaitMs(context)): Boolean {
-        val app = context.applicationContext
-        if (otherVpnActive(app)) {
-            runCatching {
-                BlueVpnRuntimeAudit.record(
-                    app,
-                    BlueVpnRuntimeAudit.Event.CONNECTION_PHASE,
-                    "PREPARING:blocked_other_vpn",
-                )
-            }
-            return false
-        }
-
         val deadline = SystemClock.elapsedRealtime() + timeoutMs.coerceIn(0L, 8_000L)
         synchronized(monitor) {
-            // Re-check under the serialization boundary. Another VPN can become
-            // active between the first probe and ownership acquisition.
-            if (otherVpnActive(app)) return false
             while (subscriptionMutationActive) {
                 val remaining = deadline - SystemClock.elapsedRealtime()
                 if (remaining <= 0L) return false
@@ -144,13 +101,13 @@ object BlueVpnRuntimeGate {
                 }
             }
             connectionActiveMemory = true
-            prefs(app).edit()
+            prefs(context).edit()
                 .putBoolean(KEY_CONNECTION_ACTIVE, true)
                 .putLong(KEY_CONNECTION_STARTED_AT, System.currentTimeMillis())
                 .putInt(KEY_CONNECTION_OWNER_PID, Process.myPid())
                 .putString(KEY_CONNECTION_PHASE, ConnectionPhase.PREPARING.name)
                 .apply()
-            setPhase(app, ConnectionPhase.PREPARING)
+            setPhase(context, ConnectionPhase.PREPARING)
             return true
         }
     }
@@ -185,7 +142,7 @@ object BlueVpnRuntimeGate {
     }
 
     /**
-     * Subscription mutation is fail-fast while a tunnel owns the pool. Callers
+     * Subscription mutation is fail-fast while a tunnel owns the pool.  Callers
      * keep the current last-known-good pool and may retry once the tunnel stops.
      */
     fun beginSubscriptionMutation(context: Context): Boolean {

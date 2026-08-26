@@ -1,26 +1,27 @@
 #!/usr/bin/env python3
-"""Harden BlueVPN Android location-pool decoding against corrupt/null MMKV rows.
+"""Harden BlueVPN Android location/MMKV decoding against corrupt or null rows.
 
 Some OEM/MMKV/import races can expose platform collections containing null/blank
-entries even though Kotlin sees them as List<String>. R8 then optimizes iterator
-paths under that non-null contract and a null element can surface as an obfuscated
-getClass()/hasNext NullPointerException. Patch both the authoritative overlay source
-and the generated upstream source before Gradle so release builds are defensive.
+entries even though Kotlin sees them as non-null lists. R8 can then optimize the
+iterator path under that contract and surface an obfuscated getClass()/hasNext
+NullPointerException. Patch both the canonical overlay and generated upstream
+sources before Gradle so every location-pool boundary is defensive.
 """
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MARKER = "// BLUEVPN_NULL_SAFE_LOCATION_POOL_V5103"
+LOCATION_MARKER = "// BLUEVPN_NULL_SAFE_LOCATION_POOL_V5103"
+ACCOUNT_MARKER = "// BLUEVPN_NULL_SAFE_MMKV_BOUNDARY_V5105"
 
 
 def harden_location_util(text: str) -> str:
-    if MARKER in text:
+    if LOCATION_MARKER in text:
         return text
 
     anchor = "object BlueVpnLocationUtil {"
     if anchor not in text:
         raise RuntimeError("BlueVpnLocationUtil anchor not found")
-    text = text.replace(anchor, MARKER + "\n" + anchor, 1)
+    text = text.replace(anchor, LOCATION_MARKER + "\n" + anchor, 1)
 
     old_global = "val allGuids = MmkvManager.decodeAllServerList()"
     new_global = """val allGuids = (MmkvManager.decodeAllServerList() as? Iterable<*>)
@@ -40,9 +41,6 @@ def harden_location_util(text: str) -> str:
         raise RuntimeError("entitlement GUID inventory anchor not found")
     text = text.replace(old_entitlement, new_entitlement, 1)
 
-    # A single corrupt serialized row must be skipped instead of terminating the
-    # whole location coroutine. These exact calls are safe to wrap everywhere in
-    # this file because all callers already treat a missing decode as unusable.
     text = text.replace(
         "MmkvManager.decodeServerConfig(guid)",
         "runCatching { MmkvManager.decodeServerConfig(guid) }.getOrNull()",
@@ -51,6 +49,63 @@ def harden_location_util(text: str) -> str:
         "MmkvManager.decodeServerRaw(guid)",
         "runCatching { MmkvManager.decodeServerRaw(guid) }.getOrNull()",
     )
+    return text
+
+
+def harden_account_manager(text: str) -> str:
+    """Make AccountManager's raw MMKV collections safe before any sequence iteration."""
+    if ACCOUNT_MARKER in text:
+        return text
+
+    anchor = "object BlueVpnAccountManager {"
+    if anchor not in text:
+        raise RuntimeError("BlueVpnAccountManager anchor not found")
+
+    raw_subscriptions = "MmkvManager.decodeSubscriptions()"
+    raw_server_list = "MmkvManager.decodeServerList("
+    subscription_reads = text.count(raw_subscriptions)
+    server_list_reads = text.count(raw_server_list)
+    if subscription_reads == 0:
+        raise RuntimeError("AccountManager subscription MMKV anchors not found")
+    if server_list_reads == 0:
+        raise RuntimeError("AccountManager server-list MMKV anchors not found")
+
+    # Rewrite consumers first. Helpers are injected afterwards so their one raw
+    # MMKV call remains the single audited boundary instead of recursively
+    # rewriting itself.
+    text = text.replace(raw_subscriptions, "safeDecodedSubscriptions()")
+    text = text.replace(raw_server_list, "safeDecodedServerGuids(")
+
+    helpers = r'''object BlueVpnAccountManager {
+    // BLUEVPN_NULL_SAFE_MMKV_BOUNDARY_V5105
+    // v2rayNG's MMKV APIs are Kotlin platform boundaries. During a concurrent
+    // subscription import an OEM/runtime may briefly expose a null row despite
+    // the declared generic type. Never let such a row reach Sequence/Iterator.
+    private fun safeDecodedSubscriptions(): List<SubscriptionItem> {
+        val raw = runCatching { MmkvManager.decodeSubscriptions() }.getOrNull()
+        return (raw as? Iterable<*>)
+            ?.mapNotNull { it as? SubscriptionItem }
+            .orEmpty()
+    }
+
+    // Preserve source order and duplicates; only invalid/null/blank GUID values
+    // are removed. This keeps routing semantics unchanged while closing the
+    // platform-null iterator crash boundary.
+    private fun safeDecodedServerGuids(subscriptionGuid: String): List<String> {
+        val raw = runCatching { MmkvManager.decodeServerList(subscriptionGuid) }.getOrNull()
+        return (raw as? Iterable<*>)
+            ?.mapNotNull { (it as? String)?.trim()?.takeIf { guid -> guid.isNotEmpty() } }
+            .orEmpty()
+    }
+'''
+    text = text.replace(anchor, helpers, 1)
+
+    # There must be exactly one raw read of each kind now: inside the defensive
+    # helper itself. Any extra raw read means a future caller bypassed the guard.
+    if text.count(raw_subscriptions) != 1:
+        raise RuntimeError("unsafe decodeSubscriptions() call survived AccountManager hardening")
+    if text.count(raw_server_list) != 1:
+        raise RuntimeError("unsafe decodeServerList() call survived AccountManager hardening")
     return text
 
 
@@ -91,8 +146,10 @@ def patch(path: Path, transform) -> bool:
 def apply() -> None:
     candidates = [
         (ROOT / "android-source" / "BlueVpnLocationUtil.kt", harden_location_util),
+        (ROOT / "android-source" / "BlueVpnAccountManager.kt", harden_account_manager),
         (ROOT / "android-source" / "BlueVpnServersActivity.kt", harden_servers_activity),
         (ROOT / "upstream" / "V2rayNG" / "app" / "src" / "main" / "kotlin" / "com" / "v2ray" / "ang" / "bluevpn" / "BlueVpnLocationUtil.kt", harden_location_util),
+        (ROOT / "upstream" / "V2rayNG" / "app" / "src" / "main" / "kotlin" / "com" / "v2ray" / "ang" / "bluevpn" / "BlueVpnAccountManager.kt", harden_account_manager),
         (ROOT / "upstream" / "V2rayNG" / "app" / "src" / "main" / "kotlin" / "com" / "v2ray" / "ang" / "ui" / "BlueVpnServersActivity.kt", harden_servers_activity),
     ]
     patched = 0

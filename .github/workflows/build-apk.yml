@@ -467,11 +467,12 @@ jobs:
       - name: Publish synchronized BlueVPN Manager release barrier
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         env:
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.config.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
+          echo manager-release-barrier > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           python scripts/validate_php_release.py
           rm -rf "$RUNNER_TEMP/manager" && mkdir -p "$RUNNER_TEMP/manager/bluevpn-manager"
           rsync -a bluevpn-manager/ "$RUNNER_TEMP/manager/bluevpn-manager/"
@@ -540,11 +541,12 @@ jobs:
       - name: Publish signed APKs to GitHub Release
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         env:
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.config.outputs.version }}
         shell: bash
         run: |
           set -euo pipefail
+          echo github-release-publish > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           TAG="v${VERSION}"
           mapfile -t ASSETS < <(find dist -maxdepth 1 -type f \( -name '*.apk' -o -name 'SHA256SUMS.txt' -o -name 'release-manifest.json' \) -print | sort)
           if [ "${#ASSETS[@]}" -lt 3 ]; then echo "::error::Signed Android release payload is incomplete"; exit 1; fi

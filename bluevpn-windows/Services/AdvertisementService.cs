@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using BlueVPN.Windows.Models;
 
 namespace BlueVPN.Windows.Services;
@@ -148,11 +149,32 @@ public sealed class AdvertisementService
 
     /// <summary>
     /// Android uses Tapsell Mediation. Windows consumes the separately configured
-    /// Web Publisher script and never treats an Android zone id as a web placement.
+    /// Tapsell Web Publisher script and never treats an Android zone id as a web placement.
+    /// The Windows publisher code may be delivered by Tapsell through mediaad.org.
     /// </summary>
     public bool HasMobileOnlyThirdPartyAds => Current.Tapsell.Enabled;
 
     public TapsellWindowsWebConfig WindowsWeb => Current.Tapsell.WindowsWeb;
+
+    /// <summary>
+    /// Tapsell's Windows/Web publisher snippet can contain a MediaAd loader such as
+    /// https://s1.mediaad.org/serve/blluepanel.ir/loader.js. The segment between
+    /// /serve/ and /loader.js is the publisher origin and must be preferred by the
+    /// embedded browser. Loading the same snippet first on bot.blluepanel.ir or a
+    /// synthetic local host can legitimately produce an empty placement.
+    /// </summary>
+    public string WindowsWebPublisherHost()
+    {
+        var html = WindowsWeb.ScriptHtml ?? "";
+        if (string.IsNullOrWhiteSpace(html)) return "";
+        var match = Regex.Match(
+            html,
+            "https://s\\d+\\.mediaad\\.org/serve/(?<publisher>[^/\\\"'<>\\s]+)/loader\\.js",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        if (!match.Success) return "";
+        var host = Uri.UnescapeDataString(match.Groups["publisher"].Value).Trim().Trim('.');
+        return Uri.CheckHostName(host) == UriHostNameType.Unknown ? "" : host.ToLowerInvariant();
+    }
 
     public bool TryReserveWindowsWebImpression(bool premium, bool noFirstPartyBanner)
     {
@@ -191,13 +213,15 @@ public sealed class AdvertisementService
     {
         var cfg = WindowsWeb;
         var candidates = new List<string>();
+        var derived = new List<Uri>();
+        Uri? bridge = null;
         string pathAndQuery = "";
 
-        if (Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
-            bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        if (Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var parsedBridge) &&
+            parsedBridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
         {
-            candidates.Add(bridge.ToString());
-            pathAndQuery = bridge.PathAndQuery;
+            bridge = parsedBridge;
+            pathAndQuery = parsedBridge.PathAndQuery;
         }
 
         if (!string.IsNullOrWhiteSpace(pathAndQuery))
@@ -206,11 +230,36 @@ public sealed class AdvertisementService
             {
                 if (!Uri.TryCreate(baseUrl.TrimEnd('/') + pathAndQuery, UriKind.Absolute, out var candidate) ||
                     !candidate.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) continue;
-                if (!candidates.Contains(candidate.ToString(), StringComparer.OrdinalIgnoreCase))
-                    candidates.Add(candidate.ToString());
+                if (!derived.Any(x => x.ToString().Equals(candidate.ToString(), StringComparison.OrdinalIgnoreCase)))
+                    derived.Add(candidate);
             }
         }
 
+        var publisherHost = WindowsWebPublisherHost();
+        if (!string.IsNullOrWhiteSpace(publisherHost))
+        {
+            // The Tapsell/MediaAd loader is publisher-origin aware. Prefer only the
+            // real registered publisher host first; this avoids wasting a full ad
+            // timeout on bot.blluepanel.ir before trying blluepanel.ir.
+            foreach (var candidate in derived.Where(x => x.IdnHost.Equals(publisherHost, StringComparison.OrdinalIgnoreCase)))
+                candidates.Add(candidate.ToString());
+            if (bridge is not null && bridge.IdnHost.Equals(publisherHost, StringComparison.OrdinalIgnoreCase) &&
+                !candidates.Contains(bridge.ToString(), StringComparer.OrdinalIgnoreCase))
+                candidates.Add(bridge.ToString());
+
+            // If a publisher host is explicitly encoded in the official snippet,
+            // do not intentionally run it first on a different origin. The caller
+            // remains fail-open and will use BlueVPN's own banner if the canonical
+            // publisher endpoint is unavailable.
+            return candidates;
+        }
+
+        if (bridge is not null) candidates.Add(bridge.ToString());
+        foreach (var candidate in derived)
+        {
+            if (!candidates.Contains(candidate.ToString(), StringComparer.OrdinalIgnoreCase))
+                candidates.Add(candidate.ToString());
+        }
         return candidates;
     }
 

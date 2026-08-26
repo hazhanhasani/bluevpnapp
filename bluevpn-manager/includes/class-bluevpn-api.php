@@ -281,6 +281,12 @@ final class BlueVPN_API {
                 'force_update'=>$forceUpdate,
                 'beta_tester'=>(bool)($selection['beta_tester'] ?? false),
             ],
+            'connection_policy'=>[
+                // Server-authored but client-bounded. Bad panel values cannot
+                // create infinite recovery windows or connection-gate stalls.
+                'recovery_window_seconds'=>max(15,min(180,(int)($s['android_recovery_window_seconds'] ?? 60))),
+                'connection_gate_wait_ms'=>max(500,min(8000,(int)($s['android_connection_gate_wait_ms'] ?? 2500))),
+            ],
             'github_repository'=>(string)($s['github_repository']??''),
             'github_error'=>(string)($s['github_error']??''),
             'release_cache_seconds'=>(int)($s['release_cache_seconds']??15),

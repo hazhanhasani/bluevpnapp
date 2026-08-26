@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import org.json.JSONObject
 
 /**
  * Lightweight network recovery observer.
@@ -16,10 +17,41 @@ object BlueVpnNetworkRecoveryManager {
     private const val PREFS = "bluevpn_network_recovery"
     private const val KEY_LAST_LOST_AT = "last_lost_at"
     private const val KEY_RECOVERY_UNTIL = "recovery_until"
-    private const val RECOVERY_WINDOW_MS = 60_000L
+    private const val KEY_POLICY_RECOVERY_WINDOW_MS = "policy_recovery_window_ms"
+    private const val KEY_POLICY_GATE_WAIT_MS = "policy_gate_wait_ms"
+    private const val DEFAULT_RECOVERY_WINDOW_MS = 60_000L
+    private const val DEFAULT_GATE_WAIT_MS = 2_500L
+
+    data class ConnectionPolicy(
+        val recoveryWindowMs: Long,
+        val connectionGateWaitMs: Long,
+    )
 
     private fun prefs(context: Context) = context.applicationContext
         .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    fun policy(context: Context): ConnectionPolicy {
+        val p = prefs(context)
+        return ConnectionPolicy(
+            recoveryWindowMs = p.getLong(KEY_POLICY_RECOVERY_WINDOW_MS, DEFAULT_RECOVERY_WINDOW_MS)
+                .coerceIn(15_000L, 180_000L),
+            connectionGateWaitMs = p.getLong(KEY_POLICY_GATE_WAIT_MS, DEFAULT_GATE_WAIT_MS)
+                .coerceIn(500L, 8_000L),
+        )
+    }
+
+    fun connectionGateWaitMs(context: Context): Long = policy(context).connectionGateWaitMs
+
+    fun applyRemotePolicy(context: Context, config: JSONObject): Boolean {
+        val remote = config.optJSONObject("connection_policy") ?: return false
+        val recoverySeconds = remote.optLong("recovery_window_seconds", 60L).coerceIn(15L, 180L)
+        val gateWaitMs = remote.optLong("connection_gate_wait_ms", DEFAULT_GATE_WAIT_MS).coerceIn(500L, 8_000L)
+        prefs(context).edit()
+            .putLong(KEY_POLICY_RECOVERY_WINDOW_MS, recoverySeconds * 1_000L)
+            .putLong(KEY_POLICY_GATE_WAIT_MS, gateWaitMs)
+            .apply()
+        return true
+    }
 
     /**
      * During a short physical-network handover window, retry the last verified
@@ -43,8 +75,9 @@ object BlueVpnNetworkRecoveryManager {
                     val app = context.applicationContext
                     val p = prefs(app)
                     val lastLost = p.getLong(KEY_LAST_LOST_AT, 0L)
-                    if (lastLost > 0L && System.currentTimeMillis() - lastLost in 0..RECOVERY_WINDOW_MS) {
-                        p.edit().putLong(KEY_RECOVERY_UNTIL, System.currentTimeMillis() + RECOVERY_WINDOW_MS).apply()
+                    val recoveryWindowMs = policy(app).recoveryWindowMs
+                    if (lastLost > 0L && System.currentTimeMillis() - lastLost in 0..recoveryWindowMs) {
+                        p.edit().putLong(KEY_RECOVERY_UNTIL, System.currentTimeMillis() + recoveryWindowMs).apply()
                     }
                     BlueVpnRuntimeAudit.record(
                         app,
@@ -63,9 +96,10 @@ object BlueVpnNetworkRecoveryManager {
                 runCatching {
                     val app = context.applicationContext
                     val now = System.currentTimeMillis()
+                    val recoveryWindowMs = policy(app).recoveryWindowMs
                     prefs(app).edit()
                         .putLong(KEY_LAST_LOST_AT, now)
-                        .putLong(KEY_RECOVERY_UNTIL, now + RECOVERY_WINDOW_MS)
+                        .putLong(KEY_RECOVERY_UNTIL, now + recoveryWindowMs)
                         .apply()
                     BlueVpnRuntimeAudit.record(
                         app,

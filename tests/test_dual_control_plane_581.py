@@ -53,6 +53,22 @@ class DualControlPlane581Tests(unittest.TestCase):
         self.assertIn("fun status(context: Context): UpdateStatus", updater)
         self.assertIn("KEY_UPDATE_CODE", updater)
 
+    def test_android_connection_policy_is_remote_but_safely_bounded(self):
+        api = (ROOT / "bluevpn-manager/includes/class-bluevpn-api.php").read_text(encoding="utf-8")
+        account = (ROOT / "android-source/BlueVpnAccountManager.kt").read_text(encoding="utf-8")
+        recovery = (ROOT / "android-source/BlueVpnNetworkRecoveryManager.kt").read_text(encoding="utf-8")
+        runtime = (ROOT / "android-source/BlueVpnRuntimeGate.kt").read_text(encoding="utf-8")
+        settings = (ROOT / "android-source/BlueVpnSettingsActivity.kt").read_text(encoding="utf-8")
+        self.assertIn("'connection_policy'=>[", api)
+        self.assertIn("android_recovery_window_seconds", api)
+        self.assertIn("android_connection_gate_wait_ms", api)
+        self.assertIn("BlueVpnNetworkRecoveryManager.applyRemotePolicy", account)
+        self.assertIn("coerceIn(15L, 180L)", recovery)
+        self.assertIn("coerceIn(500L, 8_000L)", recovery)
+        self.assertIn("BlueVpnNetworkRecoveryManager.connectionGateWaitMs(context)", runtime)
+        self.assertIn("Recovery window:", settings)
+        self.assertIn("Connection gate wait:", settings)
+
     def test_health_monitor_probes_both_domains(self):
         workflow = (ROOT / ".github/workflows/external-health.yml").read_text(encoding="utf-8")
         for domain in DOMAINS:

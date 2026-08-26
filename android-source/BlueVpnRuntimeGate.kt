@@ -87,7 +87,7 @@ object BlueVpnRuntimeGate {
      * gets a short grace period to finish; after that the caller can retry from
      * the UI instead of racing against MMKV replacement.
      */
-    fun beginConnection(context: Context, timeoutMs: Long = 2_500L): Boolean {
+    fun beginConnection(context: Context, timeoutMs: Long = BlueVpnNetworkRecoveryManager.connectionGateWaitMs(context)): Boolean {
         val deadline = SystemClock.elapsedRealtime() + timeoutMs.coerceIn(0L, 8_000L)
         synchronized(monitor) {
             while (subscriptionMutationActive) {

@@ -294,6 +294,7 @@ object BlueVpnAccountManager {
      */
     fun applyRemoteMobileConfig(c: Context, config: JSONObject): Boolean {
         val appContext = c.applicationContext
+        BlueVpnNetworkRecoveryManager.applyRemotePolicy(appContext, config)
         val free = config.optJSONObject("free_access") ?: return false
         val storage = freePrefs(appContext)
         val sources = free.optJSONArray("subscriptions") ?: JSONArray()

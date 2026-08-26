@@ -29,6 +29,7 @@ import com.v2ray.ang.bluevpn.BlueVpnAccountManager
 import com.v2ray.ang.bluevpn.BlueVpnBackgroundReliability
 import com.v2ray.ang.bluevpn.BlueVpnBackgroundOptimizer
 import com.v2ray.ang.bluevpn.BlueVpnEntitlement
+import com.v2ray.ang.bluevpn.BlueVpnNetworkRecoveryManager
 import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnRuntimeGate
 import com.v2ray.ang.bluevpn.BlueVpnTheme
@@ -365,6 +366,7 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
         }
         val validated = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
         val phase = BlueVpnRuntimeGate.connectionPhase(this).name
+        val connectionPolicy = BlueVpnNetworkRecoveryManager.policy(this)
         val account = BlueVpnAccountManager.snapshot(this)
         val update = BlueVpnUpdateManager.status(this)
         val apiRows = BlueVpnAccountManager.apiBaseUrls().joinToString("\n") { base ->
@@ -392,6 +394,8 @@ class BlueVpnSettingsActivity : HelperBaseActivity() {
             appendLine("Latest known: $latest${if (update.updateAvailable) " • update available" else ""}")
             appendLine("Network: $networkType • validated=${if (validated) "yes" else "no"}")
             appendLine("Connection phase: $phase")
+            appendLine("Recovery window: ${connectionPolicy.recoveryWindowMs / 1_000L}s")
+            appendLine("Connection gate wait: ${connectionPolicy.connectionGateWaitMs}ms")
             appendLine("Account session: ${if (account.email.isNotBlank()) "signed-in" else "guest"}")
             appendLine("Entitlement: ${if (account.subscriptionActive) "premium" else "free"}")
             appendLine("Control plane:")

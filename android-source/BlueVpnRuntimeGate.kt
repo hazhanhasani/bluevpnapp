@@ -109,10 +109,30 @@ object BlueVpnRuntimeGate {
      * Acquire connection ownership. A subscription import that already started
      * gets a short grace period to finish; after that the caller can retry from
      * the UI instead of racing against MMKV replacement.
+     *
+     * This is also the final ownership boundary for every UI connect flow. If a
+     * different VPN currently owns Android's VPN transport, fail before BlueVPN
+     * can claim its runtime gate or start a VpnService. That guarantees an
+     * automatic/recovery path cannot disconnect the user's existing VPN.
      */
     fun beginConnection(context: Context, timeoutMs: Long = BlueVpnNetworkRecoveryManager.connectionGateWaitMs(context)): Boolean {
+        val app = context.applicationContext
+        if (otherVpnActive(app)) {
+            runCatching {
+                BlueVpnRuntimeAudit.record(
+                    app,
+                    BlueVpnRuntimeAudit.Event.CONNECTION_PHASE,
+                    "PREPARING:blocked_other_vpn",
+                )
+            }
+            return false
+        }
+
         val deadline = SystemClock.elapsedRealtime() + timeoutMs.coerceIn(0L, 8_000L)
         synchronized(monitor) {
+            // Re-check under the serialization boundary. Another VPN can become
+            // active between the first probe and ownership acquisition.
+            if (otherVpnActive(app)) return false
             while (subscriptionMutationActive) {
                 val remaining = deadline - SystemClock.elapsedRealtime()
                 if (remaining <= 0L) return false
@@ -124,13 +144,13 @@ object BlueVpnRuntimeGate {
                 }
             }
             connectionActiveMemory = true
-            prefs(context).edit()
+            prefs(app).edit()
                 .putBoolean(KEY_CONNECTION_ACTIVE, true)
                 .putLong(KEY_CONNECTION_STARTED_AT, System.currentTimeMillis())
                 .putInt(KEY_CONNECTION_OWNER_PID, Process.myPid())
                 .putString(KEY_CONNECTION_PHASE, ConnectionPhase.PREPARING.name)
                 .apply()
-            setPhase(context, ConnectionPhase.PREPARING)
+            setPhase(app, ConnectionPhase.PREPARING)
             return true
         }
     }

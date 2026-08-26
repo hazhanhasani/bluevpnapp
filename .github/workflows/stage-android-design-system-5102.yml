@@ -31,24 +31,30 @@ jobs:
           if 'import android.graphics.Typeface' not in text:
               text = text.replace('import android.graphics.Color\n', 'import android.graphics.Color\nimport android.graphics.Typeface\n', 1)
           if 'object BlueVpnTypography' not in text:
-              text += '''\n\n/** Zero-asset BlueVPN design tokens. Keep typography in the system font stack\n * so Persian glyphs stay native and no font binary increases APK/update size. */\nobject BlueVpnTypography {\n    const val micro = 8.5f\n    const val caption = 10f\n    const val bodySmall = 10.5f\n    const val body = 11.5f\n    const val label = 12.5f\n    const val titleSmall = 15f\n    const val title = 20f\n    const val hero = 22f\n    const val brand = 31f\n\n    private val scale = floatArrayOf(micro, caption, bodySmall, body, label, titleSmall, title, hero, brand)\n    private val regularFace: Typeface by lazy { Typeface.create("sans-serif", Typeface.NORMAL) }\n    private val mediumFace: Typeface by lazy { Typeface.create("sans-serif-medium", Typeface.NORMAL) }\n\n    fun resolve(requestedSp: Float): Float =\n        scale.minByOrNull { kotlin.math.abs(it - requestedSp) } ?: requestedSp\n\n    fun typeface(emphasized: Boolean): Typeface = if (emphasized) mediumFace else regularFace\n}\n\nobject BlueVpnSpacing {\n    const val xxs = 2\n    const val xs = 4\n    const val sm = 8\n    const val md = 12\n    const val lg = 16\n    const val pageHorizontal = 18\n    const val xl = 24\n}\n\nobject BlueVpnRadius {\n    const val small = 12\n    const val control = 16\n    const val card = 18\n    const val elevatedCard = 22\n    const val dialog = 24\n    const val large = 28\n    const val pill = 54\n\n    private val scale = intArrayOf(small, control, card, elevatedCard, dialog, large, pill)\n    fun resolve(requestedDp: Int): Int =\n        scale.minByOrNull { kotlin.math.abs(it - requestedDp) } ?: requestedDp\n}\n'''
+              text += '''\n\n/** Zero-asset BlueVPN design tokens: native Persian glyphs, no font payload. */\nobject BlueVpnTypography {\n    const val micro = 8.5f\n    const val caption = 10f\n    const val bodySmall = 10.5f\n    const val body = 11.5f\n    const val label = 12.5f\n    const val titleSmall = 15f\n    const val title = 20f\n    const val hero = 22f\n    const val brand = 31f\n    private val scale = floatArrayOf(micro, caption, bodySmall, body, label, titleSmall, title, hero, brand)\n    private val regularFace: Typeface by lazy { Typeface.create("sans-serif", Typeface.NORMAL) }\n    private val mediumFace: Typeface by lazy { Typeface.create("sans-serif-medium", Typeface.NORMAL) }\n    fun resolve(requestedSp: Float): Float = scale.minByOrNull { kotlin.math.abs(it - requestedSp) } ?: requestedSp\n    fun typeface(emphasized: Boolean): Typeface = if (emphasized) mediumFace else regularFace\n}\n\nobject BlueVpnSpacing {\n    const val xxs = 2\n    const val xs = 4\n    const val sm = 8\n    const val md = 12\n    const val lg = 16\n    const val pageHorizontal = 18\n    const val xl = 24\n}\n\nobject BlueVpnRadius {\n    const val small = 12\n    const val control = 16\n    const val card = 18\n    const val elevatedCard = 22\n    const val dialog = 24\n    const val large = 28\n    const val pill = 54\n    private val scale = intArrayOf(small, control, card, elevatedCard, dialog, large, pill)\n    fun resolve(requestedDp: Int): Int = scale.minByOrNull { kotlin.math.abs(it - requestedDp) } ?: requestedDp\n}\n'''
           theme.write_text(text, encoding='utf-8')
 
           home = Path('android-source/BlueVpnHomeActivity.kt')
           text = home.read_text(encoding='utf-8')
           anchor = 'import com.v2ray.ang.bluevpn.BlueVpnTheme\n'
-          addition = 'import com.v2ray.ang.bluevpn.BlueVpnTheme\nimport com.v2ray.ang.bluevpn.BlueVpnTypography\nimport com.v2ray.ang.bluevpn.BlueVpnSpacing\nimport com.v2ray.ang.bluevpn.BlueVpnRadius\n'
           if 'import com.v2ray.ang.bluevpn.BlueVpnTypography' not in text:
               if anchor not in text:
                   raise SystemExit('theme import anchor missing')
-              text = text.replace(anchor, addition, 1)
+              text = text.replace(anchor, anchor + 'import com.v2ray.ang.bluevpn.BlueVpnTypography\nimport com.v2ray.ang.bluevpn.BlueVpnSpacing\nimport com.v2ray.ang.bluevpn.BlueVpnRadius\n', 1)
 
-          old = '''        text = value\n        textSize = sizeSp\n        setTextColor(color)\n        this.gravity = gravity\n        includeFontPadding = false\n        if (bold) typeface = Typeface.DEFAULT_BOLD\n'''
-          new = '''        text = value\n        textSize = BlueVpnTypography.resolve(sizeSp)\n        setTextColor(color)\n        this.gravity = gravity\n        includeFontPadding = false\n        typeface = BlueVpnTypography.typeface(bold)\n        textDirection = View.TEXT_DIRECTION_FIRST_STRONG_RTL\n        textLocale = Locale("fa", "IR")\n        setLineSpacing(0f, 1.04f)\n'''
-          if old not in text:
-              raise SystemExit('uiText helper contract changed')
-          text = text.replace(old, new, 1)
-
+          required = [
+              '        textSize = sizeSp\n',
+              '        if (bold) typeface = Typeface.DEFAULT_BOLD\n',
+          ]
+          for item in required:
+              if item not in text:
+                  raise SystemExit('uiText helper contract changed: ' + item.strip())
+          text = text.replace('        textSize = sizeSp\n', '        textSize = BlueVpnTypography.resolve(sizeSp)\n', 1)
+          text = text.replace(
+              '        if (bold) typeface = Typeface.DEFAULT_BOLD\n',
+              '        typeface = BlueVpnTypography.typeface(bold)\n        textDirection = View.TEXT_DIRECTION_FIRST_STRONG_RTL\n        textLocale = Locale("fa", "IR")\n        setLineSpacing(0f, 1.04f)\n',
+              1,
+          )
           text = text.replace('typeface = Typeface.DEFAULT_BOLD\n            gravity = Gravity.CENTER', 'typeface = BlueVpnTypography.typeface(true)\n            gravity = Gravity.CENTER', 1)
           text = text.replace('radius = dpHome(radiusDp).toFloat()', 'radius = dpHome(BlueVpnRadius.resolve(radiusDp)).toFloat()', 1)
           text = text.replace('cornerRadius = dpHome(radiusDp).toFloat()', 'cornerRadius = dpHome(BlueVpnRadius.resolve(radiusDp)).toFloat()', 1)

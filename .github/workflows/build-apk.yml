@@ -65,22 +65,6 @@ jobs:
             test -n "${!name:-}" || { echo "::error::$name is not configured"; exit 1; }
           done
 
-      - name: Check GitHub Release token
-        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
-        env:
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::error::Missing BLUEVPN_GITHUB_RELEASE_TOKEN. Add a fine-grained PAT with Contents: Read and write for this repository."
-            exit 1
-          fi
-          test "$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.permissions.push // false')" = "true" || {
-            echo "::error::BLUEVPN_GITHUB_RELEASE_TOKEN does not have repository Contents write permission."
-            exit 1
-          }
-
       - name: Resolve next BlueVPN version
         id: config
         shell: bash
@@ -260,7 +244,7 @@ jobs:
         if: steps.libv2ray-cache.outputs.cache-hit != 'true'
         env:
           XRAY_AAR_TAG: ${{ steps.xray.outputs.tag }}
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -483,7 +467,7 @@ jobs:
       - name: Publish synchronized BlueVPN Manager release barrier
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         env:
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.config.outputs.version }}
         shell: bash
         run: |
@@ -494,7 +478,7 @@ jobs:
           rsync -a bluevpn-manager/ "$RUNNER_TEMP/manager/bluevpn-manager/"
           (cd "$RUNNER_TEMP/manager" && zip -qr "$GITHUB_WORKSPACE/bluevpn-manager.zip" bluevpn-manager)
           TAG="bluevpn-manager-v${VERSION}"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then gh release upload "$TAG" bluevpn-manager.zip --clobber --repo "$GITHUB_REPOSITORY"; else gh release create "$TAG" bluevpn-manager.zip --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "BlueVPN Manager ${VERSION}" --latest=false; fi
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then gh release upload "$TAG" bluevpn-manager.zip --clobber --repo "$GITHUB_REPOSITORY"; else gh release create "$TAG" bluevpn-manager.zip --repo "$GITHUB_REPOSITORY" --title "BlueVPN Manager ${VERSION}" --latest=false; fi
 
       - name: Wait for WordPress control-plane auto-update
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
@@ -557,7 +541,7 @@ jobs:
       - name: Publish signed APKs to GitHub Release
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         env:
-          GH_TOKEN: ${{ secrets.BLUEVPN_GITHUB_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.config.outputs.version }}
         shell: bash
         run: |
@@ -573,8 +557,8 @@ jobs:
               grep -q 'Resource not accessible by integration' "$publish_error" && echo '::error::Configure BLUEVPN_GITHUB_RELEASE_TOKEN with Contents: Read and write permission.'
               exit 1
             fi
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "BlueVPN ${VERSION}"
-          elif ! gh release create "$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "BlueVPN ${VERSION}" 2>"$publish_error"; then
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "BlueVPN ${VERSION}"
+          elif ! gh release create "$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --title "BlueVPN ${VERSION}" 2>"$publish_error"; then
             cat "$publish_error" >&2
             grep -q 'Resource not accessible by integration' "$publish_error" && echo '::error::Configure BLUEVPN_GITHUB_RELEASE_TOKEN with Contents: Read and write permission.'
             exit 1

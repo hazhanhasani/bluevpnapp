@@ -62,6 +62,9 @@ import com.v2ray.ang.bluevpn.BlueVpnDynamicBackgroundView
 import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnTheme
+import com.v2ray.ang.bluevpn.BlueVpnTypography
+import com.v2ray.ang.bluevpn.BlueVpnSpacing
+import com.v2ray.ang.bluevpn.BlueVpnRadius
 import com.v2ray.ang.bluevpn.BlueVpnConnectionMode
 import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnIntelligenceCore
@@ -800,7 +803,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
-            setPadding(dpHome(18), dpHome(8), dpHome(18), dpHome(14))
+            setPadding(dpHome(BlueVpnSpacing.pageHorizontal), dpHome(BlueVpnSpacing.sm), dpHome(BlueVpnSpacing.pageHorizontal), dpHome(14))
         }
         root.addView(
             content,
@@ -961,7 +964,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 isAllCaps = false
                 insetTop = 0
                 insetBottom = 0
-                cornerRadius = dpHome(16)
+                cornerRadius = dpHome(BlueVpnRadius.control)
                 setTextColor(palette.textSecondary)
                 backgroundTintList = ColorStateList.valueOf(palette.surfaceStrong)
                 strokeColor = ColorStateList.valueOf(palette.stroke)
@@ -1662,7 +1665,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             text = label
             textSize = 10.5f
             setTextColor(Color.parseColor("#E3EDFF"))
-            typeface = Typeface.DEFAULT_BOLD
+            typeface = BlueVpnTypography.typeface(true)
             gravity = Gravity.CENTER
             isClickable = true
             isFocusable = true
@@ -1682,11 +1685,14 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         gravity: Int = Gravity.START or Gravity.CENTER_VERTICAL,
     ): AppCompatTextView = AppCompatTextView(this).apply {
         text = value
-        textSize = sizeSp
+        textSize = BlueVpnTypography.resolve(sizeSp)
         setTextColor(color)
         this.gravity = gravity
         includeFontPadding = false
-        if (bold) typeface = Typeface.DEFAULT_BOLD
+        typeface = BlueVpnTypography.typeface(bold)
+        textDirection = View.TEXT_DIRECTION_FIRST_STRONG_RTL
+        textLocale = Locale("fa", "IR")
+        setLineSpacing(0f, 1.04f)
     }
 
     private fun glassCard(
@@ -1694,7 +1700,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         stroke: Int,
         fill: Int,
     ): MaterialCardView = MaterialCardView(this).apply {
-        radius = dpHome(radiusDp).toFloat()
+        radius = dpHome(BlueVpnRadius.resolve(radiusDp)).toFloat()
         setCardBackgroundColor(fill)
         cardElevation = 0f
         strokeWidth = dpHome(1)
@@ -1711,7 +1717,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
         GradientDrawable.Orientation.TL_BR,
         colors,
     ).apply {
-        cornerRadius = dpHome(radiusDp).toFloat()
+        cornerRadius = dpHome(BlueVpnRadius.resolve(radiusDp)).toFloat()
         if (stroke != null) setStroke(dpHome(1), stroke)
     }
 

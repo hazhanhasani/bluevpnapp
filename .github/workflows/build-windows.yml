@@ -311,28 +311,44 @@ jobs:
             echo "::error::Expected 8 Windows release assets, found ${#ASSETS[@]}"
             exit 1
           fi
-          publish_error="$RUNNER_TEMP/windows-release-publish.err"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            if ! gh release upload "$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --clobber 2>"$publish_error"; then
-              cat "$publish_error" >&2
-              if grep -q 'Resource not accessible by integration' "$publish_error"; then
-                echo '::error::GitHub Actions token cannot update Releases. Configure repository secret BLUEVPN_GITHUB_RELEASE_TOKEN with Contents: Read and write permission.'
-              fi
-              exit 1
-            fi
-            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes "$NOTES" --latest=false
-            RELEASE_ID="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" --jq .id)"
-            printf '{"prerelease":true}\n' | gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --input - >/dev/null
+
+          # gh release create uploads assets as part of the create operation. A
+          # transient failure can leave a hidden draft with only some assets.
+          # Keep the release as a draft explicitly, upload each asset with retry,
+          # and publish only after the complete payload is present.
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY"               --title "$TITLE" --notes "$NOTES" --draft --prerelease --latest=false
           else
-            ARGS=("$TAG" "${ASSETS[@]}" --repo "$GITHUB_REPOSITORY" --title "$TITLE" --notes "$NOTES" --latest=false --prerelease)
-            if ! gh release create "${ARGS[@]}" 2>"$publish_error"; then
-              cat "$publish_error" >&2
-              if grep -q 'Resource not accessible by integration' "$publish_error"; then
-                echo '::error::GitHub Actions token cannot create Releases. Configure repository secret BLUEVPN_GITHUB_RELEASE_TOKEN with Contents: Read and write permission.'
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY"               --title "$TITLE" --notes "$NOTES" --latest=false
+          fi
+
+          for ASSET in "${ASSETS[@]}"; do
+            NAME="$(basename "$ASSET")"
+            OK=0
+            for attempt in 1 2 3 4; do
+              echo "Uploading $NAME (attempt $attempt/4)"
+              if gh release upload "$TAG" "$ASSET" --repo "$GITHUB_REPOSITORY" --clobber; then
+                OK=1
+                break
               fi
+              sleep $((attempt * 5))
+            done
+            if [ "$OK" -ne 1 ]; then
+              echo "::error::Failed to upload Windows release asset after retries: $NAME"
               exit 1
             fi
+          done
+
+          RELEASE_ID="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json databaseId --jq .databaseId)"
+          ASSET_COUNT="$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" --jq 'length')"
+          if [ "$ASSET_COUNT" -ne 8 ]; then
+            echo "::error::Draft release asset count mismatch: expected 8, got $ASSET_COUNT"
+            exit 1
           fi
+
+          # Publish only after every required asset is safely uploaded.
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"             -F draft=false -F prerelease=true -f name="$TITLE" -f body="$NOTES" >/dev/null
+          echo "Published $TAG with all 8 Windows assets."
 
       - name: Verify public installer URLs
         env:

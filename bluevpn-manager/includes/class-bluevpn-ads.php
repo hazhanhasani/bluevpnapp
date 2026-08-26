@@ -607,7 +607,7 @@ final class BlueVPN_Ads {
                 'enabled' => !empty($settings['tapsell_windows_web_enabled']) && trim((string)($settings['tapsell_windows_web_script_html'] ?? '')) !== '' && trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')) !== '',
                 'placement_id' => mb_substr(trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')), 0, 200),
                 'script_html' => (string)($settings['tapsell_windows_web_script_html'] ?? ''),
-                'bridge_url' => 'https://blluepanel.ir/?bluevpn_tapsell_windows=1',
+                'bridge_url' => add_query_arg(['bluevpn_tapsell_windows'=>'1','slot'=>mb_substr(trim((string)($settings['tapsell_windows_web_placement_id'] ?? '')),0,200)], 'https://blluepanel.ir/'),
                 'free_only' => false,
                 'min_interval_seconds' => max(0, min(86400, (int)($settings['tapsell_windows_web_min_interval_seconds'] ?? 300))),
                 'daily_cap' => max(0, min(1000, (int)($settings['tapsell_windows_web_daily_cap'] ?? 10))),

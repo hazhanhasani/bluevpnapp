@@ -1,0 +1,48 @@
+name: Stage Android Diagnostics 5.9.7
+
+on:
+  push:
+    branches:
+      - automation/android-diagnostics-597
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-freeze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout staging branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: automation/android-diagnostics-597
+          fetch-depth: 0
+
+      - name: Apply Android diagnostics patch
+        run: python scripts/stage_android_diagnostics_597.py
+
+      - name: Release validators
+        run: |
+          set -euo pipefail
+          python scripts/validate_bundle_integrity.py
+          python scripts/sync_version.py --check
+          python scripts/validate_release.py
+          python scripts/validate_php_release.py
+
+      - name: Targeted Android diagnostics regression
+        run: python -m unittest tests.test_dual_control_plane_581
+
+      - name: Full regression suite
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Freeze validated production tree
+        run: |
+          set -euo pipefail
+          rm -f scripts/stage_android_diagnostics_597.py .github/workflows/stage-android-diagnostics-597.yml
+          git config user.name bluevpn-validation-bot
+          git config user.email bluevpn-validation-bot@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git status --short
+          git commit -m 'feat(android): add privacy-safe diagnostics and update status [skip ci]'
+          git push origin HEAD:automation/android-diagnostics-597

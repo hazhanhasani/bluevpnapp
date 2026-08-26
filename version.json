@@ -1,14 +1,14 @@
 {
-  "version": "5.9.3",
-  "version_code": 50903,
+  "version": "5.9.4",
+  "version_code": 50904,
   "name": "BlueVPN",
   "components": {
-    "android": "5.9.3",
-    "ios": "5.9.3",
-    "windows": "5.9.3",
-    "manager": "5.9.3",
-    "site": "5.9.3",
-    "theme": "5.9.3",
-    "release": "5.9.3"
+    "android": "5.9.4",
+    "ios": "5.9.4",
+    "windows": "5.9.4",
+    "manager": "5.9.4",
+    "site": "5.9.4",
+    "theme": "5.9.4",
+    "release": "5.9.4"
   }
 }

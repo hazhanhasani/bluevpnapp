@@ -11,10 +11,10 @@ class DeployManagerSourceFallback4170Tests(unittest.TestCase):
     def test_release_version(self):
         release = json.loads(text('release.json'))
         branding = json.loads(text('branding/app.json'))
-        self.assertEqual(release['version'], '5.10.3')
-        self.assertEqual(release['version_code'], 51003)
-        self.assertEqual(branding['version_name'], '5.10.3')
-        self.assertEqual(branding['version_code'], 51003)
+        self.assertEqual(release['version'], '5.10.4')
+        self.assertEqual(release['version_code'], 51004)
+        self.assertEqual(branding['version_name'], '5.10.4')
+        self.assertEqual(branding['version_code'], 51004)
 
     def test_manager_installs_from_validated_project_tree_before_release_dependency(self):
         bot = text('bluevpn-manager/includes/class-bluevpn-telegram-bot.php')

@@ -1,0 +1,33 @@
+name: BlueVPN Apply 6.0.1
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-60001.yml'
+      - 'scripts/release_60001.py'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+
+      - name: Apply BlueVPN 6.0.1 product changes
+        run: python scripts/release_60001.py
+
+      - name: Commit synchronized 6.0.1 product source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          git config user.name "bluevpn-release-bot"
+          git config user.email "bluevpn-release-bot@users.noreply.github.com"
+          git add -A ':!.github/workflows'
+          git commit -m "release: BlueVPN 6.0.1 admin and connection reliability"
+          git push origin HEAD:main

@@ -27,6 +27,7 @@ final class BlueVPN_Admin {
             ['bluevpn-production','سلامت و Backup','production'],
             ['bluevpn-pasarguard','PasarGuard','panels'],
             ['bluevpn-marzban','Marzban','marzban'],
+            ['bluevpn-shahrah','Shahrah','shahrah'],
             ['bluevpn-guardcore','GuardCore','guardcore'],
             ['bluevpn-guardcore-queue','صف GuardCore','guardcore-manual'],
             ['bluevpn-subscription-sources','Sourceهای اشتراک','sources'],

@@ -7,6 +7,7 @@
     "test_admin_navigation_split_60004.py",
     "test_admin_transition_rejection_554.py",
     "test_android_beta_build_detection_546.py",
+    "test_android_connected_location_state.py",
     "test_android_locations_oem_ui_5311.py",
     "test_android_notification_controls_484.py",
     "test_android_premium_tapsell_locked_carousel_578.py",

@@ -943,6 +943,7 @@ final class BlueVPN_Providers {
                         $created++;$details['guardcore']='created';
                     }else{
                         $existingUsername=trim((string)($remote['username']??''))?:$u;$u=$existingUsername;
+                        // Repair access selection without touching quota, usage or expiry.
                         if($serviceIds){
                             $remoteServices=array_values(array_unique(array_map('intval',(array)($remote['service_ids']??[]))));sort($remoteServices);
                             $expectedServices=$serviceIds;sort($expectedServices);

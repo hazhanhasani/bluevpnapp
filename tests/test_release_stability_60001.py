@@ -12,6 +12,9 @@ class ReleaseStability60001Tests(unittest.TestCase):
 
     def test_admin_pages_are_centrally_registered_without_duplicate_hooks(self):
         admin=(ROOT/"bluevpn-manager/includes/class-bluevpn-admin.php").read_text(encoding="utf-8")
+        self.assertIn("add_action('admin_menu',[self::class,'menu'],1)", admin)
+        self.assertIn("['bluevpn-subscription-sources','Sourceهای اشتراک','sources']", admin)
+        self.assertIn("add_submenu_page('bluevpn-manager',$label,$label,'manage_options',$slug", admin)
         for slug in ["bluevpn-support","bluevpn-telegram-bot","bluevpn-error-monitor"]:
             self.assertIn(slug, admin)
         for rel in [

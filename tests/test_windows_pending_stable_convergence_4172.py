@@ -27,6 +27,6 @@ class WindowsPendingStableConvergence4172Tests(unittest.TestCase):
         self.assertNotIn("bluevpn-wordpress-windows-update-after-sync.json",wf)
     def test_combined_publish_can_finish_later_without_second_click(self):
         cc=text("bluevpn-manager/includes/class-bluevpn-control-center.php")
-        self.assertIn("درخواست انتشار رسمی Windows نیز ثبت شد",cc)
+        self.assertIn("درخواست انتشار رسمی ویندوز نیز ثبت شد",cc)
 
 if __name__=="__main__": unittest.main()

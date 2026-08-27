@@ -8,6 +8,8 @@ final class BlueVPN_Providers {
     private const EXPIRY_DRIFT_TOLERANCE_SECONDS = 21600;
     private const EXPIRY_REPAIR_OPTION = 'bluevpn_expiry_inflation_repair_4174';
     private const EXPIRY_NON_GRANT_REPAIR_OPTION = 'bluevpn_expiry_non_grant_repair_4175';
+    private const PAID_REPAIR_CURSOR_OPTION = 'bluevpn_paid_subscription_repair_cursor';
+    private const PAID_REPAIR_LAST_OPTION = 'bluevpn_paid_subscription_repair_last';
 
     public static function init(): void {
         add_action('template_redirect',[self::class,'serve_subscription'],0);
@@ -994,6 +996,39 @@ final class BlueVPN_Providers {
         else $message=$errors?implode(' | ',$errors):'نیازی به ترمیم نبود.';
 
         return ['ok'=>$ok,'eligible'=>true,'message'=>$message,'repaired'=>$repaired,'created'=>$created,'attached'=>$attached,'existing'=>$existing,'resynced'=>$resynced,'errors'=>$errors,'details'=>$details];
+    }
+
+    public static function reconcile_missing_paid_subscriptions_batch(int $limit=2): array {
+        $limit=max(1,min(5,$limit));
+        $cursor=max(0,(int)get_option(self::PAID_REPAIR_CURSOR_OPTION,0));
+        $ids=self::repair_candidate_ids_after($cursor,$limit);
+
+        if(!$ids&&$cursor>0){
+            update_option(self::PAID_REPAIR_CURSOR_OPTION,0,false);
+            $summary=['checked'=>0,'repaired'=>0,'created'=>0,'attached'=>0,'resynced'=>0,'errors'=>0,'wrapped'=>true,'cursor'=>0,'at'=>BlueVPN_Utils::iso_now()];
+            update_option(self::PAID_REPAIR_LAST_OPTION,$summary,false);
+            return $summary;
+        }
+
+        $summary=['checked'=>0,'repaired'=>0,'created'=>0,'attached'=>0,'resynced'=>0,'errors'=>0,'wrapped'=>false,'cursor'=>$cursor,'at'=>BlueVPN_Utils::iso_now()];
+        $last=$cursor;
+        foreach($ids as $id){
+            $id=(int)$id;$last=max($last,$id);$summary['checked']++;
+            try{
+                $r=self::repair_customer_missing_providers($id);
+                $summary['repaired']+=(int)($r['repaired']??0);
+                $summary['created']+=(int)($r['created']??0);
+                $summary['attached']+=(int)($r['attached']??0);
+                $summary['resynced']+=(int)($r['resynced']??0);
+                if(empty($r['ok']))$summary['errors']++;
+            }catch(Throwable $e){
+                $summary['errors']++;
+            }
+        }
+        update_option(self::PAID_REPAIR_CURSOR_OPTION,$last,false);
+        $summary['cursor']=$last;
+        update_option(self::PAID_REPAIR_LAST_OPTION,$summary,false);
+        return $summary;
     }
 
     public static function repairable_customer_count(): int {

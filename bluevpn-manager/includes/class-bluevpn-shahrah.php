@@ -399,6 +399,19 @@ final class BlueVPN_Shahrah {
         return 'bluevpn_shahrah_' . $sourceId . '_' . $customerId;
     }
 
+    private static function panel_map_option(int $panelId,int $customerId): string {
+        return 'bluevpn_shahrah_panel_' . $panelId . '_' . $customerId;
+    }
+
+    public static function panel_mapping(int $panelId,int $customerId): array {
+        $value=get_option(self::panel_map_option($panelId,$customerId),[]);
+        return is_array($value)?$value:[];
+    }
+
+    private static function save_panel_mapping(int $panelId,int $customerId,array $mapping): void {
+        update_option(self::panel_map_option($panelId,$customerId),$mapping,false);
+    }
+
     public static function mapping(int $sourceId, int $customerId): array {
         $value = get_option(self::map_option($sourceId, $customerId), []);
         return is_array($value) ? $value : [];
@@ -448,6 +461,61 @@ final class BlueVPN_Shahrah {
             'username' => $username,
             'configs' => self::extract_configs((array)$response['json']),
             'response' => (array)$response['json'],
+        ];
+    }
+
+    public static function provision_panel(int $panelId,int $customerId,string $planSlug,string $username): array {
+        $panel=self::panel($panelId);
+        if(!$panel||!(int)($panel['active']??0))throw new RuntimeException('اتصال فعال شاهراه پیدا نشد.');
+        $apiKey=self::panel_api_key($panel);
+        if($apiKey==='')throw new RuntimeException('API KEY شاهراه تنظیم نشده است.');
+        $existing=self::panel_mapping($panelId,$customerId);
+        $serviceSlug=trim((string)($existing['service_slug']??''));
+        $response=[];
+
+        if($serviceSlug!==''){
+            try{$response=self::renew_service($apiKey,$serviceSlug,$planSlug);}
+            catch(Throwable $renewError){
+                if(!str_contains($renewError->getMessage(),'پیدا نشد'))throw $renewError;
+                $serviceSlug='';
+            }
+        }
+
+        if($serviceSlug===''){
+            $response=self::create_service($apiKey,$planSlug,$username);
+            $serviceSlug=self::extract_service_slug((array)$response['json'],$username);
+            if($serviceSlug===''){
+                $listing=self::services($apiKey,['limit'=>100,'page'=>1]);
+                $candidate=self::find_service_for_username((array)$listing['json'],$username);
+                $serviceSlug=self::extract_service_slug($candidate,$username);
+            }
+            if($serviceSlug==='')throw new RuntimeException('شاهراه سرویس را ساخت اما slug سرویس از پاسخ قابل تشخیص نبود.');
+        }
+
+        self::save_panel_mapping($panelId,$customerId,[
+            'service_slug'=>$serviceSlug,
+            'username'=>$username,
+            'plan_slug'=>$planSlug,
+            'updated_at'=>BlueVPN_Utils::iso_now(),
+        ]);
+        return ['ok'=>true,'service_slug'=>$serviceSlug,'username'=>$username,'response'=>(array)$response['json']];
+    }
+
+    public static function configs_for_panel_customer(int $panelId,int $customerId): array {
+        $panel=self::panel($panelId);
+        if(!$panel||!(int)($panel['active']??0))return ['ok'=>false,'lines'=>[],'message'=>'اتصال شاهراه غیرفعال یا حذف شده است.'];
+        $apiKey=self::panel_api_key($panel);
+        if($apiKey==='')return ['ok'=>false,'lines'=>[],'message'=>'API KEY شاهراه تنظیم نشده است.'];
+        $mapping=self::panel_mapping($panelId,$customerId);
+        $slug=trim((string)($mapping['service_slug']??''));
+        if($slug==='')return ['ok'=>false,'lines'=>[],'message'=>'سرویس شاهراه برای این کاربر هنوز ساخته نشده است.'];
+        $response=self::service($apiKey,$slug);
+        $lines=self::extract_configs((array)$response['json']);
+        return [
+            'ok'=>!empty($lines),
+            'lines'=>$lines,
+            'message'=>$lines?count($lines).' کانفیگ از شاهراه دریافت شد.':'سرویس شاهراه پاسخ داد اما کانفیگ قابل استفاده‌ای در پاسخ نبود.',
+            'service_slug'=>$slug,
         ];
     }
 

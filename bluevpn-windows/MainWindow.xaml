@@ -148,7 +148,7 @@
                     </Border>
                     <Image x:Name="AdImage" Stretch="Uniform" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                            RenderOptions.BitmapScalingMode="HighQuality"/>
-                    <wv2:WebView2CompositionControl x:Name="TapsellWebView" Visibility="Collapsed" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                    <Grid x:Name="TapsellWebHost" Visibility="Collapsed" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
                     <Border x:Name="TapsellLoadingPanel" Visibility="Collapsed" Background="{DynamicResource BlueVpnAdBg}">
                         <TextBlock Text="در حال دریافت تبلیغ تپسل…" Foreground="#FFD5E3FF" FontSize="11"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>

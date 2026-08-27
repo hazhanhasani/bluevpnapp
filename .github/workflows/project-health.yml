@@ -132,12 +132,22 @@ jobs:
             fi
           done
 
-          if [ "$VERSION_CHANGED" = true ] || [ "$RELEASE_PENDING" = true ]; then
+          RELEASE_REQUESTED=false
+          COMMIT_SUBJECT="$(git log -1 --pretty=%s)"
+          if [ "$VERSION_CHANGED" = true ] || [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [[ "$COMMIT_SUBJECT" == release:* ]]; then
+            RELEASE_REQUESTED=true
+          fi
+
+          if [ "$RELEASE_REQUESTED" = true ] && { [ "$VERSION_CHANGED" = true ] || [ "$RELEASE_PENDING" = true ]; }; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Release required: previous=${PREVIOUS:-none}, current=$CURRENT, version_changed=$VERSION_CHANGED, release_pending=$RELEASE_PENDING"
+            echo "Release requested: previous=${PREVIOUS:-none}, current=$CURRENT, version_changed=$VERSION_CHANGED, release_pending=$RELEASE_PENDING, event=${GITHUB_EVENT_NAME}"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "Release already complete for BlueVPN $CURRENT"
+            if [ "$RELEASE_PENDING" = true ]; then
+              echo "BlueVPN $CURRENT still has pending release targets, but this commit is not a release trigger."
+            else
+              echo "Release already complete for BlueVPN $CURRENT"
+            fi
           fi
 
       - name: Pin release tags to validated source SHA

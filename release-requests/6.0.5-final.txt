@@ -1,0 +1,3 @@
+BlueVPN 6.0.5 coordinated release
+source_sha=bc75ae6f84446b8cd3d70fe3497d71492de5a2fd
+includes=paid-subscription-reconcile,persian-admin-navigation,split-android-windows-settings

@@ -697,6 +697,16 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         listContainer.removeAllViews()
         healthStatusViews.clear()
         val selectedLocation = candidates.firstOrNull { it.guid == selected }?.location?.key
+        val connectedNow = BlueVpnRuntimeGate.connectionActive(this)
+        // While the VPN is actually connected, the visible active country must
+        // follow the route that is really selected by the core. A stale manual
+        // preference from a previous session must never override the connected
+        // route (for example: connected to Netherlands but Germany stays blue).
+        val activeLocationKey = when {
+            connectedNow -> selectedLocation.orEmpty()
+            automatic -> ""
+            else -> preferred.ifBlank { selectedLocation.orEmpty() }
+        }
         val recentKeys = BlueVpnExperience.history(this).map { it.locationKey }.distinct()
         val recentIndex = recentKeys.withIndex().associate { it.value to it.index }
 
@@ -732,7 +742,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 when (selectedTab) {
                     LocationTab.RECENT -> compareBy<LocationGroup> { recentIndex[it.location.key] ?: Int.MAX_VALUE }
                     else -> compareByDescending<LocationGroup> {
-                        it.location.key == preferred || it.location.key == selectedLocation
+                        it.location.key == activeLocationKey
+                    }.thenByDescending {
+                        !connectedNow && it.location.key == preferred
                     }.thenByDescending { it.favorite }
                         .thenByDescending { it.healthScore }
                         .thenBy { it.location.title }
@@ -762,10 +774,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 val end = (groupIndex + chunkSize).coerceAtMost(groups.size)
                 while (groupIndex < end) {
                     val group = groups[groupIndex++]
-                    val active = !automatic && (
-                        group.location.key == preferred ||
-                            (preferred.isBlank() && group.location.key == selectedLocation)
-                        )
+                    val active = !automatic &&
+                        activeLocationKey.isNotBlank() &&
+                        group.location.key == activeLocationKey
                     listContainer.addView(
                         createLocationSection(group, active, manualSelectionAllowed),
                         LinearLayout.LayoutParams(-1, -2).apply {

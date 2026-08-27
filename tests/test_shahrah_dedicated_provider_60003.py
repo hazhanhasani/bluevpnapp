@@ -38,9 +38,10 @@ class ShahrahDedicatedProvider60005Tests(unittest.TestCase):
         control=self.text("bluevpn-manager/includes/class-bluevpn-control-center.php")
         for token in ["sync_panel","plan_catalog","plan_exists","GET', '/plans","GET', '/services"]:
             self.assertIn(token,shahrah)
-        self.assertIn("shahrah_plan_key",control)
+        self.assertIn("shahrah_plan_keys",control)
         self.assertIn("BlueVPN_Shahrah::plan_exists",control)
-        self.assertIn("ابتدا Shahrah را Sync کن",control)
+        self.assertIn("provider_routes_json",control)
+        self.assertIn("ابتدا شاهراه را همگام کن",control)
 
     def test_runtime_provisions_and_reads_remote_customer_service(self):
         providers=self.text("bluevpn-manager/includes/class-bluevpn-providers.php")
@@ -50,7 +51,8 @@ class ShahrahDedicatedProvider60005Tests(unittest.TestCase):
         self.assertIn("BlueVPN_Shahrah::provision_panel",providers)
         self.assertIn("BlueVPN_Shahrah::configs_for_panel_customer",providers)
         self.assertIn("BlueVPN_Shahrah::inspect_panel_customer",providers)
-        self.assertIn("'shahrah'=>$shId",providers)
+        self.assertIn("foreach($routes['shahrah'] as $route)",providers)
+        self.assertIn("provider_link_upsert",providers)
 
 if __name__=="__main__":
     unittest.main()

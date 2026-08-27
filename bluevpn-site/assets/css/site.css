@@ -6,7 +6,7 @@
   --radius:28px;--radius-lg:42px;--shell:1200px
 }
 
-/* BlueVPN 6.0.1 — global visual-system, safe-area and responsive correction. */
+/* BlueVPN 6.0.2 — global visual-system, safe-area and responsive correction. */
 .bv-announcement{display:none!important}
 html,body.bluevpn-site{max-width:100%;overflow-x:clip}
 body.bluevpn-site{font-size:15px}

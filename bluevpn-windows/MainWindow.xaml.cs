@@ -269,7 +269,7 @@ public partial class MainWindow : Window
                 "html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}" +
                 "#bluevpn-ad{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:transparent}" +
                 "#bluevpn-loading{position:fixed;inset:0;display:grid;place-items:center;color:#8e9ab2;font:12px sans-serif}" +
-                ".bluevpn-ad-label{position:fixed;left:8px;top:6px;z-index:2147483647;color:#fff;background:#66000000;border-radius:9px;padding:3px 7px;font:9px sans-serif}" +
+                ".bluevpn-ad-label{position:fixed;left:8px;top:6px;z-index:2147483647;color:#fff;background:#66000100;border-radius:9px;padding:3px 7px;font:9px sans-serif}" +
                 "iframe,img,video,canvas{max-width:100%;max-height:100%;border:0}</style></head><body>" +
                 "<div id=\"bluevpn-loading\">در حال دریافت تبلیغ…</div><span class=\"bluevpn-ad-label\">تبلیغ</span>" +
                 "<div id=\"bluevpn-ad\">" + cfg.ScriptHtml + "</div>" +

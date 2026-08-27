@@ -33,6 +33,24 @@ q('#bluevpnSidebarClose')?.addEventListener('click',()=>setOpen(false));
 overlay?.addEventListener('click',()=>setOpen(false));
 document.addEventListener('keydown',e=>{if(e.key==='Escape')setOpen(false)});
 document.querySelectorAll('.bluevpn-nav-item').forEach(a=>a.addEventListener('click',()=>setOpen(false)));
+
+const navSearch=q('#bluevpnNavSearch');
+if(navSearch){
+  const normalize=v=>String(v||'').trim().toLocaleLowerCase('fa');
+  navSearch.addEventListener('input',()=>{
+    const term=normalize(navSearch.value);
+    document.querySelectorAll('.bluevpn-nav-group').forEach(group=>{
+      let visible=0;
+      group.querySelectorAll('.bluevpn-nav-item').forEach(item=>{
+        const hit=!term||normalize(item.textContent).includes(term);
+        item.classList.toggle('is-filter-hidden',!hit);
+        if(hit)visible++;
+      });
+      group.classList.toggle('is-filter-hidden',visible===0);
+    });
+  });
+}
+
 const clock=q('#bluevpnLiveClock');
 if(clock){
   const tick=()=>{try{clock.textContent=new Intl.DateTimeFormat('fa-IR-u-ca-persian',{calendar:'persian',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false,timeZone:'Asia/Tehran'}).format(new Date())}catch(_){}};

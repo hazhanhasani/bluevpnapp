@@ -2,10 +2,10 @@ from pathlib import Path
 import json
 import subprocess
 
-OLD_VERSION = "6.0.0"
-NEW_VERSION = "6.0.0"
-OLD_CODE = "60000"
-NEW_CODE = "60000"
+OLD_VERSION = "6.0.1"
+NEW_VERSION = "6.0.1"
+OLD_CODE = "60001"
+NEW_CODE = "60001"
 
 # Tapsell Windows: follow the official Web Script contract. The approved
 # publisher origin is blluepanel.ir, the page must contain the exact mediaad-*
@@ -167,7 +167,7 @@ t577_path.write_text(t577, encoding="utf-8")
 manifest_path = Path("tests/release_test_manifest.json")
 manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 tests = list(manifest.get("tests") or [])
-backup_test = "test_backup_self_healing_60000.py"
+backup_test = "test_backup_self_healing_60001.py"
 if backup_test not in tests:
     tests.append(backup_test)
 manifest["tests"] = sorted(tests)
@@ -462,18 +462,18 @@ if old_monitor not in m:
 m = m.replace(old_monitor, new_monitor, 1)
 monitor.write_text(m, encoding="utf-8")
 
-test = Path("tests/test_backup_self_healing_60000.py")
+test = Path("tests/test_backup_self_healing_60001.py")
 test.write_text("""from pathlib import Path
 import json
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-class BackupSelfHealing60000Tests(unittest.TestCase):
+class BackupSelfHealing60001Tests(unittest.TestCase):
     def test_release_version(self):
         release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
-        self.assertEqual(release["version"], "6.0.0")
-        self.assertEqual(release["version_code"], 60000)
+        self.assertEqual(release["version"], "6.0.1")
+        self.assertEqual(release["version_code"], 60001)
 
     def test_backup_has_state_atomic_write_and_bounded_recovery(self):
         src = (ROOT / "bluevpn-manager/includes/class-bluevpn-production.php").read_text(encoding="utf-8")

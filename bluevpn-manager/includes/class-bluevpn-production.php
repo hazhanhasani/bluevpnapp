@@ -9,6 +9,7 @@ final class BlueVPN_Production {
     private const BACKUP_RECOVERY_LOCK = 'bluevpn_manager_backup_recovery_lock_v2';
     private const BACKUP_FRESH_SECONDS = 172800;
     private const BACKUP_RECOVERY_RETRY_SECONDS = 21600;
+    private const BACKUP_RECOVERY_RUNNING_SECONDS = 2700;
     private const BACKUP_CRON_OVERDUE_GRACE = 900;
     private const RESTORE_OPTION = 'bluevpn_manager_last_restore';
     private const CONTROL_PLANE_OPTION = 'bluevpn_manager_control_plane_mode';
@@ -283,6 +284,7 @@ final class BlueVPN_Production {
             'last_attempt_at' => BlueVPN_Utils::iso_now(),
             'last_attempt_reason' => $reason,
             'last_attempt_ok' => null,
+            'last_attempt_state' => 'running',
             'last_error' => '',
         ]);
 
@@ -321,6 +323,7 @@ final class BlueVPN_Production {
                 'last_attempt_at' => (string)$info['created_at'],
                 'last_attempt_reason' => $reason,
                 'last_attempt_ok' => true,
+                'last_attempt_state' => 'succeeded',
                 'last_error' => '',
                 'last_success_at' => (string)$info['created_at'],
                 'last_success_filename' => $name,
@@ -334,6 +337,7 @@ final class BlueVPN_Production {
                 'last_attempt_at' => BlueVPN_Utils::iso_now(),
                 'last_attempt_reason' => $reason,
                 'last_attempt_ok' => false,
+                'last_attempt_state' => 'failed',
                 'last_error' => $e->getMessage(),
             ]);
             throw $e;
@@ -372,6 +376,11 @@ final class BlueVPN_Production {
 
         $state = self::backup_state();
         $attemptTs = !empty($state['last_attempt_at']) ? strtotime((string)$state['last_attempt_at']) : 0;
+        $attemptState = (string)($state['last_attempt_state'] ?? '');
+        $legacyRunning = array_key_exists('last_attempt_ok', $state) && $state['last_attempt_ok'] === null;
+        if ($attemptTs && ($attemptState === 'running' || $legacyRunning) && $attemptTs > time() - self::BACKUP_RECOVERY_RUNNING_SECONDS) {
+            return ['attempted'=>false,'ok'=>true,'reason'=>'running','started_at'=>(string)($state['last_attempt_at']??'')];
+        }
         if ($attemptTs && $attemptTs > time() - self::BACKUP_RECOVERY_RETRY_SECONDS) {
             return ['attempted'=>false,'ok'=>!empty($state['last_attempt_ok']),'reason'=>'cooldown','error'=>(string)($state['last_error']??'')];
         }
@@ -539,18 +548,25 @@ final class BlueVPN_Production {
             'last_attempt_at'=>(string)($backupState['last_attempt_at']??''),
             'last_attempt_reason'=>(string)($backupState['last_attempt_reason']??''),
             'last_attempt_ok'=>$backupState['last_attempt_ok']??null,
+            'last_attempt_state'=>(string)($backupState['last_attempt_state']??''),
             'last_error'=>(string)($backupState['last_error']??''),
             'last_success_at'=>(string)($backupState['last_success_at']??''),
             'next_scheduled_at'=>(string)($backupState['next_scheduled_at']??''),
         ];
-        $backupMessage = 'Backup بیش از ۴۸ ساعت قدیمی است؛ بازیابی خودکار فعال است.';
-        if (!$backupFresh && !empty($statePublic['last_error'])) {
-            $backupMessage = 'Backup بیش از ۴۸ ساعت قدیمی است؛ آخرین تلاش ناموفق بود: '.mb_substr($statePublic['last_error'], 0, 220);
-        }
+        $attemptTs = !empty($statePublic['last_attempt_at']) ? strtotime((string)$statePublic['last_attempt_at']) : 0;
+        $recoveryRunning = !$backupFresh && $attemptTs &&
+            (($statePublic['last_attempt_state'] ?? '') === 'running' || $statePublic['last_attempt_ok'] === null) &&
+            $attemptTs > time()-self::BACKUP_RECOVERY_RUNNING_SECONDS;
+        $recoveryFailed = !$backupFresh && (($statePublic['last_attempt_state'] ?? '') === 'failed' || $statePublic['last_attempt_ok'] === false);
+        $backupMessage = $recoveryRunning
+            ? 'Recovery Backup در حال اجرا است.'
+            : ($recoveryFailed
+                ? 'آخرین Recovery Backup ناموفق بود: '.mb_substr((string)$statePublic['last_error'], 0, 220)
+                : 'Backup بیش از ۴۸ ساعت قدیمی است؛ بازیابی خودکار فعال است.');
         $checks['backup'] = [
-            'ok'=>(bool)$backupFresh,
-            'severity'=>'warning',
-            'code'=>'BACKUP_STALE',
+            'ok'=>(bool)($backupFresh || $recoveryRunning),
+            'severity'=>$recoveryRunning?'info':'warning',
+            'code'=>$backupFresh?'BACKUP_RECOVERED':($recoveryRunning?'BACKUP_RECOVERY_RUNNING':($recoveryFailed?'BACKUP_RECOVERY_FAILED':'BACKUP_STALE')),
             'message'=>$backupFresh?'Backup اخیر موجود است':$backupMessage,
             'last'=>$backupPublic,
             'state'=>$statePublic,

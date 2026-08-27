@@ -140,3 +140,26 @@ body.bluevpn-standalone-admin table a[href^="http"],body.bluevpn-standalone-admi
   body.bluevpn-standalone-admin .search-box input[type=search],body.bluevpn-standalone-admin .tablenav .actions select{width:100%!important;max-width:100%!important}
 }
 @media(max-width:430px){.bluevpn-content{padding-inline:8px}.bvc-card,.bvp-card,.bvb-card{padding:10px!important}.bvc-page-tools{gap:7px}.bvem-summary{grid-template-columns:1fr 1fr!important}}
+
+
+/* 6.0.1 — administration information architecture */
+.bluevpn-nav-search{display:flex;align-items:center;gap:8px;margin:10px 10px 4px;padding:8px 10px;border:1px solid var(--bvu-line);border-radius:11px;background:rgba(7,11,18,.58)}
+.bluevpn-nav-search svg{width:15px;height:15px;flex:0 0 15px;color:#64748b}
+body.bluevpn-standalone-admin .bluevpn-nav-search input[type=search]{width:100%!important;min-width:0!important;min-height:28px!important;height:28px!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important;color:#dce7f4!important;font-size:10px!important;box-shadow:none!important}
+.bluevpn-nav-search input::placeholder{color:#526176}
+.bluevpn-nav-group.is-filter-hidden,.bluevpn-nav-item.is-filter-hidden{display:none!important}
+.bluevpn-nav-group{padding-top:2px;border-top:1px solid rgba(148,163,184,.045)}
+.bluevpn-nav-group:first-child{border-top:0}
+.bluevpn-nav-label{color:#66778d!important;text-transform:none!important;font-size:9px!important}
+.bluevpn-breadcrumb-home{color:#7dd3fc!important;text-decoration:none!important}
+.bluevpn-topbar p span{color:#3f4d61;padding-inline:3px}
+.bluevpn-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;max-width:1120px}
+.bluevpn-settings-section{background:rgba(14,22,38,.72);border:1px solid var(--bvu-line);border-radius:15px;padding:16px}
+.bluevpn-settings-section h2{margin:0 0 4px!important;color:#fff!important;font-size:14px!important}
+.bluevpn-settings-section>p{margin:0 0 13px!important;color:#708097!important;font-size:9px!important}
+.bluevpn-settings-section .form-table{margin:0!important}
+.bluevpn-settings-section .form-table th{width:145px!important;padding:9px 0!important}
+.bluevpn-settings-section .form-table td{padding:7px 0!important}
+.bluevpn-settings-actions{grid-column:1/-1;display:flex;justify-content:flex-start;padding-top:2px}
+@media(max-width:900px){.bluevpn-settings-grid{grid-template-columns:1fr}}
+@media(max-width:782px){.bluevpn-nav-search{margin:8px 10px 2px}.bluevpn-topbar p{display:none!important}.bluevpn-settings-section{padding:13px}.bluevpn-settings-section .form-table th,.bluevpn-settings-section .form-table td{display:block!important;width:100%!important;padding:4px 0!important}}

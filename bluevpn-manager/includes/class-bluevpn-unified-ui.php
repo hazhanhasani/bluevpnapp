@@ -34,48 +34,57 @@ final class BlueVPN_Unified_UI {
 
     private static function nav(): array {
         return [
-            'منوی اصلی' => [
-                ['bluevpn-manager', 'داشبورد', 'dashboard'],
+            'داشبورد' => [
+                ['bluevpn-manager', 'نمای کلی', 'dashboard'],
+            ],
+            'کاربران و فروش' => [
                 ['bluevpn-customers', 'کاربران', 'users'],
+                ['bluevpn-manual-customers', 'مشتریان دستی', 'manual'],
                 ['bluevpn-plans', 'پلن‌ها', 'plans'],
+                ['bluevpn-orders', 'سفارش‌ها و پرداخت‌ها', 'orders'],
+                ['bluevpn-payments', 'درگاه و بلوپال', 'wallet'],
+                ['bluevpn-manual', 'فعال‌سازی دستی', 'manual'],
+                ['bluevpn-sms', 'SMS / OTP', 'sms'],
+                ['bluevpn-support', 'پشتیبانی آنلاین', 'support'],
+                ['bluevpn-telegram-bot', 'ربات تلگرام', 'bot'],
+            ],
+            'شبکه و سرویس' => [
+                ['bluevpn-free-access', 'اتصال رایگان / WARP', 'free'],
                 ['bluevpn-subscription-sources', 'Sourceهای اشتراک', 'link'],
-                ['bluevpn-gateway', 'Gateway Metering', 'shield'],
-                ['bluevpn-orders', 'پرداخت‌ها', 'orders'],
-                ['bluevpn-blueai', 'BlueAI', 'ai'],
-            ],
-            'اپلیکیشن' => [
-                ['bluevpn-ads', 'تبلیغات', 'ads'],
-                ['bluevpn-free-access', 'اتصال رایگان', 'free'],
-                ['bluevpn-app-update', 'اپ و آپدیت', 'app'],
-                ['bluevpn-app-connection', 'اتصال اپلیکیشن', 'link'],
-            ],
-            'زیرساخت' => [
                 ['bluevpn-pasarguard', 'PasarGuard', 'server'],
                 ['bluevpn-marzban', 'Marzban', 'server'],
                 ['bluevpn-guardcore', 'GuardCore', 'shield'],
                 ['bluevpn-guardcore-queue', 'صف GuardCore', 'queue'],
-                ['bluevpn-database', 'دیتابیس', 'db'],
+                ['bluevpn-gateway', 'Gateway Metering', 'shield'],
             ],
-            'سرویس‌ها' => [
-                ['bluevpn-sms', 'SMS / OTP', 'sms'],
-                ['bluevpn-payments', 'پرداخت / بلوپال', 'wallet'],
-                ['bluevpn-support', 'پشتیبانی آنلاین', 'support'],
-                ['bluevpn-telegram-bot', 'ربات تلگرام', 'bot'],
-                ['bluevpn-manual-customers', 'مشتریان دستی', 'manual'],
-                ['bluevpn-manual', 'فعال‌سازی دستی', 'manual'],
+            'محصول و هوشمندی' => [
+                ['bluevpn-blueai', 'BlueAI', 'ai'],
+                ['bluevpn-ads', 'تبلیغات', 'ads'],
+                ['bluevpn-app-update', 'اپ و انتشار', 'app'],
+                ['bluevpn-app-connection', 'اتصال اپلیکیشن', 'link'],
             ],
-            'مدیریت' => [
-                ['bluevpn-migration', 'مهاجرت', 'migration'],
-                ['bluevpn-settings', 'تنظیمات', 'settings'],
-                ['bluevpn-github-updater', 'آپدیت افزونه', 'update'],
+            'سیستم و عملیات' => [
+                ['bluevpn-production', 'سلامت و Backup', 'shield'],
                 ['bluevpn-error-monitor', 'خطاها و مانیتورینگ', 'shield'],
+                ['bluevpn-database', 'دیتابیس', 'db'],
+                ['bluevpn-settings', 'تنظیمات عمومی', 'settings'],
+                ['bluevpn-github-updater', 'آپدیت Manager', 'update'],
+                ['bluevpn-migration', 'Migration', 'migration'],
             ],
         ];
+    }
+
+    private static function current_group(string $slug): string {
+        foreach (self::nav() as $group => $items) {
+            foreach ($items as $item) if (($item[0] ?? '') === $slug) return $group;
+        }
+        return 'BlueVPN';
     }
 
     private static function icon(string $name): string {
         $paths = [
             'dashboard' => '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/>',
+            'search' => '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
             'menu' => '<path d="M4 6h16M4 12h16M4 18h16"/>',
             'users' => '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
             'plans' => '<path d="M20 13V6a2 2 0 0 0-2-2H5L2 7l9 9 3-3M7 8h.01"/>',
@@ -109,7 +118,8 @@ final class BlueVPN_Unified_UI {
         echo '<div class="bluevpn-sidebar-overlay" id="bluevpnSidebarOverlay"></div>';
         echo '<aside class="bluevpn-sidebar" id="bluevpnSidebar">';
         echo '<div class="bluevpn-brand"><div class="bluevpn-brand-mark">B<span></span></div><div><strong>BlueVPN</strong><small>پنل مدیریت هوشمند</small></div><button type="button" class="bluevpn-sidebar-close" id="bluevpnSidebarClose" aria-label="بستن">×</button></div>';
-        echo '<nav class="bluevpn-nav">';
+        echo '<div class="bluevpn-nav-search"><span>'.self::icon('search').'</span><input id="bluevpnNavSearch" type="search" autocomplete="off" placeholder="جستجو در پنل…"></div>';
+        echo '<nav class="bluevpn-nav" id="bluevpnNav">';
         foreach (self::nav() as $group => $items) {
             echo '<div class="bluevpn-nav-group"><span class="bluevpn-nav-label">'.esc_html($group).'</span>';
             foreach ($items as [$slug, $label, $icon]) {
@@ -123,7 +133,8 @@ final class BlueVPN_Unified_UI {
         echo '<a class="bluevpn-back-wp" href="'.esc_url(admin_url()).'">'.self::icon('dashboard').'<span>بازگشت به وردپرس</span></a></div>';
         echo '</aside>';
         echo '<section class="bluevpn-main">';
-        echo '<header class="bluevpn-topbar"><div class="bluevpn-top-title"><button type="button" class="bluevpn-mobile-menu" id="bluevpnMenuToggle" aria-label="باز کردن منو">'.self::icon('menu').'</button><div><span class="bluevpn-kicker">BLUEVPN CONTROL CENTER</span><h1>'.esc_html($title).'</h1><p>'.esc_html($subtitle).'</p></div></div>';
+        $group = self::current_group($current);
+        echo '<header class="bluevpn-topbar"><div class="bluevpn-top-title"><button type="button" class="bluevpn-mobile-menu" id="bluevpnMenuToggle" aria-label="باز کردن منو">'.self::icon('menu').'</button><div><span class="bluevpn-kicker">'.esc_html($group).' • BLUEVPN CONTROL CENTER</span><h1>'.esc_html($title).'</h1><p><a class="bluevpn-breadcrumb-home" href="'.esc_url(admin_url('admin.php?page=bluevpn-manager')).'">داشبورد</a><span> / </span>'.esc_html($group).'<span> / </span>'.esc_html($title).'</p></div></div>';
         echo '<div class="bluevpn-top-meta"><span id="bluevpnLiveClock">'.esc_html(BlueVPN_Utils::tehran_datetime_fa()).'</span><span class="bluevpn-user-chip"><span class="bluevpn-avatar">'.esc_html(mb_substr($user->display_name ?: $user->user_login, 0, 1)).'</span>'.esc_html($user->display_name ?: $user->user_login).'</span></div></header>';
         echo '<main class="bluevpn-content">';
     }

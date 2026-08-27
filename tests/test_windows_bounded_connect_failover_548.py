@@ -13,12 +13,12 @@ class WindowsBoundedConnectFailover548Tests(unittest.TestCase):
         cls.xaml = (ROOT / "bluevpn-windows/MainWindow.xaml").read_text()
 
     def test_entire_connection_attempt_has_hard_deadline(self):
-        self.assertIn("attempt.CancelAfter(TimeSpan.FromSeconds(72))", self.orchestrator)
+        self.assertIn("attempt.CancelAfter(TimeSpan.FromSeconds(45))", self.orchestrator)
         self.assertIn("catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)", self.orchestrator)
         self.assertIn("اتصال در زمان مجاز کامل نشد", self.orchestrator)
 
     def test_each_candidate_times_out_and_advances_failover(self):
-        self.assertIn("candidateBudget.CancelAfter(TimeSpan.FromSeconds(24))", self.orchestrator)
+        self.assertIn("candidateBudget.CancelAfter(TimeSpan.FromSeconds(candidateIndex == 1 ? 10 : 12))", self.orchestrator)
         self.assertIn("when (!ct.IsCancellationRequested)", self.orchestrator)
         self.assertIn("مسیر بعدی بررسی می‌شود", self.orchestrator)
         self.assertIn("_ai.RecordFailure(endpoint, premium, lastError.Message)", self.orchestrator)

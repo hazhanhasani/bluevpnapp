@@ -234,7 +234,7 @@ final class BlueVPN_Free_Sources {
         global $wpdb;$ct=BlueVPN_DB::table('free_configs');$rt=BlueVPN_DB::table('free_config_reports');
         $configId=preg_replace('/[^a-f0-9]/','',strtolower((string)($body['config_id']??'')));if(strlen($configId)!==64)return ['ok'=>false,'message'=>'config_id نامعتبر است.'];
         $exists=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$ct} WHERE id=%s",$configId));if(!$exists)return ['ok'=>false,'message'=>'کانفیگ شناخته‌شده نیست.'];
-        $lat=max(0,min(60000,(int)($body['latency_ms']??0)));$jit=max(0,min(60000,(int)($body['jitter_ms']??0)));$loss=max(0,min(10000,(int)($body['loss_x100']??0)));$bucket=sanitize_key((string)($body['bucket']??''));$success=in_array($bucket,['fast','stable','reserve'],true)?1:0;
+        $lat=max(0,min(60001,(int)($body['latency_ms']??0)));$jit=max(0,min(60001,(int)($body['jitter_ms']??0)));$loss=max(0,min(10000,(int)($body['loss_x100']??0)));$bucket=sanitize_key((string)($body['bucket']??''));$success=in_array($bucket,['fast','stable','reserve'],true)?1:0;
         $network=preg_replace('/[^A-Za-z0-9_-]/','',(string)($body['network_id']??''));$deviceHash=hash('sha256','bluevpn-free:'.$deviceId);
         $recent=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$rt} WHERE config_id=%s AND device_hash=%s AND created_at>=%s",$configId,$deviceHash,gmdate('Y-m-d H:i:s',time()-10*MINUTE_IN_SECONDS)));
         if($recent>0)return ['ok'=>true,'rate_limited'=>true];

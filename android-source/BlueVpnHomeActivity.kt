@@ -3917,6 +3917,19 @@ private fun dpHome(value: Int): Int =
         }
     }
 
+    private fun locationAwareAutoQueue(
+        queue: List<BlueVpnSmartSelector.ScoredCandidate>,
+    ): List<BlueVpnSmartSelector.ScoredCandidate> {
+        if (queue.size <= 1) return queue
+        val groups = queue.groupBy { it.candidate.location.key }
+        val locationOrder = queue.map { it.candidate.location.key }.distinct()
+        return buildList {
+            locationOrder.forEach { key ->
+                addAll(groups[key].orEmpty())
+            }
+        }
+    }
+
     private fun applyPreparedConnectionQueue(
         scoredQueue: List<BlueVpnSmartSelector.ScoredCandidate>,
         selectionMode: BlueVpnSelectionMode,
@@ -3952,7 +3965,12 @@ private fun dpHome(value: Int): Int =
             }
             if (ready.isEmpty()) scoredQueue else ready + scoredQueue.filter { it !in ready }
         }
-        val orderedGuids = connectionReadyQueue.map { it.candidate.guid }.distinct()
+        val effectiveQueue = if (selectionMode == BlueVpnSelectionMode.AUTO) {
+            locationAwareAutoQueue(connectionReadyQueue)
+        } else {
+            connectionReadyQueue
+        }
+        val orderedGuids = effectiveQueue.map { it.candidate.guid }.distinct()
         when (selectionMode) {
             BlueVpnSelectionMode.MANUAL_SERVER -> {
                 failoverQueue = orderedGuids.take(1)
@@ -3973,7 +3991,7 @@ private fun dpHome(value: Int): Int =
                 failoverReserveQueue = orderedGuids.drop(initialBatchSize)
             }
         }
-        val chosen = connectionReadyQueue.first()
+        val chosen = effectiveQueue.first()
         if (selectionMode == BlueVpnSelectionMode.AUTO) {
             BlueVpnSmartSelector.recordAutomaticConnectionChoice(
                 this,
@@ -5146,7 +5164,7 @@ private fun dpHome(value: Int): Int =
         val retryDelayMs = if (
             reason.contains("کانفیگ این مسیر نامعتبر بود") ||
             reason.contains("failed to parse json", ignoreCase = true)
-        ) 900L else 350L
+        ) 900L else 650L
         handler.postDelayed({
             if (failoverActive) startCurrentCandidate()
         }, retryDelayMs)

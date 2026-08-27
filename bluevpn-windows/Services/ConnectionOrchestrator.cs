@@ -43,7 +43,7 @@ public sealed class ConnectionOrchestrator : IDisposable
         // Never leave the Windows shell on an unbounded connecting overlay.
         // Three bounded candidates are enough to cover the live-ranked fast lane;
         // a later explicit attempt gets a fresh ranking and quarantine history.
-        attempt.CancelAfter(TimeSpan.FromSeconds(72));
+        attempt.CancelAfter(TimeSpan.FromSeconds(45));
         lock (_connectSync) _activeConnectAttempt = attempt;
         try
         {
@@ -99,7 +99,8 @@ public sealed class ConnectionOrchestrator : IDisposable
                 IReadOnlyCollection<string> blocked = warpPolicy.BlockedExitCountries.Count > 0
                     ? warpPolicy.BlockedExitCountries
                     : (_settings.Warp.RejectIrExit ? new[] { "IR" } : Array.Empty<string>());
-                var verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, true, blocked, _settings.Tun.Name, ct).ConfigureAwait(false);
+                var strictWarpTrace = warpPolicy.RequireExitTrace || blocked.Count > 0;
+                var verified = await SystemTunnelVerifier.VerifyAsync(before, _settings.ProbeUrl, strictWarpTrace, blocked, _settings.Tun.Name, ct, 8).ConfigureAwait(false);
                 // Legacy validator contract: VerifyAsync(before, _settings.ProbeUrl, true, blocked, ct)
                 verified = await ConfirmStableTunnelAsync(before, verified, true, blocked, ct).ConfigureAwait(false);
                 if (!verified.Success) throw new InvalidOperationException(verified.Detail);
@@ -174,8 +175,8 @@ public sealed class ConnectionOrchestrator : IDisposable
         // Preserve the eight-route standby queue for HA and subsequent retries;
         // the 72-second attempt budget prevents a single click from waiting on
         // all eight when the machine's TUN stack is unhealthy.
-        var candidates = ranked.Where(x => x.ProbeLatencyMs < int.MaxValue).Take(8).ToList();
-        if (candidates.Count == 0) candidates = ranked.Take(8).ToList();
+        var candidates = ranked.Where(x => x.ProbeLatencyMs < int.MaxValue).Take(5).ToList();
+        if (candidates.Count == 0) candidates = ranked.Take(5).ToList();
 
         Exception? lastError = null;
         var candidateIndex = 0;
@@ -184,7 +185,7 @@ public sealed class ConnectionOrchestrator : IDisposable
             candidateIndex++;
             ct.ThrowIfCancellationRequested();
             using var candidateBudget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            candidateBudget.CancelAfter(TimeSpan.FromSeconds(24));
+            candidateBudget.CancelAfter(TimeSpan.FromSeconds(candidateIndex == 1 ? 10 : 12));
             var candidateToken = candidateBudget.Token;
             try
             {
@@ -207,7 +208,7 @@ public sealed class ConnectionOrchestrator : IDisposable
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                lastError = new TimeoutException($"مسیر {candidateIndex} در ۲۴ ثانیه آماده نشد.");
+                lastError = new TimeoutException($"مسیر {candidateIndex} در زمان سریع اتصال آماده نشد.");
                 _ai.RecordFailure(endpoint, premium, lastError.Message);
                 _xray.Stop();
                 _verifiedConnected = false;

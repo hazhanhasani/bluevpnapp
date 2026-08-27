@@ -19,7 +19,7 @@
         <SolidColorBrush x:Key="BlueVpnWarning" Color="#FFB76C10" />
         <SolidColorBrush x:Key="BlueVpnCard" Color="#FFFFFFFF" />
         <SolidColorBrush x:Key="BlueVpnCard2" Color="#FFEEF2FA" />
-        <SolidColorBrush x:Key="BlueVpnOverlay" Color="#66000000" />
+        <SolidColorBrush x:Key="BlueVpnOverlay" Color="#66000100" />
         <SolidColorBrush x:Key="BlueVpnAdBg" Color="#FF071328" />
 
         <Style TargetType="Window">

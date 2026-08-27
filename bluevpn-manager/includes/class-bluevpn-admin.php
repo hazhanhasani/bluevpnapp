@@ -66,7 +66,51 @@ final class BlueVPN_Admin {
         echo '</tbody></table>';
         self::foot();
     }
-    public static function settings_page(): void { self::guard();$s=BlueVPN_DB::settings();self::head('تنظیمات BlueVPN');if(isset($_GET['saved']))echo '<div class="notice notice-success"><p>ذخیره شد.</p></div>';echo '<div class="notice notice-info"><p>نسخه، Version Code و لینک APK از این صفحه حذف شده‌اند و حالا به‌صورت خودکار در <a href="'.esc_url(admin_url('admin.php?page=bluevpn-app-update')).'">اپ و آپدیت</a> مدیریت می‌شوند.</p></div>';echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_save_settings');echo '<input type="hidden" name="action" value="bluevpn_save_settings"><table class="form-table">';$fields=['app_name'=>'نام اپ','public_base_url'=>'Base URL عمومی','announcement_title'=>'عنوان اعلان','announcement_message'=>'متن اعلان'];foreach($fields as $k=>$label)echo '<tr><th>'.esc_html($label).'</th><td><input class="regular-text" type="text" name="'.$k.'" value="'.esc_attr((string)$s[$k]).'"></td></tr>';foreach(['announcement_enabled'=>'نمایش اعلان'] as $k=>$label)echo '<tr><th>'.esc_html($label).'</th><td><label><input type="checkbox" name="'.$k.'" value="1" '.checked(!empty($s[$k]),true,false).'> فعال</label></td></tr>';echo '</table>';submit_button('ذخیره تنظیمات');echo '</form>';self::foot(); }
+    public static function settings_page(): void {
+        self::guard();
+        $s=BlueVPN_DB::settings();
+        self::head('تنظیمات عمومی BlueVPN');
+        if(isset($_GET['saved'])) echo '<div class="notice notice-success"><p>تنظیمات ذخیره شد.</p></div>';
+        echo '<div class="notice notice-info"><p>تنظیمات عملیاتی، Backup، WARP، تبلیغات و انتشار از این صفحه جدا شده‌اند و در بخش تخصصی خودشان مدیریت می‌شوند.</p></div>';
+        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';
+        wp_nonce_field('bluevpn_save_settings');
+        echo '<input type="hidden" name="action" value="bluevpn_save_settings">';
+        echo '<div class="bluevpn-settings-grid">';
+
+        echo '<section class="bluevpn-settings-section"><h2>هویت اپلیکیشن</h2><p>نام و آدرس عمومی Control Plane.</p><table class="form-table">';
+        echo '<tr><th>نام اپ</th><td><input class="regular-text" type="text" name="app_name" value="'.esc_attr((string)$s['app_name']).'"></td></tr>';
+        echo '<tr><th>Base URL عمومی</th><td><input class="regular-text" dir="ltr" type="url" name="public_base_url" value="'.esc_attr((string)$s['public_base_url']).'"><p class="description">نسخه و فایل‌های نصب در «اپ و انتشار» مدیریت می‌شوند.</p></td></tr>';
+        echo '</table></section>';
+
+        echo '<section class="bluevpn-settings-section"><h2>اعلان سراسری</h2><p>پیامی که در کلاینت‌ها نمایش داده می‌شود.</p><table class="form-table">';
+        echo '<tr><th>وضعیت</th><td><label><input type="checkbox" name="announcement_enabled" value="1" '.checked(!empty($s['announcement_enabled']),true,false).'> نمایش اعلان فعال باشد</label></td></tr>';
+        echo '<tr><th>عنوان</th><td><input class="regular-text" type="text" name="announcement_title" value="'.esc_attr((string)$s['announcement_title']).'"></td></tr>';
+        echo '<tr><th>متن</th><td><textarea name="announcement_message" rows="4">'.esc_textarea((string)$s['announcement_message']).'</textarea></td></tr>';
+        echo '</table></section>';
+
+        echo '<section class="bluevpn-settings-section"><h2>تنظیمات تخصصی</h2><p>هر حوزه تنظیمات مستقل خودش را دارد.</p>';
+        $links=[
+            'سلامت و Backup'=>'bluevpn-production',
+            'اتصال رایگان / WARP'=>'bluevpn-free-access',
+            'تبلیغات'=>'bluevpn-ads',
+            'اپ و انتشار'=>'bluevpn-app-update',
+            'خطاها و مانیتورینگ'=>'bluevpn-error-monitor',
+            'آپدیت Manager'=>'bluevpn-github-updater',
+        ];
+        echo '<div class="bvc-actions">';
+        foreach($links as $label=>$page) echo '<a class="button" href="'.esc_url(admin_url('admin.php?page='.$page)).'">'.esc_html($label).'</a>';
+        echo '</div></section>';
+
+        echo '<section class="bluevpn-settings-section"><h2>Endpointهای سیستم</h2><p>برای عیب‌یابی و اتصال سرویس‌ها.</p>';
+        echo '<div class="bvp-code">'.esc_html(untrailingslashit(home_url('/'))).'</div>';
+        echo '<p><a class="button" href="'.esc_url(admin_url('admin.php?page=bluevpn-app-connection')).'">بررسی اتصال اپلیکیشن</a></p></section>';
+
+        echo '<div class="bluevpn-settings-actions">';
+        submit_button('ذخیره تنظیمات عمومی','primary','submit',false);
+        echo '</div></div></form>';
+        self::foot();
+    }
+
     public static function save_settings(): void { self::guard();check_admin_referer('bluevpn_save_settings');$s=BlueVPN_DB::settings();foreach(['app_name','public_base_url','announcement_title','announcement_message'] as $k)$s[$k]=sanitize_text_field(wp_unslash($_POST[$k]??''));$s['announcement_enabled']=isset($_POST['announcement_enabled']);BlueVPN_DB::save_settings($s);wp_safe_redirect(admin_url('admin.php?page=bluevpn-settings&saved=1'));exit; }
     private static function app_connection_redirect(string $msg='', string $error=''): void {
         $args=['page'=>'bluevpn-app-connection'];

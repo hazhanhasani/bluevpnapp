@@ -2,10 +2,10 @@ from pathlib import Path
 import json
 import subprocess
 
-OLD_VERSION = "6.0.0"
-NEW_VERSION = "6.0.0"
-OLD_CODE = "60000"
-NEW_CODE = "60000"
+OLD_VERSION = "6.0.1"
+NEW_VERSION = "6.0.1"
+OLD_CODE = "60001"
+NEW_CODE = "60001"
 
 main = Path("bluevpn-windows/MainWindow.xaml.cs")
 s = main.read_text(encoding="utf-8")

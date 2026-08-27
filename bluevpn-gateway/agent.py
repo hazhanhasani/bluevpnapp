@@ -31,7 +31,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-AGENT_VERSION = "6.0.0"
+AGENT_VERSION = "6.0.1"
 XRAY_SCHEMES = {"vless", "vmess", "trojan", "ss"}
 BRIDGE_SCHEMES = {"hysteria2", "hy2", "tuic"}
 LOG = logging.getLogger("bluevpn-gateway")
@@ -220,7 +220,7 @@ def parse_bridge_upstream(line: str, tag: str) -> dict[str, Any] | None:
 
 
 def bridge_port_map(control: dict[str, Any], cfg: dict[str, Any], blocked: set[int]) -> dict[int, int]:
-    base = max(1024, min(60000, int(cfg.get("bridge_socks_base_port") or 18080)))
+    base = max(1024, min(60001, int(cfg.get("bridge_socks_base_port") or 18080)))
     sessions = [x for x in (control.get("sessions") or []) if isinstance(x, dict) and int(x.get("session_id") or 0) not in blocked]
     result: dict[int, int] = {}
     for index, session in enumerate(sessions):

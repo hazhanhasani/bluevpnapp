@@ -458,8 +458,9 @@ object BlueVpnWarpEngine {
         if (country != null && country in policy.warpBlockedExitCountries) {
             throw Failure(if (country == "IR") ErrorCode.EXIT_IRAN else ErrorCode.WARP_EXIT_COUNTRY_BLOCKED, state, strategy, "Blocked WARP exit country: $country")
         }
-        if (policy.warpRequireExitTrace && (!traceSeen || country == null)) throw Failure(ErrorCode.EXIT_VALIDATION_FAILED, state, strategy, "Exit country could not be validated")
-        if (policy.warpRequireExitTrace && !traceWarp) throw Failure(ErrorCode.EXIT_VALIDATION_FAILED, state, strategy, "Cloudflare trace did not confirm WARP")
+        val strictExitTrace = policy.warpRequireExitTrace && policy.warpBlockedExitCountries.isNotEmpty()
+        if (strictExitTrace && (!traceSeen || country == null)) throw Failure(ErrorCode.EXIT_VALIDATION_FAILED, state, strategy, "Exit country could not be validated")
+        if (strictExitTrace && !traceWarp) throw Failure(ErrorCode.EXIT_VALIDATION_FAILED, state, strategy, "Cloudflare trace did not confirm WARP")
 
         val internet = listOf("https://cp.cloudflare.com/generate_204", "https://www.google.com/generate_204", "https://www.gstatic.com/generate_204")
             .any { httpOk(proxy, it, 1600) }

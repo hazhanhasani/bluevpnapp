@@ -61,7 +61,7 @@ public sealed class WindowsThemeService
             Set("BlueVpnBlue2", "#FF2455CC");
             Set("BlueVpnCard", "#FFFFFFFF");
             Set("BlueVpnCard2", "#FFEEF2FA");
-            Set("BlueVpnOverlay", "#66000000");
+            Set("BlueVpnOverlay", "#66000100");
             Set("BlueVpnAdBg", "#FF071328");
         }
         window.Background = Get("BlueVpnBg");

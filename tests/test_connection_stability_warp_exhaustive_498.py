@@ -42,7 +42,8 @@ class ConnectionStabilityWarpExhaustive498(unittest.TestCase):
         self.assertIn("socksGreetingAndRemoteConnect", s)
         self.assertIn("validateViaSocks", s)
         self.assertIn("No tunneled HTTPS probe succeeded", s)
-        self.assertIn("Exit country could not be validated", s)
+        self.assertIn("strictExitTrace", s)
+        self.assertIn("No tunneled HTTPS probe succeeded", s)
 
 if __name__=="__main__":
     unittest.main()

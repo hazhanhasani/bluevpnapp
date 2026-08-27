@@ -1,9 +1,9 @@
 from pathlib import Path
 import json, subprocess
 
-OLD_VERSION="6.0.0"
+OLD_VERSION="6.0.1"
 NEW_VERSION="6.0.1"
-OLD_CODE="60000"
+OLD_CODE="60001"
 NEW_CODE="60001"
 
 def replace_once(path, old, new, label):
@@ -415,7 +415,7 @@ if __name__=="__main__": unittest.main()
 
 # update existing expectations
 bt=Path("tests/test_backup_self_healing_51010.py")
-b=bt.read_text(encoding="utf-8").replace('"6.0.0"','"6.0.1"').replace("60000","60001")
+b=bt.read_text(encoding="utf-8").replace('"6.0.1"','"6.0.1"').replace("60001","60001")
 b=b.replace('"BACKUP_STALE",','"BACKUP_STALE",\n            "BACKUP_RECOVERY_RUNNING",\n            "BACKUP_RECOVERY_FAILED",')
 bt.write_text(b,encoding="utf-8")
 

@@ -10,7 +10,7 @@ class MultiProviderPaidRoutesTests(unittest.TestCase):
     def test_schema_supports_unlimited_provider_routes(self):
         db=self.text("bluevpn-manager/includes/class-bluevpn-db.php")
         plugin=self.text("bluevpn-manager/bluevpn-manager.php")
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.33.0'",plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.34.0'",plugin)
         self.assertIn("provider_routes_json longtext",db)
         self.assertIn("customer_provider_links",db)
         self.assertIn("uq_customer_provider_route",db)

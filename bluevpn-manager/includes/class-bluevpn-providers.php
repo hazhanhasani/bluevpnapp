@@ -1106,8 +1106,16 @@ final class BlueVPN_Providers {
         if((int)($c['shahrah_panel_id']??0)>0&&trim((string)($c['shahrah_plan_slug']??''))!==''){
             $configured++;
             if(class_exists('BlueVPN_Shahrah')){
-                $mapping=BlueVPN_Shahrah::panel_mapping((int)$c['shahrah_panel_id'],$customerId);
-                if(!empty($mapping['service_slug'])){$responses++;$active=true;}
+                $inspection=BlueVPN_Shahrah::inspect_panel_customer((int)$c['shahrah_panel_id'],$customerId);
+                if(!empty($inspection['ok'])){
+                    $responses++;
+                    $active=$active||!empty($inspection['active']);
+                    if(empty($inspection['active']))$errors[]='Shahrah: سرویس remote در وضعیت '.(string)($inspection['status']??'inactive').' است.';
+                }else{
+                    $errors[]='Shahrah: '.(string)($inspection['message']??'وضعیت سرویس قابل دریافت نیست.');
+                }
+            }else{
+                $errors[]='Shahrah: Provider بارگذاری نشده است.';
             }
         }
         if(!empty($c['panel_id'])&&!empty($c['pg_username'])){

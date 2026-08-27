@@ -467,6 +467,15 @@ final class BlueVPN_Control_Center {
             }
             echo '</select>';
         };
+        $multi_select=function(string $name,array $items,array $selected=[]){
+            $selected=array_map('intval',$selected);
+            echo '<select name="'.esc_attr($name).'[]" multiple size="'.max(3,min(7,count($items)+1)).'" style="min-height:110px">';
+            foreach($items as $x){
+                $id=(int)$x['id'];
+                echo '<option value="'.$id.'" '.selected(in_array($id,$selected,true),true,false).'>'.esc_html((string)$x['name']).((int)$x['active']?'':' • غیرفعال').'</option>';
+            }
+            echo '</select><small>چند مورد را می‌توانی همزمان انتخاب کنی.</small>';
+        };
         $shahrah_select=function(string $name,int $currentPanel=0,string $currentSlug='') use($shCatalog){
             $current=$currentPanel>0&&$currentSlug!==''?$currentPanel.'|'.$currentSlug:'';
             echo '<select name="'.esc_attr($name).'"><option value="">بدون Shahrah</option>';
@@ -479,6 +488,19 @@ final class BlueVPN_Control_Center {
             }
             if($current!==''&&!$found)echo '<option value="'.esc_attr($current).'" selected>⚠ ذخیره‌شده ولی در Sync فعلی نیست — '.esc_html($currentSlug).'</option>';
             echo '</select>';
+        };
+        $shahrah_multi_select=function(string $name,array $selected=[]) use($shCatalog){
+            $selected=array_values(array_unique(array_map('strval',$selected)));
+            echo '<select name="'.esc_attr($name).'[]" multiple size="'.max(3,min(8,count($shCatalog)+1)).'" style="min-height:110px">';
+            $found=[];
+            foreach($shCatalog as $item){
+                $value=(int)$item['panel_id'].'|'.(string)$item['slug'];
+                if(in_array($value,$selected,true))$found[$value]=true;
+                $caption=(string)$item['panel_name'].' — '.(string)$item['name'];
+                echo '<option value="'.esc_attr($value).'" '.selected(in_array($value,$selected,true),true,false).'>'.esc_html($caption).'</option>';
+            }
+            foreach($selected as $value)if(!isset($found[$value]))echo '<option value="'.esc_attr($value).'" selected>⚠ مسیر ذخیره‌شده که در همگام‌سازی فعلی نیست</option>';
+            echo '</select><small>می‌توانی از چند اتصال شاهراه و چند پلن همزمان استفاده کنی.</small>';
         };
         $provider_badge=function(string $label,$name){
             if(!$name)return '<span class="bvc-provider-pill is-empty">'.$label.': خاموش</span>';
@@ -506,13 +528,13 @@ final class BlueVPN_Control_Center {
         echo '</div></div>';
 
         echo '<div class="bvc-form-section"><div class="bvc-form-section-head"><strong>مسیر سرویس</strong><small>Providerهای مورد استفاده برای این پلن</small></div><div class="bvc-form-grid">';
-        echo '<label>PasarGuard';$select('panel_id',$pgRows,0);echo '</label>';
-        echo '<label>Marzban';$select('marzban_panel_id',$mzRows,0);echo '</label>';
-        echo '<label>Shahrah';$shahrah_select('shahrah_plan_key');echo '</label>';
-        echo '<label>GuardCore';$select('guardcore_panel_id',$gcRows,0);echo '</label>';
+        echo '<label>سرورهای پاسارگاد';$multi_select('pasarguard_panel_ids',$pgRows,[]);echo '</label>';
+        echo '<label>سرورهای مرزبان';$multi_select('marzban_panel_ids',$mzRows,[]);echo '</label>';
+        echo '<label>مسیرهای شاهراه';$shahrah_multi_select('shahrah_plan_keys',[]);echo '</label>';
+        echo '<label>سرورهای گاردکور';$multi_select('guardcore_panel_ids',$gcRows,[]);echo '</label>';
         self::select('multi_provider_quota_mode','نحوه اعمال حجم',['split'=>'تقسیم حجم بین Providerها','full'=>'حجم کامل روی هر Provider'],'split');
         self::select('traffic_mode','مرجع محاسبه حجم',['provider_reported'=>'Provider reported (قدیمی)','gateway_metered'=>'BlueVPN Gateway (مرکزی)'],'gateway_metered');self::input('gateway_replica_count','تعداد Gateway همزمان (1 تا 3)','2',false,'number');
-        echo '</div>';self::access_picker('pasarguard','panel_id',[]);self::access_picker('marzban','marzban_panel_id',[]);self::guardcore_service_picker('guardcore_panel_id',$gcRows,[]);BlueVPN_Subscription_Sources::render_plan_picker([]);echo '</div>';
+        echo '</div>';BlueVPN_Subscription_Sources::render_plan_picker([]);echo '<p class="description">برای چند سرور، دسترسی‌های فعال هر سرور به‌صورت خودکار استفاده می‌شوند. تنظیمات قدیمی اولین سرور برای پلن‌های قبلی همچنان پشتیبانی می‌شود.</p></div>';
 
         echo '<details class="bvc-advanced-options"><summary>تنظیمات پیشرفته Provider</summary><div class="bvc-helper">GuardCore Serviceها از API رسمی پنل خوانده می‌شوند؛ ID دستی دیگر لازم نیست.</div></details>';
 
@@ -527,6 +549,11 @@ final class BlueVPN_Control_Center {
         if($rows) echo '<div class="bvc-plan-list">';
         foreach($rows as $x){
             $id=(int)$x['id'];
+            $routes=class_exists('BlueVPN_Providers')?BlueVPN_Providers::plan_provider_routes($x):['pasarguard'=>[],'marzban'=>[],'shahrah'=>[],'guardcore'=>[]];
+            $pgSelectedPanels=array_values(array_map(static fn($r)=>(int)($r['panel_id']??0),(array)$routes['pasarguard']));
+            $mzSelectedPanels=array_values(array_map(static fn($r)=>(int)($r['panel_id']??0),(array)$routes['marzban']));
+            $gcSelectedPanels=array_values(array_map(static fn($r)=>(int)($r['panel_id']??0),(array)$routes['guardcore']));
+            $shSelectedRoutes=[];foreach((array)$routes['shahrah'] as $r){$pid=(int)($r['panel_id']??0);$slug=trim((string)($r['plan_slug']??''));if($pid>0&&$slug!=='')$shSelectedRoutes[]=$pid.'|'.$slug;}
             $toggle=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_toggle_plan&id='.$id),'bluevpn_toggle_plan_'.$id);
             $serviceIds=implode(',',array_map('intval',BlueVPN_Utils::json_decode_array((string)($x['guardcore_service_ids_json']??''),[])));
             $groups=implode(',',array_map('intval',BlueVPN_Utils::json_decode_array((string)($x['group_ids_json']??''),[])));
@@ -554,10 +581,10 @@ final class BlueVPN_Control_Center {
             echo '</div>';
 
             echo '<div class="bvc-plan-providers">';
-            echo $provider_badge('PG',$x['pg_name']??'');
-            echo $provider_badge('MZ',$x['mz_name']??'');
-            echo $provider_badge('SH',$x['shahrah_name']??'');
-            echo $provider_badge('GC',$x['gc_name']??'');
+            echo '<span class="bvc-provider-pill '.($pgSelectedPanels?'is-on':'is-empty').'">پاسارگاد: '.count($pgSelectedPanels).'</span>';
+            echo '<span class="bvc-provider-pill '.($mzSelectedPanels?'is-on':'is-empty').'">مرزبان: '.count($mzSelectedPanels).'</span>';
+            echo '<span class="bvc-provider-pill '.($shSelectedRoutes?'is-on':'is-empty').'">شاهراه: '.count($shSelectedRoutes).'</span>';
+            echo '<span class="bvc-provider-pill '.($gcSelectedPanels?'is-on':'is-empty').'">گاردکور: '.count($gcSelectedPanels).'</span>';
             echo '<span class="bvc-provider-pill is-neutral">Quota: '.($quotaMode==='full'?'Full':'Split').'</span>';
             echo '<span class="bvc-provider-pill '.($trafficMode==='gateway_metered'?'is-on':'is-neutral').'">Traffic: '.($trafficMode==='gateway_metered'?'Gateway':'Provider').'</span>';if($trafficMode==='gateway_metered')echo '<span class="bvc-provider-pill is-on">HA ×'.$gatewayReplicas.'</span>';
             if($sourceSelected)echo '<span class="bvc-provider-pill is-on">Manual Sources: '.count($sourceSelected).'</span>';
@@ -570,16 +597,16 @@ final class BlueVPN_Control_Center {
             echo '<input type="hidden" name="action" value="bluevpn_cc_save_plan_routing"><input type="hidden" name="plan_id" value="'.$id.'">';
 
             echo '<div class="bvc-form-grid">';
-            echo '<label>PasarGuard';$select('panel_id',$pgRows,(int)$x['panel_id']);echo '</label>';
-            echo '<label>Marzban';$select('marzban_panel_id',$mzRows,(int)$x['marzban_panel_id']);echo '</label>';
-            echo '<label>Shahrah';$shahrah_select('shahrah_plan_key',(int)($x['shahrah_panel_id']??0),(string)($x['shahrah_plan_slug']??''));echo '</label>';
-            echo '<label>GuardCore';$select('guardcore_panel_id',$gcRows,(int)$x['guardcore_panel_id']);echo '</label>';
+            echo '<label>سرورهای پاسارگاد';$multi_select('pasarguard_panel_ids',$pgRows,$pgSelectedPanels);echo '</label>';
+            echo '<label>سرورهای مرزبان';$multi_select('marzban_panel_ids',$mzRows,$mzSelectedPanels);echo '</label>';
+            echo '<label>مسیرهای شاهراه';$shahrah_multi_select('shahrah_plan_keys',$shSelectedRoutes);echo '</label>';
+            echo '<label>سرورهای گاردکور';$multi_select('guardcore_panel_ids',$gcRows,$gcSelectedPanels);echo '</label>';
             echo '<label>نحوه اعمال حجم<select name="multi_provider_quota_mode"><option value="split" '.selected($quotaMode,'split',false).'>تقسیم بین Providerها</option><option value="full" '.selected($quotaMode,'full',false).'>حجم کامل روی هر Provider</option></select></label>';
             echo '<label>مرجع حجم<select name="traffic_mode"><option value="provider_reported" '.selected($trafficMode,'provider_reported',false).'>Provider reported</option><option value="gateway_metered" '.selected($trafficMode,'gateway_metered',false).'>BlueVPN Gateway</option></select></label>';echo '<label>Gateway replicas<input type="number" name="gateway_replica_count" min="1" max="3" value="'.$gatewayReplicas.'"></label>';
-            echo '</div>';self::access_picker('pasarguard','panel_id',$groupSelected);self::access_picker('marzban','marzban_panel_id',$mzSelected);BlueVPN_Subscription_Sources::render_plan_picker($sourceSelected);
+            echo '</div>';BlueVPN_Subscription_Sources::render_plan_picker($sourceSelected);
 
             echo '<details class="bvc-advanced-options"><summary>Group ID / Service ID</summary><div class="bvc-form-grid">';
-            echo '</div>';self::guardcore_service_picker('guardcore_panel_id',$gcRows,BlueVPN_Utils::json_decode_array((string)($x['guardcore_service_ids_json']??''),[]));echo '<div class="bvc-form-grid">';
+            echo '</div><p class="description">دسترسی‌ها و سرویس‌های فعال هر سرور چندگانه خودکار انتخاب می‌شوند.</p><div class="bvc-form-grid">';
             echo '</div></details>';
 
             echo '<div class="bvc-form-actions"><button class="button button-primary">ذخیره مسیر</button></div>';
@@ -594,16 +621,16 @@ final class BlueVPN_Control_Center {
             echo '<label>حجم GB<input type="number" min="0" name="data_limit_gb" value="'.(int)$x['data_limit_gb'].'"></label>';
             echo '<label>تعداد دستگاه<input type="number" min="1" max="20" name="device_limit" value="'.(int)$x['device_limit'].'"></label>';
             echo '<label>ترتیب<input type="number" name="sort_order" value="'.(int)$x['sort_order'].'"></label>';
-            echo '<label>PasarGuard';$select('panel_id',$pgRows,(int)$x['panel_id']);echo '</label>';
-            echo '<label>Marzban';$select('marzban_panel_id',$mzRows,(int)$x['marzban_panel_id']);echo '</label>';
-            echo '<label>Shahrah';$shahrah_select('shahrah_plan_key',(int)($x['shahrah_panel_id']??0),(string)($x['shahrah_plan_slug']??''));echo '</label>';
-            echo '<label>GuardCore';$select('guardcore_panel_id',$gcRows,(int)$x['guardcore_panel_id']);echo '</label>';
+            echo '<label>سرورهای پاسارگاد';$multi_select('pasarguard_panel_ids',$pgRows,$pgSelectedPanels);echo '</label>';
+            echo '<label>سرورهای مرزبان';$multi_select('marzban_panel_ids',$mzRows,$mzSelectedPanels);echo '</label>';
+            echo '<label>مسیرهای شاهراه';$shahrah_multi_select('shahrah_plan_keys',$shSelectedRoutes);echo '</label>';
+            echo '<label>سرورهای گاردکور';$multi_select('guardcore_panel_ids',$gcRows,$gcSelectedPanels);echo '</label>';
             echo '<label>اعمال حجم<select name="multi_provider_quota_mode"><option value="split" '.selected($quotaMode,'split',false).'>Split</option><option value="full" '.selected($quotaMode,'full',false).'>Full</option></select></label>';
             echo '<label>مرجع حجم<select name="traffic_mode"><option value="provider_reported" '.selected($trafficMode,'provider_reported',false).'>Provider reported</option><option value="gateway_metered" '.selected($trafficMode,'gateway_metered',false).'>BlueVPN Gateway</option></select></label>';echo '<label>Gateway replicas<input type="number" name="gateway_replica_count" min="1" max="3" value="'.$gatewayReplicas.'"></label>';
-            echo '</div>';self::guardcore_service_picker('guardcore_panel_id',$gcRows,BlueVPN_Utils::json_decode_array((string)($x['guardcore_service_ids_json']??''),[]));BlueVPN_Subscription_Sources::render_plan_picker($sourceSelected);echo '<div class="bvc-form-grid">';
+            echo '</div>';BlueVPN_Subscription_Sources::render_plan_picker($sourceSelected);echo '<p class="description">دسترسی‌ها و سرویس‌های فعال هر سرور چندگانه خودکار انتخاب می‌شوند.</p><div class="bvc-form-grid">';
             echo '<label><input type="checkbox" name="active" value="1" '.checked($active,true,false).'> فعال</label>';
             echo '<label style="grid-column:1/-1">توضیحات<textarea name="description" rows="3">'.esc_textarea((string)$x['description']).'</textarea></label>';
-            echo '</div>';self::access_picker('pasarguard','panel_id',$groupSelected);self::access_picker('marzban','marzban_panel_id',$mzSelected);echo '<div class="bvc-form-actions"><button class="button button-primary">ذخیره همه تغییرات</button></div></form></div></details>';
+            echo '</div><div class="bvc-form-actions"><button class="button button-primary">ذخیره همه تغییرات</button></div></form></div></details>';
 
             echo '<footer class="bvc-plan-footer">';
             echo '<span class="bvc-plan-order">ترتیب نمایش: '.(int)$x['sort_order'].'</span>';

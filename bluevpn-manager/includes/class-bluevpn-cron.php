@@ -15,6 +15,9 @@ final class BlueVPN_Cron {
         $wpdb->query($wpdb->prepare("DELETE FROM {$sessions} WHERE expires_at IS NOT NULL AND expires_at < %s",$now));
         $wpdb->query($wpdb->prepare("DELETE FROM {$otp} WHERE created_at IS NOT NULL AND created_at < %s",gmdate('Y-m-d H:i:s',time()-7*DAY_IN_SECONDS)));
         $wpdb->query($wpdb->prepare("UPDATE {$live} SET connected=0,verified=0 WHERE expires_at IS NOT NULL AND expires_at < %s",$now));
-        if(class_exists('BlueVPN_Providers'))BlueVPN_Providers::reconcile_guardcore_expiries(100);
+        if(class_exists('BlueVPN_Providers')){
+            BlueVPN_Providers::reconcile_guardcore_expiries(100);
+            BlueVPN_Providers::reconcile_missing_paid_subscriptions_batch(2);
+        }
     }
 }

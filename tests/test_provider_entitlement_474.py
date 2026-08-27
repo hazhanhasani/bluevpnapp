@@ -16,14 +16,13 @@ class ProviderEntitlement474Tests(unittest.TestCase):
         self.assertIn("$wpdb->delete($t,['id'=>$id]", self.cc)
 
     def test_legacy_plan_resolves_active_pasarguard_and_marzban(self):
-        self.assertIn("if($pgId<=0)$pgId=class_exists('BlueVPN_AI_Ops')", self.providers)
         self.assertIn("BlueVPN_AI_Ops::recommend_panel_id('pasarguard')", self.providers)
         self.assertIn("pasarguard_panels').\" WHERE active=1", self.providers)
-        self.assertIn("if($mzId<=0)$mzId=class_exists('BlueVPN_AI_Ops')", self.providers)
         self.assertIn("BlueVPN_AI_Ops::recommend_panel_id('marzban')", self.providers)
         self.assertIn("marzban_panels').\" WHERE active=1", self.providers)
-        self.assertIn("if($pgId>0)", self.providers)
-        self.assertIn("if($mzId>0)", self.providers)
+        self.assertIn("$routes['pasarguard'][]=['panel_id'=>$pg", self.providers)
+        self.assertIn("$routes['marzban'][]=['panel_id'=>$mz", self.providers)
+        self.assertIn("plan_provider_routes($plan)", self.providers)
 
     def test_global_subscription_is_a_paid_fallback(self):
         needle="auth_mode='manual' AND global_subscription_url IS NOT NULL AND TRIM(global_subscription_url)<>''"

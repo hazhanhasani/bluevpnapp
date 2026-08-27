@@ -25,6 +25,97 @@ final class BlueVPN_Providers {
         $r=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%d",$id),ARRAY_A);
         return is_array($r)?$r:null;
     }
+    public static function plan_provider_routes(array $plan): array {
+        $raw=BlueVPN_Utils::json_decode_array((string)($plan['provider_routes_json']??''),[]);
+        $out=['pasarguard'=>[],'marzban'=>[],'shahrah'=>[],'guardcore'=>[]];
+        foreach(array_keys($out) as $provider){
+            $rows=$raw[$provider]??[];
+            if(!is_array($rows))$rows=[];
+            foreach($rows as $row){
+                if(!is_array($row))continue;
+                $panelId=max(0,(int)($row['panel_id']??0));if($panelId<=0)continue;
+                $route=['panel_id'=>$panelId];
+                if($provider==='shahrah'){
+                    $slug=trim((string)($row['plan_slug']??''));if($slug==='')continue;
+                    $route['plan_slug']=$slug;
+                }elseif($provider==='guardcore'){
+                    $route['service_ids']=array_values(array_unique(array_filter(array_map('intval',(array)($row['service_ids']??[])),static fn($x)=>$x>0)));
+                }elseif($provider==='pasarguard'){
+                    $route['group_ids']=array_values(array_unique(array_filter(array_map('intval',(array)($row['group_ids']??[])),static fn($x)=>$x>0)));
+                }elseif($provider==='marzban'){
+                    $route['inbounds']=is_array($row['inbounds']??null)?$row['inbounds']:[];
+                }
+                $out[$provider][]=$route;
+            }
+        }
+
+        // Backward compatibility: old single-provider columns become one route
+        // only when the new route list for that provider is empty.
+        if(!$out['pasarguard']&&(int)($plan['panel_id']??0)>0){
+            $out['pasarguard'][]=['panel_id'=>(int)$plan['panel_id'],'group_ids'=>BlueVPN_Utils::json_decode_array((string)($plan['group_ids_json']??''),[])];
+        }
+        if(!$out['marzban']&&(int)($plan['marzban_panel_id']??0)>0){
+            $out['marzban'][]=['panel_id'=>(int)$plan['marzban_panel_id'],'inbounds'=>BlueVPN_Utils::json_decode_array((string)($plan['marzban_inbounds_json']??''),[])];
+        }
+        if(!$out['shahrah']&&(int)($plan['shahrah_panel_id']??0)>0&&trim((string)($plan['shahrah_plan_slug']??''))!==''){
+            $out['shahrah'][]=['panel_id'=>(int)$plan['shahrah_panel_id'],'plan_slug'=>trim((string)$plan['shahrah_plan_slug'])];
+        }
+        if(!$out['guardcore']&&(int)($plan['guardcore_panel_id']??0)>0){
+            $out['guardcore'][]=['panel_id'=>(int)$plan['guardcore_panel_id'],'service_ids'=>BlueVPN_Utils::json_decode_array((string)($plan['guardcore_service_ids_json']??''),[])];
+        }
+
+        foreach($out as $provider=>$rows){
+            $seen=[];$clean=[];
+            foreach($rows as $row){
+                $key=$provider.':'.(int)$row['panel_id'].($provider==='shahrah'?':'.(string)($row['plan_slug']??''):'');
+                if(isset($seen[$key]))continue;$seen[$key]=true;$clean[]=$row;
+            }
+            $out[$provider]=$clean;
+        }
+        return $out;
+    }
+
+    private static function provider_route_key(string $provider,array $route): string {
+        $key=$provider.':'.max(0,(int)($route['panel_id']??0));
+        if($provider==='shahrah')$key.=':'.trim((string)($route['plan_slug']??''));
+        return mb_substr($key,0,190);
+    }
+
+    private static function provider_link_upsert(int $customerId,int $planId,string $provider,array $route,array $data=[]): void {
+        global $wpdb;
+        $t=BlueVPN_DB::table('customer_provider_links');
+        $panelId=max(0,(int)($route['panel_id']??0));if($customerId<=0||$panelId<=0)return;
+        $routeKey=self::provider_route_key($provider,$route);
+        $existing=(int)$wpdb->get_var($wpdb->prepare("SELECT id FROM {$t} WHERE customer_id=%d AND provider_type=%s AND panel_id=%d AND route_key=%s",$customerId,$provider,$panelId,$routeKey));
+        $row=[
+            'customer_id'=>$customerId,'plan_id'=>$planId,'provider_type'=>$provider,'panel_id'=>$panelId,'route_key'=>$routeKey,
+            'username'=>(string)($data['username']??''),'remote_id'=>(string)($data['remote_id']??''),
+            'subscription_url'=>(string)($data['subscription_url']??''),'status'=>(string)($data['status']??'active'),
+            'used_traffic_bytes'=>max(0,(int)($data['used_traffic_bytes']??0)),
+            'remote_expire'=>$data['remote_expire']??null,
+            'metadata_json'=>BlueVPN_Utils::json_encode((array)($data['metadata']??$route)),
+            'last_error'=>(string)($data['last_error']??''),
+            'last_sync_at'=>BlueVPN_Utils::now_mysql(),'updated_at'=>BlueVPN_Utils::now_mysql(),
+        ];
+        if($existing>0)$wpdb->update($t,$row,['id'=>$existing]);
+        else{$row['created_at']=BlueVPN_Utils::now_mysql();$wpdb->insert($t,$row);}
+    }
+
+    public static function customer_provider_links(int $customerId): array {
+        if($customerId<=0)return [];
+        global $wpdb;$t=BlueVPN_DB::table('customer_provider_links');
+        return $wpdb->get_results($wpdb->prepare("SELECT * FROM {$t} WHERE customer_id=%d ORDER BY provider_type,panel_id,id",$customerId),ARRAY_A)?:[];
+    }
+
+    private static function prune_customer_provider_links(int $customerId,array $desiredRouteKeys): void {
+        global $wpdb;$t=BlueVPN_DB::table('customer_provider_links');
+        $desired=array_fill_keys(array_values(array_unique(array_filter(array_map('strval',$desiredRouteKeys)))),true);
+        foreach(self::customer_provider_links($customerId) as $row){
+            if(isset($desired[(string)$row['route_key']]))continue;
+            $wpdb->delete($t,['id'=>(int)$row['id']]);
+        }
+    }
+
     private static function req(string $method,string $url,array $headers=[],?array $json=null,bool $ssl=true,array $form=[],int $timeout=25): array {
         $args=['method'=>$method,'timeout'=>max(3,min(25,$timeout)),'redirection'=>2,'sslverify'=>$ssl,'headers'=>array_merge(['Accept'=>'application/json','User-Agent'=>'BlueVPN-WordPress/'.BLUEVPN_MANAGER_VERSION],$headers)];
         if($json!==null){$args['headers']['Content-Type']='application/json';$args['body']=wp_json_encode($json);}

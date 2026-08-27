@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Reflection;
 
 namespace BlueVPN.Windows.Services;
 
@@ -26,10 +27,64 @@ public sealed class AppSettings
 
     public static AppSettings Load()
     {
+        var fallback = CreateSafeDefaults();
         var path = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
-        var json = File.ReadAllText(path);
-        return JsonSerializer.Deserialize<AppSettings>(json, JsonOptions())
-            ?? throw new InvalidOperationException("BlueVPN appsettings.json is invalid.");
+        try
+        {
+            if (!File.Exists(path)) return fallback;
+            var json = File.ReadAllText(path);
+            var loaded = JsonSerializer.Deserialize<AppSettings>(json, JsonOptions());
+            if (loaded is null) return fallback;
+
+            loaded.Version = string.IsNullOrWhiteSpace(loaded.Version) ? fallback.Version : loaded.Version.Trim();
+            loaded.ApiBaseUrl = NormalizeHttps(loaded.ApiBaseUrl);
+            loaded.ApiBaseUrls = (loaded.ApiBaseUrls ?? [])
+                .Select(NormalizeHttps)
+                .Where(x => x.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (loaded.ApiBaseUrl.Length == 0 && loaded.ApiBaseUrls.Count > 0)
+                loaded.ApiBaseUrl = loaded.ApiBaseUrls[0];
+            if (loaded.ApiBaseUrl.Length == 0)
+                loaded.ApiBaseUrl = fallback.ApiBaseUrl;
+            if (loaded.ApiBaseUrls.Count == 0)
+                loaded.ApiBaseUrls = fallback.ApiBaseUrls.ToList();
+
+            loaded.Warp ??= fallback.Warp;
+            loaded.Tun ??= fallback.Tun;
+            return loaded;
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
+    private static AppSettings CreateSafeDefaults()
+    {
+        var assemblyVersion = Assembly.GetExecutingAssembly().GetName().Version;
+        var version = assemblyVersion is null
+            ? "0.0.0"
+            : $"{assemblyVersion.Major}.{assemblyVersion.Minor}.{assemblyVersion.Build}";
+        return new AppSettings
+        {
+            Version = version,
+            ApiBaseUrl = "https://blluepanel.ir",
+            ApiBaseUrls = ["https://blluepanel.ir", "https://bot.blluepanel.ir"],
+            WindowsChannel = "panel-managed",
+            AutoUpdate = true,
+            AutoUpdateRuntime = true,
+        };
+    }
+
+    private static string NormalizeHttps(string? value)
+    {
+        var text = value?.Trim().TrimEnd('/') ?? "";
+        return Uri.TryCreate(text, UriKind.Absolute, out var uri) &&
+               uri.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
+            ? text
+            : "";
     }
 
     public IReadOnlyList<string> ControlPlaneBases() => ApiBaseUrls

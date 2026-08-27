@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
 }
 
 define('BLUEVPN_MANAGER_VERSION', '6.0.3');
-define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.31.0');
+define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.32.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
 define('BLUEVPN_MANAGER_URL', plugin_dir_url(__FILE__));
@@ -117,6 +117,7 @@ add_action('plugins_loaded', function () {
     BlueVPN_AI_Ops::init();
     BlueVPN_API::init();
     BlueVPN_Providers::init();
+    BlueVPN_Shahrah::init();
     BlueVPN_Subscription_Sources::init();
     BlueVPN_Gateway::init();
     BlueVPN_Control_Center::init();

@@ -270,7 +270,8 @@ public sealed class ConnectionOrchestrator : IDisposable
             before,
             _settings.ProbeUrl,
             XrayConfigBuilder.LocalHttpPort,
-            ct).ConfigureAwait(false);
+            ct,
+            4).ConfigureAwait(false);
         return confirmation.Success
             ? confirmation
             : confirmation with { Detail = $"تأیید دوم Xray Proxy ناموفق بود: {Short(confirmation.Detail)}" };

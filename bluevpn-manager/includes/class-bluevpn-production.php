@@ -3,6 +3,7 @@ if (!defined('ABSPATH')) exit;
 
 final class BlueVPN_Production {
     public const BACKUP_HOOK = 'bluevpn_daily_private_backup';
+    public const MANUAL_BACKUP_HOOK = 'bluevpn_manual_private_backup';
     private const BACKUP_RETENTION = 7;
     private const BACKUP_OPTION = 'bluevpn_manager_last_backup';
     private const BACKUP_STATE_OPTION = 'bluevpn_manager_backup_state_v2';
@@ -21,6 +22,7 @@ final class BlueVPN_Production {
 
     public static function init(): void {
         add_action(self::BACKUP_HOOK, [self::class, 'cron_backup']);
+        add_action(self::MANUAL_BACKUP_HOOK, [self::class, 'manual_backup_worker']);
         add_action(self::NATIVE_RECONCILE_HOOK, [self::class, 'reconcile_legacy_paid_orders_once']);
         self::ensure_native_control_plane();
         self::ensure_schedule();
@@ -266,6 +268,120 @@ final class BlueVPN_Production {
         return $json;
     }
 
+    private static function write_all($fh,string $data,$hashCtx=null): void {
+        $len=strlen($data);$offset=0;
+        while($offset<$len){
+            $n=@fwrite($fh,substr($data,$offset));
+            if($n===false||$n===0)throw new RuntimeException('نوشتن فایل Backup متوقف شد.');
+            if($hashCtx!==null)hash_update($hashCtx,substr($data,$offset,$n));
+            $offset+=$n;
+        }
+    }
+
+    private static function stream_payload_to_file(string $corePath): string {
+        global $wpdb;
+        $fh=@fopen($corePath,'wb');
+        if(!$fh)throw new RuntimeException('ساخت فایل موقت Backup ناموفق بود.');
+        $hash=hash_init('sha256');
+        try{
+            $tableNames=BlueVPN_DB::table_names();
+            $options=[];
+            foreach(self::option_names() as $name){
+                $value=get_option($name,null);
+                if($value!==null)$options[$name]=$value;
+            }
+            $meta=[
+                'format'=>'bluevpn-wordpress-backup-v3',
+                'version'=>BLUEVPN_MANAGER_VERSION,
+                'schema_version'=>BLUEVPN_MANAGER_SCHEMA_VERSION,
+                'site'=>home_url('/'),
+                'created_at'=>BlueVPN_Utils::iso_now(),
+                'table_count'=>count($tableNames),
+                'option_count'=>count($options),
+            ];
+            $metaJson=wp_json_encode($meta,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+            if(!is_string($metaJson))throw new RuntimeException('ساخت metadata بکاپ ناموفق بود.');
+
+            self::write_all($fh,'{"meta":'.$metaJson.',"tables":{',$hash);
+            $firstTable=true;
+            foreach($tableNames as $name){
+                if(!$firstTable)self::write_all($fh,',',$hash);$firstTable=false;
+                $nameJson=wp_json_encode((string)$name,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+                if(!is_string($nameJson))throw new RuntimeException('نام جدول Backup معتبر نیست.');
+                self::write_all($fh,$nameJson.':[',$hash);
+
+                $table=BlueVPN_DB::table($name);
+                $offset=0;$firstRow=true;$chunk=250;
+                while(true){
+                    $rows=$wpdb->get_results($wpdb->prepare("SELECT * FROM {$table} LIMIT %d OFFSET %d",$chunk,$offset),ARRAY_A)?:[];
+                    if(!$rows)break;
+                    foreach($rows as $row){
+                        $rowJson=wp_json_encode($row,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+                        if(!is_string($rowJson))throw new RuntimeException('ساخت JSON جدول '.$name.' ناموفق بود.');
+                        if(!$firstRow)self::write_all($fh,',',$hash);$firstRow=false;
+                        self::write_all($fh,$rowJson,$hash);
+                    }
+                    $count=count($rows);$offset+=$count;
+                    unset($rows);
+                    if($count<$chunk)break;
+                    if(function_exists('gc_collect_cycles'))gc_collect_cycles();
+                }
+                self::write_all($fh,']',$hash);
+            }
+
+            $optionsJson=wp_json_encode($options,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
+            if(!is_string($optionsJson))throw new RuntimeException('ساخت JSON تنظیمات Backup ناموفق بود.');
+            self::write_all($fh,'},"options":'.$optionsJson.'}',$hash);
+            @fflush($fh);
+            return hash_final($hash);
+        } finally {
+            @fclose($fh);
+        }
+    }
+
+    private static function assemble_backup_wrapper(string $corePath,string $tmpPath,string $checksum): void {
+        $out=@fopen($tmpPath,'wb');if(!$out)throw new RuntimeException('ساخت فایل Backup ناموفق بود.');
+        $in=@fopen($corePath,'rb');if(!$in){@fclose($out);throw new RuntimeException('خواندن payload موقت Backup ناموفق بود.');}
+        try{
+            self::write_all($out,'{"checksum":"'.esc_attr($checksum).'","payload":');
+            while(!feof($in)){
+                $buf=fread($in,1024*1024);
+                if($buf===false)throw new RuntimeException('خواندن payload Backup متوقف شد.');
+                if($buf!=='')self::write_all($out,$buf);
+            }
+            self::write_all($out,'}');
+            @fflush($out);
+        } finally {
+            @fclose($in);@fclose($out);
+        }
+    }
+
+    public static function queue_manual_backup(): array {
+        $state=self::backup_state();
+        $attemptTs=!empty($state['last_attempt_at'])?strtotime((string)$state['last_attempt_at']):0;
+        if(in_array((string)($state['last_attempt_state']??''),['queued','running'],true)&&$attemptTs&&$attemptTs>time()-self::BACKUP_RECOVERY_RUNNING_SECONDS){
+            return ['queued'=>false,'already_running'=>true,'message'=>'یک Backup در حال اجرا یا در صف است.'];
+        }
+        self::update_backup_state([
+            'last_attempt_at'=>BlueVPN_Utils::iso_now(),
+            'last_attempt_reason'=>'manual-admin',
+            'last_attempt_ok'=>null,
+            'last_attempt_state'=>'queued',
+            'last_error'=>'',
+        ]);
+        if(!wp_next_scheduled(self::MANUAL_BACKUP_HOOK))wp_schedule_single_event(time()+1,self::MANUAL_BACKUP_HOOK);
+        BlueVPN_Utils::kick_wp_cron();
+        return ['queued'=>true,'already_running'=>false,'message'=>'Backup در صف اجرا قرار گرفت.'];
+    }
+
+    public static function manual_backup_worker(): void {
+        try{self::create_backup('manual-admin');}
+        catch(Throwable $e){
+            BlueVPN_Error_Monitor::legacy_error_log('BlueVPN manual backup: '.$e->getMessage());
+            if(class_exists('BlueVPN_Error_Monitor'))BlueVPN_Error_Monitor::report('health','backup','error','BACKUP_MANUAL_FAILED',$e->getMessage(),[]);
+        }
+    }
+
     private static function update_backup_state(array $patch): array {
         $state = get_option(self::BACKUP_STATE_OPTION, []);
         if (!is_array($state)) $state = [];
@@ -281,64 +397,53 @@ final class BlueVPN_Production {
 
     public static function create_backup(string $reason='manual'): array {
         self::update_backup_state([
-            'last_attempt_at' => BlueVPN_Utils::iso_now(),
-            'last_attempt_reason' => $reason,
-            'last_attempt_ok' => null,
-            'last_attempt_state' => 'running',
-            'last_error' => '',
+            'last_attempt_at'=>BlueVPN_Utils::iso_now(),
+            'last_attempt_reason'=>$reason,
+            'last_attempt_ok'=>null,
+            'last_attempt_state'=>'running',
+            'last_error'=>'',
         ]);
 
-        $tmp = '';
-        try {
-            $dir = self::backup_dir();
-            if (!is_dir($dir) || !is_writable($dir)) throw new RuntimeException('مسیر خصوصی Backup قابل نوشتن نیست.');
+        $tmp='';$coreTmp='';
+        try{
+            $dir=self::backup_dir();
+            if(!is_dir($dir)||!is_writable($dir))throw new RuntimeException('مسیر خصوصی Backup قابل نوشتن نیست.');
 
-            $json = self::encode_backup(self::canonical_payload());
-            $suffix = substr(hash('sha256', wp_generate_password(32, true, true).microtime(true)), 0, 12);
-            $name = 'bluevpn-'.gmdate('Ymd-His').'-'.$suffix.'.json';
-            $path = trailingslashit($dir).$name;
-            $tmp = $path.'.tmp';
+            $suffix=substr(hash('sha256',wp_generate_password(32,true,true).microtime(true)),0,12);
+            $name='bluevpn-'.gmdate('Ymd-His').'-'.$suffix.'.json';
+            $path=trailingslashit($dir).$name;
+            $tmp=$path.'.tmp';$coreTmp=$path.'.payload.tmp';
 
-            $written = @file_put_contents($tmp, $json, LOCK_EX);
-            if ($written === false || (int)$written !== strlen($json)) {
-                throw new RuntimeException('نوشتن کامل فایل Backup ناموفق بود.');
-            }
-            @chmod($tmp, 0600);
-            if (!@rename($tmp, $path)) {
-                throw new RuntimeException('نهایی‌سازی اتمیک فایل Backup ناموفق بود.');
-            }
-            $tmp = '';
+            $checksum=self::stream_payload_to_file($coreTmp);
+            self::assemble_backup_wrapper($coreTmp,$tmp,$checksum);
+            @unlink($coreTmp);$coreTmp='';
 
-            $info = [
-                'ok'=>true,
-                'path'=>$path,
-                'filename'=>$name,
-                'size'=>filesize($path)?:strlen($json),
-                'reason'=>$reason,
-                'created_at'=>BlueVPN_Utils::iso_now(),
-                'checksum'=>hash_file('sha256',$path)?:'',
+            @chmod($tmp,0600);
+            if(!@rename($tmp,$path))throw new RuntimeException('نهایی‌سازی اتمیک فایل Backup ناموفق بود.');
+            $tmp='';
+
+            $size=@filesize($path);
+            if($size===false||$size<=0)throw new RuntimeException('فایل Backup نهایی خالی است.');
+            $info=[
+                'ok'=>true,'path'=>$path,'filename'=>$name,'size'=>(int)$size,'reason'=>$reason,
+                'created_at'=>BlueVPN_Utils::iso_now(),'checksum'=>hash_file('sha256',$path)?:'',
             ];
-            update_option(self::BACKUP_OPTION, $info, false);
+            update_option(self::BACKUP_OPTION,$info,false);
             self::update_backup_state([
-                'last_attempt_at' => (string)$info['created_at'],
-                'last_attempt_reason' => $reason,
-                'last_attempt_ok' => true,
-                'last_attempt_state' => 'succeeded',
-                'last_error' => '',
-                'last_success_at' => (string)$info['created_at'],
-                'last_success_filename' => $name,
-                'last_success_size' => (int)$info['size'],
+                'last_attempt_at'=>(string)$info['created_at'],'last_attempt_reason'=>$reason,
+                'last_attempt_ok'=>true,'last_attempt_state'=>'succeeded','last_error'=>'',
+                'last_success_at'=>(string)$info['created_at'],'last_success_filename'=>$name,
+                'last_success_size'=>(int)$info['size'],
             ]);
+            if(class_exists('BlueVPN_Error_Monitor'))BlueVPN_Error_Monitor::resolve_matching('health','backup','BACKUP_MANUAL_FAILED');
             self::prune_backups();
             return $info;
-        } catch (Throwable $e) {
-            if ($tmp !== '' && is_file($tmp)) @unlink($tmp);
+        }catch(Throwable $e){
+            if($tmp!==''&&is_file($tmp))@unlink($tmp);
+            if($coreTmp!==''&&is_file($coreTmp))@unlink($coreTmp);
             self::update_backup_state([
-                'last_attempt_at' => BlueVPN_Utils::iso_now(),
-                'last_attempt_reason' => $reason,
-                'last_attempt_ok' => false,
-                'last_attempt_state' => 'failed',
-                'last_error' => $e->getMessage(),
+                'last_attempt_at'=>BlueVPN_Utils::iso_now(),'last_attempt_reason'=>$reason,
+                'last_attempt_ok'=>false,'last_attempt_state'=>'failed','last_error'=>$e->getMessage(),
             ]);
             throw $e;
         }
@@ -378,7 +483,7 @@ final class BlueVPN_Production {
         $attemptTs = !empty($state['last_attempt_at']) ? strtotime((string)$state['last_attempt_at']) : 0;
         $attemptState = (string)($state['last_attempt_state'] ?? '');
         $legacyRunning = array_key_exists('last_attempt_ok', $state) && $state['last_attempt_ok'] === null;
-        if ($attemptTs && ($attemptState === 'running' || $legacyRunning) && $attemptTs > time() - self::BACKUP_RECOVERY_RUNNING_SECONDS) {
+        if ($attemptTs && (in_array($attemptState,['queued','running'],true) || $legacyRunning) && $attemptTs > time() - self::BACKUP_RECOVERY_RUNNING_SECONDS) {
             return ['attempted'=>false,'ok'=>true,'reason'=>'running','started_at'=>(string)($state['last_attempt_at']??'')];
         }
         if ($attemptTs && $attemptTs > time() - self::BACKUP_RECOVERY_RETRY_SECONDS) {
@@ -555,7 +660,7 @@ final class BlueVPN_Production {
         ];
         $attemptTs = !empty($statePublic['last_attempt_at']) ? strtotime((string)$statePublic['last_attempt_at']) : 0;
         $recoveryRunning = !$backupFresh && $attemptTs &&
-            (($statePublic['last_attempt_state'] ?? '') === 'running' || $statePublic['last_attempt_ok'] === null) &&
+            (in_array((string)($statePublic['last_attempt_state'] ?? ''),['queued','running'],true) || $statePublic['last_attempt_ok'] === null) &&
             $attemptTs > time()-self::BACKUP_RECOVERY_RUNNING_SECONDS;
         $recoveryFailed = !$backupFresh && (($statePublic['last_attempt_state'] ?? '') === 'failed' || $statePublic['last_attempt_ok'] === false);
         $backupMessage = $recoveryRunning

@@ -33,6 +33,7 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-ai-ops.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-payments.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-dollar-pricing.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-api.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-shahrah.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-providers.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-subscription-sources.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-gateway.php';

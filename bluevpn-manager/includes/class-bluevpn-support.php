@@ -6,7 +6,6 @@ final class BlueVPN_Support {
 
     public static function init(): void {
         self::maybe_upgrade();
-        add_action('admin_menu', [self::class, 'admin_menu'], 40);
         add_action('admin_post_bluevpn_support_reply', [self::class, 'admin_reply']);
         add_action('admin_post_bluevpn_support_assign', [self::class, 'admin_assign']);
         add_action('admin_post_bluevpn_support_status', [self::class, 'admin_status']);

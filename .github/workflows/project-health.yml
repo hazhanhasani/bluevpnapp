@@ -87,7 +87,7 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 2
 
-      - name: Detect a real BlueVPN version upgrade
+      - name: Detect pending or new BlueVPN release
         id: version
         shell: bash
         run: |
@@ -97,13 +97,20 @@ jobs:
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
 
-          if [ -z "$PREVIOUS" ] || [ "$CURRENT" = "$PREVIOUS" ]; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No version upgrade detected: previous=${PREVIOUS:-none}, current=$CURRENT"
-            exit 0
-          fi
+          python - "$CURRENT" <<'PY'
+          import re,sys
+          v=sys.argv[1]
+          m=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)',v)
+          if not m:
+              raise SystemExit(f'invalid BlueVPN version: {v}')
+          major,minor,patch=map(int,m.groups())
+          if minor > 10 or patch > 10:
+              raise SystemExit('BlueVPN minor/patch must remain within 0..10')
+          PY
 
-          python - "$PREVIOUS" "$CURRENT" <<'PY'
+          VERSION_CHANGED=false
+          if [ -n "$PREVIOUS" ] && [ "$CURRENT" != "$PREVIOUS" ]; then
+            python - "$PREVIOUS" "$CURRENT" <<'PY'
           import re,sys
           def parse(v):
               m=re.fullmatch(r'(\d+)\.(\d+)\.(\d+)',v)
@@ -113,12 +120,25 @@ jobs:
           old,new=map(parse,sys.argv[1:3])
           if new <= old:
               raise SystemExit(f'BlueVPN version must increase: {old} -> {new}')
-          if new[1] > 10 or new[2] > 10:
-              raise SystemExit('BlueVPN minor/patch must remain within 0..10')
           PY
+            VERSION_CHANGED=true
+          fi
 
-          echo "changed=true" >> "$GITHUB_OUTPUT"
-          echo "Validated version upgrade: $PREVIOUS -> $CURRENT"
+          RELEASE_PENDING=false
+          for TAG in "v${CURRENT}" "bluevpn-manager-v${CURRENT}" "bluevpn-windows-v${CURRENT}" "bluevpn-site-v${CURRENT}"; do
+            if ! git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+              echo "Pending release tag: ${TAG}"
+              RELEASE_PENDING=true
+            fi
+          done
+
+          if [ "$VERSION_CHANGED" = true ] || [ "$RELEASE_PENDING" = true ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Release required: previous=${PREVIOUS:-none}, current=$CURRENT, version_changed=$VERSION_CHANGED, release_pending=$RELEASE_PENDING"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Release already complete for BlueVPN $CURRENT"
+          fi
 
       - name: Pin release tags to validated source SHA
         if: ${{ steps.version.outputs.changed == 'true' }}

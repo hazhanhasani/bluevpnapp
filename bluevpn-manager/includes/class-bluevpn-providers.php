@@ -1437,24 +1437,44 @@ final class BlueVPN_Providers {
         ],false);
     }
     private static function customer_source_entries(array $c): array {
-        $out=[];
+        $out=[];$customerId=(int)($c['id']??0);$linkedProviders=[];
+        foreach(self::customer_provider_links($customerId) as $link){
+            $provider=(string)($link['provider_type']??'');$panelId=(int)($link['panel_id']??0);if($provider===''||$panelId<=0)continue;
+            $linkedProviders[$provider]=true;
+            if($provider==='shahrah'){
+                $out[]=['key'=>'shahrah:'.$panelId,'id'=>$panelId,'type'=>'shahrah_panel','provider_type'=>'shahrah','payload'=>''];
+                continue;
+            }
+            $url=trim((string)($link['subscription_url']??''));if($url==='')continue;
+            $out[]=['key'=>$provider.':'.$panelId,'id'=>$panelId,'type'=>'url','provider_type'=>$provider,'payload'=>$url];
+        }
+
+        // Legacy single-provider columns remain readable for customers that have
+        // not been migrated into customer_provider_links yet.
         foreach([
             'pasarguard'=>'pasarguard_subscription_url',
             'marzban'=>'marzban_subscription_url',
             'guardcore'=>'guardcore_subscription_url',
         ] as $provider=>$field){
+            if(isset($linkedProviders[$provider]))continue;
             $url=trim((string)($c[$field]??''));if($url==='')continue;
-            $out[]=['key'=>$provider,'type'=>'url','payload'=>$url];
+            $out[]=['key'=>$provider,'type'=>'url','provider_type'=>$provider,'payload'=>$url];
         }
+
         $planId=(int)($c['plan_id']??0);
-        if($planId>0&&class_exists('BlueVPN_Shahrah')){
+        if($planId>0&&class_exists('BlueVPN_Shahrah')&&!isset($linkedProviders['shahrah'])){
             global $wpdb;
-            $route=$wpdb->get_row($wpdb->prepare("SELECT shahrah_panel_id,shahrah_plan_slug FROM ".BlueVPN_DB::table('plans')." WHERE id=%d AND deleted=0",$planId),ARRAY_A);
-            $panelId=(int)($route['shahrah_panel_id']??0);
-            if($panelId>0&&trim((string)($route['shahrah_plan_slug']??''))!=='')$out[]=['key'=>'shahrah','id'=>$panelId,'type'=>'shahrah_panel','provider_type'=>'shahrah','payload'=>''];
+            $plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM ".BlueVPN_DB::table('plans')." WHERE id=%d AND deleted=0",$planId),ARRAY_A);
+            if($plan){
+                foreach(self::plan_provider_routes($plan)['shahrah'] as $route){
+                    $panelId=(int)($route['panel_id']??0);
+                    if($panelId>0)$out[]=['key'=>'shahrah:'.$panelId,'id'=>$panelId,'type'=>'shahrah_panel','provider_type'=>'shahrah','payload'=>''];
+                }
+            }
         }
+
         if(class_exists('BlueVPN_Subscription_Sources')){
-            foreach(BlueVPN_Subscription_Sources::active_entries_for_plan((int)($c['plan_id']??0)) as $entry){
+            foreach(BlueVPN_Subscription_Sources::active_entries_for_plan($planId) as $entry){
                 $key=(string)($entry['key']??'manual');$type=(string)($entry['type']??'url');$payload=trim((string)($entry['payload']??''));if($payload==='')continue;
                 $out[]=['key'=>$key,'id'=>(int)($entry['id']??0),'type'=>$type,'provider_type'=>(string)($entry['provider_type']??''),'payload'=>$payload];
             }

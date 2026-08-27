@@ -45,6 +45,30 @@ final class BlueVPN_Admin {
         add_submenu_page('bluevpn-manager','تنظیمات BlueVPN','تنظیمات','manage_options','bluevpn-settings',[self::class,'settings_page']);
         add_submenu_page('bluevpn-manager','وضعیت انتقال','وضعیت انتقال','manage_options','bluevpn-migration',[self::class,'migration_page']);
         add_submenu_page('bluevpn-manager','آپدیت افزونه','آپدیت افزونه','manage_options','bluevpn-github-updater',[self::class,'github_updater_page']);
+
+        // Keep every specialist screen registered and directly addressable, but
+        // declutter the native WordPress submenu. The structured BlueVPN sidebar
+        // remains the authoritative navigation for specialist operations.
+        $keep = [
+            'bluevpn-manager',
+            'bluevpn-customers',
+            'bluevpn-free-access',
+            'bluevpn-app-update',
+            'bluevpn-ads',
+            'bluevpn-production',
+            'bluevpn-blueai',
+            'bluevpn-settings',
+        ];
+        global $submenu;
+        if (!empty($submenu['bluevpn-manager']) && is_array($submenu['bluevpn-manager'])) {
+            foreach ($submenu['bluevpn-manager'] as $index => $item) {
+                $slug = (string)($item[2] ?? '');
+                if ($slug !== '' && !in_array($slug, $keep, true)) {
+                    unset($submenu['bluevpn-manager'][$index]);
+                }
+            }
+            $submenu['bluevpn-manager'] = array_values($submenu['bluevpn-manager']);
+        }
     }
     private static function head(string $title): void { BlueVPN_Unified_UI::shell_open($title); echo '<div class="wrap" dir="rtl"><style>.bvp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;max-width:1100px}.bvp-card{background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:18px}.bvp-ok{color:#34d399;font-weight:700}.bvp-warn{color:#fbbf24;font-weight:700}.bvp-code{direction:ltr;text-align:left;background:#f6f7f7;padding:10px;border-radius:6px;overflow:auto}.bvp-table{background:#fff;max-width:1200px}.bvp-table th,.bvp-table td{text-align:right}</style>'; }
     private static function foot(): void { echo '</div>'; BlueVPN_Unified_UI::shell_close(); }

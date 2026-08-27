@@ -42,7 +42,6 @@ final class BlueVPN_Error_Monitor {
         add_action('automatic_updates_complete', [self::class, 'automatic_updates_complete']);
         add_action('upgrader_process_complete', [self::class, 'upgrader_complete'], 10, 2);
         add_action('rest_api_init', [self::class, 'register_client_route']);
-        add_action('admin_menu', [self::class, 'register_menu'], 30);
         add_action('admin_post_bluevpn_monitor_action', [self::class, 'admin_action']);
     }
 

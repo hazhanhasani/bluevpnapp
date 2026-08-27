@@ -835,7 +835,7 @@ final class BlueVPN_Providers {
 
         $expire=!empty($c['subscription_expire'])?(string)$c['subscription_expire']:null;
         $total=max(0,(int)($c['data_limit_bytes']??0));
-        if($total===0&&max(0,(int)($plan['data_limit_gb']??0))>0)$total=max(0,(int)$plan['data_limit_gb']*1024*1024*1024;
+        if($total===0&&max(0,(int)($plan['data_limit_gb']??0))>0)$total=max(0,(int)($plan['data_limit_gb']??0))*1024*1024*1024;
         $providerCount=count(array_filter([$expectsPg,$expectsMz,$expectsGc]));
         $quota=($providerCount>1&&($plan['multi_provider_quota_mode']??'split')==='split')?intdiv($total,max(1,$providerCount)):$total;
         $providerQuota=$trafficMode==='gateway_metered'?0:$quota;

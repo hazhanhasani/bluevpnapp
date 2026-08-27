@@ -11,8 +11,8 @@ class GatewayAutopilotMigration519Tests(unittest.TestCase):
 
     def test_release_contract(self):
         r=json.loads(self.text("release.json"))
-        self.assertEqual(r["version"],"6.0.4")
-        self.assertEqual(r["version_code"],60004)
+        self.assertEqual(r["version"],"6.0.5")
+        self.assertEqual(r["version_code"],60005)
         for f in ("gateway-autopilot-default-on","gateway-telemetry-auto-capacity","gateway-auto-drain-recovery","gateway-graceful-drain","gateway-zero-downtime-session-handoff","gateway-handoff-target-ack-gate","gateway-handoff-overlap-window"):
             self.assertIn(f,r["features"])
         self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.32.0'",self.text("bluevpn-manager/bluevpn-manager.php"))
@@ -50,7 +50,7 @@ class GatewayAutopilotMigration519Tests(unittest.TestCase):
 
     def test_agent_reports_hardware_for_autocapacity(self):
         agent=self.text("bluevpn-gateway/agent.py")
-        self.assertIn('AGENT_VERSION = "6.0.4"',agent)
+        self.assertIn('AGENT_VERSION = "6.0.5"',agent)
         self.assertIn("def _memory_total_mb",agent)
         self.assertIn('"cpu_cores":max(1,int(os.cpu_count() or 1))',agent)
         self.assertIn('"memory_total_mb":self._memory_total_mb()',agent)

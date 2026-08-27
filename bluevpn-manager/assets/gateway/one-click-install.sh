@@ -4,7 +4,7 @@ set -euo pipefail
 ENROLL_URL="${1:-}"
 NODE_ID="${2:-}"
 ENROLLMENT_TOKEN="${3:-}"
-AGENT_VERSION="6.0.4"
+AGENT_VERSION="6.0.5"
 
 if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
   echo "BlueVPN Gateway installer must run as root." >&2

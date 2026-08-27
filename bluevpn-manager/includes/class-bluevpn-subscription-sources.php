@@ -8,8 +8,10 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_Subscription_Sources {
     private const CACHE_TTL_SECONDS = 300;
     private const STALE_IF_ERROR_SECONDS = 1800;
+    public const SHAHRah_DOCS_URL = 'https://shahrah.top/panel/user/vaas/web-service';
 
     public static function init(): void {
+        self::ensure_shahrah_source();
         add_action('admin_post_bluevpn_cc_save_subscription_source',[self::class,'save']);
         add_action('admin_post_bluevpn_cc_toggle_subscription_source',[self::class,'toggle']);
         add_action('admin_post_bluevpn_cc_delete_subscription_source',[self::class,'delete']);
@@ -17,6 +19,30 @@ final class BlueVPN_Subscription_Sources {
     }
 
     private static function table(): string { return BlueVPN_DB::table('subscription_sources'); }
+
+    /**
+     * Register Shahrah as a first-class paid subscription source without
+     * guessing private API credentials/endpoints from the authenticated docs page.
+     * It is intentionally inactive until the real subscription endpoint is saved.
+     */
+    private static function ensure_shahrah_source(): void {
+        global $wpdb;
+        $table=self::table();
+        $exists=$wpdb->get_var("SELECT id FROM {$table} WHERE source_type='shahrah' ORDER BY id ASC LIMIT 1");
+        if($exists)return;
+        $now=BlueVPN_Utils::now_mysql();
+        $wpdb->insert($table,[
+            'name'=>'شاهراه',
+            'source_type'=>'shahrah',
+            'payload_enc'=>'',
+            'active'=>0,
+            'last_test_ok'=>0,
+            'last_test_message'=>'وب‌سرویس شاهراه برای پلن پولی ثبت شد. Endpoint واقعی Subscription/API را از مستندات شاهراه وارد و سپس فعال کنید: '.self::SHAHRah_DOCS_URL,
+            'last_test_at'=>null,
+            'created_at'=>$now,
+            'updated_at'=>$now,
+        ]);
+    }
     private static function guard(): void { if(!current_user_can('manage_options'))wp_die('دسترسی ندارید.'); }
     private static function redirect(string $message,bool $error=false): void {
         $key=$error?'cc_error':'cc_msg';wp_safe_redirect(add_query_arg([$key=>$message],admin_url('admin.php?page=bluevpn-subscription-sources')));exit;
@@ -46,7 +72,7 @@ final class BlueVPN_Subscription_Sources {
         $ids=self::source_ids_for_plan($plan);if(!$ids)return [];
         $placeholders=implode(',',array_fill(0,count($ids),'%d'));
         $rows=$wpdb->get_results($wpdb->prepare('SELECT * FROM '.self::table()." WHERE active=1 AND id IN ({$placeholders}) ORDER BY name,id",...$ids),ARRAY_A)?:[];
-        $out=[];foreach($rows as $row){$payload=self::plaintext($row);if(trim($payload)==='')continue;$out[]=['key'=>'manual:'.(int)$row['id'],'id'=>(int)$row['id'],'name'=>(string)$row['name'],'type'=>(string)$row['source_type'],'payload'=>$payload];}
+        $out=[];foreach($rows as $row){$payload=self::plaintext($row);if(trim($payload)==='')continue;$sourceType=(string)$row['source_type'];$key=$sourceType==='shahrah'?'manual:shahrah:'.(int)$row['id']:'manual:'.(int)$row['id'];$runtimeType=$sourceType==='inline'?'inline':'url';$out[]=['key'=>$key,'id'=>(int)$row['id'],'name'=>(string)$row['name'],'type'=>$runtimeType,'provider_type'=>$sourceType,'payload'=>$payload];}
         return $out;
     }
 
@@ -215,7 +241,7 @@ final class BlueVPN_Subscription_Sources {
 
     public static function save(): void {
         self::guard();$id=max(0,(int)($_POST['source_id']??0));check_admin_referer('bluevpn_cc_save_subscription_source_'.$id);
-        global $wpdb;$old=$id>0?self::source($id):null;$name=sanitize_text_field(wp_unslash($_POST['name']??''));$type=sanitize_key((string)($_POST['source_type']??'url'));if(!in_array($type,['url','inline'],true))$type='url';
+        global $wpdb;$old=$id>0?self::source($id):null;$name=sanitize_text_field(wp_unslash($_POST['name']??''));$type=sanitize_key((string)($_POST['source_type']??'url'));if(!in_array($type,['url','inline','shahrah'],true))$type='url';
         if($name==='')self::redirect('نام Source نمی‌تواند خالی باشد.',true);
         $raw=trim((string)wp_unslash($_POST['payload']??''));$payloadEnc=$raw!==''?BlueVPN_Utils::encrypt_secret($raw):(string)($old['payload_enc']??'');if($payloadEnc==='')self::redirect('URL یا کانفیگ Source را وارد کن.',true);
         $data=['name'=>$name,'source_type'=>$type,'payload_enc'=>$payloadEnc,'active'=>isset($_POST['active'])?1:0,'updated_at'=>BlueVPN_Utils::now_mysql()];
@@ -254,10 +280,10 @@ final class BlueVPN_Subscription_Sources {
 
     public static function render_admin_tab(): void {
         $rows=self::rows(false);
-        echo '<div class="bvc-page-tools"><div><h2 class="bvc-section-title">Sourceهای اشتراک پولی</h2><p class="bvc-section-subtitle">ساب URL یا کانفیگ دستی را رمزنگاری‌شده ذخیره کن؛ پورت‌های سفارشی مثل 8000/8443 پشتیبانی می‌شوند؛ در قطعی موقت هم آخرین Source سالم حداکثر ۳۰ دقیقه به‌صورت fail-safe نگه داشته می‌شود.</p></div></div>';
-        echo '<details class="bvc-card bvc-disclosure" '.(!$rows?'open':'').'><summary><span><strong>افزودن Source</strong><small>URL یا متن کانفیگ</small></span><span>⌄</span></summary><div class="bvc-disclosure-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_subscription_source_0');echo '<input type="hidden" name="action" value="bluevpn_cc_save_subscription_source"><input type="hidden" name="source_id" value="0"><div class="bvc-form-grid"><label>نام<input name="name" required></label><label>نوع<select name="source_type"><option value="url">Subscription URL (custom ports supported)</option><option value="inline">Inline configs</option></select></label></div><label style="display:block;margin-top:10px">URL / Configs <small>(http/https با پورت سفارشی مجاز است)</small><textarea name="payload" rows="7" style="width:100%" required></textarea></label><label><input type="checkbox" name="active" value="1" checked> فعال</label><div class="bvc-form-actions"><button class="button button-primary">ذخیره Source</button></div></form></div></details>';
+        echo '<div class="bvc-page-tools"><div><h2 class="bvc-section-title">Sourceهای اشتراک پولی</h2><p class="bvc-section-subtitle">ساب URL یا کانفیگ دستی را رمزنگاری‌شده ذخیره کن؛ پورت‌های سفارشی مثل 8000/8443 پشتیبانی می‌شوند؛ در قطعی موقت هم آخرین Source سالم حداکثر ۳۰ دقیقه به‌صورت fail-safe نگه داشته می‌شود.</p><p class="description"><strong>شاهراه:</strong> Provider اختصاصی پلن پولی ثبت شده است. <a href="'.esc_url(self::SHAHRah_DOCS_URL).'" target="_blank" rel="noopener noreferrer">مستندات وب‌سرویس شاهراه</a> — برای فعال‌سازی، endpoint واقعی Subscription/API را از پنل شاهراه وارد کنید.</p></div></div>';
+        echo '<details class="bvc-card bvc-disclosure" '.(!$rows?'open':'').'><summary><span><strong>افزودن Source</strong><small>URL یا متن کانفیگ</small></span><span>⌄</span></summary><div class="bvc-disclosure-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_subscription_source_0');echo '<input type="hidden" name="action" value="bluevpn_cc_save_subscription_source"><input type="hidden" name="source_id" value="0"><div class="bvc-form-grid"><label>نام<input name="name" required></label><label>نوع<select name="source_type"><option value="url">Subscription URL (custom ports supported)</option><option value="shahrah">شاهراه — Paid Web Service</option><option value="inline">Inline configs</option></select></label></div><label style="display:block;margin-top:10px">URL / Configs <small>(http/https با پورت سفارشی مجاز است)</small><textarea name="payload" rows="7" style="width:100%" required></textarea></label><label><input type="checkbox" name="active" value="1" checked> فعال</label><div class="bvc-form-actions"><button class="button button-primary">ذخیره Source</button></div></form></div></details>';
         if(!$rows){echo '<div class="bvc-empty-state"><strong>هنوز Source دستی ثبت نشده است.</strong></div>';return;}
-        echo '<div class="bvc-plan-list">';foreach($rows as $row){$id=(int)$row['id'];$toggle=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_toggle_subscription_source&id='.$id),'bluevpn_cc_toggle_subscription_source_'.$id);$test=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_test_subscription_source&id='.$id),'bluevpn_cc_test_subscription_source_'.$id);echo '<article class="bvc-plan-card '.((int)$row['active']?'is-active':'is-inactive').'"><header class="bvc-plan-head"><div><h3>'.esc_html((string)$row['name']).'</h3><p>'.esc_html(strtoupper((string)$row['source_type'])).' • Payload encrypted at rest</p></div><span class="bvc-status-pill '.((int)$row['active']?'is-active':'is-inactive').'">'.((int)$row['active']?'فعال':'غیرفعال').'</span></header><div class="bvc-plan-metrics"><div><span>آخرین تست</span><strong>'.(!empty($row['last_test_at'])?esc_html(BlueVPN_Utils::tehran_datetime_fa((string)$row['last_test_at'])):'—').'</strong></div><div><span>نتیجه</span><strong>'.((int)$row['last_test_ok']?'سالم':'نیاز به تست').'</strong></div></div><div class="bvc-actions"><a class="button" href="'.esc_url($test).'">تست</a><a class="button" href="'.esc_url($toggle).'">'.((int)$row['active']?'غیرفعال':'فعال').' کردن</a></div><details class="bvc-plan-routing"><summary>ویرایش</summary><div class="bvc-plan-routing-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_subscription_source_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_save_subscription_source"><input type="hidden" name="source_id" value="'.$id.'"><div class="bvc-form-grid"><label>نام<input name="name" value="'.esc_attr((string)$row['name']).'" required></label><label>نوع<select name="source_type"><option value="url" '.selected((string)$row['source_type'],'url',false).'>Subscription URL</option><option value="inline" '.selected((string)$row['source_type'],'inline',false).'>Inline configs</option></select></label></div><label style="display:block;margin-top:10px">Payload جدید (خالی = بدون تغییر)<textarea name="payload" rows="6" style="width:100%"></textarea></label><label><input type="checkbox" name="active" value="1" '.checked((int)$row['active'],1,false).'> فعال</label><button class="button button-primary">ذخیره</button></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="margin-top:10px">';wp_nonce_field('bluevpn_cc_delete_subscription_source_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_delete_subscription_source"><input type="hidden" name="source_id" value="'.$id.'"><button class="button button-link-delete" onclick="return confirm(\'حذف شود؟\')">حذف</button></form></div></details></article>';}
+        echo '<div class="bvc-plan-list">';foreach($rows as $row){$id=(int)$row['id'];$toggle=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_toggle_subscription_source&id='.$id),'bluevpn_cc_toggle_subscription_source_'.$id);$test=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_test_subscription_source&id='.$id),'bluevpn_cc_test_subscription_source_'.$id);echo '<article class="bvc-plan-card '.((int)$row['active']?'is-active':'is-inactive').'"><header class="bvc-plan-head"><div><h3>'.esc_html((string)$row['name']).'</h3><p>'.esc_html(strtoupper((string)$row['source_type'])).' • Payload encrypted at rest</p></div><span class="bvc-status-pill '.((int)$row['active']?'is-active':'is-inactive').'">'.((int)$row['active']?'فعال':'غیرفعال').'</span></header><div class="bvc-plan-metrics"><div><span>آخرین تست</span><strong>'.(!empty($row['last_test_at'])?esc_html(BlueVPN_Utils::tehran_datetime_fa((string)$row['last_test_at'])):'—').'</strong></div><div><span>نتیجه</span><strong>'.((int)$row['last_test_ok']?'سالم':'نیاز به تست').'</strong></div></div><div class="bvc-actions"><a class="button" href="'.esc_url($test).'">تست</a><a class="button" href="'.esc_url($toggle).'">'.((int)$row['active']?'غیرفعال':'فعال').' کردن</a></div><details class="bvc-plan-routing"><summary>ویرایش</summary><div class="bvc-plan-routing-body"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_subscription_source_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_save_subscription_source"><input type="hidden" name="source_id" value="'.$id.'"><div class="bvc-form-grid"><label>نام<input name="name" value="'.esc_attr((string)$row['name']).'" required></label><label>نوع<select name="source_type"><option value="url" '.selected((string)$row['source_type'],'url',false).'>Subscription URL</option><option value="shahrah" '.selected((string)$row['source_type'],'shahrah',false).'>شاهراه — Paid Web Service</option><option value="inline" '.selected((string)$row['source_type'],'inline',false).'>Inline configs</option></select></label></div><label style="display:block;margin-top:10px">Payload جدید (خالی = بدون تغییر)<textarea name="payload" rows="6" style="width:100%"></textarea></label><label><input type="checkbox" name="active" value="1" '.checked((int)$row['active'],1,false).'> فعال</label><button class="button button-primary">ذخیره</button></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'" style="margin-top:10px">';wp_nonce_field('bluevpn_cc_delete_subscription_source_'.$id);echo '<input type="hidden" name="action" value="bluevpn_cc_delete_subscription_source"><input type="hidden" name="source_id" value="'.$id.'"><button class="button button-link-delete" onclick="return confirm(\'حذف شود؟\')">حذف</button></form></div></details></article>';}
         echo '</div>';
     }
 }

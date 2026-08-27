@@ -15,7 +15,7 @@ class GatewayMetered514Tests(unittest.TestCase):
         self.assertEqual(release["version"], "6.0.5")
         self.assertEqual(release["version_code"], 60005)
         plugin = self.text("bluevpn-manager/bluevpn-manager.php")
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.32.0'", plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.33.0'", plugin)
         db = self.text("bluevpn-manager/includes/class-bluevpn-db.php")
         for table in ("subscription_sources", "gateway_nodes", "gateway_sessions", "gateway_usage_events"):
             self.assertIn("CREATE TABLE {$t('" + table + "')}", db)

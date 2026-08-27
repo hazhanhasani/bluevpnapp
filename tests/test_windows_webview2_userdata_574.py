@@ -19,7 +19,7 @@ class WindowsWebView2UserData574Tests(unittest.TestCase):
         main = (ROOT / "bluevpn-windows/MainWindow.xaml.cs").read_text(encoding="utf-8")
         block = main[main.index("ShowTapsellWebAdAsync"):main.index("AdCard_SizeChanged")]
         self.assertIn("catch (Exception ex)", block)
-        self.assertIn("TapsellWebView.Visibility = Visibility.Collapsed", block)
+        self.assertIn("SetTapsellWebVisibility(Visibility.Collapsed)", block)
         self.assertIn("return false", block)
 
 

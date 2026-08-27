@@ -16,13 +16,13 @@ class SupportAdminSidebar4105(unittest.TestCase):
 
     def test_support_is_visible_in_custom_bluevpn_sidebar(self):
         ui=self.text("bluevpn-manager/includes/class-bluevpn-unified-ui.php")
-        services=ui[
-            ui.index("'کاربران و فروش' => ["):
-            ui.index("'شبکه و سرویس' => [")
+        communication=ui[
+            ui.index("'تبلیغات و ارتباط' => ["):
+            ui.index("'سلامت و عملیات' => [")
         ]
         self.assertIn(
             "['bluevpn-support', 'پشتیبانی آنلاین', 'support']",
-            services,
+            communication,
         )
         self.assertIn("'support' =>", ui)
 

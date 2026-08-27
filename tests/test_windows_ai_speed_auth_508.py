@@ -42,7 +42,9 @@ class WindowsAiSpeedAuth508Tests(unittest.TestCase):
         self.assertIn('TimeSpan.FromMilliseconds(timeoutMs)',selector)
         self.assertIn('SnapshotViaSocksAsync',xray)
         self.assertIn('RoutingMode = "xray_ready"',xray)
-        self.assertIn('TimeSpan.FromSeconds(9)',verifier)
+        self.assertIn('int timeoutSeconds = 9',verifier)
+        self.assertIn('TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 3, 12))',verifier)
+        self.assertIn('XrayConfigBuilder.LocalHttpPort,\n            ct,\n            4)',o)
 
     def test_android_core_verification_uses_short_http_then_socks_budget(self):
         home=text('android-source/BlueVpnHomeActivity.kt')

@@ -9,7 +9,7 @@ class AdminInformationArchitecture60001Tests(unittest.TestCase):
 
     def test_admin_navigation_is_domain_grouped_and_searchable(self):
         ui=(ROOT/"bluevpn-manager/includes/class-bluevpn-unified-ui.php").read_text(encoding="utf-8")
-        for token in ["کاربران و فروش","شبکه و سرویس","محصول و هوشمندی","سیستم و عملیات","bluevpn-production","bluevpnNavSearch","current_group"]:
+        for token in ["کاربران و فروش","شبکه و زیرساخت","اپ و انتشار","تبلیغات و ارتباط","سلامت و عملیات","هوش و اتوماسیون","تنظیمات","bluevpn-production","bluevpnNavSearch","current_group"]:
             self.assertIn(token,ui)
         js=(ROOT/"bluevpn-manager/assets/admin-unified.js").read_text(encoding="utf-8")
         self.assertIn("bluevpnNavSearch",js)

@@ -22,7 +22,7 @@ class AndroidXrayJsonFailover545Tests(unittest.TestCase):
 
     def test_xray_teardown_gets_drain_window_before_next_guid(self):
         self.assertIn("val retryDelayMs = if", self.home)
-        self.assertIn(") 900L else 350L", self.home)
+        self.assertIn(") 900L else 650L", self.home)
         self.assertIn("handler.postDelayed({", self.home)
         self.assertIn("if (failoverActive) startCurrentCandidate()", self.home)
 

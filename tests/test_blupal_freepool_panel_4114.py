@@ -10,7 +10,7 @@ class BluPalFreePoolPanel4114(unittest.TestCase):
         cc=self.text('bluevpn-manager/includes/class-bluevpn-control-center.php')
         api=self.text('bluevpn-manager/includes/class-bluevpn-api.php')
         self.assertNotIn('BluePay', admin+nav+cc)
-        self.assertIn('پرداخت / بلوپال',admin)
+        self.assertIn('درگاه پرداخت بلوپال',admin)
         self.assertIn('bluevpn-payments',nav)
         self.assertIn('/webhooks/blupal',api)
         self.assertNotIn('/webhooks/bluepay',api)

@@ -20,6 +20,190 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_Shahrah {
     public const BASE_URL = 'https://shahrah.top/api/vaas/reseller';
 
+    public static function init(): void {
+        add_action('admin_post_bluevpn_shahrah_save',[self::class,'admin_save']);
+        add_action('admin_post_bluevpn_shahrah_sync',[self::class,'admin_sync']);
+        add_action('admin_post_bluevpn_shahrah_toggle',[self::class,'admin_toggle']);
+        add_action('admin_post_bluevpn_shahrah_delete',[self::class,'admin_delete']);
+    }
+
+    private static function guard(): void {
+        if(!current_user_can('manage_options')) wp_die('دسترسی ندارید.');
+    }
+
+    private static function redirect(string $message,bool $error=false): void {
+        wp_safe_redirect(add_query_arg([$error?'cc_error':'cc_msg'=>$message],admin_url('admin.php?page=bluevpn-shahrah')));
+        exit;
+    }
+
+    public static function panel(int $id): ?array {
+        if($id<=0)return null;
+        global $wpdb;
+        $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM ".BlueVPN_DB::table('shahrah_panels')." WHERE id=%d",$id),ARRAY_A);
+        return is_array($row)?$row:null;
+    }
+
+    public static function panel_api_key(array $panel): string {
+        return BlueVPN_Utils::decrypt_secret((string)($panel['api_key_enc']??''));
+    }
+
+    private static function collect_plan_rows($node,array &$out): void {
+        if(!is_array($node))return;
+        $slug='';
+        foreach(['slug','planSlug','plan_slug'] as $key){
+            if(isset($node[$key])&&is_scalar($node[$key])&&trim((string)$node[$key])!==''){$slug=trim((string)$node[$key]);break;}
+        }
+        if($slug!==''){
+            $name='';
+            foreach(['name','title','label','remark'] as $key){
+                if(isset($node[$key])&&is_scalar($node[$key])&&trim((string)$node[$key])!==''){$name=trim((string)$node[$key]);break;}
+            }
+            $out[$slug]=[
+                'slug'=>$slug,
+                'name'=>$name!==''?$name:$slug,
+                'raw'=>$node,
+            ];
+        }
+        foreach($node as $value)if(is_array($value))self::collect_plan_rows($value,$out);
+    }
+
+    public static function normalize_plans(array $response): array {
+        $out=[];
+        self::collect_plan_rows($response,$out);
+        return array_values($out);
+    }
+
+    public static function sync_panel(int $panelId): array {
+        $panel=self::panel($panelId);
+        if(!$panel)return ['ok'=>false,'message'=>'اتصال شاهراه پیدا نشد.'];
+        $apiKey=self::panel_api_key($panel);
+        if($apiKey==='')return ['ok'=>false,'message'=>'API KEY شاهراه تنظیم نشده است.'];
+
+        try{
+            $me=self::me($apiKey);
+            $traffic=self::traffic($apiKey);
+            $plans=self::plans($apiKey);
+            $services=self::services($apiKey,['limit'=>100,'page'=>1]);
+            $normalized=self::normalize_plans((array)$plans['json']);
+            global $wpdb;
+            $wpdb->update(BlueVPN_DB::table('shahrah_panels'),[
+                'me_json'=>BlueVPN_Utils::json_encode((array)$me['json']),
+                'traffic_json'=>BlueVPN_Utils::json_encode((array)$traffic['json']),
+                'plans_json'=>BlueVPN_Utils::json_encode($normalized),
+                'services_json'=>BlueVPN_Utils::json_encode((array)$services['json']),
+                'last_test_ok'=>1,
+                'last_test_message'=>'اتصال موفق؛ '.count($normalized).' پلن از شاهراه همگام شد.',
+                'last_test_at'=>BlueVPN_Utils::now_mysql(),
+                'last_sync_at'=>BlueVPN_Utils::now_mysql(),
+                'updated_at'=>BlueVPN_Utils::now_mysql(),
+            ],['id'=>$panelId]);
+            return ['ok'=>true,'message'=>'شاهراه همگام شد؛ '.count($normalized).' پلن دریافت شد.','plans'=>$normalized];
+        }catch(Throwable $e){
+            global $wpdb;
+            $wpdb->update(BlueVPN_DB::table('shahrah_panels'),[
+                'last_test_ok'=>0,
+                'last_test_message'=>mb_substr($e->getMessage(),0,1200),
+                'last_test_at'=>BlueVPN_Utils::now_mysql(),
+                'updated_at'=>BlueVPN_Utils::now_mysql(),
+            ],['id'=>$panelId]);
+            return ['ok'=>false,'message'=>$e->getMessage()];
+        }
+    }
+
+    public static function plan_catalog(bool $activeOnly=true): array {
+        global $wpdb;
+        $where=$activeOnly?' WHERE active=1':'';
+        $rows=$wpdb->get_results("SELECT id,name,active,plans_json,last_sync_at FROM ".BlueVPN_DB::table('shahrah_panels').$where." ORDER BY name,id",ARRAY_A)?:[];
+        $out=[];
+        foreach($rows as $row){
+            $plans=BlueVPN_Utils::json_decode_array((string)($row['plans_json']??''),[]);
+            foreach($plans as $plan){
+                $slug=trim((string)($plan['slug']??''));
+                if($slug==='')continue;
+                $out[]=[
+                    'panel_id'=>(int)$row['id'],
+                    'panel_name'=>(string)$row['name'],
+                    'slug'=>$slug,
+                    'name'=>(string)($plan['name']??$slug),
+                    'raw'=>(array)($plan['raw']??[]),
+                ];
+            }
+        }
+        return $out;
+    }
+
+    public static function admin_save(): void {
+        self::guard();check_admin_referer('bluevpn_shahrah_save');
+        global $wpdb;$t=BlueVPN_DB::table('shahrah_panels');
+        $id=max(0,(int)($_POST['id']??0));
+        $old=$id>0?$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%d",$id),ARRAY_A):[];
+        $name=sanitize_text_field(wp_unslash((string)($_POST['name']??'Shahrah')));
+        $api=trim((string)wp_unslash($_POST['api_key']??''));
+        $enc=$api!==''?BlueVPN_Utils::encrypt_secret($api):(string)($old['api_key_enc']??'');
+        if($enc==='')self::redirect('API KEY شاهراه را وارد کن.',true);
+        $data=[
+            'name'=>$name!==''?$name:'Shahrah',
+            'base_url'=>self::BASE_URL,
+            'api_key_enc'=>$enc,
+            'active'=>isset($_POST['active'])?1:0,
+            'updated_at'=>BlueVPN_Utils::now_mysql(),
+        ];
+        if($id>0)$ok=$wpdb->update($t,$data,['id'=>$id]);
+        else{$data['created_at']=BlueVPN_Utils::now_mysql();$ok=$wpdb->insert($t,$data);$id=(int)$wpdb->insert_id;}
+        if($ok===false)self::redirect('ذخیره اتصال شاهراه ناموفق بود.',true);
+        $sync=self::sync_panel($id);
+        self::redirect($sync['ok']?'اتصال شاهراه ذخیره و پلن‌ها خودکار Sync شدند.':'اتصال ذخیره شد ولی Sync ناموفق بود: '.$sync['message'],!$sync['ok']);
+    }
+
+    public static function admin_sync(): void {
+        self::guard();$id=max(0,(int)($_GET['id']??0));check_admin_referer('bluevpn_shahrah_sync_'.$id);
+        $r=self::sync_panel($id);self::redirect($r['message'],empty($r['ok']));
+    }
+
+    public static function admin_toggle(): void {
+        self::guard();$id=max(0,(int)($_GET['id']??0));check_admin_referer('bluevpn_shahrah_toggle_'.$id);
+        global $wpdb;$t=BlueVPN_DB::table('shahrah_panels');$v=(int)$wpdb->get_var($wpdb->prepare("SELECT active FROM {$t} WHERE id=%d",$id));
+        $wpdb->update($t,['active'=>$v?0:1,'updated_at'=>BlueVPN_Utils::now_mysql()],['id'=>$id]);
+        self::redirect($v?'اتصال شاهراه غیرفعال شد.':'اتصال شاهراه فعال شد.');
+    }
+
+    public static function admin_delete(): void {
+        self::guard();$id=max(0,(int)($_GET['id']??0));check_admin_referer('bluevpn_shahrah_delete_'.$id);
+        global $wpdb;$pt=BlueVPN_DB::table('plans');$wpdb->update($pt,['shahrah_panel_id'=>null,'shahrah_plan_slug'=>''],['shahrah_panel_id'=>$id]);
+        $wpdb->delete(BlueVPN_DB::table('shahrah_panels'),['id'=>$id]);
+        self::redirect('اتصال شاهراه حذف شد؛ مسیر پلن‌های وابسته نیز پاک شد.');
+    }
+
+    public static function render_admin_tab(): void {
+        global $wpdb;$t=BlueVPN_DB::table('shahrah_panels');
+        $rows=$wpdb->get_results("SELECT * FROM {$t} ORDER BY id",ARRAY_A)?:[];
+        $edit=max(0,(int)($_GET['edit']??0));$current=$edit?self::panel($edit):null;
+        echo '<div class="bvc-card"><h2>اتصال اختصاصی Shahrah</h2><p>API KEY را یک‌بار ثبت کن؛ BlueVPN پلن‌ها، ترافیک و سرویس‌ها را مستقیماً از API شاهراه همگام می‌کند. planSlug دستی لازم نیست.</p>';
+        echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_shahrah_save');
+        echo '<input type="hidden" name="action" value="bluevpn_shahrah_save"><input type="hidden" name="id" value="'.(int)($current['id']??0).'">';
+        echo '<div class="bvc-form-grid"><label>نام اتصال<input name="name" value="'.esc_attr((string)($current['name']??'Shahrah')).'" required></label>';
+        echo '<label>API KEY<input type="password" name="api_key" autocomplete="new-password" placeholder="'.($current?'خالی = کلید فعلی حفظ شود':'X-API-KEY').'" '.($current?'':'required').'></label>';
+        echo '<label>Base URL<input value="'.esc_attr(self::BASE_URL).'" readonly></label>';
+        echo '<label><input type="checkbox" name="active" value="1" '.checked(!$current||(int)($current['active']??1)===1,true,false).'> فعال</label></div>';
+        submit_button($current?'ذخیره و Sync':'افزودن و Sync','primary','submit',false);echo '</form></div>';
+
+        echo '<div class="bvc-card"><h2>اتصال‌ها</h2><table class="widefat striped bvc-table"><tr><th>ID</th><th>نام</th><th>پلن‌های Sync شده</th><th>وضعیت</th><th>آخرین Sync</th><th>عملیات</th></tr>';
+        foreach($rows as $row){
+            $plans=BlueVPN_Utils::json_decode_array((string)($row['plans_json']??''),[]);
+            $sync=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_shahrah_sync&id='.(int)$row['id']),'bluevpn_shahrah_sync_'.$row['id']);
+            $toggle=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_shahrah_toggle&id='.(int)$row['id']),'bluevpn_shahrah_toggle_'.$row['id']);
+            $delete=wp_nonce_url(admin_url('admin-post.php?action=bluevpn_shahrah_delete&id='.(int)$row['id']),'bluevpn_shahrah_delete_'.$row['id']);
+            echo '<tr><td>'.(int)$row['id'].'</td><td>'.esc_html((string)$row['name']).'</td><td>'.count($plans).'</td><td>'.((int)$row['active']?'<span class="bvc-ok">فعال</span>':'<span class="bvc-bad">غیرفعال</span>').'<br><small>'.esc_html((string)($row['last_test_message']??'')).'</small></td><td>'.esc_html((string)($row['last_sync_at']??'—')).'</td><td><div class="bvc-actions"><a class="button" href="'.esc_url(admin_url('admin.php?page=bluevpn-shahrah&edit='.(int)$row['id'])).'">ویرایش</a><a class="button button-primary" href="'.esc_url($sync).'">Sync API</a><a class="button" href="'.esc_url($toggle).'">'.((int)$row['active']?'غیرفعال':'فعال').'‌کردن</a><a class="button button-link-delete" href="'.esc_url($delete).'" onclick="return confirm(&quot;اتصال شاهراه حذف شود؟&quot;)">حذف</a></div></td></tr>';
+        }
+        echo '</table></div>';
+
+        $catalog=self::plan_catalog(false);
+        echo '<div class="bvc-card"><h2>پلن‌های دریافت‌شده از Shahrah</h2>';
+        if(!$catalog)echo '<p class="bvc-note">هنوز پلنی Sync نشده. بعد از ثبت API KEY روی «Sync API» بزن.</p>';
+        else{echo '<table class="widefat striped bvc-table"><tr><th>اتصال</th><th>نام پلن</th><th>slug</th></tr>';foreach($catalog as $plan)echo '<tr><td>'.esc_html($plan['panel_name']).'</td><td>'.esc_html($plan['name']).'</td><td><code>'.esc_html($plan['slug']).'</code></td></tr>';echo '</table>';}
+        echo '</div>';
+    }
+
     private static function clean_key(string $apiKey): string {
         $apiKey = trim($apiKey);
         if ($apiKey === '' || strlen($apiKey) > 512) {

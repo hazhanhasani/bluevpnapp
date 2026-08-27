@@ -163,7 +163,9 @@ final class BlueVPN_Manual_Customers {
             null,
             null,
             'manual-customer:' . (int)$row['id'] . ':' . $dedupe,
-            $force
+            $force,
+            true,
+            (int)$row['id']
         );
     }
 
@@ -349,7 +351,10 @@ final class BlueVPN_Manual_Customers {
             $id = (int)$row['id'];
             $historyCount = (int)$wpdb->get_var(
                 $wpdb->prepare(
-                    "SELECT COUNT(*) FROM ".BlueVPN_DB::table('sms_deliveries')." WHERE phone=%s AND dedupe_key LIKE %s",
+                    "SELECT COUNT(*) FROM ".BlueVPN_DB::table('sms_deliveries')."
+                     WHERE manual_customer_id=%d
+                        OR (manual_customer_id IS NULL AND phone=%s AND dedupe_key LIKE %s)",
+                    $id,
                     (string)$row['phone'],
                     'manual-customer:' . $id . ':%'
                 )
@@ -426,10 +431,12 @@ final class BlueVPN_Manual_Customers {
             $like = 'manual-customer:' . $manualCustomerId . ':%';
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
-                    "SELECT id,event_key,phone,status,last_error,sent_at,created_at,dedupe_key
+                    "SELECT id,event_key,phone,status,last_error,sent_at,created_at,dedupe_key,manual_customer_id
                      FROM {$deliveries}
-                     WHERE dedupe_key LIKE %s
+                     WHERE manual_customer_id=%d
+                        OR (manual_customer_id IS NULL AND dedupe_key LIKE %s)
                      ORDER BY created_at DESC LIMIT 150",
+                    $manualCustomerId,
                     $like
                 ),
                 ARRAY_A
@@ -441,9 +448,10 @@ final class BlueVPN_Manual_Customers {
             echo '<p><a class="button" href="'.esc_url(self::url()).'">نمایش تاریخچه همه</a></p>';
         } else {
             $rows = $wpdb->get_results(
-                "SELECT id,event_key,phone,status,last_error,sent_at,created_at,dedupe_key
+                "SELECT id,event_key,phone,status,last_error,sent_at,created_at,dedupe_key,manual_customer_id
                  FROM {$deliveries}
-                 WHERE dedupe_key LIKE 'manual-customer:%'
+                 WHERE manual_customer_id IS NOT NULL
+                    OR dedupe_key LIKE 'manual-customer:%'
                  ORDER BY created_at DESC LIMIT 80",
                 ARRAY_A
             ) ?: [];

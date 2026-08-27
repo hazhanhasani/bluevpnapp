@@ -2,11 +2,11 @@
   "version": "6.0.3",
   "version_code": 60003,
   "channel": "beta",
-  "build_id": "20260827-v6.0.3-shahrah",
+  "build_id": "20260824-v6.0.3-version-contract",
   "built_at": "2026-08-23T14:27:00+03:30",
   "android_version": "6.0.3",
   "android_version_code": 60003,
-  "description": "BlueVPN 6.0.3: Shahrah paid VaaS integration and coordinated release.",
+  "description": "BlueVPN 6.0.3: centralized version contract and release-gate synchronization.",
   "features": [
     "android-smart-selector-nullable-host-compile-fix",
     "android-doze-zombie-tunnel-recovery",

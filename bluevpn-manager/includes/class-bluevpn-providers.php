@@ -908,7 +908,7 @@ final class BlueVPN_Providers {
         $staticEntries=array_values(array_filter($manualEntries,static fn($entry)=>(string)($entry['provider_type']??'')!=='shahrah'));
 
         $expire=!empty($c['subscription_expire'])?(string)$c['subscription_expire']:null;
-        $total=max(0,(int)($c['data_limit_bytes']??0));if($total===0&&max(0,(int)($plan['data_limit_gb']??0))>0)$total=max(0,(int)$plan['data_limit_gb']*1024*1024*1024;
+        $total=max(0,(int)($c['data_limit_bytes']??0));if($total===0&&max(0,(int)($plan['data_limit_gb']??0))>0)$total=max(0,(int)($plan['data_limit_gb']??0))*1024*1024*1024;
         $quotaRoutes=count($routes['pasarguard'])+count($routes['marzban'])+count($routes['guardcore']);
         $quota=($quotaRoutes>1&&($plan['multi_provider_quota_mode']??'split')==='split')?intdiv($total,max(1,$quotaRoutes)):$total;
         $providerQuota=$trafficMode==='gateway_metered'?0:$quota;$deviceLimit=max(1,(int)($c['device_limit']??$plan['device_limit']??1));

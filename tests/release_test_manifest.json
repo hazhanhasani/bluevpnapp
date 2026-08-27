@@ -84,6 +84,7 @@
     "test_provider_entitlement_474.py",
     "test_release_hardening_support_guardcore_4118.py",
     "test_release_provenance_4123.py",
+    "test_release_stability_60001.py",
     "test_repository_cleanup_470.py",
     "test_runtime_theme_github_fix_4169.py",
     "test_security_4610.py",

@@ -977,7 +977,10 @@ final class BlueVPN_Providers {
         // PasarGuard and Marzban are selected automatically instead of silently
         // producing a WordPress-only entitlement with no real VPN account.
         $trafficMode=(string)($plan['traffic_mode']??'provider_reported');$trafficMode=$trafficMode==='gateway_metered'?'gateway_metered':'provider_reported';
-        $manualEntries=class_exists('BlueVPN_Subscription_Sources')?BlueVPN_Subscription_Sources::active_entries_for_plan($planId):[];$hasExplicitManual=!empty($manualEntries);
+        $manualEntries=class_exists('BlueVPN_Subscription_Sources')?BlueVPN_Subscription_Sources::active_entries_for_plan($planId):[];
+        $shahrahEntries=array_values(array_filter($manualEntries,static fn($entry)=>(string)($entry['provider_type']??'')==='shahrah'));
+        $staticManualEntries=array_values(array_filter($manualEntries,static fn($entry)=>(string)($entry['provider_type']??'')!=='shahrah'));
+        $hasExplicitManual=!empty($manualEntries);
         $pgId=(int)($plan['panel_id']??0);$mzId=(int)($plan['marzban_panel_id']??0);$gcId=(int)($plan['guardcore_panel_id']??0);
         if(!$hasExplicitManual){
             if($pgId<=0)$pgId=class_exists('BlueVPN_AI_Ops')?BlueVPN_AI_Ops::recommend_panel_id('pasarguard'):(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('pasarguard_panels')." WHERE active=1 ORDER BY id ASC LIMIT 1");
@@ -987,7 +990,22 @@ final class BlueVPN_Providers {
         }
 
         $expire=self::canonical_expiry($c,$plan,$canonicalExpire);$total=max(0,(int)$plan['data_limit_gb'])*1024*1024*1024;$providers=array_values(array_filter(['pg'=>$pgId>0,'mz'=>$mzId>0,'gc'=>$gcId>0]));$count=count($providers);$quota=($count>1&&($plan['multi_provider_quota_mode']??'split')==='split')?intdiv($total,max(1,$count)):$total;$providerQuota=$trafficMode==='gateway_metered'?0:$quota;
-        $errors=[];$success=count($manualEntries)>0?1:0;$update=['plan_id'=>$planId,'subscription_expire'=>$expire,'data_limit_bytes'=>$total,'device_limit'=>max(1,(int)$plan['device_limit'])];
+        $errors=[];$success=count($staticManualEntries)>0?1:0;$update=['plan_id'=>$planId,'subscription_expire'=>$expire,'data_limit_bytes'=>$total,'device_limit'=>max(1,(int)$plan['device_limit'])];
+
+        foreach($shahrahEntries as $entry){
+            try{
+                if(!class_exists('BlueVPN_Shahrah'))throw new RuntimeException('Provider شاهراه بارگذاری نشده است.');
+                $cfg=BlueVPN_Subscription_Sources::shahrah_credentials_from_entry($entry);
+                if(($cfg['api_key']??'')===''||($cfg['plan_slug']??'')==='')throw new RuntimeException('API KEY یا planSlug شاهراه برای Source تنظیم نشده است.');
+                $seed=(string)($c['email']?:$c['phone']?:$c['id']);
+                $username=substr('bv_'.$c['id'].'_'.substr(sha1('shahrah:'.$seed),0,9),0,32);
+                $result=BlueVPN_Shahrah::provision((int)($entry['id']??0),$customerId,(string)$cfg['api_key'],(string)$cfg['plan_slug'],$username);
+                if(empty($result['ok']))throw new RuntimeException((string)($result['message']??'provision ناموفق'));
+                $success++;
+            }catch(Throwable $e){
+                $errors[]='Shahrah: '.$e->getMessage();
+            }
+        }
         if($pgId>0){
             try{
                 $p=self::panel('pasarguard',$pgId);if(!$p||!(int)$p['active'])throw new RuntimeException('پنل PasarGuard فعال پیدا نشد.');
@@ -1061,7 +1079,15 @@ final class BlueVPN_Providers {
 
         $u=[];$errors=[];$active=false;$providerUsed=0;$providerExpiries=[];$responses=0;$configured=0;
         $manualEntries=class_exists('BlueVPN_Subscription_Sources')?BlueVPN_Subscription_Sources::active_entries_for_plan((int)$c['plan_id']):[];
-        if($manualEntries){$configured+=count($manualEntries);$responses+=count($manualEntries);$active=true;}
+        foreach($manualEntries as $entry){
+            $configured++;
+            if((string)($entry['provider_type']??'')==='shahrah'){
+                if(class_exists('BlueVPN_Shahrah')){
+                    $mapping=BlueVPN_Shahrah::mapping((int)($entry['id']??0),$customerId);
+                    if(!empty($mapping['service_slug'])){$responses++;$active=true;}
+                }
+            }else{$responses++;$active=true;}
+        }
         if(!empty($c['panel_id'])&&!empty($c['pg_username'])){
             $configured++;try{$p=self::panel('pasarguard',(int)$c['panel_id']);if($p){$r=self::pg_user($p,(string)$c['pg_username']);$responses++;if($r){$active=$active||in_array(strtolower((string)($r['status']??'active')),['active','enabled'],true);$u['pasarguard_subscription_url']=self::remote_sub_url($r,(string)$p['base_url'])?:$c['pasarguard_subscription_url'];$providerUsed+=max(0,(int)($r['used_traffic']??$r['used_traffic_bytes']??0));$remoteExpire=self::remote_expiry($r['expire']??null);if($remoteExpire)$providerExpiries['pasarguard']=$remoteExpire;}}}catch(Throwable $e){$errors[]='PasarGuard: '.$e->getMessage();}
         }
@@ -1165,7 +1191,7 @@ final class BlueVPN_Providers {
         if(class_exists('BlueVPN_Subscription_Sources')){
             foreach(BlueVPN_Subscription_Sources::active_entries_for_plan((int)($c['plan_id']??0)) as $entry){
                 $key=(string)($entry['key']??'manual');$type=(string)($entry['type']??'url');$payload=trim((string)($entry['payload']??''));if($payload==='')continue;
-                $out[]=['key'=>$key,'type'=>$type,'payload'=>$payload];
+                $out[]=['key'=>$key,'id'=>(int)($entry['id']??0),'type'=>$type,'provider_type'=>(string)($entry['provider_type']??''),'payload'=>$payload];
             }
         }
         return $out;
@@ -1175,7 +1201,21 @@ final class BlueVPN_Providers {
         $sources=self::customer_source_entries($c);$lines=[];$seen=[];$errors=[];$successSources=0;$sourceStats=[];$freshSourceLines=[];
         foreach($sources as $source){
             $provider=(string)($source['key']??'source');$type=(string)($source['type']??'url');$payload=(string)($source['payload']??'');$providerLines=[];
-            if($type==='inline'){
+            if($type==='shahrah'){
+                try{
+                    if(!class_exists('BlueVPN_Shahrah'))throw new RuntimeException('Shahrah provider unavailable');
+                    $cfg=BlueVPN_Subscription_Sources::shahrah_payload($payload);
+                    if(($cfg['api_key']??'')==='')throw new RuntimeException('Shahrah API KEY missing');
+                    $result=BlueVPN_Shahrah::configs_for_customer((int)($source['id']??0),$customerId,(string)$cfg['api_key']);
+                    $providerLines=array_values((array)($result['lines']??[]));
+                    if($providerLines)$successSources++;
+                    $sourceStats[$provider]=['ok'=>!empty($providerLines),'count'=>count($providerLines),'service_slug'=>(string)($result['service_slug']??''),'content_hash'=>$providerLines?hash('sha256',implode("\n",$providerLines)):'','updated_at'=>time()];
+                    if(!$providerLines)$errors[]=$provider.': '.(string)($result['message']??'Shahrah service has no usable configs');
+                }catch(Throwable $e){
+                    $errors[]=$provider.': '.$e->getMessage();
+                    $sourceStats[$provider]=['ok'=>false,'count'=>0,'error'=>$e->getMessage()];
+                }
+            }elseif($type==='inline'){
                 $providerLines=self::subscription_lines($payload);if($providerLines)$successSources++;
                 $sourceStats[$provider]=['ok'=>!empty($providerLines),'count'=>count($providerLines),'payload_hash'=>hash('sha256',$payload),'content_hash'=>hash('sha256',implode("\n",$providerLines)),'updated_at'=>time()];
                 if(!$providerLines)$errors[]=$provider.': inline source has no usable configs';

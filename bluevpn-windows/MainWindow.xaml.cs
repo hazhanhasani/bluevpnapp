@@ -85,7 +85,19 @@ public partial class MainWindow : Window
             AuthStatusText.Text = "حساب ذخیره‌شده بازیابی شد.";
         }
 
-        _adTimer.Tick += async (_, _) => await AdvanceAdAsync();
+        _adTimer.Tick += async (_, _) =>
+        {
+            try { await AdvanceAdAsync(); }
+            catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested) { }
+            catch (Exception ex)
+            {
+                _adTimer.Stop();
+                SetTapsellWebVisibility(Visibility.Collapsed);
+                TapsellLoadingPanel.Visibility = Visibility.Collapsed;
+                AdProviderLabel.Visibility = Visibility.Collapsed;
+                FooterStatus.Text = "چرخش تبلیغ متوقف شد؛ اتصال BlueVPN ادامه دارد. " + ShortUiError(ex.Message);
+            }
+        };
         _maintenanceTimer.Interval = TimeSpan.FromHours(4);
         _maintenanceTimer.Tick += MaintenanceTimer_Tick;
 
@@ -132,13 +144,21 @@ public partial class MainWindow : Window
     {
         _metricsLoop ??= RunMetricsLoopAsync(_lifetimeCts.Token);
 
-        // Do not serialize startup network calls on the dispatcher. The Android
-        // home renders first and hydrates account/ads/IP independently; Windows
-        // now follows the same non-blocking behaviour.
-        await Task.WhenAll(
-            RestoreAccountSessionSafeAsync(),
-            LoadAdsAsync(),
-            RefreshPublicIpAsync());
+        // Startup hydration must never be able to terminate the WPF dispatcher.
+        // Account/IP already fail closed; ads now use the same contract because
+        // provider/network/WebView failures are optional UI, never app-fatal.
+        try
+        {
+            await Task.WhenAll(
+                RestoreAccountSessionSafeAsync(),
+                LoadAdsSafeAsync(),
+                RefreshPublicIpAsync());
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            FooterStatus.Text = "BlueVPN اجرا شد؛ بخشی از اطلاعات اولیه بعداً دوباره بروزرسانی می‌شود. " + ShortUiError(ex.Message);
+        }
 
         _ = CheckRuntimeUpdateSafeAsync();
         if (_settings.AutoUpdate) _ = CheckAppUpdateSafeAsync(silentWhenCurrent: true, userInitiated: false);
@@ -165,9 +185,34 @@ public partial class MainWindow : Window
                 await CheckRuntimeUpdateSafeAsync();
             if (_settings.AutoUpdate)
                 await CheckAppUpdateSafeAsync(silentWhenCurrent: true, userInitiated: false);
-            await LoadAdsAsync();
+            await LoadAdsSafeAsync();
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            FooterStatus.Text = "بروزرسانی دوره‌ای کامل نشد؛ برنامه فعال می‌ماند. " + ShortUiError(ex.Message);
         }
         finally { _maintenanceRunning = false; }
+    }
+
+    private async Task LoadAdsSafeAsync()
+    {
+        try
+        {
+            await LoadAdsAsync();
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            _adTimer.Stop();
+            SetTapsellWebVisibility(Visibility.Collapsed);
+            TapsellLoadingPanel.Visibility = Visibility.Collapsed;
+            AdProviderLabel.Visibility = Visibility.Collapsed;
+            AdImage.Source = null;
+            AdFallbackPanel.Visibility = Visibility.Visible;
+            AdCard.Visibility = Visibility.Collapsed;
+            FooterStatus.Text = "تبلیغات فعلاً در دسترس نیست؛ BlueVPN بدون تبلیغ ادامه می‌دهد. " + ShortUiError(ex.Message);
+        }
     }
 
     private async Task LoadAdsAsync()

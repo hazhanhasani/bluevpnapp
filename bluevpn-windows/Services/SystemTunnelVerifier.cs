@@ -88,12 +88,13 @@ public static class SystemTunnelVerifier
         ConnectivitySnapshot before,
         string probeUrl,
         int httpPort,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        int timeoutSeconds = 9)
     {
         if (!before.Reachable || string.IsNullOrWhiteSpace(before.PublicIp))
             return new(false, "", "", "", "", "IP پایه قبل از اتصال معتبر نیست.");
 
-        var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(9);
+        var stop = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(Math.Clamp(timeoutSeconds, 3, 12));
         ConnectivitySnapshot after = new(false, "", "", "", DateTimeOffset.UtcNow);
         while (DateTimeOffset.UtcNow < stop)
         {

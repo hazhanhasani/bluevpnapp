@@ -75,7 +75,7 @@ class Phase520SubscriptionClientStabilityTests(unittest.TestCase):
         self.assertIn("jitter * 2L", selector)
         self.assertIn("RecentSuccessBonus", ai)
         self.assertIn("jitterPenalty", ai)
-        self.assertIn("Take(8)", connection)
+        self.assertIn("Take(5)", connection)
         self.assertIn("ValidateSubscriptionUri", api)
         self.assertIn("target.Port is <= 0 or > 65535", api)
 

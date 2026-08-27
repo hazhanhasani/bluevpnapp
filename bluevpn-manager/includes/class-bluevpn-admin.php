@@ -17,37 +17,39 @@ final class BlueVPN_Admin {
     }
     private static function guard(): void { if(!current_user_can('manage_options')) wp_die('دسترسی ندارید.'); }
     public static function menu(): void {
-        add_menu_page('BlueVPN Control Center','BlueVPN','manage_options','bluevpn-manager',[BlueVPN_Control_Center::class,'page'],'dashicons-shield-alt',3);
+        add_menu_page('مرکز مدیریت بلووی‌پی‌ان','بلووی‌پی‌ان','manage_options','bluevpn-manager',[BlueVPN_Control_Center::class,'page'],'dashicons-shield-alt',3);
         add_submenu_page('bluevpn-manager','نمای کلی','نمای کلی','manage_options','bluevpn-manager',[BlueVPN_Control_Center::class,'page']);
         $sections=[
-            ['bluevpn-blueai','BlueAI','blueai'],
-            ['bluevpn-ads','تبلیغات','ads'],
-            ['bluevpn-free-access','اتصال رایگان','free'],
-            ['bluevpn-database','دیتابیس','database'],
-            ['bluevpn-production','سلامت و Backup','production'],
-            ['bluevpn-pasarguard','PasarGuard','panels'],
-            ['bluevpn-marzban','Marzban','marzban'],
-            ['bluevpn-shahrah','Shahrah','shahrah'],
-            ['bluevpn-guardcore','GuardCore','guardcore'],
-            ['bluevpn-guardcore-queue','صف GuardCore','guardcore-manual'],
-            ['bluevpn-subscription-sources','Sourceهای اشتراک','sources'],
-            ['bluevpn-gateway','Gateway Metering','gateway'],
-            ['bluevpn-plans','پلن‌ها','plans'],
-            ['bluevpn-payments','پرداخت / بلوپال','blupal'],
-            ['bluevpn-manual','فعال‌سازی دستی','manual'],
             ['bluevpn-customers','کاربران','customers'],
             ['bluevpn-manual-customers','مشتریان دستی','manual-customers'],
-            ['bluevpn-orders','پرداخت‌ها','orders'],
-            ['bluevpn-sms','SMS / OTP','sms'],
-            ['bluevpn-app-update','اپ و آپدیت','app'],
+            ['bluevpn-plans','پلن‌ها','plans'],
+            ['bluevpn-orders','سفارش‌ها و پرداخت‌ها','orders'],
+            ['bluevpn-payments','درگاه پرداخت بلوپال','blupal'],
+            ['bluevpn-manual','فعال‌سازی دستی','manual'],
+            ['bluevpn-pasarguard','سرور پاسارگاد','panels'],
+            ['bluevpn-marzban','سرور مرزبان','marzban'],
+            ['bluevpn-shahrah','تأمین‌کننده شاهراه','shahrah'],
+            ['bluevpn-guardcore','سرور گاردکور','guardcore'],
+            ['bluevpn-guardcore-queue','صف گاردکور','guardcore-manual'],
+            ['bluevpn-subscription-sources','منابع اشتراک','sources'],
+            ['bluevpn-gateway','دروازه اندازه‌گیری مصرف','gateway'],
+            ['bluevpn-free-access','اتصال رایگان','free'],
+            ['bluevpn-ads','تبلیغات','ads'],
+            ['bluevpn-android-update','اندروید و انتشار','android'],
+            ['bluevpn-windows-update','ویندوز و انتشار','windows'],
+            ['bluevpn-app-update','انتشار برنامه‌ها','app'],
+            ['bluevpn-sms','پیامک و رمز یک‌بارمصرف','sms'],
+            ['bluevpn-blueai','هوش مصنوعی بلووی‌پی‌ان','blueai'],
+            ['bluevpn-production','سلامت و پشتیبان‌گیری','production'],
+            ['bluevpn-database','پایگاه داده','database'],
         ];
         foreach($sections as [$slug,$label,$section]){
             add_submenu_page('bluevpn-manager',$label,$label,'manage_options',$slug,static function() use($section){ BlueVPN_Control_Center::render_section($section); });
         }
         add_submenu_page('bluevpn-manager','اتصال اپلیکیشن','اتصال اپلیکیشن','manage_options','bluevpn-app-connection',[self::class,'app_connection_page']);
-        add_submenu_page('bluevpn-manager','تنظیمات BlueVPN','تنظیمات','manage_options','bluevpn-settings',[self::class,'settings_page']);
+        add_submenu_page('bluevpn-manager','تنظیمات بلووی‌پی‌ان','تنظیمات','manage_options','bluevpn-settings',[self::class,'settings_page']);
         add_submenu_page('bluevpn-manager','وضعیت انتقال','وضعیت انتقال','manage_options','bluevpn-migration',[self::class,'migration_page']);
-        add_submenu_page('bluevpn-manager','آپدیت افزونه','آپدیت افزونه','manage_options','bluevpn-github-updater',[self::class,'github_updater_page']);
+        add_submenu_page('bluevpn-manager','به‌روزرسانی افزونه','آپدیت افزونه','manage_options','bluevpn-github-updater',[self::class,'github_updater_page']);
 
         // Register every page exposed by the unified BlueVPN sidebar here, on the
         // same admin_menu pass as the parent. WordPress otherwise may reject a
@@ -55,7 +57,7 @@ final class BlueVPN_Admin {
         // class gets a chance to register its submenu.
         add_submenu_page('bluevpn-manager','پشتیبانی آنلاین','پشتیبانی آنلاین','manage_options','bluevpn-support',[BlueVPN_Support::class,'admin_page']);
         add_submenu_page('bluevpn-manager','ربات تلگرام','ربات تلگرام','manage_options','bluevpn-telegram-bot',[BlueVPN_Telegram_Bot::class,'admin_page']);
-        add_submenu_page('bluevpn-manager','خطاها و مانیتورینگ','خطاها و مانیتورینگ','manage_options','bluevpn-error-monitor',[BlueVPN_Error_Monitor::class,'admin_page']);
+        add_submenu_page('bluevpn-manager','خطاها و پایش','خطاها و مانیتورینگ','manage_options','bluevpn-error-monitor',[BlueVPN_Error_Monitor::class,'admin_page']);
 
         // Do not mutate $submenu after registration. The custom BlueVPN sidebar is
         // already the primary navigation, while keeping native submenu entries
@@ -110,7 +112,7 @@ final class BlueVPN_Admin {
             'تبلیغات'=>'bluevpn-ads',
             'اپ و انتشار'=>'bluevpn-app-update',
             'خطاها و مانیتورینگ'=>'bluevpn-error-monitor',
-            'آپدیت Manager'=>'bluevpn-github-updater',
+            'به‌روزرسانی افزونه مدیریت'=>'bluevpn-github-updater',
         ];
         echo '<div class="bvc-actions">';
         foreach($links as $label=>$page) echo '<a class="button" href="'.esc_url(admin_url('admin.php?page='.$page)).'">'.esc_html($label).'</a>';

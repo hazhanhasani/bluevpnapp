@@ -45,6 +45,7 @@ public partial class MainWindow : Window
     private double _adImageAspectRatio;
     private bool _tapsellWebInitialized;
     private CoreWebView2Environment? _tapsellWebEnvironment;
+    private Microsoft.Web.WebView2.Wpf.WebView2CompositionControl? _tapsellWebView;
     private UpdateCandidate? _pendingUpdate;
     private long? _remainingSecondsAtSnapshot;
     private DateTimeOffset _accountSnapshotAt = DateTimeOffset.UtcNow;
@@ -90,9 +91,41 @@ public partial class MainWindow : Window
 
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
+        // Tapsell is optional UI. Never construct WebView2 inside XAML startup.
+        TryCreateTapsellWebSurface();
         MaxHeight = Math.Max(560, SystemParameters.WorkArea.Height);
         Height = Math.Min(760, Math.Max(560, SystemParameters.WorkArea.Height - 18));
         MaxWidth = Math.Max(620, SystemParameters.WorkArea.Width);
+    }
+
+    private bool TryCreateTapsellWebSurface()
+    {
+        if (_tapsellWebView is not null) return true;
+        try
+        {
+            var webView = new Microsoft.Web.WebView2.Wpf.WebView2CompositionControl
+            {
+                Visibility = Visibility.Collapsed,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch
+            };
+            TapsellWebHost.Children.Clear();
+            TapsellWebHost.Children.Add(webView);
+            _tapsellWebView = webView;
+            return true;
+        }
+        catch
+        {
+            _tapsellWebView = null;
+            TapsellWebHost.Visibility = Visibility.Collapsed;
+            return false;
+        }
+    }
+
+    private void SetTapsellWebVisibility(Visibility visibility)
+    {
+        TapsellWebHost.Visibility = visibility;
+        if (_tapsellWebView is not null) _tapsellWebView.Visibility = visibility;
     }
 
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
@@ -181,7 +214,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        TapsellWebView.Visibility = Visibility.Collapsed;
+        SetTapsellWebVisibility(Visibility.Collapsed);
         TapsellLoadingPanel.Visibility = Visibility.Collapsed;
         AdProviderLabel.Visibility = Visibility.Collapsed;
         AdCard.Cursor = Cursors.Hand;
@@ -249,15 +282,17 @@ public partial class MainWindow : Window
             {
                 var installProgress = new Progress<string>(text => FooterStatus.Text = text);
                 if (!await WebView2RuntimeInstaller.EnsureInstalledAsync(installProgress, _lifetimeCts.Token)) return false;
+                if (!TryCreateTapsellWebSurface() || _tapsellWebView is null) return false;
+                var webView = _tapsellWebView;
                 _tapsellWebEnvironment = await WebView2RuntimeInstaller.CreatePerUserEnvironmentAsync(_lifetimeCts.Token);
-                TapsellWebView.DefaultBackgroundColor = System.Drawing.Color.Transparent;
-                await TapsellWebView.EnsureCoreWebView2Async(_tapsellWebEnvironment);
-                if (TapsellWebView.CoreWebView2 is null) return false;
-                TapsellWebView.CoreWebView2.Settings.AreDevToolsEnabled = false;
-                TapsellWebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-                TapsellWebView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-                TapsellWebView.CoreWebView2.Settings.IsWebMessageEnabled = false;
-                TapsellWebView.CoreWebView2.SetVirtualHostNameToFolderMapping(
+                webView.DefaultBackgroundColor = System.Drawing.Color.Transparent;
+                await webView.EnsureCoreWebView2Async(_tapsellWebEnvironment);
+                if (webView.CoreWebView2 is null) return false;
+                webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+                webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+                webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+                webView.CoreWebView2.Settings.IsWebMessageEnabled = false;
+                webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
                     WebView2RuntimeInstaller.VirtualHost,
                     WebView2RuntimeInstaller.ContentFolder,
                     CoreWebView2HostResourceAccessKind.Allow);
@@ -285,7 +320,7 @@ public partial class MainWindow : Window
             // CompositionControl remains visible so Mediaad receives a real viewport.
             // The WPF loading panel is above it and hides the web surface until the
             // official mediaad-* widget contains renderable provider content.
-            TapsellWebView.Visibility = Visibility.Visible;
+            SetTapsellWebVisibility(Visibility.Visible);
             AdFallbackPanel.Visibility = Visibility.Collapsed;
             TapsellLoadingPanel.Visibility = Visibility.Visible;
             AdProviderLabel.Visibility = Visibility.Visible;
@@ -295,25 +330,25 @@ public partial class MainWindow : Window
                 : await WebView2RuntimeInstaller.WriteAdDocumentAsync(html, _lifetimeCts.Token);
             if (!await NavigateTapsellAsync(address, _lifetimeCts.Token))
             {
-                TapsellWebView.Visibility = Visibility.Collapsed;
+                SetTapsellWebVisibility(Visibility.Collapsed);
                 TapsellLoadingPanel.Visibility = Visibility.Collapsed;
                 AdProviderLabel.Visibility = Visibility.Collapsed;
                 return false;
             }
             if (!await WaitForTapsellContentAsync(_lifetimeCts.Token))
             {
-                TapsellWebView.Visibility = Visibility.Collapsed;
+                SetTapsellWebVisibility(Visibility.Collapsed);
                 TapsellLoadingPanel.Visibility = Visibility.Collapsed;
                 AdProviderLabel.Visibility = Visibility.Collapsed;
                 return false;
             }
             TapsellLoadingPanel.Visibility = Visibility.Collapsed;
-            TapsellWebView.Visibility = Visibility.Visible;
+            SetTapsellWebVisibility(Visibility.Visible);
             return true;
         }
         catch (Exception ex)
         {
-            TapsellWebView.Visibility = Visibility.Collapsed;
+            SetTapsellWebVisibility(Visibility.Collapsed);
             TapsellLoadingPanel.Visibility = Visibility.Collapsed;
             AdProviderLabel.Visibility = Visibility.Collapsed;
             FooterStatus.Text = $"تبلیغ وب بارگذاری نشد؛ بنر BlueVPN نمایش داده می‌شود. {ShortUiError(ex.Message)}";
@@ -323,30 +358,32 @@ public partial class MainWindow : Window
 
     private async Task<bool> NavigateTapsellAsync(string address, CancellationToken ct)
     {
-        if (TapsellWebView.CoreWebView2 is null) return false;
+        var webView = _tapsellWebView;
+        if (webView?.CoreWebView2 is null) return false;
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         void Completed(object? _, CoreWebView2NavigationCompletedEventArgs args) => completion.TrySetResult(args.IsSuccess);
-        TapsellWebView.CoreWebView2.NavigationCompleted += Completed;
+        webView.CoreWebView2.NavigationCompleted += Completed;
         try
         {
-            TapsellWebView.CoreWebView2.Navigate(address);
+            webView.CoreWebView2.Navigate(address);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(12));
             return await completion.Task.WaitAsync(timeout.Token);
         }
         finally
         {
-            TapsellWebView.CoreWebView2.NavigationCompleted -= Completed;
+            webView.CoreWebView2.NavigationCompleted -= Completed;
         }
     }
 
     private async Task<bool> WaitForTapsellContentAsync(CancellationToken ct)
     {
-        if (TapsellWebView.CoreWebView2 is null) return false;
+        var webView = _tapsellWebView;
+        if (webView?.CoreWebView2 is null) return false;
         for (var attempt = 0; attempt < 24; attempt++)
         {
             await Task.Delay(350, ct);
-            var result = await TapsellWebView.CoreWebView2.ExecuteScriptAsync(
+            var result = await webView.CoreWebView2.ExecuteScriptAsync(
                 "(()=>{const root=document.getElementById('bluevpn-ad')||document.getElementById('bluevpn-tapsell-root')||document.body;if(!root)return false;" +
                 "const visible=n=>{if(!(n instanceof Element))return false;const b=n.getBoundingClientRect(),s=getComputedStyle(n);" +
                 "return b.width>20&&b.height>20&&s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity||1)>0;};" +

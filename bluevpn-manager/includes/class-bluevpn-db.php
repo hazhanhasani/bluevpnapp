@@ -12,7 +12,7 @@ final class BlueVPN_DB {
     public static function table_names(): array {
         return [
             'app_settings', 'app_releases', 'windows_releases', 'ad_assets', 'server_locations', 'pasarguard_panels',
-            'marzban_panels', 'shahrah_panels', 'guardcore_panels', 'subscription_sources', 'gateway_nodes', 'gateway_sessions', 'gateway_usage_events', 'gateway_config_generations', 'gateway_session_migrations', 'plans', 'customers', 'manual_customers',
+            'marzban_panels', 'shahrah_panels', 'guardcore_panels', 'subscription_sources', 'customer_provider_links', 'gateway_nodes', 'gateway_sessions', 'gateway_usage_events', 'gateway_config_generations', 'gateway_session_migrations', 'plans', 'customers', 'manual_customers',
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
             'payment_events', 'provisioning_attempts', 'entitlement_ledger', 'webhook_deliveries',
@@ -417,6 +417,7 @@ final class BlueVPN_DB {
             traffic_mode varchar(24) NOT NULL DEFAULT 'provider_reported',
             gateway_replica_count int NOT NULL DEFAULT 2,
             source_ids_json longtext NULL,
+            provider_routes_json longtext NULL,
             created_at datetime NULL,
             PRIMARY KEY  (id),
             KEY ix_plan_active (active, deleted, sort_order),
@@ -426,6 +427,31 @@ final class BlueVPN_DB {
             KEY ix_plan_shahrah (shahrah_panel_id, active),
             KEY ix_plan_guardcore (guardcore_panel_id, active),
             KEY ix_plan_traffic_mode (traffic_mode, active)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('customer_provider_links')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            customer_id bigint unsigned NOT NULL,
+            plan_id bigint unsigned NULL,
+            provider_type varchar(24) NOT NULL DEFAULT '',
+            panel_id bigint unsigned NOT NULL DEFAULT 0,
+            route_key varchar(190) NOT NULL DEFAULT '',
+            username varchar(96) NOT NULL DEFAULT '',
+            remote_id varchar(190) NOT NULL DEFAULT '',
+            subscription_url longtext NULL,
+            status varchar(40) NOT NULL DEFAULT '',
+            used_traffic_bytes bigint unsigned NOT NULL DEFAULT 0,
+            remote_expire datetime NULL,
+            metadata_json longtext NULL,
+            last_error longtext NULL,
+            last_sync_at datetime NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY uq_customer_provider_route (customer_id, provider_type, panel_id, route_key),
+            KEY ix_customer_provider_customer (customer_id, provider_type),
+            KEY ix_customer_provider_panel (provider_type, panel_id),
+            KEY ix_customer_provider_plan (plan_id, provider_type)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('customers')} (

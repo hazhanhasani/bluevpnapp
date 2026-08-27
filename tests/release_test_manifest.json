@@ -148,6 +148,7 @@
     "test_windows_runtime_hardening_502.py",
     "test_windows_site_platform_4160.py",
     "test_windows_stability_4177.py",
+    "test_windows_startup_crash_recovery.py",
     "test_windows_story_ad_readiness_4178.py",
     "test_windows_tapsell_github_resilience_587.py",
     "test_windows_tapsell_web_553.py",

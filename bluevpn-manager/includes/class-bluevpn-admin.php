@@ -2,7 +2,9 @@
 if (!defined('ABSPATH')) exit;
 final class BlueVPN_Admin {
     public static function init(): void {
-        add_action('admin_menu',[self::class,'menu']);
+        // Register BlueVPN pages before later admin_menu customizers so WordPress
+        // has every route in its access registry before admin.php resolves page=...
+        add_action('admin_menu',[self::class,'menu'],1);
         add_action('admin_post_bluevpn_save_settings',[self::class,'save_settings']);
         add_action('admin_post_bluevpn_add_plan',[self::class,'add_plan']);
         add_action('admin_post_bluevpn_toggle_plan',[self::class,'toggle_plan']);

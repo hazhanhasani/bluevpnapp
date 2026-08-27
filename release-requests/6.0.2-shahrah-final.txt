@@ -1,0 +1,3 @@
+BlueVPN 6.0.2 coordinated release after Shahrah integration
+validated_health_run=387
+validated_sha=f62995b50ed92803b0889480d377fe11239b248c

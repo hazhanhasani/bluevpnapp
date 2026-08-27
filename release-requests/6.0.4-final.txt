@@ -1,0 +1,3 @@
+BlueVPN 6.0.4 coordinated release
+source_sha=bc4aa3239f199c60a5290a850ca6c29c5785f689
+includes=dedicated-shahrah-provider

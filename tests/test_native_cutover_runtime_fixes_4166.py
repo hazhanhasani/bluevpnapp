@@ -55,6 +55,6 @@ class NativeCutoverRuntimeFixes4166(unittest.TestCase):
         self.assertNotIn("admin_post_bluevpn_migration_save",admin.split('public static function migration_page')[0])
         page=admin[admin.index('public static function migration_page'):admin.index('private static function migration_redirect')]
         self.assertNotIn('Railway',page)
-        self.assertIn('WordPress/MySQL تنها Control Plane فعال',page)
+        self.assertIn('وردپرس و پایگاه داده تنها مرکز کنترل فعال',page)
 
 if __name__=='__main__': unittest.main()

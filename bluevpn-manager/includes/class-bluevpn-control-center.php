@@ -482,7 +482,8 @@ final class BlueVPN_Control_Center {
             [$idRaw,$slugRaw]=array_pad(explode('|',$raw,2),2,'');
             $id=max(0,(int)$idRaw);$slug=sanitize_text_field($slugRaw);
             if($id<=0||$slug===''||!preg_match('/^[A-Za-z0-9._-]+$/',$slug))self::redirect('plans','یکی از مسیرهای شاهراه معتبر نیست.',true);
-            $key=$id.'|'.$slug;if(isset($seenSh[$key]))continue;$seenSh[$key]=true;
+            if(isset($seenSh[$id]))self::redirect('plans','برای هر اتصال شاهراه فقط یک پلن انتخاب کن؛ برای چند پلن از چند اتصال شاهراه استفاده کن.',true);
+            $seenSh[$id]=true;
             if(!class_exists('BlueVPN_Shahrah')||!BlueVPN_Shahrah::plan_exists($id,$slug,true))self::redirect('plans','یکی از پلن‌های شاهراه در آخرین همگام‌سازی وجود ندارد؛ ابتدا شاهراه را همگام کن.',true);
             $routes['shahrah'][]=['panel_id'=>$id,'plan_slug'=>$slug];
         }

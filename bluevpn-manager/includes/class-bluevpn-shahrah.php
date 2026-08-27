@@ -500,6 +500,101 @@ final class BlueVPN_Shahrah {
         ];
     }
 
+    private static function locate_service_by_username(string $apiKey,string $username,int $maxPages=5): array {
+        $maxPages=max(1,min(10,$maxPages));
+        for($page=1;$page<=$maxPages;$page++){
+            $listing=self::services($apiKey,['limit'=>100,'page'=>$page]);
+            $candidate=self::find_service_for_username((array)($listing['json']??[]),$username);
+            if($candidate)return $candidate;
+        }
+        return [];
+    }
+
+    private static function repair_without_renew(string $apiKey,string $planSlug,string $username,string $existingSlug=''): array {
+        $planSlug=self::clean_slug($planSlug,'planSlug');
+        $username=self::clean_slug($username,'username');
+        $serviceSlug=trim($existingSlug);
+        $response=[];
+
+        if($serviceSlug!==''){
+            try{
+                $response=self::service($apiKey,$serviceSlug);
+                return [
+                    'ok'=>true,
+                    'action'=>'existing',
+                    'service_slug'=>$serviceSlug,
+                    'username'=>$username,
+                    'response'=>(array)($response['json']??[]),
+                ];
+            }catch(Throwable $e){
+                $msg=$e->getMessage();
+                if(!str_contains($msg,'پیدا نشد')&&!str_contains($msg,'404'))throw $e;
+                $serviceSlug='';
+            }
+        }
+
+        $candidate=self::locate_service_by_username($apiKey,$username,5);
+        if($candidate){
+            $serviceSlug=self::extract_service_slug($candidate,$username);
+            if($serviceSlug!==''){
+                return [
+                    'ok'=>true,
+                    'action'=>'attached',
+                    'service_slug'=>$serviceSlug,
+                    'username'=>$username,
+                    'response'=>$candidate,
+                ];
+            }
+        }
+
+        $response=self::create_service($apiKey,$planSlug,$username);
+        $serviceSlug=self::extract_service_slug((array)($response['json']??[]),$username);
+        if($serviceSlug===''){
+            $candidate=self::locate_service_by_username($apiKey,$username,5);
+            $serviceSlug=self::extract_service_slug($candidate,$username);
+        }
+        if($serviceSlug==='')throw new RuntimeException('شاهراه سرویس گمشده را ساخت اما slug سرویس از پاسخ قابل تشخیص نبود.');
+
+        return [
+            'ok'=>true,
+            'action'=>'created',
+            'service_slug'=>$serviceSlug,
+            'username'=>$username,
+            'response'=>(array)($response['json']??[]),
+        ];
+    }
+
+    public static function repair_panel_customer(int $panelId,int $customerId,string $planSlug,string $username): array {
+        $panel=self::panel($panelId);
+        if(!$panel||!(int)($panel['active']??0))throw new RuntimeException('اتصال فعال شاهراه پیدا نشد.');
+        if(!self::plan_exists($panelId,$planSlug,true))throw new RuntimeException('پلن Shahrah در آخرین Sync این اتصال وجود ندارد.');
+        $apiKey=self::panel_api_key($panel);
+        if($apiKey==='')throw new RuntimeException('API KEY شاهراه تنظیم نشده است.');
+        $mapping=self::panel_mapping($panelId,$customerId);
+        $result=self::repair_without_renew($apiKey,$planSlug,$username,trim((string)($mapping['service_slug']??'')));
+        self::save_panel_mapping($panelId,$customerId,[
+            'service_slug'=>(string)$result['service_slug'],
+            'username'=>$username,
+            'plan_slug'=>$planSlug,
+            'updated_at'=>BlueVPN_Utils::iso_now(),
+            'repair_action'=>(string)$result['action'],
+        ]);
+        return $result;
+    }
+
+    public static function repair_source_customer(int $sourceId,int $customerId,string $apiKey,string $planSlug,string $username): array {
+        $mapping=self::mapping($sourceId,$customerId);
+        $result=self::repair_without_renew($apiKey,$planSlug,$username,trim((string)($mapping['service_slug']??'')));
+        self::save_mapping($sourceId,$customerId,[
+            'service_slug'=>(string)$result['service_slug'],
+            'username'=>$username,
+            'plan_slug'=>$planSlug,
+            'updated_at'=>BlueVPN_Utils::iso_now(),
+            'repair_action'=>(string)$result['action'],
+        ]);
+        return $result;
+    }
+
     public static function provision_panel(int $panelId,int $customerId,string $planSlug,string $username): array {
         $panel=self::panel($panelId);
         if(!$panel||!(int)($panel['active']??0))throw new RuntimeException('اتصال فعال شاهراه پیدا نشد.');

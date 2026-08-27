@@ -11,7 +11,7 @@ class ShahrahDedicatedProvider60006Tests(unittest.TestCase):
         release=json.loads(self.text("release.json"))
         self.assertEqual((release["version"],release["version_code"]),("6.0.6",60006))
         plugin=self.text("bluevpn-manager/bluevpn-manager.php")
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.33.0'",plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.34.0'",plugin)
 
     def test_shahrah_has_dedicated_schema_and_admin_route(self):
         db=self.text("bluevpn-manager/includes/class-bluevpn-db.php")

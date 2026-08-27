@@ -450,7 +450,7 @@ final class BlueVPN_Control_Center {
         return array_slice($out,0,50);
     }
 
-    private static function posted_provider_routes(): array {
+    public static function posted_provider_routes(): array {
         global $wpdb;
         $groups=self::posted_ids('group_ids_selected','group_ids');
         $inbounds=self::posted_marzban_inbounds();
@@ -494,7 +494,7 @@ final class BlueVPN_Control_Center {
         return $routes;
     }
 
-    private static function provider_route_storage(array $routes): array {
+    public static function provider_route_storage(array $routes): array {
         $firstPg=$routes['pasarguard'][0]??[];$firstMz=$routes['marzban'][0]??[];$firstSh=$routes['shahrah'][0]??[];$firstGc=$routes['guardcore'][0]??[];
         return [
             'provider_routes_json'=>BlueVPN_Utils::json_encode($routes),

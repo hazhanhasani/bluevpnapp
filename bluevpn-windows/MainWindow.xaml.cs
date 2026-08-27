@@ -103,8 +103,8 @@ public partial class MainWindow : Window
 
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
-        // Tapsell is optional UI. Never construct WebView2 inside XAML startup.
-        TryCreateTapsellWebSurface();
+        // WebView2 is optional and is created lazily only when a web ad is
+        // actually selected. Startup must never depend on WebView2 availability.
         MaxHeight = Math.Max(560, SystemParameters.WorkArea.Height);
         Height = Math.Min(760, Math.Max(560, SystemParameters.WorkArea.Height - 18));
         MaxWidth = Math.Max(620, SystemParameters.WorkArea.Width);

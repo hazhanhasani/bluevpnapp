@@ -23,6 +23,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  sentinel-status:
+    name: Sentinel health status
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark healthy monitored run
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          UPSTREAM_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          UPSTREAM_WORKFLOW: ${{ github.event.workflow_run.name }}
+        run: |
+          set -euo pipefail
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            echo "BlueVPN Sentinel manual self-test is active."
+          elif [ "${UPSTREAM_CONCLUSION}" = "success" ] || [ "${UPSTREAM_CONCLUSION}" = "cancelled" ]; then
+            echo "Monitored workflow '${UPSTREAM_WORKFLOW}' finished with ${UPSTREAM_CONCLUSION}; no alert required."
+          else
+            echo "Monitored workflow '${UPSTREAM_WORKFLOW}' needs failure reporting."
+          fi
+
   report-failure:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion != 'success' && github.event.workflow_run.conclusion != 'cancelled') }}
     runs-on: ubuntu-latest

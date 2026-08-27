@@ -169,7 +169,28 @@ final class BlueVPN_AI {
             'android_version' => self::clean($p['android_version'] ?? '', 40, ''),
             'device_model' => self::clean($p['device_model'] ?? '', 160, ''),
         ];
-        if ($row) $wpdb->update($t, $data, ['id' => (int)$row['id']]); else $wpdb->insert($t, $data);
+        $writeOk = $row
+            ? $wpdb->update($t, $data, ['id' => (int)$row['id']])
+            : $wpdb->insert($t, $data);
+        if ($writeOk === false) {
+            $dbError=trim((string)$wpdb->last_error);
+            if(class_exists('BlueVPN_Error_Monitor')){
+                BlueVPN_Error_Monitor::report(
+                    'runtime',
+                    'blueai_live',
+                    'warning',
+                    'LIVE_CONNECTION_WRITE_FAILED',
+                    $dbError!==''?$dbError:'ثبت اتصال زنده در پایگاه داده ناموفق بود.',
+                    [
+                        'customer_id'=>$customerId,
+                        'device_id'=>$device,
+                        'session_id'=>mb_substr($session,0,24),
+                        'plan_tier'=>$planTier,
+                    ]
+                );
+            }
+            return [$row ?: $data, false];
+        }
         $data['id'] = $row['id'] ?? $wpdb->insert_id;
         return [$data, true];
     }
@@ -368,6 +389,76 @@ final class BlueVPN_AI {
         ),ARRAY_A) ?: [];
     }
 
+    private static function recent_verified_heartbeat_rows(int $limit=100): array {
+        global $wpdb;
+        $e=BlueVPN_DB::table('ai_connection_events');
+        $limit=max(1,min(250,$limit));
+        // Reporter interval can stretch to 45s in power-save mode. A 75s window
+        // keeps genuine background sessions visible without masking disconnects.
+        $cutoff=gmdate('Y-m-d H:i:s',time()-75);
+        $rows=$wpdb->get_results($wpdb->prepare(
+            "SELECT h.* FROM {$e} h
+             WHERE h.event_type='heartbeat' AND h.success=1 AND h.created_at>=%s
+               AND NOT EXISTS (
+                 SELECT 1 FROM {$e} newer
+                 WHERE newer.customer_id=h.customer_id
+                   AND newer.device_id=h.device_id
+                   AND newer.created_at>h.created_at
+                   AND newer.event_type<>'heartbeat'
+               )
+             ORDER BY h.created_at DESC LIMIT %d",
+            $cutoff,$limit*4
+        ),ARRAY_A) ?: [];
+        $out=[];$seen=[];
+        foreach($rows as $event){
+            $key=(int)($event['customer_id']??0).'|'.(string)($event['device_id']??'');
+            if(isset($seen[$key]))continue;$seen[$key]=true;
+            $seenAt=(string)($event['created_at']??BlueVPN_Utils::now_mysql());
+            $seenTs=strtotime($seenAt.' UTC')?:time();
+            $duration=max(0,(int)($event['duration_seconds']??0));
+            $ping=max(0,(int)($event['ping_ms']??0));
+            $down=max(0,(int)($event['download_bytes']??0));$up=max(0,(int)($event['upload_bytes']??0));
+            $out[]=[
+                'id'=>0,
+                'customer_id'=>(int)($event['customer_id']??0),
+                'device_id'=>(string)($event['device_id']??''),
+                'session_id'=>'heartbeat-fallback',
+                'config_key'=>(string)($event['config_key']??''),
+                'location_key'=>(string)($event['location_key']??'unknown'),
+                'location_title'=>(string)($event['location_title']??'نامشخص'),
+                'operator'=>(string)($event['operator']??'ناشناخته'),
+                'network_type'=>(string)($event['network_type']??'unknown'),
+                'mode'=>(string)($event['mode']??'balanced'),
+                'plan_tier'=>(string)($event['plan_tier']??'unknown'),
+                'ai_schema_version'=>(int)($event['ai_schema_version']??1),
+                'ai_client_version'=>(string)($event['ai_client_version']??''),
+                'connected'=>1,'verified'=>1,'tunnel_running'=>1,'vpn_transport'=>1,
+                'verification_source'=>'verified-heartbeat-event',
+                'ping_ms'=>$ping,'ping_min_ms'=>$ping,'ping_max_ms'=>$ping,
+                'jitter_ms'=>(int)($event['jitter_ms']??0),
+                'packet_loss_x100'=>(int)($event['packet_loss_x100']??0),
+                'ping_samples'=>$ping>0?1:0,
+                'health_score'=>(int)($event['health_score']??0),
+                'download_bytes'=>$down,'upload_bytes'=>$up,
+                'traffic_active'=>($down+$up)>0?1:0,
+                'last_traffic_at'=>($down+$up)>0?$seenAt:null,
+                'heartbeat_seq'=>0,
+                'started_at'=>gmdate('Y-m-d H:i:s',max(0,$seenTs-$duration)),
+                'last_verified_at'=>$seenAt,'last_seen_at'=>$seenAt,
+                'expires_at'=>gmdate('Y-m-d H:i:s',$seenTs+75),
+                'disconnected_at'=>null,'disconnect_reason'=>'',
+                'app_version'=>(string)($event['app_version']??''),
+                'android_version'=>(string)($event['android_version']??''),
+                'device_model'=>(string)($event['device_model']??''),
+                'heartbeat_age_seconds'=>max(0,time()-$seenTs),
+                'connected_seconds'=>$duration,
+                'fallback_source'=>'ai_connection_events',
+            ];
+            if(count($out)>=$limit)break;
+        }
+        return $out;
+    }
+
     public static function live_snapshot(int $limit=100): array {
         global $wpdb;
         self::expire_stale_live();
@@ -377,6 +468,15 @@ final class BlueVPN_AI {
             "SELECT * FROM {$l} WHERE connected=1 AND verified=1 AND expires_at>UTC_TIMESTAMP() ORDER BY last_seen_at DESC LIMIT %d",
             $limit
         ),ARRAY_A) ?: [];
+        $liveKeys=[];
+        foreach($rows as $row)$liveKeys[(int)($row['customer_id']??0).'|'.(string)($row['device_id']??'')]=true;
+        foreach(self::recent_verified_heartbeat_rows($limit) as $fallback){
+            $key=(int)($fallback['customer_id']??0).'|'.(string)($fallback['device_id']??'');
+            if(isset($liveKeys[$key]))continue;
+            $rows[]=$fallback;$liveKeys[$key]=true;
+            if(count($rows)>=$limit)break;
+        }
+        usort($rows,static fn($a,$b)=>strcmp((string)($b['last_seen_at']??''),(string)($a['last_seen_at']??'')));
         $counts=['total'=>0,'free'=>0,'premium'=>0,'unknown'=>0,'traffic_active'=>0];
         $pingTotal=0;$pingN=0;$liveMin=0;$liveMax=0;$jitterTotal=0;$jitterN=0;$lossTotal=0.0;$lossN=0;
         foreach($rows as &$row){
@@ -484,10 +584,9 @@ final class BlueVPN_AI {
     public static function stats(): array {
         global $wpdb;
         self::expire_stale_live();
-        $e=BlueVPN_DB::table('ai_connection_events');$a=BlueVPN_DB::table('ai_route_aggregates');$l=BlueVPN_DB::table('ai_live_connections');
-        $live=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$l} WHERE connected=1 AND verified=1 AND expires_at>UTC_TIMESTAMP()");
-        $free=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$l} WHERE connected=1 AND verified=1 AND plan_tier='free' AND expires_at>UTC_TIMESTAMP()");
-        $premium=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$l} WHERE connected=1 AND verified=1 AND plan_tier='premium' AND expires_at>UTC_TIMESTAMP()");
+        $e=BlueVPN_DB::table('ai_connection_events');$a=BlueVPN_DB::table('ai_route_aggregates');
+        $snapshot=self::live_snapshot(250);$liveCounts=(array)($snapshot['counts']??[]);
+        $live=(int)($liveCounts['total']??0);$free=(int)($liveCounts['free']??0);$premium=(int)($liveCounts['premium']??0);
         return [
             'events'=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$e} WHERE event_type<>'heartbeat'"),
             'heartbeats'=>(int)$wpdb->get_var("SELECT COUNT(*) FROM {$e} WHERE event_type='heartbeat'"),

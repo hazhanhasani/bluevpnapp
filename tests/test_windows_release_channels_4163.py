@@ -30,9 +30,9 @@ class WindowsReleaseChannels4163(unittest.TestCase):
     def test_panel_has_windows_channel_controls(self):
         cc=text('bluevpn-manager/includes/class-bluevpn-control-center.php')
         for token in (
-            'Windows Stable / رسمی','Windows Beta فعال','انتشار رسمی Windows','توقف Beta',
+            'نسخه رسمی ویندوز','نسخه آزمایشی فعال ویندوز','انتشار رسمی ویندوز','توقف نسخه آزمایشی',
             'windows_auto_update_stable','windows_auto_update_beta','windows_minimum_version_stable',
-            'windows_minimum_version_beta','windows_site_channel','همگام‌سازی Windows همین حالا'
+            'windows_minimum_version_beta','windows_site_channel','همگام‌سازی ویندوز همین حالا'
         ):
             self.assertIn(token, cc)
 

@@ -465,6 +465,22 @@ final class BlueVPN_Providers {
         $r=self::req('GET',self::join_url((string)$p['base_url'],'/api/subscriptions/'.rawurlencode($username)),self::gc_headers($p),null,(bool)$p['verify_tls']);
         if($r['code']===404)return null;if($r['code']>=400)throw new RuntimeException('خواندن اشتراک GuardCore ناموفق: HTTP '.$r['code'].' '.mb_substr($r['body'],0,300));if(!$r['json'])throw new RuntimeException('پاسخ GuardCore معتبر نیست.');return self::gc_normalize($p,$r['json']);
     }
+    private static function gc_route_service_ids(int $panelId,array $selected=[]): array {
+        $selected=array_values(array_unique(array_filter(array_map('intval',$selected),static fn($x)=>$x>0)));
+        if($selected)return $selected;
+        $catalog=self::guardcore_catalog($panelId,false);
+        if(empty($catalog['ok']))throw new RuntimeException('دریافت سرویس‌های گاردکور برای مسیر چندگانه ناموفق بود.');
+        $ids=[];
+        foreach((array)($catalog['services']??[]) as $row){
+            if(!is_array($row))continue;
+            if(isset($row['status'])&&in_array(strtolower((string)$row['status']),['disabled','inactive','deleted'],true))continue;
+            if(array_key_exists('active',$row)&&!BlueVPN_Utils::boolish($row['active']))continue;
+            $id=(int)($row['id']??0);if($id>0)$ids[$id]=$id;
+        }
+        if(!$ids)throw new RuntimeException('هیچ سرویس فعال گاردکور برای این پنل پیدا نشد.');
+        return array_values($ids);
+    }
+
     private static function gc_find_customer_subscription(array $p,array $customer,string $preferredUsername): ?array {
         $preferredUsername=trim($preferredUsername);
         if($preferredUsername!==''){
@@ -1135,85 +1151,131 @@ final class BlueVPN_Providers {
     }
 
     public static function provision_customer(int $customerId,int $planId,?string $canonicalExpire=null): array {
-        global $wpdb;$ct=BlueVPN_DB::table('customers');$pt=BlueVPN_DB::table('plans');$c=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$ct} WHERE id=%d",$customerId),ARRAY_A);$plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$pt} WHERE id=%d AND deleted=0",$planId),ARRAY_A);
+        global $wpdb;$ct=BlueVPN_DB::table('customers');$pt=BlueVPN_DB::table('plans');
+        $c=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$ct} WHERE id=%d",$customerId),ARRAY_A);
+        $plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$pt} WHERE id=%d AND deleted=0",$planId),ARRAY_A);
         if(!$c||!$plan)return ['ok'=>false,'message'=>'کاربر یا پلن پیدا نشد.'];
 
-        // Backward-safe provider routing: older plans created before provider
-        // routing existed have zero provider ids. In that case an active
-        // PasarGuard and Marzban are selected automatically instead of silently
-        // producing a WordPress-only entitlement with no real VPN account.
         $trafficMode=(string)($plan['traffic_mode']??'provider_reported');$trafficMode=$trafficMode==='gateway_metered'?'gateway_metered':'provider_reported';
         $manualEntries=class_exists('BlueVPN_Subscription_Sources')?BlueVPN_Subscription_Sources::active_entries_for_plan($planId):[];
         $shahrahEntries=array_values(array_filter($manualEntries,static fn($entry)=>(string)($entry['provider_type']??'')==='shahrah'));
         $staticManualEntries=array_values(array_filter($manualEntries,static fn($entry)=>(string)($entry['provider_type']??'')!=='shahrah'));
-        $pgId=(int)($plan['panel_id']??0);$mzId=(int)($plan['marzban_panel_id']??0);$shId=(int)($plan['shahrah_panel_id']??0);$shSlug=trim((string)($plan['shahrah_plan_slug']??''));$gcId=(int)($plan['guardcore_panel_id']??0);
-        $hasExplicitManual=!empty($manualEntries)||$shId>0;
-        if(!$hasExplicitManual){
-            if($pgId<=0)$pgId=class_exists('BlueVPN_AI_Ops')?BlueVPN_AI_Ops::recommend_panel_id('pasarguard'):(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('pasarguard_panels')." WHERE active=1 ORDER BY id ASC LIMIT 1");
-            if($mzId<=0)$mzId=class_exists('BlueVPN_AI_Ops')?BlueVPN_AI_Ops::recommend_panel_id('marzban'):(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('marzban_panels')." WHERE active=1 ORDER BY id ASC LIMIT 1");
-            // A configured shared/global subscription is itself a valid paid source.
-            if($gcId<=0)$gcId=(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('guardcore_panels')." WHERE active=1 AND auth_mode='manual' AND global_subscription_url IS NOT NULL AND TRIM(global_subscription_url)<>'' ORDER BY id ASC LIMIT 1");
+        $routes=self::plan_provider_routes($plan);
+        $routeCount=array_sum(array_map('count',$routes));
+        $hasExplicit=!empty($manualEntries)||$routeCount>0;
+
+        if(!$hasExplicit){
+            $pg=class_exists('BlueVPN_AI_Ops')?BlueVPN_AI_Ops::recommend_panel_id('pasarguard'):(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('pasarguard_panels')." WHERE active=1 ORDER BY id ASC LIMIT 1");
+            $mz=class_exists('BlueVPN_AI_Ops')?BlueVPN_AI_Ops::recommend_panel_id('marzban'):(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('marzban_panels')." WHERE active=1 ORDER BY id ASC LIMIT 1");
+            $gc=(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('guardcore_panels')." WHERE active=1 AND auth_mode='manual' AND global_subscription_url IS NOT NULL AND TRIM(global_subscription_url)<>'' ORDER BY id ASC LIMIT 1");
+            if($pg>0)$routes['pasarguard'][]=['panel_id'=>$pg,'group_ids'=>[]];
+            if($mz>0)$routes['marzban'][]=['panel_id'=>$mz,'inbounds'=>[]];
+            if($gc>0)$routes['guardcore'][]=['panel_id'=>$gc,'service_ids'=>[]];
         }
 
-        $expire=self::canonical_expiry($c,$plan,$canonicalExpire);$total=max(0,(int)$plan['data_limit_gb'])*1024*1024*1024;$providers=array_values(array_filter(['pg'=>$pgId>0,'mz'=>$mzId>0,'gc'=>$gcId>0]));$count=count($providers);$quota=($count>1&&($plan['multi_provider_quota_mode']??'split')==='split')?intdiv($total,max(1,$count)):$total;$providerQuota=$trafficMode==='gateway_metered'?0:$quota;
-        $errors=[];$success=count($staticManualEntries)>0?1:0;$update=['plan_id'=>$planId,'subscription_expire'=>$expire,'data_limit_bytes'=>$total,'device_limit'=>max(1,(int)$plan['device_limit'])];
+        $expire=self::canonical_expiry($c,$plan,$canonicalExpire);
+        $total=max(0,(int)$plan['data_limit_gb'])*1024*1024*1024;
+        $quotaRoutes=count($routes['pasarguard'])+count($routes['marzban'])+count($routes['guardcore']);
+        $quota=($quotaRoutes>1&&($plan['multi_provider_quota_mode']??'split')==='split')?intdiv($total,max(1,$quotaRoutes)):$total;
+        $providerQuota=$trafficMode==='gateway_metered'?0:$quota;
 
-        if($shId>0){
+        $errors=[];$success=count($staticManualEntries)>0?1:0;
+        $update=['plan_id'=>$planId,'subscription_expire'=>$expire,'data_limit_bytes'=>$total,'device_limit'=>max(1,(int)$plan['device_limit'])];
+        $desired=[];$resolved=['pasarguard'=>[],'marzban'=>[],'shahrah'=>[],'guardcore'=>[]];
+        $legacyWritten=['pasarguard'=>false,'marzban'=>false,'guardcore'=>false];
+
+        foreach($routes['shahrah'] as $route){
+            $panelId=(int)$route['panel_id'];$slug=(string)$route['plan_slug'];$desired[]=self::provider_route_key('shahrah',$route);
             try{
-                if(!class_exists('BlueVPN_Shahrah'))throw new RuntimeException('Provider شاهراه بارگذاری نشده است.');
-                if($shSlug==='')throw new RuntimeException('پلن Shahrah برای این پلن BlueVPN انتخاب نشده است.');
+                if(!class_exists('BlueVPN_Shahrah'))throw new RuntimeException('تأمین‌کننده شاهراه بارگذاری نشده است.');
                 $seed=(string)($c['email']?:$c['phone']?:$c['id']);
-                $username=substr('bv_'.$c['id'].'_'.substr(sha1('shahrah-panel:'.$seed),0,9),0,32);
-                $result=BlueVPN_Shahrah::provision_panel($shId,$customerId,$shSlug,$username);
-                if(empty($result['ok']))throw new RuntimeException((string)($result['message']??'provision ناموفق'));
-                $success++;
-            }catch(Throwable $e){
-                $errors[]='Shahrah: '.$e->getMessage();
-            }
+                $username=substr('bv_'.$c['id'].'_'.substr(sha1('shahrah-panel:'.$panelId.':'.$seed),0,9),0,32);
+                $result=BlueVPN_Shahrah::provision_panel($panelId,$customerId,$slug,$username);
+                if(empty($result['ok']))throw new RuntimeException((string)($result['message']??'فعال‌سازی ناموفق'));
+                self::provider_link_upsert($customerId,$planId,'shahrah',$route,[
+                    'username'=>$username,'remote_id'=>(string)($result['service_slug']??''),'status'=>'active','metadata'=>$route,
+                ]);
+                $resolved['shahrah'][]=$panelId.'|'.$slug;$success++;
+            }catch(Throwable $e){$errors[]='شاهراه #'.$panelId.': '.$e->getMessage();}
         }
 
-        // Legacy Shahrah subscription-source routing remains readable for old plans.
         foreach($shahrahEntries as $entry){
             try{
-                if(!class_exists('BlueVPN_Shahrah'))throw new RuntimeException('Provider شاهراه بارگذاری نشده است.');
+                if(!class_exists('BlueVPN_Shahrah'))throw new RuntimeException('تأمین‌کننده شاهراه بارگذاری نشده است.');
                 $cfg=BlueVPN_Subscription_Sources::shahrah_credentials_from_entry($entry);
-                if(($cfg['api_key']??'')===''||($cfg['plan_slug']??'')==='')throw new RuntimeException('API KEY یا planSlug شاهراه برای Source تنظیم نشده است.');
-                $seed=(string)($c['email']?:$c['phone']?:$c['id']);
-                $username=substr('bv_'.$c['id'].'_'.substr(sha1('shahrah:'.$seed),0,9),0,32);
+                if(($cfg['api_key']??'')===''||($cfg['plan_slug']??'')==='')throw new RuntimeException('کلید یا پلن شاهراه برای منبع قدیمی تنظیم نشده است.');
+                $seed=(string)($c['email']?:$c['phone']?:$c['id']);$username=substr('bv_'.$c['id'].'_'.substr(sha1('shahrah:'.$seed),0,9),0,32);
                 $result=BlueVPN_Shahrah::provision((int)($entry['id']??0),$customerId,(string)$cfg['api_key'],(string)$cfg['plan_slug'],$username);
-                if(empty($result['ok']))throw new RuntimeException((string)($result['message']??'provision ناموفق'));
-                $success++;
-            }catch(Throwable $e){
-                $errors[]='Shahrah: '.$e->getMessage();
-            }
+                if(empty($result['ok']))throw new RuntimeException((string)($result['message']??'فعال‌سازی ناموفق'));$success++;
+            }catch(Throwable $e){$errors[]='شاهراه قدیمی: '.$e->getMessage();}
         }
-        if($pgId>0){
+
+        foreach($routes['pasarguard'] as $route){
+            $panelId=(int)$route['panel_id'];$desired[]=self::provider_route_key('pasarguard',$route);
             try{
-                $p=self::panel('pasarguard',$pgId);if(!$p||!(int)$p['active'])throw new RuntimeException('پنل PasarGuard فعال پیدا نشد.');
-                $u=self::username($c,'pg');$old=self::pg_user($p,$u);$fallbackGroups=BlueVPN_Utils::json_decode_array((string)$plan['group_ids_json'],[]);$groupIds=self::pg_active_group_ids($p,$fallbackGroups);
+                $p=self::panel('pasarguard',$panelId);if(!$p||!(int)$p['active'])throw new RuntimeException('سرور فعال پیدا نشد.');
+                $u=self::username($c,'pg');$old=self::pg_user($p,$u);
+                $groupIds=self::pg_active_group_ids($p,(array)($route['group_ids']??[]));
                 $payload=['status'=>'active','expire'=>$expire?gmdate('Y-m-d\TH:i:s\Z',strtotime($expire.' UTC')):0,'data_limit'=>$providerQuota,'data_limit_reset_strategy'=>'no_reset','group_ids'=>$groupIds,'hwid_limit'=>(int)$plan['device_limit']<=1?1:2,'note'=>'BlueVPN WordPress; customer '.$customerId];
                 if(!$old){$payload['username']=$u;$proxySettings=self::pg_proxy_settings($p);if($proxySettings)$payload['proxy_settings']=$proxySettings;$r=self::req('POST',self::join_url((string)$p['base_url'],'/api/user'),self::pg_headers($p),$payload,(bool)$p['verify_tls']);}
                 else{$r=self::req('PUT',self::join_url((string)$p['base_url'],'/api/user/by-username/'.rawurlencode($u)),self::pg_headers($p),$payload,(bool)$p['verify_tls']);if(in_array($r['code'],[404,405],true))$r=self::req('PUT',self::join_url((string)$p['base_url'],'/api/user/'.rawurlencode($u)),self::pg_headers($p),$payload,(bool)$p['verify_tls']);}
-                if($r['code']>=400)throw new RuntimeException('فعال‌سازی PasarGuard ناموفق: HTTP '.$r['code'].' '.mb_substr($r['body'],0,420));$remote=$r['json']?:self::pg_user($p,$u)?:[];$update['panel_id']=$p['id'];$update['pg_username']=$u;$update['pasarguard_subscription_url']=self::remote_sub_url($remote,(string)$p['base_url']);$success++;
-            }catch(Throwable $e){$errors[]='PasarGuard: '.$e->getMessage();}
+                if($r['code']>=400)throw new RuntimeException('فعال‌سازی ناموفق: HTTP '.$r['code'].' '.mb_substr($r['body'],0,420));
+                $remote=$r['json']?:self::pg_user($p,$u)?:[];$sub=self::remote_sub_url($remote,(string)$p['base_url']);
+                self::provider_link_upsert($customerId,$planId,'pasarguard',$route,['username'=>$u,'remote_id'=>(string)($remote['id']??''),'subscription_url'=>$sub,'status'=>(string)($remote['status']??'active'),'used_traffic_bytes'=>(int)($remote['used_traffic']??$remote['used_traffic_bytes']??0),'remote_expire'=>self::remote_expiry($remote['expire']??null),'metadata'=>$route]);
+                if(!$legacyWritten['pasarguard']){$update['panel_id']=$panelId;$update['pg_username']=$u;$update['pasarguard_subscription_url']=$sub;$legacyWritten['pasarguard']=true;}
+                $resolved['pasarguard'][]=$panelId;$success++;
+            }catch(Throwable $e){$errors[]='پاسارگاد #'.$panelId.': '.$e->getMessage();}
         }
-        if($mzId>0){
-            try{$p=self::panel('marzban',$mzId);if(!$p||!(int)$p['active'])throw new RuntimeException('پنل Marzban فعال پیدا نشد.');$u=self::username($c,'mz');$old=self::mz_user($p,$u);[$proxies,$inbounds]=self::mz_access($p,25,BlueVPN_Utils::json_decode_array((string)($plan['marzban_inbounds_json']??''),[]));$payload=['status'=>'active','expire'=>$expire?strtotime($expire.' UTC'):0,'data_limit'=>$providerQuota,'data_limit_reset_strategy'=>'no_reset','proxies'=>$proxies,'inbounds'=>$inbounds,'note'=>'BlueVPN WordPress; customer '.$customerId];$path=$old?'/api/user/'.rawurlencode($u):'/api/user';if(!$old)$payload['username']=$u;$r=self::req($old?'PUT':'POST',self::join_url((string)$p['base_url'],$path),self::mz_headers($p),$payload,(bool)$p['verify_tls']);if($r['code']>=400)throw new RuntimeException('فعال‌سازی Marzban ناموفق: HTTP '.$r['code'].' '.mb_substr($r['body'],0,420));$remote=self::mz_user($p,$u)?:$r['json'];$update['marzban_panel_id']=$p['id'];$update['marzban_username']=$u;$update['marzban_subscription_url']=self::remote_sub_url($remote,(string)$p['base_url']);$update['marzban_status']='active';$success++;}catch(Throwable $e){$errors[]='Marzban: '.$e->getMessage();}
+
+        foreach($routes['marzban'] as $route){
+            $panelId=(int)$route['panel_id'];$desired[]=self::provider_route_key('marzban',$route);
+            try{
+                $p=self::panel('marzban',$panelId);if(!$p||!(int)$p['active'])throw new RuntimeException('سرور فعال پیدا نشد.');
+                $u=self::username($c,'mz');$old=self::mz_user($p,$u);[$proxies,$inbounds]=self::mz_access($p,25,(array)($route['inbounds']??[]));
+                $payload=['status'=>'active','expire'=>$expire?strtotime($expire.' UTC'):0,'data_limit'=>$providerQuota,'data_limit_reset_strategy'=>'no_reset','proxies'=>$proxies,'inbounds'=>$inbounds,'note'=>'BlueVPN WordPress; customer '.$customerId];
+                $path=$old?'/api/user/'.rawurlencode($u):'/api/user';if(!$old)$payload['username']=$u;
+                $r=self::req($old?'PUT':'POST',self::join_url((string)$p['base_url'],$path),self::mz_headers($p),$payload,(bool)$p['verify_tls']);
+                if($r['code']>=400)throw new RuntimeException('فعال‌سازی ناموفق: HTTP '.$r['code'].' '.mb_substr($r['body'],0,420));
+                $remote=self::mz_user($p,$u)?:$r['json'];$sub=self::remote_sub_url($remote,(string)$p['base_url']);
+                self::provider_link_upsert($customerId,$planId,'marzban',$route,['username'=>$u,'remote_id'=>(string)($remote['id']??''),'subscription_url'=>$sub,'status'=>(string)($remote['status']??'active'),'used_traffic_bytes'=>(int)($remote['used_traffic']??$remote['used_traffic_bytes']??0),'remote_expire'=>self::remote_expiry($remote['expire']??null),'metadata'=>$route]);
+                if(!$legacyWritten['marzban']){$update['marzban_panel_id']=$panelId;$update['marzban_username']=$u;$update['marzban_subscription_url']=$sub;$update['marzban_status']='active';$legacyWritten['marzban']=true;}
+                $resolved['marzban'][]=$panelId;$success++;
+            }catch(Throwable $e){$errors[]='مرزبان #'.$panelId.': '.$e->getMessage();}
         }
-        if($gcId>0){
-            try{$p=self::panel('guardcore',$gcId);if(!$p||!(int)$p['active'])throw new RuntimeException('پنل GuardCore فعال پیدا نشد.');$u=self::username($c,'gc');$global=trim((string)($p['global_subscription_url']??''));if(($p['auth_mode']??'manual')==='manual'){$update['guardcore_panel_id']=$p['id'];$update['guardcore_username']=$u;$update['guardcore_subscription_url']=$global!==''?esc_url_raw($global):(string)$c['guardcore_subscription_url'];$update['guardcore_status']=!empty($update['guardcore_subscription_url'])?'active':'manual_pending';$update['guardcore_expire']=$expire;$update['guardcore_data_limit_bytes']=$global!==''?0:$providerQuota;$update['guardcore_last_error']='';$success++;}else{$old=self::gc_user($p,$u);$serviceIds=BlueVPN_Utils::json_decode_array((string)($plan['guardcore_service_ids_json']??''),[]);$remote=self::gc_provision($p,$u,$expire,$providerQuota,$serviceIds,'BlueVPN WordPress; customer '.$customerId,$old);$update['guardcore_panel_id']=$p['id'];$update['guardcore_username']=$u;$update['guardcore_subscription_id']=is_numeric($remote['id']??null)?(int)$remote['id']:null;$update['guardcore_subscription_url']=(string)($remote['subscription_url']??'');$update['guardcore_status']=(string)($remote['status']??'active');$update['guardcore_expire']=$remote['expire']??$expire;$update['guardcore_data_limit_bytes']=(int)($remote['data_limit']??$providerQuota);$update['guardcore_used_traffic_bytes']=(int)($remote['used_traffic']??0);$update['guardcore_last_error']='';$success++;}}catch(Throwable $e){$errors[]='GuardCore: '.$e->getMessage();$update['guardcore_last_error']=mb_substr($e->getMessage(),0,1800);}
+
+        foreach($routes['guardcore'] as $route){
+            $panelId=(int)$route['panel_id'];$desired[]=self::provider_route_key('guardcore',$route);
+            try{
+                $p=self::panel('guardcore',$panelId);if(!$p||!(int)$p['active'])throw new RuntimeException('سرور فعال پیدا نشد.');
+                $u=self::username($c,'gc');$global=trim((string)($p['global_subscription_url']??''));
+                if(($p['auth_mode']??'manual')==='manual'){
+                    if($global==='')throw new RuntimeException('نشانی اشتراک عمومی این سرور خالی است.');
+                    $sub=esc_url_raw($global);$remote=[];$status='active';
+                }else{
+                    $serviceIds=self::gc_route_service_ids($panelId,(array)($route['service_ids']??[]));
+                    $old=self::gc_user($p,$u);$remote=self::gc_provision($p,$u,$expire,$providerQuota,$serviceIds,'BlueVPN WordPress; customer '.$customerId,$old);
+                    $sub=(string)($remote['subscription_url']??'');$status=(string)($remote['status']??'active');$route['service_ids']=$serviceIds;
+                }
+                self::provider_link_upsert($customerId,$planId,'guardcore',$route,['username'=>$u,'remote_id'=>(string)($remote['id']??''),'subscription_url'=>$sub,'status'=>$status,'used_traffic_bytes'=>(int)($remote['used_traffic']??0),'remote_expire'=>$remote['expire']??$expire,'metadata'=>$route]);
+                if(!$legacyWritten['guardcore']){$update['guardcore_panel_id']=$panelId;$update['guardcore_username']=$u;$update['guardcore_subscription_url']=$sub;$update['guardcore_status']=$status;$update['guardcore_expire']=$remote['expire']??$expire;$update['guardcore_data_limit_bytes']=($p['auth_mode']??'manual')==='manual'?0:$providerQuota;$update['guardcore_used_traffic_bytes']=(int)($remote['used_traffic']??0);$update['guardcore_last_error']='';$legacyWritten['guardcore']=true;}
+                $resolved['guardcore'][]=$panelId;$success++;
+            }catch(Throwable $e){$errors[]='گاردکور #'.$panelId.': '.$e->getMessage();}
         }
-        if(empty($c['subscription_token']))$update['subscription_token']=BlueVPN_Utils::random_token(30);else$update['subscription_token']=$c['subscription_token'];$update['subscription_url']=home_url('/sub/'.$update['subscription_token']);$update['subscription_status']=$success>0?'active':'inactive';$update['last_sync_at']=BlueVPN_Utils::now_mysql();
-        if($trafficMode==='gateway_metered'&&!class_exists('BlueVPN_Gateway'))$errors[]='Gateway Metering در این نصب در دسترس نیست.';
-        if($trafficMode==='gateway_metered'&&class_exists('BlueVPN_Gateway')&&!BlueVPN_Gateway::has_active_gateway())$errors[]='برای این پلن Gateway فعال ثبت نشده است.';
-        if($success===0&&!$errors)$errors[]='هیچ Provider یا Source دستی قابل استفاده‌ای پیدا نشد.';
-        $update['last_sync_error']=implode(' | ',$errors);
-        if($trafficMode==='gateway_metered'&&$errors)$update['subscription_status']='inactive';
-        $saved=$wpdb->update($ct,$update,['id'=>$customerId]);if($saved===false)return ['ok'=>false,'message'=>'ذخیره entitlement کاربر در MySQL ناموفق بود.','success_count'=>$success];
+
+        self::prune_customer_provider_links($customerId,$desired);
+
+        if(empty($c['subscription_token']))$update['subscription_token']=BlueVPN_Utils::random_token(30);else$update['subscription_token']=$c['subscription_token'];
+        $update['subscription_url']=home_url('/sub/'.$update['subscription_token']);$update['subscription_status']=$success>0?'active':'inactive';$update['last_sync_at']=BlueVPN_Utils::now_mysql();
+        if($trafficMode==='gateway_metered'&&!class_exists('BlueVPN_Gateway'))$errors[]='اندازه‌گیری مرکزی مصرف در این نصب در دسترس نیست.';
+        if($trafficMode==='gateway_metered'&&class_exists('BlueVPN_Gateway')&&!BlueVPN_Gateway::has_active_gateway())$errors[]='برای این پلن دروازه فعال ثبت نشده است.';
+        if($success===0&&!$errors)$errors[]='هیچ تأمین‌کننده یا منبع اشتراک قابل استفاده‌ای پیدا نشد.';
+        $update['last_sync_error']=implode(' | ',$errors);if($trafficMode==='gateway_metered'&&$errors)$update['subscription_status']='inactive';
+        $saved=$wpdb->update($ct,$update,['id'=>$customerId]);if($saved===false)return ['ok'=>false,'message'=>'ذخیره اشتراک کاربر در پایگاه داده ناموفق بود.','success_count'=>$success];
         $gatewaySessions=[];if($success>0)self::request_background_snapshot($customerId);
         if($trafficMode==='gateway_metered'&&class_exists('BlueVPN_Gateway')&&!$errors)$gatewaySessions=BlueVPN_Gateway::ensure_customer_sessions($customerId);
-        return ['ok'=>$success>0&&count($errors)===0,'partial'=>$success>0&&count($errors)>0,'message'=>$errors?implode(' | ',$errors):($trafficMode==='gateway_metered'?'اشتراک Gateway با حسابداری مرکزی BlueVPN فعال شد.':'فعال‌سازی Providerها انجام شد.'),'success_count'=>$success,'canonical_expire'=>$expire,'expiry_source'=>'wordpress_mysql_entitlement','traffic_mode'=>$trafficMode,'gateway_sessions'=>count($gatewaySessions),'resolved_providers'=>['pasarguard'=>$pgId,'marzban'=>$mzId,'shahrah'=>$shId,'guardcore'=>$gcId]];
+        return ['ok'=>$success>0&&count($errors)===0,'partial'=>$success>0&&count($errors)>0,'message'=>$errors?implode(' | ',$errors):'همه مسیرهای تأمین‌کننده فعال شدند.','success_count'=>$success,'canonical_expire'=>$expire,'expiry_source'=>'wordpress_mysql_entitlement','traffic_mode'=>$trafficMode,'gateway_sessions'=>count($gatewaySessions),'resolved_providers'=>$resolved];
     }
+
     public static function request_background_sync(int $customerId): bool {
         if($customerId<=0)return false;
         if(wp_next_scheduled('bluevpn_sync_customer_async',[$customerId]))return false;

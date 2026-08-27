@@ -30,6 +30,21 @@ public partial class App : Application
             window.Show();
 
             WriteCrashLog("startup", null, "BlueVPN MainWindow shown");
+
+            // CI launches the actual published executable with this switch.
+            // It exercises WPF/XAML, service construction and Loaded startup,
+            // then exits cleanly without requiring user interaction.
+            if (e.Args.Any(arg => string.Equals(arg, "--startup-smoke", StringComparison.OrdinalIgnoreCase)))
+            {
+                var smokeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+                smokeTimer.Tick += (_, _) =>
+                {
+                    smokeTimer.Stop();
+                    WriteCrashLog("startup-smoke", null, "Published executable stayed alive");
+                    Shutdown(0);
+                };
+                smokeTimer.Start();
+            }
         }
         catch (Exception ex)
         {

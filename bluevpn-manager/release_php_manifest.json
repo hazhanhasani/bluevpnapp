@@ -26,6 +26,7 @@
     "includes/class-bluevpn-payments.php",
     "includes/class-bluevpn-production.php",
     "includes/class-bluevpn-providers.php",
+    "includes/class-bluevpn-shahrah.php",
     "includes/class-bluevpn-sms-notifications.php",
     "includes/class-bluevpn-sms-otp.php",
     "includes/class-bluevpn-subscription-sources.php",

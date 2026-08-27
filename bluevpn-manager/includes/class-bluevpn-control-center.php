@@ -3,7 +3,7 @@ if (!defined('ABSPATH')) exit;
 
 final class BlueVPN_Control_Center {
     private const TABS=[
-        'overview'=>'نمای کلی','blueai'=>'BlueAI','ads'=>'تبلیغات','free'=>'اتصال رایگان','database'=>'دیتابیس','production'=>'سلامت و Backup','panels'=>'PasarGuard','marzban'=>'Marzban','guardcore'=>'GuardCore','guardcore-manual'=>'صف GuardCore','sources'=>'Sourceهای اشتراک','gateway'=>'Gateway Metering','plans'=>'پلن‌ها','blupal'=>'پرداخت / بلوپال','manual'=>'فعال‌سازی دستی','customers'=>'کاربران','manual-customers'=>'مشتریان دستی','orders'=>'پرداخت‌ها','app'=>'اپ و آپدیت','sms'=>'SMS / OTP'
+        'overview'=>'نمای کلی','blueai'=>'BlueAI','ads'=>'تبلیغات','free'=>'اتصال رایگان','database'=>'دیتابیس','production'=>'سلامت و Backup','panels'=>'PasarGuard','marzban'=>'Marzban','shahrah'=>'Shahrah','guardcore'=>'GuardCore','guardcore-manual'=>'صف GuardCore','sources'=>'Sourceهای اشتراک','gateway'=>'Gateway Metering','plans'=>'پلن‌ها','blupal'=>'پرداخت / بلوپال','manual'=>'فعال‌سازی دستی','customers'=>'کاربران','manual-customers'=>'مشتریان دستی','orders'=>'پرداخت‌ها','app'=>'اپ و آپدیت','sms'=>'SMS / OTP'
     ];
     private const PAGE_SLUGS=[
         'overview'=>'bluevpn-manager',
@@ -14,6 +14,7 @@ final class BlueVPN_Control_Center {
         'production'=>'bluevpn-production',
         'panels'=>'bluevpn-pasarguard',
         'marzban'=>'bluevpn-marzban',
+        'shahrah'=>'bluevpn-shahrah',
         'guardcore'=>'bluevpn-guardcore',
         'guardcore-manual'=>'bluevpn-guardcore-queue',
         'sources'=>'bluevpn-subscription-sources',
@@ -81,7 +82,7 @@ final class BlueVPN_Control_Center {
     private static function count(string $table,string $where='1=1'): int { global $wpdb;$t=BlueVPN_DB::table($table);return (int)$wpdb->get_var("SELECT COUNT(*) FROM {$t} WHERE {$where}"); }
     private static function tab_overview(): void {
         global $wpdb;$stats=[
-            ['کاربران',self::count('customers')],['مشتریان دستی',self::count('manual_customers')],['اشتراک فعال',self::count('customers',"active=1 AND subscription_status='active'")],['پرداخت موفق',self::count('orders',"status IN ('paid','activated','paid_needs_sync','partial_needs_sync')")],['پلن فعال',self::count('plans','active=1 AND deleted=0')],['Provider فعال',self::count('pasarguard_panels','active=1')+self::count('marzban_panels','active=1')+self::count('guardcore_panels','active=1')],['اتصال زنده',self::count('ai_live_connections','connected=1 AND verified=1')]
+            ['کاربران',self::count('customers')],['مشتریان دستی',self::count('manual_customers')],['اشتراک فعال',self::count('customers',"active=1 AND subscription_status='active'")],['پرداخت موفق',self::count('orders',"status IN ('paid','activated','paid_needs_sync','partial_needs_sync')")],['پلن فعال',self::count('plans','active=1 AND deleted=0')],['Provider فعال',self::count('pasarguard_panels','active=1')+self::count('marzban_panels','active=1')+self::count('shahrah_panels','active=1')+self::count('guardcore_panels','active=1')],['اتصال زنده',self::count('ai_live_connections','connected=1 AND verified=1')]
         ];
         echo '<div class="bvc-grid">';foreach($stats as [$l,$v])echo '<div class="bvc-card bvc-kpi"><span>'.self::esc($l).'</span><strong>'.number_format($v).'</strong></div>';echo '</div>';
         $db=BlueVPN_DB::status();$cut=get_option('bluevpn_manager_cutover_ready','0')==='1';$app=get_option('bluevpn_manager_app_cutover_enabled','0')==='1';
@@ -180,6 +181,7 @@ final class BlueVPN_Control_Center {
     }
     private static function tab_panels(): void { self::provider_tab('pasarguard'); }
     private static function tab_marzban(): void { self::provider_tab('marzban'); }
+    private static function tab_shahrah(): void { BlueVPN_Shahrah::render_admin_tab(); }
     private static function tab_guardcore(): void {
         self::provider_tab('guardcore');
         self::guardcore_api_dashboard();

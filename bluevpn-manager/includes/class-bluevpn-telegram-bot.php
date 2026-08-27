@@ -28,7 +28,6 @@ final class BlueVPN_Telegram_Bot {
 
     public static function init(): void {
         add_action('rest_api_init', [self::class, 'register_routes']);
-        add_action('admin_menu', [self::class, 'register_menu'], 20);
         add_action('admin_post_bluevpn_bot_save', [self::class, 'admin_save']);
         add_action('admin_post_bluevpn_bot_set_webhook', [self::class, 'admin_set_webhook']);
         add_action('admin_post_bluevpn_bot_delete_webhook', [self::class, 'admin_delete_webhook']);

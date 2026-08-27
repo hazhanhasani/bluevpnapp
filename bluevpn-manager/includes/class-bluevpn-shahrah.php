@@ -132,6 +132,42 @@ final class BlueVPN_Shahrah {
         return $out;
     }
 
+    public static function plan_exists(int $panelId,string $slug,bool $activeOnly=true): bool {
+        $slug=trim($slug);
+        if($panelId<=0||$slug==='')return false;
+        foreach(self::plan_catalog($activeOnly) as $plan){
+            if((int)$plan['panel_id']===$panelId&&hash_equals((string)$plan['slug'],$slug))return true;
+        }
+        return false;
+    }
+
+    public static function inspect_panel_customer(int $panelId,int $customerId): array {
+        $panel=self::panel($panelId);
+        if(!$panel||!(int)($panel['active']??0))return ['ok'=>false,'active'=>false,'message'=>'اتصال شاهراه غیرفعال یا حذف شده است.'];
+        $apiKey=self::panel_api_key($panel);
+        if($apiKey==='')return ['ok'=>false,'active'=>false,'message'=>'API KEY شاهراه تنظیم نشده است.'];
+        $mapping=self::panel_mapping($panelId,$customerId);
+        $slug=trim((string)($mapping['service_slug']??''));
+        if($slug==='')return ['ok'=>false,'active'=>false,'message'=>'سرویس شاهراه برای این کاربر هنوز ساخته نشده است.'];
+        try{
+            $response=self::service($apiKey,$slug);
+            $json=(array)$response['json'];
+            $status=strtolower(self::find_first_key($json,['status','state']));
+            $inactive=in_array($status,['disabled','inactive','expired','suspended','blocked'],true);
+            $configs=self::extract_configs($json);
+            return [
+                'ok'=>true,
+                'active'=>!$inactive,
+                'status'=>$status!==''?$status:'unknown',
+                'service_slug'=>$slug,
+                'config_count'=>count($configs),
+                'json'=>$json,
+            ];
+        }catch(Throwable $e){
+            return ['ok'=>false,'active'=>false,'service_slug'=>$slug,'message'=>$e->getMessage()];
+        }
+    }
+
     public static function admin_save(): void {
         self::guard();check_admin_referer('bluevpn_shahrah_save');
         global $wpdb;$t=BlueVPN_DB::table('shahrah_panels');

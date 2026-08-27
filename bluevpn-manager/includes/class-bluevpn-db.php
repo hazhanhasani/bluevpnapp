@@ -12,7 +12,7 @@ final class BlueVPN_DB {
     public static function table_names(): array {
         return [
             'app_settings', 'app_releases', 'windows_releases', 'ad_assets', 'server_locations', 'pasarguard_panels',
-            'marzban_panels', 'guardcore_panels', 'subscription_sources', 'gateway_nodes', 'gateway_sessions', 'gateway_usage_events', 'gateway_config_generations', 'gateway_session_migrations', 'plans', 'customers', 'manual_customers',
+            'marzban_panels', 'shahrah_panels', 'guardcore_panels', 'subscription_sources', 'gateway_nodes', 'gateway_sessions', 'gateway_usage_events', 'gateway_config_generations', 'gateway_session_migrations', 'plans', 'customers', 'manual_customers',
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
             'payment_events', 'provisioning_attempts', 'entitlement_ledger', 'webhook_deliveries',
@@ -193,6 +193,26 @@ final class BlueVPN_DB {
             last_test_at datetime NULL,
             created_at datetime NULL,
             PRIMARY KEY  (id)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('shahrah_panels')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            name varchar(120) NOT NULL DEFAULT '',
+            base_url varchar(500) NOT NULL DEFAULT 'https://shahrah.top/api/vaas/reseller',
+            api_key_enc longtext NULL,
+            me_json longtext NULL,
+            traffic_json longtext NULL,
+            plans_json longtext NULL,
+            services_json longtext NULL,
+            active tinyint(1) NOT NULL DEFAULT 1,
+            last_test_ok tinyint(1) NOT NULL DEFAULT 0,
+            last_test_message longtext NULL,
+            last_test_at datetime NULL,
+            last_sync_at datetime NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id),
+            KEY ix_shahrah_active (active, last_sync_at)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('guardcore_panels')} (
@@ -388,6 +408,8 @@ final class BlueVPN_DB {
             panel_id bigint unsigned NULL,
             marzban_panel_id bigint unsigned NULL,
             marzban_inbounds_json longtext NULL,
+            shahrah_panel_id bigint unsigned NULL,
+            shahrah_plan_slug varchar(180) NOT NULL DEFAULT '',
             marzban_quota_mode varchar(20) NOT NULL DEFAULT 'split',
             guardcore_panel_id bigint unsigned NULL,
             guardcore_service_ids_json longtext NULL,
@@ -401,6 +423,7 @@ final class BlueVPN_DB {
             KEY ix_plan_usd_managed (usd_managed, deleted, id),
             KEY ix_plan_pasarguard (panel_id, active),
             KEY ix_plan_marzban (marzban_panel_id, active),
+            KEY ix_plan_shahrah (shahrah_panel_id, active),
             KEY ix_plan_guardcore (guardcore_panel_id, active),
             KEY ix_plan_traffic_mode (traffic_mode, active)
         ) $cc;";

@@ -9,7 +9,7 @@ def text(path: str) -> str:
 class ManualCustomersNav4152Tests(unittest.TestCase):
     def test_manual_customers_is_in_services_group(self):
         ui = text("bluevpn-manager/includes/class-bluevpn-unified-ui.php")
-        services = ui.split("'سرویس‌ها' => [", 1)[1].split("'مدیریت' => [", 1)[0]
+        services = ui.split("'کاربران و فروش' => [", 1)[1].split("'شبکه و سرورها' => [", 1)[0]
         self.assertIn("bluevpn-manual-customers", services)
         self.assertIn("مشتریان دستی", services)
         self.assertIn("bluevpn-manual", services)

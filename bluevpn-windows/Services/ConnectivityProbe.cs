@@ -24,12 +24,15 @@ public static class ConnectivityProbe
         SnapshotFirstAsync(BuildUrls(url, includePlainIp: true), proxy: null, TimeSpan.FromSeconds(4), ct);
 
     public static Task<ConnectivitySnapshot> SnapshotTraceAsync(string url, CancellationToken ct = default) =>
-        SnapshotFirstAsync(BuildUrls(url, includePlainIp: false), proxy: null, TimeSpan.FromSeconds(4), ct);
+        SnapshotFirstAsync(BuildTraceUrls(url), proxy: null, TimeSpan.FromSeconds(4), ct);
 
     public static Task<ConnectivitySnapshot> SnapshotViaSocksAsync(string url, string host, int port, TimeSpan timeout, CancellationToken ct = default)
     {
         var proxy = new WebProxy(new Uri($"socks5://{host}:{port}"));
-        return SnapshotFirstAsync(BuildUrls(url, includePlainIp: false), proxy,
+        // WARP validation must be decided by a real Cloudflare trace response.
+        // Racing a plain-IP endpoint here can return a valid IP with no warp=
+        // field first and falsely reject an otherwise healthy WARP data plane.
+        return SnapshotFirstAsync(BuildTraceUrls(url), proxy,
             TimeSpan.FromSeconds(Math.Clamp(timeout.TotalSeconds, 3, 5)), ct);
     }
 
@@ -83,6 +86,16 @@ public static class ConnectivityProbe
         IEnumerable<string> urls = new[] { preferred }.Concat(FallbackTraceUrls);
         if (includePlainIp) urls = urls.Concat(PublicIpUrls);
         return urls.Where(x => !string.IsNullOrWhiteSpace(x)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static string[] BuildTraceUrls(string preferred)
+    {
+        var urls = new List<string>();
+        if (!string.IsNullOrWhiteSpace(preferred) &&
+            preferred.Contains("/cdn-cgi/trace", StringComparison.OrdinalIgnoreCase))
+            urls.Add(preferred);
+        urls.AddRange(FallbackTraceUrls);
+        return urls.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
 
     private static async Task<ConnectivitySnapshot> SnapshotFirstAsync(string[] urls, IWebProxy? proxy, TimeSpan timeout, CancellationToken ct)

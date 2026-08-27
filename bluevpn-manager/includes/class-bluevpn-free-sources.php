@@ -8,6 +8,8 @@ final class BlueVPN_Free_Sources {
     private const RETRYABLE_HTTP=[408,425,429,500,502,503,504];
     private const CRON_FAILURE_COOLDOWN_SECONDS=900;
     private const ALERT_COOLDOWN_SECONDS=1800;
+    private const TRANSPORT_ALERT_THRESHOLD=3;
+    private const TRANSPORT_FAILURE_WINDOW_SECONDS=21600;
 
     public static function init(): void {
         add_action('bluevpn_manager_cleanup',[self::class,'cron_refresh'],20);
@@ -28,6 +30,7 @@ final class BlueVPN_Free_Sources {
 
     private static function cooldown_key(int $id): string { return 'bluevpn_free_source_cooldown_'.$id; }
     private static function alert_key(int $id): string { return 'bluevpn_free_source_alert_'.$id; }
+    private static function failure_count_key(int $id): string { return 'bluevpn_free_source_transport_failures_'.$id; }
     private static function transport_code(int $id): string { return 'FREE_SOURCE_TRANSPORT_FAILED_'.$id; }
 
     public static function cron_refresh(): void {
@@ -121,21 +124,31 @@ final class BlueVPN_Free_Sources {
 
         set_transient(self::cooldown_key($id),'1',self::CRON_FAILURE_COOLDOWN_SECONDS);
 
+        // A single Telegram 5xx is usually transient. Count consecutive transport
+        // failures and alert only after the outage persists across multiple refresh
+        // windows; cached free configs remain available in the meantime.
+        $failureKey=self::failure_count_key($id);
+        $failures=max(0,(int)get_transient($failureKey))+1;
+        set_transient($failureKey,$failures,self::TRANSPORT_FAILURE_WINDOW_SECONDS);
+
         $alertKey=self::alert_key($id);
-        if(!get_transient($alertKey)&&class_exists('BlueVPN_Error_Monitor')){
+        if($failures>=self::TRANSPORT_ALERT_THRESHOLD&&!get_transient($alertKey)&&class_exists('BlueVPN_Error_Monitor')){
             set_transient($alertKey,'1',self::ALERT_COOLDOWN_SECONDS);
             BlueVPN_Error_Monitor::report(
                 'runtime',
                 'free_sources',
                 'warning',
                 self::transport_code($id),
-                $message!==''?$message:'دسترسی به منبع عمومی Telegram موقتاً برقرار نشد.',
+                $message!==''?$message:'دسترسی به منبع عمومی تلگرام موقتاً برقرار نشد.',
                 [
                     'id'=>$id,
                     'title'=>(string)($src['title']??''),
                     'host'=>(string)wp_parse_url((string)($src['url']??''),PHP_URL_HOST),
                     'last_status'=>'failed_transport',
+                    'consecutive_transport_failures'=>$failures,
+                    'alert_threshold'=>self::TRANSPORT_ALERT_THRESHOLD,
                     'retry_after_seconds'=>self::CRON_FAILURE_COOLDOWN_SECONDS,
+                    'cached_pool_preserved'=>true,
                 ]
             );
         }
@@ -162,6 +175,7 @@ final class BlueVPN_Free_Sources {
         ],['id'=>$id]);
         delete_transient(self::cooldown_key($id));
         delete_transient(self::alert_key($id));
+        delete_transient(self::failure_count_key($id));
         if(class_exists('BlueVPN_Error_Monitor')){
             BlueVPN_Error_Monitor::resolve_matching('runtime','free_sources',self::transport_code($id));
         }

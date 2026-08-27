@@ -20,7 +20,7 @@ class SubscriptionExpiryRepair4175Tests(unittest.TestCase):
         self.assertIn('intentional_grant',s)
         self.assertIn('target_expire',s)
         plugin=text('bluevpn-manager/bluevpn-manager.php')
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.31.0'",plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.32.0'",plugin)
 
     def test_non_grant_legacy_repair(self):
         s=text('bluevpn-manager/includes/class-bluevpn-providers.php')

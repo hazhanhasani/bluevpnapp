@@ -12,7 +12,7 @@ class WindowsReleaseChannels4163(unittest.TestCase):
         self.assertEqual(release['version_code'],60006)
         self.assertEqual(release['windows']['release_authority'],'wordpress_manager')
         plugin=text('bluevpn-manager/bluevpn-manager.php')
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.33.0", plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.34.0", plugin)
 
     def test_windows_release_table_and_manager_exist(self):
         db=text('bluevpn-manager/includes/class-bluevpn-db.php')

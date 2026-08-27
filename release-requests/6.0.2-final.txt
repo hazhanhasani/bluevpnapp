@@ -1,0 +1,3 @@
+BlueVPN 6.0.2 final coordinated release
+validated_health_run=381
+validated_sha=df2a4574293cb54f6d6ae55b85d6324a54584263

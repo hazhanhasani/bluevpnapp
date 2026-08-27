@@ -1,0 +1,3 @@
+BlueVPN 6.0.6 coordinated release
+source_sha=b36ce64316af385cd24f76b44bc416f5cc959739
+includes=multi-provider-paid-routes,customer-provider-links,multi-route-provision-sync-repair

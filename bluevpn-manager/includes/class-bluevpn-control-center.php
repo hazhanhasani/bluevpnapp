@@ -1034,7 +1034,15 @@ final class BlueVPN_Control_Center {
     }
 
     public static function create_private_backup(): void {
-        self::guard();check_admin_referer('bluevpn_cc_create_private_backup');try{$r=BlueVPN_Production::create_backup('manual-admin');self::redirect('production','Backup خصوصی ساخته شد: '.(string)$r['filename']);}catch(Throwable $e){self::redirect('production','Backup ناموفق: '.$e->getMessage(),true);}
+        self::guard();
+        check_admin_referer('bluevpn_cc_create_private_backup');
+        try{
+            $r=BlueVPN_Production::queue_manual_backup();
+            if(!empty($r['already_running']))self::redirect('production','یک Backup از قبل در حال اجرا یا در صف است.');
+            self::redirect('production','ساخت Backup در صف قرار گرفت؛ صفحه دیگر تا پایان Snapshot منتظر نمی‌ماند.');
+        }catch(Throwable $e){
+            self::redirect('production','قرار دادن Backup در صف ناموفق بود: '.$e->getMessage(),true);
+        }
     }
 
     public static function restore_backup(): void {

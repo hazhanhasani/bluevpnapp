@@ -17,8 +17,8 @@ class SupportAdminSidebar4105(unittest.TestCase):
     def test_support_is_visible_in_custom_bluevpn_sidebar(self):
         ui=self.text("bluevpn-manager/includes/class-bluevpn-unified-ui.php")
         communication=ui[
-            ui.index("'تبلیغات و ارتباط' => ["):
-            ui.index("'سلامت و عملیات' => [")
+            ui.index("'ارتباط با کاربران' => ["):
+            ui.index("'سلامت و نگهداری' => [")
         ]
         self.assertIn(
             "['bluevpn-support', 'پشتیبانی آنلاین', 'support']",

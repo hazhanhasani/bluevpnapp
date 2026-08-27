@@ -62,7 +62,7 @@ class GatewayMetered514Tests(unittest.TestCase):
         cc = self.text("bluevpn-manager/includes/class-bluevpn-control-center.php")
         admin = self.text("bluevpn-manager/includes/class-bluevpn-admin.php")
         ui = self.text("bluevpn-manager/includes/class-bluevpn-unified-ui.php")
-        for token in ("'sources'=>'Sourceهای اشتراک'", "'gateway'=>'Gateway Metering'", "name=\"traffic_mode\"", "render_plan_picker"):
+        for token in ("'sources'=>'منابع اشتراک'", "'gateway'=>'دروازه اندازه‌گیری مصرف'", "name=\"traffic_mode\"", "render_plan_picker"):
             self.assertIn(token, cc)
         self.assertIn("bluevpn-subscription-sources", admin)
         self.assertIn("bluevpn-gateway", admin)

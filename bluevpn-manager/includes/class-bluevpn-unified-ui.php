@@ -50,6 +50,7 @@ final class BlueVPN_Unified_UI {
                 ['bluevpn-subscription-sources', 'منابع اشتراک', 'link'],
                 ['bluevpn-pasarguard', 'PasarGuard', 'server'],
                 ['bluevpn-marzban', 'Marzban', 'server'],
+                ['bluevpn-shahrah', 'Shahrah', 'server'],
                 ['bluevpn-guardcore', 'GuardCore', 'shield'],
                 ['bluevpn-guardcore-queue', 'صف GuardCore', 'queue'],
                 ['bluevpn-gateway', 'Gateway Metering', 'shield'],

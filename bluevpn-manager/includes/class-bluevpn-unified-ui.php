@@ -42,34 +42,40 @@ final class BlueVPN_Unified_UI {
                 ['bluevpn-manual-customers', 'مشتریان دستی', 'manual'],
                 ['bluevpn-plans', 'پلن‌ها', 'plans'],
                 ['bluevpn-orders', 'سفارش‌ها و پرداخت‌ها', 'orders'],
-                ['bluevpn-payments', 'درگاه و بلوپال', 'wallet'],
+                ['bluevpn-payments', 'درگاه و BluePal', 'wallet'],
                 ['bluevpn-manual', 'فعال‌سازی دستی', 'manual'],
-                ['bluevpn-sms', 'SMS / OTP', 'sms'],
-                ['bluevpn-support', 'پشتیبانی آنلاین', 'support'],
-                ['bluevpn-telegram-bot', 'ربات تلگرام', 'bot'],
             ],
-            'شبکه و سرویس' => [
+            'شبکه و زیرساخت' => [
                 ['bluevpn-free-access', 'اتصال رایگان / WARP', 'free'],
-                ['bluevpn-subscription-sources', 'Sourceهای اشتراک', 'link'],
+                ['bluevpn-subscription-sources', 'منابع اشتراک', 'link'],
                 ['bluevpn-pasarguard', 'PasarGuard', 'server'],
                 ['bluevpn-marzban', 'Marzban', 'server'],
                 ['bluevpn-guardcore', 'GuardCore', 'shield'],
                 ['bluevpn-guardcore-queue', 'صف GuardCore', 'queue'],
                 ['bluevpn-gateway', 'Gateway Metering', 'shield'],
             ],
-            'محصول و هوشمندی' => [
-                ['bluevpn-blueai', 'BlueAI', 'ai'],
-                ['bluevpn-ads', 'تبلیغات', 'ads'],
-                ['bluevpn-app-update', 'اپ و انتشار', 'app'],
+            'اپ و انتشار' => [
                 ['bluevpn-app-connection', 'اتصال اپلیکیشن', 'link'],
-            ],
-            'سیستم و عملیات' => [
-                ['bluevpn-production', 'سلامت و Backup', 'shield'],
-                ['bluevpn-error-monitor', 'خطاها و مانیتورینگ', 'shield'],
-                ['bluevpn-database', 'دیتابیس', 'db'],
-                ['bluevpn-settings', 'تنظیمات عمومی', 'settings'],
+                ['bluevpn-app-update', 'نسخه و انتشار اپ', 'app'],
                 ['bluevpn-github-updater', 'آپدیت Manager', 'update'],
                 ['bluevpn-migration', 'Migration', 'migration'],
+            ],
+            'تبلیغات و ارتباط' => [
+                ['bluevpn-ads', 'تبلیغات و Tapsell', 'ads'],
+                ['bluevpn-sms', 'SMS / OTP', 'sms'],
+                ['bluevpn-support', 'پشتیبانی آنلاین', 'support'],
+                ['bluevpn-telegram-bot', 'ربات تلگرام', 'bot'],
+            ],
+            'سلامت و عملیات' => [
+                ['bluevpn-production', 'سلامت و Backup', 'shield'],
+                ['bluevpn-error-monitor', 'Sentinel و خطاها', 'shield'],
+                ['bluevpn-database', 'دیتابیس', 'db'],
+            ],
+            'هوش و اتوماسیون' => [
+                ['bluevpn-blueai', 'BlueAI', 'ai'],
+            ],
+            'تنظیمات' => [
+                ['bluevpn-settings', 'تنظیمات عمومی', 'settings'],
             ],
         ];
     }

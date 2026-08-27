@@ -195,6 +195,19 @@ jobs:
           $out="dist/BlueVPN-Windows-$env:RID"
           foreach($f in @('BlueVPN.exe','appsettings.json','runtime/v2rayn/runtime.json')){if(-not(Test-Path(Join-Path $out $f))){throw "Missing published file: $f"}}
 
+      - name: Smoke launch published Windows executable
+        if: ${{ matrix.rid == 'win-x64' }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=(Resolve-Path 'dist/BlueVPN-Windows-win-x64/BlueVPN.exe').Path
+          $p=Start-Process -FilePath $exe -ArgumentList '--startup-smoke' -PassThru -Wait
+          if($p.ExitCode -ne 0){
+            $log=Join-Path $env:LOCALAPPDATA 'BlueVPN\logs\startup.log'
+            if(Test-Path $log){Get-Content $log -Tail 200 | Write-Host}
+            throw "Published BlueVPN startup smoke failed with exit code $($p.ExitCode)"
+          }
+
       - name: Package portable diagnostic ZIP
         shell: pwsh
         env:

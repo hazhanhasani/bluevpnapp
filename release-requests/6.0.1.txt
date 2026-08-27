@@ -1,0 +1,3 @@
+BlueVPN 6.0.1 coordinated release request
+validated_base_sha=8de4253571174d0dbc02bfdd6da0729b424ca141
+purpose=final coordinated release after Windows startup, admin navigation, Sentinel, Shahrah source, and CI fanout hardening

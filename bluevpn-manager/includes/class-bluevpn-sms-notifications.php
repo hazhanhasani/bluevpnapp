@@ -497,7 +497,7 @@ final class BlueVPN_SMS_Notifications {
     /** Wake the worker after a caller commits a DB transaction containing outbox rows. */
     public static function wake_queue(): void { self::kick_queue(); }
 
-    public static function queue(string $eventKey, string $phone, array $params = [], ?int $customerId = null, ?string $orderId = null, string $dedupeSeed = '', bool $force = false, bool $kick = true): ?string {
+    public static function queue(string $eventKey, string $phone, array $params = [], ?int $customerId = null, ?string $orderId = null, string $dedupeSeed = '', bool $force = false, bool $kick = true, ?int $manualCustomerId = null): ?string {
         global $wpdb;
         $spec = self::spec($eventKey);
         if (!$spec) return null;
@@ -512,7 +512,7 @@ final class BlueVPN_SMS_Notifications {
         $dedupe = hash('sha256', BlueVPN_Utils::json_encode([$eventKey,$phone,$clean,$seed]));
         $id = BlueVPN_Utils::random_uuid4();
         $ok = $wpdb->insert(BlueVPN_DB::table('sms_deliveries'), [
-            'id'=>$id,'event_key'=>$eventKey,'customer_id'=>$customerId ?: null,'order_id'=>$orderId ?: null,
+            'id'=>$id,'event_key'=>$eventKey,'customer_id'=>$customerId ?: null,'manual_customer_id'=>$manualCustomerId ?: null,'order_id'=>$orderId ?: null,
             'phone'=>$phone,'params_json'=>BlueVPN_Utils::json_encode($clean),'dedupe_key'=>$dedupe,'status'=>'pending','attempts'=>0,
             'max_attempts'=>max(1,min(5,(int)($s['retry_max_attempts'] ?? 3))),'provider_message_id'=>'','provider_delivery_status'=>'unknown','provider_delivery_at'=>null,'response_json'=>'','last_error'=>'',
             'next_attempt_at'=>BlueVPN_Utils::now_mysql(),'sending_started_at'=>null,'sent_at'=>null,'created_at'=>BlueVPN_Utils::now_mysql(),
@@ -614,7 +614,7 @@ final class BlueVPN_SMS_Notifications {
                     (string)$template['pattern_code'],
                     self::clean_params($spec, $params)
                 );
-                $wpdb->update(
+                $persisted=$wpdb->update(
                     $table,
                     [
                         'status'=>'sent',
@@ -629,6 +629,20 @@ final class BlueVPN_SMS_Notifications {
                     ],
                     ['id'=>$deliveryId]
                 );
+                if($persisted===false){
+                    $dbError=trim((string)$wpdb->last_error);
+                    if(class_exists('BlueVPN_Error_Monitor')){
+                        BlueVPN_Error_Monitor::report(
+                            'runtime',
+                            'sms',
+                            'error',
+                            'SMS_SENT_DB_PERSIST_FAILED',
+                            $dbError!==''?$dbError:'پیامک توسط سرویس پذیرفته شد اما ثبت وضعیت ارسال در دیتابیس ناموفق بود.',
+                            ['delivery_id'=>$deliveryId,'event_key'=>(string)$fresh['event_key'],'phone'=>(string)$fresh['phone'],'manual_customer_id'=>(int)($fresh['manual_customer_id']??0)]
+                        );
+                    }
+                    return ['ok'=>false,'status'=>'sent_unpersisted','sent'=>true,'message'=>'پیامک ارسال شد اما ثبت نتیجه در دیتابیس ناموفق بود.','db_error'=>$dbError];
+                }
                 return ['ok'=>true,'status'=>'sent','sent'=>true,'message'=>'پیامک ارسال شد.'];
             } catch (Throwable $e) {
                 $max = max(1, (int)$fresh['max_attempts']);
@@ -689,7 +703,12 @@ final class BlueVPN_SMS_Notifications {
                 try {
                     $params=BlueVPN_Utils::json_decode_array((string)$fresh['params_json'],[]);
                     $response=self::send_pattern((string)$fresh['phone'],(string)$template['pattern_code'],self::clean_params($spec,$params));
-                    $wpdb->update($table,['status'=>'sent','sent_at'=>BlueVPN_Utils::now_mysql(),'provider_message_id'=>self::provider_id($response),'provider_delivery_status'=>'provider_accepted','provider_delivery_at'=>BlueVPN_Utils::now_mysql(),'response_json'=>mb_substr(BlueVPN_Utils::json_encode($response),0,8000),'last_error'=>'','next_attempt_at'=>null,'sending_started_at'=>null],['id'=>$fresh['id']]);$sent++;
+                    $persisted=$wpdb->update($table,['status'=>'sent','sent_at'=>BlueVPN_Utils::now_mysql(),'provider_message_id'=>self::provider_id($response),'provider_delivery_status'=>'provider_accepted','provider_delivery_at'=>BlueVPN_Utils::now_mysql(),'response_json'=>mb_substr(BlueVPN_Utils::json_encode($response),0,8000),'last_error'=>'','next_attempt_at'=>null,'sending_started_at'=>null],['id'=>$fresh['id']]);
+                    if($persisted===false){
+                        $dbError=trim((string)$wpdb->last_error);
+                        if(class_exists('BlueVPN_Error_Monitor'))BlueVPN_Error_Monitor::report('runtime','sms','error','SMS_SENT_DB_PERSIST_FAILED',$dbError!==''?$dbError:'پیامک ارسال شد اما ثبت نتیجه در دیتابیس ناموفق بود.',['delivery_id'=>(string)$fresh['id'],'event_key'=>(string)$fresh['event_key'],'phone'=>(string)$fresh['phone'],'manual_customer_id'=>(int)($fresh['manual_customer_id']??0)]);
+                        $failed++;
+                    }else{$sent++;}
                 } catch (Throwable $e) {
                     $max=max(1,(int)$fresh['max_attempts']);
                     if($attempts>=$max){$status='failed';$next=null;}else{$status='retry';$delay=self::RETRY_DELAYS[min($attempts-1,count(self::RETRY_DELAYS)-1)];$next=gmdate('Y-m-d H:i:s',time()+$delay);}

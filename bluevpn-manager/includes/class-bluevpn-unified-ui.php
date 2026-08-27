@@ -48,12 +48,12 @@ final class BlueVPN_Unified_UI {
             'شبکه و زیرساخت' => [
                 ['bluevpn-free-access', 'اتصال رایگان / WARP', 'free'],
                 ['bluevpn-subscription-sources', 'منابع اشتراک', 'link'],
-                ['bluevpn-pasarguard', 'PasarGuard', 'server'],
-                ['bluevpn-marzban', 'Marzban', 'server'],
-                ['bluevpn-shahrah', 'Shahrah', 'server'],
-                ['bluevpn-guardcore', 'GuardCore', 'shield'],
+                ['bluevpn-pasarguard', 'سرور پاسارگاد', 'server'],
+                ['bluevpn-marzban', 'سرور مرزبان', 'server'],
+                ['bluevpn-shahrah', 'تأمین‌کننده شاهراه', 'server'],
+                ['bluevpn-guardcore', 'سرور گاردکور', 'shield'],
                 ['bluevpn-guardcore-queue', 'صف GuardCore', 'queue'],
-                ['bluevpn-gateway', 'Gateway Metering', 'shield'],
+                ['bluevpn-gateway', 'دروازه اندازه‌گیری مصرف', 'shield'],
             ],
             'اپ و انتشار' => [
                 ['bluevpn-app-connection', 'اتصال اپلیکیشن', 'link'],
@@ -63,17 +63,17 @@ final class BlueVPN_Unified_UI {
             ],
             'تبلیغات و ارتباط' => [
                 ['bluevpn-ads', 'تبلیغات و Tapsell', 'ads'],
-                ['bluevpn-sms', 'SMS / OTP', 'sms'],
+                ['bluevpn-sms', 'پیامک و رمز یک‌بارمصرف', 'sms'],
                 ['bluevpn-support', 'پشتیبانی آنلاین', 'support'],
                 ['bluevpn-telegram-bot', 'ربات تلگرام', 'bot'],
             ],
             'سلامت و عملیات' => [
-                ['bluevpn-production', 'سلامت و Backup', 'shield'],
+                ['bluevpn-production', 'سلامت و پشتیبان‌گیری', 'shield'],
                 ['bluevpn-error-monitor', 'Sentinel و خطاها', 'shield'],
-                ['bluevpn-database', 'دیتابیس', 'db'],
+                ['bluevpn-database', 'پایگاه داده', 'db'],
             ],
             'هوش و اتوماسیون' => [
-                ['bluevpn-blueai', 'BlueAI', 'ai'],
+                ['bluevpn-blueai', 'هوش مصنوعی بلووی‌پی‌ان', 'ai'],
             ],
             'تنظیمات' => [
                 ['bluevpn-settings', 'تنظیمات عمومی', 'settings'],

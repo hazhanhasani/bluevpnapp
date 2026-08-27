@@ -69,7 +69,7 @@ class GatewayHaPhase3515Tests(unittest.TestCase):
     def test_windows_already_tries_gateway_standby_candidates(self):
         orchestrator = self.text("bluevpn-windows/Services/ConnectionOrchestrator.cs")
         self.assertIn("var candidates = ranked.Where", orchestrator)
-        self.assertIn("Take(8)", orchestrator)
+        self.assertIn("Take(5)", orchestrator)
         self.assertIn("foreach (var endpoint in candidates)", orchestrator)
         self.assertIn("_ai.RecordFailure(endpoint", orchestrator)
 

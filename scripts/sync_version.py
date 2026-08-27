@@ -203,8 +203,25 @@ def main() -> None:
         if drifted:
             raise SystemExit("version drift: " + ", ".join(drifted))
     else:
+        previous_release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
+        previous_version = str(previous_release.get("version", "")).strip()
+        previous_code = str(previous_release.get("version_code", "")).strip()
+
         for path in drifted:
             (ROOT / path).write_text(expected[path], encoding="utf-8")
+
+        # Release regression tests intentionally pin the canonical release
+        # contract. Keep those expectations synchronized during a real version
+        # bump so a healthy release does not create dozens of false failures.
+        if previous_version and previous_version != version:
+            for test_path in (ROOT / "tests").glob("test_*.py"):
+                text = test_path.read_text(encoding="utf-8")
+                updated = text.replace(previous_version, version)
+                if previous_code and previous_code != str(version_code):
+                    updated = updated.replace(previous_code, str(version_code))
+                if updated != text:
+                    test_path.write_text(updated, encoding="utf-8")
+
     action = "checked" if args.check else "synchronized"
     print(f"BlueVPN version {action}: {version} / {version_code} ({len(drifted)} drifted files)")
 

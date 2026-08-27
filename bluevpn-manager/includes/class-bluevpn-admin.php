@@ -46,29 +46,17 @@ final class BlueVPN_Admin {
         add_submenu_page('bluevpn-manager','وضعیت انتقال','وضعیت انتقال','manage_options','bluevpn-migration',[self::class,'migration_page']);
         add_submenu_page('bluevpn-manager','آپدیت افزونه','آپدیت افزونه','manage_options','bluevpn-github-updater',[self::class,'github_updater_page']);
 
-        // Keep every specialist screen registered and directly addressable, but
-        // declutter the native WordPress submenu. The structured BlueVPN sidebar
-        // remains the authoritative navigation for specialist operations.
-        $keep = [
-            'bluevpn-manager',
-            'bluevpn-customers',
-            'bluevpn-free-access',
-            'bluevpn-app-update',
-            'bluevpn-ads',
-            'bluevpn-production',
-            'bluevpn-blueai',
-            'bluevpn-settings',
-        ];
-        global $submenu;
-        if (!empty($submenu['bluevpn-manager']) && is_array($submenu['bluevpn-manager'])) {
-            foreach ($submenu['bluevpn-manager'] as $index => $item) {
-                $slug = (string)($item[2] ?? '');
-                if ($slug !== '' && !in_array($slug, $keep, true)) {
-                    unset($submenu['bluevpn-manager'][$index]);
-                }
-            }
-            $submenu['bluevpn-manager'] = array_values($submenu['bluevpn-manager']);
-        }
+        // Register every page exposed by the unified BlueVPN sidebar here, on the
+        // same admin_menu pass as the parent. WordPress otherwise may reject a
+        // direct admin.php?page=... request before a later-priority specialist
+        // class gets a chance to register its submenu.
+        add_submenu_page('bluevpn-manager','پشتیبانی آنلاین','پشتیبانی آنلاین','manage_options','bluevpn-support',[BlueVPN_Support::class,'admin_page']);
+        add_submenu_page('bluevpn-manager','ربات تلگرام','ربات تلگرام','manage_options','bluevpn-telegram-bot',[BlueVPN_Telegram_Bot::class,'admin_page']);
+        add_submenu_page('bluevpn-manager','خطاها و مانیتورینگ','خطاها و مانیتورینگ','manage_options','bluevpn-error-monitor',[BlueVPN_Error_Monitor::class,'admin_page']);
+
+        // Do not mutate $submenu after registration. The custom BlueVPN sidebar is
+        // already the primary navigation, while keeping native submenu entries
+        // intact guarantees WordPress keeps every registered page addressable.
     }
     private static function head(string $title): void { BlueVPN_Unified_UI::shell_open($title); echo '<div class="wrap" dir="rtl"><style>.bvp-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;max-width:1100px}.bvp-card{background:#fff;border:1px solid #dcdcde;border-radius:10px;padding:18px}.bvp-ok{color:#34d399;font-weight:700}.bvp-warn{color:#fbbf24;font-weight:700}.bvp-code{direction:ltr;text-align:left;background:#f6f7f7;padding:10px;border-radius:6px;overflow:auto}.bvp-table{background:#fff;max-width:1200px}.bvp-table th,.bvp-table td{text-align:right}</style>'; }
     private static function foot(): void { echo '</div>'; BlueVPN_Unified_UI::shell_close(); }

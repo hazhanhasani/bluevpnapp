@@ -93,8 +93,8 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         baseline = self.text(
             "android-benchmark/src/main/java/com/bluevpn/benchmark/BlueVpnBaselineProfileGenerator.kt"
         )
-        self.assertIn('By.desc("نمایش مکان‌ها")', macro)
-        self.assertIn('By.desc("نمایش مکان‌ها")', baseline)
+        self.assertIn('By.res(packageName, "bluevpn_server_card")', macro)
+        self.assertIn('By.res(packageName, "bluevpn_server_card")', baseline)
         self.assertNotIn('By.text("مکان‌ها")', macro)
 
     def test_benchmark_plugin_is_registered_in_version_catalog(self):

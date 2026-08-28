@@ -7,6 +7,15 @@ android {
     namespace = "com.bluevpn.benchmark"
     compileSdk = 37
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+
+    kotlinOptions {
+        jvmTarget = "11"
+    }
+
     defaultConfig {
         minSdk = 24
         targetSdk = 37

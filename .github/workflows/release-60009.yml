@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: bluevpn-release-60009
@@ -48,3 +49,12 @@ jobs:
           git add -A ':!.github/workflows'
           git commit -m "release: BlueVPN 6.0.9 locations UX and live latency"
           git push origin HEAD:main
+
+      - name: Dispatch validated release fanout
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run project-health.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo "Requested Project Health validation and coordinated 6.0.9 fanout."

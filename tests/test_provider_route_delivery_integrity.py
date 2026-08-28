@@ -30,10 +30,12 @@ class ProviderRouteDeliveryIntegrityTests(unittest.TestCase):
         for token in ["route_counts","provider_counts","missing_routes","source_count"]:
             self.assertIn(token,body)
 
-    def test_all_customer_links_are_enumerated(self):
+    def test_all_customer_links_and_expected_plan_routes_are_enumerated(self):
         src=self.text("bluevpn-manager/includes/class-bluevpn-providers.php")
         self.assertIn("foreach(self::customer_provider_links($customerId) as $link)",src)
-        self.assertIn("$provider.':'.$panelId",src)
+        self.assertIn("foreach(self::plan_provider_routes($plan) as $provider=>$routes)",src)
+        self.assertIn("provider_route_key((string)$provider",src)
+        self.assertIn("'expected_from_plan'=>true",src)
 
 if __name__=="__main__":
     unittest.main()

@@ -21,13 +21,17 @@ class AndroidConnectedLocationStateTests(unittest.TestCase):
             body,
         )
 
-    def test_connected_country_is_sorted_from_actual_active_key(self):
+    def test_connected_country_is_highlighted_without_reordering_master_list(self):
         src=self.text("android-source/BlueVpnServersActivity.kt")
         start=src.index("private fun renderLocationsNow")
         end=src.index("private fun availabilityLabel",start)
         body=src[start:end]
-        self.assertIn("it.location.key == activeLocationKey",body)
-        self.assertIn("!connectedNow && it.location.key == preferred",body)
+        self.assertIn("group.location.key == activeLocationKey",body)
+        sort=body.split(".sortedWith(",1)[1].split("emptyText.text",1)[0]
+        self.assertIn("LocationTab.ALL",sort)
+        self.assertIn("compareBy<LocationGroup> { it.location.title }",sort)
+        self.assertNotIn("it.location.key == activeLocationKey",sort)
+        self.assertNotIn("it.location.key == preferred",sort)
 
 if __name__=="__main__":
     unittest.main()

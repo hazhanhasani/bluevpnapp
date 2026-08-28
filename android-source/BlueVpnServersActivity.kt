@@ -36,6 +36,7 @@ import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
 import com.v2ray.ang.bluevpn.BlueVpnRuntimeGate
+import com.v2ray.ang.bluevpn.BlueVpnRefreshCoordinator
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnTapsellManager
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
@@ -89,6 +90,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var entitlementRepairAttempted = false
     private var accountSyncInProgress = false
     private var accountSyncPending = false
+    private val refreshCoordinator = BlueVpnRefreshCoordinator()
+    private var activeRefreshToken = 0L
     private var healthSweepRequested = false
     private var healthSweepInProgress = false
     private var renderedPremiumMode: Boolean? = null
@@ -104,7 +107,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         renderLocationsNow(renderGeneration)
     }
     private var appendChunkRunnable: Runnable? = null
-    private val refreshTimeoutRunnable = Runnable { stopRefreshing() }
+    private val refreshTimeoutRunnable = Runnable {
+        val token = activeRefreshToken
+        if (token > 0L && refreshCoordinator.timeout(token)) {
+            activeRefreshToken = 0L
+            stopRefreshingVisual()
+            candidateLoadError = "بروزرسانی در مهلت مقرر کامل نشد؛ فهرست فعلی حفظ شد"
+            updateEntitlementUi()
+        }
+    }
     private val candidateReloadRunnable = Runnable {
         val force = candidateReloadPending
         candidateReloadPending = false
@@ -129,14 +140,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             // snapshot and wait for a quiet window before checking whether the
             // actual location membership changed.
             BlueVpnLocationUtil.invalidateResolvedCache()
-            stopRefreshing()
+            // Runtime list broadcasts do not own the manual refresh lifecycle.
+            // They may update the pool, but must never re-enable the refresh button.
             scheduleCandidateReload(force = false, delayMs = 2_000L)
         }
         mainViewModel.updateTestResultAction.observe(this) {
             // Ping/test-result broadcasts are presentation-only. Never rebuild the
             // country/server tree here; refresh the visible labels from MMKV so the
             // current scroll position and expanded groups remain untouched.
-            stopRefreshing()
+            // Ping broadcasts are presentation-only and must not finish account sync.
             healthSweepInProgress = false
             renderHandler.removeCallbacks(healthRefreshRunnable)
             renderHandler.postDelayed(healthRefreshRunnable, 120L)
@@ -195,6 +207,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private fun loadCandidates(
         force: Boolean,
         selectAutomaticAfterLoad: Boolean = false,
+        refreshToken: Long? = null,
     ) {
         if (isFinishing || isDestroyed) return
         if (candidateLoadInProgress) {
@@ -239,7 +252,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
             withContext(Dispatchers.Main) {
                 candidateLoadInProgress = false
-                stopRefreshing()
                 if (isFinishing || isDestroyed) return@withContext
 
                 val currentIdentity = BlueVpnAccountManager
@@ -286,6 +298,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 if (retry) {
                     renderHandler.removeCallbacks(candidateReloadRunnable)
                     renderHandler.postDelayed(candidateReloadRunnable, 500L)
+                }
+
+                refreshToken?.let { token ->
+                    if (refreshCoordinator.finish(token)) {
+                        activeRefreshToken = 0L
+                        stopRefreshingVisual()
+                    }
                 }
             }
         }
@@ -402,12 +421,16 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             textSize = 20f
             contentDescription = "بررسی دوباره سرورها"
             BlueVpnUiGuard.bind(this, intervalMs = 1_200L) {
+                if (refreshCoordinator.isRefreshing()) return@bind
+                val token = refreshCoordinator.begin()
+                activeRefreshToken = token
                 isEnabled = false
                 text = "…"
                 entitlementRepairAttempted = false
-                refreshEntitlementState(force = true)
+                refreshEntitlementState(force = true, refreshToken = token)
                 renderHandler.removeCallbacks(refreshTimeoutRunnable)
-                renderHandler.postDelayed(refreshTimeoutRunnable, 35_000L)
+                // Network sync owns up to 35s; UI deadline must be later, not racing it.
+                renderHandler.postDelayed(refreshTimeoutRunnable, 42_000L)
             }
         }
         row.addView(refreshButton, LinearLayout.LayoutParams(dp(46), dp(46)))
@@ -614,7 +637,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
      * only the user's "تازه‌سازی" action may contact WordPress or mutate the
      * subscription/MMKV pool.
      */
-    private fun refreshEntitlementState(force: Boolean) {
+    private fun refreshEntitlementState(force: Boolean, refreshToken: Long? = null) {
         updateEntitlementUi()
         if (!force) return
         if (!BlueVpnAccountManager.hasSession(this)) {
@@ -633,7 +656,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                         "دریافت سرورها ناموفق بود؛ دوباره تلاش کنید"
                     }.orEmpty()
                     BlueVpnLocationUtil.invalidateCache()
-                    loadCandidates(force = true)
+                    refreshToken?.let { refreshCoordinator.beginPoolReload(it) }
+                    loadCandidates(force = true, refreshToken = refreshToken)
                 }
             }
             return
@@ -690,18 +714,26 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
                 if (result.isSuccess) {
                     BlueVpnLocationUtil.invalidateCache()
-                    loadCandidates(force = true)
+                    refreshToken?.let { refreshCoordinator.beginPoolReload(it) }
+                    loadCandidates(force = true, refreshToken = refreshToken)
                 } else {
                     // A control-plane timeout must not destroy or re-enumerate the
                     // currently usable local pool. Keep the visible list intact.
-                    stopRefreshing()
+                    refreshToken?.let { token ->
+                        if (refreshCoordinator.finish(token)) {
+                            activeRefreshToken = 0L
+                            stopRefreshingVisual()
+                        }
+                    }
                     refreshVisibleHealthPresentation()
                 }
 
                 if (accountSyncPending) {
                     accountSyncPending = false
                     // Coalesce repeated taps into one trailing manual refresh.
-                    refreshEntitlementState(force = true)
+                    val nextToken = refreshCoordinator.begin()
+                    activeRefreshToken = nextToken
+                    refreshEntitlementState(force = true, refreshToken = nextToken)
                 }
             }
         }
@@ -1525,7 +1557,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             renderLocations()
         }
     }
-    private fun stopRefreshing() {
+    private fun stopRefreshingVisual() {
         renderHandler.removeCallbacks(refreshTimeoutRunnable)
         if (!::refreshButton.isInitialized) return
         refreshButton.isEnabled = true

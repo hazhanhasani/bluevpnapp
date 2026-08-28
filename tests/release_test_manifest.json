@@ -9,6 +9,7 @@
     "test_android_beta_build_detection_546.py",
     "test_android_connected_location_state.py",
     "test_android_expandable_server_rows.py",
+    "test_android_handover_no_rollback.py",
     "test_android_latency_state_contract.py",
     "test_android_location_server_expansion.py",
     "test_android_locations_oem_ui_5311.py",

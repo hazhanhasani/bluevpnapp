@@ -406,13 +406,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             // They may update the pool, but must never re-enable the refresh button.
             scheduleCandidateReload(force = false, delayMs = 2_000L)
         }
-        mainViewModel.updateTestResultAction.observe(this) {
+        mainViewModel.updateTestResultAction.observe(this) { event ->
             // Ping/test-result broadcasts are presentation-only. Never rebuild the
-            // country/server tree here; refresh the visible labels from MMKV so the
-            // current scroll position and expanded groups remain untouched.
-            // Ping broadcasts are presentation-only and must not finish account sync.
-            recordPublishedLatencySamples()
-            healthSweepInProgress = false
+            // country/server tree here; refresh immutable row content from MMKV so
+            // DiffUtil preserves scroll and expanded state.
+            recordPublishedLatencySamples(event)
+            if (event == "batch-complete") {
+                healthSweepInProgress = false
+            }
             renderHandler.removeCallbacks(healthRefreshRunnable)
             renderHandler.postDelayed(healthRefreshRunnable, 120L)
         }
@@ -1407,10 +1408,23 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         editor.apply()
     }
 
-    private fun recordPublishedLatencySamples() {
+    private fun recordPublishedLatencySamples(event: String?) {
         val now = System.currentTimeMillis()
+        val candidates = BlueVpnLocationUtil.cachedCandidates(this)
         val editor = latencyPrefs.edit()
-        BlueVpnLocationUtil.cachedCandidates(this).forEach { candidate ->
+
+        val targetGuids = when {
+            event == "batch-complete" -> candidates.map { it.guid }.toSet()
+            event?.startsWith("current:") == true ->
+                setOf(event.substringAfter("current:").substringBefore(":"))
+                    .filter { it.isNotBlank() }
+                    .toSet()
+            else -> emptySet()
+        }
+        if (targetGuids.isEmpty()) return
+
+        candidates.forEach { candidate ->
+            if (candidate.guid !in targetGuids) return@forEach
             val liveDelay = MmkvManager.decodeServerAffiliationInfo(candidate.guid)
                 ?.testDelayMillis ?: candidate.delay
             if (liveDelay > 0L) {

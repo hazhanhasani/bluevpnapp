@@ -167,6 +167,13 @@ def patch_build_gradle() -> None:
     if marker not in text:
         raise RuntimeError("Android applicationId marker not found")
 
+    if "testInstrumentationRunner" not in text:
+        text = text.replace(
+            marker,
+            marker + '\n        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"',
+            1,
+        )
+
     fields = (
         (
             "BLUEVPN_API_BASE_URL",
@@ -224,6 +231,11 @@ def patch_build_gradle() -> None:
         f'implementation("ir.tapsell.mediation.adapter:legacy-taproll:{TAPSELL_MEDIATION_VERSION}")',
         'implementation("com.google.android.gms:play-services-auth-api-phone:18.3.1")',
         'implementation("androidx.work:work-runtime:2.10.0")',
+        'androidTestImplementation("androidx.test.ext:junit:1.2.1")',
+        'androidTestImplementation("androidx.test:runner:1.6.2")',
+        'androidTestImplementation("androidx.test:rules:1.6.1")',
+        'androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")',
+        'androidTestImplementation("androidx.benchmark:benchmark-junit4:1.3.3")',
     )
     for dependency in required_dependencies:
         if dependency not in text:
@@ -903,6 +915,27 @@ def inject_bluevpn_home() -> None:
         if not source.exists():
             raise RuntimeError(f"Canonical BlueVPN source is missing: {source}")
         shutil.copy2(source, target)
+
+    android_test_dir = APP / "src/androidTest/java/com/v2ray/ang"
+    android_test_ui_dir = android_test_dir / "ui"
+    android_test_bluevpn_dir = android_test_dir / "bluevpn"
+    android_test_ui_dir.mkdir(parents=True, exist_ok=True)
+    android_test_bluevpn_dir.mkdir(parents=True, exist_ok=True)
+    android_test_overrides = {
+        android_test_ui_dir / "BlueVpnLocationsUiTest.kt":
+            ROOT / "android-test/BlueVpnLocationsUiTest.kt",
+        android_test_bluevpn_dir / "BlueVpnLocationDiffBenchmark.kt":
+            ROOT / "android-test/BlueVpnLocationDiffBenchmark.kt",
+    }
+    for target, source in android_test_overrides.items():
+        if not source.exists():
+            raise RuntimeError(f"Canonical BlueVPN Android test is missing: {source}")
+        shutil.copy2(source, target)
+
+    baseline_profile_source = ROOT / "android-source/baseline-prof.txt"
+    if not baseline_profile_source.exists():
+        raise RuntimeError("Canonical BlueVPN baseline profile is missing")
+    shutil.copy2(baseline_profile_source, APP / "src/main/baseline-prof.txt")
 
     home_runtime = (java_dir / "BlueVpnHomeActivity.kt").read_text(encoding="utf-8")
     if "LauncherManager.startService(this, guid)" not in home_runtime:

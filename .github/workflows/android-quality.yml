@@ -38,7 +38,7 @@ jobs:
         with:
           log-accepted-android-sdk-licenses: false
           cmdline-tools-version: '14742923'
-          packages: 'platforms;android-37.0 build-tools;37.0.0 platform-tools'
+          packages: 'platforms;android-37.0 build-tools;37.0.0 platform-tools emulator'
 
       - name: Checkout pinned v2rayNG runtime
         shell: bash
@@ -71,10 +71,45 @@ jobs:
           python -m pip install --disable-pip-version-check --quiet pillow
           python scripts/prepare_android.py
 
-      - name: Compile app instrumentation and Macrobenchmark sources
-        working-directory: upstream/V2rayNG
+      - name: Run Android UI, state, screenshot and performance QA
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            cd upstream/V2rayNG
+            chmod +x gradlew
+            ./gradlew :app:connectedPlaystoreDebugAndroidTest -PABI_FILTERS=x86_64 --stacktrace --no-daemon --build-cache
+            ./gradlew :benchmark:connectedBenchmarkAndroidTest -PABI_FILTERS=x86_64 --stacktrace --no-daemon --build-cache
+            cd "$GITHUB_WORKSPACE"
+            APP_ID="$(python - <<'PY'
+            import json
+            print(json.load(open('branding/app.json', encoding='utf-8'))['application_id'])
+            PY
+            )"
+            mkdir -p reports/android-quality/qa
+            adb pull "/sdcard/Android/data/$APP_ID/files/qa/." reports/android-quality/qa/ || true
+
+      - name: Collect Android QA reports
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x gradlew
-          ./gradlew             :app:compilePlaystoreDebugKotlin             :app:compilePlaystoreDebugAndroidTestKotlin             :benchmark:compileBenchmarkKotlin             -PABI_FILTERS=arm64-v8a             --stacktrace --no-daemon --build-cache --parallel
+          mkdir -p reports/android-quality
+          cp -r upstream/V2rayNG/app/build/reports/androidTests reports/android-quality/app-androidTests 2>/dev/null || true
+          cp -r upstream/V2rayNG/benchmark/build/reports/androidTests reports/android-quality/benchmark-androidTests 2>/dev/null || true
+          find reports/android-quality -maxdepth 5 -type f -print | sort || true
+
+      - name: Upload Android QA artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: android-quality-${{ github.sha }}
+          path: reports/android-quality/
+          if-no-files-found: warn
+          retention-days: 14

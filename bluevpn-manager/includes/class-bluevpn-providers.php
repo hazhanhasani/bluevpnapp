@@ -1677,10 +1677,10 @@ final class BlueVPN_Providers {
         ],false);
     }
     private static function customer_source_entries(array $c): array {
-        $out=[];$customerId=(int)($c['id']??0);$usableLinkedProviders=[];
+        $out=[];$customerId=(int)($c['id']??0);$usableLinkedProviders=[];$seenRouteKeys=[];
         foreach(self::customer_provider_links($customerId) as $link){
             $provider=(string)($link['provider_type']??'');$panelId=(int)($link['panel_id']??0);if($provider===''||$panelId<=0)continue;
-            $routeKey=trim((string)($link['route_key']??''));if($routeKey==='')$routeKey=$provider.':'.$panelId;
+            $routeKey=trim((string)($link['route_key']??''));if($routeKey==='')$routeKey=$provider.':'.$panelId;$seenRouteKeys[$routeKey]=true;
             if($provider==='shahrah'){
                 $out[]=['key'=>$routeKey,'id'=>$panelId,'type'=>'shahrah_panel','provider_type'=>'shahrah','payload'=>'','route_key'=>$routeKey];
                 $usableLinkedProviders[$provider]=true;
@@ -1706,15 +1706,21 @@ final class BlueVPN_Providers {
         }
 
         $planId=(int)($c['plan_id']??0);
-        if($planId>0&&class_exists('BlueVPN_Shahrah')&&!isset($usableLinkedProviders['shahrah'])){
+        if($planId>0){
             global $wpdb;
             $plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM ".BlueVPN_DB::table('plans')." WHERE id=%d AND deleted=0",$planId),ARRAY_A);
             if($plan){
-                foreach(self::plan_provider_routes($plan)['shahrah'] as $route){
-                    $panelId=(int)($route['panel_id']??0);$slug=trim((string)($route['plan_slug']??''));
-                    if($panelId>0){
-                        $key='shahrah:'.$panelId.($slug!==''?':'.$slug:'');
-                        $out[]=['key'=>$key,'id'=>$panelId,'type'=>'shahrah_panel','provider_type'=>'shahrah','payload'=>'','route_key'=>$key];
+                foreach(self::plan_provider_routes($plan) as $provider=>$routes){
+                    foreach((array)$routes as $route){
+                        $panelId=(int)($route['panel_id']??0);if($panelId<=0)continue;
+                        $key=self::provider_route_key((string)$provider,(array)$route);
+                        if(isset($seenRouteKeys[$key]))continue;
+                        $seenRouteKeys[$key]=true;
+                        if($provider==='shahrah'){
+                            $out[]=['key'=>$key,'id'=>$panelId,'type'=>'shahrah_panel','provider_type'=>'shahrah','payload'=>'','route_key'=>$key];
+                        }else{
+                            $out[]=['key'=>$key,'id'=>$panelId,'type'=>'provider_link_missing','provider_type'=>(string)$provider,'payload'=>'','route_key'=>$key,'expected_from_plan'=>true];
+                        }
                     }
                 }
             }

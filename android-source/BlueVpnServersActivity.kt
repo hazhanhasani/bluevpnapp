@@ -55,6 +55,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         const val EXTRA_LOCATION_CHANGED = "bluevpn.extra.LOCATION_CHANGED"
         const val EXTRA_LOCATION_KEY = "bluevpn.extra.LOCATION_KEY"
         const val EXTRA_LOCATION_TITLE = "bluevpn.extra.LOCATION_TITLE"
+
+        private const val STATE_TAB = "bluevpn.locations.state.TAB"
+        private const val STATE_QUERY = "bluevpn.locations.state.QUERY"
+        private const val STATE_EXPANDED = "bluevpn.locations.state.EXPANDED"
+        private const val STATE_SCROLL_Y = "bluevpn.locations.state.SCROLL_Y"
     }
 
     private enum class LocationTab { ALL, FAVORITES, RECENT }
@@ -80,8 +85,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private lateinit var allTabButton: TextView
     private lateinit var favoritesTabButton: TextView
     private lateinit var recentTabButton: TextView
+    private lateinit var searchField: EditText
     private var selectedTab = LocationTab.ALL
     private var query = ""
+    private var queryText = ""
+    private var restoredScrollY: Int? = null
     private var firstResume = true
     private var initialScrollRestored = false
     private val searchHandler = Handler(Looper.getMainLooper())
@@ -130,12 +138,31 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        savedInstanceState?.let { state ->
+            selectedTab = runCatching {
+                LocationTab.valueOf(state.getString(STATE_TAB).orEmpty())
+            }.getOrDefault(LocationTab.ALL)
+            queryText = state.getString(STATE_QUERY).orEmpty()
+            query = BlueVpnLocationUtil.normalizeForSearch(queryText)
+            expandedLocationKeys.clear()
+            expandedLocationKeys.addAll(
+                state.getStringArrayList(STATE_EXPANDED).orEmpty()
+            )
+            restoredScrollY = state.getInt(STATE_SCROLL_Y, 0).coerceAtLeast(0)
+            initialScrollRestored = true
+        }
+
         window.setWindowAnimations(0)
         palette = BlueVpnTheme.palette(this)
         themeDarkAtCreate = palette.dark
         window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(palette.background))
         BlueVpnTheme.applySystemBars(this)
         setContentView(createScreen())
+        if (::searchField.isInitialized && searchField.text.toString() != queryText) {
+            searchField.setText(queryText)
+            searchField.setSelection(searchField.text.length)
+        }
         updateTabs()
         updateEntitlementUi()
 
@@ -183,6 +210,18 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         // refresh WordPress, subscriptions, MMKV ownership or cloud metadata just
         // because it became visible again.
         updateEntitlementUi()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(STATE_TAB, selectedTab.name)
+        outState.putString(STATE_QUERY, queryText)
+        outState.putStringArrayList(STATE_EXPANDED, ArrayList(expandedLocationKeys))
+        outState.putInt(
+            STATE_SCROLL_Y,
+            if (::locationsScrollView.isInitialized) locationsScrollView.scrollY
+            else restoredScrollY ?: 0,
+        )
+        super.onSaveInstanceState(outState)
     }
 
     override fun onPause() {
@@ -507,6 +546,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun createSearchField(): View = EditText(this).apply {
+        searchField = this
         hint = "جست‌وجوی کشور یا سرور"
         textSize = 12.5f
         setTextColor(palette.textPrimary)
@@ -518,7 +558,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                query = BlueVpnLocationUtil.normalizeForSearch(s?.toString())
+                queryText = s?.toString().orEmpty()
+                query = BlueVpnLocationUtil.normalizeForSearch(queryText)
                 searchHandler.removeCallbacks(searchRunnable)
                 searchHandler.postDelayed(
                     searchRunnable,
@@ -961,10 +1002,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     // only the first chunk is mounted clamps a deep offset to the
                     // temporary short height and produces a visible jump.
                     if (::locationsScrollView.isInitialized) {
-                        val targetScrollY = if (!initialScrollRestored) {
+                        val targetScrollY = restoredScrollY?.also {
+                            restoredScrollY = null
+                        } ?: if (!initialScrollRestored) {
                             initialScrollRestored = true
                             getSharedPreferences("bluevpn_locations_ui", MODE_PRIVATE)
-                                .getInt("scroll_y", 0)
+                                .getInt(scrollPreferenceKey(), 0)
                         } else {
                             preservedScrollY
                         }
@@ -1471,11 +1514,16 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         )
     }
 
+    private fun scrollPreferenceKey(): String {
+        val queryBucket = if (query.isBlank()) "none" else query.hashCode().toString()
+        return "scroll_y:" + selectedTab.name + ":" + queryBucket
+    }
+
     private fun rememberLocationScroll() {
         if (!::locationsScrollView.isInitialized) return
         getSharedPreferences("bluevpn_locations_ui", MODE_PRIVATE)
             .edit()
-            .putInt("scroll_y", locationsScrollView.scrollY)
+            .putInt(scrollPreferenceKey(), locationsScrollView.scrollY)
             .apply()
     }
 

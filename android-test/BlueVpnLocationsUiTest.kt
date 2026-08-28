@@ -1,5 +1,6 @@
 package com.v2ray.ang.ui
 
+import android.content.Context
 import android.content.pm.ActivityInfo
 import android.view.View
 import androidx.recyclerview.widget.RecyclerView
@@ -15,6 +16,8 @@ import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.hamcrest.Matchers.allOf
 import org.junit.Test
+import org.junit.Before
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.runner.RunWith
 import java.io.File
@@ -23,6 +26,24 @@ import androidx.test.uiautomator.UiDevice
 
 @RunWith(AndroidJUnit4::class)
 class BlueVpnLocationsUiTest {
+
+    @Before
+    fun resetLocationsUiState() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.targetContext
+            .getSharedPreferences("bluevpn_locations_ui", Context.MODE_PRIVATE)
+            .edit()
+            .clear()
+            .commit()
+        UiDevice.getInstance(instrumentation)
+            .executeShellCommand("cmd uimode night no")
+    }
+
+    @After
+    fun restoreLightMode() {
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+            .executeShellCommand("cmd uimode night no")
+    }
 
     @Test
     fun locationsLaunchesWithVirtualizedList() {

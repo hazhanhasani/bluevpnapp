@@ -1891,6 +1891,65 @@ final class BlueVPN_Providers {
         return $lines;
     }
 
+    public static function subscription_route_audit(int $customerId): array {
+        if($customerId<=0)return ['ok'=>false,'routes'=>[],'expected'=>0,'healthy'=>0,'missing'=>0];
+        global $wpdb;
+        $ct=BlueVPN_DB::table('customers');$pt=BlueVPN_DB::table('plans');
+        $c=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$ct} WHERE id=%d LIMIT 1",$customerId),ARRAY_A);
+        if(!$c)return ['ok'=>false,'routes'=>[],'expected'=>0,'healthy'=>0,'missing'=>0];
+        $planId=(int)($c['plan_id']??0);
+        $plan=$planId>0?$wpdb->get_row($wpdb->prepare("SELECT * FROM {$pt} WHERE id=%d AND deleted=0 LIMIT 1",$planId),ARRAY_A):null;
+        $snapshot=self::snapshot_load($customerId);
+        $stats=is_array($snapshot['sources']??null)?$snapshot['sources']:[];
+        $links=[];foreach(self::customer_provider_links($customerId) as $link){
+            $key=trim((string)($link['route_key']??''));if($key!=='')$links[$key]=$link;
+        }
+        $routes=[];
+        if($plan){
+            foreach(self::plan_provider_routes($plan) as $provider=>$providerRoutes){
+                foreach((array)$providerRoutes as $route){
+                    $key=self::provider_route_key((string)$provider,(array)$route);
+                    $link=$links[$key]??null;$stat=is_array($stats[$key]??null)?$stats[$key]:[];
+                    $count=max(0,(int)($stat['count']??0));
+                    $linked=is_array($link);
+                    $usable=$provider==='shahrah'
+                        ? $linked
+                        : ($linked&&trim((string)($link['subscription_url']??''))!=='');
+                    $healthy=$usable&&$count>0&&!empty($stat['ok']);
+                    $routes[]=[
+                        'key'=>$key,'provider'=>(string)$provider,'panel_id'=>(int)($route['panel_id']??0),
+                        'linked'=>$linked,'usable'=>$usable,'healthy'=>$healthy,'config_count'=>$count,
+                        'status'=>$healthy?'healthy':($usable?'empty_snapshot':'missing_link'),
+                        'error'=>(string)($stat['error']??$link['last_error']??''),
+                    ];
+                }
+            }
+        }
+        if(class_exists('BlueVPN_Subscription_Sources')){
+            foreach(BlueVPN_Subscription_Sources::active_entries_for_plan($planId) as $entry){
+                $key=(string)($entry['key']??('manual:'.(int)($entry['id']??0)));
+                $stat=is_array($stats[$key]??null)?$stats[$key]:[];
+                $count=max(0,(int)($stat['count']??0));$healthy=$count>0&&!empty($stat['ok']);
+                $routes[]=[
+                    'key'=>$key,'provider'=>(string)($entry['provider_type']??'source'),'panel_id'=>(int)($entry['id']??0),
+                    'linked'=>true,'usable'=>true,'healthy'=>$healthy,'config_count'=>$count,
+                    'status'=>$healthy?'healthy':'empty_snapshot','error'=>(string)($stat['error']??''),
+                ];
+            }
+        }
+        $healthy=count(array_filter($routes,static fn($r)=>!empty($r['healthy'])));
+        $missing=count(array_filter($routes,static fn($r)=>empty($r['healthy'])));
+        return [
+            'ok'=>$missing===0&&count($routes)>0,
+            'routes'=>$routes,
+            'expected'=>count($routes),
+            'healthy'=>$healthy,
+            'missing'=>$missing,
+            'snapshot_updated_at'=>(int)($snapshot['updated_at']??0),
+            'total_configs'=>is_array($snapshot['lines']??null)?count($snapshot['lines']):0,
+        ];
+    }
+
     public static function subscription_snapshot_stats(int $customerId): array {
         $snapshot=self::snapshot_load($customerId);
         $sources=is_array($snapshot['sources']??null)?$snapshot['sources']:[];

@@ -19,8 +19,6 @@ for key in list(components):
     components[key] = TARGET_VERSION
 VERSION_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-subprocess.run(["python", str(ROOT / "scripts" / "sync_version.py")], cwd=ROOT, check=True)
-
 release = json.loads(RELEASE_FILE.read_text(encoding="utf-8"))
 features = release.setdefault("features", [])
 for feature in [
@@ -31,11 +29,8 @@ for feature in [
 ]:
     if feature not in features:
         features.append(feature)
-release["description"] = (
-    "BlueVPN 6.0.9: Android Locations UX, live latency presentation, "
-    "stable selection state, and coordinated release."
-)
 RELEASE_FILE.write_text(json.dumps(release, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
+subprocess.run(["python", str(ROOT / "scripts" / "sync_version.py")], cwd=ROOT, check=True)
 subprocess.run(["python", str(ROOT / "scripts" / "sync_version.py"), "--check"], cwd=ROOT, check=True)
 print(f"Prepared BlueVPN {TARGET_VERSION} / {TARGET_CODE}")

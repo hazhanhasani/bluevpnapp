@@ -50,6 +50,24 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
             benchmark,
         )
 
+    def test_home_locations_accessibility_targets_clickable_card(self):
+        home = self.text("android-source/BlueVpnHomeActivity.kt")
+        start = home.index("private fun createServerCard")
+        end = home.index("private fun createModeRow", start)
+        body = home[start:end]
+        self.assertIn('id = R.id.bluevpn_server_card', body)
+        self.assertIn('contentDescription = "نمایش مکان‌ها"', body)
+        self.assertIn("isClickable = true", body)
+        self.assertIn("importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO", body)
+
+    def test_emulator_macrobenchmark_error_is_suppressed_only_for_ci_smoke(self):
+        benchmark = self.text("android-benchmark/build.gradle.kts")
+        self.assertIn(
+            'testInstrumentationRunnerArguments["androidx.benchmark.suppressErrors"] = "EMULATOR"',
+            benchmark,
+        )
+        self.assertIn("published performance numbers still require real hardware", benchmark)
+
     def test_device_qa_is_pinned_and_uploads_artifacts(self):
         workflow = self.text(".github/workflows/android-quality.yml")
         self.assertIn(

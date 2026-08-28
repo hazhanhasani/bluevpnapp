@@ -99,7 +99,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private val healthRefreshRunnable = Runnable {
         refreshVisibleHealthPresentation()
     }
-    private val searchRunnable = Runnable { renderLocations() }
+    private val searchRunnable = Runnable { renderLocationsFromTop() }
     private val renderRunnable = Runnable {
         renderLocationsNow(renderGeneration)
     }
@@ -167,6 +167,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     override fun onPause() {
+        rememberLocationScroll()
         renderGeneration++
         searchHandler.removeCallbacks(searchRunnable)
         appendChunkRunnable?.let { renderHandler.removeCallbacks(it) }
@@ -427,7 +428,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         titleBox.addView(entitlementSubtitle)
         row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
 
-        row.addView(smallButton("بستن").apply { BlueVpnUiGuard.bind(this) { finish() } }, LinearLayout.LayoutParams(dp(76), dp(44)))
+        row.addView(smallButton("بستن").apply {
+            BlueVpnUiGuard.bind(this) {
+                rememberLocationScroll()
+                finish()
+            }
+        }, LinearLayout.LayoutParams(dp(76), dp(44)))
         return row
     }
 
@@ -439,9 +445,27 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
         card.addView(row)
-        allTabButton = tabButton("همه") { selectedTab = LocationTab.ALL; updateTabs(); renderLocations() }
-        favoritesTabButton = tabButton("علاقه‌مندی") { selectedTab = LocationTab.FAVORITES; updateTabs(); renderLocations() }
-        recentTabButton = tabButton("اخیر") { selectedTab = LocationTab.RECENT; updateTabs(); renderLocations() }
+        allTabButton = tabButton("همه") {
+            if (selectedTab != LocationTab.ALL) {
+                selectedTab = LocationTab.ALL
+                updateTabs()
+                renderLocationsFromTop()
+            }
+        }
+        favoritesTabButton = tabButton("علاقه‌مندی") {
+            if (selectedTab != LocationTab.FAVORITES) {
+                selectedTab = LocationTab.FAVORITES
+                updateTabs()
+                renderLocationsFromTop()
+            }
+        }
+        recentTabButton = tabButton("اخیر") {
+            if (selectedTab != LocationTab.RECENT) {
+                selectedTab = LocationTab.RECENT
+                updateTabs()
+                renderLocationsFromTop()
+            }
+        }
         row.addView(allTabButton, LinearLayout.LayoutParams(0, -1, 1f))
         row.addView(favoritesTabButton, LinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
         row.addView(recentTabButton, LinearLayout.LayoutParams(0, -1, 1f))
@@ -673,6 +697,16 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 }
         }
         return payload.hashCode().toString()
+    }
+
+    private fun renderLocationsFromTop() {
+        if (::locationsScrollView.isInitialized) {
+            locationsScrollView.scrollTo(0, 0)
+        }
+        // The next render should preserve zero rather than resurrecting a saved
+        // deep offset from the unfiltered master list.
+        initialScrollRestored = true
+        renderLocations()
     }
 
     private fun renderLocations() {

@@ -26,6 +26,9 @@ class AndroidLocationsSearchPolishTest(unittest.TestCase):
         src = self.text("android-source/BlueVpnServersActivity.kt")
         self.assertIn("LinearLayout.LayoutParams(dp(48), dp(48))", src)
         self.assertIn("LinearLayout.LayoutParams(dp(44), dp(48))", src)
+        self.assertIn('createTabs(), LinearLayout.LayoutParams(-1, dp(48))', src)
+        self.assertIn('createSearchField(), LinearLayout.LayoutParams(-1, dp(48))', src)
+        self.assertIn('contentDescription = "بستن مکان‌ها"', src)
 
 
 if __name__ == "__main__":

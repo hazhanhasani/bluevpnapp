@@ -34,8 +34,9 @@ class AndroidInstrumentationPerformanceTest(unittest.TestCase):
 
     def test_release_build_compiles_android_test_apk(self):
         workflow = self.text(".github/workflows/build-apk.yml")
-        self.assertIn("Compile Android instrumentation and benchmark tests", workflow)
+        self.assertEqual(workflow.count("./gradlew"), 1)
         self.assertIn(":app:assemblePlaystoreDebugAndroidTest", workflow)
+        self.assertIn(":benchmark:assembleBenchmark", workflow)
 
     def test_baseline_profile_covers_critical_locations_journey(self):
         profile = self.text("android-source/baseline-prof.txt")

@@ -16,8 +16,10 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.ListAdapter
+import androidx.recyclerview.widget.RecyclerView
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.lifecycle.lifecycleScope
@@ -32,6 +34,8 @@ import com.v2ray.ang.bluevpn.BlueVpnSmartSelector
 import com.v2ray.ang.bluevpn.BlueVpnBackgroundOptimizer
 import com.v2ray.ang.bluevpn.BlueVpnLocation
 import com.v2ray.ang.bluevpn.BlueVpnLocationUtil
+import com.v2ray.ang.bluevpn.BlueVpnLocationListRow
+import com.v2ray.ang.bluevpn.BlueVpnLocationRowDiff
 import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
@@ -75,8 +79,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private val mainViewModel: MainViewModel by viewModels()
     private lateinit var palette: BlueVpnPalette
     private var themeDarkAtCreate = true
-    private lateinit var listContainer: LinearLayout
-    private lateinit var locationsScrollView: ScrollView
+    private lateinit var locationsRecyclerView: RecyclerView
+    private lateinit var locationsAdapter: LocationsAdapter
+    private var renderedGroupsByKey: Map<String, LocationGroup> = emptyMap()
+    private var renderedCandidatesByGuid: Map<String, BlueVpnLocationUtil.Candidate> = emptyMap()
     private lateinit var emptyText: TextView
     private lateinit var nativeBannerHost: FrameLayout
     private lateinit var refreshButton: MaterialButton
@@ -120,7 +126,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private val renderRunnable = Runnable {
         renderLocationsNow(renderGeneration)
     }
-    private var appendChunkRunnable: Runnable? = null
     private val refreshTimeoutRunnable = Runnable {
         val token = activeRefreshToken
         if (token > 0L && refreshCoordinator.timeout(token)) {
@@ -218,8 +223,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         outState.putStringArrayList(STATE_EXPANDED, ArrayList(expandedLocationKeys))
         outState.putInt(
             STATE_SCROLL_Y,
-            if (::locationsScrollView.isInitialized) locationsScrollView.scrollY
-            else restoredScrollY ?: 0,
+            if (::locationsRecyclerView.isInitialized) {
+                locationsRecyclerView.computeVerticalScrollOffset()
+            } else restoredScrollY ?: 0,
         )
         super.onSaveInstanceState(outState)
     }
@@ -228,8 +234,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         rememberLocationScroll()
         renderGeneration++
         searchHandler.removeCallbacks(searchRunnable)
-        appendChunkRunnable?.let { renderHandler.removeCallbacks(it) }
-        appendChunkRunnable = null
         renderHandler.removeCallbacksAndMessages(null)
         super.onPause()
     }
@@ -270,7 +274,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         // Keep the existing rows completely untouched while a background snapshot
         // is being checked. Only an initially empty screen may render its loading
         // placeholder.
-        if (listContainer.childCount == 0 && BlueVpnLocationUtil.cachedCandidates(this).isEmpty()) {
+        if (
+            ::locationsAdapter.isInitialized &&
+            locationsAdapter.itemCount == 0 &&
+            BlueVpnLocationUtil.cachedCandidates(this).isEmpty()
+        ) {
             renderLocations()
         }
 
@@ -429,16 +437,17 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
         root.addView(emptyText)
 
-        listContainer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, 0, 0, dp(16))
-        }
-        locationsScrollView = ScrollView(this).apply {
-            isFillViewport = true
+        locationsAdapter = LocationsAdapter()
+        locationsRecyclerView = RecyclerView(this).apply {
+            layoutManager = LinearLayoutManager(this@BlueVpnServersActivity)
+            adapter = locationsAdapter
             overScrollMode = View.OVER_SCROLL_NEVER
-            addView(listContainer)
+            itemAnimator = null
+            setHasFixedSize(false)
+            setPadding(0, 0, 0, dp(16))
+            clipToPadding = false
         }
-        root.addView(locationsScrollView, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(locationsRecyclerView, LinearLayout.LayoutParams(-1, 0, 1f))
         return frame
     }
 
@@ -828,8 +837,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun renderLocationsFromTop() {
-        if (::locationsScrollView.isInitialized) {
-            locationsScrollView.scrollTo(0, 0)
+        if (::locationsRecyclerView.isInitialized) {
+            locationsRecyclerView.scrollToPosition(0)
         }
         // The next render should preserve zero rather than resurrecting a saved
         // deep offset from the unfiltered master list.
@@ -838,11 +847,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun renderLocations() {
-        if (!::listContainer.isInitialized || isFinishing || isDestroyed) return
+        if (!::locationsAdapter.isInitialized || isFinishing || isDestroyed) return
         renderGeneration++
         renderHandler.removeCallbacks(renderRunnable)
-        appendChunkRunnable?.let { renderHandler.removeCallbacks(it) }
-        appendChunkRunnable = null
         renderHandler.postDelayed(
             renderRunnable,
             BlueVpnPerformance.uiRenderDelayMs(this),
@@ -852,7 +859,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private fun renderLocationsNow(generation: Int) {
         if (
             generation != renderGeneration ||
-            !::listContainer.isInitialized ||
+            !::locationsAdapter.isInitialized ||
             isFinishing ||
             isDestroyed
         ) return
@@ -866,13 +873,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             // Do not destroy already rendered rows while an entitlement import is
             // temporarily between clear and repopulate. The cache layer will
             // replace them atomically when the new non-empty snapshot is ready.
-            if (candidateLoadInProgress && listContainer.childCount > 0) {
+            if (candidateLoadInProgress && locationsAdapter.itemCount > 0) {
                 emptyText.visibility = View.GONE
                 return
             }
-            listContainer.removeAllViews()
+            locationsAdapter.submitList(emptyList())
+            renderedGroupsByKey = emptyMap()
+            renderedCandidatesByGuid = emptyMap()
             healthStatusViews.clear()
-        serverHealthViews.clear()
+            serverHealthViews.clear()
             val entitlement = uiEntitlement
             emptyText.text = when {
                 candidateLoadError.isNotBlank() -> candidateLoadError
@@ -893,12 +902,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             emptyText.visibility = View.VISIBLE
             return
         }
-        val preservedScrollY = if (::locationsScrollView.isInitialized) {
-            locationsScrollView.scrollY
+        val preservedScrollY = if (::locationsRecyclerView.isInitialized) {
+            locationsRecyclerView.computeVerticalScrollOffset()
         } else {
             0
         }
-        listContainer.removeAllViews()
         healthStatusViews.clear()
         serverHealthViews.clear()
         val selectedLocation = candidates.firstOrNull { it.guid == selected }?.location?.key
@@ -967,65 +975,79 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
         emptyText.visibility = if (groups.isEmpty()) View.VISIBLE else View.GONE
 
-        var groupIndex = 0
-        val chunkSize = BlueVpnPerformance.uiChunkSize(this)
-        val appendChunk = object : Runnable {
-            override fun run() {
-                if (
-                    generation != renderGeneration ||
-                    isFinishing ||
-                    isDestroyed ||
-                    !::listContainer.isInitialized
-                ) {
-                    if (appendChunkRunnable === this) appendChunkRunnable = null
-                    return
-                }
-                val end = (groupIndex + chunkSize).coerceAtMost(groups.size)
-                while (groupIndex < end) {
-                    val group = groups[groupIndex++]
-                    val active =
-                        activeLocationKey.isNotBlank() &&
-                        group.location.key == activeLocationKey
-                    listContainer.addView(
-                        createLocationSection(group, active, manualSelectionAllowed),
-                        LinearLayout.LayoutParams(-1, -2).apply {
-                            bottomMargin = dp(5)
-                        },
-                    )
-                }
-                if (groupIndex < groups.size) {
-                    renderHandler.post(this)
-                } else {
-                    if (appendChunkRunnable === this) appendChunkRunnable = null
+        renderedGroupsByKey = groups.associateBy { it.location.key }
+        renderedCandidatesByGuid = candidates.associateBy { it.guid }
 
-                    // Restore only after the complete tree exists. Restoring while
-                    // only the first chunk is mounted clamps a deep offset to the
-                    // temporary short height and produces a visible jump.
-                    if (::locationsScrollView.isInitialized) {
-                        val targetScrollY = restoredScrollY?.also {
-                            restoredScrollY = null
-                        } ?: if (!initialScrollRestored) {
-                            initialScrollRestored = true
-                            getSharedPreferences("bluevpn_locations_ui", MODE_PRIVATE)
-                                .getInt(scrollPreferenceKey(), 0)
-                        } else {
-                            preservedScrollY
-                        }
-                        if (targetScrollY > 0) {
-                            locationsScrollView.post {
-                                locationsScrollView.scrollTo(0, targetScrollY)
-                            }
-                        }
+        val connected = BlueVpnRuntimeGate.connectionActive(this)
+        val automaticMode = BlueVpnPreferences.smartBalance(this)
+        val manualGuid = BlueVpnPreferences.manualServerGuid(this)
+        val selectionMode = BlueVpnPreferences.selectionMode(this)
+        val rows = buildList {
+            groups.forEach { group ->
+                val groupActive =
+                    activeLocationKey.isNotBlank() &&
+                        group.location.key == activeLocationKey
+                val expanded = group.location.key in expandedLocationKeys
+                add(
+                    BlueVpnLocationListRow.Country(
+                        locationKey = group.location.key,
+                        title = group.location.title,
+                        flag = group.location.flag,
+                        serverCount = group.servers.size,
+                        expanded = expanded,
+                        favorite = group.favorite,
+                        active = groupActive,
+                        availability = availabilityLabel(group.location, group.servers),
+                    )
+                )
+                if (expanded) {
+                    stableServerRows(group.location, group.servers).forEach { (candidate, ordinal) ->
+                        val automaticActive =
+                            automaticMode && connected && candidate.guid == selected
+                        val manualActive =
+                            selectionMode == BlueVpnSelectionMode.MANUAL_SERVER &&
+                                manualGuid == candidate.guid
+                        val serverActive =
+                            automaticActive || manualActive ||
+                                (connected && candidate.guid == selected)
+                        val latency = latencySnapshot(candidate)
+                        add(
+                            BlueVpnLocationListRow.Server(
+                                guid = candidate.guid,
+                                locationKey = group.location.key,
+                                title = group.location.title,
+                                ordinal = ordinal,
+                                active = serverActive,
+                                automaticActive = automaticActive,
+                                premium = manualSelectionAllowed,
+                                latencyPhase = latency.phase,
+                                latencyMs = latency.latencyMs,
+                                signalLevel = signalLevel(candidate),
+                            )
+                        )
                     }
                 }
             }
         }
-        appendChunkRunnable = appendChunk
-        lastRenderedStructureFingerprint = locationStructureFingerprint(candidates)
 
-        // Mount the first rows synchronously so the screen never flashes blank;
-        // subsequent chunks are still yielded to the main looper.
-        appendChunk.run()
+        lastRenderedStructureFingerprint = locationStructureFingerprint(candidates)
+        locationsAdapter.submitList(rows) {
+            if (!::locationsRecyclerView.isInitialized) return@submitList
+            val targetScrollY = restoredScrollY?.also {
+                restoredScrollY = null
+            } ?: if (!initialScrollRestored) {
+                initialScrollRestored = true
+                getSharedPreferences("bluevpn_locations_ui", MODE_PRIVATE)
+                    .getInt(scrollPreferenceKey(), 0)
+            } else {
+                preservedScrollY
+            }
+            if (targetScrollY > 0) {
+                locationsRecyclerView.post {
+                    locationsRecyclerView.scrollBy(0, targetScrollY)
+                }
+            }
+        }
     }
 
     private fun availabilityLabel(
@@ -1054,34 +1076,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         if (
             isFinishing ||
             isDestroyed ||
-            !::listContainer.isInitialized ||
-            healthStatusViews.isEmpty()
+            !::locationsAdapter.isInitialized
         ) return
 
-        val groups = BlueVpnLocationUtil.cachedCandidates(this)
-            .groupBy { it.location.key }
-
-        healthStatusViews.forEach { (locationKey, view) ->
-            val servers = groups[locationKey].orEmpty()
-            val location = servers.firstOrNull()?.location ?: return@forEach
-            val next = servers.size.toString() + " سرور • " + availabilityLabel(location, servers)
-            if (view.text?.toString() != next) {
-                view.text = next
-            }
-        }
-        val selectedGuid=MmkvManager.getSelectServer().orEmpty()
-        val automatic=BlueVpnPreferences.smartBalance(this)
-        val connected=BlueVpnRuntimeGate.connectionActive(this)
-        val mode=BlueVpnPreferences.selectionMode(this)
-        val manualGuid=BlueVpnPreferences.manualServerGuid(this)
-        serverHealthViews.forEach { (guid, view) ->
-            val candidate=groups.values.asSequence().flatten().firstOrNull { it.guid==guid } ?: return@forEach
-            val liveDelay = MmkvManager.decodeServerAffiliationInfo(guid)?.testDelayMillis ?: candidate.delay
-            val liveCandidate = if (liveDelay == candidate.delay) candidate else candidate.copy(delay = liveDelay)
-            val active=(connected&&guid==selectedGuid)||(mode==BlueVpnSelectionMode.MANUAL_SERVER&&manualGuid==guid)
-            val next=serverHealthLabel(liveCandidate,active,automatic&&connected&&guid==selectedGuid)
-            if(view.text?.toString()!=next)view.text=next
-        }
+        // Recompute immutable row content and let DiffUtil rebind only rows whose
+        // latency/health state changed. No View tree teardown and no scroll jump.
+        renderLocations()
     }
 
     private fun stableServerRows(
@@ -1520,10 +1520,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun rememberLocationScroll() {
-        if (!::locationsScrollView.isInitialized) return
+        if (!::locationsRecyclerView.isInitialized) return
         getSharedPreferences("bluevpn_locations_ui", MODE_PRIVATE)
             .edit()
-            .putInt(scrollPreferenceKey(), locationsScrollView.scrollY)
+            .putInt(
+                scrollPreferenceKey(),
+                locationsRecyclerView.computeVerticalScrollOffset(),
+            )
             .apply()
     }
 

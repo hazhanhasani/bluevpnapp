@@ -56,6 +56,18 @@ class AndroidInstrumentationPerformanceTest(unittest.TestCase):
             self.assertIn(cls, profile)
         self.assertIn('APP / "src/main/baseline-prof.txt"', prepare)
 
+    def test_baseline_profile_class_rules_use_valid_profgen_syntax(self):
+        profile = self.text("android-source/baseline-prof.txt")
+        for line in profile.splitlines():
+            line = line.strip()
+            if not line or "->" in line:
+                continue
+            self.assertTrue(
+                line.startswith("L") and line.endswith(";"),
+                f"invalid class-only baseline profile rule: {line}",
+            )
+            self.assertNotRegex(line, r"^[HSP]+L")
+
     def test_process_death_state_has_durable_fallback(self):
         src = self.text("android-source/BlueVpnServersActivity.kt")
         self.assertIn("restorePersistedLocationUiState()", src)

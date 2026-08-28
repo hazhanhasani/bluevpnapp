@@ -20,6 +20,9 @@ extensions.configure<TestExtension> {
         minSdk = 24
         targetSdk = 37
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // CI validates benchmark journeys on an emulator. Treat EMULATOR as a
+        // warning here; published performance numbers still require real hardware.
+        testInstrumentationRunnerArguments["androidx.benchmark.suppressErrors"] = "EMULATOR"
         missingDimensionStrategy("distribution", "playstore")
     }
 

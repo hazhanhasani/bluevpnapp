@@ -329,17 +329,17 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(10), dp(18), dp(14))
+            setPadding(dp(16), dp(8), dp(16), dp(10))
             layoutDirection = View.LAYOUT_DIRECTION_RTL
         }
         frame.addView(root, FrameLayout.LayoutParams(-1, -1))
 
-        root.addView(createHeader(), LinearLayout.LayoutParams(-1, dp(60)))
-        root.addView(createTabs(), LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
-        root.addView(createSearchField(), LinearLayout.LayoutParams(-1, dp(52)).apply { topMargin = dp(10) })
-        root.addView(automaticServerCard(), LinearLayout.LayoutParams(-1, dp(82)).apply {
-            topMargin = dp(10)
-            bottomMargin = dp(9)
+        root.addView(createHeader(), LinearLayout.LayoutParams(-1, dp(56)))
+        root.addView(createTabs(), LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(6) })
+        root.addView(createSearchField(), LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(8) })
+        root.addView(automaticServerCard(), LinearLayout.LayoutParams(-1, dp(68)).apply {
+            topMargin = dp(8)
+            bottomMargin = dp(8)
         })
 
         nativeBannerHost = FrameLayout(this).apply {
@@ -398,51 +398,52 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             gravity = Gravity.CENTER_VERTICAL
         }
 
-        refreshButton = smallButton("تازه‌سازی").apply {
+        refreshButton = smallButton("↻").apply {
+            textSize = 20f
             contentDescription = "بررسی دوباره سرورها"
             BlueVpnUiGuard.bind(this, intervalMs = 1_200L) {
                 isEnabled = false
-                text = "در حال بررسی"
+                text = "…"
                 entitlementRepairAttempted = false
-                // One owner for the refresh pipeline. Running account sync, MMKV
-                // import, candidate decode and ping simultaneously caused the list
-                // to appear and disappear as each job published a different state.
                 refreshEntitlementState(force = true)
                 renderHandler.removeCallbacks(refreshTimeoutRunnable)
-                renderHandler.postDelayed(refreshTimeoutRunnable, 12_000L)
+                renderHandler.postDelayed(refreshTimeoutRunnable, 35_000L)
             }
         }
-        row.addView(refreshButton, LinearLayout.LayoutParams(dp(104), dp(44)))
+        row.addView(refreshButton, LinearLayout.LayoutParams(dp(46), dp(46)))
 
         val titleBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL or Gravity.END
-            setPadding(dp(12), 0, dp(12), 0)
+            setPadding(dp(10), 0, dp(10), 0)
         }
-        titleBox.addView(textView("مکان‌ها", 25f, palette.textPrimary, Gravity.END).apply {
+        titleBox.addView(textView("مکان‌ها", 24f, palette.textPrimary, Gravity.END).apply {
             setTypeface(typeface, Typeface.BOLD)
         })
-        entitlementSubtitle = textView("", 10.5f, palette.textMuted, Gravity.END).apply {
-            setPadding(0, dp(3), 0, 0)
+        entitlementSubtitle = textView("", 10f, palette.textMuted, Gravity.END).apply {
+            setPadding(0, dp(2), 0, 0)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
         titleBox.addView(entitlementSubtitle)
         row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
 
-        row.addView(smallButton("بستن").apply {
+        row.addView(smallButton("×").apply {
+            textSize = 24f
             BlueVpnUiGuard.bind(this) {
                 rememberLocationScroll()
                 finish()
             }
-        }, LinearLayout.LayoutParams(dp(76), dp(44)))
+        }, LinearLayout.LayoutParams(dp(46), dp(46)))
         return row
     }
 
     private fun createTabs(): View {
-        val card = card(radius = 24, fill = palette.surface, stroke = palette.stroke)
+        val card = card(radius = 16, fill = palette.surfaceStrong, stroke = palette.stroke)
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(4), dp(4), dp(4), dp(4))
+            setPadding(dp(3), dp(3), dp(3), dp(3))
         }
         card.addView(row)
         allTabButton = tabButton("همه") {
@@ -473,14 +474,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun createSearchField(): View = EditText(this).apply {
-        hint = "جست‌وجوی کشور"
-        textSize = 13f
+        hint = "جست‌وجوی کشور یا سرور"
+        textSize = 12.5f
         setTextColor(palette.textPrimary)
         setHintTextColor(palette.textMuted)
         isSingleLine = true
         gravity = Gravity.CENTER_VERTICAL or Gravity.END
-        setPadding(dp(16), 0, dp(16), 0)
-        background = rounded(palette.surface, 18, palette.stroke)
+        setPadding(dp(14), 0, dp(14), 0)
+        background = rounded(palette.surface, 15, palette.stroke)
         addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -496,30 +497,62 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun automaticServerCard(): View {
-        val card = card(radius = 22, fill = palette.surface, stroke = palette.accent).apply {
+        val active = BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity)
+        val card = card(
+            radius = 18,
+            fill = if (active) {
+                if (palette.dark) 0xFF121D33.toInt() else 0xFFF0F5FF.toInt()
+            } else palette.surface,
+            stroke = if (active) palette.accent else palette.stroke,
+        ).apply {
             isClickable = true
             isFocusable = true
-            strokeWidth = dp(if (BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity)) 2 else 1)
+            strokeWidth = dp(if (active) 1 else 1)
+            cardElevation = dp(1).toFloat()
             BlueVpnUiGuard.bind(this) { selectAutomatic() }
         }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(10), dp(16), dp(10))
+            setPadding(dp(12), dp(8), dp(12), dp(8))
         }
         card.addView(row)
-        val dot = View(this).apply { background = circle(palette.accent) }
-        row.addView(dot, LinearLayout.LayoutParams(dp(13), dp(13)).apply { marginEnd = dp(12) })
-        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
-        box.addView(textView("انتخاب خودکار", 16f, palette.textPrimary, Gravity.END).apply { setTypeface(typeface, Typeface.BOLD) })
-        automaticSubtitle = textView("", 10.5f, palette.textMuted, Gravity.END).apply {
-            setPadding(0, dp(4), 0, 0)
+
+        val icon = textView("✦", 18f, palette.accent, Gravity.CENTER).apply {
+            background = rounded(
+                if (palette.dark) 0xFF213357.toInt() else 0xFFE5EEFF.toInt(),
+                14,
+            )
+        }
+        row.addView(icon, LinearLayout.LayoutParams(dp(42), dp(42)).apply { marginEnd = dp(10) })
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        box.addView(textView("انتخاب هوشمند", 15f, palette.textPrimary, Gravity.END).apply {
+            setTypeface(typeface, Typeface.BOLD)
+        })
+        automaticSubtitle = textView("", 10f, palette.textMuted, Gravity.END).apply {
+            setPadding(0, dp(3), 0, 0)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
         box.addView(automaticSubtitle)
         row.addView(box, LinearLayout.LayoutParams(0, -1, 1f))
-        row.addView(textView(if (BlueVpnPreferences.smartBalance(this)) "فعال" else "انتخاب", 11f, palette.accent, Gravity.CENTER).apply {
-            setTypeface(typeface, Typeface.BOLD)
-        }, LinearLayout.LayoutParams(dp(62), dp(38)))
+
+        row.addView(
+            textView(if (active) "فعال" else "انتخاب", 10f, if (active) palette.accent else palette.textSecondary, Gravity.CENTER).apply {
+                setTypeface(typeface, Typeface.BOLD)
+                background = rounded(
+                    if (active) {
+                        if (palette.dark) 0xFF203252.toInt() else 0xFFE6EEFF.toInt()
+                    } else palette.surfaceStrong,
+                    12,
+                )
+            },
+            LinearLayout.LayoutParams(dp(58), dp(34)),
+        )
         return card
     }
 
@@ -873,7 +906,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     listContainer.addView(
                         createLocationSection(group, active, manualSelectionAllowed),
                         LinearLayout.LayoutParams(-1, -2).apply {
-                            bottomMargin = dp(8)
+                            bottomMargin = dp(5)
                         },
                     )
                 }
@@ -1059,14 +1092,17 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val automaticActive = automatic && connected && candidate.guid == selectedGuid
         val manualActive = mode == BlueVpnSelectionMode.MANUAL_SERVER && manualGuid == candidate.guid
         val active = automaticActive || manualActive || (connected && candidate.guid == selectedGuid)
+        val level = signalLevel(candidate)
 
-        val serverCard = card(
-            radius = 18,
-            fill = if (active) palette.surfaceStrong else palette.surface,
-            stroke = if (active) palette.accent else palette.stroke,
+        val rowSurface = card(
+            radius = 14,
+            fill = if (active) {
+                if (palette.dark) 0xFF17223A.toInt() else 0xFFF0F5FF.toInt()
+            } else palette.surface,
+            stroke = if (active) palette.accent else android.graphics.Color.TRANSPARENT,
         ).apply {
-            strokeWidth = dp(if (active) 2 else 1)
-            cardElevation = dp(if (active) 2 else 1).toFloat()
+            strokeWidth = dp(if (active) 1 else 0)
+            cardElevation = 0f
             isClickable = true
             isFocusable = true
             contentDescription = group.location.title + " " + ordinal + "؛ " + serverHealthLabel(candidate, active, automaticActive)
@@ -1075,49 +1111,77 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 else selectServer(group, candidate, ordinal)
             }
         }
+
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(16), dp(10), dp(16), dp(10))
+            setPadding(dp(10), dp(7), dp(10), dp(7))
         }
-        serverCard.addView(row)
+        rowSurface.addView(row)
+
+        if (active) {
+            row.addView(
+                View(this).apply { background = rounded(palette.accent, 3) },
+                LinearLayout.LayoutParams(dp(3), dp(36)).apply { marginEnd = dp(8) },
+            )
+        }
 
         val titleBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        titleBox.addView(textView(group.location.title + " " + ordinal, 14f, palette.textPrimary, Gravity.END).apply {
-            setTypeface(typeface, Typeface.BOLD)
-        })
+        titleBox.addView(
+            textView(group.location.title + " " + ordinal, 13.5f, palette.textPrimary, Gravity.END).apply {
+                setTypeface(typeface, if (active) Typeface.BOLD else Typeface.NORMAL)
+                maxLines = 1
+            },
+        )
+
+        val healthColor = when {
+            active -> palette.accent
+            level >= 3 -> if (palette.dark) 0xFF5CD6A6.toInt() else 0xFF13835A.toInt()
+            level == 2 -> if (palette.dark) 0xFFF3BF59.toInt() else 0xFF9B6A00.toInt()
+            level == 1 -> if (palette.dark) 0xFFFF7676.toInt() else 0xFFC83F3F.toInt()
+            else -> palette.textMuted
+        }
         val health = textView(
             serverHealthLabel(candidate, active, automaticActive),
-            11f,
-            when {
-                active -> palette.accent
-                signalLevel(candidate) >= 3 -> if (palette.dark) 0xFF66D19E.toInt() else 0xFF18875C.toInt()
-                signalLevel(candidate) == 2 -> if (palette.dark) 0xFFFFCC66.toInt() else 0xFF9A6B00.toInt()
-                signalLevel(candidate) == 1 -> if (palette.dark) 0xFFFF8B8B.toInt() else 0xFFC13B3B.toInt()
-                else -> palette.textMuted
-            },
+            10f,
+            healthColor,
             Gravity.END,
         ).apply {
-            setPadding(0, dp(5), 0, 0)
-            letterSpacing = 0.01f
+            setPadding(0, dp(3), 0, 0)
+            maxLines = 1
         }
         serverHealthViews[candidate.guid] = health
         titleBox.addView(health)
         row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
 
+        val bars = textView(signalBars(candidate), 11f, healthColor, Gravity.CENTER).apply {
+            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
+        }
+        row.addView(bars, LinearLayout.LayoutParams(dp(48), dp(34)).apply { marginStart = dp(4) })
+
         val action = when {
-            automaticActive -> "خودکار"
+            automaticActive -> "AUTO"
             manualActive -> "دستی"
             !premium -> "🔒"
+            active -> "وصل"
             else -> "انتخاب"
         }
-        row.addView(textView(action, 10.5f, if (active) palette.accent else palette.textSecondary, Gravity.CENTER).apply {
-            setTypeface(typeface, Typeface.BOLD)
-        }, LinearLayout.LayoutParams(dp(62), dp(38)))
-        return serverCard
+        row.addView(
+            textView(action, 9.5f, if (active) palette.accent else palette.textSecondary, Gravity.CENTER).apply {
+                setTypeface(typeface, Typeface.BOLD)
+                background = rounded(
+                    if (active) {
+                        if (palette.dark) 0xFF213454.toInt() else 0xFFE7EFFF.toInt()
+                    } else palette.surfaceStrong,
+                    11,
+                )
+            },
+            LinearLayout.LayoutParams(dp(52), dp(32)).apply { marginStart = dp(6) },
+        )
+        return rowSurface
     }
 
     private fun createLocationSection(
@@ -1127,20 +1191,19 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     ): View {
         val expanded = group.location.key in expandedLocationKeys
         val automatic = BlueVpnPreferences.smartBalance(this)
-        val outer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val fill = when {
-            active -> if (palette.dark) 0xFF151D31.toInt() else 0xFFEAF0FF.toInt()
-            group.favorite -> if (palette.dark) 0xFF181621.toInt() else 0xFFF4F0FF.toInt()
-            else -> palette.surface
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
         }
-        val stroke = when {
-            active -> palette.accent
-            group.favorite -> if (palette.dark) 0xFF44395F.toInt() else 0xFFD9CDF7.toInt()
-            else -> palette.stroke
-        }
-        val header = card(radius = 22, fill = fill, stroke = stroke).apply {
-            strokeWidth = dp(if (active) 2 else 1)
-            cardElevation = dp(if (expanded || active) 2 else 1).toFloat()
+
+        val header = card(
+            radius = 16,
+            fill = if (active) {
+                if (palette.dark) 0xFF121B2D.toInt() else 0xFFF4F7FD.toInt()
+            } else palette.surface,
+            stroke = if (active) palette.accent else palette.stroke,
+        ).apply {
+            strokeWidth = dp(if (active) 1 else 1)
+            cardElevation = 0f
             isClickable = true
             isFocusable = true
             contentDescription = group.location.title + "؛ " + group.servers.size + " سرور؛ " + if (expanded) "باز" else "بسته"
@@ -1150,33 +1213,42 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 renderLocations()
             }
         }
+
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(13), dp(9), dp(13), dp(9))
+            setPadding(dp(10), dp(8), dp(10), dp(8))
         }
         header.addView(row)
-        row.addView(textView(group.location.flag, 27f, palette.textPrimary, Gravity.CENTER).apply {
-            background = rounded(palette.surfaceStrong, 24)
-        }, LinearLayout.LayoutParams(dp(50), dp(50)))
+
+        row.addView(
+            textView(group.location.flag, 25f, palette.textPrimary, Gravity.CENTER).apply {
+                background = rounded(
+                    if (palette.dark) 0xFF1B2436.toInt() else 0xFFF7F9FC.toInt(),
+                    15,
+                )
+            },
+            LinearLayout.LayoutParams(dp(46), dp(46)).apply { marginEnd = dp(10) },
+        )
 
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), 0, dp(12), 0)
         }
-        content.addView(textView(group.location.title, 16f, palette.textPrimary, Gravity.END).apply {
-            setTypeface(typeface, Typeface.BOLD)
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        })
+        content.addView(
+            textView(group.location.title, 15f, palette.textPrimary, Gravity.END).apply {
+                setTypeface(typeface, Typeface.BOLD)
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+            },
+        )
         val availabilityView = textView(
             group.servers.size.toString() + " سرور • " + availabilityLabel(group.location, group.servers),
-            10.5f,
-            palette.textMuted,
+            10f,
+            if (active) palette.accent else palette.textMuted,
             Gravity.END,
         ).apply {
-            setPadding(0, dp(5), 0, 0)
+            setPadding(0, dp(3), 0, 0)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
@@ -1189,7 +1261,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             textSize = 18f
             gravity = Gravity.CENTER
             includeFontPadding = false
-            background = rounded(android.graphics.Color.TRANSPARENT, 15)
             setTextColor(if (group.favorite) palette.accent else palette.textMuted)
             contentDescription = if (group.favorite) "حذف از علاقه‌مندی" else "افزودن به علاقه‌مندی"
             BlueVpnUiGuard.bind(this) {
@@ -1197,20 +1268,26 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 renderLocations()
             }
         }
-        row.addView(favoriteButton, LinearLayout.LayoutParams(dp(38), dp(40)))
+        row.addView(favoriteButton, LinearLayout.LayoutParams(dp(34), dp(38)))
 
         val chooseCountry = textView(
             when {
                 !premium -> "🔒"
-                active && automatic -> "خودکار"
+                active && automatic -> "AUTO"
                 active -> "فعال"
-                else -> "انتخاب کشور"
+                else -> "انتخاب"
             },
-            if (!premium) 16f else 10f,
+            9.5f,
             if (active) palette.accent else palette.textSecondary,
             Gravity.CENTER,
         ).apply {
             setTypeface(typeface, Typeface.BOLD)
+            background = rounded(
+                if (active) {
+                    if (palette.dark) 0xFF213454.toInt() else 0xFFE7EFFF.toInt()
+                } else palette.surfaceStrong,
+                11,
+            )
             isClickable = true
             isFocusable = true
             BlueVpnUiGuard.bind(this) {
@@ -1222,91 +1299,72 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 )
             }
         }
-        row.addView(chooseCountry, LinearLayout.LayoutParams(dp(76), dp(40)))
+        row.addView(chooseCountry, LinearLayout.LayoutParams(dp(54), dp(32)).apply { marginStart = dp(4) })
 
-        // Dedicated disclosure affordance: visually separated from the country
-        // action so the accordion feels intentional instead of like a stray glyph.
-        row.addView(
-            textView(if (expanded) "−" else "+", 18f, if (expanded) palette.accent else palette.textMuted, Gravity.CENTER).apply {
-                setTypeface(typeface, Typeface.BOLD)
-                background = rounded(
-                    if (expanded) {
-                        if (palette.dark) 0xFF202D4C.toInt() else 0xFFE9F0FF.toInt()
-                    } else {
-                        palette.surfaceStrong
-                    },
-                    14,
-                )
-            },
-            LinearLayout.LayoutParams(dp(34), dp(34)).apply {
-                marginStart = dp(4)
-            },
-        )
+        val chevron = textView(if (expanded) "⌃" else "⌄", 17f, if (expanded) palette.accent else palette.textMuted, Gravity.CENTER)
+        row.addView(chevron, LinearLayout.LayoutParams(dp(28), dp(36)).apply { marginStart = dp(2) })
 
-        outer.addView(header, LinearLayout.LayoutParams(-1, dp(74)))
+        outer.addView(header, LinearLayout.LayoutParams(-1, dp(64)))
 
         if (expanded) {
-            // Accordion tray: a soft connected surface with an accent rail and
-            // stagger-free reveal. This gives the expanded country a clear visual
-            // hierarchy without changing the stable list order.
             val tray = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.TOP
-                setPadding(dp(10), dp(8), dp(10), dp(4))
-                background = rounded(
-                    if (palette.dark) 0xFF0F1626.toInt() else 0xFFF5F8FF.toInt(),
-                    18,
-                    if (palette.dark) 0xFF26334C.toInt() else 0xFFDDE7F6.toInt(),
-                )
+                setPadding(dp(8), dp(6), dp(8), dp(8))
                 alpha = 0f
-                translationY = -dp(6).toFloat()
+                translationY = -dp(4).toFloat()
             }
 
             val rail = View(this).apply {
-                background = rounded(
-                    if (active) palette.accent else if (palette.dark) 0xFF405478.toInt() else 0xFFB8C9E6.toInt(),
-                    3,
-                )
+                background = rounded(if (active) palette.accent else palette.stroke, 3)
             }
             tray.addView(
                 rail,
-                LinearLayout.LayoutParams(dp(3), -1).apply {
-                    marginEnd = dp(10)
-                    topMargin = dp(4)
-                    bottomMargin = dp(4)
+                LinearLayout.LayoutParams(dp(2), -1).apply {
+                    marginEnd = dp(8)
+                    topMargin = dp(2)
+                    bottomMargin = dp(2)
                 },
             )
 
             val serverBox = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
+                background = rounded(
+                    if (palette.dark) 0xFF0E1420.toInt() else 0xFFFAFBFE.toInt(),
+                    14,
+                    palette.stroke,
+                )
+                setPadding(dp(6), dp(6), dp(6), dp(6))
             }
             stableServerRows(group.location, group.servers).forEachIndexed { index, pair ->
                 val candidate = pair.first
                 val ordinal = pair.second
                 serverBox.addView(
                     createServerRow(group, candidate, ordinal, premium),
-                    LinearLayout.LayoutParams(-1, dp(70)).apply {
-                        if (index > 0) topMargin = dp(6)
+                    LinearLayout.LayoutParams(-1, dp(58)).apply {
+                        if (index > 0) topMargin = dp(2)
                     },
                 )
             }
+
             tray.addView(serverBox, LinearLayout.LayoutParams(0, -2, 1f))
             outer.addView(
                 tray,
                 LinearLayout.LayoutParams(-1, -2).apply {
-                    topMargin = dp(6)
-                    marginStart = dp(6)
-                    marginEnd = dp(6)
+                    topMargin = dp(3)
+                    marginStart = dp(4)
+                    marginEnd = dp(4)
                 },
             )
             tray.animate()
                 .alpha(1f)
                 .translationY(0f)
-                .setDuration(160L)
+                .setDuration(140L)
                 .start()
         }
         return outer
     }
+
     private fun openSubscriptionForPremium() {
         Toast.makeText(
             this,
@@ -1475,7 +1533,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
     private fun tabButton(label: String, action: () -> Unit): TextView = TextView(this).apply {
         text = label
-        textSize = 11f
+        textSize = 10.5f
         gravity = Gravity.CENTER
         includeFontPadding = false
         background = rounded(android.graphics.Color.TRANSPARENT, 18)

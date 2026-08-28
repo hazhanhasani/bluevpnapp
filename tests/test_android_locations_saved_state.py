@@ -24,13 +24,14 @@ class AndroidLocationsSavedStateTest(unittest.TestCase):
 
     def test_activity_restores_state_before_screen_creation(self):
         src = self.text("android-source/BlueVpnServersActivity.kt")
-        restore = src.index("savedInstanceState?.let")
+        restore = src.index("if (savedInstanceState != null)")
         create = src.index("setContentView(createScreen())")
         self.assertLess(restore, create)
         body = src[restore:create]
         self.assertIn("LocationTab.valueOf", body)
         self.assertIn("expandedLocationKeys.addAll", body)
         self.assertIn("restoredScrollY", body)
+        self.assertIn("restorePersistedLocationUiState()", body)
 
     def test_search_text_and_normalized_query_are_separate(self):
         src = self.text("android-source/BlueVpnServersActivity.kt")

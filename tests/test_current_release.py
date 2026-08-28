@@ -332,7 +332,8 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("locationStructureFingerprint", servers)
         self.assertIn("locationsRecyclerView.computeVerticalScrollOffset()", servers)
         self.assertIn("val targetScrollY =", servers)
-        self.assertIn("locationsRecyclerView.scrollBy(0, targetScrollY)", servers)
+        self.assertIn("val delta = targetScrollY - currentScrollY", servers)
+        self.assertIn("locationsRecyclerView.scrollBy(0, delta)", servers)
         self.assertIn("locationsAdapter.submitList(rows)", servers)
         self.assertIn("if (nextFingerprint != lastRenderedStructureFingerprint)", servers)
 

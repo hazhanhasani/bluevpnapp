@@ -66,8 +66,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         private const val STATE_SCROLL_Y = "bluevpn.locations.state.SCROLL_Y"
 
         private const val TAG_SERVER_SURFACE = "bluevpn.locations.server.surface"
+        private const val TAG_SERVER_RAIL = "bluevpn.locations.server.rail"
+        private const val TAG_SERVER_TITLE = "bluevpn.locations.server.title"
         private const val TAG_SERVER_HEALTH = "bluevpn.locations.server.health"
         private const val TAG_SERVER_SIGNAL = "bluevpn.locations.server.signal"
+        private const val TAG_SERVER_ACTION = "bluevpn.locations.server.action"
+        private const val TAG_COUNTRY_SURFACE = "bluevpn.locations.country.surface"
+        private const val TAG_COUNTRY_AVAILABILITY = "bluevpn.locations.country.availability"
+        private const val TAG_COUNTRY_ACTION = "bluevpn.locations.country.action"
     }
 
     private enum class LocationTab { ALL, FAVORITES, RECENT }
@@ -114,8 +120,22 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             val item = getItem(position)
             if (
                 item is BlueVpnLocationListRow.Server &&
+                payloads.contains(BlueVpnLocationRowDiff.PAYLOAD_SERVER_STATE) &&
+                bindServerStatePayload(holder, item)
+            ) {
+                return
+            }
+            if (
+                item is BlueVpnLocationListRow.Server &&
                 payloads.contains(BlueVpnLocationRowDiff.PAYLOAD_LATENCY) &&
                 bindLatencyPayload(holder, item)
+            ) {
+                return
+            }
+            if (
+                item is BlueVpnLocationListRow.Country &&
+                payloads.contains(BlueVpnLocationRowDiff.PAYLOAD_COUNTRY_ACTIVE) &&
+                bindCountryActivePayload(holder, item)
             ) {
                 return
             }
@@ -178,6 +198,107 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             bars.setTextColor(color)
             surface?.contentDescription =
                 item.title + " " + item.ordinal + "؛ " + serverHealthLabel(item)
+            return true
+        }
+
+        private fun bindServerStatePayload(
+            holder: RowHolder,
+            item: BlueVpnLocationListRow.Server,
+        ): Boolean {
+            val surface = holder.host.findViewWithTag<MaterialCardView>(TAG_SERVER_SURFACE)
+                ?: return false
+            val rail = holder.host.findViewWithTag<View>(TAG_SERVER_RAIL)
+                ?: return false
+            val title = holder.host.findViewWithTag<TextView>(TAG_SERVER_TITLE)
+                ?: return false
+            val health = holder.host.findViewWithTag<TextView>(TAG_SERVER_HEALTH)
+                ?: return false
+            val bars = holder.host.findViewWithTag<TextView>(TAG_SERVER_SIGNAL)
+                ?: return false
+            val action = holder.host.findViewWithTag<TextView>(TAG_SERVER_ACTION)
+                ?: return false
+
+            surface.setCardBackgroundColor(
+                if (item.active) {
+                    if (palette.dark) 0xFF17223A.toInt() else 0xFFF0F5FF.toInt()
+                } else {
+                    palette.surface
+                }
+            )
+            surface.strokeColor =
+                if (item.active) palette.accent else android.graphics.Color.TRANSPARENT
+            surface.strokeWidth = dp(if (item.active) 1 else 0)
+            rail.background = rounded(
+                if (item.active) palette.accent else android.graphics.Color.TRANSPARENT,
+                3,
+            )
+            title.setTypeface(
+                title.typeface,
+                if (item.active) Typeface.BOLD else Typeface.NORMAL,
+            )
+
+            val healthColor = serverHealthColor(item.signalLevel, item.active)
+            health.text = serverHealthLabel(item)
+            health.setTextColor(healthColor)
+            bars.text = signalBars(item.signalLevel)
+            bars.setTextColor(healthColor)
+
+            action.text = when {
+                item.automaticActive -> "خودکار"
+                item.active -> "دستی"
+                !item.premium -> "🔒"
+                else -> "انتخاب"
+            }
+            action.setTextColor(if (item.active) palette.accent else palette.textSecondary)
+            action.background = rounded(
+                if (item.active) {
+                    if (palette.dark) 0xFF213454.toInt() else 0xFFE7EFFF.toInt()
+                } else {
+                    palette.surfaceStrong
+                },
+                11,
+            )
+            surface.contentDescription =
+                item.title + " " + item.ordinal + "؛ " + serverHealthLabel(item)
+            return true
+        }
+
+        private fun bindCountryActivePayload(
+            holder: RowHolder,
+            item: BlueVpnLocationListRow.Country,
+        ): Boolean {
+            val surface = holder.host.findViewWithTag<MaterialCardView>(TAG_COUNTRY_SURFACE)
+                ?: return false
+            val availability =
+                holder.host.findViewWithTag<TextView>(TAG_COUNTRY_AVAILABILITY)
+                    ?: return false
+            val action = holder.host.findViewWithTag<TextView>(TAG_COUNTRY_ACTION)
+                ?: return false
+
+            surface.setCardBackgroundColor(
+                if (item.active) {
+                    if (palette.dark) 0xFF121B2D.toInt() else 0xFFF4F7FD.toInt()
+                } else {
+                    palette.surface
+                }
+            )
+            surface.strokeColor = if (item.active) palette.accent else palette.stroke
+            availability.setTextColor(if (item.active) palette.accent else palette.textMuted)
+            action.text = when {
+                !BlueVpnEntitlement.resolveUi(this@BlueVpnServersActivity).manualSelectionAllowed -> "🔒"
+                item.automaticActive -> "AUTO"
+                item.active -> "فعال"
+                else -> "انتخاب"
+            }
+            action.setTextColor(if (item.active) palette.accent else palette.textSecondary)
+            action.background = rounded(
+                if (item.active) {
+                    if (palette.dark) 0xFF213454.toInt() else 0xFFE7EFFF.toInt()
+                } else {
+                    palette.surfaceStrong
+                },
+                11,
+            )
             return true
         }
     }
@@ -1103,6 +1224,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                         expanded = expanded,
                         favorite = group.favorite,
                         active = groupActive,
+                        automaticActive = groupActive && automaticMode && connected,
                         availability = availabilityLabel(group.location, group.servers),
                     )
                 )
@@ -1395,12 +1517,16 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
         rowSurface.addView(row)
 
-        if (active) {
-            row.addView(
-                View(this).apply { background = rounded(palette.accent, 3) },
-                LinearLayout.LayoutParams(dp(3), dp(36)).apply { marginEnd = dp(8) },
-            )
-        }
+        row.addView(
+            View(this).apply {
+                tag = TAG_SERVER_RAIL
+                background = rounded(
+                    if (active) palette.accent else android.graphics.Color.TRANSPARENT,
+                    3,
+                )
+            },
+            LinearLayout.LayoutParams(dp(3), dp(36)).apply { marginEnd = dp(8) },
+        )
 
         val titleBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1408,6 +1534,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
         titleBox.addView(
             textView(group.location.title + " " + ordinal, 13.5f, palette.textPrimary, Gravity.END).apply {
+                tag = TAG_SERVER_TITLE
                 setTypeface(typeface, if (active) Typeface.BOLD else Typeface.NORMAL)
                 maxLines = 1
             },
@@ -1443,6 +1570,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
         row.addView(
             textView(action, 9.5f, if (active) palette.accent else palette.textSecondary, Gravity.CENTER).apply {
+                tag = TAG_SERVER_ACTION
                 setTypeface(typeface, Typeface.BOLD)
                 background = rounded(
                     if (active) {
@@ -1474,6 +1602,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             } else palette.surface,
             stroke = if (active) palette.accent else palette.stroke,
         ).apply {
+            tag = TAG_COUNTRY_SURFACE
             strokeWidth = dp(if (active) 1 else 1)
             cardElevation = 0f
             isClickable = true
@@ -1520,6 +1649,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             if (active) palette.accent else palette.textMuted,
             Gravity.END,
         ).apply {
+            tag = TAG_COUNTRY_AVAILABILITY
             setPadding(0, dp(3), 0, 0)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -1554,6 +1684,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             if (active) palette.accent else palette.textSecondary,
             Gravity.CENTER,
         ).apply {
+            tag = TAG_COUNTRY_ACTION
             setTypeface(typeface, Typeface.BOLD)
             background = rounded(
                 if (active) {

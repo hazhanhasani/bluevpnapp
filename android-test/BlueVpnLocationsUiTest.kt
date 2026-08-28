@@ -1,6 +1,7 @@
 package com.v2ray.ang.ui
 
 import android.content.pm.ActivityInfo
+import android.view.View
 import androidx.recyclerview.widget.RecyclerView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.espresso.Espresso.onView
@@ -14,6 +15,7 @@ import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.hamcrest.Matchers.allOf
 import org.junit.Test
+import org.junit.Assert.assertEquals
 import org.junit.runner.RunWith
 import java.io.File
 import androidx.test.platform.app.InstrumentationRegistry
@@ -46,6 +48,17 @@ class BlueVpnLocationsUiTest {
         }
     }
 
+
+    @Test
+    fun locationsRootIsExplicitRtl() {
+        ActivityScenario.launch(BlueVpnServersActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val content = activity.findViewById<android.view.ViewGroup>(android.R.id.content)
+                val root = content.getChildAt(0)
+                assertEquals(View.LAYOUT_DIRECTION_RTL, root.layoutDirection)
+            }
+        }
+    }
 
     @Test
     fun captureLightAndDarkRtlSnapshots() {

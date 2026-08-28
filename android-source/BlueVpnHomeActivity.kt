@@ -2044,6 +2044,12 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
                 if (!active) {
                     terminalFailureStopping = false
                     BlueVpnRuntimeGate.endConnection(this)
+                    if (
+                        handoverState.current() == BlueVpnHandoverPhase.FAILED ||
+                        handoverState.isSwitching()
+                    ) {
+                        handoverState.disconnected()
+                    }
                     connectButton.isEnabled = true
                     updateConnectLabel("تلاش دوباره")
                     reconcileDeferredEntitlementIfIdle()

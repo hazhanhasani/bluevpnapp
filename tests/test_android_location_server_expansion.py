@@ -30,13 +30,12 @@ class AndroidLocationServerExpansionTests(unittest.TestCase):
             self.assertIn(token,src)
         self.assertNotIn('4 -> "📡 ▂▄▆█"',src)
 
-    def test_auto_mode_expands_actual_connected_country_without_switching_mode(self):
+    def test_auto_mode_does_not_mutate_user_expansion_state(self):
         src=self.text("android-source/BlueVpnServersActivity.kt")
         start=src.index("val activeLocationKey = when")
         end=src.index("val recentKeys =",start)
         body=src[start:end]
-        self.assertIn("connectedNow && automatic && activeLocationKey.isNotBlank()",body)
-        self.assertIn("expandedLocationKeys.add(activeLocationKey)",body)
+        self.assertNotIn("expandedLocationKeys.add(activeLocationKey)",body)
         self.assertNotIn("setManualServerSelection",body)
 
     def test_actual_auto_server_is_marked_inside_expanded_country(self):

@@ -28,15 +28,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch {
             var previousSelection: String? = null
+            var previousTesting = false
+            var previousConnectionTestKey = ""
             upstream.uiState.collectLatest { state ->
                 isRunning.value = state.isRunning
                 if (previousSelection != state.selectedGuid) {
                     previousSelection = state.selectedGuid
                     updateListAction.value = -1
                 }
+
+                // v2rayNG 2.3.5 exposes batch testing through uiState.isTesting.
+                // Emit one completion event only when the batch transitions from
+                // testing -> idle. BlueVPN can then timestamp every positive MMKV
+                // result knowing testAllRealPing() cleared the batch beforehand.
+                if (previousTesting && !state.isTesting) {
+                    updateTestResultAction.value = "batch-complete"
+                }
+                previousTesting = state.isTesting
+
+                // Current-server real ping is a different operation. Include the
+                // selected GUID so Locations refreshes freshness for exactly that
+                // row instead of falsely marking every cached delay as measured now.
                 val test = state.status as? MainStatus.ConnectionTest
                 if (test != null) {
-                    updateTestResultAction.value = test.result.delayMillis.toString()
+                    val event =
+                        "current:" + state.selectedGuid + ":" + test.result.delayMillis
+                    if (event != previousConnectionTestKey) {
+                        previousConnectionTestKey = event
+                        updateTestResultAction.value = event
+                    }
+                } else {
+                    previousConnectionTestKey = ""
                 }
             }
         }

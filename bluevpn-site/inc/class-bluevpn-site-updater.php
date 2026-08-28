@@ -376,8 +376,23 @@ final class BlueVPN_Site_Updater {
             $opened = $zip->open($tmp, ZipArchive::CHECKCONS);
             if ($opened !== true) return ['success'=>false, 'message'=>'فایل بروزرسانی پوسته ZIP معتبر نیست (code=' . (int)$opened . ').'];
             $style = $zip->getFromName('bluevpn-site/style.css');
+            $requiredFiles = [
+                'bluevpn-site/front-page.php',
+                'bluevpn-site/functions.php',
+                'bluevpn-site/inc/home-v2.php',
+                'bluevpn-site/header.php',
+                'bluevpn-site/footer.php',
+            ];
+            $missingFiles = [];
+            foreach ($requiredFiles as $requiredFile) {
+                if ($zip->locateName($requiredFile) === false) $missingFiles[] = $requiredFile;
+            }
             $zip->close();
             if (!is_string($style) || $style === '') return ['success'=>false, 'message'=>'ساختار بسته پوسته معتبر نیست؛ bluevpn-site/style.css پیدا نشد.'];
+            if ($missingFiles) return [
+                'success'=>false,
+                'message'=>'بسته پوسته ناقص است؛ فایل‌های ضروری پیدا نشدند: ' . implode(', ', $missingFiles),
+            ];
             if (!preg_match('/(?mi)^Version:\s*(\d+\.\d+\.\d+)\s*$/', $style, $m)) return ['success'=>false, 'message'=>'نسخه داخل بسته پوسته قابل تشخیص نیست.'];
             $target = (string)($release['version'] ?? '');
             if ($target !== '' && $m[1] !== $target) return ['success'=>false, 'message'=>'نسخه بسته پوسته با Release تطابق ندارد.'];
@@ -444,6 +459,19 @@ final class BlueVPN_Site_Updater {
             $after = self::installed_version();
             if (version_compare($after, $remote, '<')) {
                 return ['success'=>false, 'message'=>'نصب اجرا شد اما نسخه فعال پوسته هنوز ' . $after . ' است؛ هدف ' . $remote . ' بود.'];
+            }
+            $activeDir = get_theme_root(self::stylesheet()) . '/' . self::stylesheet();
+            $requiredInstalled = [
+                $activeDir . '/front-page.php',
+                $activeDir . '/functions.php',
+                $activeDir . '/inc/home-v2.php',
+            ];
+            $missingInstalled = array_values(array_filter($requiredInstalled, static fn($file) => !is_readable($file)));
+            if ($missingInstalled) {
+                return [
+                    'success'=>false,
+                    'message'=>'نسخه نصب شد اما فایل ضروری پوسته ناقص است: ' . implode(', ', array_map('basename', $missingInstalled)),
+                ];
             }
             return ['success'=>true, 'message'=>'پوسته BlueVPN Site به‌صورت خودکار به نسخه ' . $remote . ' بروزرسانی شد.'];
         } finally {

@@ -1163,7 +1163,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         row.addView(bars, LinearLayout.LayoutParams(dp(48), dp(34)).apply { marginStart = dp(4) })
 
         val action = when {
-            automaticActive -> "AUTO"
+            automaticActive -> "خودکار"
             manualActive -> "دستی"
             !premium -> "🔒"
             active -> "وصل"
@@ -1261,6 +1261,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             textSize = 18f
             gravity = Gravity.CENTER
             includeFontPadding = false
+            background = rounded(android.graphics.Color.TRANSPARENT, 15)
             setTextColor(if (group.favorite) palette.accent else palette.textMuted)
             contentDescription = if (group.favorite) "حذف از علاقه‌مندی" else "افزودن به علاقه‌مندی"
             BlueVpnUiGuard.bind(this) {
@@ -1528,7 +1529,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         renderHandler.removeCallbacks(refreshTimeoutRunnable)
         if (!::refreshButton.isInitialized) return
         refreshButton.isEnabled = true
-        refreshButton.text = "تازه‌سازی"
+        refreshButton.text = "↻"
     }
 
     private fun tabButton(label: String, action: () -> Unit): TextView = TextView(this).apply {

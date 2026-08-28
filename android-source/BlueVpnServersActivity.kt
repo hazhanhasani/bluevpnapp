@@ -1189,7 +1189,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val groups = candidateGroups
             .filter { group ->
                 val locationSearchable = BlueVpnLocationUtil.normalizeForSearch(
-                    group.location.title + " " + group.location.key,
+                    group.location.title + " " +
+                        group.location.key + " " +
+                        BlueVpnLocationUtil.publicSearchAliases(group.location.key),
                 )
                 val matchesQuery =
                     query.isBlank() ||
@@ -1237,7 +1239,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     activeLocationKey.isNotBlank() &&
                         group.location.key == activeLocationKey
                 val locationSearchable = BlueVpnLocationUtil.normalizeForSearch(
-                    group.location.title + " " + group.location.key,
+                    group.location.title + " " +
+                        group.location.key + " " +
+                        BlueVpnLocationUtil.publicSearchAliases(group.location.key),
                 )
                 val locationMatchesQuery =
                     query.isNotBlank() && locationSearchable.contains(query)
@@ -1396,7 +1400,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             listOf(
                 group.location.title + " " + ordinal,
                 group.location.key + " " + ordinal,
-                candidate.profile.remarks.orEmpty(),
+                BlueVpnLocationUtil.publicSearchAliases(group.location.key) + " " + ordinal,
             ).joinToString(" "),
         )
         return searchable.contains(query)

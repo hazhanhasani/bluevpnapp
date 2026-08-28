@@ -859,20 +859,149 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
     }
 
-    /**
-     * User-facing selection is location-only. Internal subscription entries /
-     * routes stay completely behind the location card and are ranked by the
-     * connection engine at connect time. No GUID, route name, route count or
-     * per-route health detail is rendered on this screen.
-     */
+    private fun stableServerRows(
+        location: BlueVpnLocation,
+        servers: List<BlueVpnLocationUtil.Candidate>,
+    ): List<Pair<BlueVpnLocationUtil.Candidate, Int>> {
+        val prefs = getSharedPreferences("bluevpn_server_labels", MODE_PRIVATE)
+        val prefix = "ordinal:" + location.key + ":"
+        var next = prefs.all
+            .filterKeys { it.startsWith(prefix) }
+            .values
+            .mapNotNull { it as? Int }
+            .maxOrNull() ?: 0
+        val editor = prefs.edit()
+        val rows = servers
+            .sortedBy { BlueVpnLocationUtil.serverIdentity(it.profile) }
+            .map { candidate ->
+                val identity = BlueVpnLocationUtil.serverIdentity(candidate.profile)
+                val key = prefix + identity
+                var ordinal = prefs.getInt(key, 0)
+                if (ordinal <= 0) {
+                    next += 1
+                    ordinal = next
+                    editor.putInt(key, ordinal)
+                }
+                candidate to ordinal
+            }
+        editor.apply()
+        return rows.sortedBy { it.second }
+    }
+
+    private fun signalLevel(candidate: BlueVpnLocationUtil.Candidate): Int {
+        if (BlueVpnPreferences.isSessionInactive(this, candidate.guid)) return 0
+        return when {
+            candidate.delay in 1..80 -> 4
+            candidate.delay in 81..160 -> 3
+            candidate.delay in 161..280 -> 2
+            candidate.delay > 280 -> 1
+            else -> when (BlueVpnLocationUtil.healthScore(this, candidate)) {
+                in 82..100 -> 4
+                in 68..81 -> 3
+                in 45..67 -> 2
+                in 1..44 -> 1
+                else -> 0
+            }
+        }
+    }
+
+    private fun signalBars(candidate: BlueVpnLocationUtil.Candidate): String =
+        when (signalLevel(candidate)) {
+            4 -> "📡 ▂▄▆█"
+            3 -> "📡 ▂▄▆"
+            2 -> "📡 ▂▄"
+            1 -> "📡 ▂"
+            else -> "📡 —"
+        }
+
+    private fun serverHealthLabel(
+        candidate: BlueVpnLocationUtil.Candidate,
+        active: Boolean,
+        automaticActive: Boolean,
+    ): String {
+        val state = when {
+            automaticActive -> "فعال • خودکار"
+            active -> "فعال • دستی"
+            BlueVpnPreferences.isSessionInactive(this, candidate.guid) -> "موقتاً نامناسب"
+            candidate.delay > 0 -> candidate.delay.toString() + " ms"
+            else -> "در انتظار سنجش"
+        }
+        return signalBars(candidate) + "  " + state
+    }
+
+    private fun createServerRow(
+        group: LocationGroup,
+        candidate: BlueVpnLocationUtil.Candidate,
+        ordinal: Int,
+        premium: Boolean,
+    ): View {
+        val selectedGuid = MmkvManager.getSelectServer().orEmpty()
+        val connected = BlueVpnRuntimeGate.connectionActive(this)
+        val automatic = BlueVpnPreferences.smartBalance(this)
+        val mode = BlueVpnPreferences.selectionMode(this)
+        val manualGuid = BlueVpnPreferences.manualServerGuid(this)
+        val automaticActive = automatic && connected && candidate.guid == selectedGuid
+        val manualActive = mode == BlueVpnSelectionMode.MANUAL_SERVER && manualGuid == candidate.guid
+        val active = automaticActive || manualActive || (connected && candidate.guid == selectedGuid)
+
+        val serverCard = card(
+            radius = 16,
+            fill = if (active) palette.surfaceStrong else palette.surface,
+            stroke = if (active) palette.accent else palette.stroke,
+        ).apply {
+            strokeWidth = dp(if (active) 2 else 1)
+            isClickable = true
+            isFocusable = true
+            contentDescription = group.location.title + " " + ordinal + "؛ " + serverHealthLabel(candidate, active, automaticActive)
+            BlueVpnUiGuard.bind(this) {
+                if (!premium) openSubscriptionForPremium()
+                else selectServer(group, candidate, ordinal)
+            }
+        }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+        }
+        serverCard.addView(row)
+
+        val titleBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        titleBox.addView(textView(group.location.title + " " + ordinal, 14f, palette.textPrimary, Gravity.END).apply {
+            setTypeface(typeface, Typeface.BOLD)
+        })
+        val health = textView(
+            serverHealthLabel(candidate, active, automaticActive),
+            10.5f,
+            if (active) palette.accent else palette.textMuted,
+            Gravity.END,
+        ).apply { setPadding(0, dp(4), 0, 0) }
+        serverHealthViews[candidate.guid] = health
+        titleBox.addView(health)
+        row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
+
+        val action = when {
+            automaticActive -> "خودکار"
+            manualActive -> "دستی"
+            !premium -> "🔒"
+            else -> "انتخاب"
+        }
+        row.addView(textView(action, 10.5f, if (active) palette.accent else palette.textSecondary, Gravity.CENTER).apply {
+            setTypeface(typeface, Typeface.BOLD)
+        }, LinearLayout.LayoutParams(dp(62), dp(38)))
+        return serverCard
+    }
+
     private fun createLocationSection(
         group: LocationGroup,
         active: Boolean,
         premium: Boolean,
     ): View {
-        val outer = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
+        val expanded = group.location.key in expandedLocationKeys
+        val automatic = BlueVpnPreferences.smartBalance(this)
+        val outer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val fill = when {
             active -> if (palette.dark) 0xFF151D31.toInt() else 0xFFEAF0FF.toInt()
             group.favorite -> if (palette.dark) 0xFF181621.toInt() else 0xFFF4F0FF.toInt()
@@ -887,20 +1016,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             strokeWidth = dp(if (active) 2 else 1)
             isClickable = true
             isFocusable = true
-            contentDescription = "${group.location.title}؛ ${if (active) "فعال" else "انتخاب لوکیشن"}"
+            contentDescription = group.location.title + "؛ " + group.servers.size + " سرور؛ " + if (expanded) "باز" else "بسته"
             BlueVpnUiGuard.bind(this) {
-                if (!premium) {
-                    openSubscriptionForPremium()
-                } else {
-                    // Selecting a country never exposes or pins a concrete route.
-                    // Home will scope candidates to this location and rank the
-                    // hidden routes automatically on every connection attempt.
-                    selectGroup(
-                        group = group,
-                        automatic = BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity),
-                        selectedLocation = null,
-                    )
-                }
+                if (expanded) expandedLocationKeys.remove(group.location.key)
+                else expandedLocationKeys.add(group.location.key)
+                renderLocations()
             }
         }
         val row = LinearLayout(this).apply {
@@ -924,7 +1044,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             ellipsize = android.text.TextUtils.TruncateAt.END
         })
         val availabilityView = textView(
-            availabilityLabel(group.location, group.servers),
+            group.servers.size.toString() + " سرور • " + availabilityLabel(group.location, group.servers),
             10.5f,
             palette.textMuted,
             Gravity.END,
@@ -946,33 +1066,60 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             setTextColor(if (group.favorite) palette.accent else palette.textMuted)
             contentDescription = if (group.favorite) "حذف از علاقه‌مندی" else "افزودن به علاقه‌مندی"
             BlueVpnUiGuard.bind(this) {
-                BlueVpnExperience.toggleFavorite(
-                    this@BlueVpnServersActivity,
-                    group.location.key,
-                )
+                BlueVpnExperience.toggleFavorite(this@BlueVpnServersActivity, group.location.key)
                 renderLocations()
             }
         }
-        row.addView(favoriteButton, LinearLayout.LayoutParams(dp(40), dp(40)))
+        row.addView(favoriteButton, LinearLayout.LayoutParams(dp(38), dp(40)))
 
-        val actionLabel = when {
-            !premium -> "🔒"
-            active -> "فعال"
-            else -> "انتخاب"
+        val chooseCountry = textView(
+            when {
+                !premium -> "🔒"
+                active && automatic -> "خودکار"
+                active -> "فعال"
+                else -> "انتخاب کشور"
+            },
+            if (!premium) 16f else 10f,
+            if (active) palette.accent else palette.textSecondary,
+            Gravity.CENTER,
+        ).apply {
+            setTypeface(typeface, Typeface.BOLD)
+            isClickable = true
+            isFocusable = true
+            BlueVpnUiGuard.bind(this) {
+                if (!premium) openSubscriptionForPremium()
+                else selectGroup(
+                    group = group,
+                    automatic = BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity),
+                    selectedLocation = null,
+                )
+            }
         }
-        row.addView(
-            textView(
-                actionLabel,
-                if (!premium) 16f else 11f,
-                if (active) palette.accent else palette.textMuted,
-                Gravity.CENTER,
-            ),
-            LinearLayout.LayoutParams(dp(58), dp(40)),
-        )
+        row.addView(chooseCountry, LinearLayout.LayoutParams(dp(76), dp(40)))
+        row.addView(textView(if (expanded) "⌃" else "⌄", 18f, palette.textMuted, Gravity.CENTER),
+            LinearLayout.LayoutParams(dp(28), dp(40)))
+
         outer.addView(header, LinearLayout.LayoutParams(-1, dp(78)))
+
+        if (expanded) {
+            val serverBox = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(8), dp(6), dp(8), 0)
+            }
+            stableServerRows(group.location, group.servers).forEachIndexed { index, pair ->
+                val candidate = pair.first
+                val ordinal = pair.second
+                serverBox.addView(
+                    createServerRow(group, candidate, ordinal, premium),
+                    LinearLayout.LayoutParams(-1, dp(64)).apply {
+                        if (index > 0) topMargin = dp(5)
+                    },
+                )
+            }
+            outer.addView(serverBox, LinearLayout.LayoutParams(-1, -2))
+        }
         return outer
     }
-
     private fun openSubscriptionForPremium() {
         Toast.makeText(
             this,

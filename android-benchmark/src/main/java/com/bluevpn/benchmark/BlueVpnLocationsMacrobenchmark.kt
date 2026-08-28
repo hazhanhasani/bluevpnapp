@@ -36,7 +36,7 @@ class BlueVpnLocationsMacrobenchmark {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         device.waitForIdle()
 
-        device.findObject(By.text("مکان‌ها"))?.click()
+        device.findObject(By.desc("نمایش مکان‌ها"))?.click()
         device.wait(Until.hasObject(By.clazz("androidx.recyclerview.widget.RecyclerView")), 5_000)
         device.waitForIdle()
     }

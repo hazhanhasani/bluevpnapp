@@ -10,15 +10,18 @@ class AndroidLocationsSearchPolishTest(unittest.TestCase):
 
     def test_search_matches_server_labels_and_remarks(self):
         src = self.text("android-source/BlueVpnServersActivity.kt")
-        self.assertIn("private fun groupMatchesQuery", src)
+        self.assertIn("val searchRowsByLocation =", src)
         self.assertIn("private fun serverMatchesQuery", src)
+        self.assertNotIn("private fun groupMatchesQuery", src)
         self.assertIn('group.location.title + " " + ordinal', src)
         self.assertIn("candidate.profile.remarks.orEmpty()", src)
 
     def test_server_search_can_surface_matching_rows_without_mutating_user_expansion(self):
         src = self.text("android-source/BlueVpnServersActivity.kt")
         self.assertIn("val matchingServerRows =", src)
-        self.assertIn("query.isNotBlank() && !locationMatchesQuery", src)
+        self.assertIn("val searchMatches = searchRowsByLocation", src)
+        self.assertIn("query.isNotBlank()", src)
+        self.assertIn("!locationMatchesQuery", src)
         self.assertIn("matchingServerRows.forEach", src)
         self.assertNotIn("expandedLocationKeys.add(group.location.key)", src.split("val matchingServerRows =", 1)[1].split("BlueVpnLocationListRow.Country(", 1)[0])
 

@@ -990,8 +990,6 @@ def inject_bluevpn_home() -> None:
     android_test_overrides = {
         android_test_ui_dir / "BlueVpnLocationsUiTest.kt":
             ROOT / "android-test/BlueVpnLocationsUiTest.kt",
-        android_test_bluevpn_dir / "BlueVpnLocationDiffBenchmark.kt":
-            ROOT / "android-test/BlueVpnLocationDiffBenchmark.kt",
     }
     for target, source in android_test_overrides.items():
         if not source.exists():

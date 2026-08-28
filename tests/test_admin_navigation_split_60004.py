@@ -3,7 +3,7 @@ import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
 
-class AdminNavigationSplit60007Tests(unittest.TestCase):
+class AdminNavigationSplit60008Tests(unittest.TestCase):
     def text(self,path):
         return (ROOT/path).read_text(encoding="utf-8")
 

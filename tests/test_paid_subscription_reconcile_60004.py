@@ -3,13 +3,13 @@ import json, unittest
 
 ROOT=Path(__file__).resolve().parents[1]
 
-class PaidSubscriptionReconcile60007Tests(unittest.TestCase):
+class PaidSubscriptionReconcile60008Tests(unittest.TestCase):
     def text(self,path):
         return (ROOT/path).read_text(encoding="utf-8")
 
     def test_current_release_contract(self):
         release=json.loads(self.text("release.json"))
-        self.assertEqual((release["version"],release["version_code"]),("6.0.7",60007))
+        self.assertEqual((release["version"],release["version_code"]),("6.0.8",60008))
 
     def test_repair_covers_every_paid_path(self):
         providers=self.text("bluevpn-manager/includes/class-bluevpn-providers.php")

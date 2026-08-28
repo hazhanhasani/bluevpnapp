@@ -15,6 +15,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.hamcrest.Matchers.allOf
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.File
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.UiDevice
 
 @RunWith(AndroidJUnit4::class)
 class BlueVpnLocationsUiTest {
@@ -43,6 +46,27 @@ class BlueVpnLocationsUiTest {
         }
     }
 
+
+    @Test
+    fun captureLightAndDarkRtlSnapshots() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val device = UiDevice.getInstance(instrumentation)
+        val target = instrumentation.targetContext
+        val qaDir = target.getExternalFilesDir("qa") ?: return
+
+        device.executeShellCommand("cmd uimode night no")
+        ActivityScenario.launch(BlueVpnServersActivity::class.java).use { scenario ->
+            scenario.recreate()
+            device.waitForIdle()
+            device.takeScreenshot(File(qaDir, "locations-light-rtl.png"))
+
+            device.executeShellCommand("cmd uimode night yes")
+            scenario.recreate()
+            device.waitForIdle()
+            device.takeScreenshot(File(qaDir, "locations-dark-rtl.png"))
+        }
+        device.executeShellCommand("cmd uimode night no")
+    }
 
     @Test
     fun searchAndTabSurviveFreshActivityAfterStatePersistence() {

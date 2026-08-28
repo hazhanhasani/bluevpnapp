@@ -2843,9 +2843,12 @@ object BlueVpnAccountManager {
                 "/api/v1/auth/otp/request",
                 "/api/v1/account/phone/otp/request",
             )
+            val accountSyncRequest =
+                method == "POST" && path.startsWith("/api/v1/account/sync")
             connection.connectTimeout = when {
                 invoiceRequest -> 12_000
                 otpRequest -> 10_000
+                accountSyncRequest -> 10_000
                 else -> 7_000
             }
             // OTP is synchronous by design: WordPress must wait for IranPayamak
@@ -2856,6 +2859,9 @@ object BlueVpnAccountManager {
             connection.readTimeout = when {
                 invoiceRequest -> 50_000
                 otpRequest -> 30_000
+                // /account/sync can legitimately wait for WordPress/provider work.
+                // A 12s generic budget caused false NETWORK_TIMEOUT on manual refresh.
+                accountSyncRequest -> 35_000
                 else -> 12_000
             }
             connection.useCaches = false
@@ -2965,16 +2971,20 @@ object BlueVpnAccountManager {
                 "/api/v1/auth/otp/request",
                 "/api/v1/account/phone/otp/request",
             )
+            val accountSyncRequest =
+                method == "POST" && path.startsWith("/api/v1/account/sync")
             throw ApiException(
                 0,
                 when {
                     invoiceRequest -> "BLUPAL_TIMEOUT"
                     otpRequest -> "SMS_REQUEST_TIMEOUT"
+                    accountSyncRequest -> "ACCOUNT_SYNC_TIMEOUT"
                     else -> "NETWORK_TIMEOUT"
                 },
                 when {
                     invoiceRequest -> "ساخت فاکتور بیش از حد طول کشید؛ اتصال اینترنت را بررسی کرده و دوباره تلاش کنید. فاکتور تکراری ساخته نمی‌شود."
                     otpRequest -> "سامانه پیامک در مهلت مقرر پاسخ نداد؛ چند لحظه دیگر دوباره تلاش کنید."
+                    accountSyncRequest -> "بروزرسانی حساب از سرور کامل نشد؛ اطلاعات فعلی حفظ شده است و می‌توانید دوباره تلاش کنید."
                     else -> "پاسخ سرور دیر دریافت شد؛ اتصال اینترنت را بررسی و دوباره تلاش کنید."
                 },
             )

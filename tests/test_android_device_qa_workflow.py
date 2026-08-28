@@ -27,6 +27,19 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         self.assertIn("upstream/V2rayNG/gradlew -p upstream/V2rayNG", block)
         self.assertIn("BLUEVPN_QA_APPLICATION_ID", workflow)
 
+    def test_benchmark_jvm_targets_match_and_preflight_runs_before_emulator(self):
+        benchmark = self.text("android-benchmark/build.gradle.kts")
+        self.assertIn("sourceCompatibility = JavaVersion.VERSION_11", benchmark)
+        self.assertIn("targetCompatibility = JavaVersion.VERSION_11", benchmark)
+        self.assertIn('jvmTarget = "11"', benchmark)
+
+        workflow = self.text(".github/workflows/android-quality.yml")
+        preflight = workflow.index("Preflight Android test and benchmark compilation")
+        emulator = workflow.index("Run Android UI, state, screenshot and performance QA")
+        self.assertLess(preflight, emulator)
+        self.assertIn(":app:assemblePlaystoreDebugAndroidTest", workflow)
+        self.assertIn(":benchmark:assembleBenchmark", workflow)
+
     def test_device_qa_is_pinned_and_uploads_artifacts(self):
         workflow = self.text(".github/workflows/android-quality.yml")
         self.assertIn(

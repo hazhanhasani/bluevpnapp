@@ -845,7 +845,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         healthStatusViews.forEach { (locationKey, view) ->
             val servers = groups[locationKey].orEmpty()
             val location = servers.firstOrNull()?.location ?: return@forEach
-            val next = availabilityLabel(location, servers)
+            val next = servers.size.toString() + " سرور • " + availabilityLabel(location, servers)
             if (view.text?.toString() != next) {
                 view.text = next
             }

@@ -76,6 +76,72 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val favorite: Boolean,
     )
 
+    private inner class LocationsAdapter :
+        ListAdapter<BlueVpnLocationListRow, LocationsAdapter.RowHolder>(
+            BlueVpnLocationRowDiff,
+        ) {
+
+        init {
+            setHasStableIds(true)
+        }
+
+        inner class RowHolder(
+            val host: FrameLayout,
+        ) : RecyclerView.ViewHolder(host)
+
+        override fun getItemId(position: Int): Long =
+            getItem(position).stableId.hashCode().toLong()
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RowHolder {
+            val host = FrameLayout(parent.context).apply {
+                layoutParams = RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+            }
+            return RowHolder(host)
+        }
+
+        override fun onBindViewHolder(holder: RowHolder, position: Int) {
+            val item = getItem(position)
+            holder.host.removeAllViews()
+
+            val content = when (item) {
+                is BlueVpnLocationListRow.Country -> {
+                    val group = renderedGroupsByKey[item.locationKey] ?: return
+                    createLocationSection(
+                        group = group,
+                        active = item.active,
+                        premium = BlueVpnEntitlement.resolveUi(this@BlueVpnServersActivity)
+                            .manualSelectionAllowed,
+                    )
+                }
+
+                is BlueVpnLocationListRow.Server -> {
+                    val group = renderedGroupsByKey[item.locationKey] ?: return
+                    val candidate = renderedCandidatesByGuid[item.guid] ?: return
+                    createServerRow(
+                        group = group,
+                        candidate = candidate,
+                        ordinal = item.ordinal,
+                        premium = item.premium,
+                    )
+                }
+            }
+
+            val params = FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topMargin = if (item is BlueVpnLocationListRow.Server) dp(2) else dp(3)
+                bottomMargin = if (item is BlueVpnLocationListRow.Country) dp(2) else 0
+                marginStart = if (item is BlueVpnLocationListRow.Server) dp(14) else 0
+                marginEnd = if (item is BlueVpnLocationListRow.Server) dp(4) else 0
+            }
+            holder.host.addView(content, params)
+        }
+    }
+
     private val mainViewModel: MainViewModel by viewModels()
     private lateinit var palette: BlueVpnPalette
     private var themeDarkAtCreate = true
@@ -1443,61 +1509,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
         outer.addView(header, LinearLayout.LayoutParams(-1, dp(64)))
 
-        if (expanded) {
-            val tray = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.TOP
-                setPadding(dp(8), dp(6), dp(8), dp(8))
-                alpha = 0f
-                translationY = -dp(4).toFloat()
-            }
-
-            val rail = View(this).apply {
-                background = rounded(if (active) palette.accent else palette.stroke, 3)
-            }
-            tray.addView(
-                rail,
-                LinearLayout.LayoutParams(dp(2), -1).apply {
-                    marginEnd = dp(8)
-                    topMargin = dp(2)
-                    bottomMargin = dp(2)
-                },
-            )
-
-            val serverBox = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                background = rounded(
-                    if (palette.dark) 0xFF0E1420.toInt() else 0xFFFAFBFE.toInt(),
-                    14,
-                    palette.stroke,
-                )
-                setPadding(dp(6), dp(6), dp(6), dp(6))
-            }
-            stableServerRows(group.location, group.servers).forEachIndexed { index, pair ->
-                val candidate = pair.first
-                val ordinal = pair.second
-                serverBox.addView(
-                    createServerRow(group, candidate, ordinal, premium),
-                    LinearLayout.LayoutParams(-1, dp(58)).apply {
-                        if (index > 0) topMargin = dp(2)
-                    },
-                )
-            }
-
-            tray.addView(serverBox, LinearLayout.LayoutParams(0, -2, 1f))
-            outer.addView(
-                tray,
-                LinearLayout.LayoutParams(-1, -2).apply {
-                    topMargin = dp(3)
-                    marginStart = dp(4)
-                    marginEnd = dp(4)
-                },
-            )
-            tray.animate()
-                .alpha(1f)
-                .translationY(0f)
-                .setDuration(140L)
-                .start()
+        // Expanded server rows are flattened into the RecyclerView adapter.
+        // Keeping them out of the country View makes server rows virtualized and
+        // lets DiffUtil add/remove only the affected items.
         }
         return outer
     }

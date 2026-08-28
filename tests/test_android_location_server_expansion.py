@@ -21,13 +21,14 @@ class AndroidLocationServerExpansionTests(unittest.TestCase):
     def test_server_quality_uses_signal_bars_and_ping(self):
         src=self.text("android-source/BlueVpnServersActivity.kt")
         for token in [
-            '4 -> "📡 ▂▄▆█"',
-            '3 -> "📡 ▂▄▆"',
-            '2 -> "📡 ▂▄"',
-            '1 -> "📡 ▂"',
-            'candidate.delay.toString() + " ms"',
+            '4 -> "▂▄▆█"',
+            '3 -> "▂▄▆"',
+            '2 -> "▂▄"',
+            '1 -> "▂"',
+            'candidate.delay.toString() + " ms • " + signalQuality(candidate)',
         ]:
             self.assertIn(token,src)
+        self.assertNotIn('4 -> "📡 ▂▄▆█"',src)
 
     def test_auto_mode_expands_actual_connected_country_without_switching_mode(self):
         src=self.text("android-source/BlueVpnServersActivity.kt")

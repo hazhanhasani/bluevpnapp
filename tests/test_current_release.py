@@ -376,7 +376,9 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("healthRefreshRunnable", observer)
         self.assertNotIn("listContainer.removeAllViews()", observer)
         self.assertIn("private fun refreshVisibleHealthPresentation()", source)
-        self.assertIn("healthStatusViews[group.location.key] = availabilityView", source)
+        self.assertIn("locationsAdapter.submitList(rows)", source)
+        self.assertNotIn("healthStatusViews", source)
+        self.assertNotIn("serverHealthViews", source)
 
     @classmethod
     def setUpClass(cls):

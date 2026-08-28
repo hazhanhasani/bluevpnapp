@@ -91,6 +91,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var renderedPremiumMode: Boolean? = null
     private var lastRenderedStructureFingerprint: String = ""
     private val healthStatusViews = LinkedHashMap<String, TextView>()
+    private val serverHealthViews = LinkedHashMap<String, TextView>()
+    private val expandedLocationKeys = linkedSetOf<String>()
     private val healthRefreshRunnable = Runnable {
         refreshVisibleHealthPresentation()
     }
@@ -669,6 +671,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             }
             listContainer.removeAllViews()
             healthStatusViews.clear()
+        serverHealthViews.clear()
             val entitlement = uiEntitlement
             emptyText.text = when {
                 candidateLoadError.isNotBlank() -> candidateLoadError
@@ -696,6 +699,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
         listContainer.removeAllViews()
         healthStatusViews.clear()
+        serverHealthViews.clear()
         val selectedLocation = candidates.firstOrNull { it.guid == selected }?.location?.key
         val connectedNow = BlueVpnRuntimeGate.connectionActive(this)
         // While the VPN is actually connected, the visible active country must
@@ -774,7 +778,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 val end = (groupIndex + chunkSize).coerceAtMost(groups.size)
                 while (groupIndex < end) {
                     val group = groups[groupIndex++]
-                    val active = !automatic &&
+                    val active =
                         activeLocationKey.isNotBlank() &&
                         group.location.key == activeLocationKey
                     listContainer.addView(
@@ -841,6 +845,17 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             if (view.text?.toString() != next) {
                 view.text = next
             }
+        }
+        val selectedGuid=MmkvManager.getSelectServer().orEmpty()
+        val automatic=BlueVpnPreferences.smartBalance(this)
+        val connected=BlueVpnRuntimeGate.connectionActive(this)
+        val mode=BlueVpnPreferences.selectionMode(this)
+        val manualGuid=BlueVpnPreferences.manualServerGuid(this)
+        serverHealthViews.forEach { (guid, view) ->
+            val candidate=groups.values.asSequence().flatten().firstOrNull { it.guid==guid } ?: return@forEach
+            val active=(connected&&guid==selectedGuid)||(mode==BlueVpnSelectionMode.MANUAL_SERVER&&manualGuid==guid)
+            val next=serverHealthLabel(candidate,active,automatic&&connected&&guid==selectedGuid)
+            if(view.text?.toString()!=next)view.text=next
         }
     }
 

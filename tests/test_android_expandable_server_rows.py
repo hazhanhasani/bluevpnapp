@@ -25,10 +25,11 @@ class AndroidExpandableServerRowsTests(unittest.TestCase):
 
     def test_server_quality_uses_ping_and_signal_bars(self):
         ui=self.text("android-source/BlueVpnServersActivity.kt")
-        for token in ['"▂▄▆█"','"▂▄▆"','candidate.delay in 1..80','candidate.delay > 280']:
+        for token in ['"▂▄▆█"','"▂▄▆"','delay in 1..80','delay > 280']:
             self.assertIn(token,ui)
         self.assertNotIn('"📡 ▂▄▆█"',ui)
-        self.assertIn('candidate.delay.toString() + " ms • " + signalQuality(candidate)',ui)
+        self.assertIn('latency.latencyMs.toString() + " ms • " + signalQuality(candidate)',ui)
+        self.assertIn("val latency = latencySnapshot(candidate)",ui)
 
     def test_auto_and_manual_server_states_are_distinct(self):
         ui=self.text("android-source/BlueVpnServersActivity.kt")

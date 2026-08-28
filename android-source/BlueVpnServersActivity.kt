@@ -1152,7 +1152,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val recentKeys = BlueVpnExperience.history(this).map { it.locationKey }.distinct()
         val recentIndex = recentKeys.withIndex().associate { it.value to it.index }
 
-        val groups = candidates
+        val candidateGroups = candidates
             .groupBy { it.location.key }
             .mapNotNull { (_, servers) ->
                 val location = servers.firstOrNull()?.location ?: return@mapNotNull null
@@ -1170,8 +1170,30 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     favorite = BlueVpnExperience.isFavorite(this, location.key),
                 )
             }
+
+        // Direct server search needs stable ordinals, but computing them repeatedly
+        // during filter + row construction doubles SharedPreferences work. Build the
+        // search matches once per country and reuse them for the final flat list.
+        val searchRowsByLocation = if (query.isBlank()) {
+            emptyMap()
+        } else {
+            candidateGroups.associate { group ->
+                group.location.key to stableServerRows(group.location, group.servers)
+                    .filter { (candidate, ordinal) ->
+                        serverMatchesQuery(group, candidate, ordinal)
+                    }
+            }
+        }
+
+        val groups = candidateGroups
             .filter { group ->
-                val matchesQuery = groupMatchesQuery(group)
+                val locationSearchable = BlueVpnLocationUtil.normalizeForSearch(
+                    group.location.title + " " + group.location.key,
+                )
+                val matchesQuery =
+                    query.isBlank() ||
+                        locationSearchable.contains(query) ||
+                        searchRowsByLocation[group.location.key].orEmpty().isNotEmpty()
                 val matchesTab = when (selectedTab) {
                     LocationTab.ALL -> true
                     LocationTab.FAVORITES -> group.favorite
@@ -1218,17 +1240,19 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 )
                 val locationMatchesQuery =
                     query.isNotBlank() && locationSearchable.contains(query)
-                val matchingServerRows = if (query.isBlank() || locationMatchesQuery) {
-                    stableServerRows(group.location, group.servers)
-                } else {
-                    stableServerRows(group.location, group.servers)
-                        .filter { (candidate, ordinal) ->
-                            serverMatchesQuery(group, candidate, ordinal)
-                        }
+                val userExpanded = group.location.key in expandedLocationKeys
+                val searchMatches = searchRowsByLocation[group.location.key].orEmpty()
+                val expandedBySearch =
+                    query.isNotBlank() &&
+                        !locationMatchesQuery &&
+                        searchMatches.isNotEmpty()
+                val expanded = userExpanded || expandedBySearch
+                val matchingServerRows = when {
+                    !expanded -> emptyList()
+                    query.isBlank() || locationMatchesQuery ->
+                        stableServerRows(group.location, group.servers)
+                    else -> searchMatches
                 }
-                val expanded =
-                    group.location.key in expandedLocationKeys ||
-                        (query.isNotBlank() && !locationMatchesQuery && matchingServerRows.isNotEmpty())
                 add(
                     BlueVpnLocationListRow.Country(
                         locationKey = group.location.key,
@@ -1354,17 +1378,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             }
         editor.apply()
         return rows.sortedBy { it.second }
-    }
-
-    private fun groupMatchesQuery(group: LocationGroup): Boolean {
-        if (query.isBlank()) return true
-        val locationSearchable = BlueVpnLocationUtil.normalizeForSearch(
-            group.location.title + " " + group.location.key,
-        )
-        if (locationSearchable.contains(query)) return true
-        return stableServerRows(group.location, group.servers).any { (candidate, ordinal) ->
-            serverMatchesQuery(group, candidate, ordinal)
-        }
     }
 
     private fun serverMatchesQuery(

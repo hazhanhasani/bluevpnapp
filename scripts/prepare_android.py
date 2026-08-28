@@ -868,6 +868,7 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnBootstrap.kt": ROOT / "android-source/BlueVpnBootstrap.kt",
         bluevpn_dir / "BlueVpnRuntimeGate.kt": ROOT / "android-source/BlueVpnRuntimeGate.kt",
         bluevpn_dir / "BlueVpnRefreshCoordinator.kt": ROOT / "android-source/BlueVpnRefreshCoordinator.kt",
+        bluevpn_dir / "BlueVpnLatencyState.kt": ROOT / "android-source/BlueVpnLatencyState.kt",
         bluevpn_dir / "BlueVpnEntitlement.kt": ROOT / "android-source/BlueVpnEntitlement.kt",
         bluevpn_dir / "BlueVpnSmartSelector.kt": ROOT / "android-source/BlueVpnSmartSelector.kt",
         bluevpn_dir / "BlueVpnTapsellManager.kt": ROOT / "android-source/BlueVpnTapsellManager.kt",

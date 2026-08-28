@@ -71,6 +71,31 @@ jobs:
           python -m pip install --disable-pip-version-check --quiet pillow
           python scripts/prepare_android.py
 
+      - name: Enable KVM acceleration for Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -e /dev/kvm ]; then
+            sudo chown "$USER":"$(id -gn)" /dev/kvm
+            sudo chmod 660 /dev/kvm
+            test -r /dev/kvm -a -w /dev/kvm
+            echo "KVM hardware acceleration enabled."
+          else
+            echo "::warning::/dev/kvm is unavailable; emulator will use slow software acceleration."
+          fi
+
+      - name: Resolve Android QA application id
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          app=json.loads(Path('branding/app.json').read_text(encoding='utf-8'))
+          with Path(os.environ['GITHUB_ENV']).open('a',encoding='utf-8') as f:
+              f.write('BLUEVPN_QA_APPLICATION_ID=' + app['application_id'] + '\n')
+          PY
+
       - name: Run Android UI, state, screenshot and performance QA
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
@@ -81,19 +106,10 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
-            set -eu
-            cd upstream/V2rayNG
-            chmod +x gradlew
-            ./gradlew :app:connectedPlaystoreDebugAndroidTest -PABI_FILTERS=x86_64 --stacktrace --no-daemon --build-cache
-            ./gradlew :benchmark:connectedBenchmarkAndroidTest -PABI_FILTERS=x86_64 --stacktrace --no-daemon --build-cache
-            cd "$GITHUB_WORKSPACE"
-            APP_ID="$(python - <<'PY'
-            import json
-            print(json.load(open('branding/app.json', encoding='utf-8'))['application_id'])
-            PY
-            )"
+            chmod +x upstream/V2rayNG/gradlew
+            upstream/V2rayNG/gradlew -p upstream/V2rayNG :app:connectedPlaystoreDebugAndroidTest :benchmark:connectedBenchmarkAndroidTest -PABI_FILTERS=x86_64 --stacktrace --no-daemon --build-cache
             mkdir -p reports/android-quality/qa
-            adb pull "/sdcard/Android/data/$APP_ID/files/qa/." reports/android-quality/qa/ || true
+            adb pull "/sdcard/Android/data/$BLUEVPN_QA_APPLICATION_ID/files/qa/." reports/android-quality/qa/ || true
 
       - name: Validate light and dark Locations screenshots
         shell: bash

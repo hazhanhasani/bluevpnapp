@@ -29,9 +29,12 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
 
     def test_benchmark_jvm_targets_match_and_preflight_runs_before_emulator(self):
         benchmark = self.text("android-benchmark/build.gradle.kts")
-        self.assertIn("sourceCompatibility = JavaVersion.VERSION_11", benchmark)
-        self.assertIn("targetCompatibility = JavaVersion.VERSION_11", benchmark)
-        self.assertIn('jvmTarget = "11"', benchmark)
+        self.assertIn("extensions.configure<TestExtension>", benchmark)
+        self.assertNotIn("\nandroid {", benchmark)
+        self.assertIn("sourceCompatibility = JavaVersion.VERSION_17", benchmark)
+        self.assertIn("targetCompatibility = JavaVersion.VERSION_17", benchmark)
+        self.assertIn("jvmTarget.set(JvmTarget.JVM_17)", benchmark)
+        self.assertNotIn("kotlinOptions", benchmark)
 
         workflow = self.text(".github/workflows/android-quality.yml")
         preflight = workflow.index("Preflight Android test and benchmark compilation")

@@ -43,6 +43,13 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         self.assertIn(":app:assemblePlaystoreDebugAndroidTest", workflow)
         self.assertIn(":benchmark:assembleBenchmark", workflow)
 
+    def test_benchmark_test_apk_is_signed_for_device_install(self):
+        benchmark = self.text("android-benchmark/build.gradle.kts")
+        self.assertIn(
+            'signingConfig = signingConfigs.getByName("debug")',
+            benchmark,
+        )
+
     def test_device_qa_is_pinned_and_uploads_artifacts(self):
         workflow = self.text(".github/workflows/android-quality.yml")
         self.assertIn(

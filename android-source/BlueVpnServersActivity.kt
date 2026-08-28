@@ -79,6 +79,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var selectedTab = LocationTab.ALL
     private var query = ""
     private var firstResume = true
+    private var initialScrollRestored = false
     private val searchHandler = Handler(Looper.getMainLooper())
     private val renderHandler = Handler(Looper.getMainLooper())
     private var renderGeneration = 0
@@ -840,8 +841,25 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
         appendChunkRunnable = appendChunk
         lastRenderedStructureFingerprint = locationStructureFingerprint(candidates)
-        renderHandler.post(appendChunk)
-        if (::locationsScrollView.isInitialized && preservedScrollY > 0) {
+
+        // Render the first chunk synchronously. Posting an empty list first made
+        // the screen look blank whenever another runtime event invalidated the
+        // generation before the queued chunk executed.
+        appendChunk.run()
+
+        // Do not restore scroll until rows actually exist. Restoring against an
+        // empty/partial container clamps the offset and creates the random jumps
+        // users were seeing after selection or health updates.
+        if (!initialScrollRestored && ::locationsScrollView.isInitialized) {
+            initialScrollRestored = true
+            val remembered = getSharedPreferences("bluevpn_locations_ui", MODE_PRIVATE)
+                .getInt("scroll_y", 0)
+            if (remembered > 0) {
+                locationsScrollView.post {
+                    locationsScrollView.scrollTo(0, remembered)
+                }
+            }
+        } else if (::locationsScrollView.isInitialized && preservedScrollY > 0) {
             locationsScrollView.post {
                 locationsScrollView.scrollTo(0, preservedScrollY)
             }
@@ -1196,6 +1214,20 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         )
     }
 
+    private fun rememberLocationScroll() {
+        if (!::locationsScrollView.isInitialized) return
+        getSharedPreferences("bluevpn_locations_ui", MODE_PRIVATE)
+            .edit()
+            .putInt("scroll_y", locationsScrollView.scrollY)
+            .apply()
+    }
+
+    private fun finishWithLocationResult() {
+        rememberLocationScroll()
+        finish()
+    }
+
+
     private fun selectAutomatic() {
         val entitlement = BlueVpnEntitlement.resolveUi(this)
         if (!entitlement.canConnect) {
@@ -1255,8 +1287,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     "${decision.candidate.location.flag} ${decision.candidate.location.title} • انتخاب خودکار فعال شد",
                     Toast.LENGTH_SHORT,
                 ).show()
-                updateEntitlementUi()
-                renderLocations()
+                if (BlueVpnRuntimeGate.connectionActive(this@BlueVpnServersActivity)) {
+                    // Home owns live handover. Returning RESULT_OK is what actually
+                    // starts the switch from the currently connected country.
+                    finishWithLocationResult()
+                } else {
+                    updateEntitlementUi()
+                    refreshVisibleHealthPresentation()
+                }
             }
         }
     }
@@ -1279,8 +1317,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             .putExtra(EXTRA_LOCATION_KEY, group.location.key)
             .putExtra(EXTRA_LOCATION_TITLE, "${group.location.flag} ${group.location.title}"))
         Toast.makeText(this, if (changed) "${group.location.title} انتخاب شد" else "${group.location.title} فعال است", Toast.LENGTH_SHORT).show()
-        updateEntitlementUi()
-        renderLocations()
+        if (BlueVpnRuntimeGate.connectionActive(this)) {
+            // The Home Activity receives the result and performs the live location
+            // handover. Staying here left the old connected GUID (e.g. Netherlands)
+            // visually active even after choosing Germany.
+            finishWithLocationResult()
+        } else {
+            updateEntitlementUi()
+            refreshVisibleHealthPresentation()
+        }
     }
 
     private fun selectServer(
@@ -1309,8 +1354,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             if (changed) group.location.title + " " + ordinal + " انتخاب شد" else group.location.title + " " + ordinal + " فعال است",
             Toast.LENGTH_SHORT,
         ).show()
-        updateEntitlementUi()
-        renderLocations()
+        if (BlueVpnRuntimeGate.connectionActive(this)) {
+            finishWithLocationResult()
+        } else {
+            updateEntitlementUi()
+            refreshVisibleHealthPresentation()
+        }
     }
     private fun stopRefreshing() {
         renderHandler.removeCallbacks(refreshTimeoutRunnable)

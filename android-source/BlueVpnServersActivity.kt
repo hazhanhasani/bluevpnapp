@@ -333,8 +333,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var healthSweepInProgress = false
     private var renderedPremiumMode: Boolean? = null
     private var lastRenderedStructureFingerprint: String = ""
-    private val healthStatusViews = LinkedHashMap<String, TextView>()
-    private val serverHealthViews = LinkedHashMap<String, TextView>()
     private val expandedLocationKeys = linkedSetOf<String>()
     private val latencyPrefs by lazy {
         getSharedPreferences("bluevpn_latency_samples", MODE_PRIVATE)
@@ -1108,8 +1106,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             locationsAdapter.submitList(emptyList())
             renderedGroupsByKey = emptyMap()
             renderedCandidatesByGuid = emptyMap()
-            healthStatusViews.clear()
-            serverHealthViews.clear()
             val entitlement = uiEntitlement
             emptyText.text = when {
                 candidateLoadError.isNotBlank() -> candidateLoadError
@@ -1135,8 +1131,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         } else {
             0
         }
-        healthStatusViews.clear()
-        serverHealthViews.clear()
         val selectedLocation = candidates.firstOrNull { it.guid == selected }?.location?.key
         val connectedNow = BlueVpnRuntimeGate.connectionActive(this)
         // While the VPN is actually connected, the visible active country must
@@ -1628,7 +1622,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             setPadding(0, dp(3), 0, 0)
             maxLines = 1
         }
-        serverHealthViews[candidate.guid] = health
         titleBox.addView(health)
         row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
 
@@ -1726,7 +1719,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
-        healthStatusViews[group.location.key] = availabilityView
         content.addView(availabilityView)
         row.addView(content, LinearLayout.LayoutParams(0, -1, 1f))
 

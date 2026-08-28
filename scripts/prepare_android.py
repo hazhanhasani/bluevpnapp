@@ -301,7 +301,6 @@ def patch_build_gradle() -> None:
         'androidTestImplementation("androidx.test:rules:1.6.1")',
         'androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")',
         'androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")',
-        'androidTestImplementation("androidx.benchmark:benchmark-junit4:1.3.3")',
     )
     for dependency in required_dependencies:
         if dependency not in text:

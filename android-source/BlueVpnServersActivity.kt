@@ -64,6 +64,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         private const val STATE_QUERY = "bluevpn.locations.state.QUERY"
         private const val STATE_EXPANDED = "bluevpn.locations.state.EXPANDED"
         private const val STATE_SCROLL_Y = "bluevpn.locations.state.SCROLL_Y"
+
+        private const val TAG_SERVER_SURFACE = "bluevpn.locations.server.surface"
+        private const val TAG_SERVER_HEALTH = "bluevpn.locations.server.health"
+        private const val TAG_SERVER_SIGNAL = "bluevpn.locations.server.signal"
     }
 
     private enum class LocationTab { ALL, FAVORITES, RECENT }
@@ -100,6 +104,22 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 )
             }
             return RowHolder(host)
+        }
+
+        override fun onBindViewHolder(
+            holder: RowHolder,
+            position: Int,
+            payloads: MutableList<Any>,
+        ) {
+            val item = getItem(position)
+            if (
+                item is BlueVpnLocationListRow.Server &&
+                payloads.contains(BlueVpnLocationRowDiff.PAYLOAD_LATENCY) &&
+                bindLatencyPayload(holder, item)
+            ) {
+                return
+            }
+            super.onBindViewHolder(holder, position, payloads)
         }
 
         override fun onBindViewHolder(holder: RowHolder, position: Int) {
@@ -139,6 +159,26 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 marginEnd = if (item is BlueVpnLocationListRow.Server) dp(4) else 0
             }
             holder.host.addView(content, params)
+        }
+
+        private fun bindLatencyPayload(
+            holder: RowHolder,
+            item: BlueVpnLocationListRow.Server,
+        ): Boolean {
+            val health = holder.host.findViewWithTag<TextView>(TAG_SERVER_HEALTH)
+                ?: return false
+            val bars = holder.host.findViewWithTag<TextView>(TAG_SERVER_SIGNAL)
+                ?: return false
+            val surface = holder.host.findViewWithTag<View>(TAG_SERVER_SURFACE)
+
+            val color = serverHealthColor(item.signalLevel, item.active)
+            health.text = serverHealthLabel(item)
+            health.setTextColor(color)
+            bars.text = signalBars(item.signalLevel)
+            bars.setTextColor(color)
+            surface?.contentDescription =
+                item.title + " " + item.ordinal + "؛ " + serverHealthLabel(item)
+            return true
         }
     }
 
@@ -1239,8 +1279,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
     }
 
-    private fun signalBars(candidate: BlueVpnLocationUtil.Candidate): String =
-        when (signalLevel(candidate)) {
+    private fun signalBars(level: Int): String =
+        when (level) {
             4 -> "▂▄▆█"
             3 -> "▂▄▆"
             2 -> "▂▄"
@@ -1248,14 +1288,47 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             else -> "—"
         }
 
-    private fun signalQuality(candidate: BlueVpnLocationUtil.Candidate): String =
-        when (signalLevel(candidate)) {
+    private fun signalBars(candidate: BlueVpnLocationUtil.Candidate): String =
+        signalBars(signalLevel(candidate))
+
+    private fun signalQuality(level: Int): String =
+        when (level) {
             4 -> "عالی"
             3 -> "خوب"
             2 -> "متوسط"
             1 -> "ضعیف"
             else -> "در حال سنجش"
         }
+
+    private fun signalQuality(candidate: BlueVpnLocationUtil.Candidate): String =
+        signalQuality(signalLevel(candidate))
+
+    private fun serverHealthColor(level: Int, active: Boolean): Int =
+        when {
+            active -> palette.accent
+            level >= 3 -> if (palette.dark) 0xFF5CD6A6.toInt() else 0xFF13835A.toInt()
+            level == 2 -> if (palette.dark) 0xFFF3BF59.toInt() else 0xFF9B6A00.toInt()
+            level == 1 -> if (palette.dark) 0xFFFF7676.toInt() else 0xFFC83F3F.toInt()
+            else -> palette.textMuted
+        }
+
+    private fun serverHealthLabel(item: BlueVpnLocationListRow.Server): String {
+        val state = when {
+            item.automaticActive -> "فعال • خودکار"
+            item.active -> "فعال • دستی"
+            item.latencyPhase == BlueVpnLatencyPhase.OFFLINE -> "موقتاً نامناسب"
+            item.latencyPhase == BlueVpnLatencyPhase.MEASURING -> "در حال سنجش"
+            item.latencyPhase == BlueVpnLatencyPhase.TIMEOUT -> "بدون پاسخ"
+            item.latencyPhase == BlueVpnLatencyPhase.FRESH ->
+                item.latencyMs.toString() + " ms • " + signalQuality(item.signalLevel)
+            item.latencyPhase == BlueVpnLatencyPhase.STALE ->
+                item.latencyMs.toString() + " ms • قدیمی"
+            item.latencyMs > 0L ->
+                item.latencyMs.toString() + " ms • ذخیره‌شده"
+            else -> "هنوز سنجیده نشده"
+        }
+        return signalBars(item.signalLevel) + "  " + state
+    }
 
     private fun serverHealthLabel(
         candidate: BlueVpnLocationUtil.Candidate,
@@ -1303,6 +1376,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             } else palette.surface,
             stroke = if (active) palette.accent else android.graphics.Color.TRANSPARENT,
         ).apply {
+            tag = TAG_SERVER_SURFACE
             strokeWidth = dp(if (active) 1 else 0)
             cardElevation = 0f
             isClickable = true
@@ -1339,19 +1413,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             },
         )
 
-        val healthColor = when {
-            active -> palette.accent
-            level >= 3 -> if (palette.dark) 0xFF5CD6A6.toInt() else 0xFF13835A.toInt()
-            level == 2 -> if (palette.dark) 0xFFF3BF59.toInt() else 0xFF9B6A00.toInt()
-            level == 1 -> if (palette.dark) 0xFFFF7676.toInt() else 0xFFC83F3F.toInt()
-            else -> palette.textMuted
-        }
+        val healthColor = serverHealthColor(level, active)
         val health = textView(
             serverHealthLabel(candidate, active, automaticActive),
             10f,
             healthColor,
             Gravity.END,
         ).apply {
+            tag = TAG_SERVER_HEALTH
             setPadding(0, dp(3), 0, 0)
             maxLines = 1
         }
@@ -1360,6 +1429,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
 
         val bars = textView(signalBars(candidate), 11f, healthColor, Gravity.CENTER).apply {
+            tag = TAG_SERVER_SIGNAL
             setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
         }
         row.addView(bars, LinearLayout.LayoutParams(dp(48), dp(34)).apply { marginStart = dp(4) })

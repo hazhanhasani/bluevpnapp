@@ -437,6 +437,12 @@ object BlueVpnLocationUtil {
         )
     }
 
+    fun publicSearchAliases(locationKey: String): String =
+        rules.firstOrNull { it.location.key == locationKey }
+            ?.aliases
+            ?.joinToString(" ")
+            .orEmpty()
+
     fun normalizeForSearch(value: String?): String =
         value
             .orEmpty()

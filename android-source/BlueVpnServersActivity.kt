@@ -715,6 +715,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             automatic -> ""
             else -> preferred.ifBlank { selectedLocation.orEmpty() }
         }
+        // In automatic mode make the real selected server immediately visible.
+        // This only controls expansion; it never changes AUTO into manual mode.
+        if (connectedNow && automatic && activeLocationKey.isNotBlank()) {
+            expandedLocationKeys.add(activeLocationKey)
+        }
         val recentKeys = BlueVpnExperience.history(this).map { it.locationKey }.distinct()
         val recentIndex = recentKeys.withIndex().associate { it.value to it.index }
 

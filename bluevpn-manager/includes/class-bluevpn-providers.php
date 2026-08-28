@@ -1759,6 +1759,19 @@ final class BlueVPN_Providers {
                     $errors[]=$provider.': '.$e->getMessage();
                     $sourceStats[$provider]=['ok'=>false,'count'=>0,'error'=>$e->getMessage()];
                 }
+            }elseif($type==='provider_link_missing'){
+                $message='مسیر تأمین‌کننده برای مشتری ساخته شده اما آدرس اشتراک قابل استفاده ثبت نشده است.';
+                $errors[]=$provider.': '.$message;
+                $sourceStats[$provider]=[
+                    'ok'=>false,
+                    'count'=>0,
+                    'error'=>$message,
+                    'provider_type'=>(string)($source['provider_type']??''),
+                    'panel_id'=>(int)($source['id']??0),
+                    'route_key'=>(string)($source['route_key']??$provider),
+                    'missing_subscription_url'=>true,
+                    'updated_at'=>time(),
+                ];
             }elseif($type==='inline'){
                 $providerLines=self::subscription_lines($payload);if($providerLines)$successSources++;
                 $sourceStats[$provider]=['ok'=>!empty($providerLines),'count'=>count($providerLines),'payload_hash'=>hash('sha256',$payload),'content_hash'=>hash('sha256',implode("\n",$providerLines)),'updated_at'=>time()];
@@ -1814,13 +1827,26 @@ final class BlueVPN_Providers {
     public static function subscription_snapshot_stats(int $customerId): array {
         $snapshot=self::snapshot_load($customerId);
         $sources=is_array($snapshot['sources']??null)?$snapshot['sources']:[];
-        $guardcore=is_array($sources['guardcore']??null)?$sources['guardcore']:[];
+        $routeCounts=[];$providerCounts=[];$missingRoutes=[];
+        foreach($sources as $key=>$stat){
+            if(!is_array($stat))continue;
+            $count=max(0,(int)($stat['count']??0));
+            $routeCounts[(string)$key]=$count;
+            $provider=(string)($stat['provider_type']??'');
+            if($provider===''){
+                $prefix=strtolower((string)strtok((string)$key,':'));
+                $provider=in_array($prefix,['pasarguard','marzban','guardcore','shahrah'],true)?$prefix:'source';
+            }
+            $providerCounts[$provider]=($providerCounts[$provider]??0)+$count;
+            if(empty($stat['ok'])||!empty($stat['missing_subscription_url']))$missingRoutes[]=(string)$key;
+        }
         return [
             'updated_at'=>(int)($snapshot['updated_at']??0),
             'total_count'=>is_array($snapshot['lines']??null)?count($snapshot['lines']):0,
-            'guardcore_count'=>(int)($guardcore['count']??0),
-            'guardcore_ok'=>(bool)($guardcore['ok']??false),
-            'guardcore_content_hash'=>(string)($guardcore['content_hash']??''),
+            'route_counts'=>$routeCounts,
+            'provider_counts'=>$providerCounts,
+            'missing_routes'=>array_values(array_unique($missingRoutes)),
+            'source_count'=>count($sources),
         ];
     }
 

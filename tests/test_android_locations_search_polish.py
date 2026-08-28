@@ -14,7 +14,10 @@ class AndroidLocationsSearchPolishTest(unittest.TestCase):
         self.assertIn("private fun serverMatchesQuery", src)
         self.assertNotIn("private fun groupMatchesQuery", src)
         self.assertIn('group.location.title + " " + ordinal', src)
-        self.assertIn("candidate.profile.remarks.orEmpty()", src)
+        self.assertIn("BlueVpnLocationUtil.publicSearchAliases(group.location.key)", src)
+        start = src.index("private fun serverMatchesQuery")
+        end = src.index("private fun markLatencyMeasurementStarted", start)
+        self.assertNotIn("candidate.profile.remarks", src[start:end])
 
     def test_server_search_can_surface_matching_rows_without_mutating_user_expansion(self):
         src = self.text("android-source/BlueVpnServersActivity.kt")

@@ -330,7 +330,9 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertIn("lastRenderedStructureFingerprint", servers)
         self.assertIn("locationStructureFingerprint", servers)
         self.assertIn("locationsScrollView.scrollY", servers)
-        self.assertIn("locationsScrollView.scrollTo(0, preservedScrollY)", servers)
+        self.assertIn("val targetScrollY =", servers)
+        self.assertIn("locationsScrollView.scrollTo(0, targetScrollY)", servers)
+        self.assertIn("appendChunk.run()", servers)
         self.assertIn("if (nextFingerprint != lastRenderedStructureFingerprint)", servers)
 
         recovery = text("android-source/BlueVpnNetworkRecoveryManager.kt")

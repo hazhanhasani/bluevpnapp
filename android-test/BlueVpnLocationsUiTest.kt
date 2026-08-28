@@ -43,6 +43,24 @@ class BlueVpnLocationsUiTest {
         }
     }
 
+
+    @Test
+    fun searchAndTabSurviveFreshActivityAfterStatePersistence() {
+        ActivityScenario.launch(BlueVpnServersActivity::class.java).use {
+            onView(withText("اخیر")).perform(click())
+            onView(withHint("جست‌وجوی کشور یا سرور"))
+                .perform(replaceText("Netherlands"))
+        }
+
+        ActivityScenario.launch(BlueVpnServersActivity::class.java).use {
+            onView(allOf(
+                withHint("جست‌وجوی کشور یا سرور"),
+                withText("Netherlands"),
+            )).check(matches(isDisplayed()))
+            onView(withText("اخیر")).check(matches(isDisplayed()))
+        }
+    }
+
     @Test
     fun tabAndSearchSurviveRotationRecreation() {
         ActivityScenario.launch(BlueVpnServersActivity::class.java).use { scenario ->

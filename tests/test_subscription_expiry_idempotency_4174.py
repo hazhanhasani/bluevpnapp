@@ -10,8 +10,8 @@ def text(rel):
 class SubscriptionExpiryIdempotency4174Tests(unittest.TestCase):
     def test_release_version(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'6.0.8')
-        self.assertEqual(r['version_code'],60008)
+        self.assertEqual(r['version'],'6.0.9')
+        self.assertEqual(r['version_code'],60009)
         self.assertIn('wordpress-canonical-entitlement-expiry',r['features'])
         self.assertIn('historical-duplicate-provision-expiry-repair',r['features'])
 

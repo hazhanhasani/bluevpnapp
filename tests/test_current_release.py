@@ -115,7 +115,7 @@ class CurrentReleaseTests(unittest.TestCase):
         )[0]
         self.assertLess(
             create_screen.index("nativeBannerHost"),
-            create_screen.index("listContainer ="),
+            create_screen.index("locationsAdapter = LocationsAdapter()"),
         )
 
         self.assertIn('type="native_video"', subscriptions)
@@ -307,7 +307,7 @@ class CurrentReleaseTests(unittest.TestCase):
         load = source.split("private fun loadCandidates(", 1)[1].split(
             "private fun createScreen()", 1
         )[0]
-        self.assertIn("if (listContainer.childCount == 0", load)
+        self.assertIn("locationsAdapter.itemCount == 0", load)
 
         fingerprint = source.split(
             "private fun locationStructureFingerprint(", 1
@@ -316,7 +316,8 @@ class CurrentReleaseTests(unittest.TestCase):
         self.assertNotIn("getSelectServer", fingerprint)
         self.assertNotIn("preferredLocation", fingerprint)
 
-        self.assertIn("appendChunkRunnable?.let { renderHandler.removeCallbacks(it) }", source)
+        self.assertIn("locationsAdapter.submitList(rows)", source)
+        self.assertIn("BlueVpnLocationRowDiff", source)
 
     def test_00_network_observer_is_crash_safe(self):
         source = text("android-source/BlueVpnNetworkRecoveryManager.kt")
@@ -329,10 +330,10 @@ class CurrentReleaseTests(unittest.TestCase):
         servers = text("android-source/BlueVpnServersActivity.kt")
         self.assertIn("lastRenderedStructureFingerprint", servers)
         self.assertIn("locationStructureFingerprint", servers)
-        self.assertIn("locationsScrollView.scrollY", servers)
+        self.assertIn("locationsRecyclerView.computeVerticalScrollOffset()", servers)
         self.assertIn("val targetScrollY =", servers)
-        self.assertIn("locationsScrollView.scrollTo(0, targetScrollY)", servers)
-        self.assertIn("appendChunk.run()", servers)
+        self.assertIn("locationsRecyclerView.scrollBy(0, targetScrollY)", servers)
+        self.assertIn("locationsAdapter.submitList(rows)", servers)
         self.assertIn("if (nextFingerprint != lastRenderedStructureFingerprint)", servers)
 
         recovery = text("android-source/BlueVpnNetworkRecoveryManager.kt")

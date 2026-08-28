@@ -225,9 +225,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     palette.surface
                 }
             )
-            surface.strokeColor =
-                if (item.active) palette.accent else android.graphics.Color.TRANSPARENT
-            surface.strokeWidth = dp(if (item.active) 1 else 0)
+            surface.strokeColor = android.graphics.Color.TRANSPARENT
+            surface.strokeWidth = 0
             rail.background = rounded(
                 if (item.active) palette.accent else android.graphics.Color.TRANSPARENT,
                 3,
@@ -250,15 +249,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 item.active -> "وصل"
                 else -> "انتخاب"
             }
-            action.setTextColor(if (item.active) palette.accent else palette.textSecondary)
-            action.background = rounded(
-                if (item.active) {
-                    if (palette.dark) 0xFF213454.toInt() else 0xFFE7EFFF.toInt()
-                } else {
-                    palette.surfaceStrong
-                },
-                11,
-            )
+            action.setTextColor(palette.textSecondary)
+            action.background = rounded(palette.surfaceStrong, 11)
             surface.contentDescription =
                 item.title + " " + item.ordinal + "؛ " + serverHealthLabel(item)
             return true
@@ -1477,7 +1469,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
     private fun serverHealthColor(level: Int, active: Boolean): Int =
         when {
-            active -> palette.accent
             level >= 3 -> if (palette.dark) 0xFF5CD6A6.toInt() else 0xFF13835A.toInt()
             level == 2 -> if (palette.dark) 0xFFF3BF59.toInt() else 0xFF9B6A00.toInt()
             level == 1 -> if (palette.dark) 0xFFFF7676.toInt() else 0xFFC83F3F.toInt()
@@ -1546,10 +1537,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             fill = if (active) {
                 if (palette.dark) 0xFF17223A.toInt() else 0xFFF0F5FF.toInt()
             } else palette.surface,
-            stroke = if (active) palette.accent else android.graphics.Color.TRANSPARENT,
+            stroke = android.graphics.Color.TRANSPARENT,
         ).apply {
             tag = TAG_SERVER_SURFACE
-            strokeWidth = dp(if (active) 1 else 0)
+            strokeWidth = 0
             cardElevation = 0f
             isClickable = true
             isFocusable = true
@@ -1619,15 +1610,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             else -> "انتخاب"
         }
         row.addView(
-            textView(action, 9.5f, if (active) palette.accent else palette.textSecondary, Gravity.CENTER).apply {
+            textView(action, 9.5f, palette.textSecondary, Gravity.CENTER).apply {
                 tag = TAG_SERVER_ACTION
                 setTypeface(typeface, Typeface.BOLD)
-                background = rounded(
-                    if (active) {
-                        if (palette.dark) 0xFF213454.toInt() else 0xFFE7EFFF.toInt()
-                    } else palette.surfaceStrong,
-                    11,
-                )
+                background = rounded(palette.surfaceStrong, 11)
             },
             LinearLayout.LayoutParams(dp(52), dp(32)).apply { marginStart = dp(6) },
         )

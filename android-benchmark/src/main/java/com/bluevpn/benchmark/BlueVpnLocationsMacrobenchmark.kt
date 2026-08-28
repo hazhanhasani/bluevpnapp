@@ -53,7 +53,7 @@ class BlueVpnLocationsMacrobenchmark {
         },
     ) {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        device.findObject(By.text("مکان‌ها"))?.click()
+        device.findObject(By.desc("نمایش مکان‌ها"))?.click()
         device.wait(Until.hasObject(By.clazz("android.widget.EditText")), 5_000)
 
         device.findObject(By.clazz("android.widget.EditText"))?.setText("Germany")

@@ -15,7 +15,8 @@ class AndroidLocationsLatencyPayloadTest(unittest.TestCase):
         self.assertIn("oldItem.latencyPhase != newItem.latencyPhase", diff)
         self.assertIn("oldItem.latencyMs != newItem.latencyMs", diff)
         self.assertIn("oldItem.signalLevel != newItem.signalLevel", diff)
-        self.assertIn("structuralSame && latencyChanged", diff)
+        self.assertIn("latencyChanged -> PAYLOAD_LATENCY", diff)
+        self.assertIn("stateChanged -> PAYLOAD_SERVER_STATE", diff)
 
     def test_adapter_consumes_latency_payload_without_full_row_rebuild(self):
         src = self.text("android-source/BlueVpnServersActivity.kt")

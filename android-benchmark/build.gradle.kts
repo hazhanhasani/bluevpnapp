@@ -44,5 +44,4 @@ dependencies {
     implementation("androidx.test:runner:1.6.2")
     implementation("androidx.test.uiautomator:uiautomator:2.3.0")
     implementation("androidx.benchmark:benchmark-macro-junit4:1.3.3")
-    implementation("androidx.benchmark:benchmark-junit4:1.3.3")
 }

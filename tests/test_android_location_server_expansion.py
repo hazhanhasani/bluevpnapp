@@ -25,7 +25,10 @@ class AndroidLocationServerExpansionTests(unittest.TestCase):
             '3 -> "▂▄▆"',
             '2 -> "▂▄"',
             '1 -> "▂"',
-            'candidate.delay.toString() + " ms • " + signalQuality(candidate)',
+            'latency.latencyMs.toString() + " ms • " + signalQuality(candidate)',
+            'BlueVpnLatencyPhase.FRESH',
+            'BlueVpnLatencyPhase.STALE',
+            'BlueVpnLatencyPhase.TIMEOUT',
         ]:
             self.assertIn(token,src)
         self.assertNotIn('4 -> "📡 ▂▄▆█"',src)

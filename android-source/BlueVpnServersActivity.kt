@@ -245,8 +245,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
             action.text = when {
                 item.automaticActive -> "خودکار"
-                item.active -> "دستی"
+                item.manualActive -> "دستی"
                 !item.premium -> "🔒"
+                item.active -> "وصل"
                 else -> "انتخاب"
             }
             action.setTextColor(if (item.active) palette.accent else palette.textSecondary)
@@ -1247,6 +1248,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                                 ordinal = ordinal,
                                 active = serverActive,
                                 automaticActive = automaticActive,
+                                manualActive = manualActive,
                                 premium = manualSelectionAllowed,
                                 latencyPhase = latency.phase,
                                 latencyMs = latency.latencyMs,

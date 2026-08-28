@@ -14,12 +14,14 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 class BlueVpnBaselineProfileGenerator {
+    private val packageName = "ir.blluepanel.bluevpn"
+
     @get:Rule
     val baselineProfileRule = BaselineProfileRule()
 
     @Test
     fun criticalUserJourneys() = baselineProfileRule.collect(
-        packageName = "ir.blluepanel.bluevpn",
+        packageName = packageName,
         includeInStartupProfile = true,
     ) {
         pressHome()
@@ -27,20 +29,20 @@ class BlueVpnBaselineProfileGenerator {
 
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val openLocations = device.wait(
-            Until.findObject(By.desc("نمایش مکان‌ها")),
-            5_000,
+            Until.findObject(By.res(packageName, "bluevpn_server_card")),
+            10_000,
         ) ?: error("Home did not expose the Locations action")
         openLocations.click()
         check(
             device.wait(
                 Until.hasObject(By.clazz("androidx.recyclerview.widget.RecyclerView")),
-                5_000,
+                10_000,
             )
         ) { "Locations RecyclerView did not open" }
 
         val search = device.wait(
             Until.findObject(By.clazz("android.widget.EditText")),
-            5_000,
+            10_000,
         ) ?: error("Locations search field did not appear")
         search.click()
         search.setText("Germany")

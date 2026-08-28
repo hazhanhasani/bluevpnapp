@@ -26,6 +26,7 @@ extensions.configure<TestExtension> {
     buildTypes {
         create("benchmark") {
             isDebuggable = false
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 

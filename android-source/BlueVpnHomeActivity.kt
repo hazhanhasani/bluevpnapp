@@ -75,6 +75,8 @@ import com.v2ray.ang.bluevpn.BlueVpnUiGuard
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
 import com.v2ray.ang.bluevpn.BlueVpnRouteIntelligence
 import com.v2ray.ang.bluevpn.BlueVpnRuntimeGate
+import com.v2ray.ang.bluevpn.BlueVpnHandoverPhase
+import com.v2ray.ang.bluevpn.BlueVpnHandoverState
 import com.v2ray.ang.bluevpn.BlueVpnWarpEngine
 import com.v2ray.ang.bluevpn.BlueVpnWarpKeepAliveService
 import com.v2ray.ang.bluevpn.BlueVpnEntitlement
@@ -188,6 +190,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
     private var serversOpenedWhileActive = false
     private var liveLocationSwitch = false
     private var switchTargetTitle = ""
+    private val handoverState = BlueVpnHandoverState()
     private var accountSyncInProgress = false
     private var accountSyncForcePending = false
     private var lastForegroundAccountSyncAt = 0L
@@ -542,6 +545,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             requestDashboardRefresh(force = true)
 
             if (changed && serversOpenedWhileActive) {
+                handoverState.beginSelection()
                 startLiveLocationSwitch(selectedTitle)
             }
 
@@ -3936,19 +3940,42 @@ private fun dpHome(value: Int): Int =
         isolatedCount: Int,
     ) {
         if (scoredQueue.isEmpty()) {
+            val failedLiveSwitch = liveLocationSwitch
             connectionEntitlementGuids = emptySet()
-            BlueVpnRuntimeGate.endConnection(this)
             hideConnectingOverlay()
+            failoverActive = false
+            connectionVerified = false
+            BlueVpnPreferences.clearConnected(this)
+            handoverState.failed()
+
+            // A failed live handover never rolls back to the previous route.
+            // If the old core is still alive because candidate preparation failed
+            // before the first new GUID started, stop it explicitly and keep the
+            // app disconnected.
+            if (failedLiveSwitch && mainViewModel.isRunning.value == true) {
+                terminalFailureReason = "لوکیشن انتخاب‌شده مسیر قابل اتصال نداشت"
+                terminalFailureStopping = true
+                LauncherManager.stopService(this)
+            } else {
+                BlueVpnRuntimeGate.endConnection(this)
+                handoverState.disconnected()
+            }
+
             liveLocationSwitch = false
             switchTargetTitle = ""
-            failoverActive = false
-            connectButton.isEnabled = true
+            connectButton.isEnabled = !terminalFailureStopping
+            updateConnectLabel(if (terminalFailureStopping) "در حال توقف" else "اتصال")
+            applyOrbVisual(OrbVisualState.ERROR)
             statusText.text = when (selectionMode) {
                 BlueVpnSelectionMode.AUTO -> "سرور قابل اتصال نیست"
                 BlueVpnSelectionMode.MANUAL_LOCATION -> "لوکیشن قابل اتصال نیست"
                 BlueVpnSelectionMode.MANUAL_SERVER -> "سرور انتخاب‌شده قابل اتصال نیست"
             }
-            statusCaption.text = "فقط منابع مجاز پلن فعلی بررسی شدند"
+            statusCaption.text = if (failedLiveSwitch) {
+                "تغییر لوکیشن ناموفق بود؛ اتصال قبلی بازگردانی نمی‌شود"
+            } else {
+                "فقط منابع مجاز پلن فعلی بررسی شدند"
+            }
             Toast.makeText(this, "سرور سالم و سازگار پیدا نشد", Toast.LENGTH_SHORT).show()
             return
         }
@@ -4822,6 +4849,7 @@ private fun dpHome(value: Int): Int =
 
         val completedLiveSwitch = liveLocationSwitch
         val completedTargetTitle = switchTargetTitle
+        if (completedLiveSwitch) handoverState.connected()
 
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
@@ -5010,6 +5038,7 @@ private fun dpHome(value: Int): Int =
         }
         BlueVpnAccountManager.startFreeSession(this)
         connectionVerified = true
+        if (completedLiveSwitch) handoverState.connected()
         if (attemptedGuid.isNotBlank() && BlueVpnWarpEngine.isBridgeGuid(attemptedGuid)) BlueVpnWarpEngine.markConnected()
         BlueVpnLiveReporter.kick(this)
         connectButton.isEnabled = true
@@ -5171,6 +5200,7 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun finishFailoverWithError(reason: String? = null) {
+        val failedLiveSwitch = liveLocationSwitch || handoverState.isSwitching()
         hideConnectingOverlay()
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)
@@ -5193,6 +5223,7 @@ private fun dpHome(value: Int): Int =
         coreStopRetryCount = 0
         verificationRound = 0
         connectionVerified = false
+        if (failedLiveSwitch) handoverState.failed()
         liveLocationSwitch = false
         switchTargetTitle = ""
         connectionEntitlementGuids = emptySet()
@@ -5210,6 +5241,7 @@ private fun dpHome(value: Int): Int =
         }
         if (!terminalFailureStopping) {
             BlueVpnRuntimeGate.endConnection(this)
+            if (failedLiveSwitch) handoverState.disconnected()
         }
 
         connectButton.isEnabled = !terminalFailureStopping
@@ -5217,7 +5249,11 @@ private fun dpHome(value: Int): Int =
         applyOrbVisual(OrbVisualState.ERROR)
         statusText.text = "لوکیشن در دسترس نیست"
         statusCaption.visibility = View.VISIBLE
-        statusCaption.text = finalReason
+        statusCaption.text = if (failedLiveSwitch) {
+            "$finalReason • اتصال قبلی بازگردانی نشد"
+        } else {
+            finalReason
+        }
         statusDot.backgroundTintList =
             ColorStateList.valueOf(Color.parseColor("#FFB44A"))
 
@@ -5263,6 +5299,7 @@ private fun dpHome(value: Int): Int =
         connectionVerified = false
         liveLocationSwitch = false
         switchTargetTitle = ""
+        handoverState.disconnected()
         BlueVpnPreferences.clearConnected(this)
         connectButton.isEnabled = true
     }
@@ -5793,6 +5830,7 @@ private fun dpHome(value: Int): Int =
     ) {
         liveLocationSwitch = true
         switchTargetTitle = selectedTitle
+        handoverState.beginSwitch()
 
         handler.removeCallbacks(requestPing)
         handler.removeCallbacks(attemptTimeout)

@@ -26,7 +26,7 @@ class BlueVpnBaselineProfileGenerator {
         startActivityAndWait()
 
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        device.findObject(By.text("مکان‌ها"))?.click()
+        device.findObject(By.desc("نمایش مکان‌ها"))?.click()
         device.wait(Until.hasObject(By.clazz("androidx.recyclerview.widget.RecyclerView")), 5_000)
 
         device.findObject(By.clazz("android.widget.EditText"))?.apply {

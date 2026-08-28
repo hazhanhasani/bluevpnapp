@@ -750,11 +750,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             automatic -> ""
             else -> preferred.ifBlank { selectedLocation.orEmpty() }
         }
-        // In automatic mode make the real selected server immediately visible.
-        // This only controls expansion; it never changes AUTO into manual mode.
-        if (connectedNow && automatic && activeLocationKey.isNotBlank()) {
-            expandedLocationKeys.add(activeLocationKey)
-        }
+        // Expansion is user-owned UI state. Runtime selection must not silently
+        // open a country because that changes row heights and causes scroll jumps.
         val recentKeys = BlueVpnExperience.history(this).map { it.locationKey }.distinct()
         val recentIndex = recentKeys.withIndex().associate { it.value to it.index }
 
@@ -788,14 +785,16 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             }
             .sortedWith(
                 when (selectedTab) {
-                    LocationTab.RECENT -> compareBy<LocationGroup> { recentIndex[it.location.key] ?: Int.MAX_VALUE }
-                    else -> compareByDescending<LocationGroup> {
-                        it.location.key == activeLocationKey
-                    }.thenByDescending {
-                        !connectedNow && it.location.key == preferred
-                    }.thenByDescending { it.favorite }
-                        .thenByDescending { it.healthScore }
-                        .thenBy { it.location.title }
+                    LocationTab.RECENT ->
+                        compareBy<LocationGroup> { recentIndex[it.location.key] ?: Int.MAX_VALUE }
+                            .thenBy { it.location.title }
+                    LocationTab.FAVORITES ->
+                        compareBy<LocationGroup> { it.location.title }
+                    LocationTab.ALL ->
+                        // Keep the master list spatially stable. Selection, active
+                        // connection and ping/health are volatile state and must
+                        // never move a country to another position under the user's finger.
+                        compareBy<LocationGroup> { it.location.title }
                 }
             )
 
@@ -834,36 +833,35 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 }
                 if (groupIndex < groups.size) {
                     renderHandler.post(this)
-                } else if (appendChunkRunnable === this) {
-                    appendChunkRunnable = null
+                } else {
+                    if (appendChunkRunnable === this) appendChunkRunnable = null
+
+                    // Restore only after the complete tree exists. Restoring while
+                    // only the first chunk is mounted clamps a deep offset to the
+                    // temporary short height and produces a visible jump.
+                    if (::locationsScrollView.isInitialized) {
+                        val targetScrollY = if (!initialScrollRestored) {
+                            initialScrollRestored = true
+                            getSharedPreferences("bluevpn_locations_ui", MODE_PRIVATE)
+                                .getInt("scroll_y", 0)
+                        } else {
+                            preservedScrollY
+                        }
+                        if (targetScrollY > 0) {
+                            locationsScrollView.post {
+                                locationsScrollView.scrollTo(0, targetScrollY)
+                            }
+                        }
+                    }
                 }
             }
         }
         appendChunkRunnable = appendChunk
         lastRenderedStructureFingerprint = locationStructureFingerprint(candidates)
 
-        // Render the first chunk synchronously. Posting an empty list first made
-        // the screen look blank whenever another runtime event invalidated the
-        // generation before the queued chunk executed.
+        // Mount the first rows synchronously so the screen never flashes blank;
+        // subsequent chunks are still yielded to the main looper.
         appendChunk.run()
-
-        // Do not restore scroll until rows actually exist. Restoring against an
-        // empty/partial container clamps the offset and creates the random jumps
-        // users were seeing after selection or health updates.
-        if (!initialScrollRestored && ::locationsScrollView.isInitialized) {
-            initialScrollRestored = true
-            val remembered = getSharedPreferences("bluevpn_locations_ui", MODE_PRIVATE)
-                .getInt("scroll_y", 0)
-            if (remembered > 0) {
-                locationsScrollView.post {
-                    locationsScrollView.scrollTo(0, remembered)
-                }
-            }
-        } else if (::locationsScrollView.isInitialized && preservedScrollY > 0) {
-            locationsScrollView.post {
-                locationsScrollView.scrollTo(0, preservedScrollY)
-            }
-        }
     }
 
     private fun availabilityLabel(
@@ -1293,7 +1291,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     finishWithLocationResult()
                 } else {
                     updateEntitlementUi()
-                    refreshVisibleHealthPresentation()
+                    renderLocations()
                 }
             }
         }
@@ -1324,7 +1322,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             finishWithLocationResult()
         } else {
             updateEntitlementUi()
-            refreshVisibleHealthPresentation()
+            renderLocations()
         }
     }
 
@@ -1358,7 +1356,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             finishWithLocationResult()
         } else {
             updateEntitlementUi()
-            refreshVisibleHealthPresentation()
+            renderLocations()
         }
     }
     private fun stopRefreshing() {

@@ -1677,38 +1677,45 @@ final class BlueVPN_Providers {
         ],false);
     }
     private static function customer_source_entries(array $c): array {
-        $out=[];$customerId=(int)($c['id']??0);$linkedProviders=[];
+        $out=[];$customerId=(int)($c['id']??0);$usableLinkedProviders=[];
         foreach(self::customer_provider_links($customerId) as $link){
             $provider=(string)($link['provider_type']??'');$panelId=(int)($link['panel_id']??0);if($provider===''||$panelId<=0)continue;
-            $linkedProviders[$provider]=true;
+            $routeKey=trim((string)($link['route_key']??''));if($routeKey==='')$routeKey=$provider.':'.$panelId;
             if($provider==='shahrah'){
-                $out[]=['key'=>'shahrah:'.$panelId,'id'=>$panelId,'type'=>'shahrah_panel','provider_type'=>'shahrah','payload'=>''];
+                $out[]=['key'=>$routeKey,'id'=>$panelId,'type'=>'shahrah_panel','provider_type'=>'shahrah','payload'=>'','route_key'=>$routeKey];
+                $usableLinkedProviders[$provider]=true;
                 continue;
             }
-            $url=trim((string)($link['subscription_url']??''));if($url==='')continue;
-            $out[]=['key'=>$provider.':'.$panelId,'id'=>$panelId,'type'=>'url','provider_type'=>$provider,'payload'=>$url];
+            $url=trim((string)($link['subscription_url']??''));
+            if($url===''){
+                $out[]=['key'=>$routeKey,'id'=>$panelId,'type'=>'provider_link_missing','provider_type'=>$provider,'payload'=>'','route_key'=>$routeKey];
+                continue;
+            }
+            $usableLinkedProviders[$provider]=true;
+            $out[]=['key'=>$routeKey,'id'=>$panelId,'type'=>'url','provider_type'=>$provider,'payload'=>$url,'route_key'=>$routeKey];
         }
 
-        // Legacy single-provider columns remain readable for customers that have
-        // not been migrated into customer_provider_links yet.
         foreach([
             'pasarguard'=>'pasarguard_subscription_url',
             'marzban'=>'marzban_subscription_url',
             'guardcore'=>'guardcore_subscription_url',
         ] as $provider=>$field){
-            if(isset($linkedProviders[$provider]))continue;
+            if(isset($usableLinkedProviders[$provider]))continue;
             $url=trim((string)($c[$field]??''));if($url==='')continue;
-            $out[]=['key'=>$provider,'type'=>'url','provider_type'=>$provider,'payload'=>$url];
+            $out[]=['key'=>$provider.':legacy','type'=>'url','provider_type'=>$provider,'payload'=>$url,'route_key'=>$provider.':legacy'];
         }
 
         $planId=(int)($c['plan_id']??0);
-        if($planId>0&&class_exists('BlueVPN_Shahrah')&&!isset($linkedProviders['shahrah'])){
+        if($planId>0&&class_exists('BlueVPN_Shahrah')&&!isset($usableLinkedProviders['shahrah'])){
             global $wpdb;
             $plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM ".BlueVPN_DB::table('plans')." WHERE id=%d AND deleted=0",$planId),ARRAY_A);
             if($plan){
                 foreach(self::plan_provider_routes($plan)['shahrah'] as $route){
-                    $panelId=(int)($route['panel_id']??0);
-                    if($panelId>0)$out[]=['key'=>'shahrah:'.$panelId,'id'=>$panelId,'type'=>'shahrah_panel','provider_type'=>'shahrah','payload'=>''];
+                    $panelId=(int)($route['panel_id']??0);$slug=trim((string)($route['plan_slug']??''));
+                    if($panelId>0){
+                        $key='shahrah:'.$panelId.($slug!==''?':'.$slug:'');
+                        $out[]=['key'=>$key,'id'=>$panelId,'type'=>'shahrah_panel','provider_type'=>'shahrah','payload'=>'','route_key'=>$key];
+                    }
                 }
             }
         }
@@ -1716,7 +1723,7 @@ final class BlueVPN_Providers {
         if(class_exists('BlueVPN_Subscription_Sources')){
             foreach(BlueVPN_Subscription_Sources::active_entries_for_plan($planId) as $entry){
                 $key=(string)($entry['key']??'manual');$type=(string)($entry['type']??'url');$payload=trim((string)($entry['payload']??''));if($payload==='')continue;
-                $out[]=['key'=>$key,'id'=>(int)($entry['id']??0),'type'=>$type,'provider_type'=>(string)($entry['provider_type']??''),'payload'=>$payload];
+                $out[]=['key'=>$key,'id'=>(int)($entry['id']??0),'type'=>$type,'provider_type'=>(string)($entry['provider_type']??''),'payload'=>$payload,'route_key'=>$key];
             }
         }
         return $out;

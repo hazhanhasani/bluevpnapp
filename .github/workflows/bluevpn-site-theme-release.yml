@@ -66,6 +66,12 @@ jobs:
           rsync -a bluevpn-site/ build-theme/bluevpn-site/
           (cd build-theme && zip -qr "../bluevpn-site-theme-v${THEME_VERSION}.zip" bluevpn-site)
           unzip -t "bluevpn-site-theme-v${THEME_VERSION}.zip" >/dev/null
+          for required in             bluevpn-site/style.css             bluevpn-site/functions.php             bluevpn-site/front-page.php             bluevpn-site/inc/home-v2.php             bluevpn-site/header.php             bluevpn-site/footer.php; do
+            unzip -Z1 "bluevpn-site-theme-v${THEME_VERSION}.zip" | grep -Fxq "$required" || {
+              echo "::error::Theme package missing required file: $required"
+              exit 1
+            }
+          done
       - name: Publish or refresh GitHub theme release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1840,6 +1840,14 @@ final class BlueVPN_Providers {
             $providerCounts[$provider]=($providerCounts[$provider]??0)+$count;
             if(empty($stat['ok'])||!empty($stat['missing_subscription_url']))$missingRoutes[]=(string)$key;
         }
+        $guardcoreCount=(int)($providerCounts['guardcore']??0);
+        $guardcoreOk=$guardcoreCount>0;
+        $guardcoreHashes=[];
+        foreach($sources as $key=>$stat){
+            if(!is_array($stat)||!str_starts_with((string)$key,'guardcore'))continue;
+            $hash=trim((string)($stat['content_hash']??''));if($hash!=='')$guardcoreHashes[]=$hash;
+            if(empty($stat['ok']))$guardcoreOk=false;
+        }
         return [
             'updated_at'=>(int)($snapshot['updated_at']??0),
             'total_count'=>is_array($snapshot['lines']??null)?count($snapshot['lines']):0,
@@ -1847,6 +1855,9 @@ final class BlueVPN_Providers {
             'provider_counts'=>$providerCounts,
             'missing_routes'=>array_values(array_unique($missingRoutes)),
             'source_count'=>count($sources),
+            'guardcore_count'=>$guardcoreCount,
+            'guardcore_ok'=>$guardcoreOk,
+            'guardcore_content_hash'=>$guardcoreHashes?hash('sha256',implode('|',$guardcoreHashes)):'',
         ];
     }
 

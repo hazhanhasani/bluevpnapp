@@ -5,11 +5,13 @@ import androidx.recyclerview.widget.DiffUtil
 /**
  * Minimal row diff contract for Locations.
  *
- * Stable identity is separate from visual content so ping/state updates can
- * rebind only the affected server row while preserving scroll position.
+ * Stable identity is separate from visual content so runtime state can update
+ * only the affected rows while preserving scroll position.
  */
 object BlueVpnLocationRowDiff : DiffUtil.ItemCallback<BlueVpnLocationListRow>() {
     const val PAYLOAD_LATENCY = "bluevpn.locations.payload.LATENCY"
+    const val PAYLOAD_SERVER_STATE = "bluevpn.locations.payload.SERVER_STATE"
+    const val PAYLOAD_COUNTRY_ACTIVE = "bluevpn.locations.payload.COUNTRY_ACTIVE"
 
     override fun areItemsTheSame(
         oldItem: BlueVpnLocationListRow,
@@ -25,24 +27,50 @@ object BlueVpnLocationRowDiff : DiffUtil.ItemCallback<BlueVpnLocationListRow>() 
         oldItem: BlueVpnLocationListRow,
         newItem: BlueVpnLocationListRow,
     ): Any? {
+        if (oldItem is BlueVpnLocationListRow.Country &&
+            newItem is BlueVpnLocationListRow.Country
+        ) {
+            val structuralSame =
+                oldItem.locationKey == newItem.locationKey &&
+                    oldItem.title == newItem.title &&
+                    oldItem.flag == newItem.flag &&
+                    oldItem.serverCount == newItem.serverCount &&
+                    oldItem.expanded == newItem.expanded &&
+                    oldItem.favorite == newItem.favorite &&
+                    oldItem.availability == newItem.availability
+            return if (structuralSame && oldItem.active != newItem.active) {
+                PAYLOAD_COUNTRY_ACTIVE
+            } else {
+                null
+            }
+        }
+
         if (oldItem !is BlueVpnLocationListRow.Server ||
             newItem !is BlueVpnLocationListRow.Server
         ) return null
 
-        val structuralSame =
+        val baseSame =
             oldItem.guid == newItem.guid &&
                 oldItem.locationKey == newItem.locationKey &&
                 oldItem.title == newItem.title &&
                 oldItem.ordinal == newItem.ordinal &&
-                oldItem.active == newItem.active &&
-                oldItem.automaticActive == newItem.automaticActive &&
                 oldItem.premium == newItem.premium
+
+        if (!baseSame) return null
+
+        val stateChanged =
+            oldItem.active != newItem.active ||
+                oldItem.automaticActive != newItem.automaticActive
 
         val latencyChanged =
             oldItem.latencyPhase != newItem.latencyPhase ||
                 oldItem.latencyMs != newItem.latencyMs ||
                 oldItem.signalLevel != newItem.signalLevel
 
-        return if (structuralSame && latencyChanged) PAYLOAD_LATENCY else null
+        return when {
+            stateChanged -> PAYLOAD_SERVER_STATE
+            latencyChanged -> PAYLOAD_LATENCY
+            else -> null
+        }
     }
 }

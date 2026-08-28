@@ -1917,8 +1917,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val changed = automatic || currentPreferred != group.location.key
         BlueVpnPreferences.setManualLocationSelection(this, group.location.key)
         if (!BlueVpnRuntimeGate.connectionActive(this)) {
-            BlueVpnLocationUtil.cachedCandidates(this)
-                .firstOrNull { it.location.key == group.location.key }
+            // Manual country selection should preview the strongest route in that
+            // country, not whichever profile happened to be first in MMKV order.
+            // The group is already entitlement-isolated, so trusted ranking avoids
+            // re-enumerating the whole account inventory.
+            BlueVpnSmartSelector.rankTrusted(this, group.servers)
+                .firstOrNull()
+                ?.candidate
                 ?.let { MmkvManager.setSelectServer(it.guid) }
         }
         setResult(Activity.RESULT_OK, Intent()

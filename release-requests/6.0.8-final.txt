@@ -1,0 +1,5 @@
+BlueVPN 6.0.8 coordinated release
+source_sha=7ebacc4e0a975da30275ee6a21a32d9ad253de20
+version=6.0.8
+version_code=60008
+includes=location-server-expansion,paid-route-completeness-audit,provider-delivery-visibility

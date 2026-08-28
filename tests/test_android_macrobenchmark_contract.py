@@ -10,7 +10,7 @@ class AndroidMacrobenchmarkContractTest(unittest.TestCase):
 
     def test_macrobenchmark_module_targets_bluevpn_app(self):
         gradle = self.text("android-benchmark/build.gradle.kts")
-        self.assertIn('id("com.android.test")', gradle)
+        self.assertIn('alias(libs.plugins.android.test)', gradle)
         self.assertIn('targetProjectPath = ":app"', gradle)
         self.assertIn('missingDimensionStrategy("distribution", "playstore")', gradle)
         self.assertIn("benchmark-macro-junit4:1.3.3", gradle)
@@ -22,7 +22,7 @@ class AndroidMacrobenchmarkContractTest(unittest.TestCase):
         self.assertIn("StartupTimingMetric()", src)
         self.assertIn("FrameTimingMetric()", src)
         self.assertIn("StartupMode.COLD", src)
-        self.assertIn('By.text("مکان‌ها")', src)
+        self.assertIn('By.desc("نمایش مکان‌ها")', src)
         self.assertIn('setText("Germany")', src)
         self.assertIn("device.swipe(", src)
 
@@ -32,7 +32,7 @@ class AndroidMacrobenchmarkContractTest(unittest.TestCase):
         )
         self.assertIn("BaselineProfileRule", src)
         self.assertIn("includeInStartupProfile = true", src)
-        self.assertIn('By.text("مکان‌ها")', src)
+        self.assertIn('By.desc("نمایش مکان‌ها")', src)
         self.assertIn('setText("Germany")', src)
 
     def test_prepare_script_overlays_benchmark_module(self):

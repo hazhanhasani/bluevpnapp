@@ -216,6 +216,7 @@ def patch_build_gradle() -> None:
         # v2rayNG 2.3.5 migrated upstream UI to Compose Material3 and no longer
         # exposes the classic Material Views artifact used by BlueVPN screens.
         'implementation("com.google.android.material:material:1.13.0")',
+        'implementation("androidx.recyclerview:recyclerview:1.4.0")',
         'implementation("com.google.guava:guava:33.6.0-android")',
         f'implementation("ir.tapsell:tapsell:{TAPSELL_MEDIATION_VERSION}")',
         f'implementation("ir.tapsell.mediation.adapter:legacy:{TAPSELL_MEDIATION_VERSION}")',
@@ -870,6 +871,8 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnRefreshCoordinator.kt": ROOT / "android-source/BlueVpnRefreshCoordinator.kt",
         bluevpn_dir / "BlueVpnLatencyState.kt": ROOT / "android-source/BlueVpnLatencyState.kt",
         bluevpn_dir / "BlueVpnHandoverState.kt": ROOT / "android-source/BlueVpnHandoverState.kt",
+        bluevpn_dir / "BlueVpnLocationListRow.kt": ROOT / "android-source/BlueVpnLocationListRow.kt",
+        bluevpn_dir / "BlueVpnLocationRowDiff.kt": ROOT / "android-source/BlueVpnLocationRowDiff.kt",
         bluevpn_dir / "BlueVpnEntitlement.kt": ROOT / "android-source/BlueVpnEntitlement.kt",
         bluevpn_dir / "BlueVpnSmartSelector.kt": ROOT / "android-source/BlueVpnSmartSelector.kt",
         bluevpn_dir / "BlueVpnTapsellManager.kt": ROOT / "android-source/BlueVpnTapsellManager.kt",

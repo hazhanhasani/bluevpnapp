@@ -16,7 +16,6 @@ class AndroidInstrumentationPerformanceTest(unittest.TestCase):
             "androidx.test:runner:1.6.2",
             "androidx.test:rules:1.6.1",
             "androidx.test.espresso:espresso-core:3.6.1",
-            "androidx.benchmark:benchmark-junit4:1.3.3",
         ]:
             self.assertIn(dep, prepare)
 
@@ -24,18 +23,18 @@ class AndroidInstrumentationPerformanceTest(unittest.TestCase):
         prepare = self.text("scripts/prepare_android.py")
         ui = self.text("android-test/BlueVpnLocationsUiTest.kt")
         perf = self.text(
-            "android-benchmark/src/main/java/com/bluevpn/benchmark/BlueVpnLocationDiffBenchmark.kt"
+            "android-benchmark/src/main/java/com/bluevpn/benchmark/BlueVpnLocationsMacrobenchmark.kt"
         )
+        benchmark_gradle = self.text("android-benchmark/build.gradle.kts")
         self.assertIn("BlueVpnLocationsUiTest.kt", prepare)
-        self.assertNotIn(
-            'android_test_bluevpn_dir / "BlueVpnLocationDiffBenchmark.kt"',
-            prepare,
-        )
+        self.assertNotIn("BlueVpnLocationDiffBenchmark.kt", prepare)
         self.assertIn("ActivityScenario.launch", ui)
         self.assertIn("scenario.recreate()", ui)
         self.assertIn("RecyclerView::class.java", ui)
-        self.assertIn("BenchmarkRule", perf)
-        self.assertIn("0 until 1000", perf)
+        self.assertIn("MacrobenchmarkRule", perf)
+        self.assertIn("FrameTimingMetric()", perf)
+        self.assertNotIn("com.v2ray.ang.bluevpn", perf)
+        self.assertNotIn("benchmark-junit4:1.3.3", benchmark_gradle)
 
     def test_release_build_compiles_android_test_apk(self):
         workflow = self.text(".github/workflows/build-apk.yml")

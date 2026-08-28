@@ -1312,7 +1312,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             }
             if (targetScrollY > 0) {
                 locationsRecyclerView.post {
-                    locationsRecyclerView.scrollBy(0, targetScrollY)
+                    val currentScrollY =
+                        locationsRecyclerView.computeVerticalScrollOffset()
+                    val delta = targetScrollY - currentScrollY
+                    if (delta != 0) {
+                        locationsRecyclerView.scrollBy(0, delta)
+                    }
                 }
             }
         }

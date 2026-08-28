@@ -1,0 +1,5 @@
+BlueVPN 6.0.7 coordinated release
+source_sha=ea82df2ab80960aaddec4dfdb13ad7a5ecae36f9
+version=6.0.7
+version_code=60007
+includes=android-connected-location-fix,blueai-live-heartbeat-fallback,windows-startup-crash-resilience,manual-customer-sms-persistence,streaming-async-backup,free-source-transport-resilience,multi-provider-paid-routes

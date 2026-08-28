@@ -9,7 +9,7 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         return (ROOT / path).read_text(encoding="utf-8")
 
     def test_device_qa_runs_real_emulator_tests(self):
-        workflow = self.text(".github/workflows/android-device-qa.yml")
+        workflow = self.text(".github/workflows/android-quality.yml")
         self.assertIn("ReactiveCircus/android-emulator-runner@", workflow)
         self.assertIn("api-level: 35", workflow)
         self.assertIn("arch: x86_64", workflow)
@@ -23,7 +23,7 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
             workflow,
         )
         self.assertIn("Upload Android device QA artifacts", workflow)
-        self.assertIn("reports/android-device/", workflow)
+        self.assertIn("reports/android-quality/", workflow)
 
     def test_visual_qa_captures_light_and_dark_rtl_locations(self):
         ui = self.text("android-test/BlueVpnLocationsUiTest.kt")

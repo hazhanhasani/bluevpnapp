@@ -14,6 +14,7 @@
     "test_android_location_server_expansion.py",
     "test_android_locations_oem_ui_5311.py",
     "test_android_locations_recycler_foundation.py",
+    "test_android_locations_recycler_runtime.py",
     "test_android_locations_refresh_ownership.py",
     "test_android_locations_saved_state.py",
     "test_android_notification_controls_484.py",

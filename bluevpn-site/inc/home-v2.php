@@ -60,7 +60,7 @@ $support_image = $shots['support'] !== '' ? $shots['support'] : BLUEVPN_SITE_URL
 <section class="bv5-section bv5-screen-section white">
  <div class="bv-shell bv5-screen-grid">
    <div class="bv5-screen-copy" data-bv-reveal><span>صفحه اصلی و اتصال</span><h2>اتصال را بزن؛<br>وضعیتش را همان‌جا ببین.</h2><p>بعد از اتصال، سرعت دانلود و آپلود، مدت اتصال، لوکیشن فعال و باقی‌مانده اشتراکت یک‌جا نمایش داده می‌شود.</p><ul><li><i>✓</i> وضعیت اتصال واضح</li><li><i>✓</i> سرعت دانلود و آپلود</li><li><i>✓</i> سرور و لوکیشن فعال</li><li><i>✓</i> وضعیت اشتراک</li></ul></div>
-   <div class="bv5-device" data-bv-reveal><div class="glow"></div><figure><img src="<?php echo esc_url($hero_image); ?>" alt="رابط واقعی صفحه اتصال BlueVPN" loading="lazy"></figure></div>
+   <div class="bv5-device bv5-product-stage" data-bv-reveal><div class="glow"></div><figure class="bv5-shot-frame"><img src="<?php echo esc_url($hero_image); ?>" alt="رابط واقعی صفحه اتصال BlueVPN" loading="lazy"></figure></div>
  </div>
 </section>
 
@@ -68,7 +68,7 @@ $support_image = $shots['support'] !== '' ? $shots['support'] : BLUEVPN_SITE_URL
  <div class="bv-shell bv5-locations-layout">
    <div class="bv5-locations-device" data-bv-reveal>
      <div class="glow"></div>
-     <figure><img src="<?php echo esc_url($locations_image); ?>" alt="صفحه واقعی لوکیشن‌های BlueVPN" loading="lazy"></figure>
+     <figure class="bv5-shot-frame"><img src="<?php echo esc_url($locations_image); ?>" alt="صفحه واقعی لوکیشن‌های BlueVPN" loading="lazy"></figure>
    </div>
    <div class="bv5-locations-copy" data-bv-reveal>
      <span>لوکیشن‌ها</span>
@@ -118,7 +118,7 @@ $support_image = $shots['support'] !== '' ? $shots['support'] : BLUEVPN_SITE_URL
    </article>
    <article class="support-card" data-bv-reveal>
     <div class="bv5-account-copy"><span>پشتیبانی داخل محصول</span><h3>سؤالت را بفرست؛ پاسخ را همان‌جا دنبال کن.</h3><p>موضوع مشکلت را انتخاب کن، پیام بده و پاسخ پشتیبانی را بدون گم‌کردن گفتگو پیگیری کن.</p><a href="<?php echo esc_url(home_url('/support/')); ?>">رفتن به پشتیبانی ←</a></div>
-    <figure><img src="<?php echo esc_url($support_image); ?>" alt="صفحه واقعی پشتیبانی BlueVPN" loading="lazy"></figure>
+    <figure class="bv5-support-shot"><img src="<?php echo esc_url($support_image); ?>" alt="صفحه واقعی پشتیبانی BlueVPN" loading="lazy"></figure>
    </article>
   </div>
  </div>

@@ -47,6 +47,9 @@ class AndroidLocationsRecyclerRuntimeTest(unittest.TestCase):
         src = self.text("android-source/BlueVpnServersActivity.kt")
         self.assertIn("locationsRecyclerView.computeVerticalScrollOffset()", src)
         self.assertIn("locationsRecyclerView.scrollToPosition(0)", src)
+        self.assertIn("val delta = targetScrollY - currentScrollY", src)
+        self.assertIn("locationsRecyclerView.scrollBy(0, delta)", src)
+        self.assertNotIn("locationsRecyclerView.scrollBy(0, targetScrollY)", src)
 
 
 if __name__ == "__main__":

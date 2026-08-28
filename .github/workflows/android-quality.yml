@@ -95,6 +95,33 @@ jobs:
             mkdir -p reports/android-quality/qa
             adb pull "/sdcard/Android/data/$APP_ID/files/qa/." reports/android-quality/qa/ || true
 
+      - name: Validate light and dark Locations screenshots
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageChops, ImageStat
+
+          root=Path('reports/android-quality/qa')
+          light=root/'locations-light-rtl.png'
+          dark=root/'locations-dark-rtl.png'
+          for path in (light,dark):
+              if not path.is_file() or path.stat().st_size < 10_000:
+                  raise SystemExit(f'missing or tiny QA screenshot: {path}')
+          a=Image.open(light).convert('RGB')
+          b=Image.open(dark).convert('RGB')
+          if a.size != b.size or min(a.size) < 700:
+              raise SystemExit(f'unexpected screenshot geometry: {a.size} vs {b.size}')
+          for label,img in [('light',a),('dark',b)]:
+              gray=img.convert('L')
+              if ImageStat.Stat(gray).stddev[0] < 8:
+                  raise SystemExit(f'{label} screenshot looks visually blank')
+          if ImageChops.difference(a,b).getbbox() is None:
+              raise SystemExit('light and dark screenshots are identical')
+          print('Locations visual smoke gate: PASS', a.size)
+          PY
+
       - name: Collect Android QA reports
         if: always()
         shell: bash

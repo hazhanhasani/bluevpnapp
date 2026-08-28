@@ -25,7 +25,8 @@ class AndroidLatencyStateContractTest(unittest.TestCase):
         start = src.index("mainViewModel.updateTestResultAction.observe")
         end = src.index("renderLocations()", start)
         body = src[start:end]
-        self.assertIn("recordPublishedLatencySamples()", body)
+        self.assertIn("recordPublishedLatencySamples(event)", body)
+        self.assertIn('event == "batch-complete"', body)
         self.assertNotIn("renderLocations()", body)
 
     def test_measurement_start_and_timeout_are_tracked(self):

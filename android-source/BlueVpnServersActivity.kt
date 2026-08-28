@@ -645,8 +645,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         frame.addView(root, FrameLayout.LayoutParams(-1, -1))
 
         root.addView(createHeader(), LinearLayout.LayoutParams(-1, dp(56)))
-        root.addView(createTabs(), LinearLayout.LayoutParams(-1, dp(44)).apply { topMargin = dp(6) })
-        root.addView(createSearchField(), LinearLayout.LayoutParams(-1, dp(46)).apply { topMargin = dp(8) })
+        root.addView(createTabs(), LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
+        root.addView(createSearchField(), LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
         root.addView(automaticServerCard(), LinearLayout.LayoutParams(-1, dp(68)).apply {
             topMargin = dp(8)
             bottomMargin = dp(8)
@@ -725,7 +725,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 renderHandler.postDelayed(refreshTimeoutRunnable, 42_000L)
             }
         }
-        row.addView(refreshButton, LinearLayout.LayoutParams(dp(46), dp(46)))
+        row.addView(refreshButton, LinearLayout.LayoutParams(dp(48), dp(48)))
 
         val titleBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -745,11 +745,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
         row.addView(smallButton("×").apply {
             textSize = 24f
+            contentDescription = "بستن مکان‌ها"
             BlueVpnUiGuard.bind(this) {
                 rememberLocationScroll()
                 finish()
             }
-        }, LinearLayout.LayoutParams(dp(46), dp(46)))
+        }, LinearLayout.LayoutParams(dp(48), dp(48)))
         return row
     }
 

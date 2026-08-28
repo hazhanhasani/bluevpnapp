@@ -1676,6 +1676,57 @@ final class BlueVPN_Providers {
             'source_lines'=>$sourceLines,
         ],false);
     }
+    private static function expected_provider_route_keys(array $plan): array {
+        $keys=[];
+        foreach(self::plan_provider_routes($plan) as $provider=>$routes){
+            foreach((array)$routes as $route){
+                $panelId=(int)($route['panel_id']??0);
+                if($panelId<=0)continue;
+                $keys[self::provider_route_key((string)$provider,(array)$route)]=(string)$provider;
+            }
+        }
+        return $keys;
+    }
+
+    private static function reconcile_snapshot_routes_if_needed(array $c): array {
+        $customerId=(int)($c['id']??0);$planId=(int)($c['plan_id']??0);
+        if($customerId<=0||$planId<=0)return ['needed'=>false,'repaired'=>false,'missing'=>[],'empty'=>[]];
+        global $wpdb;
+        $plan=$wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM ".BlueVPN_DB::table('plans')." WHERE id=%d AND deleted=0 LIMIT 1",
+            $planId
+        ),ARRAY_A);
+        if(!$plan)return ['needed'=>false,'repaired'=>false,'missing'=>[],'empty'=>[]];
+
+        $expected=self::expected_provider_route_keys($plan);
+        if(!$expected)return ['needed'=>false,'repaired'=>false,'missing'=>[],'empty'=>[]];
+
+        $linked=[];$empty=[];
+        foreach(self::customer_provider_links($customerId) as $link){
+            $key=trim((string)($link['route_key']??''));
+            if($key==='')continue;
+            $linked[$key]=true;
+            $provider=(string)($link['provider_type']??'');
+            // Shahrah obtains configs through its service API and does not need a
+            // subscription URL in customer_provider_links.
+            if($provider!=='shahrah'&&trim((string)($link['subscription_url']??''))==='')$empty[]=$key;
+        }
+        $missing=array_values(array_diff(array_keys($expected),array_keys($linked)));
+        $empty=array_values(array_unique($empty));
+        if(!$missing&&!$empty)return ['needed'=>false,'repaired'=>false,'missing'=>[],'empty'=>[]];
+
+        // Safe repair never extends the WordPress entitlement and Shahrah repair
+        // explicitly avoids renew; it only reattaches or creates truly missing routes.
+        $repair=self::repair_customer_missing_providers($customerId);
+        return [
+            'needed'=>true,
+            'repaired'=>!empty($repair['ok']),
+            'missing'=>$missing,
+            'empty'=>$empty,
+            'message'=>(string)($repair['message']??''),
+        ];
+    }
+
     private static function customer_source_entries(array $c): array {
         $out=[];$customerId=(int)($c['id']??0);$usableLinkedProviders=[];$seenRouteKeys=[];
         foreach(self::customer_provider_links($customerId) as $link){
@@ -1736,6 +1787,9 @@ final class BlueVPN_Providers {
     }
     public static function refresh_subscription_snapshot(int $customerId): array {
         global $wpdb;$t=BlueVPN_DB::table('customers');$c=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%d AND active=1 LIMIT 1",$customerId),ARRAY_A);if(!$c)return ['ok'=>false,'message'=>'customer not found'];
+        $routeReconcile=self::reconcile_snapshot_routes_if_needed($c);
+        // Re-read links after repair so every newly attached provider participates
+        // in this same snapshot instead of waiting for another cron cycle.
         $sources=self::customer_source_entries($c);$lines=[];$seen=[];$errors=[];$successSources=0;$sourceStats=[];$freshSourceLines=[];
         foreach($sources as $source){
             $provider=(string)($source['key']??'source');$type=(string)($source['type']??'url');$payload=(string)($source['payload']??'');$providerLines=[];
@@ -1821,7 +1875,14 @@ final class BlueVPN_Providers {
         if(!$effective)$effective=$lines;
         $effectiveSources=array_replace((array)($old['sources']??[]),$sourceStats);
         if($effective)self::snapshot_store($customerId,$effective,$errors,$effectiveSources,$effectiveSourceLines);
-        return ['ok'=>!empty($effective),'fresh'=>$complete,'lines'=>$effective,'sources'=>$effectiveSources,'errors'=>$errors];
+        return [
+            'ok'=>!empty($effective),
+            'fresh'=>$complete,
+            'lines'=>$effective,
+            'sources'=>$effectiveSources,
+            'errors'=>$errors,
+            'route_reconcile'=>$routeReconcile,
+        ];
     }
     public static function gateway_upstream_pool(int $customerId): array {
         if($customerId<=0)return [];$snapshot=self::snapshot_load($customerId);$age=!empty($snapshot['updated_at'])?time()-(int)$snapshot['updated_at']:PHP_INT_MAX;$lines=is_array($snapshot['lines']??null)?array_values($snapshot['lines']):[];

@@ -1126,8 +1126,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             group.favorite -> if (palette.dark) 0xFF44395F.toInt() else 0xFFD9CDF7.toInt()
             else -> palette.stroke
         }
-        val header = card(radius = 21, fill = fill, stroke = stroke).apply {
+        val header = card(radius = 22, fill = fill, stroke = stroke).apply {
             strokeWidth = dp(if (active) 2 else 1)
+            cardElevation = dp(if (expanded || active) 2 else 1).toFloat()
             isClickable = true
             isFocusable = true
             contentDescription = group.location.title + "؛ " + group.servers.size + " سرور؛ " + if (expanded) "باز" else "بسته"
@@ -1210,15 +1211,62 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             }
         }
         row.addView(chooseCountry, LinearLayout.LayoutParams(dp(76), dp(40)))
-        row.addView(textView(if (expanded) "⌃" else "⌄", 18f, palette.textMuted, Gravity.CENTER),
-            LinearLayout.LayoutParams(dp(28), dp(40)))
+
+        // Dedicated disclosure affordance: visually separated from the country
+        // action so the accordion feels intentional instead of like a stray glyph.
+        row.addView(
+            textView(if (expanded) "−" else "+", 18f, if (expanded) palette.accent else palette.textMuted, Gravity.CENTER).apply {
+                setTypeface(typeface, Typeface.BOLD)
+                background = rounded(
+                    if (expanded) {
+                        if (palette.dark) 0xFF202D4C.toInt() else 0xFFE9F0FF.toInt()
+                    } else {
+                        palette.surfaceStrong
+                    },
+                    14,
+                )
+            },
+            LinearLayout.LayoutParams(dp(34), dp(34)).apply {
+                marginStart = dp(4)
+            },
+        )
 
         outer.addView(header, LinearLayout.LayoutParams(-1, dp(74)))
 
         if (expanded) {
+            // Accordion tray: a soft connected surface with an accent rail and
+            // stagger-free reveal. This gives the expanded country a clear visual
+            // hierarchy without changing the stable list order.
+            val tray = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.TOP
+                setPadding(dp(10), dp(8), dp(10), dp(4))
+                background = rounded(
+                    if (palette.dark) 0xFF0F1626.toInt() else 0xFFF5F8FF.toInt(),
+                    18,
+                    if (palette.dark) 0xFF26334C.toInt() else 0xFFDDE7F6.toInt(),
+                )
+                alpha = 0f
+                translationY = -dp(6).toFloat()
+            }
+
+            val rail = View(this).apply {
+                background = rounded(
+                    if (active) palette.accent else if (palette.dark) 0xFF405478.toInt() else 0xFFB8C9E6.toInt(),
+                    3,
+                )
+            }
+            tray.addView(
+                rail,
+                LinearLayout.LayoutParams(dp(3), -1).apply {
+                    marginEnd = dp(10)
+                    topMargin = dp(4)
+                    bottomMargin = dp(4)
+                },
+            )
+
             val serverBox = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(8), dp(6), dp(8), 0)
             }
             stableServerRows(group.location, group.servers).forEachIndexed { index, pair ->
                 val candidate = pair.first
@@ -1226,11 +1274,24 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 serverBox.addView(
                     createServerRow(group, candidate, ordinal, premium),
                     LinearLayout.LayoutParams(-1, dp(70)).apply {
-                        if (index > 0) topMargin = dp(5)
+                        if (index > 0) topMargin = dp(6)
                     },
                 )
             }
-            outer.addView(serverBox, LinearLayout.LayoutParams(-1, -2))
+            tray.addView(serverBox, LinearLayout.LayoutParams(0, -2, 1f))
+            outer.addView(
+                tray,
+                LinearLayout.LayoutParams(-1, -2).apply {
+                    topMargin = dp(6)
+                    marginStart = dp(6)
+                    marginEnd = dp(6)
+                },
+            )
+            tray.animate()
+                .alpha(1f)
+                .translationY(0f)
+                .setDuration(160L)
+                .start()
         }
         return outer
     }

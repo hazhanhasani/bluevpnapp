@@ -127,6 +127,22 @@ def patch_tapsell_repository() -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def patch_benchmark_module() -> None:
+    source = ROOT / "android-benchmark"
+    target = ANDROID / "benchmark"
+    if not source.is_dir():
+        raise RuntimeError("Canonical BlueVPN benchmark module is missing")
+    shutil.copytree(source, target, dirs_exist_ok=True)
+
+    settings = ANDROID / "settings.gradle.kts"
+    if not settings.exists():
+        raise RuntimeError("Gradle settings file not found for benchmark module")
+    text = settings.read_text(encoding="utf-8")
+    if 'include(":benchmark")' not in text:
+        text = text.rstrip() + '\ninclude(":benchmark")\n'
+        settings.write_text(text, encoding="utf-8")
+
+
 def patch_build_gradle() -> None:
     path = APP / "build.gradle.kts"
     text = path.read_text(encoding="utf-8")
@@ -204,6 +220,23 @@ def patch_build_gradle() -> None:
     for token, field in fields:
         if token not in text:
             text = text.replace(marker, marker + field, 1)
+
+    if 'create("benchmark")' not in text:
+        build_types_marker = "buildTypes {"
+        if build_types_marker not in text:
+            raise RuntimeError("Android buildTypes block not found")
+        benchmark_type = (
+            '\n        create("benchmark") {\n'
+            '            initWith(getByName("release"))\n'
+            '            signingConfig = signingConfigs.getByName("debug")\n'
+            '            matchingFallbacks += listOf("release")\n'
+            '        }\n'
+        )
+        text = text.replace(
+            build_types_marker,
+            build_types_marker + benchmark_type,
+            1,
+        )
 
     dependencies_marker = "dependencies {"
     if dependencies_marker not in text:
@@ -1041,6 +1074,7 @@ def main() -> None:
         raise RuntimeError("Upstream project not found at upstream/V2rayNG")
     runtime_snapshot = snapshot_upstream_runtime()
     patch_tapsell_repository()
+    patch_benchmark_module()
     patch_build_gradle()
     patch_strings()
     patch_manifest()

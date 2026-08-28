@@ -134,6 +134,38 @@ def patch_benchmark_module() -> None:
         raise RuntimeError("Canonical BlueVPN benchmark module is missing")
     shutil.copytree(source, target, dirs_exist_ok=True)
 
+    catalog = ANDROID / "gradle" / "libs.versions.toml"
+    if not catalog.exists():
+        raise RuntimeError("Gradle version catalog is missing for benchmark module")
+    catalog_text = catalog.read_text(encoding="utf-8")
+    plugin_marker = "[plugins]"
+    android_test_alias = 'android-test = { id = "com.android.test", version.ref = "agp" }'
+    if android_test_alias not in catalog_text:
+        if plugin_marker not in catalog_text:
+            raise RuntimeError("Gradle plugin catalog marker is missing")
+        catalog_text = catalog_text.replace(
+            plugin_marker,
+            plugin_marker + "\n" + android_test_alias,
+            1,
+        )
+        catalog.write_text(catalog_text, encoding="utf-8")
+
+    root_build = ANDROID / "build.gradle.kts"
+    if not root_build.exists():
+        raise RuntimeError("Root Android build.gradle.kts is missing")
+    root_text = root_build.read_text(encoding="utf-8")
+    app_alias = "alias(libs.plugins.android.application) apply false"
+    test_alias = "alias(libs.plugins.android.test) apply false"
+    if test_alias not in root_text:
+        if app_alias not in root_text:
+            raise RuntimeError("Android application plugin alias is missing")
+        root_text = root_text.replace(
+            app_alias,
+            app_alias + "\n    " + test_alias,
+            1,
+        )
+        root_build.write_text(root_text, encoding="utf-8")
+
     settings = ANDROID / "settings.gradle.kts"
     if not settings.exists():
         raise RuntimeError("Gradle settings file not found for benchmark module")

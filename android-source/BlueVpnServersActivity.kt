@@ -488,16 +488,20 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             }
         }
         if (::automaticSubtitle.isInitialized) {
-            val activeAutoLocation = if (BlueVpnPreferences.smartBalance(this)) {
-                MmkvManager.getSelectServer().orEmpty()
-                    .takeIf { it.isNotBlank() }
-                    ?.let { MmkvManager.decodeServerConfig(it) }
-                    ?.let { BlueVpnLocationUtil.detect(it.remarks, it.server) }
-                    ?.takeIf { it.key != "unknown" }
+            val activeAutoCandidate = if (BlueVpnPreferences.smartBalance(this)) {
+                val guid = MmkvManager.getSelectServer().orEmpty()
+                BlueVpnLocationUtil.cachedCandidates(this).firstOrNull { it.guid == guid }
             } else null
             automaticSubtitle.text = when (entitlement.tier) {
-                BlueVpnPlanTier.PREMIUM -> activeAutoLocation?.let {
-                    "فعال • مسیر فعلی ${it.flag} ${it.title} • جابه‌جایی خودکار هنگام افت واقعی"
+                BlueVpnPlanTier.PREMIUM -> activeAutoCandidate?.let { candidate ->
+                    val peers = BlueVpnLocationUtil.cachedCandidates(this)
+                        .filter { it.location.key == candidate.location.key }
+                    val ordinal = stableServerRows(candidate.location, peers)
+                        .firstOrNull { it.first.guid == candidate.guid }
+                        ?.second
+                    "فعال • " + candidate.location.flag + " " + candidate.location.title +
+                        (ordinal?.let { " " + it }.orEmpty()) +
+                        " • جابه‌جایی خودکار هنگام افت واقعی"
                 } ?: "بهترین اتصال با پینگ، سابقه و سلامت شبکه انتخاب می‌شود"
                 BlueVpnPlanTier.FREE -> "بهترین سرور رایگان • هر اتصال ${entitlement.sessionMinutes} دقیقه"
                 BlueVpnPlanTier.UNAVAILABLE -> "برای دریافت سرورها تازه‌سازی کنید یا اشتراک تهیه کنید"
@@ -1217,6 +1221,34 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         finish()
     }
 
+    private fun selectServer(
+        group: LocationGroup,
+        candidate: BlueVpnLocationUtil.Candidate,
+        ordinal: Int,
+    ) {
+        if (BlueVpnEntitlement.resolveUi(this).tier != BlueVpnPlanTier.PREMIUM) {
+            openSubscriptionForPremium()
+            return
+        }
+        val oldMode = BlueVpnPreferences.selectionMode(this)
+        val oldGuid = BlueVpnPreferences.manualServerGuid(this)
+        val changed = oldMode != BlueVpnSelectionMode.MANUAL_SERVER || oldGuid != candidate.guid
+        BlueVpnPreferences.setManualServerSelection(this, group.location.key, candidate.guid)
+        if (!BlueVpnRuntimeGate.connectionActive(this)) {
+            MmkvManager.setSelectServer(candidate.guid)
+        }
+        val title = group.location.flag + " " + group.location.title + " " + ordinal
+        setResult(Activity.RESULT_OK, Intent()
+            .putExtra(EXTRA_LOCATION_CHANGED, changed)
+            .putExtra(EXTRA_LOCATION_KEY, group.location.key)
+            .putExtra(EXTRA_LOCATION_TITLE, title))
+        Toast.makeText(
+            this,
+            if (changed) group.location.title + " " + ordinal + " انتخاب شد" else group.location.title + " " + ordinal + " فعال است",
+            Toast.LENGTH_SHORT,
+        ).show()
+        finish()
+    }
     private fun stopRefreshing() {
         renderHandler.removeCallbacks(refreshTimeoutRunnable)
         if (!::refreshButton.isInitialized) return

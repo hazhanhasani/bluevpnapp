@@ -17,12 +17,12 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         self.assertIn(":benchmark:connectedBenchmarkAndroidTest", workflow)
 
     def test_device_qa_is_pinned_and_uploads_artifacts(self):
-        workflow = self.text(".github/workflows/android-device-qa.yml")
+        workflow = self.text(".github/workflows/android-quality.yml")
         self.assertIn(
             "ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d",
             workflow,
         )
-        self.assertIn("Upload Android device QA artifacts", workflow)
+        self.assertIn("Upload Android QA artifacts", workflow)
         self.assertIn("reports/android-quality/", workflow)
 
     def test_visual_qa_captures_light_and_dark_rtl_locations(self):

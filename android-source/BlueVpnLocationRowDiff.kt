@@ -63,7 +63,8 @@ object BlueVpnLocationRowDiff : DiffUtil.ItemCallback<BlueVpnLocationListRow>() 
 
         val stateChanged =
             oldItem.active != newItem.active ||
-                oldItem.automaticActive != newItem.automaticActive
+                oldItem.automaticActive != newItem.automaticActive ||
+                oldItem.manualActive != newItem.manualActive
 
         val latencyChanged =
             oldItem.latencyPhase != newItem.latencyPhase ||

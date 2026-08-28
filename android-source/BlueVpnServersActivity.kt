@@ -372,18 +372,22 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        savedInstanceState?.let { state ->
+        if (savedInstanceState != null) {
             selectedTab = runCatching {
-                LocationTab.valueOf(state.getString(STATE_TAB).orEmpty())
+                LocationTab.valueOf(savedInstanceState.getString(STATE_TAB).orEmpty())
             }.getOrDefault(LocationTab.ALL)
-            queryText = state.getString(STATE_QUERY).orEmpty()
+            queryText = savedInstanceState.getString(STATE_QUERY).orEmpty()
             query = BlueVpnLocationUtil.normalizeForSearch(queryText)
             expandedLocationKeys.clear()
             expandedLocationKeys.addAll(
-                state.getStringArrayList(STATE_EXPANDED).orEmpty()
+                savedInstanceState.getStringArrayList(STATE_EXPANDED).orEmpty()
             )
-            restoredScrollY = state.getInt(STATE_SCROLL_Y, 0).coerceAtLeast(0)
+            restoredScrollY = savedInstanceState
+                .getInt(STATE_SCROLL_Y, 0)
+                .coerceAtLeast(0)
             initialScrollRestored = true
+        } else {
+            restorePersistedLocationUiState()
         }
 
         window.setWindowAnimations(0)
@@ -446,6 +450,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        persistLocationUiState()
         outState.putString(STATE_TAB, selectedTab.name)
         outState.putString(STATE_QUERY, queryText)
         outState.putStringArrayList(STATE_EXPANDED, ArrayList(expandedLocationKeys))
@@ -459,6 +464,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     override fun onPause() {
+        persistLocationUiState()
         rememberLocationScroll()
         renderGeneration++
         searchHandler.removeCallbacks(searchRunnable)
@@ -1728,6 +1734,30 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             this,
             Intent(this, BlueVpnSubscriptionsActivity::class.java),
         )
+    }
+
+    private fun restorePersistedLocationUiState() {
+        val prefs = getSharedPreferences("bluevpn_locations_ui", MODE_PRIVATE)
+        selectedTab = runCatching {
+            LocationTab.valueOf(prefs.getString("tab", LocationTab.ALL.name).orEmpty())
+        }.getOrDefault(LocationTab.ALL)
+        queryText = prefs.getString("query_text", "").orEmpty()
+        query = BlueVpnLocationUtil.normalizeForSearch(queryText)
+        expandedLocationKeys.clear()
+        expandedLocationKeys.addAll(
+            prefs.getStringSet("expanded_keys", emptySet()).orEmpty()
+        )
+        restoredScrollY = prefs.getInt(scrollPreferenceKey(), 0).coerceAtLeast(0)
+        initialScrollRestored = true
+    }
+
+    private fun persistLocationUiState() {
+        getSharedPreferences("bluevpn_locations_ui", MODE_PRIVATE)
+            .edit()
+            .putString("tab", selectedTab.name)
+            .putString("query_text", queryText)
+            .putStringSet("expanded_keys", LinkedHashSet(expandedLocationKeys))
+            .apply()
     }
 
     private fun scrollPreferenceKey(): String {

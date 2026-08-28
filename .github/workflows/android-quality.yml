@@ -81,7 +81,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
-            set -euo pipefail
+            set -eu
             cd upstream/V2rayNG
             chmod +x gradlew
             ./gradlew :app:connectedPlaystoreDebugAndroidTest -PABI_FILTERS=x86_64 --stacktrace --no-daemon --build-cache

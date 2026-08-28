@@ -71,6 +71,14 @@ jobs:
           python -m pip install --disable-pip-version-check --quiet pillow
           python scripts/prepare_android.py
 
+      - name: Preflight Android test and benchmark compilation
+        working-directory: upstream/V2rayNG
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew             :app:assemblePlaystoreDebugAndroidTest             :benchmark:assembleBenchmark             -PABI_FILTERS=x86_64             --stacktrace --no-daemon --build-cache
+
       - name: Enable KVM acceleration for Android emulator
         shell: bash
         run: |

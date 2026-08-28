@@ -37,6 +37,9 @@ import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnPreferences
 import com.v2ray.ang.bluevpn.BlueVpnRuntimeGate
 import com.v2ray.ang.bluevpn.BlueVpnRefreshCoordinator
+import com.v2ray.ang.bluevpn.BlueVpnLatencyPhase
+import com.v2ray.ang.bluevpn.BlueVpnLatencyPolicy
+import com.v2ray.ang.bluevpn.BlueVpnLatencySnapshot
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnTapsellManager
 import com.v2ray.ang.bluevpn.BlueVpnUiGuard
@@ -99,6 +102,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private val healthStatusViews = LinkedHashMap<String, TextView>()
     private val serverHealthViews = LinkedHashMap<String, TextView>()
     private val expandedLocationKeys = linkedSetOf<String>()
+    private val latencyPrefs by lazy {
+        getSharedPreferences("bluevpn_latency_samples", MODE_PRIVATE)
+    }
     private val healthRefreshRunnable = Runnable {
         refreshVisibleHealthPresentation()
     }
@@ -149,6 +155,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             // country/server tree here; refresh the visible labels from MMKV so the
             // current scroll position and expanded groups remain untouched.
             // Ping broadcasts are presentation-only and must not finish account sync.
+            recordPublishedLatencySamples()
             healthSweepInProgress = false
             renderHandler.removeCallbacks(healthRefreshRunnable)
             renderHandler.postDelayed(healthRefreshRunnable, 120L)
@@ -327,16 +334,19 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
         healthSweepRequested = true
         healthSweepInProgress = true
+        markLatencyMeasurementStarted(candidates)
 
         // testAllRealPing() is the stock v2rayNG measurement pipeline already used
         // elsewhere in BlueVPN. It publishes results through updateTestResultAction.
         mainViewModel.testAllRealPing()
 
         // Fail-safe only: if upstream does not publish a completion event, allow a
-        // later manual refresh to start another sweep.
+        // later manual refresh to start another sweep and repaint unresolved rows
+        // as timeout rather than leaving them permanently "در حال سنجش".
         renderHandler.postDelayed({
             healthSweepInProgress = false
-        }, 30_000L)
+            refreshVisibleHealthPresentation()
+        }, BlueVpnLatencyPolicy.MEASUREMENT_TIMEOUT_MS)
     }
 
 
@@ -1060,13 +1070,56 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         return rows.sortedBy { it.second }
     }
 
+    private fun markLatencyMeasurementStarted(
+        candidates: List<BlueVpnLocationUtil.Candidate>,
+    ) {
+        val now = System.currentTimeMillis()
+        val editor = latencyPrefs.edit()
+        candidates.forEach { candidate ->
+            editor.putLong("started:" + candidate.guid, now)
+        }
+        editor.apply()
+    }
+
+    private fun recordPublishedLatencySamples() {
+        val now = System.currentTimeMillis()
+        val editor = latencyPrefs.edit()
+        BlueVpnLocationUtil.cachedCandidates(this).forEach { candidate ->
+            val liveDelay = MmkvManager.decodeServerAffiliationInfo(candidate.guid)
+                ?.testDelayMillis ?: candidate.delay
+            if (liveDelay > 0L) {
+                editor.putLong("measured:" + candidate.guid, now)
+                editor.remove("started:" + candidate.guid)
+            }
+        }
+        editor.apply()
+    }
+
+    private fun latencySnapshot(
+        candidate: BlueVpnLocationUtil.Candidate,
+    ): BlueVpnLatencySnapshot {
+        val liveDelay = MmkvManager.decodeServerAffiliationInfo(candidate.guid)
+            ?.testDelayMillis ?: candidate.delay
+        return BlueVpnLatencyPolicy.resolve(
+            latencyMs = liveDelay,
+            measuredAtMs = latencyPrefs.getLong("measured:" + candidate.guid, 0L),
+            nowMs = System.currentTimeMillis(),
+            measuringSinceMs = latencyPrefs.getLong("started:" + candidate.guid, 0L),
+            inactive = BlueVpnPreferences.isSessionInactive(this, candidate.guid),
+        )
+    }
+
     private fun signalLevel(candidate: BlueVpnLocationUtil.Candidate): Int {
-        if (BlueVpnPreferences.isSessionInactive(this, candidate.guid)) return 0
+        val latency = latencySnapshot(candidate)
+        if (latency.phase == BlueVpnLatencyPhase.OFFLINE) return 0
+        val delay = latency.latencyMs
         return when {
-            candidate.delay in 1..80 -> 4
-            candidate.delay in 81..160 -> 3
-            candidate.delay in 161..280 -> 2
-            candidate.delay > 280 -> 1
+            delay in 1..80 -> 4
+            delay in 81..160 -> 3
+            delay in 161..280 -> 2
+            delay > 280 -> 1
+            latency.phase == BlueVpnLatencyPhase.MEASURING -> 0
+            latency.phase == BlueVpnLatencyPhase.TIMEOUT -> 0
             else -> when (BlueVpnLocationUtil.healthScore(this, candidate)) {
                 in 82..100 -> 4
                 in 68..81 -> 3
@@ -1100,12 +1153,20 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         active: Boolean,
         automaticActive: Boolean,
     ): String {
+        val latency = latencySnapshot(candidate)
         val state = when {
             automaticActive -> "فعال • خودکار"
             active -> "فعال • دستی"
-            BlueVpnPreferences.isSessionInactive(this, candidate.guid) -> "موقتاً نامناسب"
-            candidate.delay > 0 -> candidate.delay.toString() + " ms • " + signalQuality(candidate)
-            else -> "در حال سنجش"
+            latency.phase == BlueVpnLatencyPhase.OFFLINE -> "موقتاً نامناسب"
+            latency.phase == BlueVpnLatencyPhase.MEASURING -> "در حال سنجش"
+            latency.phase == BlueVpnLatencyPhase.TIMEOUT -> "بدون پاسخ"
+            latency.phase == BlueVpnLatencyPhase.FRESH ->
+                latency.latencyMs.toString() + " ms • " + signalQuality(candidate)
+            latency.phase == BlueVpnLatencyPhase.STALE ->
+                latency.latencyMs.toString() + " ms • قدیمی"
+            latency.latencyMs > 0L ->
+                latency.latencyMs.toString() + " ms • ذخیره‌شده"
+            else -> "هنوز سنجیده نشده"
         }
         return signalBars(candidate) + "  " + state
     }

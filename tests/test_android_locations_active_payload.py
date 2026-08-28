@@ -54,6 +54,17 @@ class AndroidLocationsActivePayloadTest(unittest.TestCase):
         self.assertIn("android.graphics.Color.TRANSPARENT", body)
         self.assertNotIn("if (active) {\n            row.addView", body)
 
+    def test_active_server_uses_single_accent_rail_not_blue_everywhere(self):
+        src = self.text("android-source/BlueVpnServersActivity.kt")
+        start = src.index("private fun createServerRow")
+        end = src.index("private fun createLocationSection", start)
+        body = src[start:end]
+        self.assertIn("stroke = android.graphics.Color.TRANSPARENT", body)
+        self.assertIn("strokeWidth = 0", body)
+        self.assertIn("tag = TAG_SERVER_RAIL", body)
+        self.assertIn("if (active) palette.accent else android.graphics.Color.TRANSPARENT", body)
+        self.assertIn("background = rounded(palette.surfaceStrong, 11)", body)
+
     def test_row_models_capture_exact_selection_ownership(self):
         model = self.text("android-source/BlueVpnLocationListRow.kt")
         self.assertIn("val automaticActive: Boolean", model)

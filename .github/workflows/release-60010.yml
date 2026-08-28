@@ -1,0 +1,60 @@
+name: BlueVPN Release 6.0.10
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-60010.yml'
+      - 'scripts/release_60010.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: bluevpn-release-60010
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+
+      - name: Synchronize BlueVPN 6.0.10
+        run: python scripts/release_60010.py
+
+      - name: Validate synchronized release contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          python scripts/sync_version.py --check
+          python scripts/validate_release.py
+
+      - name: Commit coordinated 6.0.10 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "BlueVPN 6.0.10 is already synchronized."
+            exit 0
+          fi
+          git config user.name "bluevpn-release-bot"
+          git config user.email "bluevpn-release-bot@users.noreply.github.com"
+          git add -A ':!.github/workflows'
+          git commit -m "release: BlueVPN 6.0.10 Android locations redesign"
+          git push origin HEAD:main
+
+      - name: Dispatch validated release fanout
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run project-health.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo "Requested Project Health validation and coordinated 6.0.10 fanout."

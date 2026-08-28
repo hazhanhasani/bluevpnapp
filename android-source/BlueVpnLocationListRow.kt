@@ -18,6 +18,7 @@ sealed class BlueVpnLocationListRow {
         val expanded: Boolean,
         val favorite: Boolean,
         val active: Boolean,
+        val automaticActive: Boolean,
         val availability: String,
     ) : BlueVpnLocationListRow() {
         override val stableId: String = "country:$locationKey"
@@ -28,6 +29,7 @@ sealed class BlueVpnLocationListRow {
             expanded.toString(),
             favorite.toString(),
             active.toString(),
+            automaticActive.toString(),
             availability,
         ).joinToString("|")
     }

@@ -1287,6 +1287,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             id = R.id.bluevpn_server_card
             isClickable = true
             isFocusable = true
+            contentDescription = "نمایش مکان‌ها"
             elevation = dpHome(2).toFloat()
         }
 
@@ -1331,7 +1332,7 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
 
         val arrow = HeaderGlyphView(this, "menu") { palette.textMuted }.apply {
             rotation = 90f
-            contentDescription = "نمایش مکان‌ها"
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         row.addView(arrow, LinearLayout.LayoutParams(dpHome(38), dpHome(38)))
         return card

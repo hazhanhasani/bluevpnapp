@@ -1512,7 +1512,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         // Expanded server rows are flattened into the RecyclerView adapter.
         // Keeping them out of the country View makes server rows virtualized and
         // lets DiffUtil add/remove only the affected items.
-        }
         return outer
     }
 

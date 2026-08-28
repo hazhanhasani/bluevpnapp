@@ -410,14 +410,6 @@ jobs:
           print('Generated AndroidManifest.xml runtime contract: PASS')
           PY
 
-      - name: Compile Android instrumentation and benchmark tests
-        working-directory: upstream/V2rayNG
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x gradlew
-          ./gradlew :app:assemblePlaystoreDebugAndroidTest "-PABI_FILTERS=arm64-v8a" --stacktrace --no-daemon --build-cache 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
-
       - name: Build unsigned release APKs
         working-directory: upstream/V2rayNG
         shell: bash
@@ -425,7 +417,7 @@ jobs:
           set -euo pipefail
           echo gradle-compile > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           chmod +x gradlew
-          ./gradlew :app:compilePlaystoreReleaseKotlin :app:assemblePlaystoreRelease "-PABI_FILTERS=arm64-v8a;armeabi-v7a" --stacktrace --no-daemon --build-cache --parallel 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
+          ./gradlew :app:assemblePlaystoreDebugAndroidTest :app:compilePlaystoreReleaseKotlin :app:assemblePlaystoreRelease "-PABI_FILTERS=arm64-v8a;armeabi-v7a" --stacktrace --no-daemon --build-cache --parallel 2>&1 | tee -a "$GITHUB_WORKSPACE/android-build.log"
 
       - name: Decode permanent signing key
         shell: bash

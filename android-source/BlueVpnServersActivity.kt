@@ -88,6 +88,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var entitlementRepairAttempted = false
     private var accountSyncInProgress = false
     private var accountSyncPending = false
+    private var healthSweepRequested = false
+    private var healthSweepInProgress = false
     private var renderedPremiumMode: Boolean? = null
     private var lastRenderedStructureFingerprint: String = ""
     private val healthStatusViews = LinkedHashMap<String, TextView>()
@@ -130,11 +132,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             scheduleCandidateReload(force = false, delayMs = 2_000L)
         }
         mainViewModel.updateTestResultAction.observe(this) {
-            // Ping/test-result broadcasts are presentation-only. They must never
-            // invalidate/redecode the location pool or trigger a structural redraw.
+            // v2rayNG writes fresh delay values into MMKV. The visible Candidate
+            // objects are immutable snapshots, so re-read only their presentation
+            // data after a ping result. The structural fingerprint prevents the
+            // country/server tree from being rebuilt or jumping to the top.
             stopRefreshing()
-            renderHandler.removeCallbacks(healthRefreshRunnable)
-            renderHandler.postDelayed(healthRefreshRunnable, 180L)
+            healthSweepInProgress = false
+            BlueVpnLocationUtil.invalidateResolvedCache()
+            scheduleCandidateReload(force = false, delayMs = 120L)
         }
         renderLocations()
         loadCandidates(force = false)
@@ -255,6 +260,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     candidateLoadError = ""
                 }
                 updateEntitlementUi()
+                requestHealthSweepIfNeeded(loaded, force = requestedForce)
                 if (
                     selectAutomaticAfterLoad &&
                     BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity)
@@ -282,6 +288,35 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 }
             }
         }
+    }
+
+
+    private fun requestHealthSweepIfNeeded(
+        candidates: List<BlueVpnLocationUtil.Candidate>,
+        force: Boolean,
+    ) {
+        if (candidates.isEmpty()) return
+
+        val unknown = candidates.count { it.delay <= 0L }
+        if (!force && (healthSweepRequested || unknown == 0)) return
+        if (healthSweepInProgress) return
+
+        // Do not launch a global batch test while a VPN session is actively
+        // carrying traffic. The active route already has its own real-ping flow.
+        if (mainViewModel.isRunning.value == true) return
+
+        healthSweepRequested = true
+        healthSweepInProgress = true
+
+        // testAllRealPing() is the stock v2rayNG measurement pipeline already used
+        // elsewhere in BlueVPN. It publishes results through updateTestResultAction.
+        mainViewModel.testAllRealPing()
+
+        // Fail-safe only: if upstream does not publish a completion event, allow a
+        // later manual refresh to start another sweep.
+        renderHandler.postDelayed({
+            healthSweepInProgress = false
+        }, 30_000L)
     }
 
 
@@ -916,11 +951,20 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
     private fun signalBars(candidate: BlueVpnLocationUtil.Candidate): String =
         when (signalLevel(candidate)) {
-            4 -> "📡 ▂▄▆█"
-            3 -> "📡 ▂▄▆"
-            2 -> "📡 ▂▄"
-            1 -> "📡 ▂"
-            else -> "📡 —"
+            4 -> "▂▄▆█"
+            3 -> "▂▄▆"
+            2 -> "▂▄"
+            1 -> "▂"
+            else -> "—"
+        }
+
+    private fun signalQuality(candidate: BlueVpnLocationUtil.Candidate): String =
+        when (signalLevel(candidate)) {
+            4 -> "عالی"
+            3 -> "خوب"
+            2 -> "متوسط"
+            1 -> "ضعیف"
+            else -> "در حال سنجش"
         }
 
     private fun serverHealthLabel(
@@ -932,8 +976,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             automaticActive -> "فعال • خودکار"
             active -> "فعال • دستی"
             BlueVpnPreferences.isSessionInactive(this, candidate.guid) -> "موقتاً نامناسب"
-            candidate.delay > 0 -> candidate.delay.toString() + " ms"
-            else -> "در انتظار سنجش"
+            candidate.delay > 0 -> candidate.delay.toString() + " ms • " + signalQuality(candidate)
+            else -> "در حال سنجش"
         }
         return signalBars(candidate) + "  " + state
     }
@@ -954,11 +998,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val active = automaticActive || manualActive || (connected && candidate.guid == selectedGuid)
 
         val serverCard = card(
-            radius = 16,
+            radius = 18,
             fill = if (active) palette.surfaceStrong else palette.surface,
             stroke = if (active) palette.accent else palette.stroke,
         ).apply {
             strokeWidth = dp(if (active) 2 else 1)
+            cardElevation = dp(if (active) 2 else 1).toFloat()
             isClickable = true
             isFocusable = true
             contentDescription = group.location.title + " " + ordinal + "؛ " + serverHealthLabel(candidate, active, automaticActive)
@@ -970,7 +1015,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14), dp(8), dp(14), dp(8))
+            setPadding(dp(16), dp(10), dp(16), dp(10))
         }
         serverCard.addView(row)
 
@@ -983,10 +1028,19 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         })
         val health = textView(
             serverHealthLabel(candidate, active, automaticActive),
-            10.5f,
-            if (active) palette.accent else palette.textMuted,
+            11f,
+            when {
+                active -> palette.accent
+                signalLevel(candidate) >= 3 -> if (palette.dark) 0xFF66D19E.toInt() else 0xFF18875C.toInt()
+                signalLevel(candidate) == 2 -> if (palette.dark) 0xFFFFCC66.toInt() else 0xFF9A6B00.toInt()
+                signalLevel(candidate) == 1 -> if (palette.dark) 0xFFFF8B8B.toInt() else 0xFFC13B3B.toInt()
+                else -> palette.textMuted
+            },
             Gravity.END,
-        ).apply { setPadding(0, dp(4), 0, 0) }
+        ).apply {
+            setPadding(0, dp(5), 0, 0)
+            letterSpacing = 0.01f
+        }
         serverHealthViews[candidate.guid] = health
         titleBox.addView(health)
         row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
@@ -1108,7 +1162,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         row.addView(textView(if (expanded) "⌃" else "⌄", 18f, palette.textMuted, Gravity.CENTER),
             LinearLayout.LayoutParams(dp(28), dp(40)))
 
-        outer.addView(header, LinearLayout.LayoutParams(-1, dp(78)))
+        outer.addView(header, LinearLayout.LayoutParams(-1, dp(74)))
 
         if (expanded) {
             val serverBox = LinearLayout(this).apply {
@@ -1120,7 +1174,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 val ordinal = pair.second
                 serverBox.addView(
                     createServerRow(group, candidate, ordinal, premium),
-                    LinearLayout.LayoutParams(-1, dp(64)).apply {
+                    LinearLayout.LayoutParams(-1, dp(70)).apply {
                         if (index > 0) topMargin = dp(5)
                     },
                 )
@@ -1197,10 +1251,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     .putExtra(EXTRA_LOCATION_TITLE, "انتخاب هوشمند"))
                 Toast.makeText(
                     this@BlueVpnServersActivity,
-                    "${decision.candidate.location.flag} ${decision.candidate.location.title} • امتیاز ${decision.score}",
-                    Toast.LENGTH_LONG,
+                    "${decision.candidate.location.flag} ${decision.candidate.location.title} • انتخاب خودکار فعال شد",
+                    Toast.LENGTH_SHORT,
                 ).show()
-                finish()
+                updateEntitlementUi()
+                renderLocations()
             }
         }
     }
@@ -1223,7 +1278,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             .putExtra(EXTRA_LOCATION_KEY, group.location.key)
             .putExtra(EXTRA_LOCATION_TITLE, "${group.location.flag} ${group.location.title}"))
         Toast.makeText(this, if (changed) "${group.location.title} انتخاب شد" else "${group.location.title} فعال است", Toast.LENGTH_SHORT).show()
-        finish()
+        updateEntitlementUi()
+        renderLocations()
     }
 
     private fun selectServer(
@@ -1252,7 +1308,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             if (changed) group.location.title + " " + ordinal + " انتخاب شد" else group.location.title + " " + ordinal + " فعال است",
             Toast.LENGTH_SHORT,
         ).show()
-        finish()
+        updateEntitlementUi()
+        renderLocations()
     }
     private fun stopRefreshing() {
         renderHandler.removeCallbacks(refreshTimeoutRunnable)

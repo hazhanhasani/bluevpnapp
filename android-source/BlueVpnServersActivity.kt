@@ -1178,8 +1178,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 )
             }
             .filter { group ->
-                val searchable = BlueVpnLocationUtil.normalizeForSearch("${group.location.title} ${group.location.key}")
-                val matchesQuery = query.isBlank() || searchable.contains(query)
+                val matchesQuery = groupMatchesQuery(group)
                 val matchesTab = when (selectedTab) {
                     LocationTab.ALL -> true
                     LocationTab.FAVORITES -> group.favorite
@@ -1221,7 +1220,22 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 val groupActive =
                     activeLocationKey.isNotBlank() &&
                         group.location.key == activeLocationKey
-                val expanded = group.location.key in expandedLocationKeys
+                val locationSearchable = BlueVpnLocationUtil.normalizeForSearch(
+                    group.location.title + " " + group.location.key,
+                )
+                val locationMatchesQuery =
+                    query.isNotBlank() && locationSearchable.contains(query)
+                val matchingServerRows = if (query.isBlank() || locationMatchesQuery) {
+                    stableServerRows(group.location, group.servers)
+                } else {
+                    stableServerRows(group.location, group.servers)
+                        .filter { (candidate, ordinal) ->
+                            serverMatchesQuery(group, candidate, ordinal)
+                        }
+                }
+                val expanded =
+                    group.location.key in expandedLocationKeys ||
+                        (query.isNotBlank() && !locationMatchesQuery && matchingServerRows.isNotEmpty())
                 add(
                     BlueVpnLocationListRow.Country(
                         locationKey = group.location.key,
@@ -1236,7 +1250,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     )
                 )
                 if (expanded) {
-                    stableServerRows(group.location, group.servers).forEach { (candidate, ordinal) ->
+                    matchingServerRows.forEach { (candidate, ordinal) ->
                         val automaticActive =
                             automaticMode && connected && candidate.guid == selected
                         val manualActive =
@@ -1347,6 +1361,33 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             }
         editor.apply()
         return rows.sortedBy { it.second }
+    }
+
+    private fun groupMatchesQuery(group: LocationGroup): Boolean {
+        if (query.isBlank()) return true
+        val locationSearchable = BlueVpnLocationUtil.normalizeForSearch(
+            group.location.title + " " + group.location.key,
+        )
+        if (locationSearchable.contains(query)) return true
+        return stableServerRows(group.location, group.servers).any { (candidate, ordinal) ->
+            serverMatchesQuery(group, candidate, ordinal)
+        }
+    }
+
+    private fun serverMatchesQuery(
+        group: LocationGroup,
+        candidate: BlueVpnLocationUtil.Candidate,
+        ordinal: Int,
+    ): Boolean {
+        if (query.isBlank()) return true
+        val searchable = BlueVpnLocationUtil.normalizeForSearch(
+            listOf(
+                group.location.title + " " + ordinal,
+                group.location.key + " " + ordinal,
+                candidate.profile.remarks.orEmpty(),
+            ).joinToString(" "),
+        )
+        return searchable.contains(query)
     }
 
     private fun markLatencyMeasurementStarted(
@@ -1679,7 +1720,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 renderLocations()
             }
         }
-        row.addView(favoriteButton, LinearLayout.LayoutParams(dp(34), dp(38)))
+        row.addView(favoriteButton, LinearLayout.LayoutParams(dp(48), dp(48)))
 
         val chooseCountry = textView(
             when {
@@ -1711,10 +1752,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 )
             }
         }
-        row.addView(chooseCountry, LinearLayout.LayoutParams(dp(54), dp(32)).apply { marginStart = dp(4) })
+        row.addView(chooseCountry, LinearLayout.LayoutParams(dp(58), dp(40)).apply { marginStart = dp(4) })
 
         val chevron = textView(if (expanded) "⌃" else "⌄", 17f, if (expanded) palette.accent else palette.textMuted, Gravity.CENTER)
-        row.addView(chevron, LinearLayout.LayoutParams(dp(28), dp(36)).apply { marginStart = dp(2) })
+        row.addView(chevron, LinearLayout.LayoutParams(dp(44), dp(48)).apply { marginStart = dp(2) })
 
         outer.addView(header, LinearLayout.LayoutParams(-1, dp(64)))
 

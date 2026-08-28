@@ -1,0 +1,129 @@
+name: Android Device QA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android-source/**'
+      - 'android-test/**'
+      - 'android-benchmark/**'
+      - 'scripts/prepare_android.py'
+      - '.github/workflows/android-device-qa.yml'
+      - '.github/workflows/build-apk.yml'
+      - 'branding/app.json'
+  workflow_dispatch:
+
+concurrency:
+  group: android-device-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  device-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout BlueVPN
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 1
+
+      - name: Resolve Android pins
+        id: config
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          app=json.loads(Path('branding/app.json').read_text(encoding='utf-8'))
+          with Path(os.environ['GITHUB_OUTPUT']).open('a',encoding='utf-8') as f:
+              f.write(f"upstream_ref={app['upstream_ref']}\n")
+              f.write(f"xray_ref={app['android_lib_xray_ref']}\n")
+              f.write(f"application_id={app['application_id']}\n")
+          PY
+
+      - name: Checkout official v2rayNG
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          repository: 2dust/v2rayNG
+          ref: ${{ steps.config.outputs.upstream_ref }}
+          path: upstream
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Java 21
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: upstream/V2rayNG/**/*.gradle*
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
+        with:
+          log-accepted-android-sdk-licenses: false
+          cmdline-tools-version: '14742923'
+          packages: 'platforms;android-37.0 build-tools;37.0.0 platform-tools emulator'
+
+      - name: Install Python dependency
+        shell: bash
+        run: python -m pip install --disable-pip-version-check pillow
+
+      - name: Download pinned libv2ray AAR
+        env:
+          XRAY_REF: ${{ steps.config.outputs.xray_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p upstream/V2rayNG/app/libs
+          curl --fail --location --silent --show-error             --connect-timeout 20 --max-time 240 --retry 5 --retry-delay 3             --retry-all-errors             -o upstream/V2rayNG/app/libs/libv2ray.aar             "https://github.com/2dust/AndroidLibXrayLite/releases/download/${XRAY_REF}/libv2ray.aar"
+          unzip -t upstream/V2rayNG/app/libs/libv2ray.aar >/dev/null
+
+      - name: Overlay BlueVPN Android sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/prepare_android.py
+
+      - name: Run emulator UI, process-state and performance QA
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            cd upstream/V2rayNG
+            chmod +x gradlew
+            ./gradlew :app:connectedPlaystoreDebugAndroidTest "-PABI_FILTERS=x86_64" --stacktrace --no-daemon --build-cache
+            ./gradlew :benchmark:connectedBenchmarkAndroidTest "-PABI_FILTERS=x86_64" --stacktrace --no-daemon --build-cache
+            cd "$GITHUB_WORKSPACE"
+            mkdir -p reports/android-device/qa
+            adb pull "/sdcard/Android/data/${{ steps.config.outputs.application_id }}/files/qa/." reports/android-device/qa/ || true
+
+      - name: Collect Android test reports
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p reports/android-device
+          cp -r upstream/V2rayNG/app/build/reports/androidTests reports/android-device/app-androidTests 2>/dev/null || true
+          cp -r upstream/V2rayNG/benchmark/build/reports/androidTests reports/android-device/benchmark-androidTests 2>/dev/null || true
+          find reports/android-device -maxdepth 4 -type f -print | sort || true
+
+      - name: Upload Android device QA artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: android-device-qa-${{ github.sha }}
+          path: reports/android-device/
+          if-no-files-found: warn
+          retention-days: 14

@@ -23,9 +23,14 @@ class AndroidInstrumentationPerformanceTest(unittest.TestCase):
     def test_real_ui_and_perf_tests_are_packaged(self):
         prepare = self.text("scripts/prepare_android.py")
         ui = self.text("android-test/BlueVpnLocationsUiTest.kt")
-        perf = self.text("android-test/BlueVpnLocationDiffBenchmark.kt")
+        perf = self.text(
+            "android-benchmark/src/main/java/com/bluevpn/benchmark/BlueVpnLocationDiffBenchmark.kt"
+        )
         self.assertIn("BlueVpnLocationsUiTest.kt", prepare)
-        self.assertIn("BlueVpnLocationDiffBenchmark.kt", prepare)
+        self.assertNotIn(
+            'android_test_bluevpn_dir / "BlueVpnLocationDiffBenchmark.kt"',
+            prepare,
+        )
         self.assertIn("ActivityScenario.launch", ui)
         self.assertIn("scenario.recreate()", ui)
         self.assertIn("RecyclerView::class.java", ui)

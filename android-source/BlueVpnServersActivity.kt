@@ -646,12 +646,24 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 accountSyncInProgress = false
                 if (isFinishing || isDestroyed) return@withContext
 
-                candidateLoadError = result.exceptionOrNull()?.let {
-                    "دریافت سرورها ناموفق بود؛ دوباره تلاش کنید"
+                candidateLoadError = result.exceptionOrNull()?.let { error ->
+                    when {
+                        error.message?.contains("بروزرسانی حساب از سرور کامل نشد") == true ->
+                            "بروزرسانی حساب کامل نشد؛ فهرست فعلی حفظ شد"
+                        else -> "دریافت سرورها ناموفق بود؛ دوباره تلاش کنید"
+                    }
                 }.orEmpty()
                 updateEntitlementUi()
-                BlueVpnLocationUtil.invalidateCache()
-                loadCandidates(force = true)
+
+                if (result.isSuccess) {
+                    BlueVpnLocationUtil.invalidateCache()
+                    loadCandidates(force = true)
+                } else {
+                    // A control-plane timeout must not destroy or re-enumerate the
+                    // currently usable local pool. Keep the visible list intact.
+                    stopRefreshing()
+                    refreshVisibleHealthPresentation()
+                }
 
                 if (accountSyncPending) {
                     accountSyncPending = false

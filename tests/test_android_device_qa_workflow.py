@@ -16,13 +16,16 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         self.assertIn(":app:connectedPlaystoreDebugAndroidTest", workflow)
         self.assertIn(":benchmark:connectedBenchmarkAndroidTest", workflow)
 
-    def test_emulator_runner_script_is_posix_shell_safe(self):
+    def test_emulator_qa_enables_kvm_and_avoids_stateful_cd(self):
         workflow = self.text(".github/workflows/android-quality.yml")
+        self.assertIn("Enable KVM acceleration for Android emulator", workflow)
+        self.assertIn('sudo chown "$USER":"$(id -gn)" /dev/kvm', workflow)
         start = workflow.index("Run Android UI, state, screenshot and performance QA")
         end = workflow.index("Validate light and dark Locations screenshots", start)
         block = workflow[start:end]
-        self.assertIn("set -eu", block)
-        self.assertNotIn("set -euo pipefail", block)
+        self.assertNotIn("\n            cd upstream/V2rayNG\n", block)
+        self.assertIn("upstream/V2rayNG/gradlew -p upstream/V2rayNG", block)
+        self.assertIn("BLUEVPN_QA_APPLICATION_ID", workflow)
 
     def test_device_qa_is_pinned_and_uploads_artifacts(self):
         workflow = self.text(".github/workflows/android-quality.yml")

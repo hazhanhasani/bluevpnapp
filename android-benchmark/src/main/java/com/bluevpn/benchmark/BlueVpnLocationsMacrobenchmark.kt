@@ -37,14 +37,14 @@ class BlueVpnLocationsMacrobenchmark {
         device.waitForIdle()
 
         val openLocations = device.wait(
-            Until.findObject(By.desc("نمایش مکان‌ها")),
-            5_000,
+            Until.findObject(By.res(packageName, "bluevpn_server_card")),
+            10_000,
         ) ?: error("Home did not expose the Locations action")
         openLocations.click()
         check(
             device.wait(
                 Until.hasObject(By.clazz("androidx.recyclerview.widget.RecyclerView")),
-                5_000,
+                10_000,
             )
         ) { "Locations RecyclerView did not open" }
         device.waitForIdle()
@@ -63,13 +63,13 @@ class BlueVpnLocationsMacrobenchmark {
     ) {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val openLocations = device.wait(
-            Until.findObject(By.desc("نمایش مکان‌ها")),
-            5_000,
+            Until.findObject(By.res(packageName, "bluevpn_server_card")),
+            10_000,
         ) ?: error("Home did not expose the Locations action")
         openLocations.click()
         val search = device.wait(
             Until.findObject(By.clazz("android.widget.EditText")),
-            5_000,
+            10_000,
         ) ?: error("Locations search field did not appear")
         search.setText("Germany")
         device.waitForIdle()

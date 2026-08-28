@@ -21,6 +21,7 @@
     "test_android_locations_refresh_ownership.py",
     "test_android_locations_saved_state.py",
     "test_android_locations_search_polish.py",
+    "test_android_macrobenchmark_contract.py",
     "test_android_notification_controls_484.py",
     "test_android_premium_tapsell_locked_carousel_578.py",
     "test_android_system_integration_478.py",

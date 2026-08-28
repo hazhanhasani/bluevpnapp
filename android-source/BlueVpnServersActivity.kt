@@ -132,14 +132,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             scheduleCandidateReload(force = false, delayMs = 2_000L)
         }
         mainViewModel.updateTestResultAction.observe(this) {
-            // v2rayNG writes fresh delay values into MMKV. The visible Candidate
-            // objects are immutable snapshots, so re-read only their presentation
-            // data after a ping result. The structural fingerprint prevents the
-            // country/server tree from being rebuilt or jumping to the top.
+            // Ping/test-result broadcasts are presentation-only. Never rebuild the
+            // country/server tree here; refresh the visible labels from MMKV so the
+            // current scroll position and expanded groups remain untouched.
             stopRefreshing()
             healthSweepInProgress = false
-            BlueVpnLocationUtil.invalidateResolvedCache()
-            scheduleCandidateReload(force = false, delayMs = 120L)
+            renderHandler.removeCallbacks(healthRefreshRunnable)
+            renderHandler.postDelayed(healthRefreshRunnable, 120L)
         }
         renderLocations()
         loadCandidates(force = false)
@@ -897,8 +896,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val manualGuid=BlueVpnPreferences.manualServerGuid(this)
         serverHealthViews.forEach { (guid, view) ->
             val candidate=groups.values.asSequence().flatten().firstOrNull { it.guid==guid } ?: return@forEach
+            val liveDelay = MmkvManager.decodeServerAffiliationInfo(guid)?.testDelayMillis ?: candidate.delay
+            val liveCandidate = if (liveDelay == candidate.delay) candidate else candidate.copy(delay = liveDelay)
             val active=(connected&&guid==selectedGuid)||(mode==BlueVpnSelectionMode.MANUAL_SERVER&&manualGuid==guid)
-            val next=serverHealthLabel(candidate,active,automatic&&connected&&guid==selectedGuid)
+            val next=serverHealthLabel(liveCandidate,active,automatic&&connected&&guid==selectedGuid)
             if(view.text?.toString()!=next)view.text=next
         }
     }

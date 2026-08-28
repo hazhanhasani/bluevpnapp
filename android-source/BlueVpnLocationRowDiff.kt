@@ -38,7 +38,10 @@ object BlueVpnLocationRowDiff : DiffUtil.ItemCallback<BlueVpnLocationListRow>() 
                     oldItem.expanded == newItem.expanded &&
                     oldItem.favorite == newItem.favorite &&
                     oldItem.availability == newItem.availability
-            return if (structuralSame && oldItem.active != newItem.active) {
+            val activeStateChanged =
+                oldItem.active != newItem.active ||
+                    oldItem.automaticActive != newItem.automaticActive
+            return if (structuralSame && activeStateChanged) {
                 PAYLOAD_COUNTRY_ACTIVE
             } else {
                 null

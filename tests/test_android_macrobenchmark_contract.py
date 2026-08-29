@@ -23,6 +23,8 @@ class AndroidMacrobenchmarkContractTest(unittest.TestCase):
         self.assertIn("FrameTimingMetric()", src)
         self.assertIn("StartupMode.COLD", src)
         self.assertIn('By.res(packageName, "bluevpn_server_card")', src)
+        self.assertIn("POST_NOTIFICATIONS", src)
+        self.assertIn("prepareHomeForBenchmark", src)
         self.assertIn('setText("Germany")', src)
         self.assertIn("device.swipe(", src)
 
@@ -33,6 +35,8 @@ class AndroidMacrobenchmarkContractTest(unittest.TestCase):
         self.assertIn("BaselineProfileRule", src)
         self.assertIn("includeInStartupProfile = true", src)
         self.assertIn('By.res(packageName, "bluevpn_server_card")', src)
+        self.assertIn("POST_NOTIFICATIONS", src)
+        self.assertIn("prepareHomeForBenchmark", src)
         self.assertIn('setText("Germany")', src)
 
     def test_prepare_script_overlays_benchmark_module(self):

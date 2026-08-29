@@ -19,35 +19,25 @@ class BlueVpnBaselineProfileGenerator {
     @get:Rule
     val baselineProfileRule = BaselineProfileRule()
 
-    private fun openLocationsFromHome(device: UiDevice) {
-        val selector = By.res(packageName, "bluevpn_server_card")
-        repeat(5) { attempt ->
-            val card = device.wait(
-                Until.findObject(selector),
-                if (attempt == 0) 3_000 else 1_000,
-            )
-            if (card != null) {
-                card.click()
-                check(
-                    device.wait(
-                        Until.hasObject(By.clazz("androidx.recyclerview.widget.RecyclerView")),
-                        10_000,
-                    )
-                ) { "Locations RecyclerView did not open" }
-                return
-            }
+    private fun prepareHomeForBenchmark(device: UiDevice) {
+        device.executeShellCommand(
+            "pm grant $packageName android.permission.POST_NOTIFICATIONS"
+        )
+        device.waitForIdle()
+    }
 
-            val x = device.displayWidth / 2
-            device.swipe(
-                x,
-                (device.displayHeight * 0.80f).toInt(),
-                x,
-                (device.displayHeight * 0.30f).toInt(),
-                14,
+    private fun openLocationsFromHome(device: UiDevice) {
+        val card = device.wait(
+            Until.findObject(By.res(packageName, "bluevpn_server_card")),
+            10_000,
+        ) ?: error("Home did not expose the Locations action")
+        card.click()
+        check(
+            device.wait(
+                Until.hasObject(By.clazz("androidx.recyclerview.widget.RecyclerView")),
+                10_000,
             )
-            device.waitForIdle()
-        }
-        error("Home did not expose the Locations action after scrolling")
+        ) { "Locations RecyclerView did not open" }
     }
 
     @Test
@@ -56,9 +46,10 @@ class BlueVpnBaselineProfileGenerator {
         includeInStartupProfile = true,
     ) {
         pressHome()
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        prepareHomeForBenchmark(device)
         startActivityAndWait()
 
-        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         openLocationsFromHome(device)
 
         val search = device.wait(

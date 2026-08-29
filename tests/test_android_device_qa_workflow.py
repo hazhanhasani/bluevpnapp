@@ -77,6 +77,18 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         self.assertIn("Upload Android QA artifacts", workflow)
         self.assertIn("reports/android-quality/", workflow)
 
+    def test_screenshots_are_pulled_before_benchmark_replaces_target_app(self):
+        workflow = self.text(".github/workflows/android-quality.yml")
+        start = workflow.index("Run Android UI, state, screenshot and performance QA")
+        end = workflow.index("Validate light and dark Locations screenshots", start)
+        block = workflow[start:end]
+        app_tests = block.index(":app:connectedPlaystoreDebugAndroidTest")
+        pull = block.index('adb pull "/sdcard/Android/data/$BLUEVPN_QA_APPLICATION_ID/files/qa/."')
+        benchmark = block.index(":benchmark:connectedBenchmarkAndroidTest")
+        self.assertLess(app_tests, pull)
+        self.assertLess(pull, benchmark)
+        self.assertNotIn("adb pull \"/sdcard/Android/data/$BLUEVPN_QA_APPLICATION_ID/files/qa/.\" reports/android-quality/qa/ || true", block)
+
     def test_visual_qa_captures_light_and_dark_rtl_locations(self):
         ui = self.text("android-test/BlueVpnLocationsUiTest.kt")
         self.assertIn("captureLightAndDarkRtlSnapshots", ui)

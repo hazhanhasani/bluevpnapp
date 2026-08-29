@@ -3,26 +3,22 @@ package com.v2ray.ang.ui
 import android.content.Context
 import android.content.pm.ActivityInfo
 import android.view.View
+import android.view.ViewGroup
+import android.widget.EditText
+import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import androidx.test.core.app.ActivityScenario
-import androidx.test.espresso.Espresso.onView
-import androidx.test.espresso.action.ViewActions.click
-import androidx.test.espresso.action.ViewActions.replaceText
-import androidx.test.espresso.assertion.ViewAssertions.matches
-import androidx.test.espresso.matcher.ViewMatchers.isAssignableFrom
-import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
-import androidx.test.espresso.matcher.ViewMatchers.withHint
-import androidx.test.espresso.matcher.ViewMatchers.withText
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.hamcrest.Matchers.allOf
-import org.junit.Test
-import org.junit.Before
-import org.junit.After
-import org.junit.Assert.assertEquals
-import org.junit.runner.RunWith
-import java.io.File
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class BlueVpnLocationsUiTest {
@@ -35,46 +31,58 @@ class BlueVpnLocationsUiTest {
             .edit()
             .clear()
             .commit()
-        UiDevice.getInstance(instrumentation)
-            .executeShellCommand("cmd uimode night no")
+
+        UiDevice.getInstance(instrumentation).apply {
+            executeShellCommand("cmd uimode night no")
+            executeShellCommand("wm user-rotation free")
+            waitForIdle()
+        }
     }
 
     @After
     fun restoreLightMode() {
-        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-            .executeShellCommand("cmd uimode night no")
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).apply {
+            executeShellCommand("cmd uimode night no")
+            executeShellCommand("wm user-rotation free")
+            waitForIdle()
+        }
     }
 
     @Test
     fun locationsLaunchesWithVirtualizedList() {
-        ActivityScenario.launch(BlueVpnServersActivity::class.java).use {
-            onView(withText("مکان‌ها")).check(matches(isDisplayed()))
-            onView(isAssignableFrom(RecyclerView::class.java))
-                .check(matches(isDisplayed()))
-            onView(withHint("جست‌وجوی کشور یا سرور"))
-                .check(matches(isDisplayed()))
+        ActivityScenario.launch(BlueVpnServersActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                assertTrue(findText(activity, "مکان‌ها")?.isShown == true)
+                assertTrue(findRecycler(activity)?.isShown == true)
+                assertTrue(findSearch(activity)?.isShown == true)
+            }
         }
     }
 
     @Test
     fun searchSurvivesActivityRecreation() {
         ActivityScenario.launch(BlueVpnServersActivity::class.java).use { scenario ->
-            onView(withHint("جست‌وجوی کشور یا سرور"))
-                .perform(replaceText("آلمان"))
+            scenario.onActivity { activity ->
+                val search = requireNotNull(findSearch(activity))
+                search.setText("آلمان")
+                search.setSelection(search.text.length)
+            }
+
             scenario.recreate()
-            onView(allOf(
-                withHint("جست‌وجوی کشور یا سرور"),
-                withText("آلمان"),
-            )).check(matches(isDisplayed()))
+
+            scenario.onActivity { activity ->
+                val search = requireNotNull(findSearch(activity))
+                assertEquals("آلمان", search.text.toString())
+                assertTrue(search.isShown)
+            }
         }
     }
-
 
     @Test
     fun locationsRootIsExplicitRtl() {
         ActivityScenario.launch(BlueVpnServersActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
-                val content = activity.findViewById<android.view.ViewGroup>(android.R.id.content)
+                val content = activity.findViewById<ViewGroup>(android.R.id.content)
                 val root = content.getChildAt(0)
                 assertEquals(View.LAYOUT_DIRECTION_RTL, root.layoutDirection)
             }
@@ -90,12 +98,17 @@ class BlueVpnLocationsUiTest {
 
         device.executeShellCommand("cmd uimode night no")
         ActivityScenario.launch(BlueVpnServersActivity::class.java).use { scenario ->
-            scenario.recreate()
+            scenario.onActivity { activity ->
+                assertTrue(findRecycler(activity)?.isShown == true)
+            }
             device.waitForIdle()
             device.takeScreenshot(File(qaDir, "locations-light-rtl.png"))
 
             device.executeShellCommand("cmd uimode night yes")
             scenario.recreate()
+            scenario.onActivity { activity ->
+                assertTrue(findRecycler(activity)?.isShown == true)
+            }
             device.waitForIdle()
             device.takeScreenshot(File(qaDir, "locations-dark-rtl.png"))
         }
@@ -104,38 +117,84 @@ class BlueVpnLocationsUiTest {
 
     @Test
     fun searchAndTabSurviveFreshActivityAfterStatePersistence() {
-        ActivityScenario.launch(BlueVpnServersActivity::class.java).use {
-            onView(withText("اخیر")).perform(click())
-            onView(withHint("جست‌وجوی کشور یا سرور"))
-                .perform(replaceText("Netherlands"))
+        ActivityScenario.launch(BlueVpnServersActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val recent = requireNotNull(findText(activity, "اخیر"))
+                assertTrue(recent.performClick())
+
+                val search = requireNotNull(findSearch(activity))
+                search.setText("Netherlands")
+                search.setSelection(search.text.length)
+            }
         }
 
-        ActivityScenario.launch(BlueVpnServersActivity::class.java).use {
-            onView(allOf(
-                withHint("جست‌وجوی کشور یا سرور"),
-                withText("Netherlands"),
-            )).check(matches(isDisplayed()))
-            onView(withText("اخیر")).check(matches(isDisplayed()))
+        ActivityScenario.launch(BlueVpnServersActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                val search = requireNotNull(findSearch(activity))
+                assertEquals("Netherlands", search.text.toString())
+                assertTrue(search.isShown)
+                assertTrue(findText(activity, "اخیر")?.isShown == true)
+            }
         }
     }
 
     @Test
     fun tabAndSearchSurviveRotationRecreation() {
         ActivityScenario.launch(BlueVpnServersActivity::class.java).use { scenario ->
-            onView(withText("علاقه‌مندی")).perform(click())
-            onView(withHint("جست‌وجوی کشور یا سرور"))
-                .perform(replaceText("Germany"))
+            scenario.onActivity { activity ->
+                val favorites = requireNotNull(findText(activity, "علاقه‌مندی"))
+                assertTrue(favorites.performClick())
 
-            scenario.onActivity {
-                it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                val search = requireNotNull(findSearch(activity))
+                search.setText("Germany")
+                search.setSelection(search.text.length)
+
+                activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             }
+
             scenario.recreate()
 
-            onView(allOf(
-                withHint("جست‌وجوی کشور یا سرور"),
-                withText("Germany"),
-            )).check(matches(isDisplayed()))
-            onView(withText("علاقه‌مندی")).check(matches(isDisplayed()))
+            scenario.onActivity { activity ->
+                val search = requireNotNull(findSearch(activity))
+                assertEquals("Germany", search.text.toString())
+                assertTrue(search.isShown)
+                assertTrue(findText(activity, "علاقه‌مندی")?.isShown == true)
+            }
         }
+    }
+
+    private fun findSearch(activity: BlueVpnServersActivity): EditText? =
+        findView(activity) { view ->
+            view is EditText && view.hint?.toString() == "جست‌وجوی کشور یا سرور"
+        } as? EditText
+
+    private fun findRecycler(activity: BlueVpnServersActivity): RecyclerView? =
+        findView(activity) { it is RecyclerView } as? RecyclerView
+
+    private fun findText(activity: BlueVpnServersActivity, expected: String): TextView? =
+        findView(activity) { view ->
+            view is TextView && view.text?.toString() == expected
+        } as? TextView
+
+    private fun findView(
+        activity: BlueVpnServersActivity,
+        predicate: (View) -> Boolean,
+    ): View? {
+        val content = activity.findViewById<ViewGroup>(android.R.id.content)
+        return findView(content, predicate)
+    }
+
+    private fun findView(
+        root: View,
+        predicate: (View) -> Boolean,
+    ): View? {
+        if (predicate(root)) return root
+        if (root !is ViewGroup) return null
+
+        for (index in 0 until root.childCount) {
+            val match = findView(root.getChildAt(index), predicate)
+            if (match != null) return match
+        }
+        return null
     }
 }

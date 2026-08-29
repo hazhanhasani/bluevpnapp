@@ -22,6 +22,39 @@ class BlueVpnLocationsMacrobenchmark {
 
     private val packageName = "ir.blluepanel.bluevpn"
 
+    private fun openLocationsFromHome(device: UiDevice) {
+        val selector = By.res(packageName, "bluevpn_server_card")
+        repeat(5) { attempt ->
+            val card = device.wait(
+                Until.findObject(selector),
+                if (attempt == 0) 3_000 else 1_000,
+            )
+            if (card != null) {
+                card.click()
+                check(
+                    device.wait(
+                        Until.hasObject(By.clazz("androidx.recyclerview.widget.RecyclerView")),
+                        10_000,
+                    )
+                ) { "Locations RecyclerView did not open" }
+                return
+            }
+
+            // Home is vertically scrollable on smaller/emulated displays. The
+            // server/location card can be below the initial accessibility viewport.
+            val x = device.displayWidth / 2
+            device.swipe(
+                x,
+                (device.displayHeight * 0.80f).toInt(),
+                x,
+                (device.displayHeight * 0.30f).toInt(),
+                14,
+            )
+            device.waitForIdle()
+        }
+        error("Home did not expose the Locations action after scrolling")
+    }
+
     @Test
     fun coldStartupAndOpenLocations() = benchmarkRule.measureRepeated(
         packageName = packageName,
@@ -36,17 +69,7 @@ class BlueVpnLocationsMacrobenchmark {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         device.waitForIdle()
 
-        val openLocations = device.wait(
-            Until.findObject(By.res(packageName, "bluevpn_server_card")),
-            10_000,
-        ) ?: error("Home did not expose the Locations action")
-        openLocations.click()
-        check(
-            device.wait(
-                Until.hasObject(By.clazz("androidx.recyclerview.widget.RecyclerView")),
-                10_000,
-            )
-        ) { "Locations RecyclerView did not open" }
+        openLocationsFromHome(device)
         device.waitForIdle()
     }
 
@@ -62,11 +85,7 @@ class BlueVpnLocationsMacrobenchmark {
         },
     ) {
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        val openLocations = device.wait(
-            Until.findObject(By.res(packageName, "bluevpn_server_card")),
-            10_000,
-        ) ?: error("Home did not expose the Locations action")
-        openLocations.click()
+        openLocationsFromHome(device)
         val search = device.wait(
             Until.findObject(By.clazz("android.widget.EditText")),
             10_000,

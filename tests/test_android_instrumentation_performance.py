@@ -15,7 +15,6 @@ class AndroidInstrumentationPerformanceTest(unittest.TestCase):
             "androidx.test.ext:junit:1.2.1",
             "androidx.test:runner:1.6.2",
             "androidx.test:rules:1.6.1",
-            "androidx.test.espresso:espresso-core:3.6.1",
         ]:
             self.assertIn(dep, prepare)
 
@@ -30,7 +29,10 @@ class AndroidInstrumentationPerformanceTest(unittest.TestCase):
         self.assertNotIn("BlueVpnLocationDiffBenchmark.kt", prepare)
         self.assertIn("ActivityScenario.launch", ui)
         self.assertIn("scenario.recreate()", ui)
-        self.assertIn("RecyclerView::class.java", ui)
+        self.assertIn("findRecycler(activity)", ui)
+        self.assertIn("scenario.onActivity", ui)
+        self.assertNotIn("androidx.test.espresso", ui)
+        self.assertNotIn("onView(", ui)
         self.assertIn("MacrobenchmarkRule", perf)
         self.assertIn("FrameTimingMetric()", perf)
         self.assertNotIn("com.v2ray.ang.bluevpn", perf)

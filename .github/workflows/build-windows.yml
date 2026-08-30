@@ -187,6 +187,27 @@ jobs:
           Copy-Item third_party/V2RAYN.md $out/V2RAYN-LICENSE-NOTICE.txt -Force
           Copy-Item third_party/AETHER_WINDOWS.md $out/AETHER-LICENSE-NOTICE.txt -Force
 
+      - name: Guard clean-PC Windows SDK runtime closure
+        shell: pwsh
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          $ErrorActionPreference='Stop'
+          $out="dist/BlueVPN-Windows-$env:RID"
+          $deps=Join-Path $out 'BlueVPN.deps.json'
+          if(-not(Test-Path $deps)){throw "Missing published dependency manifest: $deps"}
+          $raw=Get-Content $deps -Raw
+          $sdkReferenced=$raw -match '"Microsoft\.Windows\.SDK\.NET/'
+          $sdkDll=Join-Path $out 'Microsoft.Windows.SDK.NET.dll'
+          if($sdkReferenced -and -not(Test-Path $sdkDll)){
+            throw 'Published BlueVPN references Microsoft.Windows.SDK.NET but does not ship it; this would crash on a clean customer PC.'
+          }
+          if(-not $sdkReferenced){
+            Write-Host 'Clean-PC dependency guard PASS: Microsoft.Windows.SDK.NET is not a runtime dependency.'
+          } else {
+            Write-Host 'Clean-PC dependency guard PASS: Microsoft.Windows.SDK.NET is bundled.'
+          }
+
       - name: Verify publish payload and architecture
         shell: pwsh
         env:

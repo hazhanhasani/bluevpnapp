@@ -45,7 +45,7 @@ public partial class MainWindow : Window
     private double _adImageAspectRatio;
     private bool _tapsellWebInitialized;
     private CoreWebView2Environment? _tapsellWebEnvironment;
-    private Microsoft.Web.WebView2.Wpf.WebView2CompositionControl? _tapsellWebView;
+    private Microsoft.Web.WebView2.Wpf.WebView2? _tapsellWebView;
     private UpdateCandidate? _pendingUpdate;
     private long? _remainingSecondsAtSnapshot;
     private DateTimeOffset _accountSnapshotAt = DateTimeOffset.UtcNow;
@@ -104,7 +104,10 @@ public partial class MainWindow : Window
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
         // WebView2 is optional and is created lazily only when a web ad is
-        // actually selected. Startup must never depend on WebView2 availability.
+        // actually selected. Use the standard WPF WebView2 control, not
+        // WebView2CompositionControl: the composition control carries a runtime
+        // Microsoft.Windows.SDK.NET dependency that is not present on clean
+        // customer PCs and previously caused startup FileNotFoundException.
         MaxHeight = Math.Max(560, SystemParameters.WorkArea.Height);
         Height = Math.Min(760, Math.Max(560, SystemParameters.WorkArea.Height - 18));
         MaxWidth = Math.Max(620, SystemParameters.WorkArea.Width);
@@ -115,7 +118,7 @@ public partial class MainWindow : Window
         if (_tapsellWebView is not null) return true;
         try
         {
-            var webView = new Microsoft.Web.WebView2.Wpf.WebView2CompositionControl
+            var webView = new Microsoft.Web.WebView2.Wpf.WebView2
             {
                 Visibility = Visibility.Collapsed,
                 HorizontalAlignment = HorizontalAlignment.Stretch,

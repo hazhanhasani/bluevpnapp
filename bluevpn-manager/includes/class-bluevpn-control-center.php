@@ -727,9 +727,9 @@ final class BlueVPN_Control_Center {
         echo '<div class="bvc-card"><h2>رویدادهای پرداخت تأییدشده</h2><table class="widefat striped bvc-table"><tr><th>سفارش</th><th>Invoice</th><th>رویداد</th><th>وضعیت</th><th>مبلغ ریال</th><th>Verified</th><th>زمان</th></tr>';foreach($rows as $x)echo '<tr><td>'.self::esc($x['order_code']?:$x['order_id']).'</td><td><code>'.self::esc($x['provider_invoice_id']).'</code></td><td>'.self::esc($x['event_type']).'</td><td>'.self::esc($x['status']).'</td><td>'.number_format((int)$x['amount_rial']).'</td><td>'.((int)$x['verified']?'✅':'—').'</td><td>'.self::dt($x['created_at']).'</td></tr>';echo '</table></div>';
     }
     private static function tab_manual(): void {
-        global $wpdb;$ct=BlueVPN_DB::table('customers');$pt=BlueVPN_DB::table('plans');$customers=$wpdb->get_results("SELECT id,email,phone,subscription_status,plan_id FROM {$ct} ORDER BY id DESC LIMIT 200",ARRAY_A);$plans=$wpdb->get_results("SELECT id,title FROM {$pt} WHERE active=1 AND deleted=0 ORDER BY sort_order,id",ARRAY_A);
+        global $wpdb;$ct=BlueVPN_DB::table('customers');$pt=BlueVPN_DB::table('plans');$customers=$wpdb->get_results("SELECT id,email,phone,subscription_status,plan_id FROM {$ct} ORDER BY id DESC LIMIT 200",ARRAY_A);$plans=$wpdb->get_results("SELECT id,title,duration_days,data_limit_gb FROM {$pt} WHERE active=1 AND deleted=0 ORDER BY sort_order,id",ARRAY_A);
         echo '<div class="bvc-card"><h2>مشتریان دستی خارج از BlueVPN</h2><div class="bvc-note">برای مشتریانی که سرویسشان را در اپ‌ها یا پنل‌های دیگر دستی فعال می‌کنید، از CRM مستقل استفاده کنید. ثبت در این بخش هیچ سرویس VPN یا entitlement جدیدی نمی‌سازد.</div><p><a class="button button-primary" href="'.esc_url(admin_url('admin.php?page=bluevpn-manual-customers')).'">بازکردن مشتریان دستی</a></p></div>';
-        echo '<div class="bvc-card"><h2>فعال‌سازی / تمدید دستی روی Providerها</h2><div class="bvc-note">این عملیات از تنظیمات همان پلن استفاده می‌کند و PasarGuard/Marzban را مستقیم Provision می‌کند. GuardCore Manual وارد صف می‌شود.</div><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_manual_activate');echo '<input type="hidden" name="action" value="bluevpn_cc_manual_activate"><div class="bvc-form-grid"><label>کاربر<select name="customer_id" required><option value="">انتخاب…</option>';foreach($customers as $c)echo '<option value="'.(int)$c['id'].'">#'.(int)$c['id'].' '.self::esc($c['phone']?:$c['email']).' — '.self::esc($c['subscription_status']).'</option>';echo '</select></label><label>پلن<select name="plan_id" required><option value="">انتخاب…</option>';foreach($plans as $p)echo '<option value="'.(int)$p['id'].'">#'.(int)$p['id'].' '.self::esc($p['title']).'</option>';echo '</select></label></div>';submit_button('فعال‌سازی / تمدید','primary','submit',false);echo '</form></div>';
+        echo '<div class="bvc-card"><h2>فعال‌سازی / تمدید دستی روی Providerها</h2><div class="bvc-note">پلن مسیرها و دسترسی Provider را تعیین می‌کند؛ برای همین عملیات می‌توانید مدت و حجم را مستقل از مقدار پیش‌فرض پلن تعیین کنید. خالی = مقدار خود پلن.</div><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_manual_activate');echo '<input type="hidden" name="action" value="bluevpn_cc_manual_activate"><div class="bvc-form-grid"><label>کاربر<select name="customer_id" required><option value="">انتخاب…</option>';foreach($customers as $c)echo '<option value="'.(int)$c['id'].'">#'.(int)$c['id'].' '.self::esc($c['phone']?:$c['email']).' — '.self::esc($c['subscription_status']).'</option>';echo '</select></label><label>پلن<select name="plan_id" required><option value="">انتخاب…</option>';foreach($plans as $p)echo '<option value="'.(int)$p['id'].'">#'.(int)$p['id'].' '.self::esc($p['title']).' — '.(int)$p['duration_days'].' روز — '.(int)$p['data_limit_gb'].' GB</option>';echo '</select></label><label>مدت دلخواه (روز)<input type="number" min="1" max="3650" step="1" name="custom_duration_days" placeholder="خالی = مدت پلن"><small>برای فعال‌سازی یا تمدید همین نوبت؛ از تاریخ انقضای فعلی ادامه می‌یابد.</small></label><label>حجم دلخواه (GB)<input type="number" min="0" max="100000" step="0.1" name="custom_data_limit_gb" placeholder="خالی = حجم پلن"><small>۰ = نامحدود؛ مقدار روی WordPress و Providerهای قابل‌کنترل اعمال می‌شود.</small></label></div>';submit_button('فعال‌سازی / تمدید','primary','submit',false);echo '</form></div>';
     }
     private static function tab_customers(): void {
         global $wpdb;
@@ -778,7 +778,7 @@ final class BlueVPN_Control_Center {
         }
         echo '<p><small>اگر یکی از مسیرهای انتخاب‌شده پلن گم باشد، Snapshot قبل از تحویل به کاربر Repair امن را اجرا می‌کند و سپس دوباره همه مسیرها را جمع می‌کند.</small></p></div>';
         echo '<div class="bvc-grid"><div class="bvc-card"><h2>وضعیت حساب</h2><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_set_customer_status_'.$customerId);echo '<input type="hidden" name="action" value="bluevpn_cc_set_customer_status"><input type="hidden" name="customer_id" value="'.$customerId.'"><label><input type="checkbox" name="active" value="1" '.checked((int)$c['active'],1,false).'> حساب فعال باشد</label><br><br><label><input type="checkbox" name="beta_tester" value="1" '.checked((int)($c['beta_tester']??0),1,false).'> 🧪 آزمایش‌کننده نسخه آزمایشی — نسخه‌های آزمایشی را دریافت کند</label><p><button class="button button-primary">ذخیره وضعیت</button></p></form><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_logout_customer_'.$customerId);echo '<input type="hidden" name="action" value="bluevpn_cc_logout_customer"><input type="hidden" name="customer_id" value="'.$customerId.'"><button class="button">خروج اجباری از همه نشست‌ها</button></form></div>';
-        echo '<div class="bvc-card"><h2>پلن / تمدید دستی</h2><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_manual_activate');echo '<input type="hidden" name="action" value="bluevpn_cc_manual_activate"><input type="hidden" name="customer_id" value="'.$customerId.'"><label>پلن<select name="plan_id" required><option value="">انتخاب…</option>';foreach($plans as $p)echo '<option value="'.(int)$p['id'].'" '.selected((int)$c['plan_id'],(int)$p['id'],false).'>'.self::esc($p['title']).'</option>';echo '</select></label><p><button class="button button-primary">فعال‌سازی / تمدید / تغییر پلن</button></p></form><hr><p><strong>ترمیم Provider بدون تمدید</strong></p><p><small>همه مسیرهای پولی این پلن را بررسی می‌کند: PasarGuard، Marzban، GuardCore، Shahrah، Sourceهای ثابت و Gateway. اشتراک گمشده بدون تمدید entitlement بازیابی می‌شود و دسترسی‌های ذخیره‌شده پلن دوباره Sync می‌شوند.</small></p><a class="button" href="'.esc_url(wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_repair_customer_providers&customer_id='.$customerId),'bluevpn_cc_repair_customer_providers_'.$customerId)).'">ترمیم اشتراک Provider</a></div></div>';
+        echo '<div class="bvc-card"><h2>پلن / تمدید دستی</h2><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_manual_activate');echo '<input type="hidden" name="action" value="bluevpn_cc_manual_activate"><input type="hidden" name="customer_id" value="'.$customerId.'"><div class="bvc-form-grid"><label>پلن<select name="plan_id" required><option value="">انتخاب…</option>';foreach($plans as $p)echo '<option value="'.(int)$p['id'].'" '.selected((int)$c['plan_id'],(int)$p['id'],false).'>'.self::esc($p['title']).' — '.(int)$p['duration_days'].' روز — '.(int)$p['data_limit_gb'].' GB</option>';echo '</select></label><label>مدت دلخواه (روز)<input type="number" min="1" max="3650" step="1" name="custom_duration_days" placeholder="خالی = مدت پلن"></label><label>حجم دلخواه (GB)<input type="number" min="0" max="100000" step="0.1" name="custom_data_limit_gb" placeholder="خالی = حجم پلن"><small>۰ = نامحدود</small></label></div><p><button class="button button-primary">فعال‌سازی / تمدید / تغییر پلن</button></p></form><hr><p><strong>ترمیم Provider بدون تمدید</strong></p><p><small>همه مسیرهای پولی این پلن را بررسی می‌کند: PasarGuard، Marzban، GuardCore، Shahrah، Sourceهای ثابت و Gateway. اشتراک گمشده بدون تمدید entitlement بازیابی می‌شود و دسترسی‌های ذخیره‌شده پلن دوباره Sync می‌شوند.</small></p><a class="button" href="'.esc_url(wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_repair_customer_providers&customer_id='.$customerId),'bluevpn_cc_repair_customer_providers_'.$customerId)).'">ترمیم اشتراک Provider</a></div></div>';
         echo '<div class="bvc-card"><h2>دستگاه‌ها</h2><table class="widefat striped bvc-table"><tr><th>دستگاه</th><th>نوع</th><th>وضعیت</th><th>اولین مشاهده</th><th>آخرین مشاهده</th><th>عملیات</th></tr>';
         foreach($devices as $d){$hash=hash('sha256',(string)$d['device_id']);echo '<tr><td><strong>'.self::esc($d['device_name']?:'بدون نام').'</strong><br><code>'.self::esc($d['device_id']).'</code></td><td>'.(((string)($d['client_type']??'app')==='web')?'وب':'اپ').'</td><td class="'.((int)$d['active']?'bvc-ok':'bvc-warn').'">'.((int)$d['active']?'فعال':'غیرفعال').'</td><td>'.self::dt($d['first_seen_at']).'</td><td>'.self::dt($d['last_seen_at']).'</td><td>';if((int)$d['active']){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_revoke_device_'.$customerId.'_'.$hash);echo '<input type="hidden" name="action" value="bluevpn_cc_revoke_device"><input type="hidden" name="customer_id" value="'.$customerId.'"><input type="hidden" name="device_id" value="'.esc_attr((string)$d['device_id']).'"><button class="button button-link-delete">قطع دستگاه</button></form>';}else echo '—';echo '</td></tr>';}
         echo '</table></div>';
@@ -1200,15 +1200,49 @@ final class BlueVPN_Control_Center {
         self::guard();check_admin_referer('bluevpn_cc_manual_activate');global $wpdb;
         $customerId=(int)($_POST['customer_id']??0);$planId=(int)($_POST['plan_id']??0);
         $before=$wpdb->get_row($wpdb->prepare('SELECT subscription_expire FROM '.BlueVPN_DB::table('customers').' WHERE id=%d LIMIT 1',$customerId),ARRAY_A);
-        $plan=$wpdb->get_row($wpdb->prepare('SELECT duration_days FROM '.BlueVPN_DB::table('plans').' WHERE id=%d LIMIT 1',$planId),ARRAY_A);
-        $targetExpiry=BlueVPN_Providers::next_entitlement_expiry($customerId,$planId);
+        $plan=$wpdb->get_row($wpdb->prepare('SELECT duration_days,data_limit_gb FROM '.BlueVPN_DB::table('plans').' WHERE id=%d AND deleted=0 LIMIT 1',$planId),ARRAY_A);
+        if(!$before||!$plan){self::redirect('manual','کاربر یا پلن معتبر پیدا نشد.',true);}
+
+        $durationRaw=trim(sanitize_text_field(wp_unslash((string)($_POST['custom_duration_days']??''))));
+        $volumeRaw=trim(sanitize_text_field(wp_unslash((string)($_POST['custom_data_limit_gb']??''))));
+        $customDuration=$durationRaw!=='';
+        $customVolume=$volumeRaw!=='';
+
+        if($customDuration&&!preg_match('/^\d+$/',$durationRaw)){self::redirect('manual','مدت دلخواه باید تعداد روز صحیح باشد.',true);}
+        $durationDays=$customDuration?(int)$durationRaw:max(0,(int)($plan['duration_days']??0));
+        if($customDuration&&($durationDays<1||$durationDays>3650)){self::redirect('manual','مدت دلخواه باید بین ۱ تا ۳۶۵۰ روز باشد.',true);}
+
+        $customDataLimitBytes=null;$volumeGb=null;
+        if($customVolume){
+            $normalizedVolume=str_replace(',','.',$volumeRaw);
+            if(!is_numeric($normalizedVolume)){self::redirect('manual','حجم دلخواه باید عدد معتبر بر حسب GB باشد.',true);}
+            $volumeGb=(float)$normalizedVolume;
+            if($volumeGb<0||$volumeGb>100000){self::redirect('manual','حجم دلخواه باید بین ۰ تا ۱۰۰۰۰۰ گیگابایت باشد.',true);}
+            $customDataLimitBytes=(int)round($volumeGb*1024*1024*1024);
+        }
+
+        if($customDuration){
+            $base=time();$current=!empty($before['subscription_expire'])?(strtotime((string)$before['subscription_expire'].' UTC')?:0):0;
+            if($current>$base)$base=$current;
+            $targetExpiry=gmdate('Y-m-d H:i:s',$base+$durationDays*DAY_IN_SECONDS);
+        }else{
+            $targetExpiry=BlueVPN_Providers::next_entitlement_expiry($customerId,$planId);
+        }
+
         $manualRef='manual-'.wp_generate_uuid4();
-        BlueVPN_Providers::record_entitlement_ledger($customerId,$planId,'admin',$manualRef,'intentional_grant',true,max(0,(int)($plan['duration_days']??0)),$before['subscription_expire']??null,$targetExpiry,['actor'=>get_current_user_id()]);
-        $r=BlueVPN_Providers::provision_customer($customerId,$planId,$targetExpiry);
+        BlueVPN_Providers::record_entitlement_ledger(
+            $customerId,$planId,'admin',$manualRef,'intentional_grant',true,$durationDays,
+            $before['subscription_expire']??null,$targetExpiry,
+            ['actor'=>get_current_user_id(),'custom_duration'=>$customDuration?1:0,'custom_data_limit'=>$customVolume?1:0,'custom_data_limit_gb'=>$customVolume?$volumeGb:null]
+        );
+        $r=BlueVPN_Providers::provision_customer($customerId,$planId,$targetExpiry,$customDataLimitBytes);
         if(($r['ok']||($r['partial']??false))&&class_exists('BlueVPN_SMS_Notifications')){
             try{$c=$wpdb->get_row($wpdb->prepare('SELECT id,phone,subscription_expire FROM '.BlueVPN_DB::table('customers').' WHERE id=%d',$customerId),ARRAY_A);$p=$wpdb->get_row($wpdb->prepare('SELECT title FROM '.BlueVPN_DB::table('plans').' WHERE id=%d',$planId),ARRAY_A);if($c&&!empty($c['phone'])&&$p)BlueVPN_SMS_Notifications::queue('admin_subscription_activated',(string)$c['phone'],['plan'=>mb_substr((string)$p['title'],0,40),'expire_date'=>BlueVPN_SMS_Notifications::jalali_date((string)($c['subscription_expire']??''))],$customerId,null,'admin-subscription:'.$customerId.':'.$planId.':'.(string)($c['subscription_expire']??''));}catch(Throwable $e){BlueVPN_Error_Monitor::legacy_error_log('BlueVPN manual activation SMS: '.$e->getMessage());}
         }
-        self::redirect('manual',$r['message'],!$r['ok']&&!($r['partial']??false));
+        $message=(string)$r['message'];
+        if($customDuration)$message.=' • مدت دلخواه: '.$durationDays.' روز';
+        if($customVolume)$message.=' • حجم دلخواه: '.rtrim(rtrim(number_format($volumeGb,2,'.',''),'0'),'.').' GB';
+        self::redirect('manual',$message,!$r['ok']&&!($r['partial']??false));
     }
     public static function guardcore_refresh_catalog(): void {
         self::guard();

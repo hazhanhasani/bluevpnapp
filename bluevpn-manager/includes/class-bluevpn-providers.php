@@ -1273,7 +1273,7 @@ final class BlueVPN_Providers {
         return array_map('intval',$wpdb->get_col($sql)?:[]);
     }
 
-    public static function provision_customer(int $customerId,int $planId,?string $canonicalExpire=null): array {
+    public static function provision_customer(int $customerId,int $planId,?string $canonicalExpire=null,?int $overrideDataLimitBytes=null): array {
         global $wpdb;$ct=BlueVPN_DB::table('customers');$pt=BlueVPN_DB::table('plans');
         $c=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$ct} WHERE id=%d",$customerId),ARRAY_A);
         $plan=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$pt} WHERE id=%d AND deleted=0",$planId),ARRAY_A);
@@ -1297,7 +1297,9 @@ final class BlueVPN_Providers {
         }
 
         $expire=self::canonical_expiry($c,$plan,$canonicalExpire);
-        $total=max(0,(int)$plan['data_limit_gb'])*1024*1024*1024;
+        $total=$overrideDataLimitBytes!==null
+            ? max(0,$overrideDataLimitBytes)
+            : max(0,(int)$plan['data_limit_gb'])*1024*1024*1024;
         $quotaRoutes=count($routes['pasarguard'])+count($routes['marzban'])+count($routes['guardcore']);
         $quota=($quotaRoutes>1&&($plan['multi_provider_quota_mode']??'split')==='split')?intdiv($total,max(1,$quotaRoutes)):$total;
         $providerQuota=$trafficMode==='gateway_metered'?0:$quota;
@@ -1396,7 +1398,7 @@ final class BlueVPN_Providers {
         $saved=$wpdb->update($ct,$update,['id'=>$customerId]);if($saved===false)return ['ok'=>false,'message'=>'ذخیره اشتراک کاربر در پایگاه داده ناموفق بود.','success_count'=>$success];
         $gatewaySessions=[];if($success>0)self::request_background_snapshot($customerId);
         if($trafficMode==='gateway_metered'&&class_exists('BlueVPN_Gateway')&&!$errors)$gatewaySessions=BlueVPN_Gateway::ensure_customer_sessions($customerId);
-        return ['ok'=>$success>0&&count($errors)===0,'partial'=>$success>0&&count($errors)>0,'message'=>$errors?implode(' | ',$errors):'همه مسیرهای تأمین‌کننده فعال شدند.','success_count'=>$success,'canonical_expire'=>$expire,'expiry_source'=>'wordpress_mysql_entitlement','traffic_mode'=>$trafficMode,'gateway_sessions'=>count($gatewaySessions),'resolved_providers'=>$resolved];
+        return ['ok'=>$success>0&&count($errors)===0,'partial'=>$success>0&&count($errors)>0,'message'=>$errors?implode(' | ',$errors):'همه مسیرهای تأمین‌کننده فعال شدند.','success_count'=>$success,'canonical_expire'=>$expire,'expiry_source'=>'wordpress_mysql_entitlement','data_limit_bytes'=>$total,'data_limit_source'=>$overrideDataLimitBytes!==null?'manual_override':'plan','traffic_mode'=>$trafficMode,'gateway_sessions'=>count($gatewaySessions),'resolved_providers'=>$resolved];
     }
 
     public static function request_background_sync(int $customerId): bool {

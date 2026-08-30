@@ -46,6 +46,21 @@ class AndroidMacrobenchmarkContractTest(unittest.TestCase):
         self.assertIn('create("benchmark")', prepare)
         self.assertIn("patch_benchmark_module()", prepare)
 
+    def test_quality_gate_resolves_screenshot_storage_before_instrumentation(self):
+        workflow = self.text(".github/workflows/android-quality.yml")
+        ui_test = self.text("android-test/BlueVpnLocationsUiTest.kt")
+
+        self.assertIn("resolve_qa_device_dir()", workflow)
+        self.assertIn('"/storage/emulated/0/Download"', workflow)
+        self.assertIn('"/data/local/tmp"', workflow)
+        self.assertIn("android.testInstrumentationRunnerArguments.bluevpnQaDir", workflow)
+        self.assertNotIn('adb shell mkdir -p "/sdcard/Download/bluevpn-qa"', workflow)
+
+        self.assertIn("private fun resolveQaDir(device: UiDevice)", ui_test)
+        self.assertIn('getString("bluevpnQaDir")', ui_test)
+        self.assertIn('"/storage/emulated/0/Download/bluevpn-qa"', ui_test)
+        self.assertIn('"/data/local/tmp/bluevpn-qa"', ui_test)
+
     def test_release_gate_compiles_macrobenchmark(self):
         workflow = self.text(".github/workflows/build-apk.yml")
         self.assertIn(":benchmark:assembleBenchmark", workflow)

@@ -57,10 +57,10 @@ class AndroidMacrobenchmarkContractTest(unittest.TestCase):
         self.assertIn("android.testInstrumentationRunnerArguments.bluevpnQaDir", emulator_script)
         self.assertNotIn('adb shell mkdir -p "/sdcard/Download/bluevpn-qa"', emulator_script)
 
-        self.assertIn("private fun resolveQaDir(device: UiDevice)", ui_test)
+        self.assertIn("private fun resolveQaDir(): String", ui_test)
         self.assertIn('getString("bluevpnQaDir")', ui_test)
-        self.assertIn('"/storage/emulated/0/Download/bluevpn-qa"', ui_test)
-        self.assertIn('"/data/local/tmp/bluevpn-qa"', ui_test)
+        self.assertIn('return "/data/local/tmp/bluevpn-qa"', ui_test)
+        self.assertNotIn("BLUEVPN_QA_READY", ui_test)
 
     def test_release_gate_compiles_macrobenchmark(self):
         workflow = self.text(".github/workflows/build-apk.yml")

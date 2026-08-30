@@ -92,9 +92,8 @@ class BlueVpnLocationsUiTest {
     fun captureLightAndDarkRtlSnapshots() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val device = UiDevice.getInstance(instrumentation)
-        val qaDir = resolveQaDir(device)
+        val qaDir = resolveQaDir()
 
-        device.executeShellCommand("rm -rf $qaDir && mkdir -p $qaDir")
         device.executeShellCommand("cmd uimode night no")
         ActivityScenario.launch(BlueVpnServersActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
@@ -118,33 +117,21 @@ class BlueVpnLocationsUiTest {
         device.executeShellCommand("cmd uimode night no")
     }
 
-    private fun resolveQaDir(device: UiDevice): String {
+    private fun resolveQaDir(): String {
+        // The host-side emulator QA script owns storage discovery/creation.
+        // Do not re-probe writability through UiAutomation: Android 15 can deny
+        // shell-style test -w checks from instrumentation even when adb/screencap
+        // can write the already-prepared directory.
         val requested = InstrumentationRegistry.getArguments()
             .getString("bluevpnQaDir")
             .orEmpty()
             .trim()
-
-        val candidates = listOf(
-            requested,
-            "/sdcard/Download/bluevpn-qa",
-            "/storage/emulated/0/Download/bluevpn-qa",
-            "/data/local/tmp/bluevpn-qa",
-        ).filter { it.isNotBlank() }.distinct()
-
-        for (candidate in candidates) {
-            val result = device.executeShellCommand(
-                "mkdir -p $candidate >/dev/null 2>&1 && " +
-                    "test -d $candidate && test -w $candidate && echo BLUEVPN_QA_READY"
-            )
-            if (result.contains("BLUEVPN_QA_READY")) {
-                return candidate
-            }
+        if (requested.startsWith("/") && !requested.contains("..")) {
+            return requested
         }
 
-        throw AssertionError(
-            "No writable QA screenshot directory. Tried: " +
-                candidates.joinToString()
-        )
+        // Local/manual instrumentation fallback. CI always supplies bluevpnQaDir.
+        return "/data/local/tmp/bluevpn-qa"
     }
 
     @Test

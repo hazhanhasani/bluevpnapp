@@ -111,9 +111,11 @@ class AndroidLocationsQualityDashboard612Test(unittest.TestCase):
         start = util.index("fun allCandidates(\n        context: Context")
         end = util.index("fun orderedCandidates(", start)
         block = util[start:end]
-        self.assertIn("if (guid !in entitlementServerGuids)", block)
-        self.assertNotIn("BlueVpnAccountManager.candidateAllowed(", block)
-        self.assertNotIn("reportVerifiedCountry(", block)
+        resolved = block[block.index("val resolved ="):block.index("if (resolved.isEmpty()")]
+        self.assertIn("if (guid !in entitlementServerGuids)", resolved)
+        self.assertNotIn("BlueVpnAccountManager.candidateAllowed(", resolved)
+        self.assertNotIn("reportVerifiedCountry(", resolved)
+        self.assertIn("BlueVpnAccountManager.candidateAllowed(", block)
 
 
 if __name__ == "__main__":

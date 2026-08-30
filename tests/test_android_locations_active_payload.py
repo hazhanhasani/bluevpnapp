@@ -25,14 +25,14 @@ class AndroidLocationsActivePayloadTest(unittest.TestCase):
             "TAG_SERVER_SURFACE",
             "TAG_SERVER_RAIL",
             "TAG_SERVER_TITLE",
-            "TAG_SERVER_HEALTH",
-            "TAG_SERVER_SIGNAL",
             "TAG_SERVER_ACTION",
         ]:
             self.assertIn(token, body)
         self.assertNotIn("removeAllViews()", body)
         self.assertIn('item.manualActive -> "دستی"', body)
-        self.assertIn('item.active -> "وصل"', body)
+        self.assertIn('item.active -> "فعال"', body)
+        self.assertNotIn("TAG_SERVER_HEALTH", body)
+        self.assertNotIn("TAG_SERVER_SIGNAL", body)
 
     def test_country_payload_updates_active_visuals_only(self):
         src = self.text("android-source/BlueVpnServersActivity.kt")
@@ -54,17 +54,20 @@ class AndroidLocationsActivePayloadTest(unittest.TestCase):
         self.assertIn("android.graphics.Color.TRANSPARENT", body)
         self.assertNotIn("if (active) {\n            row.addView", body)
 
-    def test_server_uses_quality_surface_plus_single_active_rail(self):
+    def test_server_uses_flat_surface_plus_single_active_rail(self):
         src = self.text("android-source/BlueVpnServersActivity.kt")
         start = src.index("private fun createServerRow")
         end = src.index("private fun createLocationSection", start)
         body = src[start:end]
-        self.assertIn("fill = qualitySurfaceColor(level, active)", body)
-        self.assertIn("stroke = qualityStrokeColor(level, active)", body)
+        self.assertIn("fill = if (active)", body)
+        self.assertIn("else palette.surface", body)
+        self.assertIn("stroke = if (active) palette.accent else palette.stroke", body)
+        self.assertNotIn("qualitySurfaceColor(", body)
+        self.assertNotIn("qualityStrokeColor(", body)
         self.assertIn("strokeWidth = dp(1)", body)
         self.assertIn("tag = TAG_SERVER_RAIL", body)
         self.assertIn("if (active) palette.accent else android.graphics.Color.TRANSPARENT", body)
-        self.assertIn("background = rounded(palette.surfaceStrong, 11)", body)
+        self.assertIn("else palette.surfaceStrong", body)
 
     def test_row_models_capture_exact_selection_ownership(self):
         model = self.text("android-source/BlueVpnLocationListRow.kt")

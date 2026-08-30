@@ -296,7 +296,7 @@ class CurrentReleaseTests(unittest.TestCase):
         list_observer = source.split(
             "mainViewModel.updateListAction.observe(this)", 1
         )[1].split("mainViewModel.updateTestResultAction.observe(this)", 1)[0]
-        self.assertIn("delayMs = 2_000L", list_observer)
+        self.assertIn("delayMs = 1_200L", list_observer)
         self.assertNotIn("renderLocations()", list_observer)
 
         test_observer = source.split(
@@ -373,8 +373,9 @@ class CurrentReleaseTests(unittest.TestCase):
     def test_00_locations_ping_updates_do_not_rebuild_list(self):
         source = text("android-source/BlueVpnServersActivity.kt")
         observer = source.split("mainViewModel.updateTestResultAction.observe(this)", 1)[1].split("renderLocations()", 1)[0]
-        self.assertIn("healthRefreshRunnable", observer)
+        self.assertNotIn("healthRefreshRunnable", observer)
         self.assertNotIn("listContainer.removeAllViews()", observer)
+        self.assertNotIn("refreshVisibleHealthPresentation()", observer)
         self.assertIn("private fun refreshVisibleHealthPresentation()", source)
         self.assertIn("locationsAdapter.submitList(rows)", source)
         self.assertNotIn("healthStatusViews", source)
@@ -1487,10 +1488,11 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         account = text("android-source/BlueVpnAccountManager.kt")
         gate = block(account, "private fun hardIsolationAllowed", "private fun rememberPremiumBoundaryFingerprints")
         self.assertIn("BlueVpnPoolOrchestrator.allowed", gate)
+        self.assertIn("BlueVpnPoolOrchestrator.filterAllowed", gate)
         self.assertIn("BlueVpnPoolOrchestrator.Tier.PREMIUM", gate)
         self.assertIn("BlueVpnPoolOrchestrator.Tier.FREE", gate)
         preferred = block(account, "fun preferredServerGuids", "fun entitlementPoolFingerprint")
-        self.assertGreaterEqual(preferred.count("hardIsolationAllowed"), 3)
+        self.assertGreaterEqual(preferred.count("filterHardIsolation"), 3)
         candidate = block(account, "fun candidateAllowed(", "fun awaitEntitlementServers")
         self.assertIn("hardIsolationAllowed(c, guid)", candidate)
 

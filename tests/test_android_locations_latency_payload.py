@@ -28,25 +28,28 @@ class AndroidLocationsLatencyPayloadTest(unittest.TestCase):
         self.assertIn("return", payload)
         self.assertNotIn("removeAllViews()", payload)
 
-    def test_payload_updates_health_signal_quality_surface_and_accessibility(self):
+    def test_latency_payload_is_consumed_without_customer_ui_work(self):
         src = self.text("android-source/BlueVpnServersActivity.kt")
         start = src.index("private fun bindLatencyPayload")
         end = src.index("\n    }\n\n    private val mainViewModel", start)
         body = src[start:end]
-        self.assertIn("TAG_SERVER_HEALTH", body)
-        self.assertIn("TAG_SERVER_SIGNAL", body)
-        self.assertIn("health.text =", body)
-        self.assertIn("bars.text =", body)
-        self.assertIn("surface.contentDescription", body)
-        self.assertIn("surface.setCardBackgroundColor(qualitySurfaceColor", body)
-        self.assertIn("surface.strokeColor = qualityStrokeColor", body)
+        self.assertIn("): Boolean = true", body)
+        self.assertNotIn("TAG_SERVER_HEALTH", body)
+        self.assertNotIn("TAG_SERVER_SIGNAL", body)
+        self.assertNotIn("qualitySurfaceColor", body)
+        self.assertNotIn("qualityStrokeColor", body)
         self.assertNotIn("holder.host.removeAllViews()", body)
 
-    def test_server_row_exposes_payload_targets(self):
+    def test_server_row_exposes_only_stable_selection_targets(self):
         src = self.text("android-source/BlueVpnServersActivity.kt")
-        self.assertIn("tag = TAG_SERVER_SURFACE", src)
-        self.assertIn("tag = TAG_SERVER_HEALTH", src)
-        self.assertIn("tag = TAG_SERVER_SIGNAL", src)
+        start = src.index("private fun createServerRow")
+        end = src.index("private fun createLocationSection", start)
+        body = src[start:end]
+        self.assertIn("tag = TAG_SERVER_SURFACE", body)
+        self.assertIn("tag = TAG_SERVER_RAIL", body)
+        self.assertIn("tag = TAG_SERVER_ACTION", body)
+        self.assertNotIn("tag = TAG_SERVER_HEALTH", body)
+        self.assertNotIn("tag = TAG_SERVER_SIGNAL", body)
 
 
 if __name__ == "__main__":

@@ -35,12 +35,13 @@ class AndroidLocationsRecyclerRuntimeTest(unittest.TestCase):
         self.assertNotIn("stableServerRows(group.location", body)
         self.assertIn("flattened into the RecyclerView adapter", body)
 
-    def test_ping_refresh_routes_through_diffutil(self):
+    def test_ping_refresh_never_churns_recyclerview(self):
         src = self.text("android-source/BlueVpnServersActivity.kt")
         start = src.index("private fun refreshVisibleHealthPresentation")
         end = src.index("private fun stableServerRows", start)
         body = src[start:end]
-        self.assertIn("renderLocations()", body)
+        self.assertIn("No-op by design", body)
+        self.assertNotIn("renderLocations()", body)
         self.assertNotIn("view.text =", body)
 
     def test_recycler_scroll_state_is_persisted(self):

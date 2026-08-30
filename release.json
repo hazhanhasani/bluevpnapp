@@ -2,11 +2,11 @@
   "version": "6.1.4",
   "version_code": 60104,
   "channel": "beta",
-  "build_id": "20260830-v6.1.4-instant-locations",
+  "build_id": "20260830-v6.1.4-locations-quality",
   "built_at": "2026-08-30T17:46:02+03:30",
   "android_version": "6.1.4",
   "android_version_code": 60104,
-  "description": "BlueVPN 6.1.4: instant Locations UI, background-only quality intelligence, reduced cache churn and smoother route scoring.",
+  "description": "BlueVPN 6.1.4: live server quality testing and premium Locations UI.",
   "features": [
     "android-locations-live-quality-dashboard",
     "android-locations-real-ping-quality-sweep",

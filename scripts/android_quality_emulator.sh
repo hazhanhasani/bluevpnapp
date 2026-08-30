@@ -37,7 +37,52 @@ adb shell "test -s '$QA_DEVICE_DIR/locations-dark-rtl.png'"
 adb pull "$QA_DEVICE_DIR/." reports/android-quality/qa/
 
 # Macrobenchmark runs only after screenshots are safely copied off-device.
+#
+# Do not use connectedBenchmarkAndroidTest in CI here. AGP's UTP
+# AndroidAdditionalTestOutputPlugin tries to copy multi-megabyte Perfetto traces
+# back to the runner and can fail with java.io.EOFException even after the
+# benchmark itself has run correctly. Install both benchmark APKs with Gradle,
+# then invoke AndroidJUnitRunner directly over adb. This still executes the real
+# Macrobenchmark tests but avoids the flaky UTP trace-copy plugin.
 upstream/V2rayNG/gradlew -p upstream/V2rayNG \
-  :benchmark:connectedBenchmarkAndroidTest \
+  :app:installPlaystoreBenchmark \
+  :benchmark:installBenchmark \
   -PABI_FILTERS=x86_64 \
   --stacktrace --no-daemon --build-cache
+
+BENCH_COMPONENT="$(
+  adb shell pm list instrumentation |
+    tr -d '\r' |
+    grep 'com.bluevpn.benchmark' |
+    grep "(target=$BLUEVPN_QA_APPLICATION_ID)" |
+    sed -n 's/^instrumentation:\([^ ]*\).*/\1/p' |
+    head -n 1
+)"
+if [[ -z "$BENCH_COMPONENT" ]]; then
+  echo "::error::BlueVPN Macrobenchmark instrumentation was not installed."
+  adb shell pm list instrumentation || true
+  exit 1
+fi
+
+mkdir -p reports/android-quality
+BENCH_LOG="reports/android-quality/macrobenchmark-instrumentation.txt"
+set +e
+adb shell am instrument -w -r \
+  -e class com.bluevpn.benchmark.BlueVpnLocationsMacrobenchmark \
+  -e androidx.benchmark.suppressErrors EMULATOR \
+  "$BENCH_COMPONENT" | tee "$BENCH_LOG"
+BENCH_ADB_STATUS=${PIPESTATUS[0]}
+set -e
+
+if [[ $BENCH_ADB_STATUS -ne 0 ]]; then
+  echo "::error::Macrobenchmark adb instrumentation exited with $BENCH_ADB_STATUS."
+  exit "$BENCH_ADB_STATUS"
+fi
+if grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed|shortMsg=Process' "$BENCH_LOG"; then
+  echo "::error::Macrobenchmark instrumentation reported a test failure."
+  exit 1
+fi
+if ! grep -Eq 'OK \([0-9]+ tests?\)|OK \([0-9]+ test\)' "$BENCH_LOG"; then
+  echo "::error::Macrobenchmark instrumentation did not report JUnit success."
+  exit 1
+fi

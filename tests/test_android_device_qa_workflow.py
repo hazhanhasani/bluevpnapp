@@ -16,7 +16,11 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         emulator_script = self.text("scripts/android_quality_emulator.sh")
         self.assertIn("bash scripts/android_quality_emulator.sh", workflow)
         self.assertIn(":app:connectedPlaystoreDebugAndroidTest", emulator_script)
-        self.assertIn(":benchmark:connectedBenchmarkAndroidTest", emulator_script)
+        self.assertIn(":benchmark:installBenchmark", emulator_script)
+        self.assertIn(":app:installPlaystoreBenchmark", emulator_script)
+        self.assertIn("adb shell am instrument -w -r", emulator_script)
+        self.assertIn("com.bluevpn.benchmark.BlueVpnLocationsMacrobenchmark", emulator_script)
+        self.assertNotIn(":benchmark:connectedBenchmarkAndroidTest", emulator_script)
 
     def test_emulator_qa_enables_kvm_and_avoids_stateful_cd(self):
         workflow = self.text(".github/workflows/android-quality.yml")
@@ -89,7 +93,7 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         emulator_script = self.text("scripts/android_quality_emulator.sh")
         app_tests = emulator_script.index(":app:connectedPlaystoreDebugAndroidTest")
         pull = emulator_script.index('adb pull "$QA_DEVICE_DIR/."')
-        benchmark = emulator_script.index(":benchmark:connectedBenchmarkAndroidTest")
+        benchmark = emulator_script.index(":benchmark:installBenchmark")
         self.assertLess(app_tests, pull)
         self.assertLess(pull, benchmark)
         self.assertNotIn("/sdcard/Android/data/$BLUEVPN_QA_APPLICATION_ID/files/qa/", emulator_script)

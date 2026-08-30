@@ -62,6 +62,19 @@ class AndroidMacrobenchmarkContractTest(unittest.TestCase):
         self.assertIn('return "/data/local/tmp/bluevpn-qa"', ui_test)
         self.assertNotIn("BLUEVPN_QA_READY", ui_test)
 
+    def test_quality_gate_runs_macrobenchmark_without_utp_trace_copy(self):
+        script = self.text("scripts/android_quality_emulator.sh")
+        self.assertIn(":app:installPlaystoreBenchmark", script)
+        self.assertIn(":benchmark:installBenchmark", script)
+        self.assertIn("adb shell am instrument -w -r", script)
+        self.assertIn(
+            "-e class com.bluevpn.benchmark.BlueVpnLocationsMacrobenchmark",
+            script,
+        )
+        self.assertIn("macrobenchmark-instrumentation.txt", script)
+        self.assertIn("java.io.EOFException", script)
+        self.assertNotIn(":benchmark:connectedBenchmarkAndroidTest", script)
+
     def test_release_gate_compiles_macrobenchmark(self):
         workflow = self.text(".github/workflows/build-apk.yml")
         self.assertIn(":benchmark:assembleBenchmark", workflow)

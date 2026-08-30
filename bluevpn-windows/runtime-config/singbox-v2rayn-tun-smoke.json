@@ -28,7 +28,7 @@
       "tag": "xray-local",
       "server": "127.0.0.1",
       "server_port": 20808,
-      "version": "6.1.4"
+      "version": "6.1.5"
     },
     {
       "type": "direct",

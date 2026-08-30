@@ -83,11 +83,12 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         end = workflow.index("Validate light and dark Locations screenshots", start)
         block = workflow[start:end]
         app_tests = block.index(":app:connectedPlaystoreDebugAndroidTest")
-        pull = block.index('adb pull "/sdcard/Android/data/$BLUEVPN_QA_APPLICATION_ID/files/qa/."')
+        pull = block.index('adb pull "/data/local/tmp/bluevpn-qa/."')
         benchmark = block.index(":benchmark:connectedBenchmarkAndroidTest")
         self.assertLess(app_tests, pull)
         self.assertLess(pull, benchmark)
-        self.assertNotIn("adb pull \"/sdcard/Android/data/$BLUEVPN_QA_APPLICATION_ID/files/qa/.\" reports/android-quality/qa/ || true", block)
+        self.assertNotIn("/sdcard/Android/data/$BLUEVPN_QA_APPLICATION_ID/files/qa/", block)
+        self.assertIn('adb shell ls -la "/data/local/tmp/bluevpn-qa/"', block)
 
     def test_visual_qa_captures_light_and_dark_rtl_locations(self):
         ui = self.text("android-test/BlueVpnLocationsUiTest.kt")
@@ -96,7 +97,10 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         self.assertIn('cmd uimode night yes', ui)
         self.assertIn('locations-light-rtl.png', ui)
         self.assertIn('locations-dark-rtl.png', ui)
-        self.assertIn("device.takeScreenshot", ui)
+        self.assertIn('qaDir = "/data/local/tmp/bluevpn-qa"', ui)
+        self.assertIn("screencap -p $qaDir/locations-light-rtl.png", ui)
+        self.assertIn("screencap -p $qaDir/locations-dark-rtl.png", ui)
+        self.assertNotIn("getExternalFilesDir", ui)
 
     def test_macrobenchmark_uses_stable_home_accessibility_selector(self):
         macro = self.text(

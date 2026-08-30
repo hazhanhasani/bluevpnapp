@@ -24,6 +24,9 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         self.assertIn("BENCH_PACKAGE", emulator_script)
         self.assertIn("BENCH_COMPONENT", emulator_script)
         self.assertIn("INSTRUMENTATION_LIST", emulator_script)
+        self.assertIn("(target=$BENCH_PACKAGE)", emulator_script)
+        self.assertIn('pm path "$BLUEVPN_QA_APPLICATION_ID"', emulator_script)
+        self.assertNotIn("(target=$BLUEVPN_QA_APPLICATION_ID)", emulator_script)
         self.assertNotIn("grep 'com.bluevpn.benchmark'", emulator_script)
         self.assertNotIn(":benchmark:connectedBenchmarkAndroidTest", emulator_script)
 

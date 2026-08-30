@@ -76,6 +76,9 @@ class AndroidMacrobenchmarkContractTest(unittest.TestCase):
         self.assertIn("dump badging", script)
         self.assertIn("BENCH_PACKAGE", script)
         self.assertIn("INSTRUMENTATION_LIST", script)
+        self.assertIn("(target=$BENCH_PACKAGE)", script)
+        self.assertIn('pm path "$BLUEVPN_QA_APPLICATION_ID"', script)
+        self.assertNotIn("(target=$BLUEVPN_QA_APPLICATION_ID)", script)
         self.assertNotIn("grep 'com.bluevpn.benchmark'", script)
         self.assertNotIn(":benchmark:connectedBenchmarkAndroidTest", script)
 

@@ -91,9 +91,20 @@ if ! grep -Fq "instrumentation:$BENCH_COMPONENT " <<<"$INSTRUMENTATION_LIST"; th
   printf '%s\n' "$INSTRUMENTATION_LIST"
   exit 1
 fi
-if ! grep -Fq "(target=$BLUEVPN_QA_APPLICATION_ID)" <<<"$INSTRUMENTATION_LIST"; then
-  echo "::error::No installed instrumentation targets $BLUEVPN_QA_APPLICATION_ID."
+
+# The com.android.test benchmark module is intentionally self-instrumenting
+# (android.experimental.self-instrumenting=true). Therefore pm reports
+# target=com.bluevpn.benchmark, while MacrobenchmarkRule itself launches and
+# measures BLUEVPN_QA_APPLICATION_ID. Requiring the instrumentation target to be
+# the app package is incorrect and caused a false CI failure.
+if ! grep -Fq "instrumentation:$BENCH_COMPONENT (target=$BENCH_PACKAGE)" <<<"$INSTRUMENTATION_LIST"; then
+  echo "::error::Macrobenchmark instrumentation is not self-targeted as expected."
   printf '%s\n' "$INSTRUMENTATION_LIST"
+  exit 1
+fi
+if ! adb shell pm path "$BLUEVPN_QA_APPLICATION_ID" >/dev/null 2>&1; then
+  echo "::error::Benchmark target app is not installed: $BLUEVPN_QA_APPLICATION_ID"
+  adb shell pm list packages | grep -F "$BLUEVPN_QA_APPLICATION_ID" || true
   exit 1
 fi
 

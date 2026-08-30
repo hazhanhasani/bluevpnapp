@@ -431,7 +431,8 @@ jobs:
           set -euo pipefail
           mkdir -p dist "$RUNNER_TEMP/bluevpn-aligned"
           BUILD_TOOLS="$ANDROID_HOME/build-tools/37.0.0"
-          mapfile -t APKS < <(find upstream/V2rayNG/app/build/outputs/apk -type f -name '*.apk' | sort)
+          # Instrumentation APKs are build inputs, not distributable products.
+          mapfile -t APKS < <(find upstream/V2rayNG/app/build/outputs/apk -type f -name '*.apk' ! -name '*androidTest*.apk' ! -path '*/androidTest/*' | sort)
           test "${#APKS[@]}" -gt 0
           for apk in "${APKS[@]}"; do
             name="$(basename "$apk" .apk)"; name="${name%-unsigned}"; name="${name%-release}"
@@ -443,6 +444,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo signed-apk-runtime-validation > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
           mapfile -t SIGNED_APKS < <(find dist -maxdepth 1 -type f -name '*.apk' | sort)
           test "${#SIGNED_APKS[@]}" -gt 0
           python scripts/validate_android_apk.py "${SIGNED_APKS[@]}"

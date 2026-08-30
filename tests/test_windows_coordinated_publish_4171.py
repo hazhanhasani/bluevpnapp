@@ -11,12 +11,12 @@ class WindowsCoordinatedPublish4171Tests(unittest.TestCase):
     def test_release_version(self):
         release=json.loads(text('release.json'))
         branding=json.loads(text('branding/app.json'))
-        self.assertEqual(release['version'],'6.1.0')
-        self.assertEqual(release['version_code'],60100)
-        self.assertEqual(release['windows_version'],'6.1.0')
-        self.assertEqual(release['windows_version_code'],60100)
-        self.assertEqual(branding['version_name'],'6.1.0')
-        self.assertEqual(branding['version_code'],60100)
+        self.assertEqual(release['version'],'6.1.1')
+        self.assertEqual(release['version_code'],60101)
+        self.assertEqual(release['windows_version'],'6.1.1')
+        self.assertEqual(release['windows_version_code'],60101)
+        self.assertEqual(branding['version_name'],'6.1.1')
+        self.assertEqual(branding['version_code'],60101)
 
     def test_windows_workflow_kicks_wordpress_after_publish(self):
         workflow=text('.github/workflows/build-windows.yml')

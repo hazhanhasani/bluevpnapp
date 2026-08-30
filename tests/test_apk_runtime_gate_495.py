@@ -33,5 +33,19 @@ class ApkRuntimeGate495(unittest.TestCase):
         self.assertIn("lib/{abi}/libbluevpn_aether.so", validator)
         self.assertIn("classes", validator)
 
+    def test_instrumentation_apks_are_not_signed_as_release_products(self):
+        s=self.text(".github/workflows/build-apk.yml")
+        start=s.index("Align and sign APKs permanently")
+        end=s.index("Validate signed APK runtime contract", start)
+        block=s[start:end]
+        self.assertIn("! -name '*androidTest*.apk'", block)
+        self.assertIn("! -path '*/androidTest/*'", block)
+
+    def test_runtime_validation_updates_failure_stage(self):
+        s=self.text(".github/workflows/build-apk.yml")
+        start=s.index("Validate signed APK runtime contract")
+        end=s.index("Upload APK runtime validation report", start)
+        self.assertIn("signed-apk-runtime-validation", s[start:end])
+
 if __name__=="__main__":
     unittest.main()

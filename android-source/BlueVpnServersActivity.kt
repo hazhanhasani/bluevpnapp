@@ -196,34 +196,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         private fun bindLatencyPayload(
             holder: RowHolder,
             item: BlueVpnLocationListRow.Server,
-        ): Boolean {
-            val health = holder.host.findViewWithTag<TextView>(TAG_SERVER_HEALTH)
-                ?: return false
-            val bars = holder.host.findViewWithTag<TextView>(TAG_SERVER_SIGNAL)
-                ?: return false
-            val surface = holder.host.findViewWithTag<MaterialCardView>(TAG_SERVER_SURFACE)
-                ?: return false
-            val rail = holder.host.findViewWithTag<View>(TAG_SERVER_RAIL)
-                ?: return false
-
-            val color = serverHealthColor(item.signalLevel, item.active)
-            health.text = serverHealthLabel(item)
-            health.setTextColor(color)
-            bars.text = qualityBadge(item.latencyPhase, item.signalLevel, item.qualityScore)
-            bars.setTextColor(color)
-            bars.background = rounded(qualityPillColor(item.signalLevel), 11)
-            surface.setCardBackgroundColor(qualitySurfaceColor(item.signalLevel, item.active))
-            surface.strokeColor = qualityStrokeColor(item.signalLevel, item.active)
-            surface.strokeWidth = dp(1)
-            rail.background = rounded(
-                if (item.active) palette.accent else color,
-                3,
-            )
-            rail.alpha = if (item.active || item.signalLevel > 0) 1f else 0.30f
-            surface.contentDescription =
-                item.title + " " + item.ordinal + "؛ " + serverHealthLabel(item)
-            return true
-        }
+        ): Boolean = true
 
     private fun bindServerStatePayload(
             holder: RowHolder,
@@ -235,52 +208,40 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 ?: return false
             val title = holder.host.findViewWithTag<TextView>(TAG_SERVER_TITLE)
                 ?: return false
-            val health = holder.host.findViewWithTag<TextView>(TAG_SERVER_HEALTH)
-                ?: return false
-            val bars = holder.host.findViewWithTag<TextView>(TAG_SERVER_SIGNAL)
-                ?: return false
             val action = holder.host.findViewWithTag<TextView>(TAG_SERVER_ACTION)
                 ?: return false
 
-            surface.setCardBackgroundColor(qualitySurfaceColor(item.signalLevel, item.active))
-            surface.strokeColor = qualityStrokeColor(item.signalLevel, item.active)
+            surface.setCardBackgroundColor(
+                if (item.active) {
+                    if (palette.dark) 0xFF13213A.toInt() else 0xFFF1F5FF.toInt()
+                } else palette.surface
+            )
+            surface.strokeColor = if (item.active) palette.accent else palette.stroke
             surface.strokeWidth = dp(1)
-
-            val healthColor = serverHealthColor(item.signalLevel, item.active)
             rail.background = rounded(
-                if (item.active) palette.accent else healthColor,
+                if (item.active) palette.accent else android.graphics.Color.TRANSPARENT,
                 3,
             )
-            rail.alpha = if (item.active || item.signalLevel > 0) 1f else 0.30f
+            rail.alpha = if (item.active) 1f else 0f
             title.setTypeface(
                 title.typeface,
                 if (item.active) Typeface.BOLD else Typeface.NORMAL,
             )
 
-            health.text = serverHealthLabel(item)
-            health.setTextColor(healthColor)
-            bars.text = qualityBadge(item.latencyPhase, item.signalLevel, item.qualityScore)
-            bars.setTextColor(healthColor)
-            bars.background = rounded(qualityPillColor(item.signalLevel), 11)
-
             action.text = when {
                 item.automaticActive -> "خودکار"
                 item.manualActive -> "دستی"
                 !item.premium -> "🔒"
-                item.active -> "وصل"
+                item.active -> "فعال"
                 else -> "انتخاب"
             }
             action.setTextColor(if (item.active) palette.accent else palette.textSecondary)
             action.background = rounded(
                 if (item.active) {
-                    if (palette.dark) 0xFF203557.toInt() else 0xFFE6EEFF.toInt()
-                } else {
-                    palette.surfaceStrong
-                },
+                    if (palette.dark) 0xFF213454.toInt() else 0xFFE7EFFF.toInt()
+                } else palette.surfaceStrong,
                 11,
             )
-            surface.contentDescription =
-                item.title + " " + item.ordinal + "؛ " + serverHealthLabel(item)
             return true
         }
 
@@ -440,31 +401,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
         mainViewModel.startListenBroadcast()
         mainViewModel.updateListAction.observe(this) {
-            // v2rayNG can emit this broadcast repeatedly while ping/import/runtime
-            // metadata changes. Never redraw immediately. Invalidate the decoded
-            // snapshot and wait for a quiet window before checking whether the
-            // actual location membership changed.
-            BlueVpnLocationUtil.invalidateResolvedCache()
-            // Runtime list broadcasts do not own the manual refresh lifecycle.
-            // They may update the pool, but must never re-enable the refresh button.
-            scheduleCandidateReload(force = false, delayMs = 2_000L)
+            // Noisy runtime/ping broadcasts must not dirty the whole locations cache.
+            // Real subscription mutations invalidate it at the producer.
+            scheduleCandidateReload(force = false, delayMs = 1_200L)
         }
         mainViewModel.updateTestResultAction.observe(this) { event ->
-            // Ping/test-result broadcasts are presentation-only. Never rebuild the
-            // country/server tree here; refresh immutable row content from MMKV so
-            // DiffUtil preserves scroll and expanded state.
+            // Latency is internal ranking evidence. Never repaint/reorder customer UI.
             recordPublishedLatencySamples(event)
-            val snapshot = BlueVpnLocationUtil.cachedCandidates(this)
-            if (event == "batch-complete") {
-                val unresolved = snapshot.filter(::needsFallbackProbe)
-                if (unresolved.isEmpty()) {
-                    healthSweepInProgress = false
-                } else {
-                    startFallbackQualitySweep(unresolved)
-                }
-            }
-            renderHandler.removeCallbacks(healthRefreshRunnable)
-            renderHandler.postDelayed(healthRefreshRunnable, 260L)
+            if (event == "batch-complete") healthSweepInProgress = false
         }
         renderLocations()
         loadCandidates(force = false)
@@ -604,7 +548,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     candidateLoadError = ""
                 }
                 updateEntitlementUi()
-                updateQualityDashboard(loaded)
                 if (
                     selectAutomaticAfterLoad &&
                     BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity)
@@ -617,9 +560,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 val nextFingerprint = locationStructureFingerprint(loaded)
                 if (nextFingerprint != lastRenderedStructureFingerprint) {
                     renderLocations()
-                } else {
-                    // Health/ping changes must not destroy and recreate rows.
-                    refreshVisibleHealthPresentation()
                 }
 
                 // Coalesce the importer's burst of broadcasts into at most one
@@ -854,10 +794,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         root.addView(createHeader(), LinearLayout.LayoutParams(-1, dp(56)))
         root.addView(createTabs(), LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
         root.addView(createSearchField(), LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
-        root.addView(createQualityDashboard(), LinearLayout.LayoutParams(-1, dp(112)).apply {
-            topMargin = dp(8)
-        })
-        root.addView(automaticServerCard(), LinearLayout.LayoutParams(-1, dp(68)).apply {
+        // Customer UI stays instant: quality diagnostics are background-only.
+        root.addView(automaticServerCard(), LinearLayout.LayoutParams(-1, dp(62)).apply {
             topMargin = dp(8)
             bottomMargin = dp(8)
         })
@@ -888,7 +826,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             overScrollMode = View.OVER_SCROLL_NEVER
             itemAnimator = null
             setHasFixedSize(false)
-            setItemViewCacheSize(10)
+            setItemViewCacheSize(18)
             setPadding(0, 0, 0, dp(16))
             clipToPadding = false
         }
@@ -1018,7 +956,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 searchHandler.removeCallbacks(searchRunnable)
                 searchHandler.postDelayed(
                     searchRunnable,
-                    if (BlueVpnPerformance.isLowEnd(this@BlueVpnServersActivity)) 320L else 160L,
+                    if (BlueVpnPerformance.isLowEnd(this@BlueVpnServersActivity)) 120L else 70L,
                 )
             }
             override fun afterTextChanged(s: Editable?) = Unit
@@ -1463,7 +1401,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val uiEntitlement = BlueVpnEntitlement.resolveUi(this)
         val manualSelectionAllowed = uiEntitlement.manualSelectionAllowed
         val candidates = BlueVpnLocationUtil.cachedCandidates(this)
-        updateQualityDashboard(candidates)
         if (candidates.isEmpty()) {
             // Do not destroy already rendered rows while an entitlement import is
             // temporarily between clear and repopulate. The cache layer will
@@ -1525,14 +1462,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 // Keep those routes available to automatic selection, but never
                 // present "unknown" as if it were a manually selectable country.
                 if (location.key == "unknown") return@mapNotNull null
-                val visibleServers = servers.filter(::candidateMatchesQuality)
+                val visibleServers = servers
                 if (visibleServers.isEmpty()) return@mapNotNull null
                 val usable = visibleServers.count { !BlueVpnPreferences.isSessionInactive(this, it.guid) }
                 LocationGroup(
                     location = location,
                     servers = visibleServers,
                     usableRoutes = usable,
-                    healthScore = BlueVpnLocationUtil.locationHealthScore(this, visibleServers),
+                    healthScore = 0,
                     favorite = BlueVpnExperience.isFavorite(this, location.key),
                 )
             }
@@ -1641,7 +1578,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                         favorite = group.favorite,
                         active = groupActive,
                         automaticActive = groupActive && automaticMode && connected,
-                        availability = countryQualitySummary(group.location, group.servers),
+                        availability = group.servers.size.toString() + " سرور",
                     )
                 )
                 if (expanded) {
@@ -1654,7 +1591,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                         val serverActive =
                             automaticActive || manualActive ||
                                 (connected && candidate.guid == selected)
-                        val latency = latencySnapshot(candidate)
                         add(
                             BlueVpnLocationListRow.Server(
                                 guid = candidate.guid,
@@ -1665,10 +1601,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                                 automaticActive = automaticActive,
                                 manualActive = manualActive,
                                 premium = manualSelectionAllowed,
-                                latencyPhase = latency.phase,
-                                latencyMs = latency.latencyMs,
-                                signalLevel = signalLevel(candidate),
-                                qualityScore = serverQualityScore(candidate),
+                                latencyPhase = BlueVpnLatencyPhase.UNKNOWN,
+                                latencyMs = 0L,
+                                signalLevel = 0,
+                                qualityScore = 0,
                             )
                         )
                     }
@@ -1724,15 +1660,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
      * the location list for them; update only the visible status labels.
      */
     private fun refreshVisibleHealthPresentation() {
-        if (
-            isFinishing ||
-            isDestroyed ||
-            !::locationsAdapter.isInitialized
-        ) return
-
-        // Recompute immutable row content and let DiffUtil rebind only rows whose
-        // latency/health state changed. No View tree teardown and no scroll jump.
-        renderLocations()
+        // No-op by design: background quality changes never churn the RecyclerView.
     }
 
     private fun stableServerRows(
@@ -2206,35 +2134,34 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val automaticActive = automatic && connected && candidate.guid == selectedGuid
         val manualActive = mode == BlueVpnSelectionMode.MANUAL_SERVER && manualGuid == candidate.guid
         val active = automaticActive || manualActive || (connected && candidate.guid == selectedGuid)
-        val level = signalLevel(candidate)
-        val latency = latencySnapshot(candidate)
-        val qualityScore = serverQualityScore(candidate)
 
-        val rowSurface = card(
-            radius = 17,
-            fill = qualitySurfaceColor(level, active),
-            stroke = qualityStrokeColor(level, active),
+        val surface = card(
+            radius = 16,
+            fill = if (active) {
+                if (palette.dark) 0xFF13213A.toInt() else 0xFFF1F5FF.toInt()
+            } else palette.surface,
+            stroke = if (active) palette.accent else palette.stroke,
         ).apply {
             tag = TAG_SERVER_SURFACE
             strokeWidth = dp(1)
             cardElevation = 0f
             isClickable = true
             isFocusable = true
-            contentDescription = group.location.title + " " + ordinal + "؛ " + serverHealthLabel(candidate, active, automaticActive)
+            contentDescription = group.location.title + " سرور " + ordinal
             BlueVpnUiGuard.bind(this) {
                 if (!premium) openSubscriptionForPremium()
                 else selectServer(group, candidate, ordinal)
             }
         }
 
-        val row = LinearLayout(this).apply {
+        val line = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), dp(8), dp(10), dp(8))
+            setPadding(dp(10), dp(6), dp(10), dp(6))
         }
-        rowSurface.addView(row)
+        surface.addView(line)
 
-        row.addView(
+        line.addView(
             View(this).apply {
                 tag = TAG_SERVER_RAIL
                 background = rounded(
@@ -2243,65 +2170,54 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 )
                 alpha = if (active) 1f else 0f
             },
-            LinearLayout.LayoutParams(dp(3), dp(40)).apply { marginEnd = dp(8) },
+            LinearLayout.LayoutParams(dp(3), dp(34)).apply { marginEnd = dp(8) },
         )
 
-        row.addView(
-            countryFlagBadge(group.location.flag, sizeDp = 38, textSp = 21f),
-            LinearLayout.LayoutParams(dp(38), dp(38)).apply { marginEnd = dp(9) },
-        )
-
-        val titleBox = LinearLayout(this).apply {
+        val copy = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        titleBox.addView(
-            textView(group.location.title + "  #" + ordinal, 13.5f, palette.textPrimary, Gravity.END).apply {
+        copy.addView(
+            textView("سرور " + ordinal, 13.5f, palette.textPrimary, Gravity.END).apply {
                 tag = TAG_SERVER_TITLE
                 setTypeface(typeface, if (active) Typeface.BOLD else Typeface.NORMAL)
                 maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
             },
         )
-
-        val healthColor = serverHealthColor(level, active)
-        val health = textView(
-            serverHealthLabel(candidate, active, automaticActive),
-            9.5f,
-            healthColor,
-            Gravity.END,
-        ).apply {
-            tag = TAG_SERVER_HEALTH
-            setPadding(0, dp(3), 0, 0)
-            maxLines = 1
-        }
-        titleBox.addView(health)
-        row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
-
-        val bars = textView(qualityBadge(latency.phase, level, qualityScore), 8.5f, healthColor, Gravity.CENTER).apply {
-            tag = TAG_SERVER_SIGNAL
-            setTypeface(typeface, Typeface.BOLD)
-            background = rounded(qualityPillColor(level), 11)
-            maxLines = 1
-        }
-        row.addView(bars, LinearLayout.LayoutParams(dp(78), dp(34)).apply { marginStart = dp(4) })
+        copy.addView(
+            textView(group.location.title, 9.5f, palette.textMuted, Gravity.END).apply {
+                setPadding(0, dp(2), 0, 0)
+                maxLines = 1
+            },
+        )
+        line.addView(copy, LinearLayout.LayoutParams(0, -1, 1f))
 
         val action = when {
             automaticActive -> "خودکار"
             manualActive -> "دستی"
             !premium -> "🔒"
-            active -> "وصل"
+            active -> "فعال"
             else -> "انتخاب"
         }
-        row.addView(
-            textView(action, 9.5f, palette.textSecondary, Gravity.CENTER).apply {
+        line.addView(
+            textView(
+                action,
+                9.5f,
+                if (active) palette.accent else palette.textSecondary,
+                Gravity.CENTER,
+            ).apply {
                 tag = TAG_SERVER_ACTION
                 setTypeface(typeface, Typeface.BOLD)
-                background = rounded(palette.surfaceStrong, 11)
+                background = rounded(
+                    if (active) {
+                        if (palette.dark) 0xFF213454.toInt() else 0xFFE7EFFF.toInt()
+                    } else palette.surfaceStrong,
+                    11,
+                )
             },
-            LinearLayout.LayoutParams(dp(54), dp(34)).apply { marginStart = dp(6) },
+            LinearLayout.LayoutParams(dp(62), dp(34)).apply { marginStart = dp(6) },
         )
-        return rowSurface
+        return surface
     }
 
     private fun createLocationSection(
@@ -2311,7 +2227,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     ): View {
         val expanded = group.location.key in expandedLocationKeys
         val automatic = BlueVpnPreferences.smartBalance(this)
-        val countryLevel = group.servers.maxOfOrNull { signalLevel(it) } ?: 0
         val outer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -2320,12 +2235,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             radius = 20,
             fill = if (active) {
                 if (palette.dark) 0xFF13213A.toInt() else 0xFFF1F5FF.toInt()
-            } else qualitySurfaceColor(countryLevel, active = false),
-            stroke = if (active) palette.accent else qualityStrokeColor(countryLevel, active = false),
+            } else palette.surface,
+            stroke = if (active) palette.accent else palette.stroke,
         ).apply {
             tag = TAG_COUNTRY_SURFACE
             strokeWidth = dp(1)
-            cardElevation = dp(2).toFloat()
+            cardElevation = 0f
             isClickable = true
             isFocusable = true
             contentDescription = group.location.title + "؛ " + group.servers.size + " سرور؛ " + if (expanded) "باز" else "بسته"
@@ -2422,13 +2337,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         val availabilityView = textView(
-            countryQualitySummary(group.location, group.servers),
+            group.servers.size.toString() + " سرور",
             9.5f,
-            if (active) palette.accent else serverHealthColor(countryLevel, active = false),
+            if (active) palette.accent else palette.textMuted,
             Gravity.CENTER_VERTICAL or Gravity.END,
         ).apply {
             tag = TAG_COUNTRY_AVAILABILITY
-            background = rounded(qualityPillColor(countryLevel), 11)
+            background = rounded(palette.surfaceStrong, 11)
             setPadding(dp(10), 0, dp(10), 0)
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
@@ -2498,11 +2413,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         selectedTab = runCatching {
             LocationTab.valueOf(prefs.getString("tab", LocationTab.ALL.name).orEmpty())
         }.getOrDefault(LocationTab.ALL)
-        selectedQualityFilter = runCatching {
-            QualityFilter.valueOf(
-                prefs.getString("quality_filter", QualityFilter.ALL.name).orEmpty(),
-            )
-        }.getOrDefault(QualityFilter.ALL)
+        selectedQualityFilter = QualityFilter.ALL
         queryText = prefs.getString("query_text", "").orEmpty()
         query = BlueVpnLocationUtil.normalizeForSearch(queryText)
         expandedLocationKeys.clear()

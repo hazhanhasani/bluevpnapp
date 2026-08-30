@@ -72,7 +72,7 @@ object BlueVpnPerformance {
         if (isLowEnd(context)) 12_000L else 7_000L
 
     fun startupWarmupDelayMs(context: Context): Long =
-        if (isLowEnd(context)) 60_000L else 40_000L
+        if (isLowEnd(context)) 3_000L else 1_500L
 
     fun accountSyncDelayMs(context: Context): Long =
         if (isLowEnd(context)) 14_000L else 8_000L
@@ -96,7 +96,7 @@ object BlueVpnPerformance {
         if (isLowEnd(context)) 3 else 7
 
     fun uiRenderDelayMs(context: Context): Long =
-        if (isLowEnd(context)) 120L else 45L
+        if (isLowEnd(context)) 32L else 16L
 }
 
 object BlueVpnTheme {

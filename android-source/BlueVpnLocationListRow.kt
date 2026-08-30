@@ -57,10 +57,6 @@ sealed class BlueVpnLocationListRow {
             automaticActive.toString(),
             manualActive.toString(),
             premium.toString(),
-            latencyPhase.name,
-            latencyMs.toString(),
-            signalLevel.toString(),
-            qualityScore.toString(),
         ).joinToString("|")
     }
 }

@@ -7,8 +7,8 @@ ROOT = Path(__file__).resolve().parents[1]
 class SentinelHealthActionability4165(unittest.TestCase):
     def test_release_version(self):
         release = json.loads((ROOT/'release.json').read_text())
-        self.assertEqual(release['version'], '6.1.2')
-        self.assertEqual(release['version_code'], 60102)
+        self.assertEqual(release['version'], '6.1.3')
+        self.assertEqual(release['version_code'], 60103)
 
     def test_telegram_uses_iran_time_and_health_classification(self):
         monitor = (ROOT/'bluevpn-manager/includes/class-bluevpn-error-monitor.php').read_text()

@@ -120,8 +120,8 @@ jobs:
             # before the benchmark variant replaces the target package.
             upstream/V2rayNG/gradlew -p upstream/V2rayNG :app:connectedPlaystoreDebugAndroidTest -PABI_FILTERS=x86_64 --stacktrace --no-daemon --build-cache
             mkdir -p reports/android-quality/qa
-            adb shell ls -la "/sdcard/Android/data/$BLUEVPN_QA_APPLICATION_ID/files/qa/"
-            adb pull "/sdcard/Android/data/$BLUEVPN_QA_APPLICATION_ID/files/qa/." reports/android-quality/qa/
+            adb shell ls -la "/data/local/tmp/bluevpn-qa/"
+            adb pull "/data/local/tmp/bluevpn-qa/." reports/android-quality/qa/
 
             # Macrobenchmark installs the benchmark target variant after screenshots
             # are safely copied off-device.

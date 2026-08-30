@@ -69,7 +69,8 @@ object BlueVpnLocationRowDiff : DiffUtil.ItemCallback<BlueVpnLocationListRow>() 
         val latencyChanged =
             oldItem.latencyPhase != newItem.latencyPhase ||
                 oldItem.latencyMs != newItem.latencyMs ||
-                oldItem.signalLevel != newItem.signalLevel
+                oldItem.signalLevel != newItem.signalLevel ||
+                oldItem.qualityScore != newItem.qualityScore
 
         return when {
             stateChanged -> PAYLOAD_SERVER_STATE

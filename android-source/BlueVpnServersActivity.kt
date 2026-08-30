@@ -3,6 +3,7 @@ package com.v2ray.ang.ui
 import android.app.Activity
 import android.content.Intent
 import android.content.res.ColorStateList
+import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -200,22 +201,29 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 ?: return false
             val surface = holder.host.findViewWithTag<MaterialCardView>(TAG_SERVER_SURFACE)
                 ?: return false
+            val rail = holder.host.findViewWithTag<View>(TAG_SERVER_RAIL)
+                ?: return false
 
             val color = serverHealthColor(item.signalLevel, item.active)
             health.text = serverHealthLabel(item)
             health.setTextColor(color)
-            bars.text = qualityBadge(item.signalLevel)
+            bars.text = qualityBadge(item.latencyPhase, item.signalLevel, item.qualityScore)
             bars.setTextColor(color)
             bars.background = rounded(qualityPillColor(item.signalLevel), 11)
             surface.setCardBackgroundColor(qualitySurfaceColor(item.signalLevel, item.active))
             surface.strokeColor = qualityStrokeColor(item.signalLevel, item.active)
             surface.strokeWidth = dp(1)
+            rail.background = rounded(
+                if (item.active) palette.accent else color,
+                3,
+            )
+            rail.alpha = if (item.active || item.signalLevel > 0) 1f else 0.30f
             surface.contentDescription =
                 item.title + " " + item.ordinal + "؛ " + serverHealthLabel(item)
             return true
         }
 
-        private fun bindServerStatePayload(
+    private fun bindServerStatePayload(
             holder: RowHolder,
             item: BlueVpnLocationListRow.Server,
         ): Boolean {
@@ -235,19 +243,21 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             surface.setCardBackgroundColor(qualitySurfaceColor(item.signalLevel, item.active))
             surface.strokeColor = qualityStrokeColor(item.signalLevel, item.active)
             surface.strokeWidth = dp(1)
+
+            val healthColor = serverHealthColor(item.signalLevel, item.active)
             rail.background = rounded(
-                if (item.active) palette.accent else android.graphics.Color.TRANSPARENT,
+                if (item.active) palette.accent else healthColor,
                 3,
             )
+            rail.alpha = if (item.active || item.signalLevel > 0) 1f else 0.30f
             title.setTypeface(
                 title.typeface,
                 if (item.active) Typeface.BOLD else Typeface.NORMAL,
             )
 
-            val healthColor = serverHealthColor(item.signalLevel, item.active)
             health.text = serverHealthLabel(item)
             health.setTextColor(healthColor)
-            bars.text = qualityBadge(item.signalLevel)
+            bars.text = qualityBadge(item.latencyPhase, item.signalLevel, item.qualityScore)
             bars.setTextColor(healthColor)
             bars.background = rounded(qualityPillColor(item.signalLevel), 11)
 
@@ -258,14 +268,21 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 item.active -> "وصل"
                 else -> "انتخاب"
             }
-            action.setTextColor(palette.textSecondary)
-            action.background = rounded(palette.surfaceStrong, 11)
+            action.setTextColor(if (item.active) palette.accent else palette.textSecondary)
+            action.background = rounded(
+                if (item.active) {
+                    if (palette.dark) 0xFF203557.toInt() else 0xFFE6EEFF.toInt()
+                } else {
+                    palette.surfaceStrong
+                },
+                11,
+            )
             surface.contentDescription =
                 item.title + " " + item.ordinal + "؛ " + serverHealthLabel(item)
             return true
         }
 
-        private fun bindCountryActivePayload(
+    private fun bindCountryActivePayload(
             holder: RowHolder,
             item: BlueVpnLocationListRow.Country,
         ): Boolean {
@@ -326,6 +343,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private lateinit var qualityTestButton: TextView
     private lateinit var qualityProgressFill: View
     private lateinit var qualityProgressRemainder: View
+    private lateinit var qualityExcellentStat: TextView
+    private lateinit var qualityStableStat: TextView
+    private lateinit var qualityRetryStat: TextView
     private val qualityFilterButtons = linkedMapOf<QualityFilter, TextView>()
     private var selectedTab = LocationTab.ALL
     private var selectedQualityFilter = QualityFilter.ALL
@@ -707,21 +727,23 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         candidate: BlueVpnLocationUtil.Candidate,
     ): Boolean {
         val snapshot = latencySnapshot(candidate)
-        val level = signalLevel(candidate)
+        val score = serverQualityScore(candidate)
         return when (selectedQualityFilter) {
             QualityFilter.ALL -> true
             QualityFilter.FAST ->
-                snapshot.phase == BlueVpnLatencyPhase.FRESH && level >= 3
+                snapshot.phase == BlueVpnLatencyPhase.FRESH && score >= 78
             QualityFilter.USABLE ->
                 (
                     snapshot.phase == BlueVpnLatencyPhase.FRESH ||
                         snapshot.phase == BlueVpnLatencyPhase.STALE
                     ) &&
-                    level >= 1
+                    score >= 52
             QualityFilter.NEEDS_TEST ->
                 snapshot.phase == BlueVpnLatencyPhase.UNKNOWN ||
                     snapshot.phase == BlueVpnLatencyPhase.MEASURING ||
-                    snapshot.phase == BlueVpnLatencyPhase.TIMEOUT
+                    snapshot.phase == BlueVpnLatencyPhase.TIMEOUT ||
+                    snapshot.phase == BlueVpnLatencyPhase.OFFLINE ||
+                    score < 52
         }
     }
 
@@ -730,39 +752,65 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     ) {
         if (!::qualitySummary.isInitialized) return
         val total = candidates.size
-        val snapshots = candidates.map { it to latencySnapshot(it) }
-        val tested = snapshots.count { (_, value) ->
+        val snapshots = candidates.map { candidate ->
+            Triple(candidate, latencySnapshot(candidate), serverQualityScore(candidate))
+        }
+        val tested = snapshots.count { (_, value, _) ->
             value.phase != BlueVpnLatencyPhase.UNKNOWN &&
                 value.phase != BlueVpnLatencyPhase.MEASURING
         }
-        val fast = snapshots.count { (candidate, value) ->
-            value.phase == BlueVpnLatencyPhase.FRESH && signalLevel(candidate) >= 3
+        val excellent = snapshots.count { (_, value, score) ->
+            value.phase == BlueVpnLatencyPhase.FRESH && score >= 86
         }
-        val needsTest = snapshots.count { (_, value) ->
+        val stable = snapshots.count { (_, value, score) ->
+            (
+                value.phase == BlueVpnLatencyPhase.FRESH ||
+                    value.phase == BlueVpnLatencyPhase.STALE
+                ) &&
+                score in 52..85
+        }
+        val retry = snapshots.count { (_, value, score) ->
             value.phase == BlueVpnLatencyPhase.UNKNOWN ||
                 value.phase == BlueVpnLatencyPhase.MEASURING ||
-                value.phase == BlueVpnLatencyPhase.TIMEOUT
+                value.phase == BlueVpnLatencyPhase.TIMEOUT ||
+                value.phase == BlueVpnLatencyPhase.OFFLINE ||
+                score < 52
         }
+        val scored = snapshots.map { it.third }.filter { it > 0 }
+        val averageScore = if (scored.isEmpty()) 0 else scored.average().toInt().coerceIn(0, 100)
+        val bestLatency = snapshots
+            .map { it.second.latencyMs }
+            .filter { it > 0L }
+            .minOrNull()
         val percent = if (total <= 0) 0 else ((tested * 100f) / total).toInt().coerceIn(0, 100)
 
         qualitySummary.text = when {
             total <= 0 -> "پس از دریافت سرورها، کیفیت اینجا نمایش داده می‌شود"
             healthSweepInProgress -> "$tested از $total سنجیده شد • تست زنده در حال اجرا"
-            else -> "$fast سریع • $needsTest نیازمند تست • $total سرور"
+            tested <= 0 -> "برای رتبه‌بندی واقعی سرورها، «تست همه» را اجرا کنید"
+            bestLatency != null ->
+                "$excellent عالی • $stable پایدار • $retry نیاز بررسی • بهترین ${bestLatency}ms"
+            else -> "$excellent عالی • $stable پایدار • $retry نیاز بررسی • میانگین $averageScore"
         }
         qualityProgress.text = "$percent٪"
+        if (::qualityExcellentStat.isInitialized) {
+            qualityExcellentStat.text = "A+ عالی\n$excellent سرور"
+            qualityStableStat.text = "B پایدار\n$stable سرور"
+            qualityRetryStat.text = "نیاز بررسی\n$retry سرور"
+        }
         if (::qualityProgressFill.isInitialized && ::qualityProgressRemainder.isInitialized) {
             (qualityProgressFill.layoutParams as LinearLayout.LayoutParams).weight = percent.toFloat()
             (qualityProgressRemainder.layoutParams as LinearLayout.LayoutParams).weight =
                 (100 - percent).toFloat()
-            qualityProgressFill.background = rounded(
-                if (percent >= 100 && total > 0) {
-                    if (palette.dark) 0xFF43D69B.toInt() else 0xFF16845C.toInt()
-                } else {
-                    palette.accent
-                },
-                3,
-            )
+            qualityProgressFill.background = if (percent >= 100 && total > 0) {
+                gradientRounded(
+                    if (palette.dark) 0xFF35C98F.toInt() else 0xFF16845C.toInt(),
+                    if (palette.dark) 0xFF46D7B0.toInt() else 0xFF2FAF83.toInt(),
+                    3,
+                )
+            } else {
+                gradientRounded(palette.accent, 0xFF725BFF.toInt(), 3)
+            }
             qualityProgressFill.requestLayout()
             qualityProgressRemainder.requestLayout()
         }
@@ -770,7 +818,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         qualityTestButton.isEnabled = !healthSweepInProgress && total > 0
         qualityTestButton.alpha = if (qualityTestButton.isEnabled) 1f else 0.72f
     }
-
 
     private fun createScreen(): View {
         palette = BlueVpnTheme.palette(this)
@@ -788,7 +835,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         root.addView(createHeader(), LinearLayout.LayoutParams(-1, dp(56)))
         root.addView(createTabs(), LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
         root.addView(createSearchField(), LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
-        root.addView(createQualityDashboard(), LinearLayout.LayoutParams(-1, dp(122)).apply {
+        root.addView(createQualityDashboard(), LinearLayout.LayoutParams(-1, dp(166)).apply {
             topMargin = dp(8)
         })
         root.addView(automaticServerCard(), LinearLayout.LayoutParams(-1, dp(68)).apply {
@@ -960,11 +1007,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
     private fun createQualityDashboard(): View {
         val dashboard = card(
-            radius = 20,
-            fill = if (palette.dark) 0xFF111A2C.toInt() else 0xFFF7F9FF.toInt(),
-            stroke = if (palette.dark) 0xFF273653.toInt() else 0xFFDCE5F6.toInt(),
+            radius = 22,
+            fill = if (palette.dark) 0xFF101A2D.toInt() else 0xFFF5F8FF.toInt(),
+            stroke = if (palette.dark) 0xFF31486F.toInt() else 0xFFC9D9F2.toInt(),
         ).apply {
-            cardElevation = dp(2).toFloat()
+            cardElevation = dp(3).toFloat()
         }
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -976,8 +1023,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val radar = textView("◉", 20f, android.graphics.Color.WHITE, Gravity.CENTER).apply {
-            background = rounded(palette.accent, 14)
+        val radar = textView("◉", 20f, Color.WHITE, Gravity.CENTER).apply {
+            background = gradientRounded(palette.accent, 0xFF725BFF.toInt(), 15)
             contentDescription = "وضعیت کیفیت شبکه"
         }
         headline.addView(radar, LinearLayout.LayoutParams(dp(42), dp(42)).apply {
@@ -1002,7 +1049,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         qualityProgress = textView("۰٪", 9f, palette.accent, Gravity.CENTER).apply {
             setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
             background = rounded(
-                if (palette.dark) 0xFF20345A.toInt() else 0xFFE4EDFF.toInt(),
+                if (palette.dark) 0xFF22395F.toInt() else 0xFFE1EBFF.toInt(),
                 11,
             )
         }
@@ -1010,14 +1057,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             marginStart = dp(6)
         })
 
-        qualityTestButton = textView("تست همه", 9.5f, android.graphics.Color.WHITE, Gravity.CENTER).apply {
+        qualityTestButton = textView("تست همه", 9.5f, Color.WHITE, Gravity.CENTER).apply {
             setTypeface(typeface, Typeface.BOLD)
-            background = rounded(palette.accent, 12)
+            background = gradientRounded(palette.accent, 0xFF725BFF.toInt(), 12)
             isClickable = true
             isFocusable = true
             BlueVpnUiGuard.bind(this) { runManualQualitySweep() }
         }
-        headline.addView(qualityTestButton, LinearLayout.LayoutParams(dp(68), dp(34)).apply {
+        headline.addView(qualityTestButton, LinearLayout.LayoutParams(dp(72), dp(36)).apply {
             marginStart = dp(6)
         })
         column.addView(headline, LinearLayout.LayoutParams(-1, dp(44)))
@@ -1025,18 +1072,16 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val progressTrack = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             background = rounded(
-                if (palette.dark) 0xFF26334A.toInt() else 0xFFE2E9F5.toInt(),
+                if (palette.dark) 0xFF293650.toInt() else 0xFFDDE7F5.toInt(),
                 3,
             )
             clipToOutline = true
         }
         qualityProgressFill = View(this).apply {
-            background = rounded(palette.accent, 3)
+            background = gradientRounded(palette.accent, 0xFF725BFF.toInt(), 3)
         }
         qualityProgressRemainder = View(this).apply {
-            background = android.graphics.drawable.ColorDrawable(
-                android.graphics.Color.TRANSPARENT,
-            )
+            background = android.graphics.drawable.ColorDrawable(Color.TRANSPARENT)
         }
         progressTrack.addView(
             qualityProgressFill,
@@ -1050,6 +1095,34 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             topMargin = dp(4)
         })
 
+        val stats = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(7), 0, 0)
+        }
+        qualityExcellentStat = qualityMetric(
+            "A+ عالی",
+            if (palette.dark) 0xFF63E0B2.toInt() else 0xFF0E7D58.toInt(),
+            if (palette.dark) 0xFF15372F.toInt() else 0xFFE0F8EE.toInt(),
+        )
+        qualityStableStat = qualityMetric(
+            "B پایدار",
+            if (palette.dark) 0xFF7CA9FF.toInt() else 0xFF2D68C7.toInt(),
+            if (palette.dark) 0xFF1B3156.toInt() else 0xFFE7F0FF.toInt(),
+        )
+        qualityRetryStat = qualityMetric(
+            "نیاز بررسی",
+            if (palette.dark) 0xFFF4C16A.toInt() else 0xFF946100.toInt(),
+            if (palette.dark) 0xFF3C301D.toInt() else 0xFFFFF1D5.toInt(),
+        )
+        stats.addView(qualityExcellentStat, LinearLayout.LayoutParams(0, dp(42), 1f))
+        stats.addView(qualityStableStat, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+            marginStart = dp(5)
+            marginEnd = dp(5)
+        })
+        stats.addView(qualityRetryStat, LinearLayout.LayoutParams(0, dp(42), 1f))
+        column.addView(stats, LinearLayout.LayoutParams(-1, dp(49)))
+
         val scroll = QualityStrip(this).apply {
             isHorizontalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
@@ -1058,15 +1131,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val filters = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(7), 0, 0)
+            setPadding(0, dp(5), 0, 0)
         }
         listOf(
             QualityFilter.ALL to "همه",
-            QualityFilter.FAST to "سریع",
-            QualityFilter.USABLE to "قابل‌استفاده",
-            QualityFilter.NEEDS_TEST to "نیازمند تست",
+            QualityFilter.FAST to "A / سریع",
+            QualityFilter.USABLE to "B / پایدار",
+            QualityFilter.NEEDS_TEST to "ضعیف / تست",
         ).forEach { (filter, label) ->
-            val chip = textView(label, 9.5f, palette.textSecondary, Gravity.CENTER).apply {
+            val chip = textView(label, 9.3f, palette.textSecondary, Gravity.CENTER).apply {
                 setTypeface(typeface, Typeface.BOLD)
                 isClickable = true
                 isFocusable = true
@@ -1080,14 +1153,31 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 }
             }
             qualityFilterButtons[filter] = chip
-            filters.addView(chip, LinearLayout.LayoutParams(dp(if (filter == QualityFilter.USABLE) 94 else 72), dp(32)).apply {
+            val width = when (filter) {
+                QualityFilter.ALL -> 68
+                QualityFilter.FAST -> 84
+                QualityFilter.USABLE -> 92
+                QualityFilter.NEEDS_TEST -> 96
+            }
+            filters.addView(chip, LinearLayout.LayoutParams(dp(width), dp(32)).apply {
                 marginStart = dp(4)
             })
         }
         scroll.addView(filters)
-        column.addView(scroll, LinearLayout.LayoutParams(-1, dp(46)))
+        column.addView(scroll, LinearLayout.LayoutParams(-1, dp(42)))
         updateQualityFilterButtons()
         return dashboard
+    }
+
+    private fun qualityMetric(
+        label: String,
+        tone: Int,
+        fill: Int,
+    ): TextView = textView("$label\n۰ سرور", 9f, tone, Gravity.CENTER).apply {
+        setTypeface(typeface, Typeface.BOLD)
+        setLineSpacing(0f, 0.92f)
+        maxLines = 2
+        background = rounded(fill, 12, tone)
     }
 
     private fun automaticServerCard(): View {
@@ -1586,6 +1676,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                                 latencyPhase = latency.phase,
                                 latencyMs = latency.latencyMs,
                                 signalLevel = signalLevel(candidate),
+                                qualityScore = serverQualityScore(candidate),
                             )
                         )
                     }
@@ -1770,6 +1861,59 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
     }
 
+    private fun serverQualityScore(candidate: BlueVpnLocationUtil.Candidate): Int {
+        val snapshot = latencySnapshot(candidate)
+        if (
+            snapshot.phase == BlueVpnLatencyPhase.OFFLINE ||
+            snapshot.phase == BlueVpnLatencyPhase.TIMEOUT
+        ) return 0
+
+        val health = BlueVpnLocationUtil.healthScore(this, candidate).coerceIn(0, 100)
+        if (
+            snapshot.phase == BlueVpnLatencyPhase.UNKNOWN ||
+            snapshot.phase == BlueVpnLatencyPhase.MEASURING
+        ) {
+            return if (health > 0) (health * 35 / 100).coerceIn(0, 45) else 0
+        }
+
+        val latencyScore = when (snapshot.latencyMs) {
+            in 1..65 -> 100
+            in 66..95 -> 94
+            in 96..130 -> 87
+            in 131..180 -> 78
+            in 181..240 -> 68
+            in 241..320 -> 56
+            in 321..450 -> 42
+            in 451..Long.MAX_VALUE -> 28
+            else -> 0
+        }
+        val healthScore = if (health > 0) health else latencyScore
+        val freshnessPenalty =
+            if (snapshot.phase == BlueVpnLatencyPhase.STALE) 12 else 0
+
+        return (
+            ((latencyScore * 72) + (healthScore * 28)) / 100 -
+                freshnessPenalty
+            ).coerceIn(0, 100)
+    }
+
+    private fun qualityBadge(
+        phase: BlueVpnLatencyPhase,
+        level: Int,
+        score: Int,
+    ): String = when {
+        phase == BlueVpnLatencyPhase.MEASURING -> "◌ LIVE"
+        phase == BlueVpnLatencyPhase.TIMEOUT -> "× پاسخ نداد"
+        phase == BlueVpnLatencyPhase.OFFLINE -> "× آفلاین"
+        phase == BlueVpnLatencyPhase.UNKNOWN && score <= 0 -> "○ تست"
+        score >= 90 -> "A+ • $score"
+        score >= 78 -> "A • $score"
+        score >= 64 -> "B • $score"
+        score >= 50 -> "C • $score"
+        level > 0 -> "D • $score"
+        else -> "○ تست"
+    }
+
     private fun signalBars(level: Int): String =
         when (level) {
             4 -> "▂▄▆█"
@@ -1794,77 +1938,72 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private fun signalQuality(candidate: BlueVpnLocationUtil.Candidate): String =
         signalQuality(signalLevel(candidate))
 
-    private fun qualityBadge(level: Int): String =
-        when (level) {
-            4 -> "▂▄▆█  عالی"
-            3 -> "▂▄▆  خوب"
-            2 -> "▂▄  متوسط"
-            1 -> "▂  ضعیف"
-            else -> if (healthSweepInProgress) "◌ سنجش" else "○ تست‌نشده"
-        }
-
     private fun qualityPillColor(level: Int): Int =
         when (level) {
-            4 -> if (palette.dark) 0xFF163B34.toInt() else 0xFFE2F8EF.toInt()
-            3 -> if (palette.dark) 0xFF193A31.toInt() else 0xFFE8F7F0.toInt()
-            2 -> if (palette.dark) 0xFF41351D.toInt() else 0xFFFFF2D6.toInt()
-            1 -> if (palette.dark) 0xFF43252C.toInt() else 0xFFFFE9EC.toInt()
-            else -> if (palette.dark) 0xFF253047.toInt() else 0xFFEDF2FA.toInt()
+            4 -> if (palette.dark) 0xFF123F34.toInt() else 0xFFD9F8EB.toInt()
+            3 -> if (palette.dark) 0xFF17382F.toInt() else 0xFFE3F7EE.toInt()
+            2 -> if (palette.dark) 0xFF463719.toInt() else 0xFFFFF0C9.toInt()
+            1 -> if (palette.dark) 0xFF49232C.toInt() else 0xFFFFE2E7.toInt()
+            else -> if (palette.dark) 0xFF25334E.toInt() else 0xFFE8EEF8.toInt()
         }
 
     private fun qualitySurfaceColor(level: Int, active: Boolean): Int =
         when {
-            active -> if (palette.dark) 0xFF172A49.toInt() else 0xFFEDF3FF.toInt()
-            level >= 3 -> if (palette.dark) 0xFF101F23.toInt() else 0xFFFAFFFC.toInt()
-            level == 2 -> if (palette.dark) 0xFF211F19.toInt() else 0xFFFFFDF8.toInt()
-            level == 1 -> if (palette.dark) 0xFF241A20.toInt() else 0xFFFFFAFB.toInt()
-            else -> palette.surface
+            active -> if (palette.dark) 0xFF172B4D.toInt() else 0xFFEAF2FF.toInt()
+            level >= 3 -> if (palette.dark) 0xFF0D2420.toInt() else 0xFFF0FBF7.toInt()
+            level == 2 -> if (palette.dark) 0xFF282116.toInt() else 0xFFFFF8E7.toInt()
+            level == 1 -> if (palette.dark) 0xFF2A171E.toInt() else 0xFFFFF0F2.toInt()
+            else -> if (palette.dark) 0xFF121722.toInt() else 0xFFF4F7FC.toInt()
         }
 
     private fun qualityStrokeColor(level: Int, active: Boolean): Int =
         when {
             active -> palette.accent
-            level >= 3 -> if (palette.dark) 0xFF285847.toInt() else 0xFFBDE7D3.toInt()
-            level == 2 -> if (palette.dark) 0xFF5B4824.toInt() else 0xFFF0D596.toInt()
-            level == 1 -> if (palette.dark) 0xFF60323A.toInt() else 0xFFF0BDC5.toInt()
-            else -> palette.stroke
+            level >= 3 -> if (palette.dark) 0xFF347A63.toInt() else 0xFF82D9B0.toInt()
+            level == 2 -> if (palette.dark) 0xFF7A5D28.toInt() else 0xFFEFC873.toInt()
+            level == 1 -> if (palette.dark) 0xFF7F3947.toInt() else 0xFFE8A0AD.toInt()
+            else -> if (palette.dark) 0xFF32405D.toInt() else 0xFFC8D4E7.toInt()
         }
 
     private fun countryQualitySummary(
         location: BlueVpnLocation,
         servers: List<BlueVpnLocationUtil.Candidate>,
     ): String {
-        val snapshots = servers.map { candidate -> candidate to latencySnapshot(candidate) }
-        val tested = snapshots.count { (_, snapshot) ->
+        val snapshots = servers.map { candidate ->
+            Triple(candidate, latencySnapshot(candidate), serverQualityScore(candidate))
+        }
+        val tested = snapshots.count { (_, snapshot, _) ->
             snapshot.phase != BlueVpnLatencyPhase.UNKNOWN &&
                 snapshot.phase != BlueVpnLatencyPhase.MEASURING
         }
-        val fast = snapshots.count { (candidate, snapshot) ->
-            snapshot.phase == BlueVpnLatencyPhase.FRESH && signalLevel(candidate) >= 3
+        val excellent = snapshots.count { (_, snapshot, score) ->
+            snapshot.phase == BlueVpnLatencyPhase.FRESH && score >= 86
         }
-        val ready = snapshots.count { (candidate, snapshot) ->
+        val stable = snapshots.count { (_, snapshot, score) ->
             (
                 snapshot.phase == BlueVpnLatencyPhase.FRESH ||
                     snapshot.phase == BlueVpnLatencyPhase.STALE
                 ) &&
-                signalLevel(candidate) >= 1
+                score >= 52
         }
-        val retry = snapshots.count { (_, snapshot) ->
+        val retry = snapshots.count { (_, snapshot, score) ->
             snapshot.phase == BlueVpnLatencyPhase.TIMEOUT ||
-                snapshot.phase == BlueVpnLatencyPhase.OFFLINE
+                snapshot.phase == BlueVpnLatencyPhase.OFFLINE ||
+                score in 1..51
         }
         val bestLatency = snapshots
-            .map { (_, snapshot) -> snapshot.latencyMs }
+            .map { (_, snapshot, _) -> snapshot.latencyMs }
             .filter { it > 0L }
             .minOrNull()
+        val bestScore = snapshots.maxOfOrNull { it.third } ?: 0
 
         return when {
             servers.isEmpty() -> "بدون سرور"
-            healthSweepInProgress -> "$tested/${servers.size} در حال سنجش"
-            fast > 0 && bestLatency != null ->
-                "$fast سریع • بهترین ${bestLatency}ms"
-            ready > 0 -> "$ready آماده اتصال"
-            retry > 0 -> "$retry نیازمند تست دوباره"
+            healthSweepInProgress -> "$tested/${servers.size} سنجش زنده"
+            excellent > 0 && bestLatency != null ->
+                "A+ $excellent عالی • ${bestLatency}ms • $bestScore/100"
+            stable > 0 -> "$stable پایدار • امتیاز برتر $bestScore/100"
+            retry > 0 -> "$retry نیاز بررسی • تست دوباره"
             else -> availabilityLabel(location, servers)
         }
     }
@@ -1873,17 +2012,40 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         flag: String,
         sizeDp: Int,
         textSp: Float,
-    ): MaterialCardView = card(
-        radius = sizeDp / 2,
-        fill = if (palette.dark) 0xFF17253D.toInt() else 0xFFF1F5FD.toInt(),
-        stroke = if (palette.dark) 0xFF45638F.toInt() else 0xFFB9CBE8.toInt(),
-    ).apply {
-        cardElevation = dp(if (sizeDp >= 50) 3 else 1).toFloat()
-        clipToOutline = true
-        addView(
-            textView(flag, textSp, palette.textPrimary, Gravity.CENTER),
-            FrameLayout.LayoutParams(-1, -1),
-        )
+    ): MaterialCardView {
+        val accent = countryBadgeAccent(flag)
+        return card(
+            radius = sizeDp / 2,
+            fill = if (palette.dark) 0xFF142033.toInt() else Color.WHITE,
+            stroke = accent,
+        ).apply {
+            strokeWidth = dp(if (sizeDp >= 50) 2 else 1)
+            cardElevation = dp(if (sizeDp >= 50) 4 else 2).toFloat()
+            clipToOutline = true
+            addView(
+                textView(flag, textSp + 1.5f, palette.textPrimary, Gravity.CENTER),
+                FrameLayout.LayoutParams(-1, -1),
+            )
+            addView(
+                View(this@BlueVpnServersActivity).apply {
+                    background = rounded(accent, 2)
+                    alpha = if (palette.dark) 0.92f else 0.82f
+                },
+                FrameLayout.LayoutParams(-1, dp(3), Gravity.BOTTOM),
+            )
+        }
+    }
+
+    private fun countryBadgeAccent(flag: String): Int {
+        val index = (flag.hashCode() and Int.MAX_VALUE) % 6
+        return intArrayOf(
+            0xFF4B7DFF.toInt(),
+            0xFF27C49A.toInt(),
+            0xFF8A67F5.toInt(),
+            0xFFF0A84A.toInt(),
+            0xFF39BFD1.toInt(),
+            0xFFE45F7C.toInt(),
+        )[index]
     }
 
     private fun serverHealthColor(level: Int, active: Boolean): Int =
@@ -1895,21 +2057,25 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
 
     private fun serverHealthLabel(item: BlueVpnLocationListRow.Server): String {
-        val state = when {
-            item.automaticActive -> "فعال • خودکار"
-            item.active -> "فعال • دستی"
+        val latencySuffix = if (item.latencyMs > 0L) {
+            " • ${item.latencyMs} ms • ${item.qualityScore}/100"
+        } else {
+            ""
+        }
+        return when {
+            item.automaticActive -> "فعال • خودکار$latencySuffix"
+            item.active -> "فعال • دستی$latencySuffix"
             item.latencyPhase == BlueVpnLatencyPhase.OFFLINE -> "موقتاً نامناسب"
-            item.latencyPhase == BlueVpnLatencyPhase.MEASURING -> "در حال سنجش"
-            item.latencyPhase == BlueVpnLatencyPhase.TIMEOUT -> "بدون پاسخ"
+            item.latencyPhase == BlueVpnLatencyPhase.MEASURING -> "در حال سنجش زنده"
+            item.latencyPhase == BlueVpnLatencyPhase.TIMEOUT -> "بدون پاسخ • نیاز به تست مجدد"
             item.latencyPhase == BlueVpnLatencyPhase.FRESH ->
-                item.latencyMs.toString() + " ms • " + signalQuality(item.signalLevel)
+                item.latencyMs.toString() + " ms • امتیاز " + item.qualityScore
             item.latencyPhase == BlueVpnLatencyPhase.STALE ->
-                item.latencyMs.toString() + " ms • قدیمی"
+                item.latencyMs.toString() + " ms • امتیاز " + item.qualityScore + " • قدیمی"
             item.latencyMs > 0L ->
                 item.latencyMs.toString() + " ms • ذخیره‌شده"
             else -> "هنوز سنجیده نشده"
         }
-        return state
     }
 
     private fun serverHealthLabel(
@@ -1918,21 +2084,26 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         automaticActive: Boolean,
     ): String {
         val latency = latencySnapshot(candidate)
-        val state = when {
-            automaticActive -> "فعال • خودکار"
-            active -> "فعال • دستی"
+        val score = serverQualityScore(candidate)
+        val latencySuffix = if (latency.latencyMs > 0L) {
+            " • ${latency.latencyMs} ms • $score/100"
+        } else {
+            ""
+        }
+        return when {
+            automaticActive -> "فعال • خودکار$latencySuffix"
+            active -> "فعال • دستی$latencySuffix"
             latency.phase == BlueVpnLatencyPhase.OFFLINE -> "موقتاً نامناسب"
-            latency.phase == BlueVpnLatencyPhase.MEASURING -> "در حال سنجش"
-            latency.phase == BlueVpnLatencyPhase.TIMEOUT -> "بدون پاسخ"
+            latency.phase == BlueVpnLatencyPhase.MEASURING -> "در حال سنجش زنده"
+            latency.phase == BlueVpnLatencyPhase.TIMEOUT -> "بدون پاسخ • نیاز به تست مجدد"
             latency.phase == BlueVpnLatencyPhase.FRESH ->
-                latency.latencyMs.toString() + " ms • " + signalQuality(candidate)
+                latency.latencyMs.toString() + " ms • امتیاز " + score
             latency.phase == BlueVpnLatencyPhase.STALE ->
-                latency.latencyMs.toString() + " ms • قدیمی"
+                latency.latencyMs.toString() + " ms • امتیاز " + score + " • قدیمی"
             latency.latencyMs > 0L ->
                 latency.latencyMs.toString() + " ms • ذخیره‌شده"
             else -> "هنوز سنجیده نشده"
         }
-        return state
     }
 
     private fun createServerRow(
@@ -1950,6 +2121,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val manualActive = mode == BlueVpnSelectionMode.MANUAL_SERVER && manualGuid == candidate.guid
         val active = automaticActive || manualActive || (connected && candidate.guid == selectedGuid)
         val level = signalLevel(candidate)
+        val latency = latencySnapshot(candidate)
+        val qualityScore = serverQualityScore(candidate)
 
         val rowSurface = card(
             radius = 17,
@@ -1958,7 +2131,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         ).apply {
             tag = TAG_SERVER_SURFACE
             strokeWidth = dp(1)
-            cardElevation = dp(1).toFloat()
+            cardElevation = dp(2).toFloat()
             isClickable = true
             isFocusable = true
             contentDescription = group.location.title + " " + ordinal + "؛ " + serverHealthLabel(candidate, active, automaticActive)
@@ -1979,9 +2152,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             View(this).apply {
                 tag = TAG_SERVER_RAIL
                 background = rounded(
-                    if (active) palette.accent else android.graphics.Color.TRANSPARENT,
+                    if (active) palette.accent else serverHealthColor(level, active = false),
                     3,
                 )
+                alpha = if (active || level > 0) 1f else 0.30f
             },
             LinearLayout.LayoutParams(dp(3), dp(40)).apply { marginEnd = dp(8) },
         )
@@ -1996,7 +2170,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         titleBox.addView(
-            textView(group.location.title + " • سرور " + ordinal, 13.5f, palette.textPrimary, Gravity.END).apply {
+            textView(group.location.title + "  #" + ordinal, 13.5f, palette.textPrimary, Gravity.END).apply {
                 tag = TAG_SERVER_TITLE
                 setTypeface(typeface, if (active) Typeface.BOLD else Typeface.NORMAL)
                 maxLines = 1
@@ -2018,13 +2192,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         titleBox.addView(health)
         row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
 
-        val bars = textView(qualityBadge(level), 8.5f, healthColor, Gravity.CENTER).apply {
+        val bars = textView(qualityBadge(latency.phase, level, qualityScore), 8.5f, healthColor, Gravity.CENTER).apply {
             tag = TAG_SERVER_SIGNAL
             setTypeface(typeface, Typeface.BOLD)
             background = rounded(qualityPillColor(level), 11)
             maxLines = 1
         }
-        row.addView(bars, LinearLayout.LayoutParams(dp(72), dp(34)).apply { marginStart = dp(4) })
+        row.addView(bars, LinearLayout.LayoutParams(dp(78), dp(34)).apply { marginStart = dp(4) })
 
         val action = when {
             automaticActive -> "خودکار"
@@ -2051,6 +2225,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     ): View {
         val expanded = group.location.key in expandedLocationKeys
         val automatic = BlueVpnPreferences.smartBalance(this)
+        val countryLevel = group.servers.maxOfOrNull { signalLevel(it) } ?: 0
         val outer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -2059,8 +2234,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             radius = 20,
             fill = if (active) {
                 if (palette.dark) 0xFF13213A.toInt() else 0xFFF1F5FF.toInt()
-            } else palette.surface,
-            stroke = if (active) palette.accent else palette.stroke,
+            } else qualitySurfaceColor(countryLevel, active = false),
+            stroke = if (active) palette.accent else qualityStrokeColor(countryLevel, active = false),
         ).apply {
             tag = TAG_COUNTRY_SURFACE
             strokeWidth = dp(1)
@@ -2156,7 +2331,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        val countryLevel = group.servers.maxOfOrNull { signalLevel(it) } ?: 0
         val availabilityView = textView(
             countryQualitySummary(group.location, group.servers),
             9.5f,
@@ -2479,6 +2653,17 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private fun circle(fill: Int): GradientDrawable = GradientDrawable().apply {
         shape = GradientDrawable.OVAL
         setColor(fill)
+    }
+
+    private fun gradientRounded(
+        start: Int,
+        end: Int,
+        radiusDp: Int,
+    ): GradientDrawable = GradientDrawable(
+        GradientDrawable.Orientation.LEFT_RIGHT,
+        intArrayOf(start, end),
+    ).apply {
+        cornerRadius = dp(radiusDp).toFloat()
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()

@@ -46,6 +46,7 @@ sealed class BlueVpnLocationListRow {
         val latencyPhase: BlueVpnLatencyPhase,
         val latencyMs: Long,
         val signalLevel: Int,
+        val qualityScore: Int,
     ) : BlueVpnLocationListRow() {
         override val stableId: String = "server:$guid"
         override val contentVersion: String = listOf(
@@ -59,6 +60,7 @@ sealed class BlueVpnLocationListRow {
             latencyPhase.name,
             latencyMs.toString(),
             signalLevel.toString(),
+            qualityScore.toString(),
         ).joinToString("|")
     }
 }

@@ -13,8 +13,10 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         self.assertIn("ReactiveCircus/android-emulator-runner@", workflow)
         self.assertIn("api-level: 35", workflow)
         self.assertIn("arch: x86_64", workflow)
-        self.assertIn(":app:connectedPlaystoreDebugAndroidTest", workflow)
-        self.assertIn(":benchmark:connectedBenchmarkAndroidTest", workflow)
+        emulator_script = self.text("scripts/android_quality_emulator.sh")
+        self.assertIn("bash scripts/android_quality_emulator.sh", workflow)
+        self.assertIn(":app:connectedPlaystoreDebugAndroidTest", emulator_script)
+        self.assertIn(":benchmark:connectedBenchmarkAndroidTest", emulator_script)
 
     def test_emulator_qa_enables_kvm_and_avoids_stateful_cd(self):
         workflow = self.text(".github/workflows/android-quality.yml")
@@ -23,8 +25,10 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         start = workflow.index("Run Android UI, state, screenshot and performance QA")
         end = workflow.index("Validate light and dark Locations screenshots", start)
         block = workflow[start:end]
+        emulator_script = self.text("scripts/android_quality_emulator.sh")
         self.assertNotIn("\n            cd upstream/V2rayNG\n", block)
-        self.assertIn("upstream/V2rayNG/gradlew -p upstream/V2rayNG", block)
+        self.assertIn("bash scripts/android_quality_emulator.sh", block)
+        self.assertIn("upstream/V2rayNG/gradlew -p upstream/V2rayNG", emulator_script)
         self.assertIn("BLUEVPN_QA_APPLICATION_ID", workflow)
 
     def test_benchmark_jvm_targets_match_and_preflight_runs_before_emulator(self):
@@ -82,18 +86,19 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         start = workflow.index("Run Android UI, state, screenshot and performance QA")
         end = workflow.index("Validate light and dark Locations screenshots", start)
         block = workflow[start:end]
-        app_tests = block.index(":app:connectedPlaystoreDebugAndroidTest")
-        pull = block.index('adb pull "$QA_DEVICE_DIR/."')
-        benchmark = block.index(":benchmark:connectedBenchmarkAndroidTest")
+        emulator_script = self.text("scripts/android_quality_emulator.sh")
+        app_tests = emulator_script.index(":app:connectedPlaystoreDebugAndroidTest")
+        pull = emulator_script.index('adb pull "$QA_DEVICE_DIR/."')
+        benchmark = emulator_script.index(":benchmark:connectedBenchmarkAndroidTest")
         self.assertLess(app_tests, pull)
         self.assertLess(pull, benchmark)
-        self.assertNotIn("/sdcard/Android/data/$BLUEVPN_QA_APPLICATION_ID/files/qa/", block)
-        self.assertIn("resolve_qa_device_dir()", block)
-        self.assertIn('"/storage/emulated/0/Download"', block)
-        self.assertIn('"/data/local/tmp"', block)
-        self.assertIn("android.testInstrumentationRunnerArguments.bluevpnQaDir", block)
-        self.assertIn("QA_DEVICE_DIR", block)
-        self.assertNotIn('adb shell mkdir -p "/sdcard/Download/bluevpn-qa"', block)
+        self.assertNotIn("/sdcard/Android/data/$BLUEVPN_QA_APPLICATION_ID/files/qa/", emulator_script)
+        self.assertIn('"/storage/emulated/0/Download"', emulator_script)
+        self.assertIn('"/data/local/tmp"', emulator_script)
+        self.assertIn("android.testInstrumentationRunnerArguments.bluevpnQaDir", emulator_script)
+        self.assertIn("QA_DEVICE_DIR", emulator_script)
+        self.assertIn("set -euo pipefail", emulator_script)
+        self.assertNotIn('adb shell mkdir -p "/sdcard/Download/bluevpn-qa"', emulator_script)
 
     def test_visual_qa_captures_light_and_dark_rtl_locations(self):
         ui = self.text("android-test/BlueVpnLocationsUiTest.kt")

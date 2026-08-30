@@ -48,13 +48,14 @@ class AndroidMacrobenchmarkContractTest(unittest.TestCase):
 
     def test_quality_gate_resolves_screenshot_storage_before_instrumentation(self):
         workflow = self.text(".github/workflows/android-quality.yml")
+        emulator_script = self.text("scripts/android_quality_emulator.sh")
         ui_test = self.text("android-test/BlueVpnLocationsUiTest.kt")
 
-        self.assertIn("resolve_qa_device_dir()", workflow)
-        self.assertIn('"/storage/emulated/0/Download"', workflow)
-        self.assertIn('"/data/local/tmp"', workflow)
-        self.assertIn("android.testInstrumentationRunnerArguments.bluevpnQaDir", workflow)
-        self.assertNotIn('adb shell mkdir -p "/sdcard/Download/bluevpn-qa"', workflow)
+        self.assertIn("bash scripts/android_quality_emulator.sh", workflow)
+        self.assertIn('"/storage/emulated/0/Download"', emulator_script)
+        self.assertIn('"/data/local/tmp"', emulator_script)
+        self.assertIn("android.testInstrumentationRunnerArguments.bluevpnQaDir", emulator_script)
+        self.assertNotIn('adb shell mkdir -p "/sdcard/Download/bluevpn-qa"', emulator_script)
 
         self.assertIn("private fun resolveQaDir(device: UiDevice)", ui_test)
         self.assertIn('getString("bluevpnQaDir")', ui_test)

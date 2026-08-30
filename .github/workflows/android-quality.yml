@@ -9,6 +9,7 @@ on:
       - 'android-test/**'
       - 'android-benchmark/**'
       - 'scripts/prepare_android.py'
+      - 'scripts/android_quality_emulator.sh'
       - '.github/workflows/android-quality.yml'
 
 concurrency:
@@ -113,48 +114,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            chmod +x upstream/V2rayNG/gradlew
-
-            # Resolve a writable device-side QA directory. API 35 images do not
-            # always expose /sdcard/Download during early emulator boot, so never
-            # hard-code one shared-storage alias.
-            resolve_qa_device_dir() {
-              local root
-              for root in "/sdcard/Download" "/storage/emulated/0/Download" "/data/local/tmp"; do
-                if adb shell "mkdir -p '$root' >/dev/null 2>&1 && test -d '$root' && test -w '$root'" >/dev/null 2>&1; then
-                  printf '%s/bluevpn-qa\n' "$root"
-                  return 0
-                fi
-              done
-              return 1
-            }
-
-            QA_DEVICE_DIR="$(resolve_qa_device_dir)" || {
-              echo "::error::No writable Android QA screenshot directory is available."
-              adb shell 'ls -ld /sdcard /storage /storage/emulated /storage/emulated/0 /data/local/tmp 2>/dev/null || true'
-              exit 1
-            }
-            echo "Resolved Android QA directory: $QA_DEVICE_DIR"
-            adb shell "rm -rf '$QA_DEVICE_DIR' && mkdir -p '$QA_DEVICE_DIR' && test -d '$QA_DEVICE_DIR'"
-
-            # Run UI instrumentation first and export screenshots before the
-            # benchmark variant replaces the target package. The resolved path is
-            # passed to instrumentation so the test and workflow share one owner.
-            upstream/V2rayNG/gradlew -p upstream/V2rayNG \
-              :app:connectedPlaystoreDebugAndroidTest \
-              -PABI_FILTERS=x86_64 \
-              "-Pandroid.testInstrumentationRunnerArguments.bluevpnQaDir=$QA_DEVICE_DIR" \
-              --stacktrace --no-daemon --build-cache
-
-            mkdir -p reports/android-quality/qa
-            adb shell "test -s '$QA_DEVICE_DIR/locations-light-rtl.png'"
-            adb shell "test -s '$QA_DEVICE_DIR/locations-dark-rtl.png'"
-            adb pull "$QA_DEVICE_DIR/." reports/android-quality/qa/
-
-            # Macrobenchmark installs the benchmark target variant after screenshots
-            # are safely copied off-device.
-            upstream/V2rayNG/gradlew -p upstream/V2rayNG :benchmark:connectedBenchmarkAndroidTest -PABI_FILTERS=x86_64 --stacktrace --no-daemon --build-cache
+          script: bash scripts/android_quality_emulator.sh
 
       - name: Validate light and dark Locations screenshots
         shell: bash

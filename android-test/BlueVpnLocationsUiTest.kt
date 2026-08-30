@@ -92,7 +92,7 @@ class BlueVpnLocationsUiTest {
     fun captureLightAndDarkRtlSnapshots() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val device = UiDevice.getInstance(instrumentation)
-        val qaDir = "/data/local/tmp/bluevpn-qa"
+        val qaDir = "/sdcard/Download/bluevpn-qa"
 
         device.executeShellCommand("rm -rf $qaDir && mkdir -p $qaDir")
         device.executeShellCommand("cmd uimode night no")

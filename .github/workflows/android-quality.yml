@@ -118,10 +118,13 @@ jobs:
 
             # Run UI instrumentation first and export its app-scoped screenshots
             # before the benchmark variant replaces the target package.
+            adb shell rm -rf "/sdcard/Download/bluevpn-qa"
+            adb shell mkdir -p "/sdcard/Download/bluevpn-qa"
             upstream/V2rayNG/gradlew -p upstream/V2rayNG :app:connectedPlaystoreDebugAndroidTest -PABI_FILTERS=x86_64 --stacktrace --no-daemon --build-cache
             mkdir -p reports/android-quality/qa
-            adb shell ls -la "/data/local/tmp/bluevpn-qa/"
-            adb pull "/data/local/tmp/bluevpn-qa/." reports/android-quality/qa/
+            adb shell test -s "/sdcard/Download/bluevpn-qa/locations-light-rtl.png"
+            adb shell test -s "/sdcard/Download/bluevpn-qa/locations-dark-rtl.png"
+            adb pull "/sdcard/Download/bluevpn-qa/." reports/android-quality/qa/
 
             # Macrobenchmark installs the benchmark target variant after screenshots
             # are safely copied off-device.

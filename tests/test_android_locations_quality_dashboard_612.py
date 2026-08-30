@@ -81,6 +81,22 @@ class AndroidLocationsQualityDashboard612Test(unittest.TestCase):
         ]:
             self.assertIn(token, src)
 
+    def test_locations_quality_ui_is_compact_throttled_and_has_tcp_fallback(self):
+        src = self.source()
+        util = (ROOT / "android-source/BlueVpnLocationUtil.kt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("dp(112)", src)
+        self.assertNotIn("column.addView(stats", src)
+        self.assertIn("setItemViewCacheSize(10)", src)
+        self.assertIn("renderHandler.postDelayed(healthRefreshRunnable, 260L)", src)
+        self.assertIn("expandedLocationKeys.clear()", src)
+        self.assertIn("startFallbackQualitySweep", src)
+        self.assertIn("usesFallbackProbe", src)
+        self.assertIn("پیش‌تست شبکه", src)
+        self.assertIn("fun advisoryTcpLatency", util)
+        self.assertNotIn("requestHealthSweepIfNeeded(loaded, force = requestedForce)", src)
+
     def test_quality_score_is_part_of_diffable_row_state(self):
         row = self.row_source()
         diff = self.diff_source()

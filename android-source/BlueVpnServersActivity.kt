@@ -54,6 +54,8 @@ import com.v2ray.ang.viewmodel.MainViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
 
 class BlueVpnServersActivity : HelperBaseActivity() {
 
@@ -367,6 +369,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private var activeRefreshToken = 0L
     private var healthSweepRequested = false
     private var healthSweepInProgress = false
+    private var fallbackProbeInProgress = false
+    private var fallbackProbeToken = 0L
     private var renderedPremiumMode: Boolean? = null
     private var lastRenderedStructureFingerprint: String = ""
     private val expandedLocationKeys = linkedSetOf<String>()
@@ -374,6 +378,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         getSharedPreferences("bluevpn_latency_samples", MODE_PRIVATE)
     }
     private val healthRefreshRunnable = Runnable {
+        val snapshot = BlueVpnLocationUtil.cachedCandidates(this)
+        updateQualityDashboard(snapshot)
         refreshVisibleHealthPresentation()
     }
     private val searchRunnable = Runnable { renderLocationsFromTop() }
@@ -448,12 +454,17 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             // country/server tree here; refresh immutable row content from MMKV so
             // DiffUtil preserves scroll and expanded state.
             recordPublishedLatencySamples(event)
+            val snapshot = BlueVpnLocationUtil.cachedCandidates(this)
             if (event == "batch-complete") {
-                healthSweepInProgress = false
+                val unresolved = snapshot.filter(::needsFallbackProbe)
+                if (unresolved.isEmpty()) {
+                    healthSweepInProgress = false
+                } else {
+                    startFallbackQualitySweep(unresolved)
+                }
             }
-            updateQualityDashboard(BlueVpnLocationUtil.cachedCandidates(this))
             renderHandler.removeCallbacks(healthRefreshRunnable)
-            renderHandler.postDelayed(healthRefreshRunnable, 120L)
+            renderHandler.postDelayed(healthRefreshRunnable, 260L)
         }
         renderLocations()
         loadCandidates(force = false)
@@ -593,7 +604,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     candidateLoadError = ""
                 }
                 updateEntitlementUi()
-                requestHealthSweepIfNeeded(loaded, force = requestedForce)
+                updateQualityDashboard(loaded)
                 if (
                     selectAutomaticAfterLoad &&
                     BlueVpnPreferences.smartBalance(this@BlueVpnServersActivity)
@@ -685,9 +696,17 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         refreshVisibleHealthPresentation()
         mainViewModel.testAllRealPing()
         renderHandler.postDelayed({
-            healthSweepInProgress = false
-            updateQualityDashboard(BlueVpnLocationUtil.cachedCandidates(this))
-            refreshVisibleHealthPresentation()
+            if (!fallbackProbeInProgress && healthSweepInProgress) {
+                val unresolved = BlueVpnLocationUtil.cachedCandidates(this)
+                    .filter(::needsFallbackProbe)
+                if (unresolved.isEmpty()) {
+                    healthSweepInProgress = false
+                    updateQualityDashboard(BlueVpnLocationUtil.cachedCandidates(this))
+                    refreshVisibleHealthPresentation()
+                } else {
+                    startFallbackQualitySweep(unresolved)
+                }
+            }
         }, BlueVpnLatencyPolicy.MEASUREMENT_TIMEOUT_MS)
     }
 
@@ -835,7 +854,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         root.addView(createHeader(), LinearLayout.LayoutParams(-1, dp(56)))
         root.addView(createTabs(), LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
         root.addView(createSearchField(), LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
-        root.addView(createQualityDashboard(), LinearLayout.LayoutParams(-1, dp(166)).apply {
+        root.addView(createQualityDashboard(), LinearLayout.LayoutParams(-1, dp(112)).apply {
             topMargin = dp(8)
         })
         root.addView(automaticServerCard(), LinearLayout.LayoutParams(-1, dp(68)).apply {
@@ -869,6 +888,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             overScrollMode = View.OVER_SCROLL_NEVER
             itemAnimator = null
             setHasFixedSize(false)
+            setItemViewCacheSize(10)
             setPadding(0, 0, 0, dp(16))
             clipToPadding = false
         }
@@ -1011,7 +1031,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             fill = if (palette.dark) 0xFF101A2D.toInt() else 0xFFF5F8FF.toInt(),
             stroke = if (palette.dark) 0xFF31486F.toInt() else 0xFFC9D9F2.toInt(),
         ).apply {
-            cardElevation = dp(3).toFloat()
+            cardElevation = dp(1).toFloat()
         }
         val column = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1094,34 +1114,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         column.addView(progressTrack, LinearLayout.LayoutParams(-1, dp(5)).apply {
             topMargin = dp(4)
         })
-
-        val stats = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(0, dp(7), 0, 0)
-        }
-        qualityExcellentStat = qualityMetric(
-            "A+ عالی",
-            if (palette.dark) 0xFF63E0B2.toInt() else 0xFF0E7D58.toInt(),
-            if (palette.dark) 0xFF15372F.toInt() else 0xFFE0F8EE.toInt(),
-        )
-        qualityStableStat = qualityMetric(
-            "B پایدار",
-            if (palette.dark) 0xFF7CA9FF.toInt() else 0xFF2D68C7.toInt(),
-            if (palette.dark) 0xFF1B3156.toInt() else 0xFFE7F0FF.toInt(),
-        )
-        qualityRetryStat = qualityMetric(
-            "نیاز بررسی",
-            if (palette.dark) 0xFFF4C16A.toInt() else 0xFF946100.toInt(),
-            if (palette.dark) 0xFF3C301D.toInt() else 0xFFFFF1D5.toInt(),
-        )
-        stats.addView(qualityExcellentStat, LinearLayout.LayoutParams(0, dp(42), 1f))
-        stats.addView(qualityStableStat, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
-            marginStart = dp(5)
-            marginEnd = dp(5)
-        })
-        stats.addView(qualityRetryStat, LinearLayout.LayoutParams(0, dp(42), 1f))
-        column.addView(stats, LinearLayout.LayoutParams(-1, dp(49)))
 
         val scroll = QualityStrip(this).apply {
             isHorizontalScrollBarEnabled = false
@@ -1820,6 +1812,8 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 ?.testDelayMillis ?: candidate.delay
             if (liveDelay > 0L) {
                 editor.putLong("measured:" + candidate.guid, now)
+            }
+            if (event == "batch-complete" || liveDelay > 0L) {
                 editor.remove("started:" + candidate.guid)
             }
         }
@@ -1829,15 +1823,104 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private fun latencySnapshot(
         candidate: BlueVpnLocationUtil.Candidate,
     ): BlueVpnLatencySnapshot {
+        val now = System.currentTimeMillis()
         val liveDelay = MmkvManager.decodeServerAffiliationInfo(candidate.guid)
             ?.testDelayMillis ?: candidate.delay
+        val fallbackAt = latencyPrefs.getLong("fallback_at:" + candidate.guid, 0L)
+        val fallbackFresh = fallbackAt > 0L && now - fallbackAt in 0L..5 * 60_000L
+        val fallbackDelay = if (fallbackFresh) {
+            latencyPrefs.getLong("fallback:" + candidate.guid, 0L)
+        } else {
+            0L
+        }
+        val effectiveDelay = if (liveDelay > 0L) liveDelay else fallbackDelay
+        val measuredAt = if (liveDelay > 0L) {
+            latencyPrefs.getLong("measured:" + candidate.guid, 0L)
+        } else {
+            fallbackAt
+        }
         return BlueVpnLatencyPolicy.resolve(
-            latencyMs = liveDelay,
-            measuredAtMs = latencyPrefs.getLong("measured:" + candidate.guid, 0L),
-            nowMs = System.currentTimeMillis(),
+            latencyMs = effectiveDelay,
+            measuredAtMs = measuredAt,
+            nowMs = now,
             measuringSinceMs = latencyPrefs.getLong("started:" + candidate.guid, 0L),
             inactive = BlueVpnPreferences.isSessionInactive(this, candidate.guid),
         )
+    }
+
+    private fun usesFallbackProbe(candidate: BlueVpnLocationUtil.Candidate): Boolean {
+        val liveDelay = MmkvManager.decodeServerAffiliationInfo(candidate.guid)
+            ?.testDelayMillis ?: candidate.delay
+        if (liveDelay > 0L) return false
+        val at = latencyPrefs.getLong("fallback_at:" + candidate.guid, 0L)
+        return at > 0L &&
+            System.currentTimeMillis() - at in 0L..5 * 60_000L &&
+            latencyPrefs.getLong("fallback:" + candidate.guid, 0L) > 0L
+    }
+
+    private fun needsFallbackProbe(candidate: BlueVpnLocationUtil.Candidate): Boolean {
+        val liveDelay = MmkvManager.decodeServerAffiliationInfo(candidate.guid)
+            ?.testDelayMillis ?: candidate.delay
+        return liveDelay <= 0L && !usesFallbackProbe(candidate)
+    }
+
+    private fun startFallbackQualitySweep(
+        candidates: List<BlueVpnLocationUtil.Candidate>,
+    ) {
+        if (candidates.isEmpty() || fallbackProbeInProgress) return
+        fallbackProbeInProgress = true
+        val token = ++fallbackProbeToken
+        if (::qualitySummary.isInitialized) {
+            qualitySummary.text = "تست اصلی کامل نشد • بررسی دسترسی شبکه…"
+        }
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val workers = Executors.newFixedThreadPool(
+                if (BlueVpnPerformance.isLowEnd(this@BlueVpnServersActivity)) 3 else 5
+            )
+            val results = try {
+                workers.invokeAll(
+                    candidates.map { candidate ->
+                        Callable {
+                            candidate.guid to (
+                                BlueVpnLocationUtil.advisoryTcpLatency(
+                                    candidate,
+                                    timeoutMs = 360,
+                                ) ?: 0L
+                            )
+                        }
+                    }
+                ).mapNotNull { future ->
+                    runCatching { future.get() }.getOrNull()
+                }
+            } finally {
+                workers.shutdownNow()
+            }
+
+            val now = System.currentTimeMillis()
+            val editor = latencyPrefs.edit()
+            results.forEach { (guid, latencyMs) ->
+                if (latencyMs > 0L) {
+                    editor.putLong("fallback:" + guid, latencyMs)
+                    editor.putLong("fallback_at:" + guid, now)
+                } else {
+                    editor.remove("fallback:" + guid)
+                    editor.remove("fallback_at:" + guid)
+                }
+            }
+            editor.apply()
+
+            withContext(Dispatchers.Main) {
+                if (token != fallbackProbeToken || isFinishing || isDestroyed) {
+                    return@withContext
+                }
+                fallbackProbeInProgress = false
+                healthSweepInProgress = false
+                val snapshot = BlueVpnLocationUtil.cachedCandidates(this@BlueVpnServersActivity)
+                updateQualityDashboard(snapshot)
+                refreshVisibleHealthPresentation()
+            }
+        }
     }
 
     private fun signalLevel(candidate: BlueVpnLocationUtil.Candidate): Int {
@@ -2020,7 +2103,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             stroke = accent,
         ).apply {
             strokeWidth = dp(if (sizeDp >= 50) 2 else 1)
-            cardElevation = dp(if (sizeDp >= 50) 4 else 2).toFloat()
+            cardElevation = 0f
             clipToOutline = true
             addView(
                 textView(flag, textSp + 1.5f, palette.textPrimary, Gravity.CENTER),
@@ -2067,7 +2150,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             item.active -> "فعال • دستی" + latencySuffix
             item.latencyPhase == BlueVpnLatencyPhase.OFFLINE -> "موقتاً نامناسب"
             item.latencyPhase == BlueVpnLatencyPhase.MEASURING -> "در حال سنجش" + " زنده"
-            item.latencyPhase == BlueVpnLatencyPhase.TIMEOUT -> "بدون پاسخ" + " • نیاز به تست مجدد"
+            item.latencyPhase == BlueVpnLatencyPhase.TIMEOUT -> "تست کامل نشد • دوباره امتحان کنید"
             item.latencyPhase == BlueVpnLatencyPhase.FRESH ->
                 item.latencyMs.toString() + " ms • امتیاز " + item.qualityScore
             item.latencyPhase == BlueVpnLatencyPhase.STALE ->
@@ -2085,6 +2168,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     ): String {
         val latency = latencySnapshot(candidate)
         val score = serverQualityScore(candidate)
+        val fallback = usesFallbackProbe(candidate)
         val latencySuffix = if (latency.latencyMs > 0L) {
             " • ${latency.latencyMs} ms • $score/100"
         } else {
@@ -2095,7 +2179,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             active -> "فعال • دستی" + latencySuffix
             latency.phase == BlueVpnLatencyPhase.OFFLINE -> "موقتاً نامناسب"
             latency.phase == BlueVpnLatencyPhase.MEASURING -> "در حال سنجش" + " زنده"
-            latency.phase == BlueVpnLatencyPhase.TIMEOUT -> "بدون پاسخ" + " • نیاز به تست مجدد"
+            latency.phase == BlueVpnLatencyPhase.TIMEOUT -> "تست کامل نشد • دوباره امتحان کنید"
+            latency.phase == BlueVpnLatencyPhase.FRESH && fallback ->
+                latency.latencyMs.toString() + " ms • پیش‌تست شبکه • امتیاز " + score
             latency.phase == BlueVpnLatencyPhase.FRESH ->
                 latency.latencyMs.toString() + " ms • " + signalQuality(candidate) + " • امتیاز " + score
             latency.phase == BlueVpnLatencyPhase.STALE ->
@@ -2131,7 +2217,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         ).apply {
             tag = TAG_SERVER_SURFACE
             strokeWidth = dp(1)
-            cardElevation = dp(2).toFloat()
+            cardElevation = 0f
             isClickable = true
             isFocusable = true
             contentDescription = group.location.title + " " + ordinal + "؛ " + serverHealthLabel(candidate, active, automaticActive)
@@ -2244,8 +2330,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             isFocusable = true
             contentDescription = group.location.title + "؛ " + group.servers.size + " سرور؛ " + if (expanded) "باز" else "بسته"
             BlueVpnUiGuard.bind(this) {
-                if (expanded) expandedLocationKeys.remove(group.location.key)
-                else expandedLocationKeys.add(group.location.key)
+                if (expanded) {
+                    expandedLocationKeys.remove(group.location.key)
+                } else {
+                    expandedLocationKeys.clear()
+                    expandedLocationKeys.add(group.location.key)
+                }
                 renderLocations()
             }
         }

@@ -1210,6 +1210,18 @@ private fun unknownLocation(): BlueVpnLocation =
         )
     }
 
+    fun advisoryTcpLatency(
+        candidate: Candidate,
+        timeoutMs: Int = 360,
+    ): Long? {
+        val probe = preflightCandidate(candidate, timeoutMs)
+        return probe.latencyMs.takeIf {
+            probe.ok &&
+                probe.reason == "endpoint در پیش‌تست پاسخ داد" &&
+                it > 0L
+        }
+    }
+
     private fun profilePort(profile: ProfileItem): Int? {
         val getter = profile.javaClass.methods.firstOrNull { method ->
             method.parameterTypes.isEmpty() &&

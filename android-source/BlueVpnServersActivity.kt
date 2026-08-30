@@ -2063,15 +2063,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             ""
         }
         return when {
-            item.automaticActive -> "فعال • خودکار$latencySuffix"
-            item.active -> "فعال • دستی$latencySuffix"
+            item.automaticActive -> "فعال • خودکار" + latencySuffix
+            item.active -> "فعال • دستی" + latencySuffix
             item.latencyPhase == BlueVpnLatencyPhase.OFFLINE -> "موقتاً نامناسب"
-            item.latencyPhase == BlueVpnLatencyPhase.MEASURING -> "در حال سنجش زنده"
-            item.latencyPhase == BlueVpnLatencyPhase.TIMEOUT -> "بدون پاسخ • نیاز به تست مجدد"
+            item.latencyPhase == BlueVpnLatencyPhase.MEASURING -> "در حال سنجش" + " زنده"
+            item.latencyPhase == BlueVpnLatencyPhase.TIMEOUT -> "بدون پاسخ" + " • نیاز به تست مجدد"
             item.latencyPhase == BlueVpnLatencyPhase.FRESH ->
                 item.latencyMs.toString() + " ms • امتیاز " + item.qualityScore
             item.latencyPhase == BlueVpnLatencyPhase.STALE ->
-                item.latencyMs.toString() + " ms • امتیاز " + item.qualityScore + " • قدیمی"
+                item.latencyMs.toString() + " ms • قدیمی" + " • امتیاز " + item.qualityScore
             item.latencyMs > 0L ->
                 item.latencyMs.toString() + " ms • ذخیره‌شده"
             else -> "هنوز سنجیده نشده"
@@ -2091,15 +2091,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             ""
         }
         return when {
-            automaticActive -> "فعال • خودکار$latencySuffix"
-            active -> "فعال • دستی$latencySuffix"
+            automaticActive -> "فعال • خودکار" + latencySuffix
+            active -> "فعال • دستی" + latencySuffix
             latency.phase == BlueVpnLatencyPhase.OFFLINE -> "موقتاً نامناسب"
-            latency.phase == BlueVpnLatencyPhase.MEASURING -> "در حال سنجش زنده"
-            latency.phase == BlueVpnLatencyPhase.TIMEOUT -> "بدون پاسخ • نیاز به تست مجدد"
+            latency.phase == BlueVpnLatencyPhase.MEASURING -> "در حال سنجش" + " زنده"
+            latency.phase == BlueVpnLatencyPhase.TIMEOUT -> "بدون پاسخ" + " • نیاز به تست مجدد"
             latency.phase == BlueVpnLatencyPhase.FRESH ->
-                latency.latencyMs.toString() + " ms • امتیاز " + score
+                latency.latencyMs.toString() + " ms • " + signalQuality(candidate) + " • امتیاز " + score
             latency.phase == BlueVpnLatencyPhase.STALE ->
-                latency.latencyMs.toString() + " ms • امتیاز " + score + " • قدیمی"
+                latency.latencyMs.toString() + " ms • قدیمی" + " • امتیاز " + score
             latency.latencyMs > 0L ->
                 latency.latencyMs.toString() + " ms • ذخیره‌شده"
             else -> "هنوز سنجیده نشده"
@@ -2152,10 +2152,10 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             View(this).apply {
                 tag = TAG_SERVER_RAIL
                 background = rounded(
-                    if (active) palette.accent else serverHealthColor(level, active = false),
+                    if (active) palette.accent else android.graphics.Color.TRANSPARENT,
                     3,
                 )
-                alpha = if (active || level > 0) 1f else 0.30f
+                alpha = if (active) 1f else 0f
             },
             LinearLayout.LayoutParams(dp(3), dp(40)).apply { marginEnd = dp(8) },
         )

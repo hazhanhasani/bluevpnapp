@@ -63,7 +63,7 @@ class AndroidLocationsQualityDashboard612Test(unittest.TestCase):
             '"A • $score"',
             '"B • $score"',
             '"C • $score"',
-            "serverHealthColor(level, active = false)",
+            "if (active) palette.accent else android.graphics.Color.TRANSPARENT",
         ]:
             self.assertIn(token, src)
 

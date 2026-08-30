@@ -316,7 +316,7 @@ object BlueVpnPreferences {
 
 object BlueVpnLocationUtil {
 
-    private const val CANDIDATE_CACHE_TTL_MS = 60_000L
+    private const val CANDIDATE_CACHE_TTL_MS = 5 * 60_000L
     // Keep the last non-empty local snapshot warm across normal app resumes.
     // The stable entitlement key changes immediately on account/tier/source
     // rotation, so extending this window cannot expose another pool.
@@ -838,12 +838,9 @@ private fun unknownLocation(): BlueVpnLocation =
                 val profile = MmkvManager.decodeServerConfig(guid) ?: return@mapNotNull null
                 val raw = MmkvManager.decodeServerRaw(guid)
                 if (!isUsable(profile, raw)) return@mapNotNull null
-                if (!BlueVpnAccountManager.candidateAllowed(
-                        context,
-                        guid,
-                        profile.subscriptionId,
-                        entitlementServerGuids,
-                    )) return@mapNotNull null
+                // preferredServerGuids() already produced one entitlement-isolated
+                // frozen set. Do not repeat the deep ownership scan for every row.
+                if (guid !in entitlementServerGuids) return@mapNotNull null
                 Candidate(
                     guid = guid,
                     profile = profile,
@@ -868,11 +865,8 @@ private fun unknownLocation(): BlueVpnLocation =
                         configKey,
                         candidate.location.key,
                     )
-                    reportVerifiedCountry(
-                        context.applicationContext,
-                        configKey,
-                        candidate.location.key,
-                    )
+                    // Avoid one network task per visible server. Cloud location
+                    // enrichment is background-owned and can batch independently.
                 }
                 val resolvedCode = verified.ifBlank { candidate.location.key }
                 val location = locationForCountryCode(resolvedCode) ?: candidate.location
@@ -1000,12 +994,7 @@ private fun unknownLocation(): BlueVpnLocation =
                     BlueVpnPreferences.isSessionInactive(context, guid)) continue
                 val profile = MmkvManager.decodeServerConfig(guid) ?: continue
                 if (!isUsable(profile, MmkvManager.decodeServerRaw(guid))) continue
-                if (!BlueVpnAccountManager.candidateAllowed(
-                        context,
-                        guid,
-                        profile.subscriptionId,
-                        entitlementServerGuidSet,
-                    )) continue
+                if (guid !in entitlementServerGuidSet) continue
                 val location = detect(profile.remarks, profile.server)
                 when (selectionMode) {
                     BlueVpnSelectionMode.AUTO -> Unit

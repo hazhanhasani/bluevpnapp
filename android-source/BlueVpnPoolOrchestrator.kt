@@ -50,7 +50,7 @@ object BlueVpnPoolOrchestrator {
     private const val KEY_LAST_SUMMARY = "last_summary_json"
     private const val FREE_REMARK = "BlueVPN Free"
     private const val PREMIUM_REMARK = "BlueVPN Account"
-    private const val MAX_SCAN_AGE_MS = 8_000L
+    private const val MAX_SCAN_AGE_MS = 2 * 60_000L
 
     private val lock = Any()
     @Volatile private var memoryOwners: Map<String, Tier> = emptyMap()

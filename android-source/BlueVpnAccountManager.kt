@@ -1073,6 +1073,18 @@ object BlueVpnAccountManager {
         return BlueVpnPoolOrchestrator.allowed(c, serverGuid, desiredTier)
     }
 
+    private fun filterHardIsolation(
+        c: Context,
+        serverGuids: Collection<String>,
+    ): List<String> {
+        val desiredTier = if (premiumEntitlementActive(c)) {
+            BlueVpnPoolOrchestrator.Tier.PREMIUM
+        } else {
+            BlueVpnPoolOrchestrator.Tier.FREE
+        }
+        return BlueVpnPoolOrchestrator.filterAllowed(c, serverGuids, desiredTier)
+    }
+
     private fun rememberPremiumBoundaryFingerprints(c: Context) {
         if (!premiumEntitlementActive(c)) return
         val exact = usableServerGuids(managedSubscriptionGuids(c))
@@ -1275,11 +1287,11 @@ object BlueVpnAccountManager {
             registerFreePoolOwnership(c)
             // Free profiles are accepted only when their semantic owner is a
             // configured Free source and that endpoint has never belonged to Premium.
-            return exact.filter { guid -> hardIsolationAllowed(c, guid) }
+            return filterHardIsolation(c, exact)
         }
         if (exact.isNotEmpty()) {
             registerPremiumPoolOwnership(c, exact)
-            val isolated = exact.filter { guid -> hardIsolationAllowed(c, guid) }
+            val isolated = filterHardIsolation(c, exact)
             // Snapshot only profiles that survived the permanent tier boundary.
             rememberPremiumLastKnownGood(c, isolated)
             return isolated
@@ -1288,7 +1300,7 @@ object BlueVpnAccountManager {
         // rebuilding it. The LKG still has to pass the same semantic ownership gate.
         val fallback = premiumLastKnownGoodServerGuids(c)
         registerPremiumPoolOwnership(c, fallback)
-        return fallback.filter { guid -> hardIsolationAllowed(c, guid) }
+        return filterHardIsolation(c, fallback)
     }
 
     fun entitlementPoolFingerprint(c: Context): String {

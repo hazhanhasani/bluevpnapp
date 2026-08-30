@@ -93,6 +93,18 @@ class AndroidLocationsQualityDashboard612Test(unittest.TestCase):
             theme,
         )
 
+    def test_scoring_json_snapshots_are_cached_across_candidates(self):
+        ai = (ROOT / "android-source/BlueVpnAi.kt").read_text(encoding="utf-8")
+        bg = (ROOT / "android-source/BlueVpnBackgroundOptimizer.kt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("cachedRecommendationsRaw", ai)
+        self.assertIn("cachedPersonalRaw", ai)
+        self.assertIn("cachedJson(raw, recommendations = true)", ai)
+        self.assertIn("cachedJson(raw, recommendations = false)", ai)
+        self.assertIn("cachedSnapshotRaw", bg)
+        self.assertIn("if (raw == cachedSnapshotRaw) return cachedSnapshotValue", bg)
+
     def test_candidate_cache_and_entitlement_checks_are_batched(self):
         util = (ROOT / "android-source/BlueVpnLocationUtil.kt").read_text(
             encoding="utf-8"

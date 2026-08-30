@@ -83,6 +83,10 @@ object BlueVpnBackgroundOptimizer {
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    @Volatile private var cachedSnapshotRaw = ""
+    @Volatile private var cachedSnapshotValue: Snapshot? = null
+    private val snapshotCacheLock = Any()
+
     private fun entitlementId(context: Context): String =
         BlueVpnAccountManager.entitlementIdentityFingerprint(context)
 
@@ -185,40 +189,47 @@ object BlueVpnBackgroundOptimizer {
     fun snapshot(context: Context): Snapshot? {
         val raw = prefs(context).getString(KEY_LAST, "").orEmpty()
         if (raw.isBlank()) return null
-        return runCatching {
-            val json = JSONObject(raw)
-            val map = linkedMapOf<String, RouteResult>()
-            val rows = json.optJSONArray("results") ?: JSONArray()
-            for (i in 0 until rows.length()) {
-                val row = rows.optJSONObject(i) ?: continue
-                val guid = row.optString("guid")
-                if (guid.isBlank()) continue
-                val bucket = runCatching {
-                    Bucket.valueOf(row.optString("bucket"))
-                }.getOrDefault(Bucket.RESERVE)
-                map[guid] = RouteResult(
-                    guid = guid,
-                    averageMs = row.optLong("avg", 0L),
-                    jitterMs = row.optLong("jitter", 0L),
-                    successSamples = row.optInt("success", 0),
-                    attempts = row.optInt("attempts", 2),
-                    bucket = bucket,
-                    score = row.optInt("score", 0),
+        if (raw == cachedSnapshotRaw) return cachedSnapshotValue
+        return synchronized(snapshotCacheLock) {
+            if (raw == cachedSnapshotRaw) return@synchronized cachedSnapshotValue
+            val parsed = runCatching {
+                val json = JSONObject(raw)
+                val map = linkedMapOf<String, RouteResult>()
+                val rows = json.optJSONArray("results") ?: JSONArray()
+                for (i in 0 until rows.length()) {
+                    val row = rows.optJSONObject(i) ?: continue
+                    val guid = row.optString("guid")
+                    if (guid.isBlank()) continue
+                    val bucket = runCatching {
+                        Bucket.valueOf(row.optString("bucket"))
+                    }.getOrDefault(Bucket.RESERVE)
+                    map[guid] = RouteResult(
+                        guid = guid,
+                        averageMs = row.optLong("avg", 0L),
+                        jitterMs = row.optLong("jitter", 0L),
+                        successSamples = row.optInt("success", 0),
+                        attempts = row.optInt("attempts", 2),
+                        bucket = bucket,
+                        score = row.optInt("score", 0),
+                    )
+                }
+                Snapshot(
+                    networkId = json.optString("network_id"),
+                    entitlementId = json.optString("entitlement_id"),
+                    completedAt = json.optLong("completed_at", 0L),
+                    total = json.optInt("total", map.size),
+                    tested = json.optInt("tested", map.size),
+                    fast = json.optInt("fast", 0),
+                    stable = json.optInt("stable", 0),
+                    reserve = json.optInt("reserve", 0),
+                    failed = json.optInt("failed", 0),
+                    results = map,
                 )
-            }
-            Snapshot(
-                networkId = json.optString("network_id"),
-                entitlementId = json.optString("entitlement_id"),
-                completedAt = json.optLong("completed_at", 0L),
-                total = json.optInt("total", map.size),
-                tested = json.optInt("tested", map.size),
-                fast = json.optInt("fast", 0),
-                stable = json.optInt("stable", 0),
-                reserve = json.optInt("reserve", 0),
-                failed = json.optInt("failed", 0),
-                results = map,
-            )
-        }.getOrNull()
+            }.getOrNull()
+            cachedSnapshotRaw = raw
+            cachedSnapshotValue = parsed
+            parsed
+        }
     }
 
     private suspend fun runOptimizer(context: Context) {

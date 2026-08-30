@@ -289,6 +289,41 @@ object BlueVpnAi {
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    @Volatile private var cachedRecommendationsRaw = ""
+    @Volatile private var cachedRecommendationsJson = JSONObject()
+    @Volatile private var cachedPersonalRaw = ""
+    @Volatile private var cachedPersonalJson = JSONObject()
+    private val scoreCacheLock = Any()
+
+    private fun cachedJson(
+        raw: String,
+        recommendations: Boolean,
+    ): JSONObject {
+        if (recommendations && raw == cachedRecommendationsRaw) {
+            return cachedRecommendationsJson
+        }
+        if (!recommendations && raw == cachedPersonalRaw) {
+            return cachedPersonalJson
+        }
+        return synchronized(scoreCacheLock) {
+            if (recommendations && raw == cachedRecommendationsRaw) {
+                return@synchronized cachedRecommendationsJson
+            }
+            if (!recommendations && raw == cachedPersonalRaw) {
+                return@synchronized cachedPersonalJson
+            }
+            val parsed = runCatching { JSONObject(raw) }.getOrElse { JSONObject() }
+            if (recommendations) {
+                cachedRecommendationsRaw = raw
+                cachedRecommendationsJson = parsed
+            } else {
+                cachedPersonalRaw = raw
+                cachedPersonalJson = parsed
+            }
+            parsed
+        }
+    }
+
     fun shadowModeEnabled(context: Context): Boolean =
         prefs(context).getBoolean(KEY_SHADOW_MODE, true)
 
@@ -491,7 +526,7 @@ object BlueVpnAi {
             "{}",
         ).orEmpty()
         return runCatching {
-            val objectValue = JSONObject(raw)
+            val objectValue = cachedJson(raw, recommendations = true)
             val exact = objectValue.optInt(
                 fingerprint(candidate),
                 -1,
@@ -511,7 +546,7 @@ object BlueVpnAi {
         val key = fingerprint(candidate)
         val raw = prefs(context).getString(KEY_PERSONAL, "{}").orEmpty()
         return runCatching {
-            val row = JSONObject(raw).optJSONObject(key)
+            val row = cachedJson(raw, recommendations = false).optJSONObject(key)
                 ?: return@runCatching 50
             val duration = row.optLong("duration", 0L)
             val success = row.optInt("success", 0)

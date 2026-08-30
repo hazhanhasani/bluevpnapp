@@ -1,7 +1,7 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-define('BLUEVPN_SITE_VERSION', '6.1.3');
+define('BLUEVPN_SITE_VERSION', '6.1.4');
 
 define('BLUEVPN_SITE_DIR', get_template_directory());
 define('BLUEVPN_SITE_URL', get_template_directory_uri());

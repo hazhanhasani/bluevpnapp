@@ -73,6 +73,10 @@ class AndroidMacrobenchmarkContractTest(unittest.TestCase):
         )
         self.assertIn("macrobenchmark-instrumentation.txt", script)
         self.assertIn("java.io.EOFException", script)
+        self.assertIn("dump badging", script)
+        self.assertIn("BENCH_PACKAGE", script)
+        self.assertIn("INSTRUMENTATION_LIST", script)
+        self.assertNotIn("grep 'com.bluevpn.benchmark'", script)
         self.assertNotIn(":benchmark:connectedBenchmarkAndroidTest", script)
 
     def test_release_gate_compiles_macrobenchmark(self):

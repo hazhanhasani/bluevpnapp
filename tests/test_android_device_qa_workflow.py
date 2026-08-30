@@ -20,6 +20,11 @@ class AndroidDeviceQaWorkflowTest(unittest.TestCase):
         self.assertIn(":app:installPlaystoreBenchmark", emulator_script)
         self.assertIn("adb shell am instrument -w -r", emulator_script)
         self.assertIn("com.bluevpn.benchmark.BlueVpnLocationsMacrobenchmark", emulator_script)
+        self.assertIn("aapt", emulator_script)
+        self.assertIn("BENCH_PACKAGE", emulator_script)
+        self.assertIn("BENCH_COMPONENT", emulator_script)
+        self.assertIn("INSTRUMENTATION_LIST", emulator_script)
+        self.assertNotIn("grep 'com.bluevpn.benchmark'", emulator_script)
         self.assertNotIn(":benchmark:connectedBenchmarkAndroidTest", emulator_script)
 
     def test_emulator_qa_enables_kvm_and_avoids_stateful_cd(self):

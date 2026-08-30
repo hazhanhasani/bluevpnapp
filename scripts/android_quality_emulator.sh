@@ -50,17 +50,50 @@ upstream/V2rayNG/gradlew -p upstream/V2rayNG \
   -PABI_FILTERS=x86_64 \
   --stacktrace --no-daemon --build-cache
 
-BENCH_COMPONENT="$(
-  adb shell pm list instrumentation |
-    tr -d '\r' |
-    grep 'com.bluevpn.benchmark' |
-    grep "(target=$BLUEVPN_QA_APPLICATION_ID)" |
-    sed -n 's/^instrumentation:\([^ ]*\).*/\1/p' |
+BENCH_APK="$(
+  find upstream/V2rayNG/benchmark/build/outputs/apk -type f -name '*.apk' |
+    sort |
     head -n 1
 )"
-if [[ -z "$BENCH_COMPONENT" ]]; then
-  echo "::error::BlueVPN Macrobenchmark instrumentation was not installed."
-  adb shell pm list instrumentation || true
+if [[ -z "$BENCH_APK" || ! -f "$BENCH_APK" ]]; then
+  echo "::error::Macrobenchmark APK was not produced."
+  find upstream/V2rayNG/benchmark/build/outputs -maxdepth 5 -type f -print 2>/dev/null || true
+  exit 1
+fi
+
+# Derive the instrumentation package from the APK itself instead of relying on
+# fragile grep pipelines over 'pm list instrumentation'. Under 'set -euo
+# pipefail', a no-match grep exits the whole QA script before diagnostics run.
+AAPT_BIN="$ANDROID_HOME/build-tools/37.0.0/aapt"
+if [[ ! -x "$AAPT_BIN" ]]; then
+  AAPT_BIN="$(command -v aapt || true)"
+fi
+if [[ -z "$AAPT_BIN" || ! -x "$AAPT_BIN" ]]; then
+  echo "::error::aapt is unavailable; cannot resolve Macrobenchmark package."
+  exit 1
+fi
+
+BENCH_PACKAGE="$(
+  "$AAPT_BIN" dump badging "$BENCH_APK" |
+    sed -n "s/^package: name='\([^']*\)'.*/\1/p" |
+    head -n 1
+)"
+if [[ -z "$BENCH_PACKAGE" ]]; then
+  echo "::error::Could not read Macrobenchmark package from $BENCH_APK."
+  "$AAPT_BIN" dump badging "$BENCH_APK" || true
+  exit 1
+fi
+
+BENCH_COMPONENT="$BENCH_PACKAGE/androidx.test.runner.AndroidJUnitRunner"
+INSTRUMENTATION_LIST="$(adb shell pm list instrumentation | tr -d '\r' || true)"
+if ! grep -Fq "instrumentation:$BENCH_COMPONENT " <<<"$INSTRUMENTATION_LIST"; then
+  echo "::error::BlueVPN Macrobenchmark instrumentation was not registered: $BENCH_COMPONENT"
+  printf '%s\n' "$INSTRUMENTATION_LIST"
+  exit 1
+fi
+if ! grep -Fq "(target=$BLUEVPN_QA_APPLICATION_ID)" <<<"$INSTRUMENTATION_LIST"; then
+  echo "::error::No installed instrumentation targets $BLUEVPN_QA_APPLICATION_ID."
+  printf '%s\n' "$INSTRUMENTATION_LIST"
   exit 1
 fi
 
@@ -82,7 +115,8 @@ if grep -Eq 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed|shortMsg=Process
   echo "::error::Macrobenchmark instrumentation reported a test failure."
   exit 1
 fi
-if ! grep -Eq 'OK \([0-9]+ tests?\)|OK \([0-9]+ test\)' "$BENCH_LOG"; then
+if ! grep -Eq 'OK \([0-9]+ tests?\)|INSTRUMENTATION_CODE: 0' "$BENCH_LOG"; then
   echo "::error::Macrobenchmark instrumentation did not report JUnit success."
+  cat "$BENCH_LOG"
   exit 1
 fi

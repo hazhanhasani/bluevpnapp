@@ -18,7 +18,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class BlueVpnLocationsUiTest {
@@ -93,16 +92,18 @@ class BlueVpnLocationsUiTest {
     fun captureLightAndDarkRtlSnapshots() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val device = UiDevice.getInstance(instrumentation)
-        val target = instrumentation.targetContext
-        val qaDir = target.getExternalFilesDir("qa") ?: return
+        val qaDir = "/data/local/tmp/bluevpn-qa"
 
+        device.executeShellCommand("rm -rf $qaDir && mkdir -p $qaDir")
         device.executeShellCommand("cmd uimode night no")
         ActivityScenario.launch(BlueVpnServersActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 assertTrue(findRecycler(activity)?.isShown == true)
             }
             device.waitForIdle()
-            device.takeScreenshot(File(qaDir, "locations-light-rtl.png"))
+            device.executeShellCommand(
+                "screencap -p $qaDir/locations-light-rtl.png"
+            )
 
             device.executeShellCommand("cmd uimode night yes")
             scenario.recreate()
@@ -110,7 +111,9 @@ class BlueVpnLocationsUiTest {
                 assertTrue(findRecycler(activity)?.isShown == true)
             }
             device.waitForIdle()
-            device.takeScreenshot(File(qaDir, "locations-dark-rtl.png"))
+            device.executeShellCommand(
+                "screencap -p $qaDir/locations-dark-rtl.png"
+            )
         }
         device.executeShellCommand("cmd uimode night no")
     }

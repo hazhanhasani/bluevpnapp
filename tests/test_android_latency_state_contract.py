@@ -39,7 +39,7 @@ class AndroidLatencyStateContractTest(unittest.TestCase):
         src = self.text("android-source/BlueVpnServersActivity.kt")
         for label in [
             '"در حال سنجش"',
-            '"بدون پاسخ"',
+            '"تست کامل نشد • دوباره امتحان کنید"',
             '" ms • قدیمی"',
             '" ms • ذخیره‌شده"',
             '"هنوز سنجیده نشده"',

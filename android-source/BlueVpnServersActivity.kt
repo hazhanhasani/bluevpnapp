@@ -15,6 +15,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView as QualityStrip
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -61,6 +62,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         const val EXTRA_LOCATION_TITLE = "bluevpn.extra.LOCATION_TITLE"
 
         private const val STATE_TAB = "bluevpn.locations.state.TAB"
+        private const val STATE_QUALITY = "bluevpn.locations.state.QUALITY"
         private const val STATE_QUERY = "bluevpn.locations.state.QUERY"
         private const val STATE_EXPANDED = "bluevpn.locations.state.EXPANDED"
         private const val STATE_SCROLL_Y = "bluevpn.locations.state.SCROLL_Y"
@@ -77,6 +79,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private enum class LocationTab { ALL, FAVORITES, RECENT }
+
+    private enum class QualityFilter {
+        ALL,
+        FAST,
+        USABLE,
+        NEEDS_TEST,
+    }
 
     private data class LocationGroup(
         val location: BlueVpnLocation,
@@ -173,9 +182,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             ).apply {
-                topMargin = if (item is BlueVpnLocationListRow.Server) dp(2) else dp(3)
+                topMargin = if (item is BlueVpnLocationListRow.Server) dp(5) else dp(5)
                 bottomMargin = if (item is BlueVpnLocationListRow.Country) dp(2) else 0
-                marginStart = if (item is BlueVpnLocationListRow.Server) dp(14) else 0
+                marginStart = if (item is BlueVpnLocationListRow.Server) dp(18) else 0
                 marginEnd = if (item is BlueVpnLocationListRow.Server) dp(4) else 0
             }
             holder.host.addView(content, params)
@@ -189,14 +198,19 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 ?: return false
             val bars = holder.host.findViewWithTag<TextView>(TAG_SERVER_SIGNAL)
                 ?: return false
-            val surface = holder.host.findViewWithTag<View>(TAG_SERVER_SURFACE)
+            val surface = holder.host.findViewWithTag<MaterialCardView>(TAG_SERVER_SURFACE)
+                ?: return false
 
             val color = serverHealthColor(item.signalLevel, item.active)
             health.text = serverHealthLabel(item)
             health.setTextColor(color)
-            bars.text = signalBars(item.signalLevel)
+            bars.text = qualityBadge(item.signalLevel)
             bars.setTextColor(color)
-            surface?.contentDescription =
+            bars.background = rounded(qualityPillColor(item.signalLevel), 11)
+            surface.setCardBackgroundColor(qualitySurfaceColor(item.signalLevel, item.active))
+            surface.strokeColor = qualityStrokeColor(item.signalLevel, item.active)
+            surface.strokeWidth = dp(1)
+            surface.contentDescription =
                 item.title + " " + item.ordinal + "؛ " + serverHealthLabel(item)
             return true
         }
@@ -218,15 +232,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             val action = holder.host.findViewWithTag<TextView>(TAG_SERVER_ACTION)
                 ?: return false
 
-            surface.setCardBackgroundColor(
-                if (item.active) {
-                    if (palette.dark) 0xFF17223A.toInt() else 0xFFF0F5FF.toInt()
-                } else {
-                    palette.surface
-                }
-            )
-            surface.strokeColor = android.graphics.Color.TRANSPARENT
-            surface.strokeWidth = 0
+            surface.setCardBackgroundColor(qualitySurfaceColor(item.signalLevel, item.active))
+            surface.strokeColor = qualityStrokeColor(item.signalLevel, item.active)
+            surface.strokeWidth = dp(1)
             rail.background = rounded(
                 if (item.active) palette.accent else android.graphics.Color.TRANSPARENT,
                 3,
@@ -239,8 +247,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             val healthColor = serverHealthColor(item.signalLevel, item.active)
             health.text = serverHealthLabel(item)
             health.setTextColor(healthColor)
-            bars.text = signalBars(item.signalLevel)
+            bars.text = qualityBadge(item.signalLevel)
             bars.setTextColor(healthColor)
+            bars.background = rounded(qualityPillColor(item.signalLevel), 11)
 
             action.text = when {
                 item.automaticActive -> "خودکار"
@@ -312,7 +321,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private lateinit var favoritesTabButton: TextView
     private lateinit var recentTabButton: TextView
     private lateinit var searchField: EditText
+    private lateinit var qualitySummary: TextView
+    private lateinit var qualityProgress: TextView
+    private lateinit var qualityTestButton: TextView
+    private lateinit var qualityProgressFill: View
+    private lateinit var qualityProgressRemainder: View
+    private val qualityFilterButtons = linkedMapOf<QualityFilter, TextView>()
     private var selectedTab = LocationTab.ALL
+    private var selectedQualityFilter = QualityFilter.ALL
     private var query = ""
     private var queryText = ""
     private var restoredScrollY: Int? = null
@@ -366,6 +382,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             selectedTab = runCatching {
                 LocationTab.valueOf(savedInstanceState.getString(STATE_TAB).orEmpty())
             }.getOrDefault(LocationTab.ALL)
+            selectedQualityFilter = runCatching {
+                QualityFilter.valueOf(savedInstanceState.getString(STATE_QUALITY).orEmpty())
+            }.getOrDefault(QualityFilter.ALL)
             queryText = savedInstanceState.getString(STATE_QUERY).orEmpty()
             query = BlueVpnLocationUtil.normalizeForSearch(queryText)
             expandedLocationKeys.clear()
@@ -412,6 +431,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             if (event == "batch-complete") {
                 healthSweepInProgress = false
             }
+            updateQualityDashboard(BlueVpnLocationUtil.cachedCandidates(this))
             renderHandler.removeCallbacks(healthRefreshRunnable)
             renderHandler.postDelayed(healthRefreshRunnable, 120L)
         }
@@ -443,6 +463,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         persistLocationUiState()
         outState.putString(STATE_TAB, selectedTab.name)
+        outState.putString(STATE_QUALITY, selectedQualityFilter.name)
         outState.putString(STATE_QUERY, queryText)
         outState.putStringArrayList(STATE_EXPANDED, ArrayList(expandedLocationKeys))
         outState.putInt(
@@ -621,6 +642,135 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }, BlueVpnLatencyPolicy.MEASUREMENT_TIMEOUT_MS)
     }
 
+    private fun runManualQualitySweep() {
+        val candidates = BlueVpnLocationUtil.cachedCandidates(this)
+        if (candidates.isEmpty()) {
+            Toast.makeText(this, "هنوز سروری برای تست دریافت نشده است", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (mainViewModel.isRunning.value == true) {
+            Toast.makeText(
+                this,
+                "برای تست گروهی، ابتدا اتصال فعلی را قطع کنید",
+                Toast.LENGTH_LONG,
+            ).show()
+            return
+        }
+        if (healthSweepInProgress) return
+
+        healthSweepRequested = true
+        healthSweepInProgress = true
+        markLatencyMeasurementStarted(candidates)
+        updateQualityDashboard(candidates)
+        refreshVisibleHealthPresentation()
+        mainViewModel.testAllRealPing()
+        renderHandler.postDelayed({
+            healthSweepInProgress = false
+            updateQualityDashboard(BlueVpnLocationUtil.cachedCandidates(this))
+            refreshVisibleHealthPresentation()
+        }, BlueVpnLatencyPolicy.MEASUREMENT_TIMEOUT_MS)
+    }
+
+    private fun updateQualityFilterButtons() {
+        qualityFilterButtons.forEach { (filter, button) ->
+            val active = selectedQualityFilter == filter
+            val tone = when (filter) {
+                QualityFilter.ALL -> palette.accent
+                QualityFilter.FAST ->
+                    if (palette.dark) 0xFF38C98F.toInt() else 0xFF14835B.toInt()
+                QualityFilter.USABLE ->
+                    if (palette.dark) 0xFF65A0FF.toInt() else 0xFF326FD1.toInt()
+                QualityFilter.NEEDS_TEST ->
+                    if (palette.dark) 0xFFF0B955.toInt() else 0xFF9B6900.toInt()
+            }
+            val idleFill = when (filter) {
+                QualityFilter.ALL -> palette.surfaceStrong
+                QualityFilter.FAST ->
+                    if (palette.dark) 0xFF16352C.toInt() else 0xFFE8F7F0.toInt()
+                QualityFilter.USABLE ->
+                    if (palette.dark) 0xFF1C2D4A.toInt() else 0xFFEAF1FF.toInt()
+                QualityFilter.NEEDS_TEST ->
+                    if (palette.dark) 0xFF3A301D.toInt() else 0xFFFFF2D8.toInt()
+            }
+            button.background = rounded(
+                if (active) tone else idleFill,
+                12,
+                if (active) tone else palette.stroke,
+            )
+            button.setTextColor(
+                if (active) android.graphics.Color.WHITE else tone,
+            )
+        }
+    }
+
+    private fun candidateMatchesQuality(
+        candidate: BlueVpnLocationUtil.Candidate,
+    ): Boolean {
+        val snapshot = latencySnapshot(candidate)
+        val level = signalLevel(candidate)
+        return when (selectedQualityFilter) {
+            QualityFilter.ALL -> true
+            QualityFilter.FAST ->
+                snapshot.phase == BlueVpnLatencyPhase.FRESH && level >= 3
+            QualityFilter.USABLE ->
+                (
+                    snapshot.phase == BlueVpnLatencyPhase.FRESH ||
+                        snapshot.phase == BlueVpnLatencyPhase.STALE
+                    ) &&
+                    level >= 1
+            QualityFilter.NEEDS_TEST ->
+                snapshot.phase == BlueVpnLatencyPhase.UNKNOWN ||
+                    snapshot.phase == BlueVpnLatencyPhase.MEASURING ||
+                    snapshot.phase == BlueVpnLatencyPhase.TIMEOUT
+        }
+    }
+
+    private fun updateQualityDashboard(
+        candidates: List<BlueVpnLocationUtil.Candidate>,
+    ) {
+        if (!::qualitySummary.isInitialized) return
+        val total = candidates.size
+        val snapshots = candidates.map { it to latencySnapshot(it) }
+        val tested = snapshots.count { (_, value) ->
+            value.phase != BlueVpnLatencyPhase.UNKNOWN &&
+                value.phase != BlueVpnLatencyPhase.MEASURING
+        }
+        val fast = snapshots.count { (candidate, value) ->
+            value.phase == BlueVpnLatencyPhase.FRESH && signalLevel(candidate) >= 3
+        }
+        val needsTest = snapshots.count { (_, value) ->
+            value.phase == BlueVpnLatencyPhase.UNKNOWN ||
+                value.phase == BlueVpnLatencyPhase.MEASURING ||
+                value.phase == BlueVpnLatencyPhase.TIMEOUT
+        }
+        val percent = if (total <= 0) 0 else ((tested * 100f) / total).toInt().coerceIn(0, 100)
+
+        qualitySummary.text = when {
+            total <= 0 -> "پس از دریافت سرورها، کیفیت اینجا نمایش داده می‌شود"
+            healthSweepInProgress -> "$tested از $total سنجیده شد • تست زنده در حال اجرا"
+            else -> "$fast سریع • $needsTest نیازمند تست • $total سرور"
+        }
+        qualityProgress.text = "$percent٪"
+        if (::qualityProgressFill.isInitialized && ::qualityProgressRemainder.isInitialized) {
+            (qualityProgressFill.layoutParams as LinearLayout.LayoutParams).weight = percent.toFloat()
+            (qualityProgressRemainder.layoutParams as LinearLayout.LayoutParams).weight =
+                (100 - percent).toFloat()
+            qualityProgressFill.background = rounded(
+                if (percent >= 100 && total > 0) {
+                    if (palette.dark) 0xFF43D69B.toInt() else 0xFF16845C.toInt()
+                } else {
+                    palette.accent
+                },
+                3,
+            )
+            qualityProgressFill.requestLayout()
+            qualityProgressRemainder.requestLayout()
+        }
+        qualityTestButton.text = if (healthSweepInProgress) "در حال تست…" else "تست همه"
+        qualityTestButton.isEnabled = !healthSweepInProgress && total > 0
+        qualityTestButton.alpha = if (qualityTestButton.isEnabled) 1f else 0.72f
+    }
+
 
     private fun createScreen(): View {
         palette = BlueVpnTheme.palette(this)
@@ -638,6 +788,9 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         root.addView(createHeader(), LinearLayout.LayoutParams(-1, dp(56)))
         root.addView(createTabs(), LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(6) })
         root.addView(createSearchField(), LinearLayout.LayoutParams(-1, dp(48)).apply { topMargin = dp(8) })
+        root.addView(createQualityDashboard(), LinearLayout.LayoutParams(-1, dp(122)).apply {
+            topMargin = dp(8)
+        })
         root.addView(automaticServerCard(), LinearLayout.LayoutParams(-1, dp(68)).apply {
             topMargin = dp(8)
             bottomMargin = dp(8)
@@ -803,6 +956,138 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             }
             override fun afterTextChanged(s: Editable?) = Unit
         })
+    }
+
+    private fun createQualityDashboard(): View {
+        val dashboard = card(
+            radius = 20,
+            fill = if (palette.dark) 0xFF111A2C.toInt() else 0xFFF7F9FF.toInt(),
+            stroke = if (palette.dark) 0xFF273653.toInt() else 0xFFDCE5F6.toInt(),
+        ).apply {
+            cardElevation = dp(2).toFloat()
+        }
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(9))
+        }
+        dashboard.addView(column)
+
+        val headline = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val radar = textView("◉", 20f, android.graphics.Color.WHITE, Gravity.CENTER).apply {
+            background = rounded(palette.accent, 14)
+            contentDescription = "وضعیت کیفیت شبکه"
+        }
+        headline.addView(radar, LinearLayout.LayoutParams(dp(42), dp(42)).apply {
+            marginEnd = dp(10)
+        })
+
+        val copy = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        copy.addView(textView("کیفیت زنده سرورها", 14f, palette.textPrimary, Gravity.END).apply {
+            setTypeface(typeface, Typeface.BOLD)
+        })
+        qualitySummary = textView("در حال آماده‌سازی سنجش…", 9.5f, palette.textMuted, Gravity.END).apply {
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            setPadding(0, dp(2), 0, 0)
+        }
+        copy.addView(qualitySummary)
+        headline.addView(copy, LinearLayout.LayoutParams(0, -1, 1f))
+
+        qualityProgress = textView("۰٪", 9f, palette.accent, Gravity.CENTER).apply {
+            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
+            background = rounded(
+                if (palette.dark) 0xFF20345A.toInt() else 0xFFE4EDFF.toInt(),
+                11,
+            )
+        }
+        headline.addView(qualityProgress, LinearLayout.LayoutParams(dp(46), dp(30)).apply {
+            marginStart = dp(6)
+        })
+
+        qualityTestButton = textView("تست همه", 9.5f, android.graphics.Color.WHITE, Gravity.CENTER).apply {
+            setTypeface(typeface, Typeface.BOLD)
+            background = rounded(palette.accent, 12)
+            isClickable = true
+            isFocusable = true
+            BlueVpnUiGuard.bind(this) { runManualQualitySweep() }
+        }
+        headline.addView(qualityTestButton, LinearLayout.LayoutParams(dp(68), dp(34)).apply {
+            marginStart = dp(6)
+        })
+        column.addView(headline, LinearLayout.LayoutParams(-1, dp(44)))
+
+        val progressTrack = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = rounded(
+                if (palette.dark) 0xFF26334A.toInt() else 0xFFE2E9F5.toInt(),
+                3,
+            )
+            clipToOutline = true
+        }
+        qualityProgressFill = View(this).apply {
+            background = rounded(palette.accent, 3)
+        }
+        qualityProgressRemainder = View(this).apply {
+            background = android.graphics.drawable.ColorDrawable(
+                android.graphics.Color.TRANSPARENT,
+            )
+        }
+        progressTrack.addView(
+            qualityProgressFill,
+            LinearLayout.LayoutParams(0, -1, 0f),
+        )
+        progressTrack.addView(
+            qualityProgressRemainder,
+            LinearLayout.LayoutParams(0, -1, 100f),
+        )
+        column.addView(progressTrack, LinearLayout.LayoutParams(-1, dp(5)).apply {
+            topMargin = dp(4)
+        })
+
+        val scroll = QualityStrip(this).apply {
+            isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+        }
+        val filters = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(7), 0, 0)
+        }
+        listOf(
+            QualityFilter.ALL to "همه",
+            QualityFilter.FAST to "سریع",
+            QualityFilter.USABLE to "قابل‌استفاده",
+            QualityFilter.NEEDS_TEST to "نیازمند تست",
+        ).forEach { (filter, label) ->
+            val chip = textView(label, 9.5f, palette.textSecondary, Gravity.CENTER).apply {
+                setTypeface(typeface, Typeface.BOLD)
+                isClickable = true
+                isFocusable = true
+                contentDescription = "فیلتر کیفیت $label"
+                BlueVpnUiGuard.bind(this) {
+                    if (selectedQualityFilter != filter) {
+                        selectedQualityFilter = filter
+                        updateQualityFilterButtons()
+                        renderLocationsFromTop()
+                    }
+                }
+            }
+            qualityFilterButtons[filter] = chip
+            filters.addView(chip, LinearLayout.LayoutParams(dp(if (filter == QualityFilter.USABLE) 94 else 72), dp(32)).apply {
+                marginStart = dp(4)
+            })
+        }
+        scroll.addView(filters)
+        column.addView(scroll, LinearLayout.LayoutParams(-1, dp(46)))
+        updateQualityFilterButtons()
+        return dashboard
     }
 
     private fun automaticServerCard(): View {
@@ -1047,6 +1332,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             append(uiEntitlement.tier.name).append('|')
             append(uiEntitlement.manualSelectionAllowed).append('|')
             append(selectedTab.name).append('|')
+            append(selectedQualityFilter.name).append('|')
             append(query).append('|')
 
             // Structural identity only. Ping, health, selected GUID, preferred
@@ -1095,6 +1381,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val uiEntitlement = BlueVpnEntitlement.resolveUi(this)
         val manualSelectionAllowed = uiEntitlement.manualSelectionAllowed
         val candidates = BlueVpnLocationUtil.cachedCandidates(this)
+        updateQualityDashboard(candidates)
         if (candidates.isEmpty()) {
             // Do not destroy already rendered rows while an entitlement import is
             // temporarily between clear and repopulate. The cache layer will
@@ -1156,12 +1443,14 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 // Keep those routes available to automatic selection, but never
                 // present "unknown" as if it were a manually selectable country.
                 if (location.key == "unknown") return@mapNotNull null
-                val usable = servers.count { !BlueVpnPreferences.isSessionInactive(this, it.guid) }
+                val visibleServers = servers.filter(::candidateMatchesQuality)
+                if (visibleServers.isEmpty()) return@mapNotNull null
+                val usable = visibleServers.count { !BlueVpnPreferences.isSessionInactive(this, it.guid) }
                 LocationGroup(
                     location = location,
-                    servers = servers,
+                    servers = visibleServers,
                     usableRoutes = usable,
-                    healthScore = BlueVpnLocationUtil.locationHealthScore(this, servers),
+                    healthScore = BlueVpnLocationUtil.locationHealthScore(this, visibleServers),
                     favorite = BlueVpnExperience.isFavorite(this, location.key),
                 )
             }
@@ -1213,10 +1502,18 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 }
             )
 
-        emptyText.text = when (selectedTab) {
-            LocationTab.ALL -> "مکانی پیدا نشد"
-            LocationTab.FAVORITES -> "هنوز مکانی را به علاقه‌مندی اضافه نکرده‌اید"
-            LocationTab.RECENT -> "هنوز اتصال موفقی ثبت نشده است"
+        emptyText.text = when {
+            selectedQualityFilter == QualityFilter.FAST ->
+                "سرور سریعی در نتایج فعلی پیدا نشد؛ «تست همه» را بزنید"
+            selectedQualityFilter == QualityFilter.USABLE ->
+                "سرور قابل‌استفاده‌ای در نتایج سنجش پیدا نشد"
+            selectedQualityFilter == QualityFilter.NEEDS_TEST ->
+                "همه سرورهای این بخش سنجیده شده‌اند"
+            selectedTab == LocationTab.FAVORITES ->
+                "هنوز مکانی را به علاقه‌مندی اضافه نکرده‌اید"
+            selectedTab == LocationTab.RECENT ->
+                "هنوز اتصال موفقی ثبت نشده است"
+            else -> "مکانی پیدا نشد"
         }
         emptyText.visibility = if (groups.isEmpty()) View.VISIBLE else View.GONE
 
@@ -1262,7 +1559,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                         favorite = group.favorite,
                         active = groupActive,
                         automaticActive = groupActive && automaticMode && connected,
-                        availability = availabilityLabel(group.location, group.servers),
+                        availability = countryQualitySummary(group.location, group.servers),
                     )
                 )
                 if (expanded) {
@@ -1497,6 +1794,98 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     private fun signalQuality(candidate: BlueVpnLocationUtil.Candidate): String =
         signalQuality(signalLevel(candidate))
 
+    private fun qualityBadge(level: Int): String =
+        when (level) {
+            4 -> "▂▄▆█  عالی"
+            3 -> "▂▄▆  خوب"
+            2 -> "▂▄  متوسط"
+            1 -> "▂  ضعیف"
+            else -> if (healthSweepInProgress) "◌ سنجش" else "○ تست‌نشده"
+        }
+
+    private fun qualityPillColor(level: Int): Int =
+        when (level) {
+            4 -> if (palette.dark) 0xFF163B34.toInt() else 0xFFE2F8EF.toInt()
+            3 -> if (palette.dark) 0xFF193A31.toInt() else 0xFFE8F7F0.toInt()
+            2 -> if (palette.dark) 0xFF41351D.toInt() else 0xFFFFF2D6.toInt()
+            1 -> if (palette.dark) 0xFF43252C.toInt() else 0xFFFFE9EC.toInt()
+            else -> if (palette.dark) 0xFF253047.toInt() else 0xFFEDF2FA.toInt()
+        }
+
+    private fun qualitySurfaceColor(level: Int, active: Boolean): Int =
+        when {
+            active -> if (palette.dark) 0xFF172A49.toInt() else 0xFFEDF3FF.toInt()
+            level >= 3 -> if (palette.dark) 0xFF101F23.toInt() else 0xFFFAFFFC.toInt()
+            level == 2 -> if (palette.dark) 0xFF211F19.toInt() else 0xFFFFFDF8.toInt()
+            level == 1 -> if (palette.dark) 0xFF241A20.toInt() else 0xFFFFFAFB.toInt()
+            else -> palette.surface
+        }
+
+    private fun qualityStrokeColor(level: Int, active: Boolean): Int =
+        when {
+            active -> palette.accent
+            level >= 3 -> if (palette.dark) 0xFF285847.toInt() else 0xFFBDE7D3.toInt()
+            level == 2 -> if (palette.dark) 0xFF5B4824.toInt() else 0xFFF0D596.toInt()
+            level == 1 -> if (palette.dark) 0xFF60323A.toInt() else 0xFFF0BDC5.toInt()
+            else -> palette.stroke
+        }
+
+    private fun countryQualitySummary(
+        location: BlueVpnLocation,
+        servers: List<BlueVpnLocationUtil.Candidate>,
+    ): String {
+        val snapshots = servers.map { candidate -> candidate to latencySnapshot(candidate) }
+        val tested = snapshots.count { (_, snapshot) ->
+            snapshot.phase != BlueVpnLatencyPhase.UNKNOWN &&
+                snapshot.phase != BlueVpnLatencyPhase.MEASURING
+        }
+        val fast = snapshots.count { (candidate, snapshot) ->
+            snapshot.phase == BlueVpnLatencyPhase.FRESH && signalLevel(candidate) >= 3
+        }
+        val ready = snapshots.count { (candidate, snapshot) ->
+            (
+                snapshot.phase == BlueVpnLatencyPhase.FRESH ||
+                    snapshot.phase == BlueVpnLatencyPhase.STALE
+                ) &&
+                signalLevel(candidate) >= 1
+        }
+        val retry = snapshots.count { (_, snapshot) ->
+            snapshot.phase == BlueVpnLatencyPhase.TIMEOUT ||
+                snapshot.phase == BlueVpnLatencyPhase.OFFLINE
+        }
+        val bestLatency = snapshots
+            .map { (_, snapshot) -> snapshot.latencyMs }
+            .filter { it > 0L }
+            .minOrNull()
+
+        return when {
+            servers.isEmpty() -> "بدون سرور"
+            healthSweepInProgress -> "$tested/${servers.size} در حال سنجش"
+            fast > 0 && bestLatency != null ->
+                "$fast سریع • بهترین ${bestLatency}ms"
+            ready > 0 -> "$ready آماده اتصال"
+            retry > 0 -> "$retry نیازمند تست دوباره"
+            else -> availabilityLabel(location, servers)
+        }
+    }
+
+    private fun countryFlagBadge(
+        flag: String,
+        sizeDp: Int,
+        textSp: Float,
+    ): MaterialCardView = card(
+        radius = sizeDp / 2,
+        fill = if (palette.dark) 0xFF17253D.toInt() else 0xFFF1F5FD.toInt(),
+        stroke = if (palette.dark) 0xFF45638F.toInt() else 0xFFB9CBE8.toInt(),
+    ).apply {
+        cardElevation = dp(if (sizeDp >= 50) 3 else 1).toFloat()
+        clipToOutline = true
+        addView(
+            textView(flag, textSp, palette.textPrimary, Gravity.CENTER),
+            FrameLayout.LayoutParams(-1, -1),
+        )
+    }
+
     private fun serverHealthColor(level: Int, active: Boolean): Int =
         when {
             level >= 3 -> if (palette.dark) 0xFF5CD6A6.toInt() else 0xFF13835A.toInt()
@@ -1520,7 +1909,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 item.latencyMs.toString() + " ms • ذخیره‌شده"
             else -> "هنوز سنجیده نشده"
         }
-        return signalBars(item.signalLevel) + "  " + state
+        return state
     }
 
     private fun serverHealthLabel(
@@ -1543,7 +1932,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 latency.latencyMs.toString() + " ms • ذخیره‌شده"
             else -> "هنوز سنجیده نشده"
         }
-        return signalBars(candidate) + "  " + state
+        return state
     }
 
     private fun createServerRow(
@@ -1563,15 +1952,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val level = signalLevel(candidate)
 
         val rowSurface = card(
-            radius = 14,
-            fill = if (active) {
-                if (palette.dark) 0xFF17223A.toInt() else 0xFFF0F5FF.toInt()
-            } else palette.surface,
-            stroke = android.graphics.Color.TRANSPARENT,
+            radius = 17,
+            fill = qualitySurfaceColor(level, active),
+            stroke = qualityStrokeColor(level, active),
         ).apply {
             tag = TAG_SERVER_SURFACE
-            strokeWidth = 0
-            cardElevation = 0f
+            strokeWidth = dp(1)
+            cardElevation = dp(1).toFloat()
             isClickable = true
             isFocusable = true
             contentDescription = group.location.title + " " + ordinal + "؛ " + serverHealthLabel(candidate, active, automaticActive)
@@ -1584,7 +1971,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), dp(7), dp(10), dp(7))
+            setPadding(dp(10), dp(8), dp(10), dp(8))
         }
         rowSurface.addView(row)
 
@@ -1596,7 +1983,12 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                     3,
                 )
             },
-            LinearLayout.LayoutParams(dp(3), dp(36)).apply { marginEnd = dp(8) },
+            LinearLayout.LayoutParams(dp(3), dp(40)).apply { marginEnd = dp(8) },
+        )
+
+        row.addView(
+            countryFlagBadge(group.location.flag, sizeDp = 38, textSp = 21f),
+            LinearLayout.LayoutParams(dp(38), dp(38)).apply { marginEnd = dp(9) },
         )
 
         val titleBox = LinearLayout(this).apply {
@@ -1604,17 +1996,18 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         titleBox.addView(
-            textView(group.location.title + " " + ordinal, 13.5f, palette.textPrimary, Gravity.END).apply {
+            textView(group.location.title + " • سرور " + ordinal, 13.5f, palette.textPrimary, Gravity.END).apply {
                 tag = TAG_SERVER_TITLE
                 setTypeface(typeface, if (active) Typeface.BOLD else Typeface.NORMAL)
                 maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
             },
         )
 
         val healthColor = serverHealthColor(level, active)
         val health = textView(
             serverHealthLabel(candidate, active, automaticActive),
-            10f,
+            9.5f,
             healthColor,
             Gravity.END,
         ).apply {
@@ -1625,11 +2018,13 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         titleBox.addView(health)
         row.addView(titleBox, LinearLayout.LayoutParams(0, -1, 1f))
 
-        val bars = textView(signalBars(candidate), 11f, healthColor, Gravity.CENTER).apply {
+        val bars = textView(qualityBadge(level), 8.5f, healthColor, Gravity.CENTER).apply {
             tag = TAG_SERVER_SIGNAL
-            setTypeface(Typeface.MONOSPACE, Typeface.BOLD)
+            setTypeface(typeface, Typeface.BOLD)
+            background = rounded(qualityPillColor(level), 11)
+            maxLines = 1
         }
-        row.addView(bars, LinearLayout.LayoutParams(dp(48), dp(34)).apply { marginStart = dp(4) })
+        row.addView(bars, LinearLayout.LayoutParams(dp(72), dp(34)).apply { marginStart = dp(4) })
 
         val action = when {
             automaticActive -> "خودکار"
@@ -1644,7 +2039,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 setTypeface(typeface, Typeface.BOLD)
                 background = rounded(palette.surfaceStrong, 11)
             },
-            LinearLayout.LayoutParams(dp(52), dp(32)).apply { marginStart = dp(6) },
+            LinearLayout.LayoutParams(dp(54), dp(34)).apply { marginStart = dp(6) },
         )
         return rowSurface
     }
@@ -1661,15 +2056,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         }
 
         val header = card(
-            radius = 16,
+            radius = 20,
             fill = if (active) {
-                if (palette.dark) 0xFF121B2D.toInt() else 0xFFF4F7FD.toInt()
+                if (palette.dark) 0xFF13213A.toInt() else 0xFFF1F5FF.toInt()
             } else palette.surface,
             stroke = if (active) palette.accent else palette.stroke,
         ).apply {
             tag = TAG_COUNTRY_SURFACE
-            strokeWidth = dp(if (active) 1 else 1)
-            cardElevation = 0f
+            strokeWidth = dp(1)
+            cardElevation = dp(2).toFloat()
             isClickable = true
             isFocusable = true
             contentDescription = group.location.title + "؛ " + group.servers.size + " سرور؛ " + if (expanded) "باز" else "بسته"
@@ -1680,21 +2075,21 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             }
         }
 
-        val row = LinearLayout(this).apply {
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(11), dp(7), dp(11), dp(7))
+        }
+        header.addView(column)
+
+        val topRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), dp(8), dp(10), dp(8))
         }
-        header.addView(row)
+        column.addView(topRow, LinearLayout.LayoutParams(-1, dp(52)))
 
-        row.addView(
-            textView(group.location.flag, 25f, palette.textPrimary, Gravity.CENTER).apply {
-                background = rounded(
-                    if (palette.dark) 0xFF1B2436.toInt() else 0xFFF7F9FC.toInt(),
-                    15,
-                )
-            },
-            LinearLayout.LayoutParams(dp(46), dp(46)).apply { marginEnd = dp(10) },
+        topRow.addView(
+            countryFlagBadge(group.location.flag, sizeDp = 52, textSp = 28f),
+            LinearLayout.LayoutParams(dp(52), dp(52)).apply { marginEnd = dp(11) },
         )
 
         val content = LinearLayout(this).apply {
@@ -1702,40 +2097,79 @@ class BlueVpnServersActivity : HelperBaseActivity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         content.addView(
-            textView(group.location.title, 15f, palette.textPrimary, Gravity.END).apply {
+            textView(group.location.title, 16f, palette.textPrimary, Gravity.END).apply {
                 setTypeface(typeface, Typeface.BOLD)
                 maxLines = 1
                 ellipsize = android.text.TextUtils.TruncateAt.END
             },
         )
-        val availabilityView = textView(
-            group.servers.size.toString() + " سرور • " + availabilityLabel(group.location, group.servers),
-            10f,
-            if (active) palette.accent else palette.textMuted,
-            Gravity.END,
-        ).apply {
-            tag = TAG_COUNTRY_AVAILABILITY
-            setPadding(0, dp(3), 0, 0)
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }
-        content.addView(availabilityView)
-        row.addView(content, LinearLayout.LayoutParams(0, -1, 1f))
+        content.addView(
+            textView(
+                group.servers.size.toString() + " سرور دسته‌بندی‌شده",
+                9.5f,
+                palette.textMuted,
+                Gravity.END,
+            ).apply {
+                setPadding(0, dp(3), 0, 0)
+                maxLines = 1
+            },
+        )
+        topRow.addView(content, LinearLayout.LayoutParams(0, -1, 1f))
 
         val favoriteButton = TextView(this).apply {
             text = if (group.favorite) "★" else "☆"
             textSize = 18f
             gravity = Gravity.CENTER
             includeFontPadding = false
-            background = rounded(android.graphics.Color.TRANSPARENT, 15)
-            setTextColor(if (group.favorite) palette.accent else palette.textMuted)
+            background = rounded(
+                if (group.favorite) {
+                    if (palette.dark) 0xFF3D321B.toInt() else 0xFFFFF1C9.toInt()
+                } else {
+                    android.graphics.Color.TRANSPARENT
+                },
+                16,
+            )
+            setTextColor(
+                if (group.favorite) 0xFFE5A91B.toInt() else palette.textMuted,
+            )
             contentDescription = if (group.favorite) "حذف از علاقه‌مندی" else "افزودن به علاقه‌مندی"
             BlueVpnUiGuard.bind(this) {
                 BlueVpnExperience.toggleFavorite(this@BlueVpnServersActivity, group.location.key)
                 renderLocations()
             }
         }
-        row.addView(favoriteButton, LinearLayout.LayoutParams(dp(48), dp(48)))
+        topRow.addView(favoriteButton, LinearLayout.LayoutParams(dp(48), dp(48)).apply {
+            marginStart = dp(2)
+        })
+
+        val chevron = textView(
+            if (expanded) "⌃" else "⌄",
+            17f,
+            if (expanded) palette.accent else palette.textMuted,
+            Gravity.CENTER,
+        )
+        topRow.addView(chevron, LinearLayout.LayoutParams(dp(44), dp(48)).apply {
+            marginStart = dp(2)
+        })
+
+        val bottomRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val countryLevel = group.servers.maxOfOrNull { signalLevel(it) } ?: 0
+        val availabilityView = textView(
+            countryQualitySummary(group.location, group.servers),
+            9.5f,
+            if (active) palette.accent else serverHealthColor(countryLevel, active = false),
+            Gravity.CENTER_VERTICAL or Gravity.END,
+        ).apply {
+            tag = TAG_COUNTRY_AVAILABILITY
+            background = rounded(qualityPillColor(countryLevel), 11)
+            setPadding(dp(10), 0, dp(10), 0)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        bottomRow.addView(availabilityView, LinearLayout.LayoutParams(0, dp(34), 1f))
 
         val chooseCountry = textView(
             when {
@@ -1767,12 +2201,15 @@ class BlueVpnServersActivity : HelperBaseActivity() {
                 )
             }
         }
-        row.addView(chooseCountry, LinearLayout.LayoutParams(dp(58), dp(40)).apply { marginStart = dp(4) })
+        bottomRow.addView(
+            chooseCountry,
+            LinearLayout.LayoutParams(dp(64), dp(34)).apply { marginStart = dp(6) },
+        )
+        column.addView(bottomRow, LinearLayout.LayoutParams(-1, dp(34)).apply {
+            topMargin = dp(5)
+        })
 
-        val chevron = textView(if (expanded) "⌃" else "⌄", 17f, if (expanded) palette.accent else palette.textMuted, Gravity.CENTER)
-        row.addView(chevron, LinearLayout.LayoutParams(dp(44), dp(48)).apply { marginStart = dp(2) })
-
-        outer.addView(header, LinearLayout.LayoutParams(-1, dp(64)))
+        outer.addView(header, LinearLayout.LayoutParams(-1, dp(105)))
 
         // Expanded server rows are flattened into the RecyclerView adapter.
         // Keeping them out of the country View makes server rows virtualized and
@@ -1797,6 +2234,11 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         selectedTab = runCatching {
             LocationTab.valueOf(prefs.getString("tab", LocationTab.ALL.name).orEmpty())
         }.getOrDefault(LocationTab.ALL)
+        selectedQualityFilter = runCatching {
+            QualityFilter.valueOf(
+                prefs.getString("quality_filter", QualityFilter.ALL.name).orEmpty(),
+            )
+        }.getOrDefault(QualityFilter.ALL)
         queryText = prefs.getString("query_text", "").orEmpty()
         query = BlueVpnLocationUtil.normalizeForSearch(queryText)
         expandedLocationKeys.clear()
@@ -1811,6 +2253,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
         getSharedPreferences("bluevpn_locations_ui", MODE_PRIVATE)
             .edit()
             .putString("tab", selectedTab.name)
+            .putString("quality_filter", selectedQualityFilter.name)
             .putString("query_text", queryText)
             .putStringSet("expanded_keys", LinkedHashSet(expandedLocationKeys))
             .apply()
@@ -1818,7 +2261,7 @@ class BlueVpnServersActivity : HelperBaseActivity() {
 
     private fun scrollPreferenceKey(): String {
         val queryBucket = if (query.isBlank()) "none" else query.hashCode().toString()
-        return "scroll_y:" + selectedTab.name + ":" + queryBucket
+        return "scroll_y:" + selectedTab.name + ":" + selectedQualityFilter.name + ":" + queryBucket
     }
 
     private fun rememberLocationScroll() {

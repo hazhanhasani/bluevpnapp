@@ -15,9 +15,11 @@ class AndroidLocationsOemUi5311Tests(unittest.TestCase):
         self.assertIn("private fun applyTab(button: TextView, active: Boolean)", self.source)
         self.assertIn("button.background = rounded(", self.source)
 
-    def test_favorite_control_and_cards_have_explicit_neutral_visuals(self):
+    def test_favorite_control_and_cards_have_explicit_visuals(self):
         self.assertIn("val favoriteButton = TextView(this).apply", self.source)
-        self.assertIn("background = rounded(android.graphics.Color.TRANSPARENT, 15)", self.source)
+        self.assertIn("if (group.favorite)", self.source)
+        self.assertIn("android.graphics.Color.TRANSPARENT", self.source)
+        self.assertIn("0xFFE5A91B.toInt()", self.source)
         self.assertIn("rippleColor = ColorStateList.valueOf(android.graphics.Color.TRANSPARENT)", self.source)
 
     def test_unknown_routes_remain_auto_only_not_fake_manual_locations(self):

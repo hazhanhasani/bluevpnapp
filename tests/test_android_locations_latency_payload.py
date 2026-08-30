@@ -28,7 +28,7 @@ class AndroidLocationsLatencyPayloadTest(unittest.TestCase):
         self.assertIn("return", payload)
         self.assertNotIn("removeAllViews()", payload)
 
-    def test_payload_updates_only_health_signal_and_accessibility(self):
+    def test_payload_updates_health_signal_quality_surface_and_accessibility(self):
         src = self.text("android-source/BlueVpnServersActivity.kt")
         start = src.index("private fun bindLatencyPayload")
         end = src.index("\n    }\n\n    private val mainViewModel", start)
@@ -37,7 +37,9 @@ class AndroidLocationsLatencyPayloadTest(unittest.TestCase):
         self.assertIn("TAG_SERVER_SIGNAL", body)
         self.assertIn("health.text =", body)
         self.assertIn("bars.text =", body)
-        self.assertIn("surface?.contentDescription", body)
+        self.assertIn("surface.contentDescription", body)
+        self.assertIn("surface.setCardBackgroundColor(qualitySurfaceColor", body)
+        self.assertIn("surface.strokeColor = qualityStrokeColor", body)
         self.assertNotIn("holder.host.removeAllViews()", body)
 
     def test_server_row_exposes_payload_targets(self):

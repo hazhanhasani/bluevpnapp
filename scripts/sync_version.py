@@ -68,8 +68,8 @@ def expected_files(version: str, version_code: int) -> dict[str, str]:
             {
                 "version": version,
                 "version_code": version_code,
-                "build_id": f"20260824-v{version}-version-contract",
-                "description": f"BlueVPN {version}: centralized version contract and release-gate synchronization.",
+                "build_id": f"20260830-v{version}-locations-quality",
+                "description": f"BlueVPN {version}: live server quality testing and premium Locations UI.",
                 "android_version": version,
                 "android_version_code": version_code,
                 "manager_version": version,

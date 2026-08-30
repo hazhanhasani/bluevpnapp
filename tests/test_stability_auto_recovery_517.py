@@ -10,8 +10,8 @@ def text(path: str) -> str:
 class StabilityAutoRecovery517Tests(unittest.TestCase):
     def test_release_is_517(self):
         r = json.loads(text("release.json"))
-        self.assertEqual(r["version"], "6.1.1")
-        self.assertEqual(r["version_code"], 60101)
+        self.assertEqual(r["version"], "6.1.2")
+        self.assertEqual(r["version_code"], 60102)
         self.assertIn("sentinel-self-option-false-positive-fix", r["features"])
         self.assertIn("bot-stale-job-watchdog-auto-unlock", r["features"])
         self.assertIn("manager-first-boot-mu-rollback-guard", r["features"])

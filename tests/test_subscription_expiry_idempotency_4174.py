@@ -24,7 +24,7 @@ class SubscriptionExpiryIdempotency4174Tests(unittest.TestCase):
 
     def test_provisioning_is_idempotent_by_default(self):
         s=text('bluevpn-manager/includes/class-bluevpn-providers.php')
-        self.assertIn('provision_customer(int $customerId,int $planId,?string $canonicalExpire=null)',s)
+        self.assertIn('provision_customer(int $customerId,int $planId,?string $canonicalExpire=null,?int $overrideDataLimitBytes=null)',s)
         self.assertIn('canonical_expiry($c,$plan,$canonicalExpire)',s)
         self.assertIn('if(!$extend&&$current)return $current;',s)
         self.assertIn("'expiry_source'=>'wordpress_mysql_entitlement'",s)

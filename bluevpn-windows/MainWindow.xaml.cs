@@ -105,7 +105,7 @@ public partial class MainWindow : Window
         Closing += MainWindow_Closing;
         // WebView2 is optional and is created lazily only when a web ad is
         // actually selected. Use the standard WPF WebView2 control, not
-        // WebView2CompositionControl: the composition control carries a runtime
+        // The composition-based WebView2 variant carries a runtime
         // Microsoft.Windows.SDK.NET dependency that is not present on clean
         // customer PCs and previously caused startup FileNotFoundException.
         MaxHeight = Math.Max(560, SystemParameters.WorkArea.Height);

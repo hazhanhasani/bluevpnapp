@@ -1499,22 +1499,27 @@ class BlueVpnHomeActivity : HelperBaseActivity() {
             durationMetricLabel = labelView
             freeTimerBadge = value
         }.apply {
-            contentDescription = "زمان باقی‌مانده؛ برای دریافت زمان هدیه لمس کنید"
+            contentDescription = "تبلیغ جایزه‌ای؛ در حالت رایگان زمان هدیه اضافه می‌شود"
             isClickable = true
             isFocusable = true
             BlueVpnUiGuard.bind(this, intervalMs = 900L) {
-                if (!BlueVpnEntitlement.resolveUi(this@BlueVpnHomeActivity).isFree) {
-                    return@bind
-                }
                 BlueVpnTapsellManager.showRewarded(
                     activity = this@BlueVpnHomeActivity,
                     onRewarded = { grantedMinutes ->
-                        updateFreeTimerBadge()
-                        Toast.makeText(
-                            this@BlueVpnHomeActivity,
-                            "$grantedMinutes دقیقه به زمان رایگان اضافه شد",
-                            Toast.LENGTH_LONG,
-                        ).show()
+                        if (grantedMinutes > 0) {
+                            updateFreeTimerBadge()
+                            Toast.makeText(
+                                this@BlueVpnHomeActivity,
+                                "$grantedMinutes دقیقه به زمان رایگان اضافه شد",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        } else {
+                            Toast.makeText(
+                                this@BlueVpnHomeActivity,
+                                "تبلیغ با موفقیت نمایش داده شد",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
                     },
                     onUnavailable = {
                         Toast.makeText(
@@ -4893,8 +4898,8 @@ private fun dpHome(value: Int): Int =
         connectButton.isEnabled = false
 
         val verifiedDelay = delay ?: lastVerifiedLatency
-        val isFreeConnection = !completedLiveSwitch && BlueVpnEntitlement.resolveUi(this).isFree
-        if (isFreeConnection) {
+        val shouldRunPostConnectAds = !completedLiveSwitch
+        if (shouldRunPostConnectAds) {
             beginFreeStoryGate(
                 verifiedDelay = verifiedDelay,
                 completedLiveSwitch = completedLiveSwitch,
@@ -4944,7 +4949,8 @@ private fun dpHome(value: Int): Int =
 
         val sessionId = BlueVpnPreferences.connectedAt(this)
 
-        // Tapsell Mediation is primary when configured. The first-party story
+        // Tapsell Mediation is primary for every account tier when configured.
+        // The first-party story
         // is used only when Tapsell is disabled, misconfigured, no-fill, init
         // fails/times out, or an ad cannot be shown.
         BlueVpnTapsellManager.onVerifiedConnection(

@@ -219,9 +219,8 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
     }
 
     private fun createFreeGuideCard(): View? {
-        if (!BlueVpnEntitlement.resolveUi(this).isFree) return null
         return MaterialButton(this).apply {
-            text = "▶ راهنمای اتصال رایگان"
+            text = "▶ راهنمای اتصال"
             textSize = 12.5f
             isAllCaps = false
             setTextColor(palette.textPrimary)
@@ -236,11 +235,6 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
     }
 
     private fun showFreeGuideWithOptionalPreRoll() {
-        if (!BlueVpnEntitlement.resolveUi(this).isFree) {
-            showFreeConnectionGuide()
-            return
-        }
-
         val completed = java.util.concurrent.atomic.AtomicBoolean(false)
         val dialog = android.app.Dialog(this)
         val host = FrameLayout(this).apply {
@@ -275,14 +269,21 @@ class BlueVpnSupportActivity : HelperBaseActivity() {
     }
 
     private fun showFreeConnectionGuide() {
+        val free = BlueVpnEntitlement.resolveUi(this).isFree
+        val message = if (free) {
+            "۱) اینترنت دستگاه را روشن نگه دارید.\n\n" +
+                "۲) از صفحه اصلی «اتصال» را بزنید و تا تأیید اتصال صبر کنید.\n\n" +
+                "۳) اگر شبکه تغییر کرد، BlueVPN مسیر اتصال را بدون نیاز به انتخاب دستی بازیابی می‌کند.\n\n" +
+                "۴) در حالت رایگان، کارت «زمان باقی‌مانده 🎁» می‌تواند تبلیغ جایزه‌ای نمایش دهد."
+        } else {
+            "۱) اینترنت دستگاه را روشن نگه دارید.\n\n" +
+                "۲) از صفحه اصلی «اتصال» را بزنید و تا تأیید اتصال صبر کنید.\n\n" +
+                "۳) برای تغییر کشور از بخش لوکیشن‌ها استفاده کنید؛ بهترین مسیر همان کشور خودکار انتخاب می‌شود.\n\n" +
+                "۴) اگر شبکه عوض شد، BlueVPN اتصال را پایدارسازی و دوباره بررسی می‌کند."
+        }
         android.app.AlertDialog.Builder(this)
-            .setTitle("راهنمای اتصال رایگان")
-            .setMessage(
-                "۱) اینترنت دستگاه را روشن نگه دارید.\n\n" +
-                    "۲) از صفحه اصلی «اتصال» را بزنید و تا تأیید اتصال صبر کنید.\n\n" +
-                    "۳) اگر شبکه تغییر کرد، BlueVPN مسیر رایگان را بدون نیاز به انتخاب دستی بازیابی می‌کند.\n\n" +
-                    "۴) برای زمان بیشتر، روی کارت «زمان باقی‌مانده 🎁» در صفحه اصلی بزنید."
-            )
+            .setTitle("راهنمای اتصال BlueVPN")
+            .setMessage(message)
             .setPositiveButton("متوجه شدم", null)
             .show()
     }

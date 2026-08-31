@@ -64,6 +64,8 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
     private var running = false
     private var fetchInFlight = false
     private var desiredHeightPx = 0
+    private var artworkAspectRatio = 20f / 9f
+    private var tapsellBannerSize = "BANNER_320_50"
     private var hasRenderedContent = false
     private var lastFetchAt = 0L
 
@@ -176,7 +178,10 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
 
     private fun buildUi() {
         imageView.apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
+            // Fit the whole creative. Height adapts separately so artwork is
+            // never silently cropped on narrow or wide devices.
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            adjustViewBounds = false
             setBackgroundColor(if (palette.dark) Color.parseColor("#10131D") else Color.parseColor("#E9EEF8"))
         }
         addView(imageView, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
@@ -285,6 +290,11 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             ?.optInt("standard_banner_every_slides", 3)
             ?.coerceIn(1, 10)
             ?: 3
+        tapsellBannerSize = tapsell
+            ?.optString("standard_banner_size", "BANNER_320_50")
+            ?.trim()
+            ?.ifBlank { "BANNER_320_50" }
+            ?: "BANNER_320_50"
 
         if (persist) {
             cachePrefs.edit().putString("mobile_config", root.toString()).apply()
@@ -312,7 +322,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         autoplay = config.optBoolean("autoplay", true)
         loop = config.optBoolean("loop", true)
         intervalMs = config.optLong("interval_ms", 6_000L).coerceIn(3_000L, 30_000L)
-        desiredHeightPx = dp(config.optInt("height_dp", 146).coerceIn(116, 160))
+        desiredHeightPx = dp(config.optInt("height_dp", 180).coerceIn(96, 280))
         val parsed = mutableListOf<AdItem>()
         val array = config.optJSONArray("items")
         if (array != null) {
@@ -587,16 +597,29 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             ?: measuredWidth.takeIf { it > 0 }
             ?: (parent as? View)?.width?.takeIf { it > 0 }
             ?: fallbackWidth
-        val ratioHeight = (availableWidth.coerceAtLeast(dp(240)) / 2.222f).roundToInt()
-        return minOf(
-            desiredHeightPx.coerceIn(dp(116), dp(160)),
-            ratioHeight.coerceIn(dp(116), dp(160)),
-        )
+        val width = availableWidth.coerceAtLeast(dp(240))
+
+        if (tapsellLoading || tapsellShowing) {
+            val match = Regex("""BANNER_(\d+)_(\d+)""")
+                .find(tapsellBannerSize.uppercase(Locale.US))
+            val sourceWidth = match?.groupValues?.getOrNull(1)?.toFloatOrNull() ?: 320f
+            val sourceHeight = match?.groupValues?.getOrNull(2)?.toFloatOrNull() ?: 50f
+            val natural = (width * (sourceHeight / sourceWidth.coerceAtLeast(1f))).roundToInt()
+            return natural.coerceIn(dp(50), dp(280))
+        }
+
+        val ratio = artworkAspectRatio.takeIf { it > 0.25f } ?: (20f / 9f)
+        val natural = (width / ratio).roundToInt()
+        val maxConfigured = desiredHeightPx.coerceIn(dp(96), dp(280))
+        return natural.coerceIn(dp(96), maxConfigured)
     }
 
     private fun revealBitmap(bitmap: Bitmap, animateIn: Boolean = false) {
         imageView.background = null
         imageView.setImageBitmap(bitmap)
+        if (bitmap.width > 0 && bitmap.height > 0) {
+            artworkAspectRatio = bitmap.width.toFloat() / bitmap.height.toFloat()
+        }
         val wasVisible = hasRenderedContent && visibility == View.VISIBLE
         hasRenderedContent = true
         val targetHeight = calculateBannerHeight()
@@ -685,6 +708,10 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         }
 
         tapsellLoading = true
+        hasRenderedContent = true
+        visibility = View.VISIBLE
+        tapsellHost.visibility = View.INVISIBLE
+        requestLayout()
         BlueVpnTapsellManager.attachStandardBanner(
             activity = activity,
             host = tapsellHost,
@@ -709,7 +736,11 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
                 tapsellLoading = false
                 tapsellShowing = false
                 tapsellHost.visibility = View.GONE
-                if (items.isEmpty()) hideBanner()
+                if (items.isEmpty()) {
+                    hideBanner()
+                } else {
+                    showItem(currentIndex, animate = false)
+                }
                 scheduleNext()
             },
             onCleanup = { cleanup ->
@@ -726,6 +757,7 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
         tapsellShowing = false
         tapsellHost.removeAllViews()
         tapsellHost.visibility = View.GONE
+        requestLayout()
     }
 
     private fun openCurrentCampaign() {

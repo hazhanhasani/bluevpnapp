@@ -117,6 +117,7 @@
     "test_repository_cleanup_470.py",
     "test_runtime_theme_github_fix_4169.py",
     "test_security_4610.py",
+    "test_sentinel_external_http_resilience_6110.py",
     "test_sentinel_health_actionability_4165.py",
     "test_server_location_learning_542.py",
     "test_session_logout_php_windows_4180.py",

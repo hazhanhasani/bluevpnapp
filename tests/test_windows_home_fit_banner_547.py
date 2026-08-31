@@ -23,7 +23,8 @@ class WindowsHomeFitBanner547Tests(unittest.TestCase):
         self.assertIn('x:Name="AdImage" Stretch="Uniform"', self.xaml)
         self.assertIn("var ratioHeight = ratio > 0.25 ? width / ratio", self.code)
         self.assertIn("if (width < 240) width = 440;", self.code)
-        self.assertIn("Math.Clamp(ratioHeight, configuredFloor, 220)", self.code)
+        self.assertIn("Math.Clamp(ratioHeight, 96, 280)", self.code)
+        self.assertIn("BLUEVPN_TAPSELL_SIZE:", self.code)
 
     def test_drawers_keep_independent_scrolling(self):
         self.assertGreaterEqual(self.xaml.count("<ScrollViewer"), 3)

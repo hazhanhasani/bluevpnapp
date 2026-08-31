@@ -43,10 +43,11 @@ class WindowsTapsellWeb553Tests(unittest.TestCase):
         self.assertIn("'script_html' => ''", ads)
         self.assertNotIn("self::textarea('tapsell_windows_web_script_html'", ads)
 
-    def test_premium_gate_and_fail_open_exist(self):
+    def test_all_tiers_share_windows_web_schedule_and_fail_open_exists(self):
         service = (ROOT / "bluevpn-windows/Services/AdvertisementService.cs").read_text(encoding="utf-8")
         main = (ROOT / "bluevpn-windows/MainWindow.xaml.cs").read_text(encoding="utf-8")
-        self.assertIn("cfg.FreeOnly && premium", service)
+        self.assertNotIn("cfg.FreeOnly && premium", service)
+        self.assertIn("TryReserveWindowsWebImpression(bool _premium", service)
         self.assertIn("tapsell-windows-state.json", service)
         self.assertIn("SaveWindowsWebState", service)
         self.assertIn("catch", main[main.index("ShowTapsellWebAdAsync"):])

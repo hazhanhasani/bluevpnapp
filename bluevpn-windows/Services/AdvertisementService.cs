@@ -93,8 +93,8 @@ public sealed class AdvertisementService
 
     public int BannerHeight => Math.Clamp(
         Current.Advertising.HeightDp > 0 ? Current.Advertising.HeightDp : Current.Ads.HeightDp,
-        116,
-        160);
+        96,
+        280);
 
     public double BannerAspectRatio
     {

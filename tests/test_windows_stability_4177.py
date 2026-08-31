@@ -34,14 +34,15 @@ class WindowsStability4177Tests(unittest.TestCase):
         home=x[x.index('<Grid x:Name="HomeContentGrid"'):x.index('<!-- Internal fields retained for diagnostics/menu only. -->')]
         self.assertGreaterEqual(home.count('<RowDefinition Height="Auto"/>'), 10)
         self.assertNotIn('Height="88" MaxHeight="96"', home)
-        self.assertIn('MinHeight="116" MaxHeight="220"', home)
+        self.assertIn('MinHeight="90" MaxHeight="360"', home)
         self.assertIn('SizeChanged="AdCard_SizeChanged"', home)
         self.assertIn('Stretch="Uniform"', home)
         self.assertIn('TextWrapping="Wrap" LineHeight="17"', home)
         self.assertNotIn('BannerHeight * 0.58', ui)
         self.assertIn('_adImageAspectRatio', ui)
         self.assertIn('image.PixelWidth / (double)image.PixelHeight', ui)
-        self.assertIn('AdCard.Height = Math.Clamp(ratioHeight, configuredFloor, 220)', ui)
+        self.assertIn('AdCard.Height = Math.Clamp(ratioHeight, 96, 280)', ui)
+        self.assertIn('BLUEVPN_TAPSELL_SIZE:', ui)
         self.assertIn('public double BannerAspectRatio', ads)
 
     def test_ads_resolve_relative_assets_and_do_not_decode_on_dispatcher(self):

@@ -1,14 +1,14 @@
 {
-  "version": "6.2.0",
-  "version_code": 60200,
+  "version": "6.2.1",
+  "version_code": 60201,
   "name": "BlueVPN",
   "components": {
-    "android": "6.2.0",
-    "ios": "6.2.0",
-    "windows": "6.2.0",
-    "manager": "6.2.0",
-    "site": "6.2.0",
-    "theme": "6.2.0",
-    "release": "6.2.0"
+    "android": "6.2.1",
+    "ios": "6.2.1",
+    "windows": "6.2.1",
+    "manager": "6.2.1",
+    "site": "6.2.1",
+    "theme": "6.2.1",
+    "release": "6.2.1"
   }
 }

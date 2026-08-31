@@ -39,6 +39,8 @@ class AdsAllTierResponsive617Tests(unittest.TestCase):
         self.assertIn('Regex("""BANNER_(\\d+)_(\\d+)""")', carousel)
         self.assertIn("import java.util.Locale", carousel)
         self.assertIn("coerceIn(dp(96), dp(280))", carousel)
+        self.assertIn("if (tapsellShowing) {", carousel)
+        self.assertNotIn("if (tapsellLoading || tapsellShowing) {", carousel)
 
     def test_windows_web_reports_real_creative_height(self):
         main = (ROOT / "bluevpn-windows/MainWindow.xaml.cs").read_text(encoding="utf-8")

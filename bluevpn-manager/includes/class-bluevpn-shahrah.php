@@ -398,6 +398,26 @@ final class BlueVPN_Shahrah {
         return [];
     }
 
+    private static function service_username_state($node,string $username): string {
+        if(!is_array($node))return 'unknown';
+        $sawIdentity=false;
+        foreach(['username','user'] as $key){
+            if(isset($node[$key])&&is_scalar($node[$key])){
+                $candidate=trim((string)$node[$key]);
+                if($candidate==='')continue;
+                $sawIdentity=true;
+                if($candidate===$username)return 'match';
+            }
+        }
+        foreach($node as $value){
+            if(!is_array($value))continue;
+            $state=self::service_username_state($value,$username);
+            if($state==='match')return 'match';
+            if($state==='mismatch')$sawIdentity=true;
+        }
+        return $sawIdentity?'mismatch':'unknown';
+    }
+
     public static function extract_service_slug(array $response, string $username = ''): string {
         $slug = self::find_first_key($response, ['slug','serviceSlug','service_slug']);
         if ($slug !== '') return $slug;
@@ -463,12 +483,9 @@ final class BlueVPN_Shahrah {
         $response = [];
 
         if ($serviceSlug !== '') {
-            try {
-                $response = self::renew_service($apiKey, $serviceSlug, $planSlug);
-            } catch (Throwable $renewError) {
-                if (!str_contains($renewError->getMessage(), 'پیدا نشد')) throw $renewError;
-                $serviceSlug = '';
-            }
+            $owned=self::resolve_owned_service($apiKey,$username,$serviceSlug);
+            $serviceSlug=trim((string)($owned['service_slug']??''));
+            if($serviceSlug!=='')$response=self::renew_service($apiKey,$serviceSlug,$planSlug);
         }
 
         if ($serviceSlug === '') {
@@ -510,6 +527,25 @@ final class BlueVPN_Shahrah {
         return [];
     }
 
+    private static function resolve_owned_service(string $apiKey,string $username,string $existingSlug): array {
+        $existingSlug=trim($existingSlug);
+        if($existingSlug==='')return [];
+        try{$response=self::service($apiKey,$existingSlug);}
+        catch(Throwable $e){
+            $msg=$e->getMessage();
+            if(str_contains($msg,'پیدا نشد')||str_contains($msg,'404'))return [];
+            throw $e;
+        }
+        $payload=(array)($response['json']??[]);
+        $state=self::service_username_state($payload,$username);
+        if($state==='match')return ['service_slug'=>$existingSlug,'response'=>$payload,'action'=>'existing'];
+        $candidate=self::locate_service_by_username($apiKey,$username,5);
+        $candidateSlug=self::extract_service_slug($candidate,$username);
+        if($candidateSlug!=='')return ['service_slug'=>$candidateSlug,'response'=>$candidate,'action'=>'attached'];
+        if($state==='unknown')throw new RuntimeException('مالکیت سرویس شاهراه قابل تأیید نیست؛ برای جلوگیری از تمدید کاربر اشتباه عملیات متوقف شد.');
+        return [];
+    }
+
     private static function repair_without_renew(string $apiKey,string $planSlug,string $username,string $existingSlug=''): array {
         $planSlug=self::clean_slug($planSlug,'planSlug');
         $username=self::clean_slug($username,'username');
@@ -517,20 +553,17 @@ final class BlueVPN_Shahrah {
         $response=[];
 
         if($serviceSlug!==''){
-            try{
-                $response=self::service($apiKey,$serviceSlug);
+            $owned=self::resolve_owned_service($apiKey,$username,$serviceSlug);
+            if($owned){
                 return [
                     'ok'=>true,
-                    'action'=>'existing',
-                    'service_slug'=>$serviceSlug,
+                    'action'=>(string)$owned['action'],
+                    'service_slug'=>(string)$owned['service_slug'],
                     'username'=>$username,
-                    'response'=>(array)($response['json']??[]),
+                    'response'=>(array)$owned['response'],
                 ];
-            }catch(Throwable $e){
-                $msg=$e->getMessage();
-                if(!str_contains($msg,'پیدا نشد')&&!str_contains($msg,'404'))throw $e;
-                $serviceSlug='';
             }
+            $serviceSlug='';
         }
 
         $candidate=self::locate_service_by_username($apiKey,$username,5);
@@ -605,11 +638,9 @@ final class BlueVPN_Shahrah {
         $response=[];
 
         if($serviceSlug!==''){
-            try{$response=self::renew_service($apiKey,$serviceSlug,$planSlug);}
-            catch(Throwable $renewError){
-                if(!str_contains($renewError->getMessage(),'پیدا نشد'))throw $renewError;
-                $serviceSlug='';
-            }
+            $owned=self::resolve_owned_service($apiKey,$username,$serviceSlug);
+            $serviceSlug=trim((string)($owned['service_slug']??''));
+            if($serviceSlug!=='')$response=self::renew_service($apiKey,$serviceSlug,$planSlug);
         }
 
         if($serviceSlug===''){

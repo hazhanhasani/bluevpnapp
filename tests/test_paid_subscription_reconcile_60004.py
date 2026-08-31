@@ -35,7 +35,7 @@ class PaidSubscriptionReconcile60206Tests(unittest.TestCase):
         body=shahrah[start:end]
         self.assertIn("create_service(",body)
         self.assertIn("locate_service_by_username",body)
-        self.assertIn("self::service(",body)
+        self.assertIn("resolve_owned_service",body)
         self.assertNotIn("renew_service(",body)
 
     def test_automatic_reconcile_is_bounded_and_cursor_based(self):

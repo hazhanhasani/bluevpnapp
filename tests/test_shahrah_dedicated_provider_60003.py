@@ -54,5 +54,18 @@ class ShahrahDedicatedProvider60206Tests(unittest.TestCase):
         self.assertIn("foreach($routes['shahrah'] as $route)",providers)
         self.assertIn("provider_link_upsert",providers)
 
+    def test_stale_service_mapping_is_verified_before_repair_or_renew(self):
+        shahrah=self.text("bluevpn-manager/includes/class-bluevpn-shahrah.php")
+        self.assertIn("service_username_state",shahrah)
+        self.assertIn("resolve_owned_service",shahrah)
+        self.assertIn("مالکیت سرویس شاهراه قابل تأیید نیست",shahrah)
+        repair=shahrah[shahrah.index("private static function repair_without_renew"):shahrah.index("public static function repair_panel_customer")]
+        self.assertIn("resolve_owned_service",repair)
+        self.assertIn("'action'=>(string)$owned['action']",repair)
+        provision=shahrah[shahrah.index("public static function provision("):shahrah.index("private static function locate_service_by_username")]
+        panel=shahrah[shahrah.index("public static function provision_panel"):shahrah.index("public static function configs_for_panel_customer")]
+        self.assertLess(provision.index("resolve_owned_service"),provision.index("renew_service"))
+        self.assertLess(panel.index("resolve_owned_service"),panel.index("renew_service"))
+
 if __name__=="__main__":
     unittest.main()

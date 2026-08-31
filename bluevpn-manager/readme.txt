@@ -1,7 +1,12 @@
 === BlueVPN Manager ===
-Version: 6.2.9
-Stable tag: 6.2.9
+Version: 6.2.10
+Stable tag: 6.2.10
 Requires PHP: 8.0
+
+== 6.2.10 ==
+* وقتی جستجوی مستقیم Shahrah با 5xx موقت شکست بخورد، دیگر page scan دوم اجرا نمی‌شود و بار اضافه روی API ایجاد نمی‌کند.
+* Retry امن GET شاهراه با backoff کندتر انجام می‌شود و اسکن گروهی در خطاهای 5xx به‌طور خودکار کند می‌شود.
+* خطاهای قدیمی INVALID_JSON/500 پس از Sync یا Repair موفق از last_sync_error پاک می‌شوند.
 
 == 6.2.9 ==
 * پشتیبانی رسمی از پارامتر q در GET /services مطابق مستندات شاهراه و جستجوی مستقیم username پیش از page scan.

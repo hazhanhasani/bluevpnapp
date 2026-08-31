@@ -8,8 +8,8 @@ def text(path): return (ROOT/path).read_text(encoding='utf-8')
 class WindowsAiSpeedAuth508Tests(unittest.TestCase):
     def test_release_is_508(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'6.2.9')
-        self.assertEqual(r['version_code'],60209)
+        self.assertEqual(r['version'],'6.2.10')
+        self.assertEqual(r['version_code'],60210)
 
     def test_windows_blueai_is_real_closed_loop(self):
         ai=text('bluevpn-windows/Services/WindowsBlueAiService.cs')

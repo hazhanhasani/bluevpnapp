@@ -3,6 +3,7 @@ if (!defined('ABSPATH')) exit;
 
 final class BlueVPN_SMS_Notifications {
     public const HOOK_PROCESS = 'bluevpn_sms_process_queue';
+    public const HOOK_WAKE = 'bluevpn_sms_wake_queue';
     private const RETRY_DELAYS = [60, 300, 900, 1800];
     private const CATALOG_VERSION = '2026-08-18-4.15.6-manual-exact-admin-activation-event';
     private static bool $shutdownRegistered = false;
@@ -59,6 +60,7 @@ final class BlueVPN_SMS_Notifications {
         add_filter('cron_schedules', [self::class, 'cron_schedules']);
         if ((string)get_option('bluevpn_sms_catalog_version','') !== self::CATALOG_VERSION) self::seed_templates();
         add_action(self::HOOK_PROCESS, [self::class, 'cron_process']);
+        add_action(self::HOOK_WAKE, [self::class, 'cron_process']);
         self::schedule();
     }
 
@@ -88,8 +90,10 @@ final class BlueVPN_SMS_Notifications {
     }
 
     public static function unschedule(): void {
-        $ts=wp_next_scheduled(self::HOOK_PROCESS);
-        while($ts){ wp_unschedule_event($ts,self::HOOK_PROCESS); $ts=wp_next_scheduled(self::HOOK_PROCESS); }
+        foreach ([self::HOOK_PROCESS,self::HOOK_WAKE] as $hook) {
+            $ts=wp_next_scheduled($hook);
+            while($ts){ wp_unschedule_event($ts,$hook); $ts=wp_next_scheduled($hook); }
+        }
     }
 
     public static function settings(): array {
@@ -479,7 +483,15 @@ final class BlueVPN_SMS_Notifications {
     }
 
     private static function kick_queue(): void {
-        if (!wp_next_scheduled(self::HOOK_PROCESS)) wp_schedule_single_event(time()+1,self::HOOK_PROCESS);
+        // HOOK_PROCESS is recurring and therefore cannot be used as an immediate
+        // wake signal: wp_next_scheduled() is almost always true. Use a dedicated
+        // single-shot hook and ask WordPress to spawn the loopback cron worker now.
+        if (!wp_next_scheduled(self::HOOK_WAKE)) {
+            wp_schedule_single_event(time(), self::HOOK_WAKE);
+        }
+        if (function_exists('spawn_cron')) {
+            try { spawn_cron(time()); } catch (Throwable $e) { /* shutdown flush remains the fallback */ }
+        }
         if (!self::$shutdownRegistered) {
             self::$shutdownRegistered = true;
             // Do not rely only on WP-Cron. Flush a small batch at the end of the
@@ -491,7 +503,7 @@ final class BlueVPN_SMS_Notifications {
     public static function shutdown_flush(): void {
         if (function_exists('fastcgi_finish_request')) @fastcgi_finish_request();
         @ignore_user_abort(true);
-        try { self::process(12); } catch (Throwable $e) { BlueVPN_Error_Monitor::legacy_error_log('BlueVPN SMS shutdown flush: '.$e->getMessage()); }
+        try { self::process(24); } catch (Throwable $e) { BlueVPN_Error_Monitor::legacy_error_log('BlueVPN SMS shutdown flush: '.$e->getMessage()); }
     }
 
     /** Wake the worker after a caller commits a DB transaction containing outbox rows. */
@@ -524,6 +536,31 @@ final class BlueVPN_SMS_Notifications {
         }
         if ($kick) self::kick_queue();
         return $id;
+    }
+
+    /**
+     * Durable outbox + foreground delivery for user-visible events.
+     * The row is committed first; dispatch_now updates the exact same row so
+     * history, dedupe and Retry remain canonical even when the provider fails.
+     */
+    public static function queue_and_dispatch(
+        string $eventKey,
+        string $phone,
+        array $params = [],
+        ?int $customerId = null,
+        ?string $orderId = null,
+        string $dedupeSeed = '',
+        bool $force = false,
+        ?int $manualCustomerId = null
+    ): array {
+        $id=self::queue($eventKey,$phone,$params,$customerId,$orderId,$dedupeSeed,$force,true,$manualCustomerId);
+        if(!$id)return ['ok'=>false,'queued'=>false,'sent'=>false,'status'=>'not_queued','message'=>'پیام در Outbox ثبت نشد.'];
+        $result=self::dispatch_now($id);
+        return [
+            'ok'=>!empty($result['ok']),'queued'=>true,'sent'=>!empty($result['sent']),
+            'status'=>(string)($result['status']??'queued'),'message'=>(string)($result['message']??''),
+            'delivery_id'=>$id,
+        ];
     }
 
     private static function provider_id(array $response): string {

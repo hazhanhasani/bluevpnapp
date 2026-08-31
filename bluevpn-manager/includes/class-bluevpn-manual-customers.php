@@ -148,6 +148,42 @@ final class BlueVPN_Manual_Customers {
     }
 
 
+    private static function manual_sms_event_keys(): array {
+        return [
+            'admin_subscription_activated','subscription_renewed','subscription_plan_changed',
+            'subscription_reminder','subscription_expired',
+        ];
+    }
+
+    /**
+     * Older manual-CRM deliveries were queued before manual_customer_id existed.
+     * dedupe_key is SHA-256, so a LIKE 'manual-customer:%' lookup can never recover
+     * those rows. Backfill only unowned/non-app deliveries whose phone maps to
+     * exactly one manual customer; this avoids stealing SMS history from app users.
+     */
+    private static function backfill_legacy_sms_owners(): int {
+        global $wpdb;
+        $manual = self::table();
+        $deliveries = BlueVPN_DB::table('sms_deliveries');
+        $events = self::manual_sms_event_keys();
+        if (!$events) return 0;
+        $placeholders = implode(',', array_fill(0, count($events), '%s'));
+        $sql = "UPDATE {$deliveries} d
+                INNER JOIN (
+                    SELECT phone, MIN(id) AS manual_customer_id
+                    FROM {$manual}
+                    WHERE phone<>''
+                    GROUP BY phone
+                    HAVING COUNT(*)=1
+                ) m ON m.phone=d.phone
+                SET d.manual_customer_id=m.manual_customer_id
+                WHERE d.manual_customer_id IS NULL
+                  AND d.customer_id IS NULL
+                  AND d.event_key IN ({$placeholders})";
+        $result = $wpdb->query($wpdb->prepare($sql, ...$events));
+        return $result===false ? 0 : (int)$result;
+    }
+
     private static function queue_customer_event(
         array $row,
         string $event,
@@ -204,6 +240,7 @@ final class BlueVPN_Manual_Customers {
     public static function render(): void {
         self::guard();
         global $wpdb;
+        self::backfill_legacy_sms_owners();
 
         $table = self::table();
         $q = sanitize_text_field(wp_unslash($_GET['q'] ?? ''));
@@ -352,11 +389,8 @@ final class BlueVPN_Manual_Customers {
             $historyCount = (int)$wpdb->get_var(
                 $wpdb->prepare(
                     "SELECT COUNT(*) FROM ".BlueVPN_DB::table('sms_deliveries')."
-                     WHERE manual_customer_id=%d
-                        OR (manual_customer_id IS NULL AND phone=%s AND dedupe_key LIKE %s)",
-                    $id,
-                    (string)$row['phone'],
-                    'manual-customer:' . $id . ':%'
+                     WHERE manual_customer_id=%d",
+                    $id
                 )
             );
 
@@ -428,16 +462,13 @@ final class BlueVPN_Manual_Customers {
                 ),
                 ARRAY_A
             );
-            $like = 'manual-customer:' . $manualCustomerId . ':%';
             $rows = $wpdb->get_results(
                 $wpdb->prepare(
                     "SELECT id,event_key,phone,status,last_error,sent_at,created_at,dedupe_key,manual_customer_id
                      FROM {$deliveries}
                      WHERE manual_customer_id=%d
-                        OR (manual_customer_id IS NULL AND dedupe_key LIKE %s)
                      ORDER BY created_at DESC LIMIT 150",
-                    $manualCustomerId,
-                    $like
+                    $manualCustomerId
                 ),
                 ARRAY_A
             ) ?: [];
@@ -451,7 +482,6 @@ final class BlueVPN_Manual_Customers {
                 "SELECT id,event_key,phone,status,last_error,sent_at,created_at,dedupe_key,manual_customer_id
                  FROM {$deliveries}
                  WHERE manual_customer_id IS NOT NULL
-                    OR dedupe_key LIKE 'manual-customer:%'
                  ORDER BY created_at DESC LIMIT 80",
                 ARRAY_A
             ) ?: [];
@@ -733,15 +763,17 @@ final class BlueVPN_Manual_Customers {
             $expiryTs = !empty($row['expire_at']) ? (strtotime((string)$row['expire_at'] . ' UTC') ?: 0) : 0;
             $daysLeft = $expiryTs > time() ? (int)ceil(($expiryTs - time()) / DAY_IN_SECONDS) : 0;
             $event = $daysLeft > 0 ? 'subscription_reminder' : 'subscription_expired';
-            $idQueued = self::queue_customer_event(
+            $deliveryId = self::queue_customer_event(
                 $row,
                 $event,
                 'manual-send:' . gmdate('YmdHis') . ':' . substr(bin2hex(random_bytes(4)), 0, 8),
                 $daysLeft,
                 true
             );
-            if (!$idQueued) throw new RuntimeException('پیامک در صف قرار نگرفت؛ تنظیمات SMS و پترن را بررسی کنید.');
-            self::redirect('پیامک مشتری در صف ارسال قرار گرفت.');
+            if (!$deliveryId) throw new RuntimeException('پیامک در صف قرار نگرفت؛ تنظیمات SMS و پترن را بررسی کنید.');
+            $result = BlueVPN_SMS_Notifications::dispatch_now($deliveryId);
+            if (!empty($result['sent'])) self::redirect('پیامک مشتری همان لحظه ارسال شد.');
+            self::redirect('ارسال فوری ناموفق بود؛ پیام در صف Retry باقی ماند: '.(string)($result['message']??''));
         } catch (Throwable $e) {
             self::redirect($e->getMessage(), true);
         }

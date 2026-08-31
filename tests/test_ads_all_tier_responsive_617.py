@@ -37,6 +37,7 @@ class AdsAllTierResponsive617Tests(unittest.TestCase):
         self.assertNotIn("ImageView.ScaleType.CENTER_CROP", carousel)
         self.assertIn("artworkAspectRatio", carousel)
         self.assertIn('Regex("""BANNER_(\\d+)_(\\d+)""")', carousel)
+        self.assertIn("import java.util.Locale", carousel)
         self.assertIn("coerceIn(dp(96), dp(280))", carousel)
 
     def test_windows_web_reports_real_creative_height(self):

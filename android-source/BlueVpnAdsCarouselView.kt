@@ -26,6 +26,7 @@ import java.io.File
 import java.security.MessageDigest
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 

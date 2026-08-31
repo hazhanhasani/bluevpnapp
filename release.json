@@ -6,7 +6,7 @@
   "built_at": "2026-08-30T17:46:02+03:30",
   "android_version": "6.2.5",
   "android_version_code": 60205,
-  "description": "BlueVPN 6.2.5: immediate SMS, flexible manual entitlements, and Android CoreTestService foreground reliability.",
+  "description": "BlueVPN 6.2.5: live server quality testing and premium Locations UI.",
   "features": [
     "android-locations-live-quality-dashboard",
     "android-locations-real-ping-quality-sweep",

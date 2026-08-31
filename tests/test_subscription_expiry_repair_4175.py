@@ -7,8 +7,8 @@ def text(p): return (ROOT/p).read_text()
 class SubscriptionExpiryRepair4175Tests(unittest.TestCase):
     def test_release(self):
         r=json.loads(text('release.json'))
-        self.assertEqual(r['version'],'6.2.4')
-        self.assertEqual(r['version_code'],60204)
+        self.assertEqual(r['version'],'6.2.5')
+        self.assertEqual(r['version_code'],60205)
         self.assertIn('entitlement-expiry-ledger',r['features'])
         self.assertIn('legacy-non-grant-expiry-repair',r['features'])
         self.assertIn('android-server-remaining-seconds-countdown',r['features'])

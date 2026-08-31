@@ -1,7 +1,13 @@
 === BlueVPN Manager ===
-Version: 6.3.0
-Stable tag: 6.3.0
+Version: 6.3.1
+Stable tag: 6.3.1
 Requires PHP: 8.0
+
+== 6.3.1 ==
+* BlueAI دیگر خطاهای نوشتن MySQL را موفق گزارش نمی‌کند و برای Event/Aggregate/Feedback به‌صورت Fail-fast عمل می‌کند.
+* Database Health علاوه بر وجود جدول‌ها، ستون‌های حیاتی Schema را کنترل و Drift را هر ۵ دقیقه Self-heal می‌کند.
+* BlueAI Operations هر ۵ دقیقه اجرا می‌شود، Cursor چرخشی دارد و کاربران انتهای لیست را هم بدون Starvation بررسی می‌کند.
+* پنل BlueAI وضعیت دیتابیس، Scheduler و آمادگی واقعی داده‌های یادگیری را نشان می‌دهد.
 
 == 6.3.0 ==
 * Circuit Breaker برای قطعی/HTTP 5xx شاهراه اضافه شد تا بعد از خرابی upstream، اسکن روی همه کاربران درخواست تکراری تولید نکند.

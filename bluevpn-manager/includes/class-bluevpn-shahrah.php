@@ -496,7 +496,7 @@ final class BlueVPN_Shahrah {
         }
 
         if ($serviceSlug === '') {
-            $response = self::create_service($apiKey, $planSlug, $username);
+            $response = self::create_service_with_recovery($apiKey,$planSlug,$username);
             $serviceSlug = self::extract_service_slug((array)$response['json'], $username);
             if ($serviceSlug === '') {
                 $listing = self::services($apiKey, ['limit'=>100,'page'=>1]);
@@ -532,6 +532,50 @@ final class BlueVPN_Shahrah {
             if($candidate)return $candidate;
         }
         return [];
+    }
+
+    private static function transient_create_failure(Throwable $e): bool {
+        $message=$e->getMessage();
+        return str_contains($message,'خطای داخلی هنگام پردازش درخواست')
+            || str_contains($message,'ارتباط با وب‌سرویس شاهراه برقرار نشد')
+            || preg_match('/\\bHTTP\\s+5\\d\\d\\b/i',$message)===1;
+    }
+
+    /**
+     * A Shahrah create is a charge-bearing POST. A transport failure or 5xx is
+     * ambiguous because the upstream may have committed the service before its
+     * response failed. Never blindly resend the POST: reconcile the deterministic
+     * username with short GET probes and let a later repair run retry only if the
+     * service is still absent.
+     */
+    private static function create_service_with_recovery(string $apiKey,string $planSlug,string $username): array {
+        try{
+            return self::create_service($apiKey,$planSlug,$username);
+        }catch(Throwable $e){
+            if(!self::transient_create_failure($e))throw $e;
+            for($attempt=1;$attempt<=4;$attempt++){
+                usleep(200000*$attempt);
+                try{
+                    $candidate=self::locate_service_by_username($apiKey,$username,1);
+                    if($candidate){
+                        return [
+                            'ok'=>true,
+                            'code'=>200,
+                            'status'=>'RecoveredAfterAmbiguousCreate',
+                            'items'=>[],
+                            'json'=>$candidate,
+                            'recovered_after_create_error'=>true,
+                        ];
+                    }
+                }catch(Throwable $lookupError){
+                    // Keep the original create failure. A failed reconciliation
+                    // GET must never trigger a second chargeable POST.
+                }
+            }
+            throw new RuntimeException(
+                $e->getMessage().' وضعیت ساخت سرویس نامشخص است؛ برای جلوگیری از ساخت یا هزینه تکراری، POST دوباره ارسال نشد. چند ثانیه بعد اسکن را دوباره اجرا کنید.'
+            );
+        }
     }
 
     private static function resolve_owned_service(string $apiKey,string $username,string $existingSlug): array {
@@ -587,7 +631,7 @@ final class BlueVPN_Shahrah {
             }
         }
 
-        $response=self::create_service($apiKey,$planSlug,$username);
+        $response=self::create_service_with_recovery($apiKey,$planSlug,$username);
         $serviceSlug=self::extract_service_slug((array)($response['json']??[]),$username);
         if($serviceSlug===''){
             $candidate=self::locate_service_by_username($apiKey,$username,5);
@@ -651,7 +695,7 @@ final class BlueVPN_Shahrah {
         }
 
         if($serviceSlug===''){
-            $response=self::create_service($apiKey,$planSlug,$username);
+            $response=self::create_service_with_recovery($apiKey,$planSlug,$username);
             $serviceSlug=self::extract_service_slug((array)$response['json'],$username);
             if($serviceSlug===''){
                 $listing=self::services($apiKey,['limit'=>100,'page'=>1]);

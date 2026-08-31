@@ -67,6 +67,26 @@ class ShahrahDedicatedProvider60207Tests(unittest.TestCase):
         self.assertLess(provision.index("resolve_owned_service"),provision.index("renew_service"))
         self.assertLess(panel.index("resolve_owned_service"),panel.index("renew_service"))
 
+    def test_shahrah_ambiguous_create_is_reconciled_without_blind_post_retry(self):
+        shahrah=self.text("bluevpn-manager/includes/class-bluevpn-shahrah.php")
+        start=shahrah.index("private static function create_service_with_recovery")
+        end=shahrah.index("private static function resolve_owned_service",start)
+        helper=shahrah[start:end]
+        self.assertIn("transient_create_failure",shahrah)
+        self.assertIn("locate_service_by_username($apiKey,$username,1)",helper)
+        self.assertIn("RecoveredAfterAmbiguousCreate",helper)
+        self.assertIn("POST دوباره ارسال نشد",helper)
+        self.assertEqual(helper.count("self::create_service($apiKey,$planSlug,$username)"),1)
+        self.assertGreaterEqual(shahrah.count("self::create_service_with_recovery($apiKey,$planSlug,$username)"),3)
+
+    def test_provider_repair_ajax_converts_uncaught_failures_to_json_progress(self):
+        control=self.text("bluevpn-manager/includes/class-bluevpn-control-center.php")
+        worker=control[control.index("public static function repair_missing_provider_subscriptions"):control.index("public static function retry_order_provision")]
+        self.assertIn("PROVIDER_REPAIR_UNCAUGHT",worker)
+        self.assertIn("catch(Throwable $e)",worker)
+        self.assertIn("const raw=await r.text()",control)
+        self.assertIn("پاسخ غیر JSON از سرور",control)
+
     def test_shahrah_read_requests_retry_transient_server_failures(self):
         shahrah=self.text("bluevpn-manager/includes/class-bluevpn-shahrah.php")
         request=shahrah[shahrah.index("public static function request"):shahrah.index("public static function me")]

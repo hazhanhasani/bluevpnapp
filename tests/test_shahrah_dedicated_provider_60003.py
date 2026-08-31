@@ -67,5 +67,13 @@ class ShahrahDedicatedProvider60207Tests(unittest.TestCase):
         self.assertLess(provision.index("resolve_owned_service"),provision.index("renew_service"))
         self.assertLess(panel.index("resolve_owned_service"),panel.index("renew_service"))
 
+    def test_shahrah_read_requests_retry_transient_server_failures(self):
+        shahrah=self.text("bluevpn-manager/includes/class-bluevpn-shahrah.php")
+        request=shahrah[shahrah.index("public static function request"):shahrah.index("public static function me")]
+        self.assertIn("$safeRetry=strtoupper($method)==='GET'",request)
+        self.assertIn("$retryCode>=500",request)
+        self.assertIn("$attempt<3",request)
+        self.assertIn("mb_substr($remote, 0, 300)",shahrah)
+
 if __name__=="__main__":
     unittest.main()

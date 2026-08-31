@@ -261,7 +261,7 @@ final class BlueVPN_Shahrah {
         if ($code === 400) return 'شاهراه: داده ارسالی ناقص یا نامعتبر است.' . ($remote !== '' ? ' (' . mb_substr($remote, 0, 300) . ')' : '');
         if ($code === 401) return 'شاهراه: API KEY ارسال نشده یا معتبر نیست.';
         if ($code === 404) return 'شاهراه: برند، بسته یا سرویس پیدا نشد.';
-        if ($code >= 500) return 'شاهراه: خطای داخلی هنگام پردازش درخواست.';
+        if ($code >= 500) return 'شاهراه: خطای داخلی هنگام پردازش درخواست.' . ($remote !== '' ? ' (' . mb_substr($remote, 0, 300) . ')' : '');
         if ($remote !== '') return 'شاهراه: ' . mb_substr($remote, 0, 500);
         return 'شاهراه HTTP ' . $code;
     }
@@ -289,9 +289,16 @@ final class BlueVPN_Shahrah {
             $args['body'] = wp_json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         }
 
-        $res = wp_remote_request($url, $args);
-        if (is_wp_error($res)) {
-            throw new RuntimeException('ارتباط با وب‌سرویس شاهراه برقرار نشد: ' . $res->get_error_message());
+        $safeRetry=strtoupper($method)==='GET';$res=null;
+        for($attempt=1;$attempt<=($safeRetry?3:1);$attempt++){
+            $res=wp_remote_request($url,$args);
+            if(is_wp_error($res)){
+                if($safeRetry&&$attempt<3){usleep(200000*$attempt);continue;}
+                throw new RuntimeException('ارتباط با وب‌سرویس شاهراه برقرار نشد: '.$res->get_error_message());
+            }
+            $retryCode=(int)wp_remote_retrieve_response_code($res);
+            if($safeRetry&&$retryCode>=500&&$attempt<3){usleep(200000*$attempt);continue;}
+            break;
         }
 
         $code = (int)wp_remote_retrieve_response_code($res);

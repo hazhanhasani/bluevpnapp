@@ -393,14 +393,15 @@ final class BlueVPN_Payments {
                 } catch (Throwable $e) { BlueVPN_Error_Monitor::legacy_error_log('BlueVPN SMS activation preparation: '.$e->getMessage()); }
             }
 
-            $wakeSms=false;
+            $smsDeliveryIds=[];
             $wpdb->query('START TRANSACTION');
             try {
                 $saved=$wpdb->update(BlueVPN_DB::table('orders'), $update, ['id' => $order['id']]);
                 if($saved===false) throw new RuntimeException('ذخیره وضعیت فعال‌سازی سفارش انجام نشد.');
                 foreach($smsJobs as $job){
                     try{
-                        if(BlueVPN_SMS_Notifications::queue($job[0],$job[1],$job[2],$job[3],$job[4],$job[5],false,false)!==null)$wakeSms=true;
+                        $deliveryId=BlueVPN_SMS_Notifications::queue($job[0],$job[1],$job[2],$job[3],$job[4],$job[5],false,false);
+                        if($deliveryId!==null)$smsDeliveryIds[]=$deliveryId;
                     }catch(Throwable $smsError){BlueVPN_Error_Monitor::legacy_error_log('BlueVPN transactional activation SMS: '.$smsError->getMessage());}
                 }
                 $wpdb->query('COMMIT');
@@ -408,7 +409,12 @@ final class BlueVPN_Payments {
                 $wpdb->query('ROLLBACK');
                 throw $e;
             }
-            if($wakeSms&&class_exists('BlueVPN_SMS_Notifications'))BlueVPN_SMS_Notifications::wake_queue();
+            $needsRetry=false;
+            foreach($smsDeliveryIds as $deliveryId){
+                try{$delivery=BlueVPN_SMS_Notifications::dispatch_now($deliveryId);if(empty($delivery['sent']))$needsRetry=true;}
+                catch(Throwable $smsError){$needsRetry=true;BlueVPN_Error_Monitor::legacy_error_log('BlueVPN post-commit SMS dispatch: '.$smsError->getMessage());}
+            }
+            if($needsRetry&&class_exists('BlueVPN_SMS_Notifications'))BlueVPN_SMS_Notifications::wake_queue();
             return array_merge($order, $update);
         } finally {
             $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lockName));

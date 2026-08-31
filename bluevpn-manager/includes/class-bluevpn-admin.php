@@ -28,6 +28,8 @@ final class BlueVPN_Admin {
             ['bluevpn-manual','فعال‌سازی دستی','manual'],
             ['bluevpn-pasarguard','سرور پاسارگاد','panels'],
             ['bluevpn-marzban','سرور مرزبان','marzban'],
+            ['bluevpn-hiddify','سرور هیدیفای','hiddify'],
+            ['bluevpn-threexui','سرور 3x-ui','threexui'],
             ['bluevpn-shahrah','تأمین‌کننده شاهراه','shahrah'],
             ['bluevpn-guardcore','سرور گاردکور','guardcore'],
             ['bluevpn-guardcore-queue','صف گاردکور','guardcore-manual'],

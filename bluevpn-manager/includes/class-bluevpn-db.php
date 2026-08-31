@@ -12,7 +12,7 @@ final class BlueVPN_DB {
     public static function table_names(): array {
         return [
             'app_settings', 'app_releases', 'windows_releases', 'ad_assets', 'server_locations', 'pasarguard_panels',
-            'marzban_panels', 'shahrah_panels', 'guardcore_panels', 'subscription_sources', 'customer_provider_links', 'gateway_nodes', 'gateway_sessions', 'gateway_usage_events', 'gateway_config_generations', 'gateway_session_migrations', 'plans', 'customers', 'manual_customers',
+            'marzban_panels', 'shahrah_panels', 'guardcore_panels', 'hiddify_panels', 'threexui_panels', 'subscription_sources', 'customer_provider_links', 'gateway_nodes', 'gateway_sessions', 'gateway_usage_events', 'gateway_config_generations', 'gateway_session_migrations', 'plans', 'customers', 'manual_customers',
             'otp_challenges', 'customer_sessions', 'customer_devices', 'sms_settings',
             'sms_templates', 'sms_deliveries', 'payment_settings', 'orders',
             'payment_events', 'provisioning_attempts', 'entitlement_ledger', 'webhook_deliveries',
@@ -239,6 +239,52 @@ final class BlueVPN_DB {
             last_test_at datetime NULL,
             created_at datetime NULL,
             PRIMARY KEY  (id)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('hiddify_panels')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            name varchar(120) NOT NULL DEFAULT '',
+            base_url varchar(500) NOT NULL DEFAULT '',
+            subscription_base_url varchar(500) NOT NULL DEFAULT '',
+            api_key_enc longtext NULL,
+            api_version varchar(20) NOT NULL DEFAULT 'v2',
+            capabilities_json longtext NULL,
+            stats_json longtext NULL,
+            last_sync_at datetime NULL,
+            verify_tls tinyint(1) NOT NULL DEFAULT 1,
+            active tinyint(1) NOT NULL DEFAULT 1,
+            last_test_ok tinyint(1) NOT NULL DEFAULT 0,
+            last_test_message longtext NULL,
+            last_test_at datetime NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id),
+            KEY ix_hiddify_active (active, last_sync_at)
+        ) $cc;";
+
+        $queries[] = "CREATE TABLE {$t('threexui_panels')} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            name varchar(120) NOT NULL DEFAULT '',
+            base_url varchar(500) NOT NULL DEFAULT '',
+            subscription_base_url varchar(500) NOT NULL DEFAULT '',
+            auth_mode varchar(20) NOT NULL DEFAULT 'api_token',
+            api_token_enc longtext NULL,
+            username_enc longtext NULL,
+            password_enc longtext NULL,
+            inbounds_json longtext NULL,
+            capabilities_json longtext NULL,
+            stats_json longtext NULL,
+            api_version varchar(20) NOT NULL DEFAULT '3.x',
+            last_sync_at datetime NULL,
+            verify_tls tinyint(1) NOT NULL DEFAULT 1,
+            active tinyint(1) NOT NULL DEFAULT 1,
+            last_test_ok tinyint(1) NOT NULL DEFAULT 0,
+            last_test_message longtext NULL,
+            last_test_at datetime NULL,
+            created_at datetime NULL,
+            updated_at datetime NULL,
+            PRIMARY KEY  (id),
+            KEY ix_threexui_active (active, last_sync_at)
         ) $cc;";
 
         $queries[] = "CREATE TABLE {$t('subscription_sources')} (

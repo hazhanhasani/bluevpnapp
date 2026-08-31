@@ -48,6 +48,8 @@ final class BlueVPN_Unified_UI {
             'سرورها و اشتراک' => [
                 ['bluevpn-pasarguard', 'سرور پاسارگاد', 'server'],
                 ['bluevpn-marzban', 'سرور مرزبان', 'server'],
+                ['bluevpn-hiddify', 'سرور هیدیفای', 'server'],
+                ['bluevpn-threexui', 'سرور 3x-ui', 'server'],
                 ['bluevpn-shahrah', 'تأمین‌کننده شاهراه', 'server'],
                 ['bluevpn-guardcore', 'سرور گاردکور', 'shield'],
                 ['bluevpn-guardcore-queue', 'صف گاردکور', 'queue'],

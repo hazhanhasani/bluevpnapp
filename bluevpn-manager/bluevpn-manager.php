@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BlueVPN Manager
  * Description: هسته حساب کاربری، اشتراک، پرداخت، پشتیبانی آنلاین و API سرویس BlueVPN.
- * Version: 6.2.1
+ * Version: 6.2.2
  * Author: BlueVPN
  * Requires at least: 6.2
  * Requires PHP: 8.0
@@ -14,8 +14,8 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('BLUEVPN_MANAGER_VERSION', '6.2.1');
-define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.34.0');
+define('BLUEVPN_MANAGER_VERSION', '6.2.2');
+define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.35.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
 define('BLUEVPN_MANAGER_URL', plugin_dir_url(__FILE__));
@@ -34,6 +34,8 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-payments.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-dollar-pricing.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-api.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-shahrah.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-hiddify.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-threexui.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-providers.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-subscription-sources.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-gateway.php';

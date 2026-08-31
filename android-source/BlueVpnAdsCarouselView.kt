@@ -600,7 +600,11 @@ class BlueVpnAdsCarouselView(context: Context) : FrameLayout(context) {
             ?: fallbackWidth
         val width = availableWidth.coerceAtLeast(dp(240))
 
-        // Keep the first-party campaign at its own aspect ratio while Tapsell is\n        // only loading. Switch geometry only after a real banner impression is\n        // visible; otherwise the campaign briefly collapses to 320x50 before\n        // Tapsell appears.\n        if (tapsellShowing) {
+        // Keep the first-party campaign at its own aspect ratio while Tapsell is
+        // only loading. Switch geometry only after a real banner impression is
+        // visible; otherwise the campaign briefly collapses to 320x50 before
+        // Tapsell appears.
+        if (tapsellShowing) {
             val match = Regex("""BANNER_(\d+)_(\d+)""")
                 .find(tapsellBannerSize.uppercase(Locale.US))
             val sourceWidth = match?.groupValues?.getOrNull(1)?.toFloatOrNull() ?: 320f

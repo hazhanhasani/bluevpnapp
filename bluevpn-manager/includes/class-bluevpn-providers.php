@@ -20,7 +20,7 @@ final class BlueVPN_Providers {
 
     private static function panel(string $provider,int $id): ?array {
         global $wpdb;
-        $map=['pasarguard'=>'pasarguard_panels','marzban'=>'marzban_panels','guardcore'=>'guardcore_panels'];
+        $map=['pasarguard'=>'pasarguard_panels','marzban'=>'marzban_panels','guardcore'=>'guardcore_panels','hiddify'=>'hiddify_panels','threexui'=>'threexui_panels'];
         if(!isset($map[$provider])||$id<=0)return null;
         $t=BlueVPN_DB::table($map[$provider]);
         $r=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%d",$id),ARRAY_A);
@@ -28,7 +28,7 @@ final class BlueVPN_Providers {
     }
     public static function plan_provider_routes(array $plan): array {
         $raw=BlueVPN_Utils::json_decode_array((string)($plan['provider_routes_json']??''),[]);
-        $out=['pasarguard'=>[],'marzban'=>[],'shahrah'=>[],'guardcore'=>[]];
+        $out=['pasarguard'=>[],'marzban'=>[],'shahrah'=>[],'guardcore'=>[],'hiddify'=>[],'threexui'=>[]];
         foreach(array_keys($out) as $provider){
             $rows=$raw[$provider]??[];
             if(!is_array($rows))$rows=[];
@@ -45,6 +45,8 @@ final class BlueVPN_Providers {
                     $route['group_ids']=array_values(array_unique(array_filter(array_map('intval',(array)($row['group_ids']??[])),static fn($x)=>$x>0)));
                 }elseif($provider==='marzban'){
                     $route['inbounds']=is_array($row['inbounds']??null)?$row['inbounds']:[];
+                }elseif($provider==='threexui'){
+                    $route['inbound_ids']=array_values(array_unique(array_filter(array_map('intval',(array)($row['inbound_ids']??[])),static fn($x)=>$x>0)));
                 }
                 $out[$provider][]=$route;
             }
@@ -565,6 +567,8 @@ final class BlueVPN_Providers {
         return $fresh;
     }
     public static function test(string $provider,int $id): array {
+        if($provider==='hiddify')return class_exists('BlueVPN_Hiddify')?BlueVPN_Hiddify::test($id):['ok'=>false,'message'=>'Adapter Hiddify بارگذاری نشده است.'];
+        if($provider==='threexui')return class_exists('BlueVPN_ThreeXUI')?BlueVPN_ThreeXUI::test($id):['ok'=>false,'message'=>'Adapter 3x-ui بارگذاری نشده است.'];
         try{
             $p=self::panel($provider,$id);if(!$p)throw new RuntimeException('پنل پیدا نشد.');
             $base=(string)$p['base_url'];$ssl=(bool)$p['verify_tls'];
@@ -580,21 +584,14 @@ final class BlueVPN_Providers {
                 if(($p['auth_mode']??'manual')==='manual'){$ok=true;$msg='GuardCore در حالت دستی فعال است.';}
                 else{
                     $h=self::gc_headers($p);$r=self::req('GET',self::join_url($base,'/api/admins/current'),$h,null,$ssl);$ok=$r['code']<400;$msg=$ok?'ورود مدیر GuardCore موفق بود.':'HTTP '.$r['code'].' '.mb_substr($r['body'],0,220);
-                    if($ok){
-                        $catalog=self::guardcore_catalog($id,true);
-                        if(!empty($catalog['ok'])){
-                            $msg.=' API '.($catalog['version']??'').' • '.count((array)($catalog['services']??[])).' Service • '.count((array)($catalog['nodes']??[])).' Node دریافت شد.';
-                        }else{
-                            $ok=false;$msg.=' همگام‌سازی Catalog ناموفق: '.($catalog['message']??'');
-                        }
-                    }
+                    if($ok){$catalog=self::guardcore_catalog($id,true);if(!empty($catalog['ok'])){$msg.=' API '.($catalog['version']??'').' • '.count((array)($catalog['services']??[])).' Service • '.count((array)($catalog['nodes']??[])).' Node دریافت شد.';}else{$ok=false;$msg.=' همگام‌سازی Catalog ناموفق: '.($catalog['message']??'');}}
                 }
             }
             self::store_test($provider,$id,$ok,$msg);return ['ok'=>$ok,'message'=>$msg];
         }catch(Throwable $e){self::store_test($provider,$id,false,$e->getMessage());return ['ok'=>false,'message'=>$e->getMessage()];}
     }
     private static function store_test(string $provider,int $id,bool $ok,string $msg): void {
-        global $wpdb;$map=['pasarguard'=>'pasarguard_panels','marzban'=>'marzban_panels','guardcore'=>'guardcore_panels'];if(!isset($map[$provider]))return;
+        global $wpdb;$map=['pasarguard'=>'pasarguard_panels','marzban'=>'marzban_panels','guardcore'=>'guardcore_panels','hiddify'=>'hiddify_panels','threexui'=>'threexui_panels'];if(!isset($map[$provider]))return;
         $wpdb->update(BlueVPN_DB::table($map[$provider]),['last_test_ok'=>$ok?1:0,'last_test_message'=>mb_substr($msg,0,1800),'last_test_at'=>BlueVPN_Utils::now_mysql()],['id'=>$id]);
     }
     private static function pg_user(array $p,string $username,int $timeout=25): ?array {
@@ -662,6 +659,17 @@ final class BlueVPN_Providers {
             }
             if(!$items)throw new RuntimeException('هیچ Inbound فعال Marzban پیدا نشد.');
             return ['provider'=>'marzban','panel_id'=>$id,'kind'=>'inbound','items'=>array_values($items)];
+        }
+        if($provider==='threexui'){
+            if(!class_exists('BlueVPN_ThreeXUI'))throw new RuntimeException('Adapter 3x-ui بارگذاری نشده است.');
+            $items=[];foreach(BlueVPN_ThreeXUI::inbounds($id) as $row){$iid=(int)($row['id']??0);if($iid<=0)continue;$items[]=['value'=>(string)$iid,'label'=>(string)($row['remark']??('Inbound #'.$iid)),'meta'=>strtoupper((string)($row['protocol']??'')).((int)($row['port']??0)>0?' :'.(int)$row['port']:'')];}
+            if(!$items)throw new RuntimeException('هیچ Inbound فعال 3x-ui پیدا نشد.');
+            return ['provider'=>'threexui','panel_id'=>$id,'kind'=>'inbound_id','items'=>$items];
+        }
+        if($provider==='hiddify'){
+            if(!class_exists('BlueVPN_Hiddify'))throw new RuntimeException('Adapter Hiddify بارگذاری نشده است.');
+            $catalog=BlueVPN_Hiddify::catalog($id,false);
+            return ['provider'=>'hiddify','panel_id'=>$id,'kind'=>'automatic','items'=>[],'stats'=>(array)($catalog['stats']??[])];
         }
         throw new RuntimeException('Catalog برای این Provider پشتیبانی نمی‌شود.');
     }
@@ -759,6 +767,14 @@ final class BlueVPN_Providers {
     private static function username(array $c,string $prefix): string {
         $field=$prefix==='pg'?'pg_username':($prefix==='mz'?'marzban_username':'guardcore_username');if(!empty($c[$field]))return (string)$c[$field];
         $seed=(string)($c['email']?:$c['phone']?:$c['id']);return substr('bv_'.$c['id'].'_'.substr(sha1($prefix.':'.$seed),0,9),0,32);
+    }
+    private static function external_username(array $c,string $prefix): string {
+        $seed=(string)($c['email']?:$c['phone']?:$c['id']);
+        return substr('bv_'.$c['id'].'_'.substr(sha1($prefix.':'.$seed),0,12),0,48);
+    }
+    private static function hiddify_uuid(array $c,int $panelId): string {
+        $seed='bluevpn:hiddify:'.$panelId.':'.(string)($c['id']??0).':'.(string)($c['email']??$c['phone']??'');
+        $h=md5($seed);return substr($h,0,8).'-'.substr($h,8,4).'-4'.substr($h,13,3).'-a'.substr($h,17,3).'-'.substr($h,20,12);
     }
     private static function target_expiry(array $c,array $plan,bool $extend): ?string {
         $current=self::remote_expiry($c['subscription_expire']??null);
@@ -927,7 +943,7 @@ final class BlueVPN_Providers {
 
         $expire=!empty($c['subscription_expire'])?(string)$c['subscription_expire']:null;
         $total=max(0,(int)($c['data_limit_bytes']??0));if($total===0&&max(0,(int)($plan['data_limit_gb']??0))>0)$total=max(0,(int)($plan['data_limit_gb']??0))*1024*1024*1024;
-        $quotaRoutes=count($routes['pasarguard'])+count($routes['marzban'])+count($routes['guardcore']);
+        $quotaRoutes=count($routes['pasarguard'])+count($routes['marzban'])+count($routes['guardcore'])+count($routes['hiddify'])+count($routes['threexui']);
         $quota=($quotaRoutes>1&&($plan['multi_provider_quota_mode']??'split')==='split')?intdiv($total,max(1,$quotaRoutes)):$total;
         $providerQuota=$trafficMode==='gateway_metered'?0:$quota;$deviceLimit=max(1,(int)($c['device_limit']??$plan['device_limit']??1));
 
@@ -1017,6 +1033,44 @@ final class BlueVPN_Providers {
                 self::provider_link_upsert($customerId,$planId,'guardcore',$route,['username'=>$u,'remote_id'=>(string)($remote['id']??''),'subscription_url'=>$sub,'status'=>$status,'metadata'=>$route]);
                 if(!$legacyWritten['guardcore']){$update['guardcore_panel_id']=$panelId;$update['guardcore_username']=$u;$update['guardcore_subscription_url']=$sub;$update['guardcore_status']=$status;$legacyWritten['guardcore']=true;}$details[$key]=$action;
             }catch(Throwable $e){$errors[]='گاردکور #'.$panelId.': '.$e->getMessage();$details[$key]='error';}
+        }
+
+        foreach($routes['hiddify'] as $route){
+            $panelId=(int)$route['panel_id'];$key=self::provider_route_key('hiddify',$route);$desired[]=$key;
+            try{
+                if(!class_exists('BlueVPN_Hiddify'))throw new RuntimeException('Adapter Hiddify بارگذاری نشده است.');
+                $uuid=self::hiddify_uuid($c,$panelId);$name=self::external_username($c,'hiddify');
+                $before=BlueVPN_Hiddify::user($panelId,$uuid);
+                $remote=BlueVPN_Hiddify::provision($panelId,$uuid,$name,$providerQuota,$expire,$deviceLimit,'BlueVPN repair; customer '.$customerId);
+                if($before===null){$created++;$action='created';}
+                elseif(isset($existingLinks[$key])){$existing++;$action='existing_synced';}
+                else{$attached++;$action='attached_synced';}
+                self::provider_link_upsert($customerId,$planId,'hiddify',$route,[
+                    'username'=>$name,'remote_id'=>$uuid,'subscription_url'=>(string)($remote['subscription_url']??''),
+                    'status'=>(string)($remote['status']??'active'),'used_traffic_bytes'=>(int)($remote['used_traffic_bytes']??0),
+                    'remote_expire'=>$remote['expire']??$expire,'metadata'=>$route
+                ]);
+                $details[$key]=$action;
+            }catch(Throwable $e){$errors[]='هیدیفای #'.$panelId.': '.$e->getMessage();$details[$key]='error';}
+        }
+
+        foreach($routes['threexui'] as $route){
+            $panelId=(int)$route['panel_id'];$key=self::provider_route_key('threexui',$route);$desired[]=$key;
+            try{
+                if(!class_exists('BlueVPN_ThreeXUI'))throw new RuntimeException('Adapter 3x-ui بارگذاری نشده است.');
+                $email=self::external_username($c,'3xui');$before=BlueVPN_ThreeXUI::client($panelId,$email);
+                $remote=BlueVPN_ThreeXUI::provision($panelId,$email,$providerQuota,$expire,$deviceLimit,(array)($route['inbound_ids']??[]),'BlueVPN repair; customer '.$customerId);
+                $route['inbound_ids']=(array)($remote['inbound_ids']??$route['inbound_ids']??[]);
+                if($before===null){$created++;$action='created';}
+                elseif(isset($existingLinks[$key])){$existing++;$action='existing_synced';}
+                else{$attached++;$action='attached_synced';}
+                self::provider_link_upsert($customerId,$planId,'threexui',$route,[
+                    'username'=>$email,'remote_id'=>(string)($remote['remote_id']??$remote['sub_id']??$email),
+                    'subscription_url'=>(string)($remote['subscription_url']??''),'status'=>(string)($remote['status']??'active'),
+                    'used_traffic_bytes'=>(int)($remote['used_traffic_bytes']??0),'remote_expire'=>$remote['expire']??$expire,'metadata'=>$route
+                ]);
+                $details[$key]=$action;
+            }catch(Throwable $e){$errors[]='3x-ui #'.$panelId.': '.$e->getMessage();$details[$key]='error';}
         }
 
         if($staticEntries){$resynced+=count($staticEntries);$details['static_sources']='snapshot_resync_queued';}
@@ -1318,13 +1372,13 @@ final class BlueVPN_Providers {
         $total=$overrideDataLimitBytes!==null
             ? max(0,$overrideDataLimitBytes)
             : max(0,(int)$plan['data_limit_gb'])*1024*1024*1024;
-        $quotaRoutes=count($routes['pasarguard'])+count($routes['marzban'])+count($routes['guardcore']);
+        $quotaRoutes=count($routes['pasarguard'])+count($routes['marzban'])+count($routes['guardcore'])+count($routes['hiddify'])+count($routes['threexui']);
         $quota=($quotaRoutes>1&&($plan['multi_provider_quota_mode']??'split')==='split')?intdiv($total,max(1,$quotaRoutes)):$total;
         $providerQuota=$trafficMode==='gateway_metered'?0:$quota;
 
         $errors=[];$success=count($staticManualEntries)>0?1:0;
         $update=['plan_id'=>$planId,'subscription_expire'=>$expire,'data_limit_bytes'=>$total,'device_limit'=>max(1,(int)$plan['device_limit'])];
-        $desired=[];$resolved=['pasarguard'=>[],'marzban'=>[],'shahrah'=>[],'guardcore'=>[]];
+        $desired=[];$resolved=['pasarguard'=>[],'marzban'=>[],'shahrah'=>[],'guardcore'=>[],'hiddify'=>[],'threexui'=>[]];
         $legacyWritten=['pasarguard'=>false,'marzban'=>false,'guardcore'=>false];
 
         foreach($routes['shahrah'] as $route){
@@ -1405,6 +1459,37 @@ final class BlueVPN_Providers {
             }catch(Throwable $e){$errors[]='گاردکور #'.$panelId.': '.$e->getMessage();}
         }
 
+        foreach($routes['hiddify'] as $route){
+            $panelId=(int)$route['panel_id'];$desired[]=self::provider_route_key('hiddify',$route);
+            try{
+                if(!class_exists('BlueVPN_Hiddify'))throw new RuntimeException('Adapter Hiddify بارگذاری نشده است.');
+                $uuid=self::hiddify_uuid($c,$panelId);$name=self::external_username($c,'hiddify');
+                $remote=BlueVPN_Hiddify::provision($panelId,$uuid,$name,$providerQuota,$expire,max(1,(int)$plan['device_limit']),'BlueVPN WordPress; customer '.$customerId);
+                self::provider_link_upsert($customerId,$planId,'hiddify',$route,[
+                    'username'=>$name,'remote_id'=>$uuid,'subscription_url'=>(string)($remote['subscription_url']??''),
+                    'status'=>(string)($remote['status']??'active'),'used_traffic_bytes'=>(int)($remote['used_traffic_bytes']??0),
+                    'remote_expire'=>$remote['expire']??$expire,'metadata'=>$route,
+                ]);
+                $resolved['hiddify'][]=$panelId;$success++;
+            }catch(Throwable $e){$errors[]='هیدیفای #'.$panelId.': '.$e->getMessage();}
+        }
+
+        foreach($routes['threexui'] as $route){
+            $panelId=(int)$route['panel_id'];$desired[]=self::provider_route_key('threexui',$route);
+            try{
+                if(!class_exists('BlueVPN_ThreeXUI'))throw new RuntimeException('Adapter 3x-ui بارگذاری نشده است.');
+                $email=self::external_username($c,'3xui');
+                $remote=BlueVPN_ThreeXUI::provision($panelId,$email,$providerQuota,$expire,max(1,(int)$plan['device_limit']),(array)($route['inbound_ids']??[]),'BlueVPN WordPress; customer '.$customerId);
+                $route['inbound_ids']=(array)($remote['inbound_ids']??$route['inbound_ids']??[]);
+                self::provider_link_upsert($customerId,$planId,'threexui',$route,[
+                    'username'=>$email,'remote_id'=>(string)($remote['remote_id']??$remote['sub_id']??$email),
+                    'subscription_url'=>(string)($remote['subscription_url']??''),'status'=>(string)($remote['status']??'active'),
+                    'used_traffic_bytes'=>(int)($remote['used_traffic_bytes']??0),'remote_expire'=>$remote['expire']??$expire,'metadata'=>$route,
+                ]);
+                $resolved['threexui'][]=$panelId;$success++;
+            }catch(Throwable $e){$errors[]='3x-ui #'.$panelId.': '.$e->getMessage();}
+        }
+
         self::prune_customer_provider_links($customerId,$desired);
 
         if(empty($c['subscription_token']))$update['subscription_token']=BlueVPN_Utils::random_token(30);else$update['subscription_token']=$c['subscription_token'];
@@ -1475,6 +1560,15 @@ final class BlueVPN_Providers {
                 $r=self::gc_request($p,'PUT','/api/subscriptions/'.rawurlencode($username),['limit_expire'=>self::gc_expire_encode($p,$canonical)]);
                 return ['ok'=>$r['code']<400,'message'=>'HTTP '.$r['code']];
             }
+            if($provider==='hiddify'){
+                if(!class_exists('BlueVPN_Hiddify'))return ['ok'=>false,'message'=>'Adapter Hiddify بارگذاری نشده'];
+                $uuid=trim((string)($link['remote_id']??''));if($uuid==='')return ['ok'=>false,'message'=>'UUID Hiddify در mapping موجود نیست'];
+                return BlueVPN_Hiddify::enforce_expiry($panelId,$uuid,$canonical);
+            }
+            if($provider==='threexui'){
+                if(!class_exists('BlueVPN_ThreeXUI'))return ['ok'=>false,'message'=>'Adapter 3x-ui بارگذاری نشده'];
+                return BlueVPN_ThreeXUI::enforce_expiry($panelId,$username,$canonical);
+            }
             return ['ok'=>true,'message'=>'این تأمین‌کننده تاریخ مستقل قابل تنظیم ندارد'];
         }catch(Throwable $e){return ['ok'=>false,'message'=>$e->getMessage()];}
     }
@@ -1528,6 +1622,36 @@ final class BlueVPN_Providers {
                     $sub=self::remote_sub_url($r,(string)$p['base_url'])?:(string)$link['subscription_url'];$exp=self::remote_expiry($r['expire']??null);
                     if($exp)$providerExpiries[$link['route_key']]=$exp;
                     self::provider_link_upsert($customerId,(int)$c['plan_id'],$provider,$metadata,['username'=>$username,'remote_id'=>(string)($r['id']??$link['remote_id']),'subscription_url'=>$sub,'status'=>$status,'used_traffic_bytes'=>$used,'remote_expire'=>$exp,'metadata'=>$metadata]);
+                    continue;
+                }
+
+                if($provider==='hiddify'){
+                    if(!class_exists('BlueVPN_Hiddify'))throw new RuntimeException('Adapter Hiddify بارگذاری نشده است.');
+                    $uuid=trim((string)($link['remote_id']??''));if($uuid==='')throw new RuntimeException('UUID کاربر Hiddify در mapping موجود نیست.');
+                    $r=BlueVPN_Hiddify::user($panelId,$uuid);$responses++;if(!$r)throw new RuntimeException('کاربر روی Hiddify پیدا نشد.');
+                    $status=strtolower((string)($r['status']??'active'));$active=$active||in_array($status,['active','enabled'],true);
+                    $used=max(0,(int)($r['used_traffic_bytes']??0));$providerUsed+=$used;
+                    $sub=trim((string)($r['subscription_url']??''))?:(string)$link['subscription_url'];$exp=self::remote_expiry($r['expire']??null);
+                    if($exp)$providerExpiries[$link['route_key']]=$exp;
+                    self::provider_link_upsert($customerId,(int)$c['plan_id'],$provider,$metadata,[
+                        'username'=>$username,'remote_id'=>$uuid,'subscription_url'=>$sub,'status'=>$status,
+                        'used_traffic_bytes'=>$used,'remote_expire'=>$exp,'metadata'=>$metadata
+                    ]);
+                    continue;
+                }
+
+                if($provider==='threexui'){
+                    if(!class_exists('BlueVPN_ThreeXUI'))throw new RuntimeException('Adapter 3x-ui بارگذاری نشده است.');
+                    $r=BlueVPN_ThreeXUI::inspect($panelId,$username);$responses++;if(!$r)throw new RuntimeException('Client روی 3x-ui پیدا نشد.');
+                    $status=strtolower((string)($r['status']??'active'));$active=$active||in_array($status,['active','enabled'],true);
+                    $used=max(0,(int)($r['used_traffic_bytes']??0));$providerUsed+=$used;
+                    $sub=trim((string)($r['subscription_url']??''))?:(string)$link['subscription_url'];$exp=self::remote_expiry($r['expire']??null);
+                    if($exp)$providerExpiries[$link['route_key']]=$exp;
+                    $metadata['inbound_ids']=(array)($r['inbound_ids']??$metadata['inbound_ids']??[]);
+                    self::provider_link_upsert($customerId,(int)$c['plan_id'],$provider,$metadata,[
+                        'username'=>$username,'remote_id'=>(string)($r['remote_id']??$link['remote_id']),
+                        'subscription_url'=>$sub,'status'=>$status,'used_traffic_bytes'=>$used,'remote_expire'=>$exp,'metadata'=>$metadata
+                    ]);
                     continue;
                 }
 

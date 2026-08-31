@@ -41,6 +41,8 @@ class AdsAllTierResponsive617Tests(unittest.TestCase):
         self.assertIn("coerceIn(dp(96), dp(280))", carousel)
         self.assertIn("if (tapsellShowing) {", carousel)
         self.assertNotIn("if (tapsellLoading || tapsellShowing) {", carousel)
+        self.assertNotIn("\\n        //", carousel)
+        self.assertIn("// Tapsell appears.\n        if (tapsellShowing) {", carousel)
 
     def test_windows_web_reports_real_creative_height(self):
         main = (ROOT / "bluevpn-windows/MainWindow.xaml.cs").read_text(encoding="utf-8")

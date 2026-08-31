@@ -21,17 +21,23 @@ class WindowsThemeTapsellRender576Tests(unittest.TestCase):
     def test_tapsell_uses_real_https_origin_and_waits_for_rendered_media(self):
         main = (ROOT / "bluevpn-windows/MainWindow.xaml.cs").read_text(encoding="utf-8")
         installer = (ROOT / "bluevpn-windows/Services/WebView2RuntimeInstaller.cs").read_text(encoding="utf-8")
-        self.assertIn("SetVirtualHostNameToFolderMapping", main)
-        self.assertIn("WriteAdDocumentAsync", main)
+        self.assertNotIn("SetVirtualHostNameToFolderMapping", main)
+        self.assertNotIn("WriteAdDocumentAsync(html", main)
+        self.assertIn("TryGetApprovedWindowsBridge", main)
         self.assertIn("WaitForTapsellContentAsync", main)
         self.assertIn("ExecuteScriptAsync", main)
+        self.assertIn("BLUEVPN_TAPSELL_READY", main)
+        self.assertIn("IsWebMessageEnabled = true", main)
         self.assertIn("new Microsoft.Web.WebView2.Wpf.WebView2", main)
         self.assertNotIn("WebView2CompositionControl", main)
         self.assertIn("webView.DefaultBackgroundColor = System.Drawing.Color.Transparent", main)
         self.assertIn("SetTapsellWebVisibility(Visibility.Visible)", main)
         self.assertNotIn("NavigateToString(html)", main)
-        self.assertIn('VirtualHost = "ads.bluevpn.local"', installer)
-        self.assertIn("Directory.CreateDirectory(ContentFolder)", installer)
+        self.assertIn('"BlueVPN", "WebView2", "Tapsell"', installer)
+        self.assertIn("CreatePerUserEnvironmentAsync", installer)
+        site = (ROOT / "bluevpn-site/functions.php").read_text(encoding="utf-8")
+        self.assertIn('script.src="https://s1.mediaad.org/serve/blluepanel.ir/loader.js"', site)
+        self.assertIn('postMessage("BLUEVPN_TAPSELL_"+state)', site)
 
 
 if __name__ == "__main__":

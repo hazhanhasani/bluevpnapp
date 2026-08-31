@@ -21,10 +21,14 @@ class WindowsTapsellWeb553Tests(unittest.TestCase):
     def test_panel_exposes_independent_windows_schedule(self):
         ads = (ROOT / "bluevpn-manager/includes/class-bluevpn-ads.php").read_text(encoding="utf-8")
         db = (ROOT / "bluevpn-manager/includes/class-bluevpn-db.php").read_text(encoding="utf-8")
-        for key in ("tapsell_windows_web_enabled", "tapsell_windows_web_script_html", "tapsell_windows_web_min_interval_seconds", "tapsell_windows_web_daily_cap", "tapsell_windows_web_every_slides"):
+        for key in ("tapsell_windows_web_enabled", "tapsell_windows_web_min_interval_seconds", "tapsell_windows_web_daily_cap", "tapsell_windows_web_every_slides"):
             self.assertIn(key, ads)
             self.assertIn(key, db)
         self.assertIn("'windows_web' => [", ads)
+        self.assertIn("'bridge_url' => add_query_arg", ads)
+        self.assertIn("'https://blluepanel.ir/'", ads)
+        self.assertIn("'script_html' => ''", ads)
+        self.assertNotIn("self::textarea('tapsell_windows_web_script_html'", ads)
 
     def test_premium_gate_and_fail_open_exist(self):
         service = (ROOT / "bluevpn-windows/Services/AdvertisementService.cs").read_text(encoding="utf-8")

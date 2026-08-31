@@ -4,6 +4,8 @@ if (!defined('ABSPATH')) {
 }
 
 final class BlueVPN_DB {
+    private const SCHEMA_AUDIT_TRANSIENT = 'bluevpn_db_schema_audit_ok';
+    private const SCHEMA_AUDIT_TTL = 300;
     public static function table(string $name): string {
         global $wpdb;
         return $wpdb->prefix . 'bluevpn_' . $name;
@@ -24,13 +26,83 @@ final class BlueVPN_DB {
         ];
     }
 
+    private static function critical_schema_contract(): array {
+        return [
+            'app_settings'=>['id','payload','updated_at'],
+            'plans'=>['id','active','deleted','provider_routes_json'],
+            'customers'=>['id','plan_id','active','subscription_status','subscription_expire','data_limit_bytes','used_traffic_bytes','last_sync_error'],
+            'orders'=>['id','customer_id','plan_id','status','paid_at','activation_error'],
+            'ai_connection_events'=>['id','customer_id','device_id','config_key','plan_tier','ai_schema_version','event_type','success','ping_ms','jitter_ms','packet_loss_x100','failure_class','network_signature','decision_confidence','created_at'],
+            'ai_live_connections'=>['id','customer_id','device_id','session_id','plan_tier','connected','verified','ping_ms','jitter_ms','packet_loss_x100','heartbeat_seq','last_seen_at','expires_at'],
+            'ai_route_aggregates'=>['id','config_key','plan_tier','operator','network_type','mode','hour_bucket','sample_count','score','recent_score','confidence_score','updated_at'],
+            'ai_incidents'=>['id','incident_key','incident_type','severity','status','evidence_json','last_seen_at'],
+            'ai_reconciliation_runs'=>['id','run_key','customer_id','order_id','outcome','created_at'],
+        ];
+    }
+
+    private static function inspect_schema_contract(bool $requireVersion=true): array {
+        global $wpdb;
+        $missingTables=[];$missingColumns=[];
+        $pattern=$wpdb->esc_like($wpdb->prefix.'bluevpn_').'%';
+        $found=(array)$wpdb->get_col($wpdb->prepare('SHOW TABLES LIKE %s',$pattern));
+        $foundMap=array_fill_keys(array_map('strval',$found),true);
+
+        foreach(self::table_names() as $name){
+            $table=self::table($name);
+            if(empty($foundMap[$table]))$missingTables[]=$name;
+        }
+
+        foreach(self::critical_schema_contract() as $name=>$required){
+            $table=self::table($name);
+            if(empty($foundMap[$table]))continue;
+            $rows=(array)$wpdb->get_results("SHOW COLUMNS FROM `{$table}`",ARRAY_A);
+            $columns=[];
+            foreach($rows as $row)if(isset($row['Field']))$columns[(string)$row['Field']]=true;
+            foreach($required as $column)if(empty($columns[$column]))$missingColumns[]=$name.'.'.$column;
+        }
+
+        $queryOk=(int)$wpdb->get_var('SELECT 1')===1;
+        $installed=(string)get_option('bluevpn_manager_schema_version','');
+        $versionOk=!$requireVersion||$installed===BLUEVPN_MANAGER_SCHEMA_VERSION;
+        return [
+            'ready'=>$queryOk&&$versionOk&&!$missingTables&&!$missingColumns,
+            'structural_ready'=>$queryOk&&!$missingTables&&!$missingColumns,
+            'query_ok'=>$queryOk,
+            'version_ok'=>$versionOk,
+            'installed_version'=>$installed,
+            'expected_version'=>BLUEVPN_MANAGER_SCHEMA_VERSION,
+            'missing_tables'=>$missingTables,
+            'missing_columns'=>$missingColumns,
+            'last_error'=>trim((string)$wpdb->last_error),
+        ];
+    }
+
+    private static function report_schema_failure(array $audit): void {
+        if(!class_exists('BlueVPN_Error_Monitor'))return;
+        BlueVPN_Error_Monitor::report(
+            'database','schema','error','DATABASE_SCHEMA_DRIFT',
+            'ساختار MySQL با قرارداد BlueVPN همگام نیست.',
+            [
+                'installed_version'=>(string)($audit['installed_version']??''),
+                'expected_version'=>(string)($audit['expected_version']??BLUEVPN_MANAGER_SCHEMA_VERSION),
+                'missing_tables'=>(array)($audit['missing_tables']??[]),
+                'missing_columns'=>(array)($audit['missing_columns']??[]),
+                'last_error'=>(string)($audit['last_error']??''),
+            ]
+        );
+    }
+
     public static function activate(): void {
         self::install_schema();
         self::seed_defaults();
         self::seed_release_channels();
         self::enforce_six_digit_otp();
         self::repair_client_types();
-        update_option('bluevpn_manager_schema_version', BLUEVPN_MANAGER_SCHEMA_VERSION, false);
+        $audit=self::inspect_schema_contract(false);
+        if(!empty($audit['structural_ready'])){
+            update_option('bluevpn_manager_schema_version', BLUEVPN_MANAGER_SCHEMA_VERSION, false);
+            set_transient(self::SCHEMA_AUDIT_TRANSIENT,'1',self::SCHEMA_AUDIT_TTL);
+        }else self::report_schema_failure($audit);
         // 4.16.6+: WordPress/MySQL is the permanent control plane. Never reopen the retired migration on activation.
         update_option('bluevpn_manager_cutover_ready', '1', false);
         update_option('bluevpn_manager_app_cutover_enabled', '1', false);
@@ -39,20 +111,30 @@ final class BlueVPN_DB {
     }
 
     public static function maybe_upgrade(): void {
-        $installed = (string)get_option('bluevpn_manager_schema_version', '');
-        if ($installed !== BLUEVPN_MANAGER_SCHEMA_VERSION) {
+        $installed=(string)get_option('bluevpn_manager_schema_version','');
+        $versionChanged=$installed!==BLUEVPN_MANAGER_SCHEMA_VERSION;
+        $auditDue=!get_transient(self::SCHEMA_AUDIT_TRANSIENT);
+        if(!$versionChanged&&!$auditDue)return;
+
+        $audit=self::inspect_schema_contract();
+        if($versionChanged||empty($audit['ready'])){
             self::install_schema();
             self::seed_defaults();
             self::seed_release_channels();
             self::enforce_six_digit_otp();
             self::repair_client_types();
-            update_option('bluevpn_manager_schema_version', BLUEVPN_MANAGER_SCHEMA_VERSION, false);
-            // 1.1.1 fixes optional UNIQUE customer sentinels. Re-open only the
-            // customer convergence gate; never reset copied tables/progress.
-            if (class_exists('BlueVPN_Migration')) {
-                BlueVPN_Migration::resume_customer_repair_after_schema_fix();
+            $after=self::inspect_schema_contract(false);
+            if(!empty($after['structural_ready'])){
+                update_option('bluevpn_manager_schema_version',BLUEVPN_MANAGER_SCHEMA_VERSION,false);
+                set_transient(self::SCHEMA_AUDIT_TRANSIENT,'1',self::SCHEMA_AUDIT_TTL);
+                if(class_exists('BlueVPN_Migration'))BlueVPN_Migration::resume_customer_repair_after_schema_fix();
+            }else{
+                delete_transient(self::SCHEMA_AUDIT_TRANSIENT);
+                self::report_schema_failure($after);
             }
+            return;
         }
+        set_transient(self::SCHEMA_AUDIT_TRANSIENT,'1',self::SCHEMA_AUDIT_TTL);
     }
 
     private static function repair_client_types(): void {
@@ -1562,26 +1644,15 @@ final class BlueVPN_DB {
 
     public static function status(): array {
         global $wpdb;
-        $ready = true;
-        $missing = [];
-        foreach (self::table_names() as $name) {
-            $table = self::table($name);
-            $found = $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table));
-            if ($found !== $table) {
-                $ready = false;
-                $missing[] = $name;
-            }
-        }
-        return [
-            'ready' => $ready,
-            'mode' => 'mysql',
-            'driver' => 'wpdb',
-            'schema_version' => (string)get_option('bluevpn_manager_schema_version', ''),
-            'table_count_expected' => count(self::table_names()),
-            'missing_tables' => $missing,
-            'mysql_version' => (string)$wpdb->db_version(),
-            'prefix' => $wpdb->prefix . 'bluevpn_',
-        ];
+        $audit=self::inspect_schema_contract();
+        return array_merge($audit,[
+            'mode'=>'mysql',
+            'driver'=>'wpdb',
+            'schema_version'=>(string)get_option('bluevpn_manager_schema_version',''),
+            'table_count_expected'=>count(self::table_names()),
+            'mysql_version'=>(string)$wpdb->db_version(),
+            'prefix'=>$wpdb->prefix.'bluevpn_',
+        ]);
     }
 
     public static function counts(): array {

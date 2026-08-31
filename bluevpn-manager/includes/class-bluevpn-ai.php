@@ -4,8 +4,8 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_AI {
     private const LIVE_TTL_SECONDS = 180;
     private const LIVE_PROBE_MAX_AGE_MS = 130000;
-    public const ENGINE_VERSION = '3.0.0';
-    public const SCHEMA_VERSION = 6;
+    public const ENGINE_VERSION = '3.1.0';
+    public const SCHEMA_VERSION = 7;
 
     public static function init(): void {
         add_action('admin_post_bluevpn_blueai_save', [self::class, 'save_settings']);
@@ -22,6 +22,19 @@ final class BlueVPN_AI {
         if (!is_numeric($value)) return $default;
         return max($min, min($max, (int)$value));
     }
+
+    private static function require_db_write($result,string $operation,array $context=[]): void {
+        if($result!==false)return;
+        global $wpdb;
+        $message=trim((string)$wpdb->last_error);
+        if($message==='')$message='عملیات نوشتن در MySQL ناموفق بود.';
+        if(class_exists('BlueVPN_Error_Monitor'))BlueVPN_Error_Monitor::report(
+            'database','blueai','error','BLUEAI_DB_WRITE_FAILED',$message,
+            array_merge(['operation'=>$operation],$context)
+        );
+        throw new RuntimeException('BlueAI DB write failed ['.$operation.']: '.$message);
+    }
+
 
     public static function normalize_plan_tier($value): string {
         $tier = mb_strtolower(self::clean($value, 16, 'unknown'));
@@ -302,26 +315,31 @@ final class BlueVPN_AI {
             'customer_id'=>(int)$customer['id'],'device_id'=>self::clean($p['device_id']??'',80,''),'config_key'=>$config,'location_key'=>self::clean($p['location_key']??'',24,'unknown'),'location_title'=>self::clean($p['location_title']??'',100,'نامشخص'),'operator'=>$operator,'network_type'=>$network,'mode'=>$mode,'plan_tier'=>$planTier,'ai_schema_version'=>self::clamp($p['ai_schema_version']??1,1,100,1),'ai_client_version'=>self::clean($p['ai_client_version']??($p['app_version']??''),40,''),'event_type'=>$type,'success'=>$success?1:0,
             'ping_ms'=>self::clamp($p['ping_ms']??0,0,10000),'jitter_ms'=>self::clamp($p['jitter_ms']??0,0,10000),'packet_loss_x100'=>self::clamp($p['packet_loss_x100']??0,0,10000),'duration_seconds'=>self::clamp($p['duration_seconds']??0,0,31536000),'health_score'=>self::clamp($p['health_score']??0,0,100),'download_bytes'=>self::clamp($p['download_bytes']??0,0,PHP_INT_MAX),'upload_bytes'=>self::clamp($p['upload_bytes']??0,0,PHP_INT_MAX),'failure_reason'=>self::clean($type==='heartbeat'?$proofError:($p['failure_reason']??''),500,''),'failure_class'=>self::clean($p['failure_class']??'',40,''),'network_signature'=>self::clean($p['network_signature']??'',40,''),'decision_confidence'=>self::clamp($p['decision_confidence']??0,0,100,0),'decision_reason'=>self::clean($p['decision_reason']??'',500,''),'app_version'=>self::clean($p['app_version']??'',40,''),'android_version'=>self::clean($p['android_version']??'',40,''),'device_model'=>self::clean($p['device_model']??'',160,''),'hour_bucket'=>$bucket,'created_at'=>BlueVPN_Utils::now_mysql(),
         ];
-        $wpdb->insert(BlueVPN_DB::table('ai_connection_events'),$event);
+        $eventWrite=$wpdb->insert(BlueVPN_DB::table('ai_connection_events'),$event);
+        self::require_db_write($eventWrite,'ai_connection_events.insert',['customer_id'=>(int)$customer['id'],'event_type'=>$type]);
         if($type==='heartbeat'){
             [$live,$accepted]=self::update_live((int)$customer['id'],$p,$operator,$network,$mode,$planTier,$proofOk,$proofError);
             if($accepted)self::update_route_live_latency($event,$operator,$network,$mode,$planTier,$bucket);
-            return ['accepted'=>true,'live'=>$accepted,'verified'=>$proofOk,'proof_error'=>$proofError,'operator'=>$operator,'network_type'=>$network,'session_id'=>$live['session_id']??'','expires_in_seconds'=>$accepted?self::LIVE_TTL_SECONDS:0,'plan_tier'=>$planTier,'engine_version'=>self::ENGINE_VERSION,'schema_version'=>self::SCHEMA_VERSION];
+            $heartbeatAccepted=!$proofOk||$accepted;
+            return ['accepted'=>$heartbeatAccepted,'live'=>$accepted,'verified'=>$proofOk,'proof_error'=>$proofError,'reason'=>($proofOk&&!$accepted)?'live_write_failed':'','operator'=>$operator,'network_type'=>$network,'session_id'=>$live['session_id']??'','expires_in_seconds'=>$accepted?self::LIVE_TTL_SECONDS:0,'plan_tier'=>$planTier,'engine_version'=>self::ENGINE_VERSION,'schema_version'=>self::SCHEMA_VERSION];
         }
         if(in_array($type,['session','disconnect'],true)||mb_strtolower(self::clean($p['live_state']??'',30,''))==='disconnected'||!BlueVPN_Utils::boolish($p['connected']??true)) self::disconnect_live((int)$customer['id'],$p,(string)($p['failure_reason']??$type));
         $at=BlueVPN_DB::table('ai_route_aggregates');
         $agg=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$at} WHERE config_key=%s AND plan_tier=%s AND operator=%s AND network_type=%s AND mode=%s AND hour_bucket=%d LIMIT 1",$config,$planTier,$operator,$network,$mode,$bucket),ARRAY_A);
         $now=BlueVPN_Utils::now_mysql();
         if(!$agg){
-            $wpdb->insert($at,['config_key'=>$config,'location_key'=>$event['location_key'],'location_title'=>$event['location_title'],'operator'=>$operator,'network_type'=>$network,'mode'=>$mode,'plan_tier'=>$planTier,'hour_bucket'=>$bucket,'sample_count'=>0,'success_count'=>0,'failure_count'=>0,'score'=>50,'recent_score'=>50,'updated_at'=>$now]);
+            $aggregateWrite=$wpdb->insert($at,['config_key'=>$config,'location_key'=>$event['location_key'],'location_title'=>$event['location_title'],'operator'=>$operator,'network_type'=>$network,'mode'=>$mode,'plan_tier'=>$planTier,'hour_bucket'=>$bucket,'sample_count'=>0,'success_count'=>0,'failure_count'=>0,'score'=>50,'recent_score'=>50,'updated_at'=>$now]);
+            self::require_db_write($aggregateWrite,'ai_route_aggregates.insert',['config_key'=>$config,'plan_tier'=>$planTier]);
             $agg=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$at} WHERE id=%d",(int)$wpdb->insert_id),ARRAY_A);
+            if(!$agg)throw new RuntimeException('BlueAI aggregate row could not be reloaded after insert.');
         }
         $sample=(int)$agg['sample_count']+1;$succ=(int)$agg['success_count']+($success?1:0);$fail=(int)$agg['failure_count']+($success?0:1);$dur=(int)$agg['total_duration_seconds']+$event['duration_seconds'];$ping=(int)$agg['total_ping_ms']+($event['ping_ms']>0?$event['ping_ms']:0);$pingSamples=(int)$agg['ping_samples']+($event['ping_ms']>0?1:0);$jitter=(int)$agg['total_jitter_ms']+($event['jitter_ms']>0?$event['jitter_ms']:0);$jitterSamples=(int)$agg['jitter_samples']+($event['jitter_ms']>0?1:0);$loss=(int)$agg['total_packet_loss_x100']+$event['packet_loss_x100'];
         $update=['location_key'=>$event['location_key'],'location_title'=>$event['location_title'],'sample_count'=>$sample,'success_count'=>$succ,'failure_count'=>$fail,'total_duration_seconds'=>$dur,'total_ping_ms'=>$ping,'ping_samples'=>$pingSamples,'total_jitter_ms'=>$jitter,'jitter_samples'=>$jitterSamples,'total_packet_loss_x100'=>$loss,'success_rate'=>$succ/max(1,$sample),'average_ping_ms'=>$ping/max(1,$pingSamples),'average_duration_seconds'=>$dur/max(1,$succ),'consecutive_failures'=>$success?0:(int)$agg['consecutive_failures']+1,'updated_at'=>$now];
         $update[$success?'last_success_at':'last_failure_at']=$now;
         $merged=array_merge($agg,$update);$details=self::score_details($merged,self::recent_stats($config,$operator,$network,$mode,$planTier));
         $update['score']=$details['score'];$update['recent_score']=$details['score'];$update['confidence_score']=$details['confidence'];$update['recent_success_rate']=$details['recent_success_rate'];$update['adaptive_sample_weight']=$details['recent_effective_samples'];
-        $wpdb->update($at,$update,['id'=>(int)$agg['id']]);
+        $aggregateUpdate=$wpdb->update($at,$update,['id'=>(int)$agg['id']]);
+        self::require_db_write($aggregateUpdate,'ai_route_aggregates.update',['aggregate_id'=>(int)$agg['id']]);
         if ($success && class_exists('BlueVPN_AI_Ops')) {
             BlueVPN_AI_Ops::observe_connection_outcome($event);
         }
@@ -357,7 +375,10 @@ final class BlueVPN_AI {
     }
 
     public static function feedback(int $customerId,array $p): array {
-        global $wpdb;$t=BlueVPN_DB::table('ai_feedback');$wpdb->insert($t,['customer_id'=>$customerId,'rating'=>self::clamp($p['rating']??5,1,5,5),'category'=>self::clean($p['category']??'',50,'general'),'message'=>self::clean($p['message']??'',2000,''),'diagnostics_json'=>mb_substr(BlueVPN_Utils::json_encode(is_array($p['diagnostics']??null)?$p['diagnostics']:[]),0,8000),'app_version'=>self::clean($p['app_version']??'',40,''),'created_at'=>BlueVPN_Utils::now_mysql()]);return ['accepted'=>true,'id'=>(int)$wpdb->insert_id];
+        global $wpdb;$t=BlueVPN_DB::table('ai_feedback');
+        $write=$wpdb->insert($t,['customer_id'=>$customerId,'rating'=>self::clamp($p['rating']??5,1,5,5),'category'=>self::clean($p['category']??'',50,'general'),'message'=>self::clean($p['message']??'',2000,''),'diagnostics_json'=>mb_substr(BlueVPN_Utils::json_encode(is_array($p['diagnostics']??null)?$p['diagnostics']:[]),0,8000),'app_version'=>self::clean($p['app_version']??'',40,''),'created_at'=>BlueVPN_Utils::now_mysql()]);
+        self::require_db_write($write,'ai_feedback.insert',['customer_id'=>$customerId]);
+        return ['accepted'=>true,'id'=>(int)$wpdb->insert_id];
     }
 
     private static function expire_stale_live(): void {
@@ -626,6 +647,7 @@ final class BlueVPN_AI {
     public static function render_admin(): void {
         global $wpdb;
         $s=BlueVPN_DB::settings();$st=self::stats();$snapshot=self::live_snapshot();
+        $dbHealth=BlueVPN_DB::status();$opsHealth=class_exists('BlueVPN_AI_Ops')?BlueVPN_AI_Ops::health():[];
         if(!empty($_GET['bluevpn_notice']))echo '<div class="notice notice-success"><p>'.esc_html(wp_unslash($_GET['bluevpn_notice'])).'</p></div>';
         echo '<div class="bvai-hero bvc-card"><div><span class="bvai-engine-badge">BlueAI Engine '.esc_html(self::ENGINE_VERSION).'</span><h2>پایش هوشمند همزمان Free + Premium</h2><p>یادگیری هر پلن جداست؛ داده‌های فنی اتصال به‌صورت زنده پایش می‌شوند و دانش جمعی بین نسخه‌ها حفظ می‌شود.</p></div><div class="bvai-hero-status"><span class="bvai-live-dot"></span>LIVE</div></div>';
         echo '<div class="bvc-grid">';
@@ -633,6 +655,18 @@ final class BlueVPN_AI {
             ['اتصال زنده','live','bvai-kpi-live'],['Free زنده','live_free','bvai-kpi-free'],['Premium زنده','live_premium','bvai-kpi-premium'],['Routeهای یادگرفته‌شده','routes',''],['میانگین Score','avg_score',''],['رویداد ۲۴ ساعت','active_24h','']
         ] as [$label,$key,$id])echo '<div class="bvc-card bvc-kpi"><span>'.esc_html($label).'</span><strong'.($id?' id="'.$id.'"':'').'>'.esc_html((string)$st[$key]).'</strong></div>';
         echo '</div>';
+        $opsStatus=(string)($opsHealth['last_status']??'never');
+        echo '<div class="bvc-grid">';
+        echo '<div class="bvc-card"><h3>دیتابیس BlueAI</h3><p class="'.(!empty($dbHealth['ready'])?'bvc-ok':'bvc-bad').'">'.(!empty($dbHealth['ready'])?'✅ Schema سالم':'❌ Schema/Query ناسالم').'</p><small>Schema '.esc_html((string)($dbHealth['schema_version']??'—')).' / '.esc_html((string)($dbHealth['expected_version']??'—')).'</small></div>';
+        echo '<div class="bvc-card"><h3>چرخه Operations</h3><p class="'.($opsStatus==='ok'?'bvc-ok':'bvc-warn').'">'.esc_html($opsStatus==='ok'?'✅ فعال':($opsStatus==='never'?'⏳ هنوز اجرا نشده':'⚠️ '.$opsStatus)).'</p><small>Schedule: '.esc_html((string)($opsHealth['schedule']??'—')).'</small></div>';
+        echo '<div class="bvc-card"><h3>آمادگی یادگیری</h3><p class="'.(((int)$st['events']>0&&(int)$st['routes']>0)?'bvc-ok':'bvc-warn').'">'.(((int)$st['events']>0&&(int)$st['routes']>0)?'✅ داده واقعی دارد':'⏳ داده کافی جمع نشده').'</p><small>'.number_format((int)$st['events']).' event • '.number_format((int)$st['heartbeats']).' heartbeat</small></div>';
+        echo '</div>';
+        if(empty($dbHealth['ready'])){
+            $parts=[];
+            if(!empty($dbHealth['missing_tables']))$parts[]='جدول: '.implode(', ',array_slice((array)$dbHealth['missing_tables'],0,8));
+            if(!empty($dbHealth['missing_columns']))$parts[]='ستون: '.implode(', ',array_slice((array)$dbHealth['missing_columns'],0,8));
+            echo '<div class="notice notice-error"><p><strong>BlueAI روی دیتابیس ناقص قابل اعتماد نیست.</strong> '.esc_html(implode(' • ',$parts)).'</p></div>';
+        }
 
         echo '<div class="bvc-card"><h2>تنظیمات BlueAI</h2><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_blueai_save');echo '<input type="hidden" name="action" value="bluevpn_blueai_save"><div class="bvc-form-grid">';
         echo '<label><input type="checkbox" name="blueai_enabled" value="1" '.checked(!empty($s['blueai_enabled']),true,false).'> BlueAI فعال</label>';

@@ -105,7 +105,15 @@ final class BlueVPN_Control_Center {
     private static function tab_sources(): void { BlueVPN_Subscription_Sources::render_admin_tab(); }
     private static function tab_gateway(): void { BlueVPN_Gateway::render_admin_tab(); }
     private static function tab_database(): void {
-        $s=BlueVPN_DB::status();$counts=BlueVPN_DB::counts();echo '<div class="bvc-grid"><div class="bvc-card"><h3>وضعیت</h3><p class="'.($s['ready']?'bvc-ok':'bvc-bad').'">'.($s['ready']?'✅ آماده':'❌ ناقص').'</p><small>MySQL '.self::esc($s['mysql_version']).'</small></div><div class="bvc-card"><h3>Schema</h3><strong>'.self::esc($s['schema_version']).'</strong></div><div class="bvc-card"><h3>Cutover</h3><strong>'.(get_option('bluevpn_manager_cutover_ready','0')==='1'?'آماده':'ناآماده').'</strong></div></div>';
+        $s=BlueVPN_DB::status();$counts=BlueVPN_DB::counts();echo '<div class="bvc-grid"><div class="bvc-card"><h3>وضعیت</h3><p class="'.($s['ready']?'bvc-ok':'bvc-bad').'">'.($s['ready']?'✅ آماده':'❌ ناقص').'</p><small>MySQL '.self::esc($s['mysql_version']).' • Query '.(!empty($s['query_ok'])?'OK':'FAIL').'</small></div><div class="bvc-card"><h3>Schema</h3><strong>'.self::esc($s['schema_version']).'</strong><small>انتظار: '.self::esc($s['expected_version']??BLUEVPN_MANAGER_SCHEMA_VERSION).'</small></div><div class="bvc-card"><h3>Cutover</h3><strong>'.(get_option('bluevpn_manager_cutover_ready','0')==='1'?'آماده':'ناآماده').'</strong></div></div>';
+        if(empty($s['ready'])){
+            $diag=[];
+            if(!empty($s['missing_tables']))$diag[]='جدول‌های مفقود: '.implode(', ',array_slice((array)$s['missing_tables'],0,12));
+            if(!empty($s['missing_columns']))$diag[]='ستون‌های مفقود: '.implode(', ',array_slice((array)$s['missing_columns'],0,12));
+            if(empty($s['query_ok']))$diag[]='SELECT 1 ناموفق';
+            if(!empty($s['last_error']))$diag[]='MySQL: '.(string)$s['last_error'];
+            echo '<div class="notice notice-error"><p><strong>Database contract ناقص است.</strong> '.self::esc(implode(' • ',$diag)).'</p></div>';
+        }
         echo '<div class="bvc-card"><div class="bvc-actions"><a class="button" href="'.esc_url(admin_url('admin.php?page=bluevpn-migration')).'">ابزار مهاجرت</a><a class="button button-primary" href="'.esc_url(wp_nonce_url(admin_url('admin-post.php?action=bluevpn_cc_export_backup'),'bluevpn_cc_export_backup')).'">دانلود Backup JSON</a></div></div><table class="widefat striped bvc-table"><tr><th>جدول</th><th>تعداد</th></tr>';foreach($counts as $k=>$v)echo '<tr><td><code>'.self::esc($k).'</code></td><td>'.number_format((int)$v).'</td></tr>';echo '</table>';
     }
     private static function tab_production(): void {

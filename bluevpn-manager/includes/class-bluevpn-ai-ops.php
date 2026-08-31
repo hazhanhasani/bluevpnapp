@@ -10,20 +10,52 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_AI_Ops {
     private const CRON = 'bluevpn_ai_ops_tick';
     private const LOCK = 'bluevpn_ai_ops_lock';
-    private const MAX_REPAIR_PER_RUN = 20;
+    private const MAX_REPAIR_PER_RUN = 5;
+    private const RECONCILE_CURSOR_OPTION = 'bluevpn_ai_ops_reconcile_cursor';
+    private const LAST_TICK_OPTION = 'bluevpn_ai_ops_last_tick';
+    private const SCHEDULE = 'bluevpn_ai_five_minutes';
 
     public static function init(): void {
-        add_action(self::CRON, [self::class, 'tick']);
-        add_action('admin_post_bluevpn_ai_ops_run', [self::class, 'admin_run']);
-        if (!wp_next_scheduled(self::CRON)) {
-            wp_schedule_event(time() + 90, 'hourly', self::CRON);
+        add_filter('cron_schedules',[self::class,'schedules']);
+        add_action(self::CRON,[self::class,'tick']);
+        add_action('admin_post_bluevpn_ai_ops_run',[self::class,'admin_run']);
+        $current=wp_get_schedule(self::CRON);
+        if($current!==self::SCHEDULE){
+            wp_clear_scheduled_hook(self::CRON);
+            wp_schedule_event(time()+90,self::SCHEDULE,self::CRON);
         }
     }
 
+    public static function schedules(array $s): array {
+        $s[self::SCHEDULE]=['interval'=>300,'display'=>'BlueAI every 5 minutes'];
+        return $s;
+    }
+
+    public static function health(): array {
+        $last=get_option(self::LAST_TICK_OPTION,[]);
+        if(!is_array($last))$last=[];
+        return [
+            'schedule'=>(string)(wp_get_schedule(self::CRON)?:'none'),
+            'next_run'=>(int)(wp_next_scheduled(self::CRON)?:0),
+            'last_status'=>(string)($last['status']??'never'),
+            'last_started_at'=>(string)($last['started_at']??''),
+            'last_finished_at'=>(string)($last['finished_at']??''),
+            'reconcile_cursor'=>(int)get_option(self::RECONCILE_CURSOR_OPTION,0),
+        ];
+    }
+
     public static function tick(): void {
-        if (get_transient(self::LOCK)) return;
-        set_transient(self::LOCK, '1', 5 * MINUTE_IN_SECONDS);
+        if(get_transient(self::LOCK))return;
+        set_transient(self::LOCK,'1',5*MINUTE_IN_SECONDS);
+        $tick=['status'=>'running','started_at'=>BlueVPN_Utils::now_mysql(),'finished_at'=>''];
+        update_option(self::LAST_TICK_OPTION,$tick,false);
         try {
+            $db=BlueVPN_DB::status();
+            if(empty($db['ready'])){
+                $tick['status']='db_unhealthy';
+                if(class_exists('BlueVPN_Error_Monitor'))BlueVPN_Error_Monitor::report('database','blueai','error','BLUEAI_DB_NOT_READY','BlueAI Operations به‌دلیل ناسالم بودن Schema اجرا نشد.',['missing_tables'=>$db['missing_tables']??[],'missing_columns'=>$db['missing_columns']??[]]);
+                return;
+            }
             $settings = BlueVPN_DB::settings();
             if (!empty($settings['blueai_enabled']) && (!isset($settings['blueai_anomaly_detection']) || !empty($settings['blueai_anomaly_detection']))) {
                 self::detect_route_anomalies();
@@ -35,7 +67,9 @@ final class BlueVPN_AI_Ops {
                 self::reconcile_customers(self::MAX_REPAIR_PER_RUN);
             }
             self::resolve_stale_incidents();
+            $tick['status']='ok';
         } catch (Throwable $e) {
+            $tick['status']='error';$tick['error']=mb_substr($e->getMessage(),0,500);
             self::upsert_incident(
                 'ops-runtime:' . substr(hash('sha256', $e->getMessage()), 0, 24),
                 'ops_runtime',
@@ -47,6 +81,8 @@ final class BlueVPN_AI_Ops {
                 'لاگ سرور و سلامت دیتابیس/Provider بررسی شود.'
             );
         } finally {
+            $tick['finished_at']=BlueVPN_Utils::now_mysql();
+            update_option(self::LAST_TICK_OPTION,$tick,false);
             delete_transient(self::LOCK);
         }
     }
@@ -190,16 +226,22 @@ final class BlueVPN_AI_Ops {
     }
 
     private static function reconcile_customers(int $limit): void {
-        if (!class_exists('BlueVPN_Providers')) return;
-        $ids = BlueVPN_Providers::repair_candidate_ids_after(0, max(1, min(50, $limit)));
-        foreach ((array)$ids as $id) {
+        if(!class_exists('BlueVPN_Providers'))return;
+        $limit=max(1,min(20,$limit));
+        $cursor=max(0,(int)get_option(self::RECONCILE_CURSOR_OPTION,0));
+        $ids=BlueVPN_Providers::repair_candidate_ids_after($cursor,$limit);
+        if(!$ids&&$cursor>0){$cursor=0;$ids=BlueVPN_Providers::repair_candidate_ids_after(0,$limit);}
+        $last=$cursor;
+        foreach((array)$ids as $id){
+            $last=max($last,(int)$id);
             $customerId = (int)$id;
             if ($customerId <= 0) continue;
             $runKey = 'repair:' . $customerId . ':' . gmdate('Y-m-d-H');
             if (self::run_exists($runKey)) continue;
             try {
                 $result = BlueVPN_Providers::repair_customer_missing_providers($customerId);
-                $outcome = !empty($result['ok']) ? (!empty($result['repaired']) ? 'repaired' : 'healthy') : 'failed';
+                $deferred=(int)($result['deferred']??0);
+                $outcome=$deferred>0?'deferred':(!empty($result['ok'])?(!empty($result['repaired'])?'repaired':'healthy'):'failed');
                 self::log_reconciliation(
                     $runKey,
                     $customerId,
@@ -228,6 +270,8 @@ final class BlueVPN_AI_Ops {
             }
         }
 
+        update_option(self::RECONCILE_CURSOR_OPTION,$ids?$last:0,false);
+
         // Paid-but-unsynced orders are never charged or activated twice. We only
         // ask the provider reconciliation engine to verify/repair the already-paid entitlement.
         global $wpdb;
@@ -248,9 +292,10 @@ final class BlueVPN_AI_Ops {
             if (self::run_exists($runKey) || $customerId <= 0) continue;
             try {
                 $result = BlueVPN_Providers::repair_customer_missing_providers($customerId);
-                $outcome = !empty($result['ok']) ? (!empty($result['repaired']) ? 'repaired' : 'verified') : 'failed';
+                $deferred=(int)($result['deferred']??0);
+                $outcome=$deferred>0?'deferred':(!empty($result['ok'])?(!empty($result['repaired'])?'repaired':'verified'):'failed');
                 self::log_reconciliation($runKey, $customerId, $orderId, 'payment_provisioning_gap', 'provider_repair', $outcome, (string)($result['message'] ?? ''));
-                if ($outcome !== 'failed') self::resolve_scope('order', $orderId);
+                if(in_array($outcome,['repaired','verified'],true))self::resolve_scope('order',$orderId);
             } catch (Throwable $e) {
                 self::log_reconciliation($runKey, $customerId, $orderId, 'payment_provisioning_gap', 'provider_repair', 'failed', $e->getMessage());
             }

@@ -15,7 +15,7 @@ if (!defined('ABSPATH')) {
 }
 
 define('BLUEVPN_MANAGER_VERSION', '6.3.0');
-define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.36.0');
+define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.37.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
 define('BLUEVPN_MANAGER_URL', plugin_dir_url(__FILE__));

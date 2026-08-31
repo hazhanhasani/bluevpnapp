@@ -1,0 +1,98 @@
+name: BlueVPN Apply 6.2.8
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-60208.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bluevpn-apply-60208
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout current BlueVPN source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+
+      - name: Bump canonical version contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("version.json")
+          d=json.loads(p.read_text(encoding="utf-8"))
+          d["version"]="6.2.8"
+          d["version_code"]=60208
+          for key in list((d.get("components") or {}).keys()):
+              d["components"][key]="6.2.8"
+          p.write_text(json.dumps(d,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+          PY
+          python scripts/sync_version.py
+
+      - name: Register 6.2.8 manager hotfix metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          release=Path("release.json")
+          data=json.loads(release.read_text(encoding="utf-8"))
+          features=list(data.get("features") or [])
+          for feature in [
+              "shahrah-ambiguous-create-read-after-write-recovery",
+              "shahrah-no-blind-chargeable-post-retry",
+              "provider-repair-ajax-json-progress-hardening",
+          ]:
+              if feature not in features:
+                  features.append(feature)
+          data["features"]=features
+          release.write_text(json.dumps(data,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+
+          readme=Path("bluevpn-manager/readme.txt")
+          text=readme.read_text(encoding="utf-8")
+          marker="Requires PHP: 8.0\n"
+          entry="""\n== 6.2.8 ==\n* بازیابی امن خطای مبهم 5xx شاهراه با Read-after-write و بدون ارسال دوباره POST هزینه‌دار.\n* جلوگیری از قطع اسکن Provider با تبدیل خطای پیش‌بینی‌نشده به نتیجه JSON قابل ادامه.\n* تشخیص بهتر پاسخ غیر JSON/خطای Proxy در اسکن مشتریان و حفظ cursor برای Retry.\n"""
+          if "== 6.2.8 ==" not in text:
+              text=text.replace(marker,marker+entry,1)
+              readme.write_text(text,encoding="utf-8")
+          PY
+          printf '%s\n' 'BlueVPN 6.2.8 coordinated build: Shahrah/provider-repair resilience' > release-requests/all-build-6.2.8-shahrah-provider-repair.txt
+
+      - name: Validate synchronized 6.2.8 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          python scripts/sync_version.py --check
+          python scripts/validate_release.py
+          python scripts/validate_windows.py
+          python scripts/validate_php_release.py
+          python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Commit coordinated 6.2.8 release and build request
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "bluevpn-release-bot"
+          git config user.email "bluevpn-release-bot@users.noreply.github.com"
+          git add -A ':!.github/workflows'
+          if git diff --cached --quiet; then
+            echo "BlueVPN 6.2.8 is already synchronized."
+            exit 0
+          fi
+          git commit -m "release: BlueVPN 6.2.8 Shahrah provider repair"
+          git push origin HEAD:main

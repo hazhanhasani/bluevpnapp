@@ -869,7 +869,7 @@ final class BlueVPN_Error_Monitor {
     }
     private static function sanitize_message(string $message): string {
         $message=wp_strip_all_tags($message);
-        $message=preg_replace_callback('~https?://[^\\s<>"\\']+~i',static fn($m)=>self::safe_url(rtrim((string)$m[0],".,;)]}")),$message)??$message;
+        $message=preg_replace_callback('~https?://[^\s<>\x22\x27]+~i',static fn($m)=>self::safe_url(rtrim((string)$m[0],".,;)]}")),$message)??$message;
         $message=preg_replace('/(authorization|token|password|secret|api[_-]?key|cookie)\\s*[:=]\\s*[^\\s,;]+/i','$1=[REDACTED]',$message)??$message;
         $message=preg_replace('/\\b09\\d{9}\\b/','[PHONE]',$message)??$message;
         $message=preg_replace('/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i','[EMAIL]',$message)??$message;

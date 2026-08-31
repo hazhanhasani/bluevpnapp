@@ -13,8 +13,8 @@ class GatewayOneClickEnrollment5110Tests(unittest.TestCase):
 
     def test_release_and_schema_contract(self):
         r=json.loads(self.text("release.json"))
-        self.assertEqual(r["version"],"6.2.3")
-        self.assertEqual(r["version_code"],60203)
+        self.assertEqual(r["version"],"6.2.4")
+        self.assertEqual(r["version_code"],60204)
         for f in (
             "gateway-one-click-enrollment","gateway-one-time-bootstrap-token","gateway-enrollment-expiry",
             "gateway-agent-package-from-manager","gateway-dual-secret-rotation-grace",
@@ -22,7 +22,7 @@ class GatewayOneClickEnrollment5110Tests(unittest.TestCase):
             "gateway-enrollment-health-watchdog","gateway-production-provisioning-hardening",
         ):
             self.assertIn(f,r["features"])
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.35.0'",self.text("bluevpn-manager/bluevpn-manager.php"))
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.36.0'",self.text("bluevpn-manager/bluevpn-manager.php"))
 
     def test_schema_has_enrollment_and_rotation_metadata(self):
         db=self.text("bluevpn-manager/includes/class-bluevpn-db.php")
@@ -63,7 +63,7 @@ class GatewayOneClickEnrollment5110Tests(unittest.TestCase):
 
     def test_agent_persists_rotated_credential_atomically(self):
         agent=self.text("bluevpn-gateway/agent.py")
-        self.assertIn('AGENT_VERSION = "6.2.3"',agent)
+        self.assertIn('AGENT_VERSION = "6.2.4"',agent)
         for token in (
             "def _persist_credentials","def _apply_credential_update","os.fsync","os.chmod(tmp,0o600)",
             "os.replace(tmp,self.config_path)","credential_generation","self._apply_credential_update(response)",

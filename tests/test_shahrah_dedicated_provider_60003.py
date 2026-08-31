@@ -3,15 +3,15 @@ import json, unittest
 
 ROOT=Path(__file__).resolve().parents[1]
 
-class ShahrahDedicatedProvider60203Tests(unittest.TestCase):
+class ShahrahDedicatedProvider60204Tests(unittest.TestCase):
     def text(self,path):
         return (ROOT/path).read_text(encoding="utf-8")
 
     def test_release_and_schema_contract(self):
         release=json.loads(self.text("release.json"))
-        self.assertEqual((release["version"],release["version_code"]),("6.2.3",60203))
+        self.assertEqual((release["version"],release["version_code"]),("6.2.4",60204))
         plugin=self.text("bluevpn-manager/bluevpn-manager.php")
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.35.0'",plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.36.0'",plugin)
 
     def test_shahrah_has_dedicated_schema_and_admin_route(self):
         db=self.text("bluevpn-manager/includes/class-bluevpn-db.php")

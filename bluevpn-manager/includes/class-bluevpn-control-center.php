@@ -139,6 +139,10 @@ final class BlueVPN_Control_Center {
         $edit=(int)($_GET['edit']??0);$current=$edit?$wpdb->get_row($wpdb->prepare("SELECT * FROM {$t} WHERE id=%d",$edit),ARRAY_A):[];
 
         echo '<div class="bvc-card"><h2>'.self::esc($title).' — افزودن / ویرایش</h2>';
+        if($provider==='pasarguard'){
+            echo '<div class="bvc-note"><strong>PasarGuard v5.3.0:</strong> BlueVPN اکنون ID-first است و برای سازگاری پنل‌های قدیمی username fallback را نگه می‌دارد. برای API Keyهای v5 حداقل مجوزهای <code>users.read</code>، <code>users.create</code>، <code>users.update</code> و <code>groups.read_simple</code> لازم است.</div>';
+            if($edit&&$current)echo '<div class="bvc-note">قرارداد شناسایی‌شده: <code>'.self::esc($current['api_contract']??'هنوز تست نشده').'</code> • API: <code>'.self::esc($current['api_version']??'—').'</code></div>';
+        }
         if($provider==='hiddify')echo '<div class="bvc-note">اتصال با Hiddify API v2 و <code>Hiddify-API-Key</code> انجام می‌شود. Secret فقط رمزنگاری‌شده ذخیره می‌شود. پس از تغییر کاربر، بعضی نسخه‌های Hiddify ممکن است برای پروتکل‌های Sing-box نیاز به Apply Users/Reload داشته باشند.</div>';
         if($provider==='threexui')echo '<div class="bvc-note">روش پیشنهادی 3x-ui: <strong>API Token</strong>. Username/Password فقط fallback سازگار است و Session Cookie در دیتابیس ذخیره نمی‌شود. Inboundها از API زنده خوانده می‌شوند.</div>';
         echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_save_provider');

@@ -5,11 +5,11 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 
-class CiNode24ArtifactLayout60203Tests(unittest.TestCase):
+class CiNode24ArtifactLayout60204Tests(unittest.TestCase):
     def test_release_version(self):
         release = json.loads((ROOT / 'release.json').read_text(encoding='utf-8'))
-        self.assertEqual(release['version'], '6.2.3')
-        self.assertEqual(release['version_code'], 60203)
+        self.assertEqual(release['version'], '6.2.4')
+        self.assertEqual(release['version_code'], 60204)
 
     def test_no_deprecated_cache_or_artifact_generations(self):
         workflows = '\n'.join(p.read_text(encoding='utf-8') for p in (ROOT / '.github/workflows').glob('*.yml'))

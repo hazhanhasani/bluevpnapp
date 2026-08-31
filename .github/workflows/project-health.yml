@@ -133,14 +133,30 @@ jobs:
           done
 
           RELEASE_REQUESTED=false
+          FORCE_REBUILD=false
           COMMIT_SUBJECT="$(git log -1 --pretty=%s)"
           if [ "$VERSION_CHANGED" = true ] || [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [[ "$COMMIT_SUBJECT" == release:* ]]; then
             RELEASE_REQUESTED=true
           fi
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [[ "$COMMIT_SUBJECT" == release:* ]]; then
+            FORCE_REBUILD=true
+          fi
 
-          if [ "$RELEASE_REQUESTED" = true ] && { [ "$VERSION_CHANGED" = true ] || [ "$RELEASE_PENDING" = true ]; }; then
+          SOURCE_SHA="${GITHUB_SHA}"
+          if [ "$FORCE_REBUILD" = true ] && [ "$VERSION_CHANGED" = false ] && [ "$RELEASE_PENDING" = false ]; then
+            git fetch --tags --force
+            PINNED_SHA="$(git rev-list -n 1 "v${CURRENT}" 2>/dev/null || true)"
+            if [ -n "$PINNED_SHA" ]; then
+              SOURCE_SHA="$PINNED_SHA"
+              echo "Forced rebuild will reuse pinned release source v${CURRENT}@${SOURCE_SHA}."
+            fi
+          fi
+          echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "force_rebuild=$FORCE_REBUILD" >> "$GITHUB_OUTPUT"
+
+          if [ "$RELEASE_REQUESTED" = true ] && { [ "$VERSION_CHANGED" = true ] || [ "$RELEASE_PENDING" = true ] || [ "$FORCE_REBUILD" = true ]; }; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Release requested: previous=${PREVIOUS:-none}, current=$CURRENT, version_changed=$VERSION_CHANGED, release_pending=$RELEASE_PENDING, event=${GITHUB_EVENT_NAME}"
+            echo "Release requested: previous=${PREVIOUS:-none}, current=$CURRENT, version_changed=$VERSION_CHANGED, release_pending=$RELEASE_PENDING, force_rebuild=$FORCE_REBUILD, source_sha=$SOURCE_SHA, event=${GITHUB_EVENT_NAME}"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
             if [ "$RELEASE_PENDING" = true ]; then
@@ -154,7 +170,7 @@ jobs:
         if: ${{ steps.version.outputs.changed == 'true' }}
         env:
           VERSION: ${{ steps.version.outputs.current }}
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ steps.version.outputs.source_sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -181,7 +197,7 @@ jobs:
         if: ${{ steps.version.outputs.changed == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ steps.version.outputs.source_sha }}
           VERSION: ${{ steps.version.outputs.current }}
         shell: bash
         run: |

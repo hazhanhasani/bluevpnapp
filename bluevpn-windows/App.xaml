@@ -185,14 +185,14 @@
         </Style>
 
         <Style x:Key="BlueVpnMetricCardStyle" TargetType="Border">
-            <!-- Download / duration / upload form a single telemetry strip in
-                 both Free and Premium; no individual card chrome. -->
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="CornerRadius" Value="0"/>
-            <Setter Property="BorderBrush" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Margin" Value="2"/>
-            <Setter Property="Padding" Value="6"/>
+            <!-- Lightweight glass-like telemetry cards: clearer hierarchy with
+                 no GPU-heavy blur or shadow on low-end customer machines. -->
+            <Setter Property="Background" Value="{DynamicResource BlueVpnSurface}"/>
+            <Setter Property="CornerRadius" Value="16"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BlueVpnStroke}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Margin" Value="3,2"/>
+            <Setter Property="Padding" Value="7,6"/>
         </Style>
     </Application.Resources>
 </Application>

@@ -168,6 +168,7 @@
     "test_windows_coordinated_publish_4171.py",
     "test_windows_dark_theme_contrast_549.py",
     "test_windows_direct_release_sync_4173.py",
+    "test_windows_dns_cache_ui_6012.py",
     "test_windows_home_fit_banner_547.py",
     "test_windows_pending_stable_convergence_4172.py",
     "test_windows_public_route_label_buildfix_41710.py",

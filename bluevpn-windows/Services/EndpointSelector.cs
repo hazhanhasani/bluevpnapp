@@ -1,12 +1,16 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using System.Collections.Concurrent;
 using BlueVPN.Windows.Models;
 
 namespace BlueVPN.Windows.Services;
 
 public static class EndpointSelector
 {
+    private static readonly ConcurrentDictionary<string, DnsCacheEntry> DnsCache =
+        new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan DnsCacheLifetime = TimeSpan.FromMinutes(5);
     public static async Task<IReadOnlyList<ProxyEndpoint>> RankAsync(
         IReadOnlyList<ProxyEndpoint> endpoints,
         CancellationToken ct = default)
@@ -84,7 +88,7 @@ public static class EndpointSelector
             timeout.CancelAfter(TimeSpan.FromMilliseconds(timeoutMs));
             IPAddress[] addresses = IPAddress.TryParse(host, out var literal)
                 ? [literal]
-                : await Dns.GetHostAddressesAsync(host, timeout.Token).ConfigureAwait(false);
+                : await ResolveAddressesAsync(host, timeout.Token).ConfigureAwait(false);
             if (addresses.Length == 0) return int.MaxValue;
 
             // Happy-Eyeballs-style probing: race one address from each family.
@@ -119,6 +123,18 @@ public static class EndpointSelector
         }
     }
 
+    private static async Task<IPAddress[]> ResolveAddressesAsync(string host, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (DnsCache.TryGetValue(host, out var cached) && cached.ExpiresAt > now)
+            return cached.Addresses;
+
+        var addresses = await Dns.GetHostAddressesAsync(host, ct).ConfigureAwait(false);
+        if (addresses.Length > 0)
+            DnsCache[host] = new DnsCacheEntry(addresses, now + DnsCacheLifetime);
+        return addresses;
+    }
+
     private static async Task<int> ConnectAddressAsync(IPAddress address, int port, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
@@ -139,4 +155,5 @@ public static class EndpointSelector
     }
 
     private readonly record struct ProbeQuality(int LatencyMs, int JitterMs, int Successes, int Samples);
+    private readonly record struct DnsCacheEntry(IPAddress[] Addresses, DateTimeOffset ExpiresAt);
 }

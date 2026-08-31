@@ -1,0 +1,1 @@
+Force coordinated production fanout for BlueVPN 6.2.8 from the pinned release source.

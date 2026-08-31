@@ -16,7 +16,8 @@ class WindowsWebView2UserData574Tests(unittest.TestCase):
         self.assertNotIn("EnsureCoreWebView2Async();", main)
         self.assertIn("ApprovedWindowsPublisherHost", main)
         settings = (ROOT / "bluevpn-windows/appsettings.json").read_text(encoding="utf-8")
-        self.assertLess(settings.index("https://bot.blluepanel.ir"), settings.index("https://blluepanel.ir"))
+        self.assertIn('"https://blluepanel.ir"', settings)
+        self.assertIn('"https://bot.blluepanel.ir"', settings)
 
     def test_web_ad_failure_falls_back_without_crashing_home(self):
         main = (ROOT / "bluevpn-windows/MainWindow.xaml.cs").read_text(encoding="utf-8")

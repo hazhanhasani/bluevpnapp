@@ -17,7 +17,7 @@ class PasarGuardV53Integration624Tests(unittest.TestCase):
         self.assertIn("'api_contract'=>$contract", providers)
         self.assertIn("api_contract varchar(40)", db)
         self.assertIn("capabilities_json longtext", db)
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.36.0'", plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.37.0'", plugin)
 
     def test_v5_api_key_and_rbac_safe_group_catalog(self):
         providers = self.text("bluevpn-manager/includes/class-bluevpn-providers.php")

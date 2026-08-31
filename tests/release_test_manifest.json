@@ -51,6 +51,7 @@
     "test_bundle_workflow_integrity_563.py",
     "test_ci_node24_artifact_layout_41610.py",
     "test_connection_continuity_4112.py",
+    "test_connection_intent_fence_6011.py",
     "test_connection_stability_warp_exhaustive_498.py",
     "test_connection_truth_536.py",
     "test_cron_safety_sentinel_ui_4167.py",

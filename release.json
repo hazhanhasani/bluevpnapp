@@ -2,11 +2,11 @@
   "version": "6.2.4",
   "version_code": 60204,
   "channel": "beta",
-  "build_id": "20260831-v6.2.4-pasarguard-v53",
+  "build_id": "20260830-v6.2.4-locations-quality",
   "built_at": "2026-08-30T17:46:02+03:30",
   "android_version": "6.2.4",
   "android_version_code": 60204,
-  "description": "BlueVPN 6.2.4: PasarGuard v5.3 ID-first/RBAC compatibility and provider hardening.",
+  "description": "BlueVPN 6.2.4: live server quality testing and premium Locations UI.",
   "features": [
     "android-locations-live-quality-dashboard",
     "android-locations-real-ping-quality-sweep",

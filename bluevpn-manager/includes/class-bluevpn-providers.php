@@ -1037,12 +1037,13 @@ final class BlueVPN_Providers {
         $providerQuota=$trafficMode==='gateway_metered'?0:$quota;$deviceLimit=max(1,(int)($c['device_limit']??$plan['device_limit']??1));
 
         $existingLinks=[];foreach(self::customer_provider_links($customerId) as $link)$existingLinks[(string)$link['route_key']]=$link;
-        $created=0;$attached=0;$existing=0;$resynced=0;$errors=[];$details=[];$update=[];$desired=[];$legacyWritten=['pasarguard'=>false,'marzban'=>false,'guardcore'=>false];
+        $created=0;$attached=0;$existing=0;$resynced=0;$deferred=0;$errors=[];$details=[];$update=[];$desired=[];$legacyWritten=['pasarguard'=>false,'marzban'=>false,'guardcore'=>false];
 
         foreach($routes['shahrah'] as $route){
             $panelId=(int)$route['panel_id'];$slug=(string)$route['plan_slug'];$key=self::provider_route_key('shahrah',$route);$desired[]=$key;
             try{
                 if(!class_exists('BlueVPN_Shahrah'))throw new RuntimeException('شاهراه بارگذاری نشده است.');
+                if(BlueVPN_Shahrah::temporarily_unavailable()){ $deferred++; $details[$key]='deferred_circuit'; continue; }
                 $seed=(string)($c['email']?:$c['phone']?:$c['id']);$username=substr('bv_'.$c['id'].'_'.substr(sha1('shahrah-panel:'.$panelId.':'.$seed),0,9),0,32);
                 $r=BlueVPN_Shahrah::repair_panel_customer($panelId,$customerId,$slug,$username);$action=(string)($r['action']??'existing');
                 if($action==='created')$created++;elseif($action==='attached')$attached++;else$existing++;
@@ -1055,6 +1056,7 @@ final class BlueVPN_Providers {
             $sourceId=(int)($entry['id']??0);
             try{
                 if(!class_exists('BlueVPN_Shahrah'))throw new RuntimeException('شاهراه بارگذاری نشده است.');
+                if(BlueVPN_Shahrah::temporarily_unavailable()){ $deferred++; $details['shahrah_source_'.$sourceId]='deferred_circuit'; continue; }
                 $cfg=BlueVPN_Subscription_Sources::shahrah_credentials_from_entry($entry);if(($cfg['api_key']??'')===''||($cfg['plan_slug']??'')==='')throw new RuntimeException('کلید یا پلن منبع قدیمی شاهراه تنظیم نشده است.');
                 $seed=(string)($c['email']?:$c['phone']?:$c['id']);$username=substr('bv_'.$c['id'].'_'.substr(sha1('shahrah:'.$seed),0,9),0,32);
                 $r=BlueVPN_Shahrah::repair_source_customer($sourceId,$customerId,(string)$cfg['api_key'],(string)$cfg['plan_slug'],$username);
@@ -1173,13 +1175,14 @@ final class BlueVPN_Providers {
 
         self::prune_customer_provider_links($customerId,$desired);
         $repaired=$created+$attached;
-        if($repaired>0||$resynced>0||$update){
+        if($repaired>0||$resynced>0||$existing>0||$errors||$update){
             if(empty($c['subscription_token']))$update['subscription_token']=BlueVPN_Utils::random_token(30);$token=(string)($update['subscription_token']??$c['subscription_token']??'');
             if($token!=='')$update['subscription_url']=home_url('/sub/'.$token);$update['last_sync_at']=BlueVPN_Utils::now_mysql();$update['last_sync_error']=implode(' | ',$errors);$wpdb->update($ct,$update,['id'=>$customerId]);
         }
         self::request_background_snapshot($customerId);
         $ok=!$errors;$message=$repaired||$resynced?'ترمیم چندمسیره انجام شد: '.$created.' ساخته شد، '.$attached.' اتصال بازیابی شد، '.$resynced.' مسیر همگام شد.':($existing&&$ok?'همه مسیرهای انتخاب‌شده سالم هستند.':($errors?implode(' | ',$errors):'نیازی به ترمیم نبود.'));
-        return ['ok'=>$ok,'eligible'=>true,'multi_provider'=>true,'message'=>$message,'repaired'=>$repaired,'created'=>$created,'attached'=>$attached,'existing'=>$existing,'resynced'=>$resynced,'errors'=>$errors,'details'=>$details];
+        if($deferred>0&&$ok)$message='شاهراه موقتاً به‌دلیل خطای 5xx در حالت استراحت است؛ '.$deferred.' مسیر چندگانه برای اجرای بعدی تعویق افتاد.';
+        return ['ok'=>$ok,'eligible'=>true,'multi_provider'=>true,'message'=>$message,'repaired'=>$repaired,'created'=>$created,'attached'=>$attached,'existing'=>$existing,'resynced'=>$resynced,'deferred'=>$deferred,'errors'=>$errors,'details'=>$details];
     }
 
     public static function repair_customer_missing_providers(int $customerId): array {
@@ -1233,11 +1236,13 @@ final class BlueVPN_Providers {
         $providerQuota=$trafficMode==='gateway_metered'?0:$quota;
         $deviceLimit=max(1,(int)($c['device_limit']??$plan['device_limit']??1));
 
-        $update=[];$created=0;$attached=0;$existing=0;$resynced=0;$errors=[];$details=[];
+        $update=[];$created=0;$attached=0;$existing=0;$resynced=0;$deferred=0;$errors=[];$details=[];
 
         if($expectsSh){
             try{
                 if(!class_exists('BlueVPN_Shahrah'))throw new RuntimeException('Provider شاهراه بارگذاری نشده است.');
+                if(BlueVPN_Shahrah::temporarily_unavailable()){$deferred++;$details['shahrah']='deferred_circuit';}
+                if($deferred>0)throw new RuntimeException('DEFERRED_SHAHRAH_CIRCUIT');
                 if($shSlug==='')throw new RuntimeException('پلن Shahrah برای این پلن BlueVPN انتخاب نشده است.');
                 $seed=(string)($c['email']?:$c['phone']?:$c['id']);
                 $username=substr('bv_'.$c['id'].'_'.substr(sha1('shahrah-panel:'.$seed),0,9),0,32);
@@ -1247,13 +1252,17 @@ final class BlueVPN_Providers {
                 elseif($action==='attached')$attached++;
                 else$existing++;
                 $details['shahrah']=$action;
-            }catch(Throwable $e){$errors[]='Shahrah: '.$e->getMessage();$details['shahrah']='error';}
+            }catch(Throwable $e){
+                if($e->getMessage()==='DEFERRED_SHAHRAH_CIRCUIT'||(class_exists('BlueVPN_Shahrah')&&BlueVPN_Shahrah::is_circuit_error($e))){$deferred=max(1,$deferred);$details['shahrah']='deferred_circuit';}
+                else{$errors[]='Shahrah: '.$e->getMessage();$details['shahrah']='error';}
+            }
         }
 
         foreach($shahrahEntries as $entry){
             $sourceId=(int)($entry['id']??0);
             try{
                 if(!class_exists('BlueVPN_Shahrah'))throw new RuntimeException('Provider شاهراه بارگذاری نشده است.');
+                if(BlueVPN_Shahrah::temporarily_unavailable()){ $deferred++; $details['shahrah_source_'.$sourceId]='deferred_circuit'; continue; }
                 $cfg=BlueVPN_Subscription_Sources::shahrah_credentials_from_entry($entry);
                 if(($cfg['api_key']??'')===''||($cfg['plan_slug']??'')==='')throw new RuntimeException('API KEY یا planSlug شاهراه برای Source قدیمی تنظیم نشده است.');
                 $seed=(string)($c['email']?:$c['phone']?:$c['id']);
@@ -1387,7 +1396,8 @@ final class BlueVPN_Providers {
         elseif($existing>0&&$ok)$message='همه اشتراک‌ها و مسیرهای پولی موجود و سالم هستند.';
         else $message=$errors?implode(' | ',$errors):'نیازی به ترمیم نبود.';
 
-        return ['ok'=>$ok,'eligible'=>true,'message'=>$message,'repaired'=>$repaired,'created'=>$created,'attached'=>$attached,'existing'=>$existing,'resynced'=>$resynced,'errors'=>$errors,'details'=>$details];
+        if($deferred>0&&$ok)$message='شاهراه موقتاً به‌دلیل خطای 5xx در حالت استراحت است؛ '.$deferred.' مسیر برای اجرای بعدی تعویق افتاد.';
+        return ['ok'=>$ok,'eligible'=>true,'message'=>$message,'repaired'=>$repaired,'created'=>$created,'attached'=>$attached,'existing'=>$existing,'resynced'=>$resynced,'deferred'=>$deferred,'errors'=>$errors,'details'=>$details];
     }
 
     public static function reconcile_missing_paid_subscriptions_batch(int $limit=2): array {

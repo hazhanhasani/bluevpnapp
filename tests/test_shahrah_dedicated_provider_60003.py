@@ -117,6 +117,22 @@ class ShahrahDedicatedProvider60210Tests(unittest.TestCase):
         self.assertIn("$existing>0||$errors||$update",providers)
         self.assertIn("$update['last_sync_error']=implode(' | ',$errors)",providers)
 
+    def test_shahrah_circuit_breaker_defers_bulk_repair_after_5xx(self):
+        shahrah=self.text("bluevpn-manager/includes/class-bluevpn-shahrah.php")
+        providers=self.text("bluevpn-manager/includes/class-bluevpn-providers.php")
+        control=self.text("bluevpn-manager/includes/class-bluevpn-control-center.php")
+        self.assertIn("CIRCUIT_KEY",shahrah)
+        self.assertIn("temporarily_unavailable",shahrah)
+        self.assertIn("open_circuit",shahrah)
+        self.assertIn("deferred_circuit",providers)
+        self.assertIn("'deferred'=>$deferred",providers)
+        self.assertIn("تعویق شاهراه",control)
+
+    def test_legacy_invalid_json_is_not_rendered_raw(self):
+        control=self.text("bluevpn-manager/includes/class-bluevpn-control-center.php")
+        self.assertIn("sync_error_text",control)
+        self.assertIn("پاسخ غیر JSON قدیمی شاهراه",control)
+
     def test_shahrah_read_requests_retry_transient_server_failures(self):
         shahrah=self.text("bluevpn-manager/includes/class-bluevpn-shahrah.php")
         request=shahrah[shahrah.index("public static function request"):shahrah.index("public static function me")]

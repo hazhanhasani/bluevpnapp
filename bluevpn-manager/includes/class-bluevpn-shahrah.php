@@ -20,11 +20,43 @@ if (!defined('ABSPATH')) exit;
 final class BlueVPN_Shahrah {
     public const BASE_URL = 'https://shahrah.top/api/vaas/reseller';
 
+    private const CIRCUIT_KEY = 'bluevpn_shahrah_circuit_state';
+
     public static function init(): void {
         add_action('admin_post_bluevpn_shahrah_save',[self::class,'admin_save']);
         add_action('admin_post_bluevpn_shahrah_sync',[self::class,'admin_sync']);
         add_action('admin_post_bluevpn_shahrah_toggle',[self::class,'admin_toggle']);
         add_action('admin_post_bluevpn_shahrah_delete',[self::class,'admin_delete']);
+    }
+
+    private static function open_circuit(string $reason,int $code=0): void {
+        set_transient(self::CIRCUIT_KEY,[
+            'until'=>time()+75,
+            'code'=>$code,
+            'reason'=>mb_substr(trim($reason),0,240),
+        ],90);
+    }
+
+    private static function close_circuit(): void {
+        delete_transient(self::CIRCUIT_KEY);
+    }
+
+    public static function temporarily_unavailable(): bool {
+        $state=get_transient(self::CIRCUIT_KEY);
+        if(!is_array($state))return false;
+        $until=(int)($state['until']??0);
+        if($until<=time()){delete_transient(self::CIRCUIT_KEY);return false;}
+        return true;
+    }
+
+    private static function circuit_message(): string {
+        $state=get_transient(self::CIRCUIT_KEY);
+        $seconds=is_array($state)?max(1,(int)($state['until']??time())-time()):30;
+        return 'شاهراه: مدار حفاظتی موقتاً باز است؛ API پس از خطای 5xx برای حدود '.$seconds.' ثانیه استراحت می‌کند.';
+    }
+
+    public static function is_circuit_error(Throwable $e): bool {
+        return str_contains($e->getMessage(),'مدار حفاظتی موقتاً باز است');
     }
 
     private static function guard(): void {
@@ -276,6 +308,7 @@ final class BlueVPN_Shahrah {
 
     public static function request(string $apiKey, string $method, string $path, ?array $body = null, array $query = []): array {
         $apiKey = self::clean_key($apiKey);
+        if(self::temporarily_unavailable())throw new RuntimeException(self::circuit_message());
         $path = '/' . ltrim($path, '/');
         $url = self::BASE_URL . $path;
         if ($query) $url = add_query_arg($query, $url);
@@ -302,6 +335,7 @@ final class BlueVPN_Shahrah {
             $res=wp_remote_request($url,$args);
             if(is_wp_error($res)){
                 if($safeRetry&&$attempt<3){usleep(600000*$attempt);continue;}
+                self::open_circuit($res->get_error_message(),0);
                 throw new RuntimeException('ارتباط با وب‌سرویس شاهراه برقرار نشد: '.$res->get_error_message());
             }
             $retryCode=(int)wp_remote_retrieve_response_code($res);
@@ -327,7 +361,11 @@ final class BlueVPN_Shahrah {
         }
 
         $ok = $code >= 200 && $code < 300 && (($json['ok'] ?? true) !== false);
-        if (!$ok) throw new RuntimeException(self::error_message($code, $json));
+        if (!$ok) {
+            if($code>=500||($json['message']??'')==='NON_JSON_RESPONSE')self::open_circuit(self::error_message($code,$json),$code);
+            throw new RuntimeException(self::error_message($code, $json));
+        }
+        self::close_circuit();
 
         return [
             'ok' => true,
@@ -589,6 +627,7 @@ final class BlueVPN_Shahrah {
         try{
             return self::create_service($apiKey,$planSlug,$username);
         }catch(Throwable $e){
+            if(self::is_circuit_error($e))throw $e;
             if(!self::transient_create_failure($e))throw $e;
             for($attempt=1;$attempt<=4;$attempt++){
                 usleep(200000*$attempt);

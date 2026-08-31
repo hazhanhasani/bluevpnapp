@@ -6,16 +6,17 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class TapsellPremiumCarouselWindowsBridge577Tests(unittest.TestCase):
-    def test_android_premium_can_rotate_only_standard_carousel_banner(self):
+    def test_android_all_tiers_can_use_every_configured_tapsell_surface(self):
         carousel = (ROOT / "android-source/BlueVpnAdsCarouselView.kt").read_text(encoding="utf-8")
         manager = (ROOT / "android-source/BlueVpnTapsellManager.kt").read_text(encoding="utf-8")
         rotate = carousel[carousel.index("private fun scheduleNext"):carousel.index("private fun showTapsellBanner")]
         standard = carousel[carousel.index("private fun showTapsellBanner"):carousel.index("private fun hideTapsellBanner")]
         self.assertNotIn("isFree", rotate)
         self.assertNotIn("isFree", standard)
-        self.assertIn('policy.type != "standard_banner"', manager)
+        self.assertNotIn('policy.type != "standard_banner"', manager)
         other = manager[manager.index("fun attachPlacement("):manager.index("private fun placementEligible(")]
-        self.assertIn("resolveUi(activity).isFree", other)
+        self.assertNotIn("resolveUi(activity).isFree", other)
+        self.assertIn("account-tier agnostic", manager)
 
     def test_windows_uses_real_wordpress_origin_and_never_labels_fallback_as_tapsell(self):
         ads = (ROOT / "bluevpn-manager/includes/class-bluevpn-ads.php").read_text(encoding="utf-8")

@@ -5,13 +5,15 @@ import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 DOMAINS = ["https://blluepanel.ir", "https://bot.blluepanel.ir"]
+ANDROID_DOMAINS = ["https://bot.blluepanel.ir", "https://blluepanel.ir"]
 
 
 class DualControlPlane581Tests(unittest.TestCase):
     def test_shared_contract_contains_both_https_domains(self):
         branding = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
         windows = json.loads((ROOT / "bluevpn-windows/appsettings.json").read_text(encoding="utf-8"))
-        self.assertEqual(branding["api_base_urls"], DOMAINS)
+        self.assertEqual(branding["api_base_url"], "https://bot.blluepanel.ir")
+        self.assertEqual(branding["api_base_urls"], ANDROID_DOMAINS)
         self.assertEqual(windows["api_base_urls"], DOMAINS)
 
     def test_android_generates_and_uses_control_plane_failover(self):

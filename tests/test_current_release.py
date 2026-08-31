@@ -91,7 +91,7 @@ class TestCrossComponentReleaseAudit(unittest.TestCase):
 
 
 class CurrentReleaseTests(unittest.TestCase):
-    def test_00_tapsell_distributed_surfaces_and_premium_boundary(self):
+    def test_00_tapsell_distributed_surfaces_are_all_tier(self):
         home = text("android-source/BlueVpnHomeActivity.kt")
         carousel = text("android-source/BlueVpnAdsCarouselView.kt")
         servers = text("android-source/BlueVpnServersActivity.kt")
@@ -120,10 +120,11 @@ class CurrentReleaseTests(unittest.TestCase):
 
         self.assertIn('type="native_video"', subscriptions)
         self.assertIn('type = "pre_roll_video"', support)
-        self.assertIn("BlueVpnEntitlement.resolveUi(this).isFree", support)
+        support_surface = support[support.index("private fun showFreeGuideWithOptionalPreRoll"):support.index("private fun showFreeConnectionGuide")]
+        self.assertNotIn("resolveUi(this).isFree", support_surface)
 
         self.assertIn("fun placementEligible(", manager)
-        self.assertIn('policy.type != "standard_banner"', manager)
+        self.assertNotIn('policy.type != "standard_banner"', manager)
 
     def test_00_reward_claim_is_server_authoritative_and_idempotent(self):
         api = text("bluevpn-manager/includes/class-bluevpn-api.php")
@@ -1157,13 +1158,14 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("'tapsell'=>$tapsell", mobile)
         self.assertIn('root.optJSONObject("advertising") ?: root.optJSONObject("ads")', ads_android)
 
-    def test_87_free_story_ads_are_exposed_only_as_free_connection_gate(self):
+    def test_87_story_ads_are_exposed_for_every_connection_tier(self):
         api = text("bluevpn-manager/includes/class-bluevpn-api.php")
         ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
         mobile = block(api, "public static function mobile_config", "public static function ad_asset")
         self.assertIn("$freeStoryAds = BlueVPN_Ads::free_story_payload($s);", mobile)
         self.assertIn("'free_story_ads'=>$freeStoryAds", mobile)
-        self.assertIn("'free_only' => true", ads)
+        story = block(ads, "public static function free_story_payload", "private static function tapsell_mediation_app_id")
+        self.assertIn("'free_only' => false", story)
         self.assertIn("'random' => true", ads)
         self.assertIn("'every_connection' => true", ads)
 

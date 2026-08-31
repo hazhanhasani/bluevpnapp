@@ -10,7 +10,7 @@ class GlobalSentinel4164(unittest.TestCase):
         self.assertEqual(release['version'],'6.3.0')
         self.assertEqual(release['version_code'],60300)
         plugin=(ROOT/'bluevpn-manager/bluevpn-manager.php').read_text()
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.36.0",plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.37.0",plugin)
         self.assertIn("class-bluevpn-error-monitor.php",plugin)
         self.assertIn('BlueVPN_Error_Monitor::bootstrap()',plugin)
 

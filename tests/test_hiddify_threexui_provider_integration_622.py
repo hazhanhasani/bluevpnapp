@@ -19,7 +19,7 @@ class HiddifyThreeXuiProviderIntegration622Tests(unittest.TestCase):
         self.assertIn("api_key_enc longtext", db)
         self.assertIn("api_token_enc longtext", db)
         self.assertNotIn("session_cookie", db)
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.36.0'", plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.37.0'", plugin)
         self.assertIn("class-bluevpn-hiddify.php", plugin)
         self.assertIn("class-bluevpn-threexui.php", plugin)
 

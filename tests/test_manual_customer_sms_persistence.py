@@ -10,7 +10,7 @@ class ManualCustomerSmsPersistenceTests(unittest.TestCase):
     def test_schema_has_manual_customer_sms_owner(self):
         db=self.text("bluevpn-manager/includes/class-bluevpn-db.php")
         plugin=self.text("bluevpn-manager/bluevpn-manager.php")
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.36.0'",plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.37.0'",plugin)
         self.assertIn("manual_customer_id bigint unsigned NULL",db)
         self.assertIn("KEY ix_sms_manual_customer (manual_customer_id, created_at)",db)
 

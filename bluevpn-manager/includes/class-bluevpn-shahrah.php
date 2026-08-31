@@ -258,6 +258,14 @@ final class BlueVPN_Shahrah {
 
     private static function error_message(int $code, array $json): string {
         $remote = trim((string)($json['message'] ?? ''));
+        if ($remote === 'NON_JSON_RESPONSE') {
+            $type=trim((string)($json['_content_type']??''));
+            $summary=trim((string)($json['_body_summary']??''));
+            $detail='HTTP '.$code;
+            if($type!=='')$detail.=' • '.$type;
+            if($summary!=='')$detail.=' • '.mb_substr($summary,0,160);
+            return 'شاهراه: پاسخ معتبر JSON دریافت نشد. ('.$detail.')';
+        }
         if ($code === 400) return 'شاهراه: داده ارسالی ناقص یا نامعتبر است.' . ($remote !== '' ? ' (' . mb_substr($remote, 0, 300) . ')' : '');
         if ($code === 401) return 'شاهراه: API KEY ارسال نشده یا معتبر نیست.';
         if ($code === 404) return 'شاهراه: برند، بسته یا سرویس پیدا نشد.';
@@ -303,8 +311,20 @@ final class BlueVPN_Shahrah {
 
         $code = (int)wp_remote_retrieve_response_code($res);
         $raw = (string)wp_remote_retrieve_body($res);
+        $contentType = trim((string)wp_remote_retrieve_header($res, 'content-type'));
         $json = json_decode($raw, true);
-        if (!is_array($json)) $json = ['ok' => false, 'status' => 'Error', 'message' => 'INVALID_JSON'];
+        if (!is_array($json)) {
+            $summary = trim(wp_strip_all_tags($raw));
+            if ($summary !== '') $summary = mb_substr(preg_replace('/\\s+/u',' ',$summary),0,160);
+            $json = [
+                'ok' => false,
+                'status' => 'Error',
+                'message' => 'NON_JSON_RESPONSE',
+                '_http_code' => $code,
+                '_content_type' => $contentType,
+                '_body_summary' => $summary,
+            ];
+        }
 
         $ok = $code >= 200 && $code < 300 && (($json['ok'] ?? true) !== false);
         if (!$ok) throw new RuntimeException(self::error_message($code, $json));
@@ -332,7 +352,8 @@ final class BlueVPN_Shahrah {
 
     public static function services(string $apiKey, array $query = []): array {
         $allowed = [];
-        foreach (['limit','page','status'] as $key) {
+        // Shahrah reseller API explicitly supports page, limit, q and status.
+        foreach (['limit','page','q','status'] as $key) {
             if (isset($query[$key]) && $query[$key] !== '') $allowed[$key] = $query[$key];
         }
         return self::request($apiKey, 'GET', '/services', null, $allowed);
@@ -526,6 +547,18 @@ final class BlueVPN_Shahrah {
 
     private static function locate_service_by_username(string $apiKey,string $username,int $maxPages=5): array {
         $maxPages=max(1,min(10,$maxPages));
+
+        // Use Shahrah's documented q filter first. This avoids repeatedly
+        // scanning large service pages and substantially lowers upstream load.
+        try{
+            $filtered=self::services($apiKey,['limit'=>20,'page'=>1,'q'=>$username]);
+            $candidate=self::find_service_for_username((array)($filtered['json']??[]),$username);
+            if($candidate)return $candidate;
+        }catch(Throwable $filteredError){
+            // Compatibility fallback: older/temporarily degraded upstreams may
+            // reject q. The bounded paged scan below preserves recovery.
+        }
+
         for($page=1;$page<=$maxPages;$page++){
             $listing=self::services($apiKey,['limit'=>100,'page'=>$page]);
             $candidate=self::find_service_for_username((array)($listing['json']??[]),$username);

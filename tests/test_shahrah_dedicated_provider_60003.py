@@ -87,6 +87,22 @@ class ShahrahDedicatedProvider60208Tests(unittest.TestCase):
         self.assertIn("const raw=await r.text()",control)
         self.assertIn("پاسخ غیر JSON از سرور",control)
 
+    def test_services_supports_documented_q_filter_and_lookup_uses_it(self):
+        shahrah=self.text("bluevpn-manager/includes/class-bluevpn-shahrah.php")
+        services=shahrah[shahrah.index("public static function services"):shahrah.index("public static function create_service")]
+        locate=shahrah[shahrah.index("private static function locate_service_by_username"):shahrah.index("private static function transient_create_failure")]
+        self.assertIn("['limit','page','q','status']",services)
+        self.assertIn("'q'=>$username",locate)
+        self.assertIn("'limit'=>20",locate)
+
+    def test_non_json_upstream_response_is_actionable_not_invalid_json(self):
+        shahrah=self.text("bluevpn-manager/includes/class-bluevpn-shahrah.php")
+        request=shahrah[shahrah.index("public static function request"):shahrah.index("public static function me")]
+        self.assertIn("NON_JSON_RESPONSE",request)
+        self.assertIn("wp_remote_retrieve_header($res, 'content-type')",request)
+        self.assertIn("پاسخ معتبر JSON دریافت نشد",shahrah)
+        self.assertNotIn("'message' => 'INVALID_JSON'",request)
+
     def test_shahrah_read_requests_retry_transient_server_failures(self):
         shahrah=self.text("bluevpn-manager/includes/class-bluevpn-shahrah.php")
         request=shahrah[shahrah.index("public static function request"):shahrah.index("public static function me")]

@@ -46,6 +46,7 @@ public partial class MainWindow : Window
     private bool _tapsellWebInitialized;
     private CoreWebView2Environment? _tapsellWebEnvironment;
     private Microsoft.Web.WebView2.Wpf.WebView2? _tapsellWebView;
+    private TaskCompletionSource<string>? _tapsellPageSignal;
     private UpdateCandidate? _pendingUpdate;
     private long? _remainingSecondsAtSnapshot;
     private DateTimeOffset _accountSnapshotAt = DateTimeOffset.UtcNow;
@@ -104,10 +105,10 @@ public partial class MainWindow : Window
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
         // WebView2 is optional and is created lazily only when a web ad is
-        // actually selected. Use the standard WPF WebView2 control, not
-        // The composition-based WebView2 variant carries a runtime
-        // Microsoft.Windows.SDK.NET dependency that is not present on clean
-        // customer PCs and previously caused startup FileNotFoundException.
+        // actually selected. The standard WPF control avoids the composition
+        // runtime dependency that crashed clean customer PCs. Tapsell itself is
+        // never executed from a synthetic/local origin; only blluepanel.ir is
+        // accepted as the publisher document.
         MaxHeight = Math.Max(560, SystemParameters.WorkArea.Height);
         Height = Math.Min(760, Math.Max(560, SystemParameters.WorkArea.Height - 18));
         MaxWidth = Math.Max(620, SystemParameters.WorkArea.Width);
@@ -339,26 +340,19 @@ public partial class MainWindow : Window
                 webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
                 webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
                 webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-                webView.CoreWebView2.Settings.IsWebMessageEnabled = false;
-                webView.CoreWebView2.SetVirtualHostNameToFolderMapping(
-                    WebView2RuntimeInstaller.VirtualHost,
-                    WebView2RuntimeInstaller.ContentFolder,
-                    CoreWebView2HostResourceAccessKind.Allow);
+                webView.CoreWebView2.Settings.IsWebMessageEnabled = true;
+                webView.CoreWebView2.WebMessageReceived += TapsellWebMessageReceived;
+                webView.CoreWebView2.NewWindowRequested += TapsellNewWindowRequested;
                 _tapsellWebInitialized = true;
             }
 
-            var html = "<!doctype html><html dir=\"rtl\"><head><meta charset=\"utf-8\">" +
-                "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>" +
-                "html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent}" +
-                "#bluevpn-ad{width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:transparent}" +
-                "#bluevpn-loading{position:fixed;inset:0;display:grid;place-items:center;color:#8e9ab2;font:12px sans-serif}" +
-                ".bluevpn-ad-label{position:fixed;left:8px;top:6px;z-index:2147483647;color:#fff;background:#66000100;border-radius:9px;padding:3px 7px;font:9px sans-serif}" +
-                "iframe,img,video,canvas{max-width:100%;max-height:100%;border:0}</style></head><body>" +
-                "<div id=\"bluevpn-loading\">در حال دریافت تبلیغ…</div><span class=\"bluevpn-ad-label\">تبلیغ</span>" +
-                "<div id=\"bluevpn-ad\">" + cfg.ScriptHtml + "</div>" +
-                "<script>new MutationObserver(function(){var a=document.getElementById('bluevpn-ad');" +
-                "if(a&&a.querySelector(':scope > :not(script):not(style)'))document.getElementById('bluevpn-loading').style.display='none';" +
-                "}).observe(document.getElementById('bluevpn-ad'),{childList:true,subtree:true});</script></body></html>";
+            if (!_ads.TryGetApprovedWindowsBridge(out var bridge))
+            {
+                FooterStatus.Text = "آدرس ناشر Tapsell معتبر نیست؛ فقط https://blluepanel.ir مجاز است.";
+                return false;
+            }
+            _tapsellPageSignal = new TaskCompletionSource<string>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
 
             AdCard.Tag = null;
             AdImage.Source = null;
@@ -372,10 +366,7 @@ public partial class MainWindow : Window
             AdFallbackPanel.Visibility = Visibility.Collapsed;
             TapsellLoadingPanel.Visibility = Visibility.Visible;
             AdProviderLabel.Visibility = Visibility.Visible;
-            var address = Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
-                          bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)
-                ? bridge.ToString()
-                : await WebView2RuntimeInstaller.WriteAdDocumentAsync(html, _lifetimeCts.Token);
+            var address = bridge.ToString();
             if (!await NavigateTapsellAsync(address, _lifetimeCts.Token))
             {
                 SetTapsellWebVisibility(Visibility.Collapsed);
@@ -424,15 +415,78 @@ public partial class MainWindow : Window
         }
     }
 
+    private void TapsellWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs args)
+    {
+        try
+        {
+            if (_tapsellWebView?.CoreWebView2 is null) return;
+            if (!Uri.TryCreate(_tapsellWebView.CoreWebView2.Source, UriKind.Absolute, out var source) ||
+                !source.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+                !source.Host.Equals(AdvertisementService.ApprovedWindowsPublisherHost, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var message = args.TryGetWebMessageAsString().Trim();
+            if (!message.StartsWith("BLUEVPN_TAPSELL_", StringComparison.Ordinal)) return;
+            _tapsellPageSignal?.TrySetResult(message);
+        }
+        catch
+        {
+            // Third-party messages are optional diagnostics and never own app life.
+        }
+    }
+
+    private void TapsellNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs args)
+    {
+        args.Handled = true;
+        if (!Uri.TryCreate(args.Uri, UriKind.Absolute, out var target) ||
+            (target.Scheme != Uri.UriSchemeHttps && target.Scheme != Uri.UriSchemeHttp))
+            return;
+        try
+        {
+            Process.Start(new ProcessStartInfo(target.ToString()) { UseShellExecute = true });
+        }
+        catch { }
+    }
+
     private async Task<bool> WaitForTapsellContentAsync(CancellationToken ct)
     {
         var webView = _tapsellWebView;
         if (webView?.CoreWebView2 is null) return false;
+        var signal = _tapsellPageSignal;
+
         for (var attempt = 0; attempt < 24; attempt++)
         {
-            await Task.Delay(350, ct);
+            var delay = Task.Delay(350, ct);
+            if (signal is not null)
+            {
+                var completed = await Task.WhenAny(signal.Task, delay);
+                if (completed == signal.Task)
+                {
+                    var message = await signal.Task;
+                    if (message == "BLUEVPN_TAPSELL_READY") return true;
+                    if (message is "BLUEVPN_TAPSELL_NO_FILL" or
+                                   "BLUEVPN_TAPSELL_LOAD_ERROR" or
+                                   "BLUEVPN_TAPSELL_TIMEOUT")
+                    {
+                        FooterStatus.Text = "تپسل تبلیغ قابل نمایش برنگرداند؛ بنر BlueVPN جایگزین شد.";
+                        return false;
+                    }
+                }
+                else
+                {
+                    await delay;
+                }
+            }
+            else
+            {
+                await delay;
+            }
+
+            // Safety fallback for older bridge pages: trust only actual rendered
+            // media on the approved publisher document, never script-load alone.
             var result = await webView.CoreWebView2.ExecuteScriptAsync(
-                "(()=>{const root=document.getElementById('bluevpn-ad')||document.getElementById('bluevpn-tapsell-root')||document.body;if(!root)return false;" +
+                "(()=>{if(location.protocol!=='https:'||location.hostname!=='blluepanel.ir')return false;" +
+                "const root=document.getElementById('bluevpn-tapsell-root')||document.body;if(!root)return false;" +
                 "const visible=n=>{if(!(n instanceof Element))return false;const b=n.getBoundingClientRect(),s=getComputedStyle(n);" +
                 "return b.width>20&&b.height>20&&s.display!=='none'&&s.visibility!=='hidden'&&Number(s.opacity||1)>0;};" +
                 "const rendered=n=>{if(!visible(n))return false;const s=getComputedStyle(n);" +
@@ -443,7 +497,8 @@ public partial class MainWindow : Window
                 "for(const n of root.querySelectorAll('*'))if(rendered(n))return true;return false;})()");
             if (string.Equals(result?.Trim(), "true", StringComparison.OrdinalIgnoreCase)) return true;
         }
-        FooterStatus.Text = "تپسل محتوای قابل نمایش برنگرداند؛ بنر BlueVPN جایگزین شد.";
+
+        FooterStatus.Text = "تپسل در مهلت نمایش آماده نشد؛ بنر BlueVPN جایگزین شد.";
         TapsellLoadingPanel.Visibility = Visibility.Collapsed;
         AdProviderLabel.Visibility = Visibility.Collapsed;
         return false;

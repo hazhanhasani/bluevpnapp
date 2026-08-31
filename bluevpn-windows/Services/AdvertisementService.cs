@@ -13,6 +13,7 @@ namespace BlueVPN.Windows.Services;
 /// </summary>
 public sealed class AdvertisementService
 {
+    public const string ApprovedWindowsPublisherHost = "blluepanel.ir";
     private readonly BlueVpnApiClient _api;
     private readonly AppSettings _settings;
     private readonly Random _random = new();
@@ -152,15 +153,24 @@ public sealed class AdvertisementService
 
     public TapsellWindowsWebConfig WindowsWeb => Current.Tapsell.WindowsWeb;
 
+    public bool TryGetApprovedWindowsBridge(out Uri bridge)
+    {
+        bridge = null!;
+        var raw = (WindowsWeb.BridgeUrl ?? "").Trim();
+        if (!Uri.TryCreate(raw, UriKind.Absolute, out var candidate)) return false;
+        if (!candidate.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)) return false;
+        if (!candidate.Host.Equals(ApprovedWindowsPublisherHost, StringComparison.OrdinalIgnoreCase)) return false;
+        if (!candidate.IsDefaultPort && candidate.Port != 443) return false;
+        bridge = candidate;
+        return true;
+    }
+
     public bool TryReserveWindowsWebImpression(bool premium, bool noFirstPartyBanner)
     {
         var cfg = WindowsWeb;
-        // Eligibility is checked before navigation, but an impression is committed
-        // only after WebView2 proves that provider content actually rendered.
-        var hasHttpsBridge = Uri.TryCreate(cfg.BridgeUrl, UriKind.Absolute, out var bridge) &&
-                             bridge.Scheme.Equals(Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase);
-        var hasRenderableSource = hasHttpsBridge || !string.IsNullOrWhiteSpace(cfg.ScriptHtml);
-        if (!cfg.Enabled || !hasRenderableSource || (cfg.FreeOnly && premium)) return false;
+        // The web publisher is authorized for blluepanel.ir specifically.
+        // Reject bot.blluepanel.ir, synthetic local hosts and injected ScriptHtml.
+        if (!cfg.Enabled || !TryGetApprovedWindowsBridge(out _) || (cfg.FreeOnly && premium)) return false;
 
         var today = DateOnly.FromDateTime(DateTime.Now);
         if (today != _windowsWebDay)

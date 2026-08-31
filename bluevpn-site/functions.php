@@ -220,14 +220,19 @@ function bluevpn_site_windows_tapsell_bridge(): void {
     echo 'iframe,img,video,canvas,object,embed{max-width:100%;max-height:100%;border:0}</style>';
     echo '</head><body><div id="bluevpn-tapsell-root"><div id="' . esc_attr($slot) . '"></div></div>';
     echo '<script type="text/javascript">(function (){';
-    echo 'const root=document.documentElement;const head=document.getElementsByTagName("head")[0];';
-    echo 'const script=document.createElement("script");script.type="text/javascript";script.async=true;';
-    echo 'script.src="https://s1.mediaad.org/serve/blluepanel.ir/loader.js";';
-    echo 'const timeout=setTimeout(function(){root.dataset.bluevpnLoaderState="timeout";},15000);';
-    echo 'script.onload=function(){clearTimeout(timeout);root.dataset.bluevpnLoaderState="loaded";';
-    echo 'setTimeout(function(){if(typeof window.mediaad==="undefined"&&typeof window.ma==="undefined"){root.dataset.bluevpnLoaderState="not_initialized";}},5000);};';
-    echo 'script.onerror=function(){clearTimeout(timeout);root.dataset.bluevpnLoaderState="load_error";};';
-    echo 'head.appendChild(script);';
+    echo 'const root=document.documentElement,slot=document.getElementById(' . wp_json_encode($slot) . '),head=document.head;';
+    echo 'let finished=false;const send=function(state){if(finished&&state==="READY")return;root.dataset.bluevpnLoaderState=state.toLowerCase();';
+    echo 'try{if(window.chrome&&window.chrome.webview)window.chrome.webview.postMessage("BLUEVPN_TAPSELL_"+state);}catch(e){}';
+    echo 'if(state==="READY"||state==="NO_FILL"||state==="LOAD_ERROR"||state==="TIMEOUT")finished=true;};';
+    echo 'const visible=function(n){if(!(n instanceof Element))return false;const b=n.getBoundingClientRect(),s=getComputedStyle(n);return b.width>20&&b.height>20&&s.display!=="none"&&s.visibility!=="hidden"&&Number(s.opacity||1)>0;};';
+    echo 'const rendered=function(n){if(!visible(n))return false;const s=getComputedStyle(n);if(["IFRAME","IMG","VIDEO","CANVAS","OBJECT","EMBED"].includes(n.tagName))return true;if(s.backgroundImage&&s.backgroundImage!=="none")return true;if(n!==slot&&(n.childElementCount>0||String(n.textContent||"").trim().length>0))return true;if(n.shadowRoot){for(const c of n.shadowRoot.querySelectorAll("*"))if(rendered(c))return true;}return false;};';
+    echo 'const check=function(){if(finished||!slot)return;if(rendered(slot)){send("READY");observer.disconnect();clearInterval(poll);clearTimeout(deadline);}};';
+    echo 'const observer=new MutationObserver(check);observer.observe(slot,{childList:true,subtree:true,attributes:true});';
+    echo 'const poll=setInterval(check,300);const deadline=setTimeout(function(){if(!finished)send("NO_FILL");observer.disconnect();clearInterval(poll);},10000);';
+    echo 'const script=document.createElement("script");script.type="text/javascript";script.async=true;script.src="https://s1.mediaad.org/serve/blluepanel.ir/loader.js";';
+    echo 'const loadTimeout=setTimeout(function(){if(!finished)send("TIMEOUT");},15000);';
+    echo 'script.onload=function(){clearTimeout(loadTimeout);root.dataset.bluevpnLoaderState="loaded";check();};';
+    echo 'script.onerror=function(){clearTimeout(loadTimeout);send("LOAD_ERROR");};head.appendChild(script);';
     echo '})();</script></body></html>';
     exit;
 }

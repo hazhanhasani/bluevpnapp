@@ -621,7 +621,7 @@ final class BlueVPN_Ads {
             'windows_web' => [
                 'enabled' => !empty($settings['tapsell_windows_web_enabled']) && $windowsWebPlacementId !== '',
                 'placement_id' => $windowsWebPlacementId,
-                'script_html' => (string)($settings['tapsell_windows_web_script_html'] ?? ''),
+                'script_html' => '',
                 'bridge_url' => add_query_arg(['bluevpn_tapsell_windows'=>'1','slot'=>$windowsWebPlacementId], 'https://blluepanel.ir/'),
                 'free_only' => false,
                 'min_interval_seconds' => max(0, min(86400, (int)($settings['tapsell_windows_web_min_interval_seconds'] ?? 300))),
@@ -994,7 +994,9 @@ final class BlueVPN_Ads {
         $s['tapsell_windows_web_placement_id'] = self::normalize_windows_web_placement_id(
             (string)wp_unslash($_POST['tapsell_windows_web_placement_id'] ?? '')
         );
-        $s['tapsell_windows_web_script_html'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_windows_web_script_html'] ?? '')), 0, 20000);
+        // Raw publisher HTML is retired. Windows loads the approved blluepanel.ir
+        // bridge directly so Tapsell sees the publisher origin it authorized.
+        $s['tapsell_windows_web_script_html'] = '';
         // The Windows web banner is a carousel slide and is intentionally
         // available on both Free and Premium. Do not make other placements premium.
         $s['tapsell_windows_web_free_only'] = false;
@@ -1340,7 +1342,7 @@ final class BlueVPN_Ads {
 
         echo '<div class="bvc-note" style="margin-top:12px">فقط Standard Banner که داخل اسلایدر تبلیغات BlueVPN قرار می‌گیرد برای هر دو پلن رایگان و Premium نمایش داده می‌شود. تمام جایگاه‌های دیگر Tapsell شامل تمام‌صفحه، ویدیویی، جایزه‌ای، Native و Pre-roll همچنان فقط مخصوص پلن رایگان هستند.</div>';
         echo '<h3 style="margin:18px 0 10px">Tapsell Web برای Windows</h3>';
-        echo '<div class="bvc-note" style="margin-bottom:12px">در پنل ناشر وب Tapsell روی «دریافت کد اسکریپت» بزنید و کل کد جایگاه را اینجا قرار دهید. این بخش مستقل از Mediation اندروید است و بدون Build مجدد از Mobile Config روی Windows اعمال می‌شود.</div><div class="bvc-form-grid">';
+        echo '<div class="bvc-note" style="margin-bottom:12px">دامنه ناشر Windows روی <strong>blluepanel.ir</strong> تأیید شده است. Windows فقط صفحه HTTPS همین دامنه را باز می‌کند؛ bot.blluepanel.ir فقط کنترل‌پلین/API است. شناسه جایگاه را وارد کنید و نیازی به تزریق کد HTML/Script داخل برنامه نیست.</div><div class="bvc-form-grid">';
         self::checkbox('tapsell_windows_web_enabled', 'فعال‌سازی جایگاه وب در Windows', !empty($s['tapsell_windows_web_enabled']));
         echo '<div class="bvc-note">این جایگاه فقط به‌صورت اسلاید کنار بنرهای BlueVPN نمایش داده می‌شود و برای Free و Premium فعال است.</div>';
         self::text('tapsell_windows_web_placement_id', 'شناسه جایگاه وب', (string)($s['tapsell_windows_web_placement_id'] ?? ''));
@@ -1349,7 +1351,7 @@ final class BlueVPN_Ads {
         self::number('tapsell_windows_web_every_slides', 'نمایش بعد از چند بنر داخلی', (int)($s['tapsell_windows_web_every_slides'] ?? 3), 1, 20);
         self::number('tapsell_windows_web_height', 'ارتفاع جایگاه Windows', (int)($s['tapsell_windows_web_height'] ?? 146), 90, 220);
         echo '</div>';
-        self::textarea('tapsell_windows_web_script_html', 'کد کامل اسکریپت جایگاه Tapsell Web', (string)($s['tapsell_windows_web_script_html'] ?? ''));
+        echo '<div class="bvc-note">مسیر نمایش: BlueVPN Windows → WebView2 → https://blluepanel.ir/?bluevpn_tapsell_windows=1 → Tapsell. در صورت No Fill/Timeout بنر داخلی BlueVPN نمایش داده می‌شود.</div>';
         echo '<h3 style="margin:18px 0 10px">جایگاه‌های توزیع‌شده Tapsell</h3>';
 
         $tapsellZones = self::tapsell_zones($s);

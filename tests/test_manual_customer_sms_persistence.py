@@ -28,11 +28,16 @@ class ManualCustomerSmsPersistenceTests(unittest.TestCase):
         self.assertIn("?int $manualCustomerId = null",sms)
         self.assertIn("'manual_customer_id'=>$manualCustomerId ?: null",sms)
 
-    def test_manual_history_uses_real_database_relation_with_legacy_fallback(self):
+    def test_manual_history_uses_real_owner_relation_and_safe_backfill(self):
         manual=self.text("bluevpn-manager/includes/class-bluevpn-manual-customers.php")
+        self.assertIn("private static function backfill_legacy_sms_owners()",manual)
+        self.assertIn("HAVING COUNT(*)=1",manual)
+        self.assertIn("d.manual_customer_id IS NULL",manual)
+        self.assertIn("d.customer_id IS NULL",manual)
         self.assertIn("WHERE manual_customer_id=%d",manual)
-        self.assertIn("manual_customer_id IS NULL AND phone=%s AND dedupe_key LIKE %s",manual)
         self.assertIn("manual_customer_id IS NOT NULL",manual)
+        self.assertNotIn("dedupe_key LIKE 'manual-customer:%'",manual)
+        self.assertNotIn("dedupe_key LIKE %s",manual)
 
     def test_sent_provider_result_cannot_fail_database_silently(self):
         sms=self.text("bluevpn-manager/includes/class-bluevpn-sms-notifications.php")

@@ -1,5 +1,9 @@
 name: Build BlueVPN iOS
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'release-requests/all-build-*.txt'
   workflow_dispatch:
     inputs:
       target_sha:

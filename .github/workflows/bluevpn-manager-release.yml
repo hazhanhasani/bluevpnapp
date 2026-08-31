@@ -1,6 +1,10 @@
 name: Release BlueVPN Manager
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'release-requests/all-build-*.txt'
   workflow_dispatch:
     inputs:
       target_sha:

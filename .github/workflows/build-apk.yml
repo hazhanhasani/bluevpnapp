@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'release-requests/android-build-*.txt'
+      - 'release-requests/all-build-*.txt'
   workflow_dispatch:
     inputs:
       build_mode:

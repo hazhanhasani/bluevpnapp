@@ -11,7 +11,7 @@ class AdsAllTierResponsive617Tests(unittest.TestCase):
         self.assertEqual(branding["api_base_url"], "https://bot.blluepanel.ir")
         self.assertEqual(
             branding["api_base_urls"],
-            ["https://bot.blluepanel.ir", "https://blluepanel.ir"],
+            ["https://bot.blluepanel.ir"],
         )
 
     def test_tapsell_android_has_no_subscription_tier_gate(self):

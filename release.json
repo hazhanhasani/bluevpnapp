@@ -6,7 +6,7 @@
   "built_at": "2026-08-30T17:46:02+03:30",
   "android_version": "6.2.5",
   "android_version_code": 60205,
-  "description": "BlueVPN 6.2.5: live server quality testing and premium Locations UI.",
+  "description": "BlueVPN 6.2.5: immediate SMS, flexible manual entitlements, and Android CoreTestService foreground reliability.",
   "features": [
     "android-locations-live-quality-dashboard",
     "android-locations-real-ping-quality-sweep",
@@ -865,7 +865,9 @@
     "sms-immediate-wake-hook",
     "sms-post-commit-foreground-dispatch",
     "manual-app-optional-plan-custom-override",
-    "active-entitlement-absolute-time-volume-edit"
+    "active-entitlement-absolute-time-volume-edit",
+    "android-core-test-foreground-deadline-fix",
+    "manual-custom-without-plan-central-entitlement"
   ],
   "version_source": "source_declared_release_version",
   "tapsell_mediation_version": "1.4.0-alpha03",

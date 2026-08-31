@@ -36,21 +36,25 @@ class SmsManualEntitlementFixes625Tests(unittest.TestCase):
         self.assertNotIn("dedupe_key LIKE %s", manual)
         self.assertIn("BlueVPN_SMS_Notifications::dispatch_now($deliveryId)", manual)
 
-    def test_manual_app_activation_plan_is_optional_for_custom_on_existing_plan(self):
+    def test_manual_app_activation_plan_is_optional_for_custom_even_without_existing_plan(self):
         cc = self.text("bluevpn-manager/includes/class-bluevpn-control-center.php")
         tab_start = cc.index("private static function tab_manual()")
         tab_end = cc.index("private static function tab_customers()", tab_start)
         tab = cc[tab_start:tab_end]
         self.assertIn("پلن (اختیاری)", tab)
-        self.assertIn("استفاده از پلن فعلی کاربر", tab)
+        self.assertIn("اعتبار مستقیم", tab)
         self.assertNotIn('name="plan_id" required', tab)
 
         start = cc.index("public static function manual_activate()")
         end = cc.index("public static function guardcore_refresh_catalog", start)
         body = cc[start:end]
         self.assertIn("$requestedPlanId", body)
-        self.assertIn("$planId=$requestedPlanId>0?$requestedPlanId:max(0,(int)($before['plan_id']??0));", body)
+        self.assertIn("$planId=$requestedPlanId>0?$requestedPlanId:$currentPlanId;", body)
         self.assertIn("$requestedPlanId<=0&&!$customDuration&&!$customVolume", body)
+        self.assertIn("$planId>0", body)
+        self.assertIn("'central_only'=>true", body)
+        self.assertIn("اعتبار مستقیم اپ بدون پلن Provider ذخیره شد", body)
+        self.assertIn("برای فعال‌سازی Custom بدون پلن، مدت دلخواه را وارد کن", body)
         self.assertIn("پلن فعلی خودکار استفاده شد", body)
 
     def test_active_customer_entitlement_can_be_edited_absolutely(self):

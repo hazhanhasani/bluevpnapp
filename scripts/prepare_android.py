@@ -774,6 +774,79 @@ def patch_manifest() -> None:
     )
     url_scheme_path.write_text(url_scheme_text, encoding="utf-8")
 
+def patch_core_test_service_foreground_deadline() -> None:
+    """Promote CoreTestService before the potentially slow native-core init.
+
+    Android starts this service with startForegroundService(). On slower devices,
+    CoreNativeManager.initCoreEnv() can consume the foreground-service deadline
+    before onStartCommand() is reached. Foregrounding in onCreate() first keeps
+    the stock ping worker semantics while satisfying Android's lifecycle contract.
+    """
+    path = APP / "src/main/java/com/v2ray/ang/service/CoreTestService.kt"
+    if not path.exists():
+        raise RuntimeError("Official v2rayNG CoreTestService.kt is missing")
+    text = path.read_text(encoding="utf-8")
+
+    foreground_block = (
+        "        NotificationHelper.startForeground(\n"
+        "            this,\n"
+        "            NotificationChannelType.CORE_TEST,\n"
+        "            getString(R.string.app_name),\n"
+        "            getString(R.string.title_real_ping_all_server),\n"
+        "            cancelAction\n"
+        "        )\n"
+    )
+
+    create_marker = (
+        "    override fun onCreate() {\n"
+        "        super.onCreate()\n"
+    )
+    if create_marker not in text:
+        raise RuntimeError("Unsupported v2rayNG CoreTestService onCreate contract")
+    create_start = text.index(create_marker)
+    create_end = text.find("    override fun onBind", create_start)
+    if create_end < 0:
+        raise RuntimeError("CoreTestService onBind boundary not found")
+    create_section = text[create_start:create_end]
+    if "NotificationHelper.startForeground(" not in create_section:
+        text = text.replace(
+            create_marker,
+            create_marker
+            + "        // Android foreground-service deadline: notify before native core init.\n"
+            + foreground_block,
+            1,
+        )
+
+    start_sig = "    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {\n"
+    start_index = text.find(start_sig)
+    if start_index < 0:
+        raise RuntimeError("Unsupported v2rayNG CoreTestService onStartCommand contract")
+    message_index = text.find('        val message = intent?.serializable<TestServiceMessage>("content")', start_index)
+    if message_index < 0:
+        raise RuntimeError("CoreTestService message boundary not found")
+    start_prefix = text[start_index:message_index]
+    if foreground_block in start_prefix:
+        start_prefix = start_prefix.replace(foreground_block, "", 1)
+        text = text[:start_index] + start_prefix + text[message_index:]
+
+    create_start = text.index(create_marker)
+    create_end = text.find("    override fun onBind", create_start)
+    create_section = text[create_start:create_end]
+    notify_at = create_section.find("NotificationHelper.startForeground(")
+    init_at = create_section.find("CoreNativeManager.initCoreEnv(this)")
+    if notify_at < 0 or init_at < 0 or notify_at > init_at:
+        raise RuntimeError(
+            "CoreTestService must call startForeground before CoreNativeManager.initCoreEnv"
+        )
+
+    start_index = text.find(start_sig)
+    message_index = text.find('        val message = intent?.serializable<TestServiceMessage>("content")', start_index)
+    if "NotificationHelper.startForeground(" in text[start_index:message_index]:
+        raise RuntimeError("CoreTestService still foregrounds too late in onStartCommand")
+
+    path.write_text(text, encoding="utf-8")
+
+
 def patch_system_notification() -> None:
     # Public system UI uses BlueVPN branding; raw provider remarks stay internal.
     path = APP / "src/main/java/com/v2ray/ang/handler/NotificationManager.kt"
@@ -1107,6 +1180,7 @@ def main() -> None:
     patch_build_gradle()
     patch_strings()
     patch_manifest()
+    patch_core_test_service_foreground_deadline()
     patch_system_notification()
     patch_app_config()
     inject_bootstrap()

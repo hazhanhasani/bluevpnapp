@@ -825,7 +825,7 @@ final class BlueVPN_Control_Center {
     private static function tab_manual(): void {
         global $wpdb;$ct=BlueVPN_DB::table('customers');$pt=BlueVPN_DB::table('plans');$customers=$wpdb->get_results("SELECT id,email,phone,subscription_status,plan_id FROM {$ct} ORDER BY id DESC LIMIT 200",ARRAY_A);$plans=$wpdb->get_results("SELECT id,title,duration_days,data_limit_gb FROM {$pt} WHERE active=1 AND deleted=0 ORDER BY sort_order,id",ARRAY_A);
         echo '<div class="bvc-card"><h2>مشتریان دستی خارج از BlueVPN</h2><div class="bvc-note">برای مشتریانی که سرویسشان را در اپ‌ها یا پنل‌های دیگر دستی فعال می‌کنید، از CRM مستقل استفاده کنید. ثبت در این بخش هیچ سرویس VPN یا entitlement جدیدی نمی‌سازد.</div><p><a class="button button-primary" href="'.esc_url(admin_url('admin.php?page=bluevpn-manual-customers')).'">بازکردن مشتریان دستی</a></p></div>';
-        echo '<div class="bvc-card"><h2>فعال‌سازی / تمدید دستی روی Providerها</h2><div class="bvc-note"><strong>پلن اختیاری است.</strong> اگر پلن را خالی بگذاری، BlueVPN پلن فعلی همان کاربر را برای مسیرهای Provider استفاده می‌کند. وقتی مدت یا حجم دلخواه وارد شده باشد لازم نیست دوباره پلن فعلی را انتخاب کنی. فقط کاربری که هنوز هیچ پلن/مسیر اولیه‌ای ندارد برای اولین Provision به انتخاب پلن نیاز دارد.</div><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_manual_activate');echo '<input type="hidden" name="action" value="bluevpn_cc_manual_activate"><div class="bvc-form-grid"><label>کاربر<select name="customer_id" required><option value="">انتخاب…</option>';foreach($customers as $c)echo '<option value="'.(int)$c['id'].'">#'.(int)$c['id'].' '.self::esc($c['phone']?:$c['email']).' — '.self::esc($c['subscription_status']).($c['plan_id']?' — پلن #'.(int)$c['plan_id']:' — بدون پلن').'</option>';echo '</select></label><label>پلن (اختیاری)<select name="plan_id"><option value="">استفاده از پلن فعلی کاربر</option>';foreach($plans as $p)echo '<option value="'.(int)$p['id'].'">#'.(int)$p['id'].' '.self::esc($p['title']).' — '.(int)$p['duration_days'].' روز — '.(int)$p['data_limit_gb'].' GB</option>';echo '</select><small>برای تغییر پلن انتخاب کن؛ برای Custom روی پلن فعلی خالی بگذار.</small></label><label>مدت دلخواه (روز)<input type="number" min="1" max="3650" step="1" name="custom_duration_days" placeholder="خالی = مدت پلن"><small>برای فعال‌سازی یا تمدید همین نوبت؛ از تاریخ انقضای فعلی ادامه می‌یابد.</small></label><label>حجم دلخواه (GB)<input type="number" min="0" max="100000" step="0.1" name="custom_data_limit_gb" placeholder="خالی = حجم پلن"><small>۰ = نامحدود؛ مقدار روی WordPress و Providerهای قابل‌کنترل اعمال می‌شود.</small></label></div>';submit_button('فعال‌سازی / تمدید','primary','submit',false);echo '</form></div>';
+        echo '<div class="bvc-card"><h2>فعال‌سازی / تمدید دستی اپلیکیشن</h2><div class="bvc-note"><strong>پلن اختیاری است.</strong> اگر کاربر پلن فعلی دارد و پلن را خالی بگذاری، همان مسیرهای Provider حفظ و Sync می‌شوند. اگر کاربر هیچ پلنی ندارد ولی مدت/حجم Custom وارد کنی، اعتبار مستقیم اپ بدون ساخت Provider route فعال می‌شود. برای تغییر مسیر Provider فقط یک پلن انتخاب کن.</div><form method="post" action="'.esc_url(admin_url('admin-post.php')).'">';wp_nonce_field('bluevpn_cc_manual_activate');echo '<input type="hidden" name="action" value="bluevpn_cc_manual_activate"><div class="bvc-form-grid"><label>کاربر<select name="customer_id" required><option value="">انتخاب…</option>';foreach($customers as $c)echo '<option value="'.(int)$c['id'].'">#'.(int)$c['id'].' '.self::esc($c['phone']?:$c['email']).' — '.self::esc($c['subscription_status']).($c['plan_id']?' — پلن #'.(int)$c['plan_id']:' — بدون پلن').'</option>';echo '</select></label><label>پلن (اختیاری)<select name="plan_id"><option value="">بدون انتخاب — پلن فعلی/اعتبار مستقیم</option>';foreach($plans as $p)echo '<option value="'.(int)$p['id'].'">#'.(int)$p['id'].' '.self::esc($p['title']).' — '.(int)$p['duration_days'].' روز — '.(int)$p['data_limit_gb'].' GB</option>';echo '</select><small>Custom بدون پلن هم مجاز است؛ در آن حالت فقط entitlement خود اپ تنظیم می‌شود.</small></label><label>مدت دلخواه (روز)<input type="number" min="1" max="3650" step="1" name="custom_duration_days" placeholder="خالی = مدت پلن/اعتبار فعلی"><small>اگر وارد شود از انقضای فعلیِ معتبر ادامه می‌یابد؛ بدون پلن برای اولین فعال‌سازی مدت لازم است.</small></label><label>حجم دلخواه (GB)<input type="number" min="0" max="100000" step="0.1" name="custom_data_limit_gb" placeholder="خالی = حجم پلن/فعلی"><small>۰ = نامحدود؛ بدون پلن مقدار فقط روی اعتبار مرکزی اپ ذخیره می‌شود.</small></label></div>';submit_button('فعال‌سازی / تمدید','primary','submit',false);echo '</form></div>';
     }
     private static function tab_customers(): void {
         global $wpdb;
@@ -1396,7 +1396,8 @@ final class BlueVPN_Control_Center {
     public static function manual_activate(): void {
         self::guard();check_admin_referer('bluevpn_cc_manual_activate');global $wpdb;
         $customerId=max(0,(int)($_POST['customer_id']??0));$requestedPlanId=max(0,(int)($_POST['plan_id']??0));
-        $before=$wpdb->get_row($wpdb->prepare('SELECT id,plan_id,phone,subscription_status,subscription_expire,data_limit_bytes FROM '.BlueVPN_DB::table('customers').' WHERE id=%d LIMIT 1',$customerId),ARRAY_A);
+        $ct=BlueVPN_DB::table('customers');
+        $before=$wpdb->get_row($wpdb->prepare('SELECT id,plan_id,phone,subscription_status,subscription_expire,data_limit_bytes,active FROM '.$ct.' WHERE id=%d LIMIT 1',$customerId),ARRAY_A);
         if(!$before)self::redirect('manual','کاربر پیدا نشد.',true);
 
         $durationRaw=trim(sanitize_text_field(wp_unslash((string)($_POST['custom_duration_days']??''))));
@@ -1404,14 +1405,18 @@ final class BlueVPN_Control_Center {
         $customDuration=$durationRaw!=='';$customVolume=$volumeRaw!=='';
         if($requestedPlanId<=0&&!$customDuration&&!$customVolume)self::redirect('manual','پلن را انتخاب کن یا حداقل یکی از مقدارهای مدت/حجم دلخواه را وارد کن.',true);
 
-        $planId=$requestedPlanId>0?$requestedPlanId:max(0,(int)($before['plan_id']??0));
-        if($planId<=0)self::redirect('manual','این کاربر هنوز پلن/مسیر Provider اولیه ندارد؛ برای اولین فعال‌سازی یک پلن انتخاب کن. بعد از آن Custom بدون انتخاب مجدد پلن قابل استفاده است.',true);
-        $plan=$wpdb->get_row($wpdb->prepare('SELECT id,title,duration_days,data_limit_gb FROM '.BlueVPN_DB::table('plans').' WHERE id=%d AND deleted=0 LIMIT 1',$planId),ARRAY_A);
-        if(!$plan)self::redirect('manual','پلن فعلی/انتخاب‌شده پیدا نشد.',true);
+        $currentPlanId=max(0,(int)($before['plan_id']??0));
+        $planId=$requestedPlanId>0?$requestedPlanId:$currentPlanId;
+        $plan=null;
+        if($planId>0){
+            $plan=$wpdb->get_row($wpdb->prepare('SELECT id,title,duration_days,data_limit_gb FROM '.BlueVPN_DB::table('plans').' WHERE id=%d AND deleted=0 LIMIT 1',$planId),ARRAY_A);
+            if(!$plan)self::redirect('manual','پلن فعلی/انتخاب‌شده پیدا نشد.',true);
+        }
 
         if($customDuration&&!preg_match('/^\d+$/',$durationRaw))self::redirect('manual','مدت دلخواه باید تعداد روز صحیح باشد.',true);
-        $durationDays=$customDuration?(int)$durationRaw:max(0,(int)($plan['duration_days']??0));
-        if($durationDays<1||$durationDays>3650)self::redirect('manual','مدت این تمدید باید بین ۱ تا ۳۶۵۰ روز باشد.',true);
+        $durationDays=$customDuration?(int)$durationRaw:($plan?max(0,(int)($plan['duration_days']??0)):0);
+        if($customDuration&&($durationDays<1||$durationDays>3650))self::redirect('manual','مدت دلخواه باید بین ۱ تا ۳۶۵۰ روز باشد.',true);
+        if(!$customDuration&&$plan&&($durationDays<1||$durationDays>3650))self::redirect('manual','مدت پلن معتبر نیست.',true);
 
         $customDataLimitBytes=null;$volumeGb=null;
         if($customVolume){
@@ -1422,34 +1427,71 @@ final class BlueVPN_Control_Center {
             $customDataLimitBytes=(int)round($volumeGb*1024*1024*1024);
         }
 
+        $previousExpiry=(string)($before['subscription_expire']??'');
+        $previousExpiryTs=$previousExpiry!==''?(strtotime($previousExpiry.' UTC')?:0):0;
         if($customDuration){
-            $base=time();$current=!empty($before['subscription_expire'])?(strtotime((string)$before['subscription_expire'].' UTC')?:0):0;
-            if($current>$base)$base=$current;
+            $base=max(time(),$previousExpiryTs);
             $targetExpiry=gmdate('Y-m-d H:i:s',$base+$durationDays*DAY_IN_SECONDS);
-        }else{
+        }elseif($plan){
             $targetExpiry=BlueVPN_Providers::next_entitlement_expiry($customerId,$planId);
+        }else{
+            if($previousExpiryTs<=time())self::redirect('manual','برای فعال‌سازی Custom بدون پلن، مدت دلخواه را وارد کن؛ انقضای فعلی معتبر نیست.',true);
+            $targetExpiry=$previousExpiry;
+        }
+
+        // If the admin keeps the current plan and only changes time, preserve the
+        // current quota rather than silently resetting it to the plan default.
+        $providerDataLimitOverride=$customDataLimitBytes;
+        if(!$customVolume&&$requestedPlanId<=0&&$planId>0){
+            $providerDataLimitOverride=max(0,(int)($before['data_limit_bytes']??0));
         }
 
         $manualRef='manual-'.wp_generate_uuid4();
         BlueVPN_Providers::record_entitlement_ledger(
-            $customerId,$planId,'admin',$manualRef,'intentional_grant',true,$durationDays,
+            $customerId,$planId?:null,'admin',$manualRef,'intentional_grant',$customDuration||$plan!==null,$durationDays,
             $before['subscription_expire']??null,$targetExpiry,
-            ['actor'=>get_current_user_id(),'requested_plan_id'=>$requestedPlanId?:null,'effective_plan_id'=>$planId,'custom_duration'=>$customDuration?1:0,'custom_data_limit'=>$customVolume?1:0,'custom_data_limit_gb'=>$customVolume?$volumeGb:null]
+            ['actor'=>get_current_user_id(),'requested_plan_id'=>$requestedPlanId?:null,'effective_plan_id'=>$planId?:null,'central_only'=>$planId<=0?1:0,'custom_duration'=>$customDuration?1:0,'custom_data_limit'=>$customVolume?1:0,'custom_data_limit_gb'=>$customVolume?$volumeGb:null]
         );
-        $r=BlueVPN_Providers::provision_customer($customerId,$planId,$targetExpiry,$customDataLimitBytes);
+
+        if($planId>0){
+            $r=BlueVPN_Providers::provision_customer($customerId,$planId,$targetExpiry,$providerDataLimitOverride);
+        }else{
+            $targetBytes=$customDataLimitBytes!==null?$customDataLimitBytes:max(0,(int)($before['data_limit_bytes']??0));
+            $status=(strtotime($targetExpiry.' UTC')?:0)>time()?'active':'expired';
+            $saved=$wpdb->update($ct,[
+                'subscription_expire'=>$targetExpiry,
+                'data_limit_bytes'=>$targetBytes,
+                'subscription_status'=>$status,
+                'active'=>1,
+                'last_sync_at'=>null,
+                'last_sync_error'=>'',
+            ],['id'=>$customerId]);
+            if($saved===false)self::redirect('manual','ذخیره اعتبار Custom بدون پلن ناموفق بود.',true);
+            $r=['ok'=>true,'partial'=>false,'message'=>'اعتبار مستقیم اپ بدون پلن Provider ذخیره شد.','canonical_expire'=>$targetExpiry,'data_limit_bytes'=>$targetBytes,'central_only'=>true];
+        }
+
         if(($r['ok']||($r['partial']??false))&&class_exists('BlueVPN_SMS_Notifications')&&!empty($before['phone'])){
             try{
-                $previousExpiry=!empty($before['subscription_expire'])?(strtotime((string)$before['subscription_expire'].' UTC')?:0):0;
-                $event=$previousExpiry>time()?'subscription_renewed':'admin_subscription_activated';
-                BlueVPN_SMS_Notifications::queue_and_dispatch(
-                    $event,(string)$before['phone'],
-                    ['plan'=>mb_substr((string)$plan['title'],0,40),'expire_date'=>BlueVPN_SMS_Notifications::jalali_date($targetExpiry)],
-                    $customerId,null,'admin-subscription:'.$customerId.':'.$planId.':'.$targetExpiry
-                );
+                $event=$previousExpiryTs>time()?'subscription_renewed':'admin_subscription_activated';
+                $planTitle=$plan?(string)$plan['title']:'اشتراک دلخواه';
+                // A pure quota edit with unchanged expiry is not a renewal event.
+                if($targetExpiry!==$previousExpiry||$previousExpiryTs<=time()){
+                    BlueVPN_SMS_Notifications::queue_and_dispatch(
+                        $event,(string)$before['phone'],
+                        ['plan'=>mb_substr($planTitle,0,40),'expire_date'=>BlueVPN_SMS_Notifications::jalali_date($targetExpiry)],
+                        $customerId,null,'admin-subscription:'.$customerId.':'.($planId?:0).':'.$targetExpiry
+                    );
+                }
             }catch(Throwable $e){BlueVPN_Error_Monitor::legacy_error_log('BlueVPN manual activation SMS: '.$e->getMessage());}
         }
-        $message=(string)$r['message'].' • پلن مسیر: '.(string)$plan['title'];
-        if($requestedPlanId<=0)$message.=' (پلن فعلی خودکار استفاده شد)';
+
+        $message=(string)$r['message'];
+        if($plan){
+            $message.=' • پلن مسیر: '.(string)$plan['title'];
+            if($requestedPlanId<=0)$message.=' (پلن فعلی خودکار استفاده شد)';
+        }else{
+            $message.=' • بدون پلن Provider (اعتبار مستقیم اپ)';
+        }
         if($customDuration)$message.=' • مدت دلخواه: '.$durationDays.' روز';
         if($customVolume)$message.=' • حجم دلخواه: '.rtrim(rtrim(number_format($volumeGb,2,'.',''),'0'),'.').' GB';
         self::redirect('manual',$message,!$r['ok']&&!($r['partial']??false));

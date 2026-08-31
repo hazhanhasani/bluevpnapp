@@ -6,6 +6,7 @@
     "test_admin_mobile_viewport_543.py",
     "test_admin_navigation_split_60004.py",
     "test_admin_transition_rejection_554.py",
+    "test_ads_all_tier_responsive_617.py",
     "test_android_beta_build_detection_546.py",
     "test_android_connected_location_state.py",
     "test_android_device_qa_workflow.py",

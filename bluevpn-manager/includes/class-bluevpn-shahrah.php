@@ -301,11 +301,11 @@ final class BlueVPN_Shahrah {
         for($attempt=1;$attempt<=($safeRetry?3:1);$attempt++){
             $res=wp_remote_request($url,$args);
             if(is_wp_error($res)){
-                if($safeRetry&&$attempt<3){usleep(200000*$attempt);continue;}
+                if($safeRetry&&$attempt<3){usleep(600000*$attempt);continue;}
                 throw new RuntimeException('ارتباط با وب‌سرویس شاهراه برقرار نشد: '.$res->get_error_message());
             }
             $retryCode=(int)wp_remote_retrieve_response_code($res);
-            if($safeRetry&&$retryCode>=500&&$attempt<3){usleep(200000*$attempt);continue;}
+            if($safeRetry&&$retryCode>=500&&$attempt<3){usleep(600000*$attempt);continue;}
             break;
         }
 
@@ -555,8 +555,12 @@ final class BlueVPN_Shahrah {
             $candidate=self::find_service_for_username((array)($filtered['json']??[]),$username);
             if($candidate)return $candidate;
         }catch(Throwable $filteredError){
-            // Compatibility fallback: older/temporarily degraded upstreams may
-            // reject q. The bounded paged scan below preserves recovery.
+            // A transient 5xx/transport failure means Shahrah itself is degraded.
+            // Do not immediately multiply the load with a second paged scan.
+            if(self::transient_create_failure($filteredError))throw $filteredError;
+
+            // Compatibility fallback only for non-transient q incompatibility.
+            // The bounded paged scan below preserves recovery on older contracts.
         }
 
         for($page=1;$page<=$maxPages;$page++){

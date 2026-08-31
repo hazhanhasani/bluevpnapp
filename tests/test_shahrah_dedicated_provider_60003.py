@@ -103,6 +103,20 @@ class ShahrahDedicatedProvider60209Tests(unittest.TestCase):
         self.assertIn("پاسخ معتبر JSON دریافت نشد",shahrah)
         self.assertNotIn("'message' => 'INVALID_JSON'",request)
 
+    def test_transient_q_failure_does_not_fan_out_into_paged_scan(self):
+        shahrah=self.text("bluevpn-manager/includes/class-bluevpn-shahrah.php")
+        locate=shahrah[shahrah.index("private static function locate_service_by_username"):shahrah.index("private static function transient_create_failure")]
+        self.assertIn("if(self::transient_create_failure($filteredError))throw $filteredError",locate)
+        request=shahrah[shahrah.index("public static function request"):shahrah.index("public static function me")]
+        self.assertIn("usleep(600000*$attempt)",request)
+
+    def test_bulk_repair_paces_shahrah_5xx_and_clears_stale_errors(self):
+        control=self.text("bluevpn-manager/includes/class-bluevpn-control-center.php")
+        providers=self.text("bluevpn-manager/includes/class-bluevpn-providers.php")
+        self.assertIn("?2500:650",control)
+        self.assertIn("$existing>0||$errors||$update",providers)
+        self.assertIn("$update['last_sync_error']=implode(' | ',$errors)",providers)
+
     def test_shahrah_read_requests_retry_transient_server_failures(self):
         shahrah=self.text("bluevpn-manager/includes/class-bluevpn-shahrah.php")
         request=shahrah[shahrah.index("public static function request"):shahrah.index("public static function me")]

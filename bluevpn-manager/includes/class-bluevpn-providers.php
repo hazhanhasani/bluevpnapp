@@ -1373,7 +1373,7 @@ final class BlueVPN_Providers {
 
         $repaired=$created+$attached;
         $needsSnapshot=$repaired>0||$expectsStatic||$expectsSh||$expectsLegacySh||$expectsGc||$expectsPg||$expectsMz;
-        if($repaired>0||$resynced>0||$update){
+        if($repaired>0||$resynced>0||$existing>0||$errors||$update){
             if(empty($c['subscription_token']))$update['subscription_token']=BlueVPN_Utils::random_token(30);
             $token=(string)($update['subscription_token']??$c['subscription_token']??'');
             if($token!=='')$update['subscription_url']=home_url('/sub/'.$token);

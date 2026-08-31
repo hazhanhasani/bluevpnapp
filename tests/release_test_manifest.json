@@ -42,6 +42,7 @@
     "test_backup_streaming_resilience.py",
     "test_blueai_closed_loop_491.py",
     "test_blueai_control_plane_490.py",
+    "test_blueai_db_resilience_60301.py",
     "test_blueai_final_boss_582.py",
     "test_blueai_live_fallback.py",
     "test_blupal_callback_routes_4115.py",

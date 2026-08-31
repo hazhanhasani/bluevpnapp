@@ -1,3 +1,4 @@
+# Retry trigger after Shahrah repair contract update
 name: BlueVPN Apply 6.2.8
 
 on:

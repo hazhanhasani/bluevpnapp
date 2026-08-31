@@ -33,7 +33,7 @@ class PaidSubscriptionReconcile60207Tests(unittest.TestCase):
         start=shahrah.index("private static function repair_without_renew")
         end=shahrah.index("public static function repair_panel_customer",start)
         body=shahrah[start:end]
-        self.assertIn("create_service(",body)
+        self.assertIn("create_service_with_recovery(",body)
         self.assertIn("locate_service_by_username",body)
         self.assertIn("resolve_owned_service",body)
         self.assertNotIn("renew_service(",body)

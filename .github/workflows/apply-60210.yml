@@ -1,0 +1,100 @@
+# Retry trigger after Shahrah repair contract update
+name: BlueVPN Apply 6.2.10
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-60210.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bluevpn-apply-60210
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout current BlueVPN source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+
+      - name: Bump canonical version contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path("version.json")
+          d=json.loads(p.read_text(encoding="utf-8"))
+          d["version"]="6.2.10"
+          d["version_code"]=60210
+          for key in list((d.get("components") or {}).keys()):
+              d["components"][key]="6.2.10"
+          p.write_text(json.dumps(d,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+          PY
+          python scripts/sync_version.py
+
+      - name: Register 6.2.10 manager hotfix metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          release=Path("release.json")
+          data=json.loads(release.read_text(encoding="utf-8"))
+          features=list(data.get("features") or [])
+          for feature in [
+              "shahrah-transient-q-failure-no-page-fanout",
+              "shahrah-safe-get-retry-backoff",
+              "provider-bulk-repair-adaptive-upstream-pacing",
+              "provider-repair-clears-stale-last-sync-errors",
+          ]:
+              if feature not in features:
+                  features.append(feature)
+          data["features"]=features
+          release.write_text(json.dumps(data,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
+
+          readme=Path("bluevpn-manager/readme.txt")
+          text=readme.read_text(encoding="utf-8")
+          marker="Requires PHP: 8.0\n"
+          entry="""\n== 6.2.10 ==\n* وقتی جستجوی مستقیم Shahrah با 5xx موقت شکست بخورد، دیگر page scan دوم اجرا نمی‌شود و بار اضافه روی API ایجاد نمی‌کند.\n* Retry امن GET شاهراه با backoff کندتر انجام می‌شود و اسکن گروهی در خطاهای 5xx به‌طور خودکار کند می‌شود.\n* خطاهای قدیمی INVALID_JSON/500 پس از Sync یا Repair موفق از last_sync_error پاک می‌شوند.\n"""
+          if "== 6.2.10 ==" not in text:
+              text=text.replace(marker,marker+entry,1)
+              readme.write_text(text,encoding="utf-8")
+          PY
+          printf '%s\n' 'BlueVPN 6.2.10 coordinated build: Shahrah 5xx throttling and stale-error cleanup' > release-requests/all-build-6.2.10-shahrah-500-throttle.txt
+
+      - name: Validate synchronized 6.2.10 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          python scripts/sync_version.py --check
+          python scripts/validate_release.py
+          python scripts/validate_windows.py
+          python scripts/validate_php_release.py
+          python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Commit coordinated 6.2.10 release and build request
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "bluevpn-release-bot"
+          git config user.email "bluevpn-release-bot@users.noreply.github.com"
+          git add -A ':!.github/workflows'
+          if git diff --cached --quiet; then
+            echo "BlueVPN 6.2.10 is already synchronized."
+            exit 0
+          fi
+          git commit -m "release: BlueVPN 6.2.10 Shahrah 5xx throttling"
+          git push origin HEAD:main

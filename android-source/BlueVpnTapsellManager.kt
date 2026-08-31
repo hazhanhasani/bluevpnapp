@@ -25,13 +25,13 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Free-plan Tapsell Mediation interstitial controller.
+ * BlueVPN Tapsell Mediation controller.
  *
- * Advertising is strictly presentation-only:
+ * Advertising is presentation-only and account-tier agnostic:
  * - VPN/session state is finalized before this manager runs.
  * - SDK/config/no-fill/show failures never stop or restart VPN.
- * - Premium users never request/show the Free placement.
- * - One verified VPN session records at most one impression.
+ * - Free and Premium users share the same configured placements.
+ * - One verified VPN session records at most one automatic impression.
  */
 object BlueVpnTapsellManager {
     private const val TAG = "BlueVpnTapsell"
@@ -96,14 +96,8 @@ object BlueVpnTapsellManager {
 
     fun warmUp(context: Context) {
         val app = context.applicationContext
-        if (!BlueVpnEntitlement.resolveUi(app).isFree) {
-            cancelPending()
-            return
-        }
-
         loadConfig(app, force = false) { loaded ->
             if (!loaded.hasAnyPlacement) return@loadConfig
-            if (!BlueVpnEntitlement.resolveUi(app).isFree) return@loadConfig
             if (!buildAppIdMatches(app, loaded)) return@loadConfig
             ensureInitialized(app, loaded)
         }
@@ -120,11 +114,6 @@ object BlueVpnTapsellManager {
         }
 
         val app = activity.applicationContext
-        if (!BlueVpnEntitlement.resolveUi(app).isFree) {
-            cancelPending()
-            return
-        }
-
         pendingSessionId = sessionId
         pendingActivity = WeakReference(activity)
 
@@ -133,7 +122,7 @@ object BlueVpnTapsellManager {
                 loaded.placement("interstitial_video"),
                 loaded.placement("interstitial_banner"),
             ).any { it.enabled && it.zoneId.isNotBlank() }
-            if (!hasPostConnectPlacement || !BlueVpnEntitlement.resolveUi(app).isFree) {
+            if (!hasPostConnectPlacement) {
                 cancelPending()
                 onUnavailable?.invoke()
                 return@loadConfig
@@ -181,9 +170,7 @@ object BlueVpnTapsellManager {
     }
 
     fun onEntitlementChanged(context: Context) {
-        if (!BlueVpnEntitlement.resolveUi(context).isFree) {
-            cancelPending()
-        }
+        warmUp(context.applicationContext)
     }
 
     fun surfaceConfig(
@@ -191,32 +178,7 @@ object BlueVpnTapsellManager {
         callback: (SurfaceConfig) -> Unit,
     ) {
         val app = context.applicationContext
-        if (!BlueVpnEntitlement.resolveUi(app).isFree) {
-            callback(
-                SurfaceConfig(
-                    false,
-                    emptyMap(),
-                    15,
-                    "BANNER_320_50",
-                    3,
-                ),
-            )
-            return
-        }
-
         loadConfig(app, force = false) { loaded ->
-            if (!BlueVpnEntitlement.resolveUi(app).isFree) {
-                callback(
-                    SurfaceConfig(
-                        false,
-                        emptyMap(),
-                        15,
-                        "BANNER_320_50",
-                        3,
-                    ),
-                )
-                return@loadConfig
-            }
             callback(
                 SurfaceConfig(
                     enabled = loaded.enabled && buildAppIdMatches(app, loaded),
@@ -425,12 +387,8 @@ object BlueVpnTapsellManager {
         loaded: Config,
         after: (() -> Unit)? = null,
         onUnavailable: (() -> Unit)? = null,
-        allowPremiumStandardBanner: Boolean = false,
     ) {
-        if (
-            !loaded.hasAnyPlacement ||
-            (!BlueVpnEntitlement.resolveUi(context).isFree && !allowPremiumStandardBanner)
-        ) {
+        if (!loaded.hasAnyPlacement) {
             onUnavailable?.invoke()
             return
         }
@@ -583,7 +541,6 @@ object BlueVpnTapsellManager {
     ) {
         if (activity.isFinishing || activity.isDestroyed) return
         if (!loaded.enabled || !policy.enabled || policy.zoneId.isBlank() || readyAdId.isNotBlank()) return
-        if (!BlueVpnEntitlement.resolveUi(activity).isFree) return
         if (!buildAppIdMatches(activity, loaded)) return
         if (!adRequesting.compareAndSet(false, true)) return
 
@@ -665,11 +622,6 @@ object BlueVpnTapsellManager {
 
         if (adId.isBlank() || sessionId <= 0L) return
         if (activity.isFinishing || activity.isDestroyed) return
-
-        if (!BlueVpnEntitlement.resolveUi(activity).isFree) {
-            cancelPending()
-            return
-        }
 
         val policy = loaded.placement(readyPlacementType)
         if (
@@ -769,11 +721,6 @@ object BlueVpnTapsellManager {
                 context = activity.applicationContext,
                 loaded = loaded,
                 after = {
-                    if (!BlueVpnEntitlement.resolveUi(activity).isFree) {
-                        onUnavailable?.invoke()
-                        return@ensureInitialized
-                    }
-
                     runCatching {
                         Tapsell.requestRewardedAd(
                             policy.zoneId,
@@ -783,8 +730,7 @@ object BlueVpnTapsellManager {
                                     main.post {
                                         if (
                                             activity.isFinishing ||
-                                            activity.isDestroyed ||
-                                            !BlueVpnEntitlement.resolveUi(activity).isFree
+                                            activity.isDestroyed
                                         ) {
                                             onUnavailable?.invoke()
                                             return@post
@@ -815,6 +761,16 @@ object BlueVpnTapsellManager {
 
                                                 override fun onRewarded() {
                                                     if (!delivered.compareAndSet(false, true)) return
+                                                    if (!BlueVpnEntitlement.resolveUi(activity).isFree) {
+                                                        val suppressMs = loaded.rewardFullscreenSuppressionSeconds * 1000L
+                                                        activity.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                                                            .edit()
+                                                            .putLong("fullscreen_suppressed_until", System.currentTimeMillis() + suppressMs)
+                                                            .apply()
+                                                        recordStatus(activity, "rewarded_completed_premium")
+                                                        onRewarded(0)
+                                                        return
+                                                    }
                                                     val eventId = UUID.randomUUID()
                                                         .toString()
                                                         .lowercase(Locale.US)
@@ -928,8 +884,10 @@ object BlueVpnTapsellManager {
                 loaded = loaded,
                 after = {
                     val container = BannerContainer(activity)
+                    host.clipChildren = false
+                    host.clipToPadding = false
                     host.removeAllViews()
-                    host.addView(container)
+                    host.addView(container, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
                     runCatching {
                         val bannerSize = runCatching {
@@ -1019,14 +977,13 @@ object BlueVpnTapsellManager {
                     }
                 },
                 onUnavailable = onUnavailable,
-                allowPremiumStandardBanner = true,
             )
         }
     }
 
     /**
      * Native Banner/Native Video/PreRoll have moved signatures across the
-     * Mediation 1.x line/adapters. This Free-only bridge discovers the current
+     * Mediation 1.x line/adapters. This bridge discovers the current
      * SDK method at runtime and hides the slot on unsupported signatures.
      */
     fun attachPlacement(
@@ -1036,10 +993,11 @@ object BlueVpnTapsellManager {
         loadingView: View? = null,
         onUnavailable: (() -> Unit)? = null,
     ) {
+        host.clipChildren = false
+        host.clipToPadding = false
         if (
             activity.isFinishing ||
-            activity.isDestroyed ||
-            !BlueVpnEntitlement.resolveUi(activity).isFree
+            activity.isDestroyed
         ) {
             host.visibility = View.GONE
             onUnavailable?.invoke()
@@ -1085,8 +1043,7 @@ object BlueVpnTapsellManager {
         if (
             activity.isFinishing ||
             activity.isDestroyed ||
-            zoneId.isBlank() ||
-            !BlueVpnEntitlement.resolveUi(activity).isFree
+            zoneId.isBlank()
         ) {
             host.visibility = View.GONE
             onUnavailable?.invoke()
@@ -1096,7 +1053,6 @@ object BlueVpnTapsellManager {
         loadConfig(activity.applicationContext, force = false) { loaded ->
             if (
                 !loaded.enabled ||
-                !BlueVpnEntitlement.resolveUi(activity).isFree ||
                 !buildAppIdMatches(activity, loaded)
             ) {
                 host.visibility = View.GONE
@@ -1322,14 +1278,6 @@ object BlueVpnTapsellManager {
         policy: PlacementPolicy,
     ): Boolean {
         if (!policy.enabled || policy.zoneId.isBlank()) return false
-        // Premium may request only the Standard Banner embedded in the BlueVPN
-        // carousel. Every fullscreen, rewarded, native and pre-roll placement
-        // remains strictly free-only.
-        if (
-            !BlueVpnEntitlement.resolveUi(context).isFree &&
-            policy.type != "standard_banner"
-        ) return false
-
         val storage = context.applicationContext
             .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()

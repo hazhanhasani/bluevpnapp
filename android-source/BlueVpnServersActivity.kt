@@ -835,10 +835,6 @@ class BlueVpnServersActivity : HelperBaseActivity() {
     }
 
     private fun attachFreeNativeBanner() {
-        if (!BlueVpnEntitlement.resolveUi(this).isFree) {
-            if (::nativeBannerHost.isInitialized) nativeBannerHost.visibility = View.GONE
-            return
-        }
         nativeBannerHost.visibility = View.GONE
         BlueVpnTapsellManager.attachPlacement(
             activity = this,

@@ -348,16 +348,12 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   card.addView(box)
   content.addView(card)
   if(!account.phoneVerified){phoneBindingCard()}
-  if(!account.subscriptionActive){
-   attachFreeNativeVideo()
-  }else{
-   BlueVpnTapsellManager.onEntitlementChanged(this)
-  }
+  BlueVpnTapsellManager.onEntitlementChanged(this)
+  attachFreeNativeVideo()
   loadPlans(generation)
  }
  private fun attachFreeNativeVideo(){
-  if(!com.v2ray.ang.bluevpn.BlueVpnEntitlement.resolveUi(this).isFree)return
-  val host=FrameLayout(this).apply{visibility=View.GONE;clipChildren=true;clipToPadding=true}
+  val host=FrameLayout(this).apply{visibility=View.GONE;clipChildren=false;clipToPadding=false}
   content.addView(host,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(12)})
   BlueVpnTapsellManager.attachPlacement(
    activity=this,

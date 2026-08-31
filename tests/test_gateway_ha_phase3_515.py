@@ -15,7 +15,7 @@ class GatewayHaPhase3515Tests(unittest.TestCase):
         self.assertEqual(release["version_code"], 60203)
         self.assertIn("gateway-ha-capacity-aware-placement", release["features"])
         plugin = self.text("bluevpn-manager/bluevpn-manager.php")
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.34.0'", plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.35.0'", plugin)
         db = self.text("bluevpn-manager/includes/class-bluevpn-db.php")
         for token in (
             "region varchar(80)", "priority int", "max_sessions int", "draining tinyint(1)",

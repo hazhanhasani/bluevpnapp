@@ -15,7 +15,7 @@ class GatewayAutopilotMigration519Tests(unittest.TestCase):
         self.assertEqual(r["version_code"],60203)
         for f in ("gateway-autopilot-default-on","gateway-telemetry-auto-capacity","gateway-auto-drain-recovery","gateway-graceful-drain","gateway-zero-downtime-session-handoff","gateway-handoff-target-ack-gate","gateway-handoff-overlap-window"):
             self.assertIn(f,r["features"])
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.34.0'",self.text("bluevpn-manager/bluevpn-manager.php"))
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.35.0'",self.text("bluevpn-manager/bluevpn-manager.php"))
 
     def test_schema_has_telemetry_and_migrations(self):
         db=self.text("bluevpn-manager/includes/class-bluevpn-db.php")

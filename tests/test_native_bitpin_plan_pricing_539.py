@@ -24,7 +24,7 @@ class NativeBitpinPlanPricing539Tests(unittest.TestCase):
     def test_schema_persists_usd_source_and_last_calculated_price(self):
         for column in ("usd_price", "usd_managed", "usd_last_price_toman", "usd_updated_at"):
             self.assertIn(column, self.db)
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.34.0", self.plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.35.0", self.plugin)
 
     def test_bitpin_endpoint_is_fixed_and_ssrf_safe(self):
         self.assertIn("https://api.bitpin.market/api/v1/mkt/tickers/", self.pricing)

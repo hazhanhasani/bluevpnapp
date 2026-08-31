@@ -25,7 +25,7 @@ class GatewaySafeRollout518Tests(unittest.TestCase):
         ):
             self.assertIn(feature, release["features"])
         plugin = self.text("bluevpn-manager/bluevpn-manager.php")
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.34.0'", plugin)
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.35.0'", plugin)
         db = self.text("bluevpn-manager/includes/class-bluevpn-db.php")
         self.assertIn("gateway_config_generations", db)
         self.assertIn("last_config_generation bigint unsigned", db)

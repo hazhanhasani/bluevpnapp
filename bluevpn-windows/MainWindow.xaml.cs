@@ -410,7 +410,7 @@ public partial class MainWindow : Window
             AdImage.Source = null;
             AdCard.Visibility = Visibility.Visible;
             AdCard.Cursor = Cursors.Arrow;
-            AdCard.Height = Math.Clamp(cfg.Height, 90, 220);
+            AdCard.Height = Math.Clamp(cfg.Height, 90, 360);
             // Keep the standard WPF WebView visible so Mediaad receives a real viewport.
             // The WPF loading panel is above it and hides the web surface until the
             // official mediaad-* widget contains renderable provider content.
@@ -479,6 +479,13 @@ public partial class MainWindow : Window
 
             var message = args.TryGetWebMessageAsString().Trim();
             if (!message.StartsWith("BLUEVPN_TAPSELL_", StringComparison.Ordinal)) return;
+            if (message.StartsWith("BLUEVPN_TAPSELL_SIZE:", StringComparison.Ordinal))
+            {
+                var rawHeight = message["BLUEVPN_TAPSELL_SIZE:".Length..];
+                if (double.TryParse(rawHeight, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var cssHeight))
+                    ApplyTapsellContentHeight(cssHeight);
+                return;
+            }
             _tapsellPageSignal?.TrySetResult(message);
         }
         catch
@@ -558,6 +565,14 @@ public partial class MainWindow : Window
         return false;
     }
 
+    private void ApplyTapsellContentHeight(double cssHeight)
+    {
+        if (double.IsNaN(cssHeight) || double.IsInfinity(cssHeight) || cssHeight <= 0) return;
+        var target = Math.Clamp(cssHeight, 90d, 360d);
+        if (Math.Abs(AdCard.Height - target) < 2) return;
+        AdCard.Height = target;
+    }
+
     private static string ShortUiError(string value)
     {
         if (string.IsNullOrWhiteSpace(value)) return "";
@@ -581,9 +596,9 @@ public partial class MainWindow : Window
         var width = AdCard.ActualWidth;
         if (width < 240) width = 440;
         var ratio = _adImageAspectRatio > 0.25 ? _adImageAspectRatio : _ads.BannerAspectRatio;
-        var configuredFloor = Math.Clamp((double)_ads.BannerHeight, 116, 160);
+        var configuredFloor = Math.Clamp((double)_ads.BannerHeight, 96, 280);
         var ratioHeight = ratio > 0.25 ? width / ratio : configuredFloor;
-        AdCard.Height = Math.Clamp(ratioHeight, configuredFloor, 220);
+        AdCard.Height = Math.Clamp(ratioHeight, 96, 280);
     }
 
     private void AdCard_Click(object sender, MouseButtonEventArgs e)

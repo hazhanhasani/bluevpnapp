@@ -183,12 +183,12 @@ public sealed class AdvertisementService
         return true;
     }
 
-    public bool TryReserveWindowsWebImpression(bool premium, bool noFirstPartyBanner)
+    public bool TryReserveWindowsWebImpression(bool _premium, bool noFirstPartyBanner)
     {
         var cfg = WindowsWeb;
         // The web publisher is authorized for blluepanel.ir specifically.
         // Reject bot.blluepanel.ir, synthetic local hosts and injected ScriptHtml.
-        if (!cfg.Enabled || !TryGetApprovedWindowsBridge(out _) || (cfg.FreeOnly && premium)) return false;
+        if (!cfg.Enabled || !TryGetApprovedWindowsBridge(out _)) return false;
 
         var today = DateOnly.FromDateTime(DateTime.Now);
         if (today != _windowsWebDay)

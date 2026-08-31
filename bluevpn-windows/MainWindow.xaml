@@ -129,7 +129,7 @@
             <TextBlock x:Name="SpeedValue" Text="0 KB/s" Visibility="Collapsed"/>
 
             <!-- Android-position campaign banner. Network images are loaded off the dispatcher. -->
-            <Border Grid.Row="4" x:Name="AdCard" Width="440" MinHeight="116" MaxHeight="220" Background="{DynamicResource BlueVpnAdBg}" CornerRadius="20"
+            <Border Grid.Row="4" x:Name="AdCard" Width="440" MinHeight="90" MaxHeight="360" Background="{DynamicResource BlueVpnAdBg}" CornerRadius="20"
                     HorizontalAlignment="Center" Margin="4,0,4,9" Visibility="Collapsed" MouseLeftButtonUp="AdCard_Click" Cursor="Hand"
                     SizeChanged="AdCard_SizeChanged" ClipToBounds="True" BorderBrush="{DynamicResource BlueVpnStroke}" BorderThickness="1">
                 <Grid>

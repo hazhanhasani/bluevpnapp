@@ -342,7 +342,7 @@ final class BlueVPN_Ads {
             'autoplay' => !empty($settings['ads_autoplay']),
             'loop' => !empty($settings['ads_loop']),
             'interval_ms' => max(3000, min(30000, (int)($settings['ads_interval_seconds'] ?? 6) * 1000)),
-            'height_dp' => max(116, min(160, (int)($settings['ads_height_dp'] ?? 146))),
+            'height_dp' => max(96, min(280, (int)($settings['ads_height_dp'] ?? 180))),
             'aspect_ratio' => '20:9',
             'required_client_version' => '3.0.48',
             'disabled_reason' => $configured && !$supported ? 'old_client_layout' : '',
@@ -416,7 +416,7 @@ final class BlueVPN_Ads {
         return [
             'enabled' => $enabled,
             'required' => $enabled && (!array_key_exists('free_story_ads_required', $settings) || !empty($settings['free_story_ads_required'])),
-            'free_only' => true,
+            'free_only' => false,
             'random' => true,
             'every_connection' => true,
             'image_duration_seconds' => max(3, min(30, (int)($settings['free_story_ads_image_seconds'] ?? 6))),
@@ -526,7 +526,7 @@ final class BlueVPN_Ads {
                 'render_mode' => 'fullscreen_rewarded',
                 'default_interval' => 300,
                 'default_cap' => 5,
-                'free_only' => true,
+                'free_only' => false,
             ],
             'interstitial_video' => [
                 'setting' => 'tapsell_windows_web_interstitial_video_placement_id',
@@ -538,7 +538,7 @@ final class BlueVPN_Ads {
                 'render_mode' => 'fullscreen_interstitial_video',
                 'default_interval' => 1200,
                 'default_cap' => 3,
-                'free_only' => true,
+                'free_only' => false,
             ],
             'pre_roll_video' => [
                 'setting' => 'tapsell_windows_web_pre_roll_video_placement_id',
@@ -550,7 +550,7 @@ final class BlueVPN_Ads {
                 'render_mode' => 'fullscreen_preroll_video',
                 'default_interval' => 1800,
                 'default_cap' => 2,
-                'free_only' => true,
+                'free_only' => false,
             ],
             'native_video' => [
                 'setting' => 'tapsell_windows_web_native_video_placement_id',
@@ -562,7 +562,7 @@ final class BlueVPN_Ads {
                 'render_mode' => 'inline_native_video',
                 'default_interval' => 900,
                 'default_cap' => 4,
-                'free_only' => true,
+                'free_only' => false,
             ],
             'standard_banner' => [
                 'setting' => 'tapsell_windows_web_standard_banner_placement_id',
@@ -586,7 +586,7 @@ final class BlueVPN_Ads {
                 'render_mode' => 'fullscreen_interstitial_banner',
                 'default_interval' => 1200,
                 'default_cap' => 3,
-                'free_only' => true,
+                'free_only' => false,
             ],
             'native_banner' => [
                 'setting' => 'tapsell_windows_web_native_banner_placement_id',
@@ -598,7 +598,7 @@ final class BlueVPN_Ads {
                 'render_mode' => 'inline_native_banner',
                 'default_interval' => 600,
                 'default_cap' => 6,
-                'free_only' => true,
+                'free_only' => false,
             ],
         ];
     }
@@ -685,9 +685,8 @@ final class BlueVPN_Ads {
                 'surface' => (string)$meta['surface'],
                 'min_interval_seconds' => $interval,
                 'daily_cap' => $cap,
-                // Only the banner mixed into the BlueVPN carousel is allowed
-                // for Premium. All other Tapsell surfaces remain free-only.
-                'free_only' => $type !== 'standard_banner',
+                // Advertising eligibility is account-tier agnostic.
+                'free_only' => false,
             ];
         }
 
@@ -734,7 +733,7 @@ final class BlueVPN_Ads {
             'post_connect_zone_id' => $enabled ? $postConnectZone : '',
             'interstitial_zone_id' => $enabled ? $postConnectZone : '',
             'show_after_connect' => !empty($settings['tapsell_show_after_connect']),
-            'free_only' => true,
+            'free_only' => false,
             'min_interval_seconds' => max(0, min(86400, (int)($settings['tapsell_min_interval_seconds'] ?? 0))),
             'daily_cap' => max(0, min(1000, (int)($settings['tapsell_daily_cap'] ?? 0))),
             'rewarded_bonus_minutes' => max(1, min(180, (int)($settings['tapsell_rewarded_bonus_minutes'] ?? 15))),
@@ -757,7 +756,7 @@ final class BlueVPN_Ads {
                 'min_interval_seconds' => (int)($windowsStandardBanner['min_interval_seconds'] ?? 120),
                 'daily_cap' => (int)($windowsStandardBanner['daily_cap'] ?? 0),
                 'every_slides' => max(1, min(20, (int)($settings['tapsell_windows_web_every_slides'] ?? 3))),
-                'height' => max(90, min(220, (int)($settings['tapsell_windows_web_height'] ?? 146))),
+                'height' => max(90, min(360, (int)($settings['tapsell_windows_web_height'] ?? 146))),
             ],
             'build_embed_required' => true,
             'disabled_reason' => $enabled
@@ -1078,7 +1077,7 @@ final class BlueVPN_Ads {
         $s['ads_autoplay'] = isset($_POST['ads_autoplay']);
         $s['ads_loop'] = isset($_POST['ads_loop']);
         $s['ads_interval_seconds'] = max(3, min(30, (int)($_POST['ads_interval_seconds'] ?? 6)));
-        $s['ads_height_dp'] = max(116, min(160, (int)($_POST['ads_height_dp'] ?? 146)));
+        $s['ads_height_dp'] = max(96, min(280, (int)($_POST['ads_height_dp'] ?? 180)));
         $s['tapsell_enabled'] = isset($_POST['tapsell_enabled']);
         $s['tapsell_app_id'] = mb_substr(trim((string)wp_unslash($_POST['tapsell_app_id'] ?? '')), 0, 200);
         foreach (self::tapsell_zone_fields() as $meta) {
@@ -1140,7 +1139,7 @@ final class BlueVPN_Ads {
         $s['tapsell_windows_web_script_html'] = '';
         $s['tapsell_windows_web_free_only'] = false;
         $s['tapsell_windows_web_every_slides'] = max(1, min(20, (int)($_POST['tapsell_windows_web_every_slides'] ?? 3)));
-        $s['tapsell_windows_web_height'] = max(90, min(220, (int)($_POST['tapsell_windows_web_height'] ?? 146)));
+        $s['tapsell_windows_web_height'] = max(90, min(360, (int)($_POST['tapsell_windows_web_height'] ?? 146)));
         BlueVPN_DB::save_settings($s);
         self::redirect('ads', 'تنظیمات تبلیغات ذخیره شد.');
     }
@@ -1471,23 +1470,23 @@ final class BlueVPN_Ads {
         self::number('ads_interval_seconds', 'فاصله اسلاید (ثانیه)', (int)($s['ads_interval_seconds'] ?? 6), 3, 30); self::number('ads_height_dp', 'ارتفاع بنر (dp)', (int)($s['ads_height_dp'] ?? 146), 116, 160);
         echo '</div></div>';
         echo '<div class="bvc-card"><h2>📱 Tapsell Android — Mediation SDK</h2><div class="bvc-note" style="margin-bottom:12px">تنظیمات Android کاملاً مستقل از Windows است. App ID و Zone IDهای این بخش فقط به APK اندروید تعلق دارند.</div><div class="bvc-form-grid">';
-        self::checkbox('tapsell_enabled', 'فعال‌سازی Tapsell Android برای پلن رایگان', !empty($s['tapsell_enabled']));
+        self::checkbox('tapsell_enabled', 'فعال‌سازی Tapsell Android برای همه کاربران', !empty($s['tapsell_enabled']));
         self::text('tapsell_app_id', 'Tapsell Mediation App ID', self::tapsell_mediation_app_id($s));
-        self::checkbox('tapsell_show_after_connect', 'نمایش تبلیغ تمام‌صفحه بعد از اتصال موفق رایگان', !array_key_exists('tapsell_show_after_connect', $s) || !empty($s['tapsell_show_after_connect']));
+        self::checkbox('tapsell_show_after_connect', 'نمایش تبلیغ تمام‌صفحه بعد از اتصال موفق', !array_key_exists('tapsell_show_after_connect', $s) || !empty($s['tapsell_show_after_connect']));
         self::number('tapsell_rewarded_bonus_minutes', 'هدیه ویدئوی جایزه‌ای (دقیقه)', (int)($s['tapsell_rewarded_bonus_minutes'] ?? 15), 1, 180);
         self::number('tapsell_reward_fullscreen_suppression_seconds', 'وقفه تبلیغ تمام‌صفحه بعد از Reward (ثانیه)', (int)($s['tapsell_reward_fullscreen_suppression_seconds'] ?? 300), 0, 3600);
         self::text('tapsell_standard_banner_size', 'اندازه Standard Banner', (string)($s['tapsell_standard_banner_size'] ?? 'BANNER_320_50'));
         self::number('tapsell_standard_banner_every_slides', 'نمایش Standard Banner بعد از چند بنر BlueVPN', (int)($s['tapsell_standard_banner_every_slides'] ?? 3), 1, 10);
         echo '</div>';
 
-        echo '<div class="bvc-note" style="margin-top:12px">در Android فقط Standard Banner می‌تواند برای Premium هم نمایش داده شود؛ سایر مدل‌ها Free-only هستند.</div>';
+        echo '<div class="bvc-note" style="margin-top:12px">تمام جایگاه‌های Android برای هر دو نوع حساب نمایش داده می‌شوند؛ پلن اشتراک در eligibility تبلیغ دخالت ندارد.</div>';
         echo '</div></div>';
 
         echo '<div class="bvc-card"><h2>🖥️ Tapsell Windows — Web Publisher</h2>';
         echo '<div class="bvc-note" style="margin-bottom:12px">این بخش کاملاً مستقل از Android است. ناشر تأییدشده <strong>blluepanel.ir</strong> است و bot.blluepanel.ir فقط API/Control Plane باقی می‌ماند. هر مدل تبلیغ Web شناسه جایگاه، فاصله و سقف روزانه مستقل دارد.</div><div class="bvc-form-grid">';
         self::checkbox('tapsell_windows_web_enabled', 'فعال‌سازی Tapsell Web در Windows', !empty($s['tapsell_windows_web_enabled']));
         self::number('tapsell_windows_web_every_slides', 'Standard Banner بعد از چند بنر داخلی', (int)($s['tapsell_windows_web_every_slides'] ?? 3), 1, 20);
-        self::number('tapsell_windows_web_height', 'ارتفاع Banner/Native در Windows', (int)($s['tapsell_windows_web_height'] ?? 146), 90, 220);
+        self::number('tapsell_windows_web_height', 'ارتفاع پایه Web در Windows', (int)($s['tapsell_windows_web_height'] ?? 146), 90, 360);
         echo '</div>';
         foreach (self::tapsell_windows_web_fields() as $type => $meta) {
             $setting = (string)$meta['setting'];
@@ -1508,7 +1507,7 @@ final class BlueVPN_Ads {
             self::number($capSetting, 'سقف روزانه (۰=نامحدود)', (int)($s[$capSetting] ?? $meta['default_cap']), 0, 1000);
             echo '</div></div>';
         }
-        echo '<div class="bvc-note" style="margin-top:12px">Standard Banner همین حالا توسط Carousel ویندوز مصرف می‌شود. شش مدل دیگر در قرارداد Windows تعریف شده‌اند تا rendererهای Fullscreen/Native/Rewarded بدون تداخل با Android مرحله‌ای فعال شوند. در صورت No Fill/Timeout، بنر داخلی BlueVPN جایگزین می‌شود.</div>';
+        echo '<div class="bvc-note" style="margin-top:12px">تبلیغات Windows برای همه کاربران فعال‌اند و به Free/Premium تقسیم نمی‌شوند. اندازه WebView با ارتفاع واقعی Creative هماهنگ می‌شود تا تبلیغ بریده نشود؛ در No Fill/Timeout بنر داخلی BlueVPN جایگزین است.</div>';
         echo '</div>';
 
         echo '<div class="bvc-card"><h2>📱 جایگاه‌های Android</h2>';
@@ -1556,10 +1555,10 @@ final class BlueVPN_Ads {
         $storyItems = self::story_items($s);
         $storyPayload = self::free_story_payload($s);
         $storyActive = count(array_filter($storyItems, static fn($x) => !empty($x['active'])));
-        echo '<div class="bvc-card" id="bluevpn-free-story-ads"><h2>استوری تبلیغاتی اتصال رایگان</h2><div class="bvc-note">پس از آماده‌شدن اتصال رایگان، یک عکس یا ویدئو به‌صورت تصادفی تمام‌صفحه نمایش داده می‌شود. برای بیشترین سازگاری اندروید، ویدئو را با فرمت MP4 و کدک H.264/AVC + AAC آپلود کنید. تا پایان رسانه، Session رایگان نهایی و تایمر آن شروع نمی‌شود. می‌توانید برای هر استوری CTA داخلی مثل ثبت‌نام، خرید اشتراک یا تمدید تعیین کنید؛ لمس CTA اتصال رایگان درحال آماده‌سازی را متوقف کرده و کاربر را امن به مقصد می‌برد.</div>';
+        echo '<div class="bvc-card" id="bluevpn-free-story-ads"><h2>استوری تبلیغاتی پس از اتصال</h2><div class="bvc-note">پس از آماده‌شدن اتصال، یک عکس یا ویدئو به‌صورت تصادفی تمام‌صفحه نمایش داده می‌شود. برای بیشترین سازگاری اندروید، ویدئو را با فرمت MP4 و کدک H.264/AVC + AAC آپلود کنید. تا پایان رسانه، Session رایگان نهایی و تایمر آن شروع نمی‌شود. می‌توانید برای هر استوری CTA داخلی مثل ثبت‌نام، خرید اشتراک یا تمدید تعیین کنید؛ لمس CTA اتصال رایگان درحال آماده‌سازی را متوقف کرده و کاربر را امن به مقصد می‌برد.</div>';
         echo '<div class="bvc-grid" style="margin:14px 0"><div class="bvc-card bvc-kpi"><span>استوری‌ها</span><strong>' . count($storyItems) . '</strong></div><div class="bvc-card bvc-kpi"><span>فعال</span><strong>' . $storyActive . '</strong></div><div class="bvc-card bvc-kpi"><span>قابل انتخاب</span><strong>' . count($storyPayload['items']) . '</strong></div></div>';
         echo '<form method="post" action="' . esc_url(admin_url('admin-post.php')) . '">'; wp_nonce_field('bluevpn_story_save'); echo '<input type="hidden" name="action" value="bluevpn_story_save"><div class="bvc-form-grid">';
-        self::checkbox('free_story_ads_enabled', 'فعال‌سازی استوری برای پلن رایگان', !empty($s['free_story_ads_enabled']));
+        self::checkbox('free_story_ads_enabled', 'فعال‌سازی استوری پس از اتصال برای همه کاربران', !empty($s['free_story_ads_enabled']));
         self::checkbox('free_story_ads_required', 'تماشای کامل برای نهایی‌شدن اتصال الزامی باشد', !array_key_exists('free_story_ads_required', $s) || !empty($s['free_story_ads_required']));
         self::number('free_story_ads_image_seconds', 'مدت پیش‌فرض عکس (ثانیه)', (int)($s['free_story_ads_image_seconds'] ?? 6), 3, 30);
         self::number('free_story_ads_load_timeout_seconds', 'مهلت بارگذاری رسانه (ثانیه)', (int)($s['free_story_ads_load_timeout_seconds'] ?? 8), 3, 15);

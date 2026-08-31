@@ -316,6 +316,14 @@ final class BlueVPN_App_Release_Manager {
         return $row?self::hydrate_release($row):null;
     }
 
+    public static function release_by_version(string $version): ?array {
+        $version=trim($version);
+        if(!preg_match('/^\d+\.\d+\.\d+$/',$version))return null;
+        global $wpdb; $table=BlueVPN_DB::table('app_releases');
+        $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE version=%s ORDER BY id DESC LIMIT 1",$version),ARRAY_A);
+        return $row?self::hydrate_release($row):null;
+    }
+
     private static function latest_by_state(string $state): ?array {
         global $wpdb; $table=BlueVPN_DB::table('app_releases');
         $row=$wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE state=%s ORDER BY version_code DESC,id DESC LIMIT 1",$state),ARRAY_A);

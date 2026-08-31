@@ -12,6 +12,7 @@ final class BlueVPN_API {
         register_rest_route('bluevpn-system/v1','/app-connection',['methods'=>'GET','callback'=>[self::class,'app_connection'],'permission_callback'=>'__return_true']);
         $routes = [
             ['/mobile/config','GET','mobile_config'],
+            ['/app/download/(?P<version>\d+\.\d+\.\d+)/(?P<abi>[A-Za-z0-9._-]{2,32})','GET','app_apk_download'],
             ['/windows/update','GET','windows_update'],
             ['/windows/release-sync','POST','windows_release_sync'],
             ['/ad-assets/(?P<asset_id>[A-Za-z0-9_-]{6,64})','GET','ad_asset'],
@@ -134,6 +135,117 @@ final class BlueVPN_API {
             'app_cutover_enabled' => get_option('bluevpn_manager_app_cutover_enabled','0') === '1',
         ]);
     }
+    private static function app_apk_relay_url(string $version,string $abi): string {
+        if(!preg_match('/^\d+\.\d+\.\d+$/',$version))return '';
+        $abi=sanitize_key($abi);
+        if($abi==='')$abi='default';
+        return rest_url('bluevpn/v1/app/download/'.rawurlencode($version).'/'.rawurlencode($abi));
+    }
+
+    private static function relay_asset_for_release(array $release,string $abi): array {
+        $assets=is_array($release['apk_assets']??null)?$release['apk_assets']:[];
+        $meta=is_array($release['apk_asset_meta']??null)?$release['apk_asset_meta']:[];
+        $abi=sanitize_key($abi);
+        $keys=[];
+        if($abi!==''&&$abi!=='default')$keys[]=$abi;
+        foreach(['arm64-v8a','universal','armeabi-v7a','other'] as $fallback)if(!in_array($fallback,$keys,true))$keys[]=$fallback;
+        foreach(array_keys($assets) as $key)if(!in_array((string)$key,$keys,true))$keys[]=(string)$key;
+        foreach($keys as $key){
+            $url=esc_url_raw((string)($assets[$key]??''));
+            if($url==='')continue;
+            $m=is_array($meta[$key]??null)?$meta[$key]:[];
+            return [
+                'key'=>$key,
+                'url'=>$url,
+                'filename'=>sanitize_file_name((string)($m['filename']??('BlueVPN-'.$release['version'].'.apk'))),
+                'sha256'=>strtolower(trim((string)($m['sha256']??''))),
+                'size'=>max(0,(int)($m['size']??0)),
+            ];
+        }
+        $url=esc_url_raw((string)($release['apk_url']??''));
+        if($url==='')return [];
+        return [
+            'key'=>'default','url'=>$url,'filename'=>'BlueVPN-'.sanitize_file_name((string)($release['version']??'latest')).'.apk',
+            'sha256'=>'','size'=>0,
+        ];
+    }
+
+    public static function app_apk_download(WP_REST_Request $r) {
+        $version=trim((string)$r->get_param('version'));
+        $abi=sanitize_key((string)$r->get_param('abi'));
+        if(!class_exists('BlueVPN_App_Release_Manager')){
+            return self::ok(['detail'=>['code'=>'APK_RELAY_UNAVAILABLE','message'=>'سرویس بروزرسانی آماده نیست.']],503);
+        }
+        $release=BlueVPN_App_Release_Manager::release_by_version($version);
+        if(!$release)return self::ok(['detail'=>['code'=>'APK_RELEASE_NOT_FOUND','message'=>'نسخه درخواستی پیدا نشد.']],404);
+        $asset=self::relay_asset_for_release($release,$abi);
+        if(!$asset)return self::ok(['detail'=>['code'=>'APK_ASSET_NOT_FOUND','message'=>'فایل APK این معماری پیدا نشد.']],404);
+
+        $source=(string)$asset['url'];
+        $host=strtolower((string)wp_parse_url($source,PHP_URL_HOST));
+        $allowed=$host==='github.com'||str_ends_with($host,'.githubusercontent.com')||str_ends_with($host,'.github.com');
+        if(!$allowed){
+            BlueVPN_Error_Monitor::legacy_error_log('BlueVPN APK relay rejected upstream host: '.$host);
+            return self::ok(['detail'=>['code'=>'APK_RELAY_SOURCE_REJECTED','message'=>'منبع فایل بروزرسانی معتبر نیست.']],502);
+        }
+
+        if(!function_exists('curl_init')){
+            wp_redirect($source,302,'BlueVPN APK relay fallback');
+            exit;
+        }
+
+        while(ob_get_level()>0)@ob_end_clean();
+        @ini_set('zlib.output_compression','0');
+        @ini_set('output_buffering','0');
+        @set_time_limit(0);
+        ignore_user_abort(true);
+
+        nocache_headers();
+        header('Content-Type: application/vnd.android.package-archive');
+        header('Content-Disposition: attachment; filename="'.str_replace('"','',(string)$asset['filename']).'"');
+        header('X-Content-Type-Options: nosniff');
+        header('X-BlueVPN-APK-Relay: 1');
+        header('X-Accel-Buffering: no');
+        if((int)$asset['size']>0)header('Content-Length: '.(int)$asset['size']);
+
+        $sent=0;
+        $ch=curl_init($source);
+        curl_setopt_array($ch,[
+            CURLOPT_FOLLOWLOCATION=>true,
+            CURLOPT_MAXREDIRS=>8,
+            CURLOPT_CONNECTTIMEOUT=>12,
+            CURLOPT_TIMEOUT=>300,
+            CURLOPT_LOW_SPEED_LIMIT=>1024,
+            CURLOPT_LOW_SPEED_TIME=>25,
+            CURLOPT_USERAGENT=>'BlueVPN-Update-Relay/'.BLUEVPN_MANAGER_VERSION,
+            CURLOPT_HTTPHEADER=>[
+                'Accept: application/vnd.android.package-archive,*/*',
+                'Cache-Control: no-cache',
+            ],
+            CURLOPT_RETURNTRANSFER=>false,
+            CURLOPT_HEADER=>false,
+            CURLOPT_WRITEFUNCTION=>static function($curl,$chunk) use (&$sent){
+                $length=strlen($chunk);
+                if($length===0)return 0;
+                $sent+=$length;
+                echo $chunk;
+                @flush();
+                return $length;
+            },
+        ]);
+        $ok=curl_exec($ch);
+        $status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE);
+        $error=$ok===false?curl_error($ch):'';
+        curl_close($ch);
+
+        if($ok===false||$status<200||$status>=300){
+            BlueVPN_Error_Monitor::legacy_error_log(
+                'BlueVPN APK relay failed '.$version.' '.$abi.' HTTP '.$status.' sent='.$sent.' error='.$error
+            );
+        }
+        exit;
+    }
+
     public static function mobile_config(WP_REST_Request $r): WP_REST_Response {
         $forced = rest_sanitize_boolean($r->get_param('refresh'));
         // The mobile config endpoint must never depend on a live GitHub request.
@@ -196,6 +308,19 @@ final class BlueVPN_API {
         $tapsell = BlueVPN_Ads::tapsell_payload($s);
         $freeStoryAds = BlueVPN_Ads::free_story_payload($s);
 
+        $latestVersion=(string)($release['version']??$s['latest_version']);
+        $rawApkAssets=is_array($release['apk_assets']??null)?$release['apk_assets']:(is_array($s['apk_assets']??null)?$s['apk_assets'] : []);
+        $relayEnabled=!empty($release['id'])&&preg_match('/^\d+\.\d+\.\d+$/',$latestVersion);
+        $publicApkAssets=$rawApkAssets;
+        $publicApkUrl=(string)($release['apk_url']??$s['apk_url']);
+        if($relayEnabled){
+            $publicApkAssets=[];
+            foreach($rawApkAssets as $key=>$unused){
+                $publicApkAssets[(string)$key]=self::app_apk_relay_url($latestVersion,(string)$key);
+            }
+            $publicApkUrl=self::app_apk_relay_url($latestVersion,'default');
+        }
+
         return self::ok([
             'app_name'=>$s['app_name'],
             'maintenance'=>(bool)$s['maintenance'],
@@ -206,10 +331,10 @@ final class BlueVPN_API {
             'auto_update_stable'=>$stableAutoUpdate,
             'auto_update_beta'=>$betaAutoUpdate,
             'account_required'=>true,
-            'latest_version'=>(string)($release['version'] ?? $s['latest_version']),
+            'latest_version'=>$latestVersion,
             'latest_version_code'=>(int)($release['version_code'] ?? $s['latest_version_code']),
-            'apk_url'=>(string)($release['apk_url'] ?? $s['apk_url']),
-            'apk_assets'=>is_array($release['apk_assets']??null)?$release['apk_assets']:(is_array($s['apk_assets']??null)?$s['apk_assets']:[]),
+            'apk_url'=>$publicApkUrl,
+            'apk_assets'=>$publicApkAssets,
             'apk_asset_meta'=>is_array($release['apk_asset_meta']??null)?$release['apk_asset_meta']:(is_array($s['apk_asset_meta']??null)?$s['apk_asset_meta']:[]),
             'update_title'=>(string)($release['title'] ?? $s['update_title']),
             'update_message'=>(string)($release['message'] ?? $s['update_message']),
@@ -219,6 +344,7 @@ final class BlueVPN_API {
             'release_build_number'=>(int)($release['build_number'] ?? ($s['release_build_number']??0)),
             'release_commit'=>(string)($release['commit_sha'] ?? ($s['release_commit']??'')),
             'update_source'=>(string)($release['source'] ?? ($s['update_source']??'wordpress_settings')),
+            'update_transport'=>$relayEnabled?'first_party_streaming_relay':'direct_release_asset',
             'release_channel'=>$channel,
             'beta_tester'=>(bool)($selection['beta_tester'] ?? false),
             'release_auth_state'=>$releaseAuthState,

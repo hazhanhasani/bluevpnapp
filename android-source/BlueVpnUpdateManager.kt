@@ -1429,7 +1429,7 @@ private fun showActiveDownloadDialog(
         activity = activity,
         eyebrow = "دانلود داخلی BlueVPN",
         title = "نسخه $version در حال دریافت است",
-        message = "دانلود از مسیر اینترنت اصلی دستگاه انجام می‌شود؛ اتصال VPN برقرار می‌ماند و نیازی به رفتن به بخش Downloads نیست.",
+        message = "دانلود از بهترین مسیر در دسترس انجام می‌شود؛ اگر VPN فعال باشد ابتدا همان تونل استفاده می‌شود و در صورت نیاز اینترنت اصلی دستگاه امتحان می‌شود.",
         accentColor = Color.parseColor("#2E82FF"),
         primaryText = "ادامه در پس‌زمینه",
         secondaryText = null,
@@ -1497,7 +1497,7 @@ private fun configureDownloadConnection(
     connection: HttpURLConnection,
 ): HttpURLConnection = connection.apply {
     connectTimeout = 15_000
-    readTimeout = 35_000
+    readTimeout = 60_000
     instanceFollowRedirects = true
     useCaches = false
     setRequestProperty(
@@ -1518,98 +1518,82 @@ private fun openDownloadConnection(
     context: Context,
     url: String,
 ): HttpURLConnection {
+    val target = URL(url)
+
+    // Prefer Android's current default route first. If BlueVPN is connected,
+    // this route is the VPN tunnel; if it is disconnected, it is the normal
+    // Wi-Fi/mobile route. The previous physical-first policy bypassed the VPN
+    // even when GitHub was reachable only through the tunnel, which made the
+    // updater look frozen for users both "with VPN" and "without VPN".
+    val defaultConnection = runCatching {
+        configureDownloadConnection(
+            target.openConnection() as HttpURLConnection
+        )
+    }.getOrNull()
+
+    var defaultFailure: Throwable? = null
+    if (defaultConnection != null) {
+        try {
+            defaultConnection.connect()
+            val code = defaultConnection.responseCode
+            if (code in 200..299) return defaultConnection
+            defaultFailure = java.io.IOException("HTTP $code on default route")
+        } catch (error: Throwable) {
+            defaultFailure = error
+        }
+        defaultConnection.disconnect()
+    }
+
     val connectivity = context.getSystemService(
         Context.CONNECTIVITY_SERVICE
     ) as ConnectivityManager
-
     val physicalNetwork = connectivity.allNetworks
         .mapNotNull { network ->
-            val capabilities =
-                connectivity.getNetworkCapabilities(
-                    network
-                ) ?: return@mapNotNull null
-
+            val capabilities = connectivity.getNetworkCapabilities(network)
+                ?: return@mapNotNull null
             val physical =
-                !capabilities.hasTransport(
-                    NetworkCapabilities.TRANSPORT_VPN
-                ) &&
+                !capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
                     (
-                        capabilities.hasTransport(
-                            NetworkCapabilities.TRANSPORT_WIFI
-                        ) ||
-                            capabilities.hasTransport(
-                                NetworkCapabilities.TRANSPORT_CELLULAR
-                            ) ||
-                            capabilities.hasTransport(
-                                NetworkCapabilities.TRANSPORT_ETHERNET
-                            )
-                        ) &&
-                    capabilities.hasCapability(
-                        NetworkCapabilities.NET_CAPABILITY_INTERNET
-                    )
-
-            if (physical) {
-                val validated = capabilities.hasCapability(
-                    NetworkCapabilities.NET_CAPABILITY_VALIDATED
-                )
-                Triple(
-                    network,
-                    validated,
-                    capabilities.hasCapability(
-                        NetworkCapabilities.NET_CAPABILITY_NOT_METERED
-                    ),
-                )
-            } else {
-                null
-            }
+                        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+                            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ||
+                            capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+                    ) &&
+                    capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            if (!physical) return@mapNotNull null
+            Triple(
+                network,
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED),
+            )
         }
         .sortedWith(
-            compareByDescending<Triple<android.net.Network, Boolean, Boolean>> {
-                it.second
-            }.thenByDescending {
-                it.third
-            }
+            compareByDescending<Triple<android.net.Network, Boolean, Boolean>> { it.second }
+                .thenByDescending { it.third }
         )
         .firstOrNull()
         ?.first
 
-    val target = URL(url)
-
     if (physicalNetwork != null) {
-        val directConnection = runCatching {
+        val physicalConnection = runCatching {
             configureDownloadConnection(
-                physicalNetwork.openConnection(
-                    target
-                ) as HttpURLConnection
+                physicalNetwork.openConnection(target) as HttpURLConnection
             )
         }.getOrNull()
-
-        if (directConnection != null) {
+        if (physicalConnection != null) {
             try {
-                // Force socket creation here. Some Android/OEM builds reject
-                // binding the updater socket to the underlying network with
-                // EPERM while the app VPN is active.
-                directConnection.connect()
-                directConnection.responseCode
-                return directConnection
+                physicalConnection.connect()
+                val code = physicalConnection.responseCode
+                if (code in 200..299) return physicalConnection
+                throw java.io.IOException("HTTP $code on physical route")
             } catch (error: Throwable) {
-                directConnection.disconnect()
-                if (!shouldFallbackToDefaultNetwork(error)) {
-                    throw error
-                }
+                physicalConnection.disconnect()
+                if (!shouldFallbackToDefaultNetwork(error)) throw error
+                if (defaultFailure == null) defaultFailure = error
             }
         }
     }
 
-    // Reliable fallback: use the app's current default route. When BlueVPN is
-    // connected this normally goes through the tunnel, so the VPN does not
-    // need to be disconnected just to install an update.
-    return configureDownloadConnection(
-        target.openConnection() as HttpURLConnection
-    ).also { fallback ->
-        fallback.connect()
-        fallback.responseCode
-    }
+    throw (defaultFailure ?: java.io.IOException("No usable network route for update download"))
 }
 
 private fun shouldFallbackToDefaultNetwork(

@@ -11,10 +11,10 @@ class WindowsReleaseSyncResilience501Tests(unittest.TestCase):
     def test_release_is_501(self):
         release = json.loads(text('release.json'))
         branding = json.loads(text('branding/app.json'))
-        self.assertEqual(release['version'], '6.2.2')
-        self.assertEqual(release['version_code'], 60202)
-        self.assertEqual(branding['version_name'], '6.2.2')
-        self.assertEqual(branding['version_code'], 60202)
+        self.assertEqual(release['version'], '6.2.3')
+        self.assertEqual(release['version_code'], 60203)
+        self.assertEqual(branding['version_name'], '6.2.3')
+        self.assertEqual(branding['version_code'], 60203)
 
     def test_publish_does_not_fail_after_installers_are_public(self):
         wf = text('.github/workflows/build-windows.yml')

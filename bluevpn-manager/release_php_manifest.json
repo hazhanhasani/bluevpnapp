@@ -21,6 +21,7 @@
     "includes/class-bluevpn-gateway.php",
     "includes/class-bluevpn-github-http-resilience.php",
     "includes/class-bluevpn-github-updater.php",
+    "includes/class-bluevpn-hiddify.php",
     "includes/class-bluevpn-manual-customers.php",
     "includes/class-bluevpn-migration.php",
     "includes/class-bluevpn-payments.php",
@@ -32,6 +33,7 @@
     "includes/class-bluevpn-subscription-sources.php",
     "includes/class-bluevpn-support.php",
     "includes/class-bluevpn-telegram-bot.php",
+    "includes/class-bluevpn-threexui.php",
     "includes/class-bluevpn-unified-ui.php",
     "includes/class-bluevpn-utils.php",
     "includes/class-bluevpn-windows-release-manager.php"

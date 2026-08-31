@@ -10,6 +10,7 @@ final class BlueVPN_Providers {
     private const EXPIRY_NON_GRANT_REPAIR_OPTION = 'bluevpn_expiry_non_grant_repair_4175';
     private const PAID_REPAIR_CURSOR_OPTION = 'bluevpn_paid_subscription_repair_cursor';
     private const PAID_REPAIR_LAST_OPTION = 'bluevpn_paid_subscription_repair_last';
+    private const RETRYABLE_HTTP = [408,425,429,500,502,503,504];
 
     public static function init(): void {
         add_action('template_redirect',[self::class,'serve_subscription'],0);
@@ -117,14 +118,31 @@ final class BlueVPN_Providers {
     }
 
     private static function req(string $method,string $url,array $headers=[],?array $json=null,bool $ssl=true,array $form=[],int $timeout=25): array {
-        $args=['method'=>$method,'timeout'=>max(3,min(25,$timeout)),'redirection'=>2,'sslverify'=>$ssl,'headers'=>array_merge(['Accept'=>'application/json','User-Agent'=>'BlueVPN-WordPress/'.BLUEVPN_MANAGER_VERSION],$headers)];
-        if($json!==null){$args['headers']['Content-Type']='application/json';$args['body']=wp_json_encode($json);}
-        elseif($form){$args['body']=$form;}
-        $res=wp_remote_request($url,$args);
-        if(is_wp_error($res))throw new RuntimeException($res->get_error_message());
-        $code=(int)wp_remote_retrieve_response_code($res);$body=(string)wp_remote_retrieve_body($res);
-        $decoded=json_decode($body,true);
-        return ['code'=>$code,'body'=>$body,'json'=>is_array($decoded)?$decoded:[],'headers'=>wp_remote_retrieve_headers($res)];
+        $method=strtoupper($method);$baseTimeout=max(3,min(25,$timeout));
+        $baseArgs=['method'=>$method,'timeout'=>$baseTimeout,'redirection'=>2,'sslverify'=>$ssl,'headers'=>array_merge(['Accept'=>'application/json','User-Agent'=>'BlueVPN-WordPress/'.BLUEVPN_MANAGER_VERSION],$headers)];
+        if($json!==null){$baseArgs['headers']['Content-Type']='application/json';$baseArgs['body']=wp_json_encode($json);}
+        elseif($form){$baseArgs['body']=$form;}
+        // Retry only idempotent GET requests. Earlier transient attempts are marked
+        // so Sentinel observes only the final exhausted failure, not every probe.
+        $attempts=$method==='GET'?2:1;$lastError='';
+        for($attempt=0;$attempt<$attempts;$attempt++){
+            $args=$baseArgs;
+            if($attempt+1<$attempts){
+                $args['headers']['X-BlueVPN-Sentinel-Transient']='1';
+                $args['timeout']=min(8,$baseTimeout);
+            }
+            $res=wp_remote_request($url,$args);
+            if(is_wp_error($res)){
+                $lastError=$res->get_error_message();
+                if($attempt+1<$attempts){usleep(250000);continue;}
+                throw new RuntimeException($lastError);
+            }
+            $code=(int)wp_remote_retrieve_response_code($res);$body=(string)wp_remote_retrieve_body($res);
+            if($attempt+1<$attempts&&in_array($code,self::RETRYABLE_HTTP,true)){usleep(350000);continue;}
+            $decoded=json_decode($body,true);
+            return ['code'=>$code,'body'=>$body,'json'=>is_array($decoded)?$decoded:[],'headers'=>wp_remote_retrieve_headers($res)];
+        }
+        throw new RuntimeException($lastError!==''?$lastError:'درخواست Provider ناموفق بود.');
     }
     private static function join_url(string $base,string $path): string { return rtrim($base,'/').'/'.ltrim($path,'/'); }
     private static function absolute_url(string $base,string $value): string {
@@ -1840,19 +1858,25 @@ final class BlueVPN_Providers {
                 if(!$providerLines)$errors[]=$provider.': inline source has no usable configs';
             }else{
                 $url=$payload;
-                if(str_starts_with($provider,'manual:')&&class_exists('BlueVPN_Subscription_Sources')){
-                    $manual=BlueVPN_Subscription_Sources::fetch_url_configs($url);
-                    if(empty($manual['ok'])){
-                        $message=(string)($manual['message']??'Subscription Source unavailable');
+                if(class_exists('BlueVPN_Subscription_Sources')){
+                    // All token-bearing provider subscription URLs use the same
+                    // SSRF-safe, retrying, cache-aware fetcher as manual sources.
+                    // Its internal requests are Sentinel-suppressed because a stale
+                    // last-known-good snapshot is the expected degradation path.
+                    $fetched=BlueVPN_Subscription_Sources::fetch_url_configs($url);
+                    if(empty($fetched['ok'])){
+                        $message=(string)($fetched['message']??'Subscription Source unavailable');
                         $errors[]=$provider.': '.$message;
-                        $sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>$message];
+                        $sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>$message,'endpoint'=>(string)($fetched['endpoint']??'')];
                         continue;
                     }
-                    $providerLines=array_values((array)($manual['lines']??[]));if($providerLines)$successSources++;
-                    $sourceStats[$provider]=['ok'=>true,'count'=>count($providerLines),'url_hash'=>hash('sha256',$url),'content_hash'=>hash('sha256',implode("\n",$providerLines)),'updated_at'=>time()];
+                    $providerLines=array_values((array)($fetched['lines']??[]));if($providerLines)$successSources++;
+                    $sourceStats[$provider]=['ok'=>true,'count'=>count($providerLines),'url_hash'=>hash('sha256',$url),'content_hash'=>hash('sha256',implode("\n",$providerLines)),'updated_at'=>time(),'stale'=>!empty($fetched['stale']),'cache_age'=>max(0,(int)($fetched['cache_age']??0)),'endpoint'=>(string)($fetched['endpoint']??'')];
                     if(!$providerLines)$errors[]=$provider.': source has no usable configs';
                 }else{
-                    $r=wp_remote_get($url,['timeout'=>8,'redirection'=>2,'sslverify'=>true,'headers'=>['User-Agent'=>'BlueVPN-WordPress/'.BLUEVPN_MANAGER_VERSION,'Accept'=>'text/plain,*/*']]);
+                    // Defensive fallback for partial plugin loads: never expose a
+                    // token-bearing upstream URL as a raw Sentinel runtime incident.
+                    $r=wp_remote_get($url,['timeout'=>8,'redirection'=>2,'sslverify'=>true,'headers'=>['User-Agent'=>'BlueVPN-WordPress/'.BLUEVPN_MANAGER_VERSION,'Accept'=>'text/plain,*/*','X-BlueVPN-Sentinel-Ignore'=>'1']]);
                     if(is_wp_error($r)){$errors[]=$provider.': '.$r->get_error_message();$sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>$r->get_error_message()];continue;}
                     $code=(int)wp_remote_retrieve_response_code($r);if($code>=400){$errors[]=$provider.': HTTP '.$code;$sourceStats[$provider]=['ok'=>false,'count'=>0,'url_hash'=>hash('sha256',$url),'error'=>'HTTP '.$code];continue;}
                     $providerLines=self::subscription_lines((string)wp_remote_retrieve_body($r));if($providerLines)$successSources++;$sourceStats[$provider]=['ok'=>!empty($providerLines),'count'=>count($providerLines),'url_hash'=>hash('sha256',$url),'content_hash'=>hash('sha256',implode("\n",$providerLines)),'updated_at'=>time()];if(!$providerLines)$errors[]=$provider.': source has no usable configs';

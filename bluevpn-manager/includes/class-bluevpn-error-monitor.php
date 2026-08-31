@@ -597,7 +597,7 @@ final class BlueVPN_Error_Monitor {
             if ($message === '') $message = 'خطای بدون پیام ثبت شد.';
             $safeContext = self::sanitize_context($context);
             $normalized = self::normalize_for_fingerprint($message);
-            $fingerprint = hash('sha256', implode('|', [$source, $component, $severity, $code, $normalized, (string)($safeContext['file'] ?? ''), (string)($safeContext['line'] ?? ''), (string)($safeContext['route'] ?? '')]));
+            $fingerprint = hash('sha256', implode('|', [$source, $component, $severity, $code, $normalized, (string)($safeContext['host'] ?? ''), (string)($safeContext['method'] ?? ''), (string)($safeContext['file'] ?? ''), (string)($safeContext['line'] ?? ''), (string)($safeContext['route'] ?? '')]));
             $now = BlueVPN_Utils::now_mysql();
             $event = self::upsert_event($fingerprint, $source, $component, $severity, $code, $message, $safeContext, $now);
             $should = $forceNotify || self::should_notify($event, $settings);
@@ -851,8 +851,30 @@ final class BlueVPN_Error_Monitor {
     private static function php_error_name(int $n): string { $m=[E_ERROR=>'E_ERROR',E_WARNING=>'E_WARNING',E_PARSE=>'E_PARSE',E_NOTICE=>'E_NOTICE',E_CORE_ERROR=>'E_CORE_ERROR',E_CORE_WARNING=>'E_CORE_WARNING',E_COMPILE_ERROR=>'E_COMPILE_ERROR',E_COMPILE_WARNING=>'E_COMPILE_WARNING',E_USER_ERROR=>'E_USER_ERROR',E_USER_WARNING=>'E_USER_WARNING',E_USER_NOTICE=>'E_USER_NOTICE',E_STRICT=>'E_STRICT',E_RECOVERABLE_ERROR=>'E_RECOVERABLE_ERROR',E_DEPRECATED=>'E_DEPRECATED',E_USER_DEPRECATED=>'E_USER_DEPRECATED']; return $m[$n]??('PHP_'.$n); }
     private static function normalize_severity(string $s): string { $s=strtolower($s); return in_array($s,['critical','error','warning','notice','info'],true)?$s:'error'; }
     private static function http_component(string $host, string $url): string { if (str_contains($host,'github')) return 'github'; if (str_contains($host,'iranpayamak')) return 'sms'; if (str_contains($host,'blupal')) return 'payment'; if (str_contains($url,'marzban')) return 'marzban'; return 'external_http'; }
-    private static function safe_url(string $url): string { $parts=wp_parse_url($url); if(!is_array($parts))return ''; $out=($parts['scheme']??'https').'://'.($parts['host']??''); if(isset($parts['port']))$out.=':'.(int)$parts['port']; $out.=$parts['path']??''; return self::truncate($out,700); }
-    private static function sanitize_message(string $message): string { $message=wp_strip_all_tags($message); $message=preg_replace('/(authorization|token|password|secret|api[_-]?key|cookie)\s*[:=]\s*[^\s,;]+/i','$1=[REDACTED]',$message)??$message; $message=preg_replace('/\b09\d{9}\b/','[PHONE]',$message)??$message; $message=preg_replace('/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i','[EMAIL]',$message)??$message; return self::truncate(trim($message),3000); }
+    private static function safe_url(string $url): string {
+        $parts=wp_parse_url($url);if(!is_array($parts))return '';
+        $out=($parts['scheme']??'https').'://'.($parts['host']??'');if(isset($parts['port']))$out.=':'.(int)$parts['port'];
+        $path=(string)($parts['path']??'');if($path!==''){
+            $segments=explode('/',$path);$safe=[];$previous='';
+            foreach($segments as $segment){
+                if($segment===''){$safe[]='';continue;}
+                $decoded=rawurldecode($segment);$lowerPrev=strtolower($previous);
+                $sensitiveParent=in_array($lowerPrev,['sub','subscribe','subscription','token','auth','key'],true);
+                $looksSecret=$sensitiveParent||(strlen($decoded)>=32&&preg_match('/^[^\\s\\/]+$/',$decoded));
+                $safe[]=$looksSecret?'[REDACTED]':$segment;$previous=$decoded;
+            }
+            $out.=implode('/',$safe);
+        }
+        return self::truncate($out,700);
+    }
+    private static function sanitize_message(string $message): string {
+        $message=wp_strip_all_tags($message);
+        $message=preg_replace_callback('~https?://[^\\s<>"\\']+~i',static fn($m)=>self::safe_url(rtrim((string)$m[0],".,;)]}")),$message)??$message;
+        $message=preg_replace('/(authorization|token|password|secret|api[_-]?key|cookie)\\s*[:=]\\s*[^\\s,;]+/i','$1=[REDACTED]',$message)??$message;
+        $message=preg_replace('/\\b09\\d{9}\\b/','[PHONE]',$message)??$message;
+        $message=preg_replace('/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i','[EMAIL]',$message)??$message;
+        return self::truncate(trim($message),3000);
+    }
     private static function safe_sql(string $sql): string { $sql=preg_replace("/'(?:''|[^'])*'/", "'?'", $sql)??$sql; $sql=preg_replace('/\b\d{4,}\b/','?', $sql)??$sql; return self::truncate($sql,1200); }
     private static function sanitize_context(array $ctx): array { $out=[]; foreach($ctx as $k=>$v){$key=(string)$k;if(preg_match('/token|secret|password|authorization|cookie|api.?key|phone|email/i',$key)){$out[$key]='[REDACTED]';continue;} if(is_array($v)){$out[$key]=self::sanitize_context($v);} elseif(is_object($v)){$out[$key]='['.get_class($v).']';} else {$out[$key]=self::sanitize_message((string)$v);} } return $out; }
     private static function compact_context(array $context): string { if(!$context)return ''; $json=wp_json_encode($context,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES); return is_string($json)?$json:''; }

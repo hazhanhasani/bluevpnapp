@@ -1,0 +1,5 @@
+BlueVPN Android full release retry
+version=6.2.6
+version_code=60206
+reason=compile import guard fixed
+source=c2f1aa774115762dbde28aa0bdb4a33506d7df6c

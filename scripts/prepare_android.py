@@ -1010,6 +1010,7 @@ def inject_bluevpn_home() -> None:
         bluevpn_dir / "BlueVpnIntelligenceCore.kt": ROOT / "android-source/BlueVpnIntelligenceCore.kt",
         bluevpn_dir / "BlueVpnNativeNetworkAdaptation.kt": ROOT / "android-source/BlueVpnNativeNetworkAdaptation.kt",
         bluevpn_dir / "BlueVpnNetworkRecoveryManager.kt": ROOT / "android-source/BlueVpnNetworkRecoveryManager.kt",
+        bluevpn_dir / "BlueVpnConnectionIntent.kt": ROOT / "android-source/BlueVpnConnectionIntent.kt",
         bluevpn_dir / "BlueVpnBackgroundReliability.kt": ROOT / "android-source/BlueVpnBackgroundReliability.kt",
         bluevpn_dir / "BlueVpnBackgroundOptimizer.kt": ROOT / "android-source/BlueVpnBackgroundOptimizer.kt",
         bluevpn_dir / "BlueVpnSupportNotifications.kt": ROOT / "android-source/BlueVpnSupportNotifications.kt",

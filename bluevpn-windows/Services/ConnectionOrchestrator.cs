@@ -14,6 +14,8 @@ public sealed class ConnectionOrchestrator : IDisposable
     private readonly SemaphoreSlim _connectGate = new(1, 1);
     private readonly object _connectSync = new();
     private CancellationTokenSource? _activeConnectAttempt;
+    private long _connectionIntentGeneration;
+    private volatile bool _connectionDesired;
 
     public ConnectionOrchestrator(AppSettings settings, BlueVpnApiClient api, RuntimeLocator runtime)
     {
@@ -34,6 +36,8 @@ public sealed class ConnectionOrchestrator : IDisposable
 
     public async Task<ConnectionResult> ConnectAsync(Account? account, IProgress<string>? progress = null, CancellationToken ct = default, string preferredLocationKey = "")
     {
+        _connectionDesired = true;
+        var intentGeneration = Interlocked.Increment(ref _connectionIntentGeneration);
         // A second connect request cancels the first attempt before it can race
         // Xray/TUN state. Only one ConnectCoreAsync may own runtime mutation at
         // a time, while Disconnect() remains immediate and cancellation-safe.
@@ -49,7 +53,7 @@ public sealed class ConnectionOrchestrator : IDisposable
         {
             try
             {
-                return await ConnectCoreAsync(account, progress, attempt.Token, preferredLocationKey).ConfigureAwait(false);
+                return await ConnectCoreAsync(account, progress, attempt.Token, preferredLocationKey, intentGeneration).ConfigureAwait(false);
             }
             catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
             {
@@ -67,14 +71,16 @@ public sealed class ConnectionOrchestrator : IDisposable
         }
     }
 
-    private async Task<ConnectionResult> ConnectCoreAsync(Account? account, IProgress<string>? progress, CancellationToken ct, string preferredLocationKey)
+    private async Task<ConnectionResult> ConnectCoreAsync(Account? account, IProgress<string>? progress, CancellationToken ct, string preferredLocationKey, long intentGeneration)
     {
+        EnsureConnectionDesired(intentGeneration, ct);
         StopRuntime();
 
         progress?.Report("بررسی سریع اینترنت و سیاست اتصال…");
         var baselineTask = ConnectivityProbe.CaptureBaselineAsync(_settings.ProbeUrl, ct);
         var mobileTask = LoadMobilePolicySafeAsync(ct);
         var before = await baselineTask.ConfigureAwait(false);
+        EnsureConnectionDesired(intentGeneration, ct);
         if (!before.Reachable || string.IsNullOrWhiteSpace(before.PublicIp))
             throw new InvalidOperationException("IP اینترنت قبل از اتصال قابل تأیید نیست؛ برای جلوگیری از Connected کاذب، اتصال متوقف شد.");
 
@@ -95,6 +101,7 @@ public sealed class ConnectionOrchestrator : IDisposable
             {
                 progress?.Report("اتصال رایگان سریع با WARP…");
                 _ = await _warp.StartAsync(warpPolicy, progress, ct).ConfigureAwait(false);
+                EnsureConnectionDesired(intentGeneration, ct);
                 progress?.Report("تأیید IP و مسیر سیستم…");
                 IReadOnlyCollection<string> blocked = warpPolicy.BlockedExitCountries.Count > 0
                     ? warpPolicy.BlockedExitCountries
@@ -192,6 +199,7 @@ public sealed class ConnectionOrchestrator : IDisposable
                 progress?.Report($"اتصال به مسیر {candidateIndex} از {candidates.Count}…");
                 var config = XrayConfigBuilder.Build(endpoint, _settings);
                 await _xray.StartAsync(config, endpoint, candidateToken).ConfigureAwait(false);
+                EnsureConnectionDesired(intentGeneration, candidateToken);
                 progress?.Report($"فعال‌سازی Xray • مسیر {candidateIndex} از {candidates.Count}…");
                 var verified = await _xray.FallbackToSystemProxyAsync(before, _settings.ProbeUrl, candidateToken).ConfigureAwait(false);
                 if (verified.Success)
@@ -297,8 +305,17 @@ public sealed class ConnectionOrchestrator : IDisposable
 
     public void Disconnect()
     {
+        _connectionDesired = false;
+        Interlocked.Increment(ref _connectionIntentGeneration);
         CancelConnectAttempt();
         StopRuntime();
+    }
+
+    private void EnsureConnectionDesired(long generation, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        if (!_connectionDesired || Interlocked.Read(ref _connectionIntentGeneration) != generation)
+            throw new OperationCanceledException("Connection request was revoked by the user.", ct);
     }
 
     public void Dispose()

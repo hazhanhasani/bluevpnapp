@@ -29,6 +29,7 @@ object BlueVpnSystemController {
 
     fun stop(context: Context) {
         val app = context.applicationContext
+        BlueVpnConnectionIntent.requestDisconnect(app)
         BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.VPN_STOP_REQUEST)
         LauncherManager.stopService(app)
         BlueVpnWarpKeepAliveService.stop(app)
@@ -57,6 +58,8 @@ object BlueVpnSystemController {
 
     fun restart(context: Context) {
         val app = context.applicationContext
+        if (!BlueVpnConnectionIntent.isConnectionDesired(app)) return
+        val generation = BlueVpnConnectionIntent.requestConnect(app)
         BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.VPN_RESTART_REQUEST)
         scope.launch {
             LauncherManager.stopService(app)
@@ -64,13 +67,15 @@ object BlueVpnSystemController {
             BlueVpnWarpEngine.stop()
             BlueVpnPreferences.clearConnected(app)
             delay(450L)
-            start(app)
+            if (BlueVpnConnectionIntent.isCurrent(app, generation)) startAuthorized(app, generation)
         }
     }
 
     /** Recover only after repeated complete end-to-end proof failures. */
     fun recoverDeadTunnel(context: Context) {
         val app = context.applicationContext
+        if (!BlueVpnConnectionIntent.isConnectionDesired(app)) return
+        val generation = BlueVpnConnectionIntent.requestConnect(app)
         if (!BlueVpnIntelligenceCore.claimPredictiveFailover(app)) return
         scope.launch {
             val current = com.v2ray.ang.handler.MmkvManager.getSelectServer().orEmpty()
@@ -100,12 +105,18 @@ object BlueVpnSystemController {
             BlueVpnWarpEngine.stop()
             BlueVpnPreferences.clearConnected(app)
             delay(350L)
-            start(app)
+            if (BlueVpnConnectionIntent.isCurrent(app, generation)) startAuthorized(app, generation)
         }
     }
 
     fun start(context: Context) {
         val app = context.applicationContext
+        val generation = BlueVpnConnectionIntent.requestConnect(app)
+        startAuthorized(app, generation)
+    }
+
+    private fun startAuthorized(app: Context, generation: Long) {
+        if (!BlueVpnConnectionIntent.isCurrent(app, generation)) return
         BlueVpnRuntimeAudit.record(app, BlueVpnRuntimeAudit.Event.SYSTEM_START_REQUEST)
         // Android requires an Activity to grant VPN consent the first time.
         if (VpnService.prepare(app) != null) {
@@ -113,7 +124,7 @@ object BlueVpnSystemController {
             return
         }
         if (BlueVpnAccountManager.isFreeMode(app) && BlueVpnAccountManager.warpFreeEnabled(app)) {
-            scope.launch { startFreeWarp(app) }
+            scope.launch { startFreeWarp(app, generation) }
         } else {
             // Premium is already owned by stock v2rayNG/CoreVpnService, which is
             // itself a foreground VpnService. A second foreground owner is not
@@ -122,12 +133,15 @@ object BlueVpnSystemController {
         }
     }
 
-    private suspend fun startFreeWarp(app: Context) {
+    private suspend fun startFreeWarp(app: Context, generation: Long) {
         runCatching {
+            check(BlueVpnConnectionIntent.isCurrent(app, generation)) { "Connection request was revoked" }
             val prepared = BlueVpnWarpEngine.prepareAdaptive(app)
+            check(BlueVpnConnectionIntent.isCurrent(app, generation)) { "Connection request was revoked" }
             LauncherManager.startService(app, prepared.guid)
             val deadline = SystemClock.elapsedRealtime() + 10_000L
             while (!CoreServiceManager.isRunning() && SystemClock.elapsedRealtime() < deadline) {
+                check(BlueVpnConnectionIntent.isCurrent(app, generation)) { "Connection request was revoked" }
                 delay(100L)
             }
             if (!CoreServiceManager.isRunning()) error("Xray bridge did not start")

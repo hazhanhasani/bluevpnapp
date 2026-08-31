@@ -3173,6 +3173,7 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun stopConnectionImmediately() {
+        BlueVpnConnectionIntent.requestDisconnect(this)
         lifecycleScope.launch(Dispatchers.IO) {
             BlueVpnAi.finishSession(
                 this@BlueVpnHomeActivity,
@@ -3306,6 +3307,7 @@ private fun dpHome(value: Int): Int =
     }
 
     private fun beginSmartConnection() {
+        BlueVpnConnectionIntent.requestConnect(this)
         if (
             recoveryCleanupRequired &&
             mainViewModel.isRunning.value == true &&

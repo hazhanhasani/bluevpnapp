@@ -1,7 +1,12 @@
 === BlueVPN Manager ===
-Version: 6.2.7
-Stable tag: 6.2.7
+Version: 6.2.8
+Stable tag: 6.2.8
 Requires PHP: 8.0
+
+== 6.2.8 ==
+* بازیابی امن خطای مبهم 5xx شاهراه با Read-after-write و بدون ارسال دوباره POST هزینه‌دار.
+* جلوگیری از قطع اسکن Provider با تبدیل خطای پیش‌بینی‌نشده به نتیجه JSON قابل ادامه.
+* تشخیص بهتر پاسخ غیر JSON/خطای Proxy در اسکن مشتریان و حفظ cursor برای Retry.
 
 == 5.2.2 ==
 * Connection/release hardening across Android, Windows, Manager, Telegram bot and Site.

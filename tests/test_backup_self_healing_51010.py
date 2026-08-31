@@ -4,11 +4,11 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-class BackupSelfHealing60207Tests(unittest.TestCase):
+class BackupSelfHealing60208Tests(unittest.TestCase):
     def test_release_version(self):
         release = json.loads((ROOT / "release.json").read_text(encoding="utf-8"))
-        self.assertEqual(release["version"], "6.2.7")
-        self.assertEqual(release["version_code"], 60207)
+        self.assertEqual(release["version"], "6.2.8")
+        self.assertEqual(release["version_code"], 60208)
 
     def test_backup_has_state_atomic_write_and_bounded_recovery(self):
         src = (ROOT / "bluevpn-manager/includes/class-bluevpn-production.php").read_text(encoding="utf-8")

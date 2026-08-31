@@ -1,0 +1,127 @@
+name: BlueVPN Release 6.1.6
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/release-616.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: bluevpn-release-616
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout current main
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+
+      - name: Atomically synchronize BlueVPN 6.1.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path(".")
+          version_file = root / "version.json"
+          data = json.loads(version_file.read_text(encoding="utf-8"))
+          old_version = str(data["version"])
+          old_code = str(data["version_code"])
+          new_version = "6.1.6"
+          new_code = 60106
+
+          if old_version not in {"6.1.5", new_version}:
+              raise SystemExit(f"Unexpected source version: {old_version}")
+
+          data["version"] = new_version
+          data["version_code"] = new_code
+          for key in list((data.get("components") or {}).keys()):
+              data["components"][key] = new_version
+          version_file.write_text(
+              json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          # Move release-version regression pins atomically with the canonical
+          # version contract so main is never left half-upgraded.
+          for path in sorted((root / "tests").glob("test_*.py")):
+              text = path.read_text(encoding="utf-8")
+              updated = text.replace("6.1.5", new_version).replace("60105", str(new_code))
+              if updated != text:
+                  path.write_text(updated, encoding="utf-8")
+
+          print(f"Prepared BlueVPN {old_version}/{old_code} -> {new_version}/{new_code}")
+          PY
+
+          python scripts/sync_version.py
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path("release.json")
+          data = json.loads(p.read_text(encoding="utf-8"))
+          features = list(data.get("features") or [])
+          for feature in (
+              "windows-tapsell-approved-blluepanel-origin",
+              "windows-tapsell-webview2-ready-handshake",
+              "windows-tapsell-no-local-virtual-host",
+              "windows-tapsell-no-script-html-injection",
+              "windows-tapsell-first-party-fallback",
+              "windows-bot-control-plane-publisher-separation",
+          ):
+              if feature not in features:
+                  features.append(feature)
+          data["features"] = features
+          p.write_text(
+              json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Validate complete 6.1.6 source before commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          python -m compileall -q scripts tests
+          python scripts/validate_bundle_integrity.py
+          python scripts/sync_version.py --check
+          python scripts/validate_release.py
+          python scripts/validate_windows.py
+          python scripts/validate_php_release.py
+          python -m unittest discover -s tests -p 'test_*.py' -v
+
+      - name: Commit atomic BlueVPN 6.1.6 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "BlueVPN 6.1.6 is already synchronized."
+            exit 0
+          fi
+          git config user.name "bluevpn-release-bot"
+          git config user.email "bluevpn-release-bot@users.noreply.github.com"
+          git add -A ':!.github/workflows'
+          git commit -m "release: BlueVPN 6.1.6 approved-origin Tapsell bridge"
+          git push origin HEAD:main
+
+      - name: Confirm coordinated release gate is requested
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run project-health.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo "Requested Project Health; successful version-change validation will fan out Manager, Android, Windows, iOS and Site Theme."

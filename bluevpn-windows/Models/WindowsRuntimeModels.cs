@@ -107,6 +107,11 @@ public sealed class TapsellConfig
 
 public sealed class TapsellWindowsWebConfig
 {
+    [JsonPropertyName("schema_version")] public int SchemaVersion { get; set; } = 1;
+    [JsonPropertyName("publisher_host")] public string PublisherHost { get; set; } = "";
+    [JsonPropertyName("master_enabled")] public bool MasterEnabled { get; set; }
+    [JsonPropertyName("enabled_placement_count")] public int EnabledPlacementCount { get; set; }
+    [JsonPropertyName("placements")] public Dictionary<string, TapsellWindowsWebPlacementConfig> Placements { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     [JsonPropertyName("enabled")] public bool Enabled { get; set; }
     [JsonPropertyName("placement_id")] public string PlacementId { get; set; } = "";
     [JsonPropertyName("script_html")] public string ScriptHtml { get; set; } = "";
@@ -116,6 +121,19 @@ public sealed class TapsellWindowsWebConfig
     [JsonPropertyName("daily_cap")] public int DailyCap { get; set; } = 10;
     [JsonPropertyName("every_slides")] public int EverySlides { get; set; } = 3;
     [JsonPropertyName("height")] public int Height { get; set; } = 146;
+}
+
+public sealed class TapsellWindowsWebPlacementConfig
+{
+    [JsonPropertyName("enabled")] public bool Enabled { get; set; }
+    [JsonPropertyName("placement_id")] public string PlacementId { get; set; } = "";
+    [JsonPropertyName("bridge_url")] public string BridgeUrl { get; set; } = "";
+    [JsonPropertyName("publisher_host")] public string PublisherHost { get; set; } = "";
+    [JsonPropertyName("surface")] public string Surface { get; set; } = "";
+    [JsonPropertyName("render_mode")] public string RenderMode { get; set; } = "";
+    [JsonPropertyName("min_interval_seconds")] public int MinIntervalSeconds { get; set; }
+    [JsonPropertyName("daily_cap")] public int DailyCap { get; set; }
+    [JsonPropertyName("free_only")] public bool FreeOnly { get; set; }
 }
 
 public sealed class TapsellPlacementConfig

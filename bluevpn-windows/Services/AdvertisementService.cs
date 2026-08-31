@@ -153,6 +153,24 @@ public sealed class AdvertisementService
 
     public TapsellWindowsWebConfig WindowsWeb => Current.Tapsell.WindowsWeb;
 
+    public TapsellWindowsWebPlacementConfig? WindowsWebPlacement(string type)
+    {
+        if (WindowsWeb.Placements.TryGetValue(type, out var placement)) return placement;
+        if (!type.Equals("standard_banner", StringComparison.OrdinalIgnoreCase)) return null;
+        return new TapsellWindowsWebPlacementConfig
+        {
+            Enabled = WindowsWeb.Enabled,
+            PlacementId = WindowsWeb.PlacementId,
+            BridgeUrl = WindowsWeb.BridgeUrl,
+            PublisherHost = ApprovedWindowsPublisherHost,
+            Surface = "Windows ← Carousel اصلی BlueVPN",
+            RenderMode = "carousel_banner",
+            MinIntervalSeconds = WindowsWeb.MinIntervalSeconds,
+            DailyCap = WindowsWeb.DailyCap,
+            FreeOnly = WindowsWeb.FreeOnly,
+        };
+    }
+
     public bool TryGetApprovedWindowsBridge(out Uri bridge)
     {
         bridge = null!;

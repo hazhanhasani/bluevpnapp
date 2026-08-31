@@ -18,13 +18,26 @@ class WindowsTapsellWeb553Tests(unittest.TestCase):
         self.assertIn('TryReserveWindowsWebImpression', code)
         self.assertIn('|| _ads.WindowsWeb.Enabled', code)
 
-    def test_panel_exposes_independent_windows_schedule(self):
+    def test_panel_separates_android_and_windows_and_exposes_all_web_models(self):
         ads = (ROOT / "bluevpn-manager/includes/class-bluevpn-ads.php").read_text(encoding="utf-8")
         db = (ROOT / "bluevpn-manager/includes/class-bluevpn-db.php").read_text(encoding="utf-8")
-        for key in ("tapsell_windows_web_enabled", "tapsell_windows_web_min_interval_seconds", "tapsell_windows_web_daily_cap", "tapsell_windows_web_every_slides"):
+        self.assertIn("📱 Tapsell Android — Mediation SDK", ads)
+        self.assertIn("🖥️ Tapsell Windows — Web Publisher", ads)
+        self.assertIn("tapsell_windows_web_fields", ads)
+        for type_name in (
+            "rewarded_video",
+            "interstitial_video",
+            "pre_roll_video",
+            "native_video",
+            "standard_banner",
+            "interstitial_banner",
+            "native_banner",
+        ):
+            key = "tapsell_windows_web_" + type_name + "_placement_id"
             self.assertIn(key, ads)
             self.assertIn(key, db)
-        self.assertIn("'windows_web' => [", ads)
+        self.assertIn("'schema_version' => 2", ads)
+        self.assertIn("'placements' => $windowsWebPlacements", ads)
         self.assertIn("'bridge_url' => add_query_arg", ads)
         self.assertIn("'https://blluepanel.ir/'", ads)
         self.assertIn("'script_html' => ''", ads)

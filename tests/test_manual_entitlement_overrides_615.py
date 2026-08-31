@@ -21,10 +21,10 @@ class ManualEntitlementOverrides615Tests(unittest.TestCase):
         for token in (
             "custom_duration_days",
             "custom_data_limit_gb",
-            "$current>$base",
+            "$base=max(time(),$previousExpiryTs);",
             "$base+$durationDays*DAY_IN_SECONDS",
             "$customDataLimitBytes=(int)round($volumeGb*1024*1024*1024)",
-            "provision_customer($customerId,$planId,$targetExpiry,$customDataLimitBytes)",
+            "provision_customer($customerId,$planId,$targetExpiry,$providerDataLimitOverride)",
             "'custom_duration'=>$customDuration?1:0",
             "'custom_data_limit'=>$customVolume?1:0",
         ):

@@ -2,10 +2,10 @@ from pathlib import Path
 import json, unittest
 ROOT=Path(__file__).resolve().parents[1]
 
-class AdminInformationArchitecture60206Tests(unittest.TestCase):
+class AdminInformationArchitecture60207Tests(unittest.TestCase):
     def test_release(self):
         d=json.loads((ROOT/"release.json").read_text(encoding="utf-8"))
-        self.assertEqual((d["version"],d["version_code"]),("6.2.6",60206))
+        self.assertEqual((d["version"],d["version_code"]),("6.2.7",60207))
 
     def test_admin_navigation_is_domain_grouped_and_searchable(self):
         ui=(ROOT/"bluevpn-manager/includes/class-bluevpn-unified-ui.php").read_text(encoding="utf-8")

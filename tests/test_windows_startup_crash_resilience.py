@@ -27,7 +27,10 @@ class WindowsStartupCrashResilienceTests(unittest.TestCase):
         ctor_end=src.index("private bool TryCreateTapsellWebSurface",ctor_start)
         ctor=src[ctor_start:ctor_end]
         self.assertNotIn("TryCreateTapsellWebSurface();",ctor)
-        self.assertIn("TryCreateTapsellWebSurface()",src[src.index("private async Task<bool> ShowTapsellWebAdAsync"):])
+        show=src[src.index("private async Task<bool> ShowTapsellWebAdAsync"):]
+        self.assertIn("EnsureTapsellWebInitializedAsync",show)
+        init=src[src.index("private async Task<bool> EnsureTapsellWebInitializedAsync"):src.index("private void ScheduleTapsellWarmup")]
+        self.assertIn("TryCreateTapsellWebSurface()",init)
 
     def test_ci_launches_real_published_executable(self):
         wf=self.text(".github/workflows/build-windows.yml")

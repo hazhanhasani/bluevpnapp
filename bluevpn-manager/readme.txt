@@ -1,7 +1,12 @@
 === BlueVPN Manager ===
-Version: 6.2.8
-Stable tag: 6.2.8
+Version: 6.2.9
+Stable tag: 6.2.9
 Requires PHP: 8.0
+
+== 6.2.9 ==
+* پشتیبانی رسمی از پارامتر q در GET /services مطابق مستندات شاهراه و جستجوی مستقیم username پیش از page scan.
+* حذف پیام خام INVALID_JSON و نمایش HTTP status / content-type برای پاسخ غیر JSON شاهراه.
+* کاهش فشار روی API شاهراه در اسکن و بازیابی سرویس‌های مشتریان.
 
 == 6.2.8 ==
 * بازیابی امن خطای مبهم 5xx شاهراه با Read-after-write و بدون ارسال دوباره POST هزینه‌دار.

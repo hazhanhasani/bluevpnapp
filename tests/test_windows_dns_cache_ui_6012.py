@@ -12,9 +12,10 @@ def test_windows_endpoint_probes_reuse_short_lived_dns_results():
     assert "cached.ExpiresAt > now" in source
 
 
-def test_windows_telemetry_has_clear_lightweight_card_hierarchy():
+def test_windows_telemetry_keeps_lightweight_borderless_hierarchy():
     source = (ROOT / "bluevpn-windows/App.xaml").read_text()
     style = source[source.index('x:Key="BlueVpnMetricCardStyle"'):]
-    assert 'CornerRadius" Value="16"' in style
-    assert 'BlueVpnSurface' in style and 'BlueVpnStroke' in style
+    assert 'Property="Background" Value="Transparent"' in style
+    assert 'Property="BorderThickness" Value="0"' in style
+    assert 'Property="Padding" Value="7,6"' in style
     assert "DropShadowEffect" not in style

@@ -106,7 +106,8 @@ public partial class MainWindow : Window
         Closing += MainWindow_Closing;
         // WebView2 is optional and is created lazily only when a web ad is
         // actually selected. The standard WPF control avoids the composition
-        // runtime dependency that crashed clean customer PCs. Tapsell itself is
+        // Microsoft.Windows.SDK.NET dependency that crashed clean customer PCs.
+        // Tapsell itself is
         // never executed from a synthetic/local origin; only blluepanel.ir is
         // accepted as the publisher document.
         MaxHeight = Math.Max(560, SystemParameters.WorkArea.Height);

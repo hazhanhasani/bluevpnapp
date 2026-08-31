@@ -7,10 +7,13 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 class WindowsTapsellGithubResilience587Tests(unittest.TestCase):
     def test_windows_tapsell_accepts_https_bridge_without_script_html(self):
         service = (ROOT / "bluevpn-windows/Services/AdvertisementService.cs").read_text(encoding="utf-8")
-        self.assertIn("var hasHttpsBridge = Uri.TryCreate(cfg.BridgeUrl", service)
-        self.assertIn("var hasRenderableSource = hasHttpsBridge || !string.IsNullOrWhiteSpace(cfg.ScriptHtml)", service)
-        self.assertIn("!cfg.Enabled || !hasRenderableSource", service)
-        self.assertNotIn("!cfg.Enabled || string.IsNullOrWhiteSpace(cfg.ScriptHtml)", service)
+        self.assertIn('ApprovedWindowsPublisherHost = "blluepanel.ir"', service)
+        self.assertIn("TryGetApprovedWindowsBridge(out Uri bridge)", service)
+        self.assertIn("candidate.Scheme.Equals(Uri.UriSchemeHttps", service)
+        self.assertIn("candidate.Host.Equals(ApprovedWindowsPublisherHost", service)
+        self.assertIn("!cfg.Enabled || !TryGetApprovedWindowsBridge(out _)", service)
+        self.assertNotIn("hasRenderableSource", service)
+        self.assertNotIn("string.IsNullOrWhiteSpace(cfg.ScriptHtml)", service)
 
     def test_github_release_poll_has_bounded_retry_and_sentinel_suppression(self):
         resilience = (ROOT / "bluevpn-manager/includes/class-bluevpn-github-http-resilience.php").read_text(encoding="utf-8")

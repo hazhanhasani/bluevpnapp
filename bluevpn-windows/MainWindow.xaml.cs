@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _adTimer = new();
     private readonly DispatcherTimer _maintenanceTimer = new();
     private readonly SemaphoreSlim _updateGate = new(1, 1);
+    private readonly SemaphoreSlim _tapsellInitGate = new(1, 1);
 
     private Account? _account;
     private CancellationTokenSource? _connectCts;
@@ -145,6 +146,69 @@ public partial class MainWindow : Window
         if (_tapsellWebView is not null) _tapsellWebView.Visibility = visibility;
     }
 
+    private async Task<bool> EnsureTapsellWebInitializedAsync(CancellationToken ct)
+    {
+        if (_tapsellWebInitialized && _tapsellWebView?.CoreWebView2 is not null) return true;
+        await _tapsellInitGate.WaitAsync(ct);
+        try
+        {
+            if (_tapsellWebInitialized && _tapsellWebView?.CoreWebView2 is not null) return true;
+            var installProgress = new Progress<string>(text => FooterStatus.Text = text);
+            if (!await WebView2RuntimeInstaller.EnsureInstalledAsync(installProgress, ct)) return false;
+            if (!TryCreateTapsellWebSurface() || _tapsellWebView is null) return false;
+
+            var webView = _tapsellWebView;
+            _tapsellWebEnvironment ??= await WebView2RuntimeInstaller.CreatePerUserEnvironmentAsync(ct);
+            webView.DefaultBackgroundColor = System.Drawing.Color.Transparent;
+            await webView.EnsureCoreWebView2Async(_tapsellWebEnvironment);
+            if (webView.CoreWebView2 is null) return false;
+            webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+            webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
+            webView.CoreWebView2.Settings.IsWebMessageEnabled = true;
+            webView.CoreWebView2.WebMessageReceived -= TapsellWebMessageReceived;
+            webView.CoreWebView2.WebMessageReceived += TapsellWebMessageReceived;
+            webView.CoreWebView2.NewWindowRequested -= TapsellNewWindowRequested;
+            webView.CoreWebView2.NewWindowRequested += TapsellNewWindowRequested;
+            _tapsellWebInitialized = true;
+            return true;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return false;
+        }
+        finally
+        {
+            _tapsellInitGate.Release();
+        }
+    }
+
+    private void ScheduleTapsellWarmup()
+    {
+        var cfg = _ads.WindowsWeb;
+        if (!cfg.MasterEnabled && !cfg.Enabled) return;
+        Dispatcher.BeginInvoke(
+            DispatcherPriority.ApplicationIdle,
+            new Action(() => _ = WarmTapsellWebViewAsync()));
+    }
+
+    private async Task WarmTapsellWebViewAsync()
+    {
+        try
+        {
+            await EnsureTapsellWebInitializedAsync(_lifetimeCts.Token);
+        }
+        catch (OperationCanceledException) when (_lifetimeCts.IsCancellationRequested) { }
+        catch
+        {
+            // Warm-up is an optimization only. Real display remains fail-open.
+        }
+    }
+
     private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         _metricsLoop ??= RunMetricsLoopAsync(_lifetimeCts.Token);
@@ -227,6 +291,10 @@ public partial class MainWindow : Window
         _adImageAspectRatio = 0;
         ApplyAdCardHeight();
         await ShowCurrentAdAsync();
+        // Standard banner usually appears after a few first-party slides. Warm the
+        // reusable WebView2 at ApplicationIdle so the first Tapsell transition does
+        // not pay runtime/environment initialization cost under the user's cursor.
+        ScheduleTapsellWarmup();
 
         _adTimer.Stop();
         var items = _ads.BannerItems;
@@ -328,24 +396,7 @@ public partial class MainWindow : Window
         var cfg = _ads.WindowsWeb;
         try
         {
-            if (!_tapsellWebInitialized)
-            {
-                var installProgress = new Progress<string>(text => FooterStatus.Text = text);
-                if (!await WebView2RuntimeInstaller.EnsureInstalledAsync(installProgress, _lifetimeCts.Token)) return false;
-                if (!TryCreateTapsellWebSurface() || _tapsellWebView is null) return false;
-                var webView = _tapsellWebView;
-                _tapsellWebEnvironment = await WebView2RuntimeInstaller.CreatePerUserEnvironmentAsync(_lifetimeCts.Token);
-                webView.DefaultBackgroundColor = System.Drawing.Color.Transparent;
-                await webView.EnsureCoreWebView2Async(_tapsellWebEnvironment);
-                if (webView.CoreWebView2 is null) return false;
-                webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
-                webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-                webView.CoreWebView2.Settings.IsStatusBarEnabled = false;
-                webView.CoreWebView2.Settings.IsWebMessageEnabled = true;
-                webView.CoreWebView2.WebMessageReceived += TapsellWebMessageReceived;
-                webView.CoreWebView2.NewWindowRequested += TapsellNewWindowRequested;
-                _tapsellWebInitialized = true;
-            }
+            if (!await EnsureTapsellWebInitializedAsync(_lifetimeCts.Token)) return false;
 
             if (!_ads.TryGetApprovedWindowsBridge(out var bridge))
             {
@@ -360,7 +411,7 @@ public partial class MainWindow : Window
             AdCard.Visibility = Visibility.Visible;
             AdCard.Cursor = Cursors.Arrow;
             AdCard.Height = Math.Clamp(cfg.Height, 90, 220);
-            // CompositionControl remains visible so Mediaad receives a real viewport.
+            // Keep the standard WPF WebView visible so Mediaad receives a real viewport.
             // The WPF loading panel is above it and hides the web surface until the
             // official mediaad-* widget contains renderable provider content.
             SetTapsellWebVisibility(Visibility.Visible);
@@ -483,8 +534,10 @@ public partial class MainWindow : Window
                 await delay;
             }
 
-            // Safety fallback for older bridge pages: trust only actual rendered
-            // media on the approved publisher document, never script-load alone.
+            // The current bridge sends a WebMessage, so DOM probing is only a
+            // compatibility fallback. Run it about once every 1.4s instead of on
+            // every 350ms tick to avoid unnecessary WebView/UI-process chatter.
+            if (attempt % 4 != 3) continue;
             var result = await webView.CoreWebView2.ExecuteScriptAsync(
                 "(()=>{if(location.protocol!=='https:'||location.hostname!=='blluepanel.ir')return false;" +
                 "const root=document.getElementById('bluevpn-tapsell-root')||document.body;if(!root)return false;" +

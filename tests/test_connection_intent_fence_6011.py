@@ -13,6 +13,7 @@ def test_android_disconnect_revokes_every_delayed_start():
     assert "isCurrent(app, generation)" in controller
     assert "requestDisconnect(this)" in home
     assert "requestConnect(this)" in home
+    assert "import com.v2ray.ang.bluevpn.BlueVpnConnectionIntent" in home
     assert "if (!BlueVpnConnectionIntent.isConnectionDesired(app)) return" in controller
     prepare = (ROOT / "scripts/prepare_android.py").read_text()
     assert 'BlueVpnConnectionIntent.kt' in prepare

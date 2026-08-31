@@ -63,6 +63,7 @@ import com.v2ray.ang.bluevpn.BlueVpnPalette
 import com.v2ray.ang.bluevpn.BlueVpnPerformance
 import com.v2ray.ang.bluevpn.BlueVpnTheme
 import com.v2ray.ang.bluevpn.BlueVpnConnectionMode
+import com.v2ray.ang.bluevpn.BlueVpnConnectionIntent
 import com.v2ray.ang.bluevpn.BlueVpnExperience
 import com.v2ray.ang.bluevpn.BlueVpnIntelligenceCore
 import com.v2ray.ang.bluevpn.BlueVpnIrcfIntelligence

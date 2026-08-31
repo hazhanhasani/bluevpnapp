@@ -22,7 +22,7 @@ class GatewayOneClickEnrollment5110Tests(unittest.TestCase):
             "gateway-enrollment-health-watchdog","gateway-production-provisioning-hardening",
         ):
             self.assertIn(f,r["features"])
-        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.36.0'",self.text("bluevpn-manager/bluevpn-manager.php"))
+        self.assertIn("BLUEVPN_MANAGER_SCHEMA_VERSION', '1.37.0'",self.text("bluevpn-manager/bluevpn-manager.php"))
 
     def test_schema_has_enrollment_and_rotation_metadata(self):
         db=self.text("bluevpn-manager/includes/class-bluevpn-db.php")

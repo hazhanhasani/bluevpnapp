@@ -133,6 +133,7 @@
     "test_site_theme_autoupdate_4161.py",
     "test_sms_manual_entitlement_fixes_625.py",
     "test_sms_otp_autofill_477.py",
+    "test_source_lifecycle_60303.py",
     "test_split_apk_abi_validation_496.py",
     "test_stability_auto_recovery_517.py",
     "test_staged_regression_gate_4100.py",

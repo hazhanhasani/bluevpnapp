@@ -35,6 +35,7 @@
     "includes/class-bluevpn-support.php",
     "includes/class-bluevpn-telegram-bot.php",
     "includes/class-bluevpn-threexui.php",
+    "includes/class-bluevpn-topology-epoch.php",
     "includes/class-bluevpn-unified-ui.php",
     "includes/class-bluevpn-utils.php",
     "includes/class-bluevpn-windows-release-manager.php"

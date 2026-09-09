@@ -177,19 +177,48 @@ jobs:
           & $sing check -c (Join-Path $out 'singbox-warp-generated.json')
           if($LASTEXITCODE -ne 0){throw 'Generated WARP TUN config rejected by sing-box'}
 
-      - name: Publish self-contained Windows client
+      - name: Publish and verify self-contained Windows client identity
         shell: pwsh
         env:
           RID: ${{ matrix.rid }}
         run: |
-          $version=(Get-Content release.json|ConvertFrom-Json).version
+          $ErrorActionPreference='Stop'
+          $release=Get-Content release.json -Raw | ConvertFrom-Json
+          $version=[string]$release.version
+          $fourPart="$version.0"
+          $sourceSha=(git rev-parse HEAD).Trim()
           $out="dist/BlueVPN-Windows-$env:RID"
-          dotnet publish bluevpn-windows/BlueVPN.Windows.csproj -c Release -r $env:RID --self-contained true -p:PublishSingleFile=false -p:DebugType=None -p:DebugSymbols=false -o $out
+          dotnet publish bluevpn-windows/BlueVPN.Windows.csproj -c Release -r $env:RID --self-contained true -p:PublishSingleFile=false -p:DebugType=None -p:DebugSymbols=false -p:Version=$version -p:AssemblyVersion=$fourPart -p:FileVersion=$fourPart -p:InformationalVersion=$version -o $out
           Copy-Item README.md $out/README-BlueVPN.txt -Force
           Copy-Item NOTICE.md $out/NOTICE.txt -Force
           Copy-Item bluevpn-windows/README.md $out/README-Windows.txt -Force
           Copy-Item third_party/V2RAYN.md $out/V2RAYN-LICENSE-NOTICE.txt -Force
           Copy-Item third_party/AETHER_WINDOWS.md $out/AETHER-LICENSE-NOTICE.txt -Force
+
+          $settingsPath=Join-Path $out 'appsettings.json'
+          if(-not(Test-Path $settingsPath)){throw 'Published appsettings.json is missing'}
+          $publishedSettings=Get-Content $settingsPath -Raw | ConvertFrom-Json
+          if([string]$publishedSettings.version -ne $version){throw "Published appsettings version mismatch: $($publishedSettings.version) / $version"}
+
+          $exePath=Join-Path $out 'BlueVPN.exe'
+          if(-not(Test-Path $exePath)){throw 'Published BlueVPN.exe is missing'}
+          $versionInfo=(Get-Item $exePath).VersionInfo
+          $actualFile=[string]$versionInfo.FileVersion
+          $actualProduct=[string]$versionInfo.ProductVersion
+          if($actualFile -ne $fourPart){throw "BlueVPN.exe FileVersion mismatch: $actualFile / $fourPart"}
+          if(-not $actualProduct.StartsWith($version,[StringComparison]::Ordinal)){throw "BlueVPN.exe ProductVersion mismatch: $actualProduct / $version"}
+
+          $identity=@{
+            schema=1
+            version=$version
+            file_version=$actualFile
+            product_version=$actualProduct
+            rid=$env:RID
+            source_sha=$sourceSha
+            appsettings_version=[string]$publishedSettings.version
+          }
+          $identity | ConvertTo-Json | Set-Content "dist/windows-build-identity-$env:RID.json" -Encoding UTF8
+          Write-Host "Windows release identity PASS: $version / $env:RID / $sourceSha"
 
       - name: Guard clean-PC Windows SDK runtime closure
         shell: pwsh
@@ -219,6 +248,7 @@ jobs:
         run: |
           $out="dist/BlueVPN-Windows-$env:RID"
           foreach($f in @('BlueVPN.exe','appsettings.json','runtime/v2rayn/runtime.json')){if(-not(Test-Path(Join-Path $out $f))){throw "Missing published file: $f"}}
+          if(-not(Test-Path "dist/windows-build-identity-$env:RID.json")){throw 'Windows build identity evidence missing'}
 
       - name: Smoke launch published Windows executable
         if: ${{ matrix.rid == 'win-x64' }}
@@ -275,6 +305,7 @@ jobs:
             dist/BlueVPN-Windows-*.zip.sha256
             dist/BlueVPN-Setup-*.exe
             dist/BlueVPN-Setup-*.exe.sha256
+            dist/windows-build-identity-*.json
           if-no-files-found: error
           retention-days: 14
 
@@ -296,7 +327,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Checkout exact Windows release source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.target_sha || 'main' }}
+          fetch-depth: 0
       - name: Download Windows build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
@@ -319,11 +354,33 @@ jobs:
             done
           done
 
-      - name: Validate Windows release payload
+      - name: Validate Windows release payload and exact build identity
         shell: bash
         run: |
           set -euo pipefail
           VERSION="$(python -c 'import json;print(json.load(open("release.json"))["version"])')"
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          python - "$VERSION" "$SOURCE_SHA" <<'PY'
+          import json,sys
+          from pathlib import Path
+          version,source_sha=sys.argv[1:]
+          for rid in ('win-x64','win-arm64'):
+              p=Path('windows-release')/f'windows-build-identity-{rid}.json'
+              if not p.is_file():
+                  raise SystemExit(f'missing Windows build identity: {p}')
+              data=json.loads(p.read_text(encoding='utf-8-sig'))
+              if str(data.get('version')) != version:
+                  raise SystemExit(f'{rid} version mismatch: {data.get("version")} / {version}')
+              if str(data.get('source_sha')) != source_sha:
+                  raise SystemExit(f'{rid} source SHA mismatch: {data.get("source_sha")} / {source_sha}')
+              if str(data.get('appsettings_version')) != version:
+                  raise SystemExit(f'{rid} appsettings version mismatch')
+              if str(data.get('file_version')) != version+'.0':
+                  raise SystemExit(f'{rid} executable FileVersion mismatch: {data.get("file_version")}')
+              if not str(data.get('product_version','')).startswith(version):
+                  raise SystemExit(f'{rid} executable ProductVersion mismatch: {data.get("product_version")}')
+              print(f'Windows identity PASS: {rid} {version} {source_sha}')
+          PY
           for RID in win-x64 win-arm64; do
             ZIP="windows-release/BlueVPN-Windows-${VERSION}-${RID}.zip"; SETUP="windows-release/BlueVPN-Setup-${VERSION}-${RID}.exe"
             for FILE in "$ZIP" "$SETUP"; do

@@ -16,7 +16,7 @@
       <button class="bv-menu-btn" type="button" aria-label="بازکردن منو" aria-expanded="false" data-bv-menu><span></span><span></span><span></span></button>
       <nav class="bv-menu" data-bv-menu-panel aria-label="منوی اصلی">
         <a href="<?php echo esc_url(home_url('/')); ?>">خانه</a>
-        <a href="<?php echo esc_url(home_url('/#features')); ?>">امکانات</a>
+        <a href="<?php echo esc_url(home_url('/#app-showcase')); ?>">امکانات</a>
         <a href="<?php echo esc_url(home_url('/#network')); ?>">شبکه</a>
         <a href="<?php echo esc_url(home_url('/plans/')); ?>">پلن‌ها</a>
         <a href="<?php echo esc_url(home_url('/support/')); ?>">پشتیبانی</a>

@@ -1,0 +1,205 @@
+/* BlueVPN OpenDesign v2
+   Layered after legacy site.css so the redesign is easy to audit and roll back. */
+
+:root{
+  --bv2-bg:#f6f9ff;
+  --bv2-surface:#fff;
+  --bv2-surface-soft:#eef5ff;
+  --bv2-ink:#071426;
+  --bv2-muted:#5f6f86;
+  --bv2-line:rgba(15,42,76,.10);
+  --bv2-brand:#2474ff;
+  --bv2-brand-2:#55a6ff;
+  --bv2-success:#17b978;
+  --bv2-radius-sm:14px;
+  --bv2-radius-md:20px;
+  --bv2-radius-lg:28px;
+  --bv2-shadow-sm:0 10px 30px rgba(21,63,125,.08);
+  --bv2-shadow-md:0 22px 60px rgba(21,63,125,.13);
+  --bv2-ease:cubic-bezier(.2,.8,.2,1);
+}
+
+html{scroll-behavior:smooth;scroll-padding-top:88px}
+body.bluevpn-site{background:var(--bv2-bg);color:var(--bv2-ink)}
+body.bluevpn-site *{box-sizing:border-box}
+body.bluevpn-site a,
+body.bluevpn-site button{transition:transform .22s var(--bv2-ease),box-shadow .22s var(--bv2-ease),background-color .22s var(--bv2-ease),border-color .22s var(--bv2-ease),color .22s var(--bv2-ease)}
+body.bluevpn-site :focus-visible{outline:3px solid rgba(36,116,255,.38);outline-offset:3px;border-radius:10px}
+
+.bv-shell{width:min(1180px,calc(100% - 40px));margin-inline:auto}
+
+/* Header */
+.bv-header{position:sticky;top:0;z-index:90;background:rgba(5,16,31,.92);backdrop-filter:saturate(140%) blur(16px);border-bottom:1px solid rgba(255,255,255,.06)}
+.bv-header.is-scrolled{box-shadow:0 12px 36px rgba(0,12,31,.18)}
+.bv-nav{min-height:72px}
+.bv-menu a{position:relative}
+.bv-menu a:not(.bv-menu-download)::after{content:"";position:absolute;inset-inline:12px;bottom:6px;height:2px;border-radius:999px;background:linear-gradient(90deg,var(--bv2-brand),var(--bv2-brand-2));transform:scaleX(0);transform-origin:center;transition:transform .2s var(--bv2-ease)}
+@media (hover:hover){.bv-menu a:not(.bv-menu-download):hover::after{transform:scaleX(1)}}
+.bv-menu-btn{min-width:44px;min-height:44px}
+.bv-nav-account,.bv-menu-download{border-radius:13px!important}
+
+/* Hero */
+.bv5-hero{position:relative;overflow:hidden;background:
+  radial-gradient(circle at 74% 25%,rgba(36,116,255,.13),transparent 34%),
+  radial-gradient(circle at 20% 14%,rgba(85,166,255,.08),transparent 30%),
+  linear-gradient(180deg,#fff 0%,#f7faff 100%)}
+.bv5-hero::before{content:"";position:absolute;inset:0;pointer-events:none;background-image:linear-gradient(rgba(36,116,255,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(36,116,255,.035) 1px,transparent 1px);background-size:38px 38px;mask-image:linear-gradient(to bottom,rgba(0,0,0,.65),transparent 85%)}
+.bv5-hero-grid{position:relative;z-index:1;min-height:660px;align-items:center;padding-block:78px 68px;gap:64px}
+.bv5-copy{max-width:610px}
+.bv5-eyebrow{display:inline-flex;align-items:center;gap:9px;padding:8px 12px;border:1px solid rgba(36,116,255,.12);border-radius:999px;background:rgba(255,255,255,.72);box-shadow:var(--bv2-shadow-sm);font-weight:700;color:#29415f}
+.bv5-eyebrow i{width:8px;height:8px;border-radius:50%;background:var(--bv2-success);box-shadow:0 0 0 6px rgba(23,185,120,.09)}
+.bv5-copy h1{font-size:clamp(2.45rem,4.7vw,4.65rem);line-height:1.18;letter-spacing:-.035em;margin-block:22px 18px;color:var(--bv2-ink)}
+.bv5-copy h1 em{font-style:normal;color:var(--bv2-brand)}
+.bv5-copy>p{font-size:clamp(1rem,1.4vw,1.13rem);line-height:2;color:var(--bv2-muted);max-width:58ch}
+.bv5-actions{display:flex;align-items:center;gap:18px;margin-top:28px}
+.bv-btn-xl{min-height:54px;padding-inline:24px;border-radius:15px!important;box-shadow:0 12px 30px rgba(36,116,255,.25)}
+.bv5-text-link{font-weight:800;color:#24405f}
+.bv5-proof{display:flex;flex-wrap:wrap;gap:9px;margin-top:24px}
+.bv5-proof span{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--bv2-line);border-radius:999px;background:rgba(255,255,255,.72);font-size:.89rem;color:#42546b}
+.bv5-proof b{color:var(--bv2-success)}
+.bv5-hero-product{filter:drop-shadow(0 30px 50px rgba(26,74,145,.15))}
+.bv5-hero-phone{border-radius:28px;overflow:hidden;box-shadow:0 28px 70px rgba(15,56,120,.22),0 0 0 1px rgba(255,255,255,.85)}
+.bv5-chip{box-shadow:0 12px 30px rgba(27,67,128,.12);backdrop-filter:blur(12px)}
+
+/* Network strip */
+.bv5-network-strip{border-block:1px solid var(--bv2-line);background:rgba(255,255,255,.92)}
+.bv5-strip-track{min-height:74px;gap:10px}
+.bv5-operator-chip,.bv5-tech-chip{border:1px solid var(--bv2-line)!important;background:#fff!important;box-shadow:0 4px 14px rgba(21,63,125,.045);border-radius:999px!important}
+
+/* Section typography */
+.bv5-section{padding-block:104px}
+.bv5-heading{max-width:780px;margin-inline:auto;text-align:center}
+.bv5-heading>span,.bv5-screen-copy>span,.bv5-locations-copy>span,.bv5-account-copy>span{font-weight:800;color:var(--bv2-brand);letter-spacing:-.01em}
+.bv5-heading h2,.bv5-screen-copy h2,.bv5-locations-copy h2{font-size:clamp(1.9rem,3.2vw,3.2rem);line-height:1.3;letter-spacing:-.025em;color:var(--bv2-ink)}
+.bv5-heading p,.bv5-screen-copy p,.bv5-locations-copy p{line-height:1.95;color:var(--bv2-muted)}
+
+/* Feature cards */
+.bv5-feature-row{gap:18px;margin-top:42px}
+.bv5-feature-row article{position:relative;overflow:hidden;border:1px solid var(--bv2-line)!important;border-radius:var(--bv2-radius-md)!important;background:linear-gradient(180deg,#fff,#fbfdff)!important;box-shadow:var(--bv2-shadow-sm)!important;padding:26px!important;min-height:210px!important}
+.bv5-feature-row article::before{content:"";position:absolute;inset-inline:0;top:0;height:3px;background:linear-gradient(90deg,transparent,var(--bv2-brand),transparent);opacity:.55}
+.bv5-feature-row .ico{width:46px;height:46px;border-radius:14px;background:var(--bv2-surface-soft);color:var(--bv2-brand)}
+.bv5-feature-row h3{font-size:1.08rem;margin-top:28px}
+.bv5-feature-row p{line-height:1.85;color:var(--bv2-muted)}
+@media (hover:hover){.bv5-feature-row article:hover{transform:translateY(-4px);box-shadow:var(--bv2-shadow-md)!important;border-color:rgba(36,116,255,.18)!important}}
+
+/* Product screen sections */
+.bv5-screen-section.white{background:#fff}
+.bv5-screen-grid,.bv5-locations-layout{gap:72px;align-items:center}
+.bv5-device figure,.bv5-locations-device figure{border-radius:28px;overflow:hidden;box-shadow:0 28px 74px rgba(15,56,120,.17),0 0 0 1px rgba(9,31,62,.07)}
+.bv5-screen-copy ul{display:grid;gap:11px}
+.bv5-screen-copy li{display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid var(--bv2-line);border-radius:12px;background:#fff}
+.bv5-screen-copy li i{font-style:normal;color:var(--bv2-success)}
+.bv5-pills{gap:8px}
+.bv5-pills span{border:1px solid var(--bv2-line);background:#fff;box-shadow:0 4px 14px rgba(21,63,125,.045)}
+
+/* Dark trust section */
+.bv5-trust{position:relative;overflow:hidden}
+.bv5-trust::after{content:"";position:absolute;width:520px;height:520px;border-radius:50%;left:-220px;top:-220px;background:rgba(36,116,255,.12);filter:blur(50px);pointer-events:none}
+.bv5-metrics{gap:16px}
+.bv5-metrics article{border-radius:var(--bv2-radius-md)!important;border:1px solid rgba(255,255,255,.09)!important;background:rgba(255,255,255,.055)!important;backdrop-filter:blur(12px)}
+.bv5-metrics p{line-height:1.8}
+
+/* Plans */
+.bv5-plan-cards{gap:20px}
+.bv5-plan-cards article{border-radius:var(--bv2-radius-lg)!important}
+.bv5-plan-cards .free{border:1px solid var(--bv2-line)!important;background:#fff;box-shadow:var(--bv2-shadow-sm)}
+.bv5-plan-cards .premium{box-shadow:0 30px 80px rgba(12,52,116,.20)}
+.bv5-plan-cards li{line-height:1.8}
+
+/* Journey/account/faq */
+.bv5-steps{gap:16px}
+.bv5-steps article,.bv5-account-grid>article,.bv5-faq details{border:1px solid var(--bv2-line)!important;border-radius:var(--bv2-radius-md)!important;box-shadow:var(--bv2-shadow-sm)}
+.bv5-steps article{background:#fff!important}
+.bv5-account-grid{gap:20px}
+.bv5-faq-list{max-width:880px;margin-inline:auto}
+.bv5-faq details{background:#fff!important;overflow:hidden}
+.bv5-faq summary{min-height:60px;display:flex;align-items:center;font-weight:800}
+.bv5-faq details p{color:var(--bv2-muted);line-height:1.9}
+
+/* Footer */
+.bv-footer{border-top:1px solid rgba(255,255,255,.06)}
+.bv-footer-cta{border-radius:var(--bv2-radius-lg)!important;overflow:hidden}
+.bv-footer-main{gap:36px}
+.bv-footer-col a{opacity:.82}
+@media (hover:hover){.bv-footer-col a:hover{opacity:1;transform:translateX(-2px)}}
+
+/* Mobile-first correction: do not scale desktop down. */
+@media (max-width:760px){
+  html{scroll-padding-top:70px}
+  .bv-shell{width:min(100% - 36px,1180px)}
+  .bv-nav{min-height:64px}
+  .bv-header{backdrop-filter:blur(12px)}
+  .bv-menu{border:1px solid rgba(255,255,255,.08);box-shadow:0 18px 50px rgba(0,12,31,.25)}
+
+  .bv5-hero-grid{grid-template-columns:1fr!important;min-height:auto;padding-block:48px 42px;gap:30px}
+  .bv5-copy{max-width:none;text-align:right}
+  .bv5-copy h1{font-size:clamp(2.1rem,10vw,3.25rem);line-height:1.22;margin-block:18px 14px}
+  .bv5-copy h1 br{display:none}
+  .bv5-copy>p{font-size:1rem;line-height:1.95;max-width:none}
+  .bv5-actions{align-items:stretch;gap:12px;margin-top:22px}
+  .bv5-actions .bv-btn{flex:1;justify-content:center;min-height:52px}
+  .bv5-text-link{display:flex;align-items:center;justify-content:center;min-height:52px;padding-inline:14px;border:1px solid var(--bv2-line);border-radius:14px;background:#fff}
+  .bv5-proof{margin-top:18px;gap:7px}
+  .bv5-proof span{font-size:.82rem;padding:6px 9px}
+  .bv5-hero-product{width:min(94%,430px);margin-inline:auto;min-height:390px}
+  .bv5-hero-phone{border-radius:24px}
+  .bv5-chip{font-size:.78rem;padding:7px 9px}
+
+  .bv5-network-strip{overflow:hidden}
+  .bv5-strip-track{min-height:68px;overflow-x:auto;scrollbar-width:none;flex-wrap:nowrap!important;justify-content:flex-start!important;padding-block:10px}
+  .bv5-strip-track::-webkit-scrollbar{display:none}
+  .bv5-strip-track>*{flex:0 0 auto}
+  .bv5-strip-track>b{display:none}
+
+  .bv5-section{padding-block:64px}
+  .bv5-heading{text-align:right}
+  .bv5-heading h2,.bv5-screen-copy h2,.bv5-locations-copy h2{font-size:clamp(1.85rem,8vw,2.45rem);line-height:1.35}
+  .bv5-heading h2 br,.bv5-screen-copy h2 br,.bv5-locations-copy h2 br{display:none}
+  .bv5-heading p,.bv5-screen-copy p,.bv5-locations-copy p{font-size:.98rem;line-height:1.95}
+
+  .bv5-feature-row{grid-template-columns:1fr!important;gap:12px;margin-top:28px}
+  .bv5-feature-row article{min-height:0!important;padding:20px!important}
+  .bv5-feature-row .ico{width:42px;height:42px}
+  .bv5-feature-row h3{margin-top:18px;font-size:1.05rem}
+  .bv5-feature-row article>strong{font-size:.72rem}
+
+  .bv5-screen-grid,.bv5-locations-layout{grid-template-columns:1fr!important;gap:34px}
+  .bv5-screen-copy{order:1}
+  .bv5-device{order:2;width:min(86%,390px);margin-inline:auto}
+  .bv5-locations-copy{order:1}
+  .bv5-locations-device{order:2;width:min(86%,390px);margin-inline:auto}
+  .bv5-screen-copy ul{grid-template-columns:1fr}
+  .bv5-screen-copy li{min-height:46px}
+
+  .bv5-metrics,.bv5-plan-cards,.bv5-steps,.bv5-account-grid{grid-template-columns:1fr!important;gap:12px}
+  .bv5-metrics article,.bv5-steps article{min-height:0!important}
+  .bv5-plan-cards article{padding:22px!important}
+  .bv5-account-grid>article{overflow:hidden}
+  .bv5-faq-list{margin-top:26px}
+  .bv5-faq summary{min-height:56px;padding-inline:16px!important}
+  .bv5-faq details p{padding-inline:16px!important}
+
+  .bv-footer{padding-top:52px}
+  .bv-footer-main{grid-template-columns:1fr 1fr!important;gap:28px 18px}
+  .bv-footer-about{grid-column:1/-1}
+}
+
+@media (max-width:480px){
+  .bv-shell{width:calc(100% - 32px)}
+  .bv5-hero-grid{padding-top:38px}
+  .bv5-eyebrow{font-size:.8rem}
+  .bv5-copy h1{font-size:clamp(2rem,11vw,2.7rem)}
+  .bv5-actions{flex-direction:column}
+  .bv5-proof{display:grid;grid-template-columns:1fr 1fr}
+  .bv5-proof span{justify-content:center}
+  .bv5-hero-product{width:100%;min-height:340px}
+  .bv5-section{padding-block:56px}
+  .bv5-feature-row article,.bv5-plan-cards article{padding:18px!important}
+  .bv-footer-main{grid-template-columns:1fr!important}
+  .bv-footer-about{grid-column:auto}
+}
+
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  body.bluevpn-site *,body.bluevpn-site *::before,body.bluevpn-site *::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
+}

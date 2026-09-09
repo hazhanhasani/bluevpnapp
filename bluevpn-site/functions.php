@@ -114,6 +114,7 @@ add_action('after_setup_theme', 'bluevpn_site_setup');
 
 function bluevpn_site_assets(): void {
     wp_enqueue_style('bluevpn-site', BLUEVPN_SITE_URL . '/assets/css/site.css', [], BLUEVPN_SITE_VERSION);
+    wp_enqueue_style('bluevpn-site-design-v2', BLUEVPN_SITE_URL . '/assets/css/design-system-v2.css', ['bluevpn-site'], BLUEVPN_SITE_VERSION);
     wp_enqueue_script('bluevpn-site', BLUEVPN_SITE_URL . '/assets/js/site.js', [], BLUEVPN_SITE_VERSION, true);
     wp_localize_script('bluevpn-site', 'BlueVPNSite', [
         'restBase' => untrailingslashit(rest_url('bluevpn/v1')),

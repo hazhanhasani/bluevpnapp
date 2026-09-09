@@ -1,0 +1,110 @@
+name: BlueVPN Apply 6.3.3 Source Lifecycle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-60303.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bluevpn-apply-60303
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout current BlueVPN source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+
+      - name: Apply source lifecycle fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/apply_60303_core_lifecycle.py
+
+      - name: Bump canonical version contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('version.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          d['version']='6.3.3'
+          d['version_code']=60303
+          for key in list((d.get('components') or {}).keys()):
+              d['components'][key]='6.3.3'
+          p.write_text(json.dumps(d,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          PY
+          python scripts/sync_version.py
+
+      - name: Register 6.3.3 source lifecycle release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('release.json')
+          data=json.loads(p.read_text(encoding='utf-8'))
+          features=list(data.get('features') or [])
+          for feature in [
+              'free-source-explicit-empty-state',
+              'free-source-disabled-config-hard-purge',
+              'paid-source-topology-snapshot-invalidation',
+              'subscription-removed-source-lkg-pruning',
+              'plan-explicit-empty-provider-routing',
+              'manual-sync-new-route-provision-reconcile',
+              'provider-topology-legacy-link-cleanup',
+              'shahrah-modern-route-delete-cleanup',
+              'shahrah-mapping-circuit-snapshot-cleanup',
+              'source-lifecycle-one-time-production-repair',
+          ]:
+              if feature not in features:
+                  features.append(feature)
+          data['features']=features
+          p.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+
+          readme=Path('bluevpn-manager/readme.txt')
+          text=readme.read_text(encoding='utf-8')
+          marker='Requires PHP: 8.0\n'
+          entry='''\n== 6.3.3 ==\n* حذف یا غیرفعال‌کردن Source رایگان/پولی فوراً state و Snapshot قدیمی آن را از مسیر تحویل خارج می‌کند.\n* خالی‌بودن عمدی Routeهای پلن دیگر Provider قدیمی یا Provider تصادفی را دوباره فعال نمی‌کند.\n* Sync دستی ابتدا topology فعلی را Reconcile می‌کند و Route/پنل تازه اضافه‌شده را برای کاربر Repair می‌کند.\n* حذف Shahrah Routeهای مدرن، customer_provider_links، mappingها، circuit state و Snapshotهای وابسته را پاک می‌کند.\n* ارتقای 6.3.3 یک‌بار state قدیمی ناشی از حذف Source/Provider را پاک‌سازی می‌کند.\n'''
+          if '== 6.3.3 ==' not in text:
+              text=text.replace(marker,marker+entry,1)
+              readme.write_text(text,encoding='utf-8')
+          PY
+          printf '%s\n' 'BlueVPN 6.3.3 coordinated source/provider lifecycle repair' > release-requests/all-build-6.3.3-source-lifecycle.txt
+
+      - name: Validate synchronized 6.3.3 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          python scripts/sync_version.py --check
+          python scripts/validate_release.py
+          python scripts/validate_windows.py
+          python scripts/validate_php_release.py
+          python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Commit coordinated 6.3.3 release and build request
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'bluevpn-release-bot'
+          git config user.email 'bluevpn-release-bot@users.noreply.github.com'
+          git add -A ':!.github/workflows'
+          if git diff --cached --quiet; then
+            echo 'BlueVPN 6.3.3 is already synchronized.'
+            exit 0
+          fi
+          git commit -m 'fix: reconcile source and provider lifecycle in 6.3.3'
+          git push origin HEAD:main

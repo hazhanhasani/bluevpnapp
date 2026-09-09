@@ -1,0 +1,102 @@
+name: BlueVPN Apply 6.3.4 Topology Cache Invalidation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-60304.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bluevpn-apply-60304
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout current BlueVPN source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+
+      - name: Bump canonical version contract to 6.3.4
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('version.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          d['version']='6.3.4'
+          d['version_code']=60304
+          for key in list((d.get('components') or {}).keys()):
+              d['components'][key]='6.3.4'
+          p.write_text(json.dumps(d,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          PY
+          python scripts/sync_version.py
+
+      - name: Register 6.3.4 topology invalidation release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p=Path('release.json')
+          data=json.loads(p.read_text(encoding='utf-8'))
+          features=list(data.get('features') or [])
+          for feature in [
+              'authoritative-topology-epoch',
+              'premium-last-known-good-hard-invalidation',
+              'zero-source-zero-server-zero-location',
+              'source-provider-route-cache-invalidation',
+              'topology-epoch-rest-contract',
+          ]:
+              if feature not in features:
+                  features.append(feature)
+          data['features']=features
+          p.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+
+          readme=Path('bluevpn-manager/readme.txt')
+          text=readme.read_text(encoding='utf-8')
+          marker='Requires PHP: 8.0\n'
+          entry='''\n== 6.3.4 ==\n* حذف یا غیرفعال‌کردن آخرین Source/Provider/Route اکنون یک تغییر قطعی topology محسوب می‌شود.\n* وقتی هیچ Source معتبری باقی نمانده باشد، خروجی کل Pool صفر است: 0 Source → 0 Server → 0 Location.\n* Pool Identity با Topology Epoch سمت سرور تغییر می‌کند تا Android دیگر 35 لوکیشن یا Serverهای Last-Known-Good قدیمی را برنگرداند.\n* Cache و Snapshot برای قطعی موقت Provider حفظ می‌شوند، اما حذف مدیریتی Source فوراً Cache قدیمی را نامعتبر می‌کند.\n* Contract جدید topology_epoch روی پاسخ حساب و Header تشخیصی X-BlueVPN-Topology-Epoch منتشر می‌شود.\n'''
+          if '== 6.3.4 ==' not in text:
+              text=text.replace(marker,marker+entry,1)
+              readme.write_text(text,encoding='utf-8')
+          PY
+          mkdir -p release-requests
+          printf '%s\n' 'BlueVPN 6.3.4 coordinated topology cache invalidation release' > release-requests/all-build-6.3.4-topology-cache.txt
+
+      - name: Validate synchronized 6.3.4 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          python scripts/validate_bundle_integrity.py
+          python scripts/sync_version.py --check
+          python scripts/validate_release.py
+          python scripts/validate_windows.py
+          python scripts/validate_php_release.py
+          python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Commit coordinated 6.3.4 release request
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'bluevpn-release-bot'
+          git config user.email 'bluevpn-release-bot@users.noreply.github.com'
+          git add -A ':!.github/workflows'
+          if git diff --cached --quiet; then
+            echo 'BlueVPN 6.3.4 is already synchronized.'
+            exit 0
+          fi
+          git commit -m 'release: BlueVPN 6.3.4 topology cache invalidation'
+          git push origin HEAD:main

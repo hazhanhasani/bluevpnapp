@@ -39,6 +39,7 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-threexui.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-providers.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-subscription-sources.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-source-lifecycle.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-topology-epoch.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-gateway.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-control-center.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-compat.php';
@@ -123,6 +124,7 @@ add_action('plugins_loaded', function () {
     BlueVPN_Shahrah::init();
     BlueVPN_Subscription_Sources::init();
     BlueVPN_Source_Lifecycle::init();
+    BlueVPN_Topology_Epoch::init();
     BlueVPN_Gateway::init();
     BlueVPN_Control_Center::init();
     BlueVPN_Compat::init();

@@ -1,7 +1,13 @@
 === BlueVPN Manager ===
-Version: 6.3.4
-Stable tag: 6.3.4
+Version: 6.3.5
+Stable tag: 6.3.5
 Requires PHP: 8.0
+
+== 6.3.5 ==
+* Android release now verifies the signed APK embedded versionName, versionCode and applicationId before publication.
+* Windows release now verifies BlueVPN.exe FileVersion/ProductVersion, appsettings version and exact source SHA before publication.
+* Coordinated release fan-out now treats missing GitHub Release objects as incomplete even when tags already exist.
+* Android, Windows, Manager, Site and iOS builds are pinned to the exact validated source SHA for each release.
 
 == 6.3.4 ==
 * حذف یا غیرفعال‌کردن آخرین Source/Provider/Route اکنون یک تغییر قطعی topology محسوب می‌شود.

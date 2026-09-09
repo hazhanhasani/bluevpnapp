@@ -1,0 +1,1 @@
+BlueVPN 6.3.5 coordinated release: enforce exact Android APK and Windows executable version/source identity across every published target.

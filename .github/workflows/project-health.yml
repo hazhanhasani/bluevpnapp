@@ -98,6 +98,8 @@ jobs:
 
       - name: Detect pending or new BlueVPN release
         id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -135,10 +137,19 @@ jobs:
             VERSION_CHANGED=true
           fi
 
+          # A release is complete only when BOTH its immutable tag and its
+          # GitHub Release object exist. This prevents a failed Android/Windows
+          # publisher from leaving a tag that falsely makes CI think the version
+          # was shipped successfully.
           RELEASE_PENDING=false
           for TAG in "v${CURRENT}" "bluevpn-manager-v${CURRENT}" "bluevpn-windows-v${CURRENT}" "bluevpn-site-v${CURRENT}"; do
             if ! git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
               echo "Pending release tag: ${TAG}"
+              RELEASE_PENDING=true
+              continue
+            fi
+            if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Pending GitHub Release object: ${TAG}"
               RELEASE_PENDING=true
             fi
           done
@@ -155,7 +166,8 @@ jobs:
           # A generic `release:` subject must never rebuild an already-published
           # older version merely because a version-apply workflow has not committed
           # its synchronized files yet. Same-version rebuilds require an explicit
-          # workflow dispatch or a changed release-request marker.
+          # workflow dispatch, a changed release-request marker, or an incomplete
+          # release for the already-declared version.
           if [ "$VERSION_CHANGED" = true ] || [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [ "$RELEASE_MARKER_CHANGED" = true ] || { [[ "$COMMIT_SUBJECT" == release:* ]] && [ "$RELEASE_PENDING" = true ]; }; then
             RELEASE_REQUESTED=true
           fi
@@ -164,12 +176,15 @@ jobs:
           fi
 
           SOURCE_SHA="$VALIDATED_SHA"
-          if [ "$FORCE_REBUILD" = true ] && [ "$VERSION_CHANGED" = false ] && [ "$RELEASE_PENDING" = false ]; then
+          # Once a version tag exists, it is the immutable source of truth for
+          # every retry of that same version. Never rebuild a partially-published
+          # version from a newer main SHA under the old tag.
+          if [ "$VERSION_CHANGED" = false ] && { [ "$FORCE_REBUILD" = true ] || [ "$RELEASE_PENDING" = true ]; }; then
             git fetch --tags --force
             PINNED_SHA="$(git rev-list -n 1 "v${CURRENT}" 2>/dev/null || true)"
             if [ -n "$PINNED_SHA" ]; then
               SOURCE_SHA="$PINNED_SHA"
-              echo "Explicit same-version rebuild will reuse immutable source v${CURRENT}@${SOURCE_SHA}."
+              echo "Same-version release/retry reuses immutable source v${CURRENT}@${SOURCE_SHA}."
             fi
           fi
           echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"

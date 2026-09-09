@@ -1,0 +1,103 @@
+name: BlueVPN Apply 6.3.5 Artifact Identity Integrity
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/apply-60305.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: bluevpn-apply-60305
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout current BlueVPN source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 2
+
+      - name: Bump canonical version contract to 6.3.5
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('version.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          d['version']='6.3.5'
+          d['version_code']=60305
+          for key in list((d.get('components') or {}).keys()):
+              d['components'][key]='6.3.5'
+          p.write_text(json.dumps(d,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
+          PY
+          python scripts/sync_version.py
+
+      - name: Register coordinated 6.3.5 artifact identity release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          readme=Path('bluevpn-manager/readme.txt')
+          text=readme.read_text(encoding='utf-8')
+          marker='Requires PHP: 8.0\n'
+          entry='''\n== 6.3.5 ==\n* Android release now verifies the signed APK embedded versionName, versionCode and applicationId before publication.\n* Windows release now verifies BlueVPN.exe FileVersion/ProductVersion, appsettings version and exact source SHA before publication.\n* Coordinated release fan-out now treats missing GitHub Release objects as incomplete even when tags already exist.\n* Android, Windows, Manager, Site and iOS builds are pinned to the exact validated source SHA for each release.\n'''
+          if '== 6.3.5 ==' not in text:
+              if marker not in text:
+                  raise SystemExit('BlueVPN Manager readme insertion marker missing')
+              readme.write_text(text.replace(marker,marker+entry,1),encoding='utf-8')
+          PY
+          mkdir -p release-requests
+          printf '%s\n' 'BlueVPN 6.3.5 coordinated release: enforce exact Android APK and Windows executable version/source identity across every published target.' > release-requests/all-build-6.3.5-artifact-identity.txt
+
+      - name: Validate synchronized 6.3.5 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          python scripts/validate_bundle_integrity.py
+          python scripts/sync_version.py --check
+          python scripts/validate_release.py
+          python scripts/validate_windows.py
+          python scripts/validate_php_release.py
+          python -m unittest discover -s tests -p 'test_*.py'
+
+      - name: Commit coordinated 6.3.5 release request
+        id: release_source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'bluevpn-release-bot'
+          git config user.email 'bluevpn-release-bot@users.noreply.github.com'
+          git add -A ':!.github/workflows'
+          if git diff --cached --quiet; then
+            RELEASE_SHA="$(git rev-parse HEAD)"
+            echo 'BlueVPN 6.3.5 is already synchronized.'
+          else
+            git commit -m 'release: BlueVPN 6.3.5 artifact identity integrity'
+            git push origin HEAD:main
+            RELEASE_SHA="$(git rev-parse HEAD)"
+          fi
+          echo "release_sha=${RELEASE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Validated BlueVPN 6.3.5 source: ${RELEASE_SHA}"
+
+      - name: Dispatch coordinated release from exact applied source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.release_source.outputs.release_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_SHA"
+          gh workflow run project-health.yml --repo "$GITHUB_REPOSITORY" --ref main -f target_sha="$RELEASE_SHA"
+          echo "Project Health dispatched for exact 6.3.5 source ${RELEASE_SHA}."

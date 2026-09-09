@@ -4,6 +4,11 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+    inputs:
+      target_sha:
+        description: Exact source SHA to validate and release (optional)
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -18,7 +23,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Checkout exact health target
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ inputs.target_sha || github.sha }}
+          fetch-depth: 2
       - name: Install validation helpers
         run: python -m pip install --disable-pip-version-check pyyaml
       - name: Reject merge-conflict markers
@@ -84,7 +93,7 @@ jobs:
       - name: Checkout exact validated source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.target_sha || github.sha }}
           fetch-depth: 2
 
       - name: Detect pending or new BlueVPN release
@@ -94,8 +103,10 @@ jobs:
           set -euo pipefail
           CURRENT="$(python -c 'import json;print(json.load(open("version.json"))["version"])')"
           PREVIOUS="$(git show HEAD^:version.json 2>/dev/null | python -c 'import json,sys; print(json.load(sys.stdin)["version"])' 2>/dev/null || true)"
+          VALIDATED_SHA="$(git rev-parse HEAD)"
           echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
           echo "previous=$PREVIOUS" >> "$GITHUB_OUTPUT"
+          echo "validated_sha=$VALIDATED_SHA" >> "$GITHUB_OUTPUT"
 
           python - "$CURRENT" <<'PY'
           import re,sys
@@ -132,23 +143,33 @@ jobs:
             fi
           done
 
+          RELEASE_MARKER_CHANGED=false
+          if git diff-tree --no-commit-id --name-only -r HEAD^ HEAD 2>/dev/null | grep -q '^release-requests/'; then
+            RELEASE_MARKER_CHANGED=true
+          fi
+
           RELEASE_REQUESTED=false
           FORCE_REBUILD=false
           COMMIT_SUBJECT="$(git log -1 --pretty=%s)"
-          if [ "$VERSION_CHANGED" = true ] || [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [[ "$COMMIT_SUBJECT" == release:* ]]; then
+
+          # A generic `release:` subject must never rebuild an already-published
+          # older version merely because a version-apply workflow has not committed
+          # its synchronized files yet. Same-version rebuilds require an explicit
+          # workflow dispatch or a changed release-request marker.
+          if [ "$VERSION_CHANGED" = true ] || [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [ "$RELEASE_MARKER_CHANGED" = true ] || { [[ "$COMMIT_SUBJECT" == release:* ]] && [ "$RELEASE_PENDING" = true ]; }; then
             RELEASE_REQUESTED=true
           fi
-          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [[ "$COMMIT_SUBJECT" == release:* ]]; then
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] || [ "$RELEASE_MARKER_CHANGED" = true ] || { [[ "$COMMIT_SUBJECT" == release:* ]] && [ "$RELEASE_PENDING" = true ]; }; then
             FORCE_REBUILD=true
           fi
 
-          SOURCE_SHA="${GITHUB_SHA}"
+          SOURCE_SHA="$VALIDATED_SHA"
           if [ "$FORCE_REBUILD" = true ] && [ "$VERSION_CHANGED" = false ] && [ "$RELEASE_PENDING" = false ]; then
             git fetch --tags --force
             PINNED_SHA="$(git rev-list -n 1 "v${CURRENT}" 2>/dev/null || true)"
             if [ -n "$PINNED_SHA" ]; then
               SOURCE_SHA="$PINNED_SHA"
-              echo "Forced rebuild will reuse pinned release source v${CURRENT}@${SOURCE_SHA}."
+              echo "Explicit same-version rebuild will reuse immutable source v${CURRENT}@${SOURCE_SHA}."
             fi
           fi
           echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
@@ -156,7 +177,7 @@ jobs:
 
           if [ "$RELEASE_REQUESTED" = true ] && { [ "$VERSION_CHANGED" = true ] || [ "$RELEASE_PENDING" = true ] || [ "$FORCE_REBUILD" = true ]; }; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
-            echo "Release requested: previous=${PREVIOUS:-none}, current=$CURRENT, version_changed=$VERSION_CHANGED, release_pending=$RELEASE_PENDING, force_rebuild=$FORCE_REBUILD, source_sha=$SOURCE_SHA, event=${GITHUB_EVENT_NAME}"
+            echo "Release requested: previous=${PREVIOUS:-none}, current=$CURRENT, version_changed=$VERSION_CHANGED, release_pending=$RELEASE_PENDING, release_marker_changed=$RELEASE_MARKER_CHANGED, force_rebuild=$FORCE_REBUILD, validated_sha=$VALIDATED_SHA, source_sha=$SOURCE_SHA, event=${GITHUB_EVENT_NAME}"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
             if [ "$RELEASE_PENDING" = true ]; then

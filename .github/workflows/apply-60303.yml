@@ -1,4 +1,4 @@
-# retry after patcher syntax correction
+# retry after release manifests synchronized
 name: BlueVPN Apply 6.3.3 Source Lifecycle
 
 on:

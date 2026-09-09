@@ -4,7 +4,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class SourceLifecycle60303Tests(unittest.TestCase):
+class SourceLifecycle60304Tests(unittest.TestCase):
     def text(self, path):
         return (ROOT / path).read_text(encoding="utf-8")
 

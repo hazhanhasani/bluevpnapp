@@ -1,7 +1,14 @@
 === BlueVPN Manager ===
-Version: 6.3.3
-Stable tag: 6.3.3
+Version: 6.3.4
+Stable tag: 6.3.4
 Requires PHP: 8.0
+
+== 6.3.4 ==
+* حذف یا غیرفعال‌کردن آخرین Source/Provider/Route اکنون یک تغییر قطعی topology محسوب می‌شود.
+* وقتی هیچ Source معتبری باقی نمانده باشد، خروجی کل Pool صفر است: 0 Source → 0 Server → 0 Location.
+* Pool Identity با Topology Epoch سمت سرور تغییر می‌کند تا Android دیگر 35 لوکیشن یا Serverهای Last-Known-Good قدیمی را برنگرداند.
+* Cache و Snapshot برای قطعی موقت Provider حفظ می‌شوند، اما حذف مدیریتی Source فوراً Cache قدیمی را نامعتبر می‌کند.
+* Contract جدید topology_epoch روی پاسخ حساب و Header تشخیصی X-BlueVPN-Topology-Epoch منتشر می‌شود.
 
 == 6.3.3 ==
 * حذف یا غیرفعال‌کردن Source رایگان/پولی فوراً state و Snapshot قدیمی آن را از مسیر تحویل خارج می‌کند.

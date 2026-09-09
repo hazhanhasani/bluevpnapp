@@ -30,6 +30,7 @@
     "includes/class-bluevpn-shahrah.php",
     "includes/class-bluevpn-sms-notifications.php",
     "includes/class-bluevpn-sms-otp.php",
+    "includes/class-bluevpn-source-lifecycle.php",
     "includes/class-bluevpn-subscription-sources.php",
     "includes/class-bluevpn-support.php",
     "includes/class-bluevpn-telegram-bot.php",

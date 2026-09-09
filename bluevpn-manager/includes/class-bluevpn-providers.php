@@ -27,7 +27,10 @@ final class BlueVPN_Providers {
         return is_array($r)?$r:null;
     }
     public static function plan_provider_routes(array $plan): array {
-        $raw=BlueVPN_Utils::json_decode_array((string)($plan['provider_routes_json']??''),[]);
+        $rawText=trim((string)($plan['provider_routes_json']??''));
+        $sourceText=trim((string)($plan['source_ids_json']??''));
+        $declaredTopology=$rawText!==''||$sourceText!=='';
+        $raw=BlueVPN_Utils::json_decode_array($rawText,[]);
         $out=['pasarguard'=>[],'marzban'=>[],'shahrah'=>[],'guardcore'=>[],'hiddify'=>[],'threexui'=>[]];
         foreach(array_keys($out) as $provider){
             $rows=$raw[$provider]??[];
@@ -52,19 +55,21 @@ final class BlueVPN_Providers {
             }
         }
 
-        // Backward compatibility: old single-provider columns become one route
-        // only when the new route list for that provider is empty.
-        if(!$out['pasarguard']&&(int)($plan['panel_id']??0)>0){
-            $out['pasarguard'][]=['panel_id'=>(int)$plan['panel_id'],'group_ids'=>BlueVPN_Utils::json_decode_array((string)($plan['group_ids_json']??''),[])];
-        }
-        if(!$out['marzban']&&(int)($plan['marzban_panel_id']??0)>0){
-            $out['marzban'][]=['panel_id'=>(int)$plan['marzban_panel_id'],'inbounds'=>BlueVPN_Utils::json_decode_array((string)($plan['marzban_inbounds_json']??''),[])];
-        }
-        if(!$out['shahrah']&&(int)($plan['shahrah_panel_id']??0)>0&&trim((string)($plan['shahrah_plan_slug']??''))!==''){
-            $out['shahrah'][]=['panel_id'=>(int)$plan['shahrah_panel_id'],'plan_slug'=>trim((string)$plan['shahrah_plan_slug'])];
-        }
-        if(!$out['guardcore']&&(int)($plan['guardcore_panel_id']??0)>0){
-            $out['guardcore'][]=['panel_id'=>(int)$plan['guardcore_panel_id'],'service_ids'=>BlueVPN_Utils::json_decode_array((string)($plan['guardcore_service_ids_json']??''),[])];
+        // Legacy columns are fallback only for plans that never declared
+        // modern provider/source topology. Explicit empty topology stays empty.
+        if(!$declaredTopology){
+            if(!$out['pasarguard']&&(int)($plan['panel_id']??0)>0){
+                $out['pasarguard'][]=['panel_id'=>(int)$plan['panel_id'],'group_ids'=>BlueVPN_Utils::json_decode_array((string)($plan['group_ids_json']??''),[])];
+            }
+            if(!$out['marzban']&&(int)($plan['marzban_panel_id']??0)>0){
+                $out['marzban'][]=['panel_id'=>(int)$plan['marzban_panel_id'],'inbounds'=>BlueVPN_Utils::json_decode_array((string)($plan['marzban_inbounds_json']??''),[])];
+            }
+            if(!$out['shahrah']&&(int)($plan['shahrah_panel_id']??0)>0&&trim((string)($plan['shahrah_plan_slug']??''))!==''){
+                $out['shahrah'][]=['panel_id'=>(int)$plan['shahrah_panel_id'],'plan_slug'=>trim((string)$plan['shahrah_plan_slug'])];
+            }
+            if(!$out['guardcore']&&(int)($plan['guardcore_panel_id']??0)>0){
+                $out['guardcore'][]=['panel_id'=>(int)$plan['guardcore_panel_id'],'service_ids'=>BlueVPN_Utils::json_decode_array((string)($plan['guardcore_service_ids_json']??''),[])];
+            }
         }
 
         foreach($out as $provider=>$rows){
@@ -1210,8 +1215,9 @@ final class BlueVPN_Providers {
         $shSlug=trim((string)($plan['shahrah_plan_slug']??''));
         $gcId=(int)($plan['guardcore_panel_id']??0);
         $hasExplicitManual=!empty($manualEntries)||$shId>0;
+        $topologyDeclared=trim((string)($plan['provider_routes_json']??''))!==''||trim((string)($plan['source_ids_json']??''))!=='';
 
-        if(!$hasExplicitManual){
+        if(!$hasExplicitManual&&!$topologyDeclared){
             if($pgId<=0)$pgId=class_exists('BlueVPN_AI_Ops')?BlueVPN_AI_Ops::recommend_panel_id('pasarguard'):(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('pasarguard_panels')." WHERE active=1 ORDER BY id ASC LIMIT 1");
             if($mzId<=0)$mzId=class_exists('BlueVPN_AI_Ops')?BlueVPN_AI_Ops::recommend_panel_id('marzban'):(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('marzban_panels')." WHERE active=1 ORDER BY id ASC LIMIT 1");
             if($gcId<=0)$gcId=(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('guardcore_panels')." WHERE active=1 AND auth_mode='manual' AND global_subscription_url IS NOT NULL AND TRIM(global_subscription_url)<>'' ORDER BY id ASC LIMIT 1");
@@ -1457,8 +1463,9 @@ final class BlueVPN_Providers {
         $routes=self::plan_provider_routes($plan);
         $routeCount=array_sum(array_map('count',$routes));
         $hasExplicit=!empty($manualEntries)||$routeCount>0;
+        $topologyDeclared=trim((string)($plan['provider_routes_json']??''))!==''||trim((string)($plan['source_ids_json']??''))!=='';
 
-        if(!$hasExplicit){
+        if(!$hasExplicit&&!$topologyDeclared){
             $pg=class_exists('BlueVPN_AI_Ops')?BlueVPN_AI_Ops::recommend_panel_id('pasarguard'):(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('pasarguard_panels')." WHERE active=1 ORDER BY id ASC LIMIT 1");
             $mz=class_exists('BlueVPN_AI_Ops')?BlueVPN_AI_Ops::recommend_panel_id('marzban'):(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('marzban_panels')." WHERE active=1 ORDER BY id ASC LIMIT 1");
             $gc=(int)$wpdb->get_var("SELECT id FROM ".BlueVPN_DB::table('guardcore_panels')." WHERE active=1 AND auth_mode='manual' AND global_subscription_url IS NOT NULL AND TRIM(global_subscription_url)<>'' ORDER BY id ASC LIMIT 1");
@@ -1911,7 +1918,6 @@ final class BlueVPN_Providers {
         $raw=get_option(self::snapshot_option($customerId),[]);return is_array($raw)?$raw:[];
     }
     private static function snapshot_store(int $customerId,array $lines,array $errors=[],array $sourceStats=[],array $sourceLines=[]): void {
-        if(!$lines)return;
         update_option(self::snapshot_option($customerId),[
             'lines'=>array_values($lines),
             'updated_at'=>time(),
@@ -2114,17 +2120,19 @@ final class BlueVPN_Providers {
         // its previous configs, while a newly-added healthy provider is delivered
         // immediately instead of being hidden behind an all-or-nothing snapshot.
         $complete=$successSources===count($sources)&&count($errors)===0;
+        $currentSourceKeys=[];foreach($sources as $source){$sourceKey=(string)($source['key']??'source');if($sourceKey!=='')$currentSourceKeys[$sourceKey]=true;}
         $oldSourceLines=is_array($old['source_lines']??null)?$old['source_lines']:[];
+        $oldSourceLines=array_intersect_key($oldSourceLines,$currentSourceKeys);
         $effectiveSourceLines=$complete?$freshSourceLines:array_merge($oldSourceLines,$freshSourceLines);
         $effective=[];$effectiveSeen=[];
         foreach($effectiveSourceLines as $providerLines)foreach((array)$providerLines as $line){$key=sha1((string)$line);if(isset($effectiveSeen[$key]))continue;$effectiveSeen[$key]=1;$effective[]=(string)$line;}
-        // One-time migration from aggregate-only snapshots: preserve the old
-        // aggregate during a partial refresh, then naturally retire it after the
-        // first complete per-source refresh.
-        if(!$complete&&empty($oldSourceLines))foreach((array)($old['lines']??[]) as $line){$key=sha1((string)$line);if(isset($effectiveSeen[$key]))continue;$effectiveSeen[$key]=1;$effective[]=(string)$line;}
+        // Aggregate-only LKG is valid only while at least one current source exists.
+        if(!$complete&&$currentSourceKeys&&empty($oldSourceLines))foreach((array)($old['lines']??[]) as $line){$key=sha1((string)$line);if(isset($effectiveSeen[$key]))continue;$effectiveSeen[$key]=1;$effective[]=(string)$line;}
         if(!$effective)$effective=$lines;
-        $effectiveSources=array_replace((array)($old['sources']??[]),$sourceStats);
-        if($effective)self::snapshot_store($customerId,$effective,$errors,$effectiveSources,$effectiveSourceLines);
+        $oldSourceStats=is_array($old['sources']??null)?$old['sources']:[];
+        $oldSourceStats=array_intersect_key($oldSourceStats,$currentSourceKeys);
+        $effectiveSources=array_replace($oldSourceStats,$sourceStats);
+        self::snapshot_store($customerId,$effective,$errors,$effectiveSources,$effectiveSourceLines);
         return [
             'ok'=>!empty($effective),
             'fresh'=>$complete,

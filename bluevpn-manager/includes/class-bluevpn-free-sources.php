@@ -19,13 +19,16 @@ final class BlueVPN_Free_Sources {
     }
 
     public static function seed(): void {
-        global $wpdb;$t=BlueVPN_DB::table('free_config_sources');
-        $exists=(int)$wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$t} WHERE source_key=%s",self::DEFAULT_SOURCE_KEY));
-        if(!$exists)$wpdb->insert($t,[
+        global $wpdb;$t=BlueVPN_DB::table('free_config_sources');$marker='bluevpn_free_sources_initialized';
+        if(get_option($marker,'0')==='1')return;
+        $count=(int)$wpdb->get_var("SELECT COUNT(*) FROM {$t}");
+        if($count>0){update_option($marker,'1',false);return;}
+        $wpdb->insert($t,[
             'source_key'=>self::DEFAULT_SOURCE_KEY,'source_type'=>'telegram_public','title'=>'VPNhub | کانفیگ رایگان',
             'url'=>self::DEFAULT_SOURCE_URL,'enabled'=>1,'priority'=>10,'fetch_interval_seconds'=>300,'max_items'=>400,
             'created_at'=>BlueVPN_Utils::now_mysql(),'updated_at'=>BlueVPN_Utils::now_mysql(),
         ]);
+        update_option($marker,'1',false);
     }
 
     private static function cooldown_key(int $id): string { return 'bluevpn_free_source_cooldown_'.$id; }

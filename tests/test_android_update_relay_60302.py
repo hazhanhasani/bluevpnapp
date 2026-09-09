@@ -3,7 +3,7 @@ import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
 
-class AndroidUpdateRelay60302Tests(unittest.TestCase):
+class AndroidUpdateRelay60303Tests(unittest.TestCase):
     def text(self,path):
         return (ROOT/path).read_text(encoding="utf-8")
 

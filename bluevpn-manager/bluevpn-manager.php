@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BlueVPN Manager
  * Description: هسته حساب کاربری، اشتراک، پرداخت، پشتیبانی آنلاین و API سرویس BlueVPN.
- * Version: 6.3.2
+ * Version: 6.3.3
  * Author: BlueVPN
  * Requires at least: 6.2
  * Requires PHP: 8.0
@@ -14,7 +14,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('BLUEVPN_MANAGER_VERSION', '6.3.2');
+define('BLUEVPN_MANAGER_VERSION', '6.3.3');
 define('BLUEVPN_MANAGER_SCHEMA_VERSION', '1.37.0');
 define('BLUEVPN_MANAGER_FILE', __FILE__);
 define('BLUEVPN_MANAGER_DIR', plugin_dir_path(__FILE__));
@@ -38,6 +38,7 @@ require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-hiddify.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-threexui.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-providers.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-subscription-sources.php';
+require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-source-lifecycle.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-gateway.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-control-center.php';
 require_once BLUEVPN_MANAGER_DIR . 'includes/class-bluevpn-compat.php';
@@ -121,6 +122,7 @@ add_action('plugins_loaded', function () {
     BlueVPN_Providers::init();
     BlueVPN_Shahrah::init();
     BlueVPN_Subscription_Sources::init();
+    BlueVPN_Source_Lifecycle::init();
     BlueVPN_Gateway::init();
     BlueVPN_Control_Center::init();
     BlueVPN_Compat::init();

@@ -1,7 +1,14 @@
 === BlueVPN Manager ===
-Version: 6.3.2
-Stable tag: 6.3.2
+Version: 6.3.3
+Stable tag: 6.3.3
 Requires PHP: 8.0
+
+== 6.3.3 ==
+* حذف یا غیرفعال‌کردن Source رایگان/پولی فوراً state و Snapshot قدیمی آن را از مسیر تحویل خارج می‌کند.
+* خالی‌بودن عمدی Routeهای پلن دیگر Provider قدیمی یا Provider تصادفی را دوباره فعال نمی‌کند.
+* Sync دستی ابتدا topology فعلی را Reconcile می‌کند و Route/پنل تازه اضافه‌شده را برای کاربر Repair می‌کند.
+* حذف Shahrah Routeهای مدرن، customer_provider_links، mappingها، circuit state و Snapshotهای وابسته را پاک می‌کند.
+* ارتقای 6.3.3 یک‌بار state قدیمی ناشی از حذف Source/Provider را پاک‌سازی می‌کند.
 
 == 6.3.2 ==
 * دانلود بروزرسانی Android از GitHub دیگر مستقیماً به اینترنت فیزیکی کاربر وابسته نیست؛ Manager یک Relay باینری First-party ارائه می‌دهد.

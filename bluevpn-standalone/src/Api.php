@@ -29,7 +29,7 @@ final class Api
                     'login_url'=>$base.'/api/v1/auth/login','register_url'=>$base.'/api/v1/auth/register',
                     'otp_request_url'=>$base.'/api/v1/auth/otp/request',
                     'otp_verify_url'=>$base.'/api/v1/auth/otp/verify',
-                    'cutover_ready'=>false,'app_cutover_enabled'=>true,
+                    'cutover_ready'=>false,'app_cutover_enabled'=>false,
                     'features'=>['email_login'=>true,'email_registration'=>true,'plans'=>true,
                         'orders'=>false,'blupal_webhook'=>false,'bind_phone_otp'=>false,
                         'provider_sync'=>false,'live_support'=>false,'free_access'=>false]]);

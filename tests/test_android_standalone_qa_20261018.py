@@ -48,7 +48,7 @@ class StandaloneAndroidQualityTests(unittest.TestCase):
             "Sync Android release metadata to WordPress",
         ):
             self.assertNotIn("- name: " + dead_stage, workflow)
-        self.assertIn("Verify published Android release independently of WordPress", workflow)
+        self.assertIn("Verify GitHub Android release assets", workflow)
         self.assertIn("apksigner", workflow)
         self.assertIn("ANDROID_KEYSTORE_BASE64", workflow)
 

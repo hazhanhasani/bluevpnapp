@@ -66,3 +66,8 @@ bluevpn-windows/runtime/wintun.dll
 bluevpn-windows/runtime/geoip.dat
 bluevpn-windows/runtime/geosite.dat
 *.pdb
+
+# Native cPanel secrets and local generated files
+bluevpn-standalone/config.php
+bluevpn-standalone/storage/
+bluevpn-standalone/*.sql

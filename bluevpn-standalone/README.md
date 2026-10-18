@@ -1,48 +1,79 @@
-# BlueVPN Standalone Control Plane (cPanel)
+# BlueVPN Standalone — Native PHP + MySQL for cPanel
 
-This directory is the **WordPress-free migration foundation** for the BlueVPN control plane. It is **staging-only** and intentionally does **not** claim feature parity with the production WordPress plugin. Existing Android/Windows/iOS clients, subscriptions, payments, callbacks, SMS and bots **must stay on the current production backend** until migration contract tests pass.
+**No WordPress, Elementor, WP-Cron, or WordPress database required.** The current deployment is a fresh installation: no customer data needs to be migrated.
 
-## Architecture
+## Implemented in this branch
 
-- PHP 8.2+ with PDO MySQL; Apache with mod_rewrite; MySQL/MariaDB.
-- Public web document root: `bluevpn-standalone/public`.
-- Private PHP code and `config.php` remain **outside** the document root.
-- Reuses an SQL copy of existing tables (`{legacy_prefix}bluevpn_*`); no WordPress runtime or WordPress functions.
-- Native admin account table `{legacy_prefix}bluevpn_standalone_admins`; private session cookies, CSRF protection and strict HTTPS.
-- Public status: `GET /health`; WordPress health alias: `GET /wp-json/bluevpn-system/v1/health`.
-- Authenticated migration snapshot: `GET /api/v1/migration/status`.
-- Unsupported app/API endpoints return HTTP 503 with `ENDPOINT_NOT_PORTED` rather than fake successful responses.
+- PHP 8.2+ standalone backend and MySQL 8-compatible install schema (15 clean BlueVPN tables).
+- One-time secure installer, private configuration, standalone administrator accounts.
+- Mobile-first, right-to-left public website (home, plans, downloads, account, support).
+- Real multi-page administrator interface (customers, plans, locations, orders, releases, support, settings).
+- New customer email registration/login, hashed passwords, hashed access/refresh tokens and session revocation.
+- Android compatibility prefix: \`/api/v1/*\`; Windows compatibility prefix: \`/wp-json/bluevpn/v1/*\`.
+- Native mobile config, Windows update metadata, plan/account endpoints.
+- cPanel scheduled maintenance task, PHP lint, native schema + API integration tests and GitHub ZIP artifact.
 
-## Install on a **staging** cPanel domain
+## Explicitly not live yet
 
-1. Create a staging subdomain with **Document Root** pointing to the `public` directory. Enable an SSL certificate and select PHP 8.2+ with `pdo_mysql` and `openssl`.
-2. In cPanel **Manage My Databases**, create a new database and a dedicated DB user. Assign that user only the privileges necessary for your test. Do not reuse live credentials.
-3. Back up production WordPress SQL. Import a **copy** into the staging database using phpMyAdmin. The existing BlueVPN tables must retain their exact prefix (usually `wp_bluevpn_`). Existing WP user tables do not need to be executed by this new application.
-4. Copy `config.example.php` to `config.php` (outside `public`), edit the DB settings, set `legacy_prefix` to the imported table prefix, and generate a long random installation key:
-   ```sh
+**Do not sell subscriptions or claim that the VPN network is ready based only on these files.** BluePal payment and signed callback verification, passwordless SMS OTP, provider provisioning (PasarGuard/Marzban/Hiddify/3x-ui/GuardCore), active VPN subscriptions, customer support messaging and AI routing still need standalone implementations and provider configuration. API methods requiring these features return a clear non-successful response. New plans are created **inactive**, so accidental paid orders cannot be accepted.
+
+## Fresh cPanel installation
+
+1. Create an empty database and MySQL user in **cPanel → Manage My Databases / MySQL Database Wizard**. Grant the new database user privileges for this database only.
+2. Get the CI ZIP artifact \`bluevpn-cpanel-standalone.zip\`. Extract the \`bluevpn-standalone\` folder into \`/home/CPANEL_USER/bluevpn-standalone\`.
+3. Create a subdomain or domain in cPanel that serves **only** \`/home/CPANEL_USER/bluevpn-standalone/public\` as its document root. Do **not** serve the application root.
+4. Set PHP to **8.2+** and enable \`pdo_mysql\`, \`mbstring\`, \`openssl\`, \`json\`; enable Apache \`mod_rewrite\`. Issue a valid TLS certificate and force HTTPS.
+5. Copy \`config.example.php\` to \`config.php\` in the **private** directory \`bluevpn-standalone/\`, **outside** \`public/\`. Set MySQL \`host/name/username/password\`, public HTTPS \`base_url\`, and a random installation key:
+   \`\`\`sh
    php -r "echo bin2hex(random_bytes(32)), PHP_EOL;"
-   ```
-5. Keep `app.environment=staging`, set your HTTPS staging hostname in `base_url`, and browse `https://your-staging-domain/install`. Enter the installation key, admin email and strong admin password. Setup can only create the first admin; subsequent visits redirect to login.
-6. Open `/admin`. Review the live table inventory and counts. Validate `/health` and migration JSON.
-7. **Do not redirect live app domains/DNS or remove WordPress** yet. WordPress-free readiness requires porting all API, payment, webhook, OTP, cron and provider operations and completing cutover rehearsals.
+   \`\`\`
+   Keep \`database.prefix\` blank on a new installation unless you specifically need a custom safe prefix. **No \`wp_\` prefix or export is required.**
+6. Open \`https://YOUR_DOMAIN/install\`. Enter the exact installation key, administrator email and strong (14+ character) password.
+7. Log in at \`/login\` and open \`/admin\`. Check \`/health\`, \`/api/v1/mobile/config\`, and the native management pages.
+8. Add this cPanel Cron Job (once an hour or more often if warranted by actual volume), replacing \`CPANEL_USER\` and confirming your actual PHP CLI path:
+   \`\`\`cron
+   0 * * * * /usr/local/bin/php /home/CPANEL_USER/bluevpn-standalone/cron/maintenance.php >/dev/null 2>&1
+   \`\`\`
+   It removes expired auth sessions and rate-limit counters with a database lock. **Do not run WP-Cron.**
 
-## Security
+## Important URLs
 
-- Never commit `config.php`, production secrets, export SQL or signing keys.
-- Only `public/` is web-accessible; verify visiting `/config.php` returns 404.
-- Require TLS, keep PHP `display_errors=Off`, configure IP-level rate limiting in the hosting WAF, and make database backups before any import.
-- Installation key is deliberately separate from the admin password and may be replaced with a new random value after setup.
-- Data migration is **copy-first**; no destructive SQL or automatic production cutover is performed.
-- cPanel cron jobs will replace WP-Cron only after each task has a tested standalone handler. Do not schedule the old WP handlers against the staging database.
+| URL | Purpose |
+| --- | --- |
+| \`/\` | Public website |
+| \`/admin\` | Administrator dashboard |
+| \`/admin/plans\` | Plans |
+| \`/admin/locations\` | Locations |
+| \`/admin/users\` | Customer list |
+| \`/admin/orders\` | Orders |
+| \`/admin/releases\` | Release metadata |
+| \`/health\` | Health / incomplete-feature status |
+| \`/api/v1/auth/register\` | Email registration |
+| \`/api/v1/auth/login\` | Email login |
+| \`/api/v1/auth/refresh\` | Session refresh |
+| \`/api/v1/auth/logout\` | Logout |
+| \`/api/v1/account\` | Current customer |
+| \`/api/v1/plans\` | Active plan list |
+| \`/api/v1/mobile/config\` | Android bootstrap |
 
-## Cutover blockers (must pass before production)
+The health status intentionally stays \`degraded\` until critical VPN/payment integration is complete. This is not an HTTP server failure.
 
-- [ ] Port customer email and OTP login/register, refresh/logout and session semantics.
-- [ ] Match Android, Windows and iOS mobile config and subscription API JSON contracts.
-- [ ] Port provider sync, plans, orders, BluePal signature verification, idempotent callbacks and entitlement ledger.
-- [ ] Port SMS, bot, support, dashboard write operations, free pools, analytics and AI services.
-- [ ] Recreate native MySQL migrations for every table and enable safe cPanel Cron Jobs.
-- [ ] Add webhook replay, rollback, backup/restore, load tests and security scans.
-- [ ] Verify client compatibility, switch staged app endpoints, observe metrics, then perform controlled DNS cutover.
+## Security and operations
 
-See [official cPanel database documentation](https://docs.cpanel.net/cpanel/databases/mysql-databases/) and [Cron Jobs documentation](https://docs.cpanel.net/cpanel/advanced/cron-jobs/).
+- Never commit \`config.php\`, SQL dumps, signing keys or any credentials. Private directory must not be within web document root.
+- Use HTTPS and configure IP-based brute-force protection using your hosting WAF/ModSecurity.
+- Do not let the installer auto-detect old WordPress files. The schema is fresh.
+- Payment endpoints currently refuse orders rather than marking them paid.
+- New release metadata is recorded inactive; distribution must not be enabled without release integrity checks.
+- Set up regular encrypted backups of **both** MySQL and the private configuration, and test restoration.
+- cPanel shared hosting hosts **the control panel and API**, not the actual VPN/Xray processes. External VPN nodes are still required.
+
+## Continuous deployment
+
+The GitHub Action \`Standalone cPanel PHP Quality\` builds and tests a ZIP. Optional deploy via **verified SSH/rsync** requires cPanel SSH access and repository secrets; see workflow documentation. No deployment is assumed until the cPanel target has been connected.
+
+## CI verification
+
+A successful workflow must pass PHP lint, 14 static security/contract checks and a MySQL 8 clean installation/API smoke test.
+
+Sources: [cPanel Database Guide](https://docs.cpanel.net/cpanel/databases/mysql-databases/) · [cPanel Cron Jobs](https://docs.cpanel.net/cpanel/advanced/cron-jobs/) · [PHP PDO](https://www.php.net/manual/en/book.pdo.php)

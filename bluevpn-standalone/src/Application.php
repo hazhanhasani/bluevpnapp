@@ -42,15 +42,20 @@ final class Application
                 $ok = false;
             }
             $this->respondJson([
-                'success' => $ok, 'status' => $ok ? 'degraded' : 'unavailable',
+                'success' => $ok, 'status' => ($ok && $this->database->installed()) ? 'degraded' : 'unavailable',
                 'service' => 'bluevpn-standalone', 'version' => '0.1.0',
-                'server_time' => gmdate('Y-m-d\\TH:i:s\\Z'),
+                'server_time' => gmdate('Y-m-d\TH:i:s\Z'),
                 'wordpress_required' => false, 'database' => $ok ? 'up' : 'down',
                 'cutover_ready' => false,
-            ], $ok ? 200 : 503);
+            ], ($ok && $this->database->installed()) ? 200 : 503);
             return;
         }
-        Admin::startSession($https);
+        // API requests must not start an unrelated browser admin session.
+        if ($path==='/install'||$path==='/login'||$path==='/logout'
+            ||$path==='/admin'||str_starts_with($path,'/admin/')
+            ||$path==='/api/v1/system/status') {
+            Admin::startSession($https);
+        }
 
         try {
             if ($path === '/install') {
@@ -58,7 +63,9 @@ final class Application
                 return;
             }
             if (!$this->database->installed()) {
-                $this->redirect('/install');
+                if (str_starts_with($path,'/api/')||str_starts_with($path,'/wp-json/')) {
+                    $this->respondJson(['detail'=>['code'=>'NOT_INSTALLED']],503);
+                } else $this->redirect('/install');
                 return;
             }
             if ($path === '/login') {
@@ -66,8 +73,8 @@ final class Application
                 return;
             }
             if ($path === '/logout') {
-                if ($method !== 'POST') {
-                    $this->respondJson(['detail' => ['code' => 'METHOD_NOT_ALLOWED']], 405);
+                if ($method!=='POST') {
+                    $this->respondJson(['detail'=>['code'=>'METHOD_NOT_ALLOWED']],405);
                     return;
                 }
                 Admin::requireCsrf();
@@ -75,54 +82,44 @@ final class Application
                 $this->redirect('/login');
                 return;
             }
-            if ($path === '/' || $path === '/admin') {
-                if (!Admin::authorized()) {
-                    $this->redirect('/login');
-                    return;
-                }
-                $this->dashboard();
+            if ($path==='/admin'||str_starts_with($path,'/admin/')) {
+                (new AdminPanel($this->database))->handle($path,$method);
                 return;
             }
-            if ($path === '/wp-json/bluevpn-system/v1/app-connection') {
-                $this->respondJson([
-                    'status' => 'degraded',
-                    'service' => 'bluevpn-standalone-staging',
-                    'cutover_ready' => false,
-                    'app_cutover_enabled' => false,
-                    'detail' => ['code' => 'CUTOVER_NOT_READY'],
-                ], 503);
-                return;
-            }
-            if ($path === '/api/v1/migration/status') {
-                if ($method !== 'GET') {
-                    $this->respondJson(['detail' => ['code' => 'METHOD_NOT_ALLOWED']], 405);
-                    return;
+            if ($path==='/api/v1/system/status') {
+                if ($method!=='GET') {
+                    $this->respondJson(['detail'=>['code'=>'METHOD_NOT_ALLOWED']],405);return;
                 }
                 if (!Admin::authorized()) {
-                    $this->respondJson(['detail' => ['code' => 'UNAUTHORIZED']], 401);
-                    return;
+                    $this->respondJson(['detail'=>['code'=>'UNAUTHORIZED']],401);return;
                 }
-                $this->respondJson(['success' => true, 'inventory' => $this->database->snapshot()]);
+                $this->respondJson(['success'=>true,'inventory'=>$this->database->snapshot()]);
                 return;
             }
-            if (str_starts_with($path, '/api/v1/')
-                || str_starts_with($path, '/wp-json/bluevpn/v1/')
-                || str_starts_with($path, '/webhooks/')
-                || str_starts_with($path, '/sub/')) {
-                // This endpoint must never falsely succeed until its full payment,
-                // session, provider and data invariants have been ported and tested.
-                $this->respondJson(['detail' => [
-                    'code' => 'ENDPOINT_NOT_PORTED',
-                    'message' => 'Staging endpoint is not yet available. Do not switch clients.',
-                ]], 503);
+            if ($method==='GET' && in_array($path,['/','/home','/plans','/download','/account','/support'],true)) {
+                (new Site($this->database,$this->config))->handle($path);
                 return;
             }
-            $this->respondJson(['detail' => ['code' => 'NOT_FOUND']], 404);
+            if (str_starts_with($path,'/api/v1/')
+                ||str_starts_with($path,'/wp-json/bluevpn/v1/')
+                ||$path==='/wp-json/bluevpn-system/v1/app-connection') {
+                (new Api($this->database,$this->config))->handle($path,$method);
+                return;
+            }
+            if (str_starts_with($path,'/webhooks/')
+                ||str_starts_with($path,'/sub/')
+                ||str_starts_with($path,'/bluevpn/payment/')) {
+                $this->respondJson(['detail'=>['code'=>'FEATURE_NOT_CONFIGURED',
+                    'message'=>'Payment and subscription handlers are not yet enabled']],503);
+                return;
+            }
+            $this->respondJson(['detail'=>['code'=>'NOT_FOUND']],404);
         } catch (RuntimeException $e) {
-            $this->respondJson(['detail' => [
-                'code' => $e->getCode() === 403 ? 'FORBIDDEN' : 'INVALID_REQUEST',
-                'message' => 'Request rejected',
-            ]], $e->getCode() === 403 ? 403 : 400);
+            error_log('BlueVPN request rejected: '.get_class($e));
+            $this->respondJson(['detail'=>[
+                'code'=>$e->getCode()===403?'FORBIDDEN':'INVALID_REQUEST',
+                'message'=>'درخواست پذیرفته نشد.',
+            ]],$e->getCode()===403?403:400);
         }
     }
 
@@ -154,7 +151,7 @@ final class Application
             $this->respondJson(['detail' => ['code' => 'METHOD_NOT_ALLOWED']], 405);
             return;
         }
-        $this->screen('نصب BlueVPN', '<p>پنل مستقل روی cPanel • محیط آزمایشی</p>' . $this->installForm(), false);
+        $this->screen('نصب BlueVPN', '<p>پنل مستقل PHP / MySQL روی cPanel</p>' . $this->installForm(), false);
     }
 
     private function installForm(): string

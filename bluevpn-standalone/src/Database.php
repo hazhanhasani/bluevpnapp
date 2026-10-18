@@ -97,7 +97,11 @@ final class Database
         $missing = [];
         foreach (self::LEGACY_TABLES as $logical) {
             $actual = $this->table($logical);
-            ($this->exists($actual) ? $available : $missing)[] = $logical;
+            if ($this->exists($actual)) {
+                $available[] = $logical;
+            } else {
+                $missing[] = $logical;
+            }
         }
         $counts = [];
         foreach (['customers', 'plans', 'orders'] as $logical) {

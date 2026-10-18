@@ -20,6 +20,7 @@ final class Application
     public function run(): void
     {
         $path = parse_url((string) ($_SERVER['REQUEST_URI'] ?? '/'), PHP_URL_PATH) ?: '/';
+        $path = rtrim($path, '/') ?: '/';
         $method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
         $https = !empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off';
         $app = $this->config['app'];
@@ -186,36 +187,6 @@ final class Application
             '<label>گذرواژه<input type="password" name="password" required autocomplete="current-password"></label>' .
             '<button type="submit">ورود</button></form>';
         $this->screen('ورود مدیر', $message . $form, false);
-    }
-
-    private function dashboard(): void
-    {
-        $inventory = $this->database->snapshot();
-        $counts = $inventory['sample_counts'];
-        $metrics = [
-            ['کاربران', $counts['customers'] ?? '—'],
-            ['پلن‌ها', $counts['plans'] ?? '—'],
-            ['سفارش‌ها', $counts['orders'] ?? '—'],
-            ['جداول موجود', $inventory['legacy_coverage']],
-        ];
-        $cards = '';
-        foreach ($metrics as [$label, $value]) {
-            $cards .= '<article class="metric"><span>' . self::e((string) $label) .
-                '</span><strong>' . self::e((string) $value) . '</strong></article>';
-        }
-        $missing = implode(', ', $inventory['missing_tables']);
-        $body = '<header class="topbar"><div><span class="eyebrow">CONTROL PLANE / CPANEL</span><h1>نمای کلی BlueVPN</h1>' .
-            '<p>نمای زنده داده‌های MySQL؛ این نسخه صرفاً پیش‌نمایش مهاجرت است.</p></div>' .
-            '<form action="/logout" method="post">' . Admin::csrfField() . '<button class="outline" type="submit">خروج</button></form></header>' .
-            '<section class="metrics">' . $cards . '</section>' .
-            '<section class="panels"><article class="panel"><h2>وضعیت مهاجرت</h2><div class="notice">' .
-            '<strong>هنوز آماده استفاده اصلی نیست</strong><p>این داشبورد بدون وردپرس اجرا می‌شود؛ اما ورود مشتری، پرداخت، پیامک و سازگاری API هنوز باید تکمیل شوند.</p></div>' .
-            '<p><b>جداول منتقل‌شده:</b> ' . self::e($inventory['legacy_coverage']) . '</p>' .
-            '<p><b>جداول یافت‌نشده:</b> ' . self::e($missing === '' ? 'موردی در فهرست اولیه نیست' : $missing) . '</p></article>' .
-            '<article class="panel"><h2>عملیات و زیرساخت</h2><p>PHP و PDO، نشست امن مدیریت، حفاظت CSRF و بررسی سلامت سرویس.</p>' .
-            '<p>قبل از اتصال اپلیکیشن‌های اصلی، تست‌های GitHub Actions و زیردامنه آزمایشی را بررسی کنید.</p>' .
-            '<a href="/api/v1/migration/status">مشاهده گزارش مهاجرت (JSON)</a></article></section>';
-        $this->screen('مرکز مدیریت BlueVPN', $body, true);
     }
 
     private function screen(string $title, string $content, bool $dashboard): void

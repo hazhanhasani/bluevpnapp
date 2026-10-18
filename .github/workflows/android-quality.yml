@@ -2,6 +2,14 @@ name: Android Quality Gate
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'android-source/**'
+      - 'android-test/**'
+      - 'android-benchmark/**'
+      - 'bluevpn-standalone/src/Api.php'
+      - '.github/workflows/build-apk.yml'
+      - '.github/workflows/android-quality.yml'
   push:
     branches: [main]
     paths:

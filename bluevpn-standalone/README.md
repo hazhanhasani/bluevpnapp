@@ -72,6 +72,21 @@ The health status intentionally stays \`degraded\` until critical VPN/payment in
 
 The GitHub Action \`Standalone cPanel PHP Quality\` builds and tests a ZIP. Optional deploy via **verified SSH/rsync** requires cPanel SSH access and repository secrets; see workflow documentation. No deployment is assumed until the cPanel target has been connected.
 
+### Automatic cPanel deployment (optional)
+
+For automatic push-to-cPanel deployment, connect the host over **SSH with verified host keys**, create GitHub environment \`bluevpn-cpanel\`, then configure these six **environment secrets**:
+
+| Secret | Value |
+| --- | --- |
+| \`CPANEL_SSH_HOST\` | Hostname of your cPanel SSH server |
+| \`CPANEL_SSH_USER\` | cPanel SSH username |
+| \`CPANEL_SSH_PORT\` | SSH port, often 22 |
+| \`CPANEL_SSH_PRIVATE_KEY\` | Dedicated deployment SSH private key |
+| \`CPANEL_SSH_KNOWN_HOSTS\` | Verified host public key line, obtained through a trusted channel |
+| \`CPANEL_APP_DIR\` | \`/home/CPANEL_USER/bluevpn-standalone\` |
+
+Then set repository variable \`CPANEL_DEPLOY_ENABLED=true\`. Only successful builds on \`main\` can then deploy, using \`rsync\` without overwriting \`config.php\` or private storage. The remote app directory and configuration must exist before enabling this. The deployment job does **not** create databases, import secrets or provision SSH for you.
+
 ## CI verification
 
 A successful workflow must pass PHP lint, 14 static security/contract checks and a MySQL 8 clean installation/API smoke test.

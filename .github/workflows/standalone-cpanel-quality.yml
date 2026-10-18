@@ -51,3 +51,39 @@ jobs:
           name: bluevpn-cpanel-standalone
           path: bluevpn-cpanel-standalone.zip
           retention-days: 7
+  deploy-to-cpanel:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CPANEL_DEPLOY_ENABLED == 'true'
+    needs: php-lint-and-contract
+    runs-on: ubuntu-latest
+    environment: bluevpn-cpanel
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Install SSH key and deploy the standalone app
+        shell: bash
+        env:
+          CPANEL_SSH_HOST: ${{ secrets.CPANEL_SSH_HOST }}
+          CPANEL_SSH_USER: ${{ secrets.CPANEL_SSH_USER }}
+          CPANEL_SSH_PORT: ${{ secrets.CPANEL_SSH_PORT }}
+          CPANEL_SSH_PRIVATE_KEY: ${{ secrets.CPANEL_SSH_PRIVATE_KEY }}
+          CPANEL_SSH_KNOWN_HOSTS: ${{ secrets.CPANEL_SSH_KNOWN_HOSTS }}
+          CPANEL_APP_DIR: ${{ secrets.CPANEL_APP_DIR }}
+        run: |
+          set -euo pipefail
+          test -n "$CPANEL_SSH_HOST" && test -n "$CPANEL_SSH_USER"
+          test -n "$CPANEL_SSH_PRIVATE_KEY" && test -n "$CPANEL_SSH_KNOWN_HOSTS"
+          [[ "$CPANEL_SSH_HOST" =~ ^[A-Za-z0-9.-]+$ ]]
+          [[ "$CPANEL_SSH_USER" =~ ^[A-Za-z0-9_-]+$ ]]
+          [[ "$CPANEL_SSH_PORT" =~ ^[0-9]{1,5}$ ]]
+          [[ "$CPANEL_APP_DIR" =~ ^/home/[A-Za-z0-9_-]+/bluevpn-standalone/?$ ]]
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$CPANEL_SSH_PRIVATE_KEY" > "$HOME/.ssh/bluevpn_deploy"
+          printf '%s\n' "$CPANEL_SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/bluevpn_deploy" "$HOME/.ssh/known_hosts"
+          ssh -i "$HOME/.ssh/bluevpn_deploy" -p "$CPANEL_SSH_PORT" \
+            -o StrictHostKeyChecking=yes -o BatchMode=yes \
+            "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
+            "test -f '$CPANEL_APP_DIR/config.php' && test -d '$CPANEL_APP_DIR/public'"
+          rsync -az --checksum --delete \
+            --exclude='/config.php' --exclude='/storage/' \
+            -e "ssh -i $HOME/.ssh/bluevpn_deploy -p $CPANEL_SSH_PORT -o StrictHostKeyChecking=yes -o BatchMode=yes" \
+            bluevpn-standalone/ "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$CPANEL_APP_DIR/"

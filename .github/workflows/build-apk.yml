@@ -123,20 +123,6 @@ jobs:
           print('source_declared_release_version',version,version_code)
           PY
 
-      - name: Synchronize WordPress Manager with BlueVPN version
-        shell: bash
-        env:
-          VERSION: ${{ steps.config.outputs.version }}
-        run: |
-          python - <<'PY'
-          import os,re
-          from pathlib import Path
-          v=os.environ['VERSION']; p=Path('bluevpn-manager/bluevpn-manager.php'); s=p.read_text(encoding='utf-8')
-          s=re.sub(r'(?m)^( \* Version: )\d+\.\d+\.\d+$',r'\g<1>'+v,s,count=1)
-          s=re.sub(r"define\('BLUEVPN_MANAGER_VERSION', '[^']+'\);",f"define('BLUEVPN_MANAGER_VERSION', '{v}');",s,count=1)
-          p.write_text(s,encoding='utf-8')
-          PY
-
       - name: Checkout official v2rayNG source
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
@@ -476,78 +462,6 @@ jobs:
           path: dist/*.apk
           compression-level: 0
 
-      - name: Wait for independent BlueVPN Manager release
-        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.config.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo manager-release-barrier > "$GITHUB_WORKSPACE/.bluevpn-build-stage"
-          TAG="bluevpn-manager-v${VERSION}"
-          for attempt in $(seq 1 60); do
-            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              rm -rf "$RUNNER_TEMP/manager-release-check"
-              mkdir -p "$RUNNER_TEMP/manager-release-check"
-              if gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern bluevpn-manager.zip --dir "$RUNNER_TEMP/manager-release-check" --clobber >/dev/null 2>&1; then
-                unzip -t "$RUNNER_TEMP/manager-release-check/bluevpn-manager.zip" >/dev/null
-                unzip -p "$RUNNER_TEMP/manager-release-check/bluevpn-manager.zip" bluevpn-manager/bluevpn-manager.php | grep -F "Version: ${VERSION}" >/dev/null
-                echo "Independent BlueVPN Manager release is ready: $TAG"
-                break
-              fi
-            fi
-            if [ "$attempt" -eq 60 ]; then
-              echo "::error::Timed out waiting for independent BlueVPN Manager release $TAG"
-              exit 1
-            fi
-            sleep 5
-          done
-
-      - name: Wait for WordPress control-plane auto-update
-        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
-        env:
-          VERSION: ${{ steps.config.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          API_BASE_URL="$(python -c 'import json;print(json.load(open("branding/app.json"))["api_base_url"].rstrip("/"))')"
-          EXPECTED_SCHEMA="$(sed -nE "s/^define\('BLUEVPN_MANAGER_SCHEMA_VERSION', '([^']+)'\);/\1/p" bluevpn-manager/bluevpn-manager.php | head -n 1)"
-          HEALTH_URL="${API_BASE_URL}/health"
-          LAST_STATUS="unknown"; LAST_VERSION="unknown"; LAST_READY="unknown"; LAST_SCHEMA="unknown"; LAST_UPDATER_AUTH="unknown"
-          for attempt in $(seq 1 36); do
-            curl --silent --show-error --location --max-time 20 "$HEALTH_URL" -o "$RUNNER_TEMP/bluevpn-health.json" || true
-            if [ -s "$RUNNER_TEMP/bluevpn-health.json" ]; then
-              mapfile -t F < <(python - <<'PY'
-          import json,os
-          from pathlib import Path
-          try: d=json.loads((Path(os.environ['RUNNER_TEMP'])/'bluevpn-health.json').read_text(encoding='utf-8'))
-          except Exception: d={}
-          db=d.get('database') or {}; updater=d.get('github_updater') or {}
-          print(d.get('version','unknown')); print(str(d.get('status','unknown')).lower()); print(db.get('schema_version','unknown')); print(str(db.get('ready','unknown')).lower()); print(str(updater.get('authenticated','unknown')).lower())
-          PY
-              )
-              LAST_VERSION="${F[0]:-unknown}"; LAST_STATUS="${F[1]:-unknown}"; LAST_SCHEMA="${F[2]:-unknown}"; LAST_READY="${F[3]:-unknown}"; LAST_UPDATER_AUTH="${F[4]:-unknown}"
-            fi
-            VERSION_COMPATIBLE="$(python -c 'import re,sys; p=lambda v: tuple(map(int,re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v).groups())) if re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v) else None; cv,ev=map(p,sys.argv[1:3]); print("true" if cv is not None and ev is not None and cv >= ev else "false")' "$LAST_VERSION" "$VERSION")"
-            DETAILS_COMPATIBLE="true"
-            if [ "$LAST_SCHEMA" != "unknown" ] || [ "$LAST_READY" != "unknown" ]; then
-              DETAILS_COMPATIBLE="$(python -c 'import re,sys; p=lambda v: tuple(map(int,re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v).groups())) if re.fullmatch(r"\s*(\d+)\.(\d+)\.(\d+)\s*",v) else None; cs,es=map(p,sys.argv[1:3]); ready=sys.argv[3].lower()=="true"; print("true" if cs is not None and es is not None and cs >= es and ready else "false")' "$LAST_SCHEMA" "$EXPECTED_SCHEMA" "$LAST_READY")"
-            fi
-            if [ "$VERSION_COMPATIBLE" = "true" ] && [ "$LAST_STATUS" = "ok" ] && [ "$DETAILS_COMPATIBLE" = "true" ]; then
-              if [ "$LAST_SCHEMA" = "unknown" ]; then
-                echo "WordPress public health barrier passed: installed=${LAST_VERSION} (minimum=${VERSION}), status=ok. Detailed schema/updater diagnostics are intentionally admin-only."
-              else
-                echo "WordPress control plane compatible: installed=${LAST_VERSION} (minimum=${VERSION}), schema=${LAST_SCHEMA} (minimum=${EXPECTED_SCHEMA}), status=ok."
-              fi
-              break
-            fi
-            sleep 10
-          done
-          if [ "$LAST_STATUS" != ok ]; then echo "::error::WORDPRESS_HEALTH_DEGRADED health=$LAST_STATUS"; fi
-          if [ "$VERSION_COMPATIBLE" != "true" ] && [ "$LAST_UPDATER_AUTH" = "unknown" ]; then echo '::error::Installed manager version is below the release target'; fi
-          [ "$VERSION_COMPATIBLE" = "true" ] && [ "$LAST_STATUS" = ok ] && [ "$DETAILS_COMPATIBLE" = "true" ] || exit 1
-
       - name: Create GitHub Release metadata and checksums
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         env:
@@ -588,23 +502,97 @@ jobs:
             exit 1
           fi
 
-      - name: Sync Android release metadata to WordPress
+      - name: Verify published Android release independently of WordPress
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.config.outputs.version }}
         run: |
           set -euo pipefail
-          API_BASE_URL="$(python -c 'import json;print(json.load(open("branding/app.json"))["api_base_url"].rstrip("/"))')"
-          SYNC_URL="${API_BASE_URL}/api/v1/mobile/config?refresh=true"
-          curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --max-time 35 "$SYNC_URL" -o "$RUNNER_TEMP/bluevpn-wordpress-mobile-config.json" || true
-          sleep 5
-          curl --fail --silent --show-error --location --retry 2 --retry-delay 2 --max-time 35 "$SYNC_URL" -o "$RUNNER_TEMP/bluevpn-wordpress-mobile-config-after-sync.json" || true
+          tag="v${VERSION}"
+          mapfile -t published < <(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          printf '%s\n' "${published[@]}" | grep -Eq '\.apk
+        if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: BlueVPN-${{ steps.config.outputs.version }}-signed
+          path: dist/
+          retention-days: 30
+
+      - name: Send actionable build failure report to Telegram
+        if: ${{ failure() }}
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        shell: bash
+        run: |
+          set +e
+          STAGE="$(cat .bluevpn-regression-substage 2>/dev/null || cat .bluevpn-build-stage 2>/dev/null || echo unknown)"
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          PRIMARY_LOG="$GITHUB_WORKSPACE/android-build.log"
+          if [ "$STAGE" = "release-regression-gate" ] || [ -s "$GITHUB_WORKSPACE/.bluevpn-regression-substage" ]; then
+            [ -s "$GITHUB_WORKSPACE/stability-gate.log" ] && PRIMARY_LOG="$GITHUB_WORKSPACE/stability-gate.log"
+          fi
+
+          {
+            printf 'BlueVPN build failure report\n'
+            printf 'Stage: %s\n' "$STAGE"
+            printf 'Run: %s\n' "$RUN_URL"
+            printf 'Run number: %s\n' "${GITHUB_RUN_NUMBER:-unknown}"
+            printf 'Commit: %s\n\n' "${GITHUB_SHA:-unknown}"
+            printf '=== Extracted failure lines ===\n'
+            grep -hEi 'REGRESSION_SUBSTAGE_FAILED|REGRESSION_EXIT_CODE|AssertionError|PHP LINT FAILED|FAILURE: Build failed|Execution failed for task|Compilation error|^e: |error:|Unresolved reference|Type mismatch|Cannot infer|Caused by:|Exception|FAILED' \
+              "$GITHUB_WORKSPACE/stability-gate.log" "$GITHUB_WORKSPACE/android-build.log" 2>/dev/null | tail -n 260 || true
+            printf '\n=== Last 180 lines of primary log ===\n'
+            if [ -s "$PRIMARY_LOG" ]; then
+              tail -n 180 "$PRIMARY_LOG"
+            else
+              printf 'No detailed build log was created.\n'
+            fi
+          } > "$GITHUB_WORKSPACE/telegram-build-error.txt"
+
           python - <<'PY'
-          import json,os
+          import os
           from pathlib import Path
-          p=Path(os.environ['RUNNER_TEMP'])/'bluevpn-wordpress-mobile-config-after-sync.json'
-          if p.exists():
-              d=json.loads(p.read_text()); print('release_refresh_mode',d.get('release_refresh_mode'))
+          p = Path('telegram-build-error.txt')
+          text = p.read_text(encoding='utf-8', errors='replace') if p.exists() else ''
+          for key in ('TELEGRAM_BOT_TOKEN', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_PASSWORD'):
+              secret = os.getenv(key, '')
+              if secret:
+                  text = text.replace(secret, '***')
+          # Telegram documents can be large, but a bounded diagnostic is easier
+          # to review from a phone and prevents accidental megabyte-scale spam.
+          if len(text) > 180000:
+              text = '... report truncated to last 180000 characters ...\n' + text[-180000:]
+          p.write_text(text, encoding='utf-8')
           PY
+
+          if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+            curl --fail --silent --show-error --retry 3 --request POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+              --form "chat_id=${TELEGRAM_CHAT_ID}" \
+              --form 'document=@telegram-build-error.txt' \
+              --form "caption=BlueVPN build failed • ${STAGE} • run #${GITHUB_RUN_NUMBER:-?}" || true
+          fi
+
+      - name: Upload complete build failure diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: BlueVPN-build-failure-${{ github.run_id }}
+          path: |
+            telegram-build-error.txt
+            android-build.log
+            stability-gate.log
+            .bluevpn-build-stage
+            .bluevpn-regression-substage
+          if-no-files-found: ignore
+          retention-days: 14
+
+          printf '%s\n' "${published[@]}" | grep -Fx 'SHA256SUMS.txt'
+          printf '%s\n' "${published[@]}" | grep -Fx 'release-manifest.json'
+          echo "GitHub release ${tag} verified without WordPress."
 
       - name: Upload signed BlueVPN APK artifact
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}

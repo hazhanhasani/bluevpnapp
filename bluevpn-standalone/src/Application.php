@@ -42,7 +42,9 @@ final class Application
                 $ok = false;
             }
             $this->respondJson([
-                'success' => $ok, 'service' => 'bluevpn-standalone', 'version' => '0.1.0',
+                'success' => $ok, 'status' => $ok ? 'degraded' : 'unavailable',
+                'service' => 'bluevpn-standalone', 'version' => '0.1.0',
+                'server_time' => gmdate('Y-m-d\\TH:i:s\\Z'),
                 'wordpress_required' => false, 'database' => $ok ? 'up' : 'down',
                 'cutover_ready' => false,
             ], $ok ? 200 : 503);
@@ -81,7 +83,21 @@ final class Application
                 $this->dashboard();
                 return;
             }
+            if ($path === '/wp-json/bluevpn-system/v1/app-connection') {
+                $this->respondJson([
+                    'status' => 'degraded',
+                    'service' => 'bluevpn-standalone-staging',
+                    'cutover_ready' => false,
+                    'app_cutover_enabled' => false,
+                    'detail' => ['code' => 'CUTOVER_NOT_READY'],
+                ], 503);
+                return;
+            }
             if ($path === '/api/v1/migration/status') {
+                if ($method !== 'GET') {
+                    $this->respondJson(['detail' => ['code' => 'METHOD_NOT_ALLOWED']], 405);
+                    return;
+                }
                 if (!Admin::authorized()) {
                     $this->respondJson(['detail' => ['code' => 'UNAUTHORIZED']], 401);
                     return;

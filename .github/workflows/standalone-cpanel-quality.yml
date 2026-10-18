@@ -22,3 +22,11 @@ jobs:
         run: find bluevpn-standalone -type f -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: Contract assertions
         run: php bluevpn-standalone/tests/static_contracts.php
+      - name: Build cPanel staging ZIP
+        run: zip -qr bluevpn-cpanel-staging.zip bluevpn-standalone -x '*/config.php' '*.sql' '*.log'
+      - name: Upload staging installer bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: bluevpn-cpanel-staging
+          path: bluevpn-cpanel-staging.zip
+          retention-days: 7

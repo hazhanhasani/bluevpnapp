@@ -25,7 +25,7 @@ $checks=[
     'billing fails closed'=>str_contains($api,'PAYMENTS_NOT_CONFIGURED'),
     'old wp-json client URLs are aliased'=>str_contains($api,'/wp-json/bluevpn/v1'),
     'admin mutating forms are CSRF-protected'=>str_contains($admin,'requireCsrf()'),
-    'admin supports real plans'=>str_contains($admin,'INSERT INTO').str_contains($admin,'plans'),
+    'admin supports real plans'=>str_contains($admin,'INSERT INTO')&&str_contains($admin,'plans'),
     'public site exists'=>str_contains($read('src/Site.php'),'BlueVPN'),
     'HTTP auth header forwarded'=>str_contains($read('public/.htaccess'),'HTTP_AUTHORIZATION'),
 ];

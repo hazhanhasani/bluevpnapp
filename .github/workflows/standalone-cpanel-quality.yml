@@ -43,11 +43,11 @@ jobs:
           BLUEVPN_TEST_DB_USER: bluevpn
           BLUEVPN_TEST_DB_PASSWORD: bluevpn_testing_only
         run: php bluevpn-standalone/tests/mysql_integration.php
-      - name: Build cPanel staging ZIP
+      - name: Build cPanel native ZIP
         run: zip -qr bluevpn-cpanel-standalone.zip bluevpn-standalone -x '*/config.php' '*.sql' '*.log'
-      - name: Upload staging installer bundle
+      - name: Upload independent cPanel installer
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: bluevpn-cpanel-standalone
-          path: bluevpn-cpanel-staging.zip
+          path: bluevpn-cpanel-standalone.zip
           retention-days: 7

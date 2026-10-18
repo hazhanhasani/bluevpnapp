@@ -45,10 +45,25 @@ import java.text.NumberFormat
 import java.util.Locale
 class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
  companion object{const val EXTRA_ENTRY_ROUTE="bluevpn_entry_route";const val EXTRA_PLAN_ID="bluevpn_entry_plan_id";const val EXTRA_ENTRY_SOURCE="bluevpn_entry_source";private const val AUTOFILL_HINT_SMS_OTP_COMPAT="smsOTPCode"}
- private lateinit var content:LinearLayout;private lateinit var status:TextView;private lateinit var palette:BlueVpnPalette;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true;private var otpChallengeId="";private var otpPhone="";private var otpBinding=false;private var authMode="sms";private var emailRegister=false;private var themeDarkAtCreate=true;private var renderedSessionState=false;private var draftPhone="";private var draftOtpCode="";private var draftEmail="";private var draftPassword="";private var draftBindingPhone="";private var draftBindingCode="";private var renderPosted=false;private var renderGeneration=0;private var syncInProgress=false;private var entryRoute="account";private var entryPlanId=0;private var entrySource="";private var smsOtpAutoFill:BlueVpnSmsOtpAutoFill?=null;private var pendingAutoOtpCode=""
+ private lateinit var content:LinearLayout;private lateinit var status:TextView;private lateinit var palette:BlueVpnPalette;private val handler=Handler(Looper.getMainLooper());private var busy=false;private var firstResume=true;private var otpChallengeId="";private var otpPhone="";private var otpBinding=false;private var authMode="email";private var smsAuthAvailable=false;private var emailRegister=false;private var themeDarkAtCreate=true;private var renderedSessionState=false;private var draftPhone="";private var draftOtpCode="";private var draftEmail="";private var draftPassword="";private var draftBindingPhone="";private var draftBindingCode="";private var renderPosted=false;private var renderGeneration=0;private var syncInProgress=false;private var entryRoute="account";private var entryPlanId=0;private var entrySource="";private var smsOtpAutoFill:BlueVpnSmsOtpAutoFill?=null;private var pendingAutoOtpCode=""
  private val poll=object:Runnable{override fun run(){val id=BlueVpnAccountManager.pendingOrder(this@BlueVpnSubscriptionsActivity);if(id.isNotBlank()){checkOrder(id);handler.postDelayed(this,4000)}}}
- override fun onCreate(b:Bundle?){super.onCreate(b);smsOtpAutoFill=BlueVpnSmsOtpAutoFill(this,{code->handleAutoOtp(code)},{message->if(::status.isInitialized&&!busy)status.text=message});entryRoute=intent.getStringExtra(EXTRA_ENTRY_ROUTE).orEmpty().ifBlank{"account"};entryPlanId=intent.getIntExtra(EXTRA_PLAN_ID,0).coerceAtLeast(0);entrySource=intent.getStringExtra(EXTRA_ENTRY_SOURCE).orEmpty();window.setWindowAnimations(0);palette=BlueVpnTheme.palette(this);themeDarkAtCreate=palette.dark;window.setBackgroundDrawable(ColorDrawable(palette.background));BlueVpnTheme.applySystemBars(this);setContentView(screen());render()}
+ override fun onCreate(b:Bundle?){super.onCreate(b);smsOtpAutoFill=BlueVpnSmsOtpAutoFill(this,{code->handleAutoOtp(code)},{message->if(::status.isInitialized&&!busy)status.text=message});entryRoute=intent.getStringExtra(EXTRA_ENTRY_ROUTE).orEmpty().ifBlank{"account"};entryPlanId=intent.getIntExtra(EXTRA_PLAN_ID,0).coerceAtLeast(0);entrySource=intent.getStringExtra(EXTRA_ENTRY_SOURCE).orEmpty();window.setWindowAnimations(0);palette=BlueVpnTheme.palette(this);themeDarkAtCreate=palette.dark;window.setBackgroundDrawable(ColorDrawable(palette.background));BlueVpnTheme.applySystemBars(this);setContentView(screen());render();refreshAuthCapabilities()}
  override fun onNewIntent(next:Intent){super.onNewIntent(next);setIntent(next);entryRoute=next.getStringExtra(EXTRA_ENTRY_ROUTE).orEmpty().ifBlank{"account"};entryPlanId=next.getIntExtra(EXTRA_PLAN_ID,0).coerceAtLeast(0);entrySource=next.getStringExtra(EXTRA_ENTRY_SOURCE).orEmpty();if(::content.isInitialized)render()}
+
+ private fun refreshAuthCapabilities(){
+  lifecycleScope.launch(Dispatchers.IO){
+   val config=BlueVpnAccountManager.mobileConfig(this@BlueVpnSubscriptionsActivity).getOrNull()
+   val enabled=config?.optJSONObject("auth")?.optBoolean("phone_otp_enabled",false)==true
+   withContext(Dispatchers.Main){
+    if(isFinishing||isDestroyed)return@withContext
+    if(smsAuthAvailable!=enabled){
+     smsAuthAvailable=enabled
+     if(!enabled){authMode="email";otpChallengeId="";smsOtpAutoFill?.stop()}
+     render()
+    }
+   }
+  }
+ }
  override fun onResume(){
   super.onResume()
   BlueVpnTheme.applySystemBars(this)
@@ -127,6 +142,7 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
   })
  }
  private fun auth(){
+  if(!smsAuthAvailable && authMode=="sms")authMode="email"
   status.setTextColor(authMuted())
   status.text=when(entryRoute){
    "purchase","plans","renew"->"برای ادامه خرید یا تمدید، ابتدا وارد حساب شوید یا ثبت‌نام کنید"
@@ -149,9 +165,11 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
    orientation=LinearLayout.HORIZONTAL;gravity=Gravity.CENTER;setPadding(dp(4),dp(4),dp(4),dp(4))
    background=GradientDrawable().apply{cornerRadius=dp(15).toFloat();setColor(Color.parseColor("#101114"));setStroke(dp(1),Color.parseColor("#292A2E"))}
   }
+  if(smsAuthAvailable){
   modeRow.addView(archiveSegment("پیامک",authMode=="sms").apply{setOnClickListener{if(authMode!="sms"){authMode="sms";emailRegister=false;otpChallengeId="";render()}}},LinearLayout.LayoutParams(0,dp(42),1f).apply{marginEnd=dp(3)})
   modeRow.addView(archiveSegment("ایمیل",authMode=="email").apply{setOnClickListener{if(authMode!="email"){authMode="email";otpChallengeId="";otpBinding=false;render()}}},LinearLayout.LayoutParams(0,dp(42),1f).apply{marginStart=dp(3)})
   box.addView(modeRow,LinearLayout.LayoutParams(-1,dp(50)).apply{bottomMargin=dp(22)})
+  }
 
   if(authMode=="sms"){
    if(otpChallengeId.isBlank()){
@@ -347,7 +365,7 @@ class BlueVpnSubscriptionsActivity:HelperBaseActivity(){
 
   card.addView(box)
   content.addView(card)
-  if(!account.phoneVerified){phoneBindingCard()}
+  if(!account.phoneVerified&&smsAuthAvailable){phoneBindingCard()}
   BlueVpnTapsellManager.onEntitlementChanged(this)
   attachFreeNativeVideo()
   loadPlans(generation)
@@ -557,6 +575,7 @@ private fun loadPlans(generation:Int){
   handler.postDelayed({if(!isFinishing&&!isDestroyed&&!busy&&otpChallengeId.isNotBlank())verifyOtp(phone,code,otpBinding)},90L)
  }
  private fun requestOtp(phone:String,bind:Boolean){
+  if(!smsAuthAvailable){status.text="ورود پیامکی هنوز در سرور فعال نشده است";return}
   if(busy)return
   val normalizedPhone=smsPhoneForApi(phone)
   if(bind)draftBindingPhone=normalizedPhone else draftPhone=normalizedPhone
@@ -581,6 +600,7 @@ private fun loadPlans(generation:Int){
   }
  }
  private fun verifyOtp(phone:String,code:String,bind:Boolean){
+  if(!smsAuthAvailable){status.text="ورود پیامکی هنوز در سرور فعال نشده است";return}
   if(busy)return
   if(bind){draftBindingPhone=phone;draftBindingCode=code}else{draftPhone=phone;draftOtpCode=code}
   if(otpChallengeId.isBlank()){requestOtp(phone,bind);return}

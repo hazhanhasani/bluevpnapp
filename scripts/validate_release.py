@@ -291,7 +291,7 @@ def main() -> None:
     account_manager = read("android-source/BlueVpnAccountManager.kt")
     require("val warpEligible = free.warpEnabled" in entitlement and "val legacyFreeEligible = free.subscriptions.isNotEmpty()" in entitlement, "Free entitlement does not model WARP and legacy Pool independently")
     require("fun freeAccessConfigured" in account_manager, "explicit Free config state tracking missing")
-    require("bluevpn-manager" in workflow, "WordPress release integration missing")
+    require("Publish signed APKs to GitHub Release" in workflow and "ANDROID_KEYSTORE_BASE64" in workflow, "Independent signed Android release integration missing")
     settings_writes = re.findall(r"MmkvManager\.encodeSettings\(", home)
     require(len(settings_writes) == 1 and 'AppConfig.PREF_MODE, "VPN"' in home, "BlueVPN still force-overrides v2rayNG runtime settings")
 

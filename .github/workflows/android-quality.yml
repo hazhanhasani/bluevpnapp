@@ -2,6 +2,14 @@ name: Android Quality Gate
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'android-source/**'
+      - 'android-test/**'
+      - 'android-benchmark/**'
+      - 'bluevpn-standalone/src/Api.php'
+      - '.github/workflows/build-apk.yml'
+      - '.github/workflows/android-quality.yml'
   push:
     branches: [main]
     paths:
@@ -58,7 +66,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TAG="$(git -C upstream/AndroidLibXrayLite describe --tags --abbrev=0)"
+          UPSTREAM_LIB_TAG="$(python - <<'PY'
+          import json
+          with open("branding/app.json", encoding="utf-8") as f:
+              print(json.load(f)["android_lib_xray_ref"])
+          PY
+          )"
+          TAG="$UPSTREAM_LIB_TAG"
           test -n "$TAG"
           mkdir -p upstream/V2rayNG/app/libs
           curl --fail --location --silent --show-error             --connect-timeout 20 --max-time 240 --retry 5 --retry-delay 3 --retry-all-errors             "https://github.com/2dust/AndroidLibXrayLite/releases/download/$TAG/libv2ray.aar"             -o upstream/V2rayNG/app/libs/libv2ray.aar

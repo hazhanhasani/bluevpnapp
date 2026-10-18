@@ -1,0 +1,4 @@
+Build signed Android QA APK from fix/android-native-cpanel-debug-20261018.
+Mode: fast (artifact only; no GitHub Release publication or production deployment).
+Release version: 6.3.5; preserve stable signing certificate and package ID.
+Checkpoints: Android compile, APK signing, APK package/version/ABI integrity.

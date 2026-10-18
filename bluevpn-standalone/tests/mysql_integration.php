@@ -80,5 +80,23 @@ ob_start();$logout->invoke($api);$loggedOut=json_decode((string)ob_get_clean(),t
 check(($loggedOut['success']??false)===true,'logout success');
 try {$current->invoke($api);check(false,'logout must revoke access');}
 catch (BlueVPN\Standalone\ApiFailure $e) {check($e->httpStatus===401,'logged out session rejected');}
-echo "MySQL installation, schema, API and authentication lifecycle checks passed\n";
+// Android releases are blank until an administrator publishes a signed asset.
+ob_start();$api->handle('/api/v1/mobile/config','GET');
+$unpublished=json_decode((string)ob_get_clean(),true);
+check(($unpublished['release_metadata_ready']??true)===false,'unpublished release not advertised');
+check(($unpublished['free_access']['enabled']??true)===false,'old free policy is explicitly disabled');
+check(($unpublished['auth']['phone_otp_enabled']??true)===false,'OTP is hidden until configured');
+$releaseSha=str_repeat('a',64);
+$db->connection()->prepare('INSERT INTO '.$db->table('releases').
+    ' (platform,version,version_code,channel,file_url,sha256,active) VALUES (?,?,?,?,?,?,1)')
+    ->execute(['android','6.3.6',60306,'stable','https://example.test/bluevpn-universal.apk',$releaseSha]);
+ob_start();$api->handle('/api/v1/mobile/config','GET');
+$published=json_decode((string)ob_get_clean(),true);
+check(($published['release_metadata_ready']??false)===true,'verified stable release is published');
+check(($published['auto_update']??false)===true,'published release enables updater');
+check(($published['apk_sha256']??'')===$releaseSha,'expected APK checksum is present');
+check(($published['apk_url']??'')==='https://example.test/bluevpn-universal.apk',
+    'new release URL is sent to Android');
+echo "MySQL installation, schema, API, native release and authentication lifecycle checks passed\n";
+
 

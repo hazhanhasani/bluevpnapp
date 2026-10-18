@@ -1201,15 +1201,12 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("showFirstPartyFreeStory()", flow)
         self.assertNotIn("stopConnectionImmediately()", flow)
 
-    def test_91_wordpress_convergence_accepts_newer_manager_and_schema(self):
+    def test_91_native_release_does_not_wait_for_wordpress_manager(self):
         workflow = text(".github/workflows/build-apk.yml")
-        wait = block(workflow, "- name: Wait for WordPress control-plane auto-update", "- name: Create GitHub Release metadata and checksums")
-        self.assertIn("cv >= ev", wait)
-        self.assertIn("cs >= es and ready", wait)
-        self.assertIn("installed=${LAST_VERSION} (minimum=${VERSION})", wait)
-        self.assertIn('DETAILS_COMPATIBLE="true"', wait)
-        self.assertNotIn('[ "$LAST_VERSION" = "$VERSION" ] && [ "$LAST_SCHEMA" = "$EXPECTED_SCHEMA" ]', wait)
-
+        self.assertNotIn("- name: Wait for WordPress control-plane auto-update", workflow)
+        self.assertNotIn("- name: Wait for independent BlueVPN Manager release", workflow)
+        self.assertIn("- name: Publish signed APKs to GitHub Release", workflow)
+        self.assertIn("- name: Validate signed APK runtime contract", workflow)
 
     def test_92_ad_destinations_are_allow_listed_and_structured(self):
         ads = text("bluevpn-manager/includes/class-bluevpn-ads.php")
@@ -1438,11 +1435,13 @@ class BlueVPNSiteSEOTests(unittest.TestCase):
         self.assertIn("'release_auth_state'=>$releaseAuthState", api)
         self.assertIn("'release_auth_error'=>$releaseAuthError", api)
 
-    def test_116_build_waits_for_cache_first_wordpress_release_ingest(self):
+    def test_116_native_android_release_needs_no_wordpress_ingest(self):
         workflow = text(".github/workflows/build-apk.yml")
-        self.assertIn("sleep 5", workflow)
-        self.assertIn("bluevpn-wordpress-mobile-config-after-sync.json", workflow)
-        self.assertIn("release_refresh_mode", workflow)
+        self.assertNotIn("bluevpn-wordpress-mobile-config-after-sync.json", workflow)
+        self.assertNotIn("- name: Sync Android release metadata to WordPress", workflow)
+        api = text("bluevpn-standalone/src/Api.php")
+        self.assertIn("release_metadata_ready", api)
+        self.assertIn("apk_sha256", api)
 
     def test_117_home_live_metrics_are_subsecond_local_not_network_polled(self):
         theme = text("android-source/BlueVpnTheme.kt")
@@ -1691,21 +1690,19 @@ class TestIrcfIntelligenceSuite(unittest.TestCase):
         self.assertEqual(subscription.count("AngConfigManager.updateConfigViaSub(row)"), 1)
         self.assertNotIn("Thread.sleep(180L)", subscription)
 
-    def test_117_wordpress_convergence_accepts_minimal_public_health(self):
+    def test_117_native_release_verification_is_signing_and_checksums(self):
         workflow = text(".github/workflows/build-apk.yml")
-        wait = block(workflow, "- name: Wait for WordPress control-plane auto-update", "- name: Create GitHub Release metadata and checksums")
-        self.assertIn('LAST_STATUS="unknown"', wait)
-        self.assertIn("d.get('status','unknown')", wait)
-        self.assertIn('[ "$VERSION_COMPATIBLE" = "true" ] && [ "$LAST_STATUS" = "ok" ] && [ "$DETAILS_COMPATIBLE" = "true" ]', wait)
-        self.assertIn('Detailed schema/updater diagnostics are intentionally admin-only', wait)
-        self.assertNotIn('[ "$COMPATIBLE" = "true" ] && [ "$LAST_READY" = "true" ]', wait)
+        self.assertIn("SHA256SUMS.txt", workflow)
+        self.assertIn("release-manifest.json", workflow)
+        self.assertIn("apksigner", workflow)
+        self.assertIn("ANDROID_KEYSTORE_BASE64", workflow)
 
-    def test_118_wordpress_convergence_does_not_hide_degraded_health(self):
-        workflow = text(".github/workflows/build-apk.yml")
-        wait = block(workflow, "- name: Wait for WordPress control-plane auto-update", "- name: Create GitHub Release metadata and checksums")
-        self.assertIn('WORDPRESS_HEALTH_DEGRADED', wait)
-        self.assertIn('[ "$VERSION_COMPATIBLE" != "true" ] && [ "$LAST_UPDATER_AUTH" = "unknown" ]', wait)
-        self.assertIn('Installed manager version is below the release target', wait)
+    def test_118_unpublished_native_release_does_not_force_android_update(self):
+        api = text("bluevpn-standalone/src/Api.php")
+        self.assertIn("release_metadata_ready", api)
+        self.assertIn("auto_update", api)
+        self.assertIn("latest_version", api)
+        self.assertIn("'free_access'=>[", api)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

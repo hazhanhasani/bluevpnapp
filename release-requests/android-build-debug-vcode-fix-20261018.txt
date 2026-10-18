@@ -1,0 +1,3 @@
+Build a signed BlueVPN Android 6.3.5 QA artifact after fixing signed playstore versionCode ABI offset validation.
+Target: isolated debug branch, fast mode only, no production release.
+Do not change the signing key or applicationId.

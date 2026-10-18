@@ -38,6 +38,10 @@ REQUIRED_RECEIVERS = {
 ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 ROOT = Path(__file__).resolve().parents[1]
 
+# v2rayNG 2.3.5 playstore ABI outputs add 4 * 1_000_000 to defaultConfig.versionCode.
+# Preserve this installed-package versionCode scheme so Android upgrades remain valid.
+PLAYSTORE_VERSION_CODE_OFFSET = 4_000_000
+
 
 def load_release_contract() -> dict:
     branding = json.loads((ROOT / "branding/app.json").read_text(encoding="utf-8"))
@@ -103,8 +107,9 @@ def validate_embedded_version(path: Path, contract: dict, apkanalyzer: str) -> d
     errors = []
     if actual_name != contract["version_name"]:
         errors.append(f"versionName {actual_name!r} != {contract['version_name']!r}")
-    if actual_code != contract["version_code"]:
-        errors.append(f"versionCode {actual_code} != {contract['version_code']}")
+    expected_apk_code = contract["version_code"] + PLAYSTORE_VERSION_CODE_OFFSET
+    if actual_code != expected_apk_code:
+        errors.append(f"versionCode {actual_code} != {expected_apk_code} (base {contract['version_code']}, playstore ABI offset {PLAYSTORE_VERSION_CODE_OFFSET})")
     if actual_app_id != contract["application_id"]:
         errors.append(f"applicationId {actual_app_id!r} != {contract['application_id']!r}")
     if errors:

@@ -184,9 +184,16 @@ object BlueVpnUpdateManager {
                         } else {
                             ""
                         }
+                        val hasPublishedApk = finalConfig.optString(
+                            "latest_version", "",
+                        ).isNotBlank() && selectApkAsset(finalConfig).url.startsWith("https://")
                         Toast.makeText(
                             activity,
-                            "نسخه ${BuildConfig.VERSION_NAME} آخرین نسخه$suffix است",
+                            if (hasPublishedApk) {
+                                "نسخه ${BuildConfig.VERSION_NAME} آخرین نسخه$suffix است"
+                            } else {
+                                "اطلاعات نسخه قابل دانلود هنوز در سرور منتشر نشده است"
+                            },
                             Toast.LENGTH_LONG,
                         ).show()
                     }
@@ -310,7 +317,7 @@ object BlueVpnUpdateManager {
         val latestVersion = config.optString("latest_version", "")
         val apkUrl = selectApkAsset(config).url
         val newer = remoteBuildIsNewer(latestVersion, latestCode)
-        return newer && apkUrl.startsWith("http")
+        return newer && apkUrl.startsWith("https://")
     }
 
     /**
@@ -381,11 +388,15 @@ object BlueVpnUpdateManager {
             ),
         ) < 0
 
+        val releaseMetadataReady =
+            latestVersion.isNotBlank() && apkUrl.startsWith("https://")
         val updateAvailable =
             remoteBuildIsNewer(latestVersion, latestCode) &&
-                apkUrl.startsWith("http")
+                releaseMetadataReady
 
-        if (!updateAvailable) {
+        // A fresh cPanel install may have no published release yet. Do not
+        // destroy a verified downloaded APK just because metadata is empty.
+        if (!updateAvailable && releaseMetadataReady) {
             clearObsoleteUpdateState(
                 activity,
                 preferences,
@@ -402,18 +413,21 @@ object BlueVpnUpdateManager {
                         belowMinimum
                     )
 
-        preferences.edit()
+        val updatePreferences = preferences.edit()
             .putBoolean(KEY_MAINTENANCE, maintenance)
             .putBoolean(KEY_FORCE_BLOCK, forced)
             .putBoolean(KEY_AUTO_UPDATE, autoUpdate)
             .putString(KEY_RELEASE_CHANNEL, releaseChannel)
             .putBoolean(KEY_BETA_TESTER, betaTester)
             .putString(KEY_SUPPORT_URL, supportUrl)
-            .putString(KEY_UPDATE_URL, apkUrl)
-            .putString(KEY_UPDATE_VERSION, latestVersion)
-            .putString(KEY_UPDATE_SHA256, apkAsset.sha256)
-            .putLong(KEY_UPDATE_SIZE, apkAsset.sizeBytes)
-            .apply()
+        if (releaseMetadataReady) {
+            updatePreferences
+                .putString(KEY_UPDATE_URL, apkUrl)
+                .putString(KEY_UPDATE_VERSION, latestVersion)
+                .putString(KEY_UPDATE_SHA256, apkAsset.sha256)
+                .putLong(KEY_UPDATE_SIZE, apkAsset.sizeBytes)
+        }
+        updatePreferences.apply()
 
         when {
             maintenance -> {
@@ -2437,7 +2451,7 @@ private fun reconcileInstalledVersion(
 
         fun assetFor(key: String): ApkAsset? {
             val url = assets?.optString(key).orEmpty()
-            if (!url.startsWith("http")) return null
+            if (!url.startsWith("https://")) return null
             val meta = metadata?.optJSONObject(key)
             return ApkAsset(
                 url = url,
@@ -2468,7 +2482,11 @@ private fun reconcileInstalledVersion(
             assetFor(key)?.let { return it }
         }
 
-        return ApkAsset(config.optString("apk_url"))
+        return ApkAsset(
+            url = config.optString("apk_url"),
+            sha256 = config.optString("apk_sha256"),
+            sizeBytes = config.optLong("apk_size", 0L),
+        )
     }
 
     private fun compareVersions(

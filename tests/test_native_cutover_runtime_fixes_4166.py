@@ -9,7 +9,7 @@ class NativeCutoverRuntimeFixes4166(unittest.TestCase):
         r=json.loads(text('release.json'))
         self.assertEqual(r['version'],'6.3.5')
         self.assertEqual(r['version_code'],60305)
-        self.assertEqual(json.loads(text('branding/app.json'))['control_plane'],'wordpress_mysql_native')
+        self.assertEqual(json.loads(text('branding/app.json'))['control_plane'],'standalone_mysql_native')
 
     def test_ads_payload_has_no_foreign_free_pool_locals(self):
         s=text('bluevpn-manager/includes/class-bluevpn-ads.php')

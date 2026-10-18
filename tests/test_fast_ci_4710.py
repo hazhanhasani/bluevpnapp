@@ -57,27 +57,23 @@ class FastCi4710Tests(unittest.TestCase):
         self.assertIn('--build-cache', WORKFLOW)
         self.assertIn('--parallel', WORKFLOW)
 
-    def test_fast_mode_uploads_signed_apk_before_wordpress_barrier(self):
+    def test_fast_mode_uploads_signed_apk_without_wordpress(self):
         upload = WORKFLOW.index('- name: Upload fast signed APK artifact')
-        manager = WORKFLOW.index('- name: Wait for independent BlueVPN Manager release')
-        wordpress = WORKFLOW.index('- name: Wait for WordPress control-plane auto-update')
-        self.assertLess(upload, manager)
-        self.assertLess(upload, wordpress)
-        self.assertIn("if: ${{ env.BLUEVPN_BUILD_MODE == 'fast' }}", WORKFLOW[upload:manager])
-        self.assertIn("if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}", WORKFLOW[manager:wordpress])
+        publish = WORKFLOW.index('- name: Publish signed APKs to GitHub Release')
+        self.assertLess(upload, publish)
+        self.assertIn("BLUEVPN_BUILD_MODE == 'fast'", WORKFLOW[upload:publish])
+        self.assertNotIn("Wait for WordPress control-plane auto-update", WORKFLOW)
+        self.assertNotIn("Wait for independent BlueVPN Manager release", WORKFLOW)
 
     def test_production_only_steps_are_full_mode(self):
         for name in [
-            'Wait for independent BlueVPN Manager release',
-            'Wait for WordPress control-plane auto-update',
             'Create GitHub Release metadata and checksums',
             'Publish signed APKs to GitHub Release',
-            'Sync Android release metadata to WordPress',
+            'Upload signed BlueVPN APK artifact',
         ]:
             start = WORKFLOW.index(f'- name: {name}')
             block = WORKFLOW[start:start + 260]
-            self.assertIn("if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}", block, name)
-
+            self.assertIn("BLUEVPN_BUILD_MODE == 'full'", block, name)
 
 if __name__ == '__main__':
     unittest.main()

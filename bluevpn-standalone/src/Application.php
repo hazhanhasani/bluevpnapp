@@ -127,7 +127,7 @@ final class Application
             $password = (string) ($_POST['password'] ?? '');
             if (!filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) < 14
                 || !hash_equals($key, (string) ($_POST['installation_key'] ?? ''))) {
-                $this->screen('Install BlueVPN', '<p>Invalid setup key, email or password (minimum 14 characters).</p>' . $this->installForm(), false);
+                $this->screen('نصب BlueVPN', '<p>کلید نصب، ایمیل یا گذرواژه معتبر نیست (حداقل ۱۴ نویسه).</p>' . $this->installForm(), false);
                 return;
             }
             $this->database->installAdmin($email, $password);
@@ -138,16 +138,16 @@ final class Application
             $this->respondJson(['detail' => ['code' => 'METHOD_NOT_ALLOWED']], 405);
             return;
         }
-        $this->screen('Install BlueVPN', '<p>Standalone control plane • staging mode</p>' . $this->installForm(), false);
+        $this->screen('نصب BlueVPN', '<p>پنل مستقل روی cPanel • محیط آزمایشی</p>' . $this->installForm(), false);
     }
 
     private function installForm(): string
     {
         return '<form method="post" action="/install">' . Admin::csrfField() .
-            '<label>Installation key<input type="password" name="installation_key" required autocomplete="off"></label>' .
-            '<label>Administrator email<input type="email" name="email" required autocomplete="username"></label>' .
-            '<label>Strong password<input type="password" name="password" minlength="14" required autocomplete="new-password"></label>' .
-            '<button type="submit">Secure installation</button></form>';
+            '<label>کلید نصب<input type="password" name="installation_key" required autocomplete="off"></label>' .
+            '<label>ایمیل مدیر<input type="email" name="email" required autocomplete="username"></label>' .
+            '<label>گذرواژه قوی<input type="password" name="password" minlength="14" required autocomplete="new-password"></label>' .
+            '<button type="submit">نصب ایمن</button></form>';
     }
 
     private function login(string $method): void
@@ -163,16 +163,16 @@ final class Application
                 $this->redirect('/admin');
                 return;
             }
-            $message = '<p class="error">Invalid credentials or temporarily rate limited.</p>';
+            $message = '<p class="error">اطلاعات ورود نادرست است یا ورود موقتاً محدود شده است.</p>';
         } elseif ($method !== 'GET') {
             $this->respondJson(['detail' => ['code' => 'METHOD_NOT_ALLOWED']], 405);
             return;
         }
         $form = '<form method="post" action="/login">' . Admin::csrfField() .
-            '<label>Email<input type="email" name="email" required autocomplete="username"></label>' .
-            '<label>Password<input type="password" name="password" required autocomplete="current-password"></label>' .
-            '<button type="submit">Sign in</button></form>';
-        $this->screen('Admin sign in', $message . $form, false);
+            '<label>ایمیل<input type="email" name="email" required autocomplete="username"></label>' .
+            '<label>گذرواژه<input type="password" name="password" required autocomplete="current-password"></label>' .
+            '<button type="submit">ورود</button></form>';
+        $this->screen('ورود مدیر', $message . $form, false);
     }
 
     private function dashboard(): void
@@ -180,10 +180,10 @@ final class Application
         $inventory = $this->database->snapshot();
         $counts = $inventory['sample_counts'];
         $metrics = [
-            ['Users', $counts['customers'] ?? '—'],
-            ['Plans', $counts['plans'] ?? '—'],
-            ['Orders', $counts['orders'] ?? '—'],
-            ['Legacy tables', $inventory['legacy_coverage']],
+            ['کاربران', $counts['customers'] ?? '—'],
+            ['پلن‌ها', $counts['plans'] ?? '—'],
+            ['سفارش‌ها', $counts['orders'] ?? '—'],
+            ['جداول موجود', $inventory['legacy_coverage']],
         ];
         $cards = '';
         foreach ($metrics as [$label, $value]) {
@@ -191,31 +191,31 @@ final class Application
                 '</span><strong>' . self::e((string) $value) . '</strong></article>';
         }
         $missing = implode(', ', $inventory['missing_tables']);
-        $body = '<header class="topbar"><div><span class="eyebrow">CONTROL PLANE / CPANEL</span><h1>BlueVPN Overview</h1>' .
-            '<p>Live MySQL inventory. This is a migration preview, not a production cutover.</p></div>' .
-            '<form action="/logout" method="post">' . Admin::csrfField() . '<button class="outline" type="submit">Log out</button></form></header>' .
+        $body = '<header class="topbar"><div><span class="eyebrow">CONTROL PLANE / CPANEL</span><h1>نمای کلی BlueVPN</h1>' .
+            '<p>نمای زنده داده‌های MySQL؛ این نسخه صرفاً پیش‌نمایش مهاجرت است.</p></div>' .
+            '<form action="/logout" method="post">' . Admin::csrfField() . '<button class="outline" type="submit">خروج</button></form></header>' .
             '<section class="metrics">' . $cards . '</section>' .
-            '<section class="panels"><article class="panel"><h2>Migration readiness</h2><div class="notice">' .
-            '<strong>Not ready for production</strong><p>WordPress is not loaded by this dashboard, but customer login, payments, OTP, provider sync and mobile API parity are pending.</p></div>' .
-            '<p><b>Imported legacy schema:</b> ' . self::e($inventory['legacy_coverage']) . '</p>' .
-            '<p><b>Missing audited tables:</b> ' . self::e($missing === '' ? 'None in current sample' : $missing) . '</p></article>' .
-            '<article class="panel"><h2>Operations</h2><p>PHP + PDO, session-protected admin, fixed-origin forms and JSON health checks.</p>' .
-            '<p>Use GitHub Actions and a staging subdomain before routing actual app traffic.</p>' .
-            '<a href="/api/v1/migration/status">View migration inventory (JSON)</a></article></section>';
-        $this->screen('BlueVPN Control Center', $body, true);
+            '<section class="panels"><article class="panel"><h2>وضعیت مهاجرت</h2><div class="notice">' .
+            '<strong>هنوز آماده استفاده اصلی نیست</strong><p>این داشبورد بدون وردپرس اجرا می‌شود؛ اما ورود مشتری، پرداخت، پیامک و سازگاری API هنوز باید تکمیل شوند.</p></div>' .
+            '<p><b>جداول منتقل‌شده:</b> ' . self::e($inventory['legacy_coverage']) . '</p>' .
+            '<p><b>جداول یافت‌نشده:</b> ' . self::e($missing === '' ? 'موردی در فهرست اولیه نیست' : $missing) . '</p></article>' .
+            '<article class="panel"><h2>عملیات و زیرساخت</h2><p>PHP و PDO، نشست امن مدیریت، حفاظت CSRF و بررسی سلامت سرویس.</p>' .
+            '<p>قبل از اتصال اپلیکیشن‌های اصلی، تست‌های GitHub Actions و زیردامنه آزمایشی را بررسی کنید.</p>' .
+            '<a href="/api/v1/migration/status">مشاهده گزارش مهاجرت (JSON)</a></article></section>';
+        $this->screen('مرکز مدیریت BlueVPN', $body, true);
     }
 
     private function screen(string $title, string $content, bool $dashboard): void
     {
         header('Content-Type: text/html; charset=UTF-8');
         $main = $dashboard ? '<div class="layout"><aside class="sidebar"><div class="logo"><b>◈</b> BlueVPN</div>' .
-            '<div class="section-label">CONTROL CENTER</div><nav><a class="active" href="/admin">Overview</a>' .
-            '<span>Users · coming next</span><span>Subscriptions · coming next</span>' .
-            '<span>Servers · coming next</span><span>Payments · coming next</span>' .
-            '<span>Support · coming next</span></nav><div class="env">STAGING / cPanel</div></aside><main class="content">' .
+            '<div class="section-label">CONTROL CENTER</div><nav><a class="active" href="/admin">داشبورد</a>' .
+            '<span>کاربران · در دست توسعه</span><span>اشتراک‌ها · در دست توسعه</span>' .
+            '<span>سرورها · در دست توسعه</span><span>پرداخت‌ها · در دست توسعه</span>' .
+            '<span>پشتیبانی · در دست توسعه</span></nav><div class="env">STAGING / cPanel</div></aside><main class="content">' .
             $content . '</main></div>' : '<main class="auth"><div class="authbox"><div class="logo"><b>◈</b> BlueVPN</div>' .
             '<h1>' . self::e($title) . '</h1>' . $content . '</div></main>';
-        echo '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' .
+        echo '<!doctype html><html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' .
             '<meta name="robots" content="noindex,nofollow"><title>' . self::e($title) .
             '</title><link rel="stylesheet" href="/assets/app.css"></head><body>' . $main . '</body></html>';
     }

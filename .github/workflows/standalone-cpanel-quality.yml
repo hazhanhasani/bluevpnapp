@@ -1,0 +1,31 @@
+name: Standalone cPanel PHP Quality
+on:
+  push:
+    branches: [main, feature/standalone-cpanel-control-plane]
+    paths:
+      - 'bluevpn-standalone/**'
+      - '.github/workflows/standalone-cpanel-quality.yml'
+  pull_request:
+    paths:
+      - 'bluevpn-standalone/**'
+      - '.github/workflows/standalone-cpanel-quality.yml'
+permissions:
+  contents: read
+jobs:
+  php-lint-and-contract:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php-version: ['8.2', '8.3', '8.4']
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - name: Setup PHP
+        uses: shivammathur/setup-php@cf42637b74d219bdea2cc63b0dd57abc6df1ad3
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: pdo_mysql, mbstring, openssl
+          coverage: none
+      - name: Syntax check
+        run: find bluevpn-standalone -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Contract assertions
+        run: php bluevpn-standalone/tests/static_contracts.php

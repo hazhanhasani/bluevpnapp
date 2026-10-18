@@ -1,4 +1,6 @@
-# BlueVPN WordPress Removal — Repository Audit
+# BlueVPN Legacy Contract Audit — Archived Reference
+
+**Update:** WordPress has already been removed from the host and there are no existing customers. The implementation is now a **greenfield cPanel installation**. No database import, password migration or live customer cutover is needed. This document preserves the historical client/API contracts for future parity work.
 
 Audit target: `hazhanhasani/bluevpnapp`, default branch `main`, application release `6.3.5`.
 

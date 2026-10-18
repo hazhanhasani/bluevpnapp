@@ -26,8 +26,8 @@
   "windows_aether_ref": "v1.1.1",
   "windows_installer": "inno-setup",
   "windows_auto_update": true,
-  "windows_release_channels": "wordpress_managed_stable_beta",
-  "control_plane": "wordpress_mysql_native",
+  "windows_release_channels": "standalone_managed_stable_beta",
+  "control_plane": "standalone_mysql_native",
   "api_base_urls": [
     "https://bot.blluepanel.ir"
   ]

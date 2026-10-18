@@ -46,4 +46,39 @@ ob_start();$api->handle('/api/v1/windows/update','GET');
 $update=json_decode((string)ob_get_clean(),true);
 check(($update['update_available']??null)===false,'no fake available update');
 check($db->count('customers')===0,'clean installation contains no customers');
-echo "MySQL installation, schema, settings and API smoke checks passed\n";
+// Authentication regression: new users, session rotation, account, logout.
+$reflect=new ReflectionClass(Api::class);
+$register=$reflect->getMethod('register');
+$login=$reflect->getMethod('login');
+$refresh=$reflect->getMethod('refresh');
+$logout=$reflect->getMethod('logout');
+$current=$reflect->getMethod('currentCustomer');
+$credentials=['email'=>'alice@example.test','password'=>'strong-test-password',
+    'device_id'=>'test-device-01','device_name'=>'PHP CI'];
+ob_start();$register->invoke($api,$credentials);
+$created=json_decode((string)ob_get_clean(),true);
+check(($created['success']??false)===true,'registration success');
+check(strlen($created['token']??'')===64,'token is random hex');
+check($db->count('customers')===1,'customer persisted');
+check(($created['account']['subscription']['active']??null)===false,'new customer has no active subscription');
+$_SERVER['HTTP_AUTHORIZATION']='Bearer '.$created['token'];
+check((int)$current->invoke($api)['id']>0,'bearer token authenticates');
+ob_start();$login->invoke($api,$credentials);
+$loggedIn=json_decode((string)ob_get_clean(),true);
+check(($loggedIn['success']??false)===true,'login success');
+check($loggedIn['token']!==$created['token'],'new login rotates access token');
+$_SERVER['HTTP_AUTHORIZATION']='Bearer '.$created['token'];
+try {$current->invoke($api);check(false,'old token must be revoked');}
+catch (BlueVPN\Standalone\ApiFailure $e) {check($e->httpStatus===401,'old session rejected');}
+ob_start();$refresh->invoke($api,['device_id'=>'test-device-01','identity'=>'alice@example.test',
+    'refresh_token'=>$loggedIn['refresh_token']]);
+$renewed=json_decode((string)ob_get_clean(),true);
+check(($renewed['success']??false)===true,'refresh success');
+$_SERVER['HTTP_AUTHORIZATION']='Bearer '.$renewed['token'];
+check((int)$current->invoke($api)['id']>0,'refreshed bearer token works');
+ob_start();$logout->invoke($api);$loggedOut=json_decode((string)ob_get_clean(),true);
+check(($loggedOut['success']??false)===true,'logout success');
+try {$current->invoke($api);check(false,'logout must revoke access');}
+catch (BlueVPN\Standalone\ApiFailure $e) {check($e->httpStatus===401,'logged out session rejected');}
+echo "MySQL installation, schema, API and authentication lifecycle checks passed\n";
+

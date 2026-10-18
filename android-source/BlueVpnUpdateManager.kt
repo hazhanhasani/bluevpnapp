@@ -2482,7 +2482,11 @@ private fun reconcileInstalledVersion(
             assetFor(key)?.let { return it }
         }
 
-        return ApkAsset(config.optString("apk_url"))
+        return ApkAsset(
+            url = config.optString("apk_url"),
+            sha256 = config.optString("apk_sha256"),
+            sizeBytes = config.optLong("apk_size", 0L),
+        )
     }
 
     private fun compareVersions(

@@ -303,25 +303,53 @@ final class Api
     private function mobileConfig(): void
     {
         $base=rtrim((string)($this->config['app']['base_url']??''),'/');
-        $q=$this->pdo->query("SELECT version,version_code,file_url,channel FROM ".
-            $this->db->table('releases')." WHERE platform='android' AND active=1 ORDER BY id DESC LIMIT 1");
+        // Only a published stable release with a verified SHA-256 may be offered
+        // to Android; incomplete cPanel release records never trigger updates.
+        $q=$this->pdo->query("SELECT version,version_code,file_url,sha256,channel FROM ".
+            $this->db->table('releases').
+            " WHERE platform='android' AND channel='stable' AND active=1 ORDER BY id DESC LIMIT 1");
         $release=$q->fetch()?:[];
+        $url=trim((string)($release['file_url']??''));
+        $hash=strtolower(trim((string)($release['sha256']??'')));
+        $version=(string)($release['version']??'');
+        $ready=$version!=='' && preg_match('/^\d+\.\d+\.\d+$/D',$version)
+            && (int)($release['version_code']??0)>0
+            && str_starts_with($url,'https://')
+            && filter_var($url,FILTER_VALIDATE_URL)!==false
+            && preg_match('/^[a-f0-9]{64}$/D',$hash);
         self::json([
             'app_name'=>'BlueVPN','maintenance'=>false,'support_url'=>$base.'/support',
-            'account_required'=>true,'latest_version'=>(string)($release['version']??''),
-            'latest_version_code'=>(int)($release['version_code']??0),'minimum_version'=>'0.0.0',
-            'force_update'=>false,'auto_update'=>false,'auto_update_stable'=>false,
-            'auto_update_beta'=>false,'apk_url'=>(string)($release['file_url']??''),
-            'apk_assets'=>[],'apk_asset_meta'=>[],'update_title'=>'','update_message'=>'',
-            'release_channel'=>(string)($release['channel']??'stable'),
+            'account_required'=>true,'latest_version'=>$ready?$version:'',
+            'latest_version_code'=>$ready?(int)$release['version_code']:0,
+            'minimum_version'=>'0.0.0','force_update'=>false,
+            'auto_update'=>(bool)$ready,'auto_update_stable'=>(bool)$ready,
+            'auto_update_beta'=>false,'apk_url'=>$ready?$url:'',
+            'apk_sha256'=>$ready?$hash:'','apk_size'=>0,
+            'apk_assets'=>[],'apk_asset_meta'=>[],
+            'update_title'=>'','update_message'=>'','release_channel'=>'stable',
             'release_auth_state'=>'guest','update_source'=>'standalone_mysql',
-            'auth'=>['mode'=>'email_password','email_login'=>true,'password_login'=>true,
+            'release_metadata_ready'=>(bool)$ready,
+            'auth'=>[
+                'mode'=>'email_password',
+                'email_login'=>true,'password_login'=>true,
                 'email_registration'=>!empty($this->config['app']['registration_enabled']),
-                'phone_otp_enabled'=>false,
-                'login_url'=>$base.'/api/v1/auth/login','register_url'=>$base.'/api/v1/auth/register'],
-            'advertising'=>['enabled'=>false,'items'=>[]],'ads'=>['enabled'=>false,'items'=>[]],
-            'tapsell'=>['enabled'=>false], 'free_story_ads'=>['enabled'=>false],
-            'blueai'=>['enabled'=>false], 'announcement'=>['enabled'=>false],
+                'phone_otp_enabled'=>false,'sms_enabled'=>false,
+                'login_url'=>$base.'/api/v1/auth/login',
+                'register_url'=>$base.'/api/v1/auth/register',
+            ],
+            // Explicitly turn off stale WordPress-provisioned Free routes.
+            // Omitting this field would leave old persisted Android policies live.
+            'free_access'=>[
+                'enabled'=>false,'guest_allowed'=>false,'subscriptions'=>[],
+                'subscription_url'=>'','session_minutes'=>60,
+                'warp'=>['enabled'=>false,'mode'=>'pool_only','fallback_pool_enabled'=>false],
+            ],
+            'advertising'=>['enabled'=>false,'items'=>[]],
+            'ads'=>['enabled'=>false,'items'=>[]],
+            'tapsell'=>['enabled'=>false],
+            'free_story_ads'=>['enabled'=>false],
+            'blueai'=>['enabled'=>false],
+            'announcement'=>['enabled'=>false],
         ]);
     }
 

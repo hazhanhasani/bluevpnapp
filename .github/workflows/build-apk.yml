@@ -502,17 +502,16 @@ jobs:
             exit 1
           fi
 
-      - name: Verify published Android release independently of WordPress
+      - name: Verify GitHub Android release assets
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.config.outputs.version }}
+        shell: bash
         run: |
           set -euo pipefail
-          tag="v${VERSION}"
-          mapfile -t published < <(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
-          printf '%s\n' "${published[@]}" | grep -Eq '\.apk
+          gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' > "$RUNNER_TEMP/bluevpn-assets.txt"
+          grep -Eq '[.]apk
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
@@ -589,10 +588,9 @@ jobs:
             .bluevpn-regression-substage
           if-no-files-found: ignore
           retention-days: 14
-
-          printf '%s\n' "${published[@]}" | grep -Fx 'SHA256SUMS.txt'
-          printf '%s\n' "${published[@]}" | grep -Fx 'release-manifest.json'
-          echo "GitHub release ${tag} verified without WordPress."
+ "$RUNNER_TEMP/bluevpn-assets.txt"
+          grep -Fxq 'SHA256SUMS.txt' "$RUNNER_TEMP/bluevpn-assets.txt"
+          grep -Fxq 'release-manifest.json' "$RUNNER_TEMP/bluevpn-assets.txt"
 
       - name: Upload signed BlueVPN APK artifact
         if: ${{ env.BLUEVPN_BUILD_MODE == 'full' }}
